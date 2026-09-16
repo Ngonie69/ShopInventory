@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -167,6 +167,7 @@ public sealed class RefreshWarehouseStockHandler(
         var added = await StockLedgerDivergenceJob.AddArrivalsAsync(
             db,
             snapshotId.Value,
+            ledgerDay,
             warehouseCode,
             ledgerByItem.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase),
             batches,

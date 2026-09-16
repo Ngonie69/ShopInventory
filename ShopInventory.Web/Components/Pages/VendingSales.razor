@@ -204,7 +204,7 @@
            read of the API, and half-typed invoice numbers are not worth one each. *@
         <label class="shop-search-box">
             <i class="bi bi-search"></i>
-            <input type="search" placeholder="Invoice number or vendor…" aria-label="Search invoices"
+            <input type="search" placeholder="Sale no., invoice or vendor…" aria-label="Search invoices"
                    value="@search" @onchange="OnSearchAsync" />
         </label>
 
@@ -341,6 +341,7 @@
 </div>
 
 <DesktopCreditNoteDialog Reference="@creditSale?.ExternalReferenceId"
+                         SaleNumber="@creditSale?.Number"
                          Currency="@creditSale?.Currency"
                          IsConsolidated="@(creditSale?.ConsolidationId is not null)"
                          OnClosed="CloseCredit" />
@@ -669,9 +670,14 @@
     private string DepotName(string? code) =>
         string.IsNullOrEmpty(code) ? "—" : partnerNames.TryGetValue(code, out var name) ? name : code;
 
-    /// <summary>The SAP invoice number once it has one, else the till's own reference.</summary>
+    /// <summary>The SAP invoice number once it has one, else the sale's own short number.</summary>
+    /// <remarks>
+    /// The fallback used to be the device reference in full, which is unreadable in a column and was
+    /// the reason a vendor return could not be matched to the sale it came from. The reference is still
+    /// on the row, as the cell's title.
+    /// </remarks>
     private static string InvoiceNumber(DesktopSaleDto sale) =>
-        sale.SapDocNum is { } docNum ? docNum.ToString(CultureInfo.InvariantCulture) : sale.ExternalReferenceId;
+        sale.SapDocNum is { } docNum ? docNum.ToString(CultureInfo.InvariantCulture) : sale.Number;
 
     private static string PostingTitle(DesktopSaleDto sale) =>
         !string.IsNullOrWhiteSpace(sale.LastPostingError)

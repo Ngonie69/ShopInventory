@@ -1,4 +1,4 @@
-namespace ShopInventory.Configuration;
+﻿namespace ShopInventory.Configuration;
 
 /// <summary>
 /// How to reach TransferEventListener, the service that watches SAP for stock transfers and posts
@@ -55,8 +55,10 @@ public class TransferEventListenerSettings
 
     /// <summary>
     /// How stale the listener's last successful SAP poll may be, in minutes, before the health check
-    /// reports it. The listener polls every five minutes by default, so this allows several missed
-    /// cycles before anyone is told.
+    /// reports it. The listener polls every two minutes by default, so this allows several missed
+    /// cycles before anyone is told. Measured in wall-clock minutes rather than cycles on purpose:
+    /// what matters to a till is how old the transfer it cannot see is, not how many reads were
+    /// skipped getting there.
     /// </summary>
     public int PollStalenessWarningMinutes { get; set; } = 20;
 

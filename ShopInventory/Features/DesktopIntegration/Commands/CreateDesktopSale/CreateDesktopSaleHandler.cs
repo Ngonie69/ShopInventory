@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
@@ -562,7 +562,14 @@ public sealed class CreateDesktopSaleHandler(
             .Select(line => new StockLedgerLine(line.ItemCode, line.WarehouseCode, line.Quantity))
             .ToList();
 
-        var ledgerOutcome = await stockLedger.TryCommitAsync(claim, externalRef, ct);
+        // The external reference is the sale's identity — the desktop generates it, it is unique,
+        // and it is what a retry of this command arrives carrying. Keying the commit on it is what
+        // makes the retry take the units once rather than once per attempt.
+        var ledgerOutcome = await stockLedger.TryCommitAsync(
+            claim,
+            externalRef,
+            string.IsNullOrWhiteSpace(externalRef) ? null : $"desktop-sale:{externalRef}",
+            ct);
 
         // A till sells only from warehouses the morning job covers, so no snapshot means the figures
         // it would sell against do not exist. Refusing is the old behaviour and the right one — an
@@ -707,6 +714,7 @@ public sealed class CreateDesktopSaleHandler(
         var result = new DesktopSaleResponseDto
         {
             SaleId = sale.Id,
+            SaleNumber = DesktopSaleNumber.Format(sale.Id),
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
             WarehouseCode = sale.WarehouseCode,
@@ -742,6 +750,7 @@ public sealed class CreateDesktopSaleHandler(
         return new DesktopSaleResponseDto
         {
             SaleId = sale.Id,
+            SaleNumber = DesktopSaleNumber.Format(sale.Id),
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
             WarehouseCode = sale.WarehouseCode,

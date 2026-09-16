@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
@@ -251,10 +251,8 @@ public sealed class VanSalesStockPositionReadTests : IDisposable
                 ItemDescription = itemCode,
                 WarehouseCode = warehouse,
                 // Both, the way the handset's post writes them.
-                OriginalQuantity = quantity,
-                AvailableQuantity = quantity,
                 Version = 1
-            });
+            }.Opened(quantity));
         }
 
         await _context.SaveChangesAsync();

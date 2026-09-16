@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -217,10 +217,8 @@ public sealed class DailyStockAdjustmentTests : IDisposable
             SnapshotId = snapshot.Id,
             ItemCode = itemCode,
             WarehouseCode = warehouse,
-            OriginalQuantity = available,
-            AvailableQuantity = available,
             ExpiryDate = expiryDate
-        });
+        }.Opened(available));
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
     }

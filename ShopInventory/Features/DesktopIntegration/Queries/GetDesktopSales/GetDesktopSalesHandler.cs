@@ -187,20 +187,37 @@ public sealed class GetDesktopSalesHandler(
                 _ => q
             };
 
-            // Upper on both sides rather than ILike, so the same filter runs on SQLite under test. A number
-            // also matches the SAP document it posted as, which is what someone holding a printed invoice has.
+            // Upper on both sides rather than ILike, so the same filter runs on SQLite under test.
+            //
+            // A number is tried three ways, because a person searching is holding a piece of paper and
+            // the number on it could be any of them: the sale number the receipt prints, the SAP document
+            // the sale posted as, or a fragment of the device reference. "INV10427" is only ever the
+            // first, so a search that names the prefix does not also drag in a SAP invoice that happens
+            // to share the digits — which, on a table where SAP numbers run past 770000, it eventually
+            // would.
+            //
+            // The customer is swept for as text alongside the references. The console's search box offers
+            // it, and a name is the thing an operator has when they have no paper at all.
             if (!string.IsNullOrWhiteSpace(request.Search))
             {
                 var term = request.Search.Trim().ToUpperInvariant();
-                int? docNum = int.TryParse(term, out var parsed) ? parsed : null;
+                int? saleId = DesktopSaleNumber.TryParse(term, out var parsedId) ? parsedId : null;
+
+                // "INV10427" can only be a sale number, so it is not also tried as a SAP document or
+                // swept for as text. A bare "10427" is tried as both numbers, because a person holding a
+                // printed document could have either in front of them.
+                var exact = DesktopSaleNumber.NamesSaleNumber(term);
+                int? docNum = !exact && int.TryParse(term, out var parsed) ? parsed : null;
                 q = q.Where(s =>
-                    s.ExternalReferenceId.ToUpper().Contains(term) ||
-                    (s.FiscalReceiptNumber != null && s.FiscalReceiptNumber.ToUpper().Contains(term)) ||
-                    (s.CardCode.ToUpper().Contains(term)) ||
-                    (s.CardName != null && s.CardName.ToUpper().Contains(term)) ||
-                    (s.RouteCustomerCode != null && s.RouteCustomerCode.ToUpper().Contains(term)) ||
-                    (s.RouteCustomerName != null && s.RouteCustomerName.ToUpper().Contains(term)) ||
-                    (docNum != null && s.SapDocNum == docNum));
+                    (saleId != null && s.Id == saleId) ||
+                    (docNum != null && s.SapDocNum == docNum) ||
+                    (!exact && (
+                        s.ExternalReferenceId.ToUpper().Contains(term) ||
+                        (s.FiscalReceiptNumber != null && s.FiscalReceiptNumber.ToUpper().Contains(term)) ||
+                        s.CardCode.ToUpper().Contains(term) ||
+                        (s.CardName != null && s.CardName.ToUpper().Contains(term)) ||
+                        (s.RouteCustomerCode != null && s.RouteCustomerCode.ToUpper().Contains(term)) ||
+                        (s.RouteCustomerName != null && s.RouteCustomerName.ToUpper().Contains(term)))));
             }
 
             return q;
@@ -235,6 +252,9 @@ public sealed class GetDesktopSalesHandler(
                 s.FiscalizationRequiresReconciliation,
                 Sale = new DesktopSaleListItemDto(
                 s.Id,
+                // Filled below, with the rest of what a method has to compute. The formatter cannot be
+                // translated to SQL, and the format must not be a second copy written out in a query.
+                string.Empty,
                 s.ExternalReferenceId,
                 s.SourceSystem,
                 s.CardCode,
@@ -299,6 +319,7 @@ public sealed class GetDesktopSalesHandler(
         var sales = rows
             .Select(row => row.Sale with
             {
+                SaleNumber = DesktopSaleNumber.Format(row.Sale.Id),
                 CreatedByName = SaleOperatorNames.Label(row.Sale.CreatedBy, operators),
                 PostRefusal = DesktopSalePostEligibility.Refusal(
                     row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus),

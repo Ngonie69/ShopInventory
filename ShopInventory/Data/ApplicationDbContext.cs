@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -223,6 +223,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<DesktopSaleLineEntity> DesktopSaleLines { get; set; }
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
+
+  /// <summary>
+  /// Every movement of the stock ledger, append-only. The running figure on a snapshot row says
+  /// what is left; this says what moved it, and its unique index is what stops a replayed document
+  /// taking the same units twice.
+  /// </summary>
+  public DbSet<StockMovementEntity> StockMovements { get; set; }
 
   /// <summary>Where the stock ledger and SAP disagreed, and by how much.</summary>
   public DbSet<StockLedgerDivergenceEntity> StockLedgerDivergences { get; set; }
@@ -2097,6 +2104,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     modelBuilder.Entity<StockTransferAdjustmentEntity>(entity =>
     {
       entity.ToTable("StockTransferAdjustments");
+      entity.HasKey(e => e.Id);
+    });
+
+    // Stock Movements - the ledger's journal
+    modelBuilder.Entity<StockMovementEntity>(entity =>
+    {
+      entity.ToTable("StockMovements");
       entity.HasKey(e => e.Id);
     });
 

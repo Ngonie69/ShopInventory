@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
@@ -118,23 +118,35 @@ public sealed class ProcessTransferEventHandler(
         // Update the snapshot item(s) for this item in this warehouse
         // For IN transfers, we add to the first matching batch row (or create one if none exists)
         // For OUT transfers, we deduct proportionally from available batch rows
-        var snapshotItems = await context.DailyStockSnapshotItems
+        // Every row, not only the ones with something on them. The FEFO walk below still considers
+        // only rows that can give, exactly as before — but the movement this writes has to report
+        // the position across the whole item, and a row resting at zero is part of that total. A
+        // balance that silently omits empty rows is what makes a later comparison against SAP look
+        // like a divergence when nothing has diverged.
+        var allRows = await context.DailyStockSnapshotItems
             .Where(i => i.Snapshot.SnapshotDate == snapshotDate &&
                         i.ItemCode == itemCode &&
-                        i.WarehouseCode == warehouseCode &&
-                        i.AvailableQuantity > 0)
+                        i.WarehouseCode == warehouseCode)
             .OrderBy(i => i.ExpiryDate) // FEFO order
             .ToListAsync(cancellationToken);
 
+        var snapshotItems = allRows.Where(i => i.AvailableQuantity > 0).ToList();
+
         decimal newAvailable;
+
+        // What the ledger actually moved, which is not always what the transfer said: an outbound
+        // can run the rows out. Journalling the ask rather than the movement would break the
+        // invariant for exactly the items that are already in trouble.
+        decimal moved;
 
         if (direction == "IN")
         {
             // For inbound, add to first matching row or create a new row
             if (snapshotItems.Count > 0)
             {
-                snapshotItems[0].AvailableQuantity += adjustmentQty;
+                snapshotItems[0].Move(adjustmentQty);
                 newAvailable = snapshotItems[0].AvailableQuantity;
+                moved = adjustmentQty;
             }
             else
             {
@@ -150,34 +162,74 @@ public sealed class ProcessTransferEventHandler(
                     return null;
                 }
 
-                context.DailyStockSnapshotItems.Add(new DailyStockSnapshotItemEntity
+                var created = new DailyStockSnapshotItemEntity
                 {
                     SnapshotId = snapshot.Id,
                     ItemCode = itemCode,
                     WarehouseCode = warehouseCode,
                     OriginalQuantity = 0,
-                    AvailableQuantity = adjustmentQty,
                     ExpiryDate = null
-                });
+                };
+
+                // Opens at nothing and is moved to its quantity, so the arrival is a journalled
+                // movement rather than a row that simply appears holding stock.
+                created.Move(adjustmentQty);
+
+                context.DailyStockSnapshotItems.Add(created);
+
+                // Counts towards the total the movement reports, even though it did not exist when
+                // the rows were read. Opening quantity zero plus this movement is its balance, which
+                // is the invariant holding for a row born mid-day.
+                allRows.Add(created);
                 newAvailable = adjustmentQty;
+                moved = adjustmentQty;
             }
         }
         else
         {
             // For outbound, deduct from available batches (FEFO order)
-            var remaining = Math.Abs(adjustmentQty);
+            var wanted = Math.Abs(adjustmentQty);
+            var remaining = wanted;
             newAvailable = 0;
             foreach (var item in snapshotItems)
             {
                 if (remaining <= 0) break;
 
                 var deduct = Math.Min(item.AvailableQuantity, remaining);
-                item.AvailableQuantity -= deduct;
+                item.Move(-deduct);
                 remaining -= deduct;
             }
 
             newAvailable = snapshotItems.Sum(i => i.AvailableQuantity);
+
+            // Short when the rows ran out before the transfer did. The stock left the warehouse in
+            // SAP either way, so this is not refusable — it is the transfer equivalent of a settled
+            // document taking more than the ledger held, and worth saying out loud.
+            moved = -(wanted - remaining);
+
+            if (remaining > 0)
+            {
+                logger.LogWarning(
+                    "Transfer OUT of {Quantity} of {ItemCode} from {Warehouse} found only {Moved} on the "
+                    + "snapshot (DocEntry={DocEntry}). The ledger and the shelf had already drifted apart.",
+                    wanted, itemCode, warehouseCode, wanted - remaining, docEntry);
+            }
         }
+
+        // The same journal the sales ledger writes to, so the day's movements are one list rather
+        // than two that have to be reconciled to be read. The key matches the grain the duplicate
+        // check above already works at — a document entry moves one item, in one warehouse, one way
+        // — so the index says the same thing a second time, in the table where the invariant lives.
+        StockMovementJournal.Append(
+            context,
+            snapshotDate,
+            StockMovementKinds.Transfer,
+            docEntry.HasValue ? $"transfer:{docEntry.Value}:{direction}" : null,
+            itemCode,
+            warehouseCode,
+            moved,
+            allRows.Sum(row => row.AvailableQuantity),
+            $"transfer {docNum?.ToString() ?? "?"} {direction} {sourceWarehouse} to {destinationWarehouse}");
 
         logger.LogInformation(
             "Stock adjustment: {Direction} {Qty} of {ItemCode} in {Warehouse} (DocEntry={DocEntry})",

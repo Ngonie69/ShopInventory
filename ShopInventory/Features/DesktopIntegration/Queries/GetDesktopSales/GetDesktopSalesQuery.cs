@@ -19,8 +19,10 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 /// supplying one.
 ///
 /// <c>Search</c> narrows to sales whose till reference, fiscal receipt number or route customer's code or
-/// name contains the text, ignoring case, or whose SAP document number is that number. It finds; it does
-/// not widen — every other filter and the caller's scope still apply.
+/// name contains the text, ignoring case, or whose sale number or SAP document number is that number —
+/// a bare number is tried as both, because the two are what a person holding a printed document has. It
+/// also matches the customer's own code and name, which is what an operator has when they have no paper
+/// at all. It finds; it does not widen — every other filter and the caller's scope still apply.
 ///
 /// <para>
 /// <b>The four plural filters and their singular twins.</b> <c>Warehouses</c>, <c>ConsolidationStatuses</c>
@@ -158,6 +160,11 @@ public sealed record DesktopSalesListResult(
 
 public sealed record DesktopSaleListItemDto(
     int Id,
+
+    // The short number a person names this sale by, formatted once here so the console, the receipt the
+    // till printed and the search box all spell it the same way. See Common.Sales.DesktopSaleNumber.
+    string SaleNumber,
+
     string ExternalReferenceId,
     string? SourceSystem,
     string CardCode,

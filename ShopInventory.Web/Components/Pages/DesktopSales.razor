@@ -2,6 +2,7 @@
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Features.DesktopCreditNotes
+@using ShopInventory.Web.Features.DesktopSalesDay
 @using ShopInventory.Web.Services
 @* Manager is here because the credit-note API already allows it and this was the only page
    a credit could be raised from. *@
@@ -244,11 +245,22 @@
                     <span>not yet in the back office · @report.UnpostedInvoiceCount awaiting close</span>
                 </div>
 
-                @if (topPartners.Count > 0)
-                {
-                    <div class="ops-ds-split"></div>
-                    <div class="ops-ds-breakdown">
-                        <div class="ops-ds-card-label">Largest customers</div>
+                @* The breakdown answers "made up of what?", so it lists the
+                   customers whose sales are still on the device — not the day's
+                   largest, which would contradict the figure above it. *@
+                <div class="ops-ds-split"></div>
+                <div class="ops-ds-breakdown">
+                    @if (topPartners.Count == 0)
+                    {
+                        <div class="ops-ds-empty">
+                            @(report.TotalSalesCount == 0
+                                ? "No sales captured for the day."
+                                : $"All {report.TotalSalesCount} of the day's sales are in the back office.")
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ops-ds-card-label">Largest on the device</div>
                         @foreach (var partner in topPartners)
                         {
                             <div class="ops-ds-break-row">
@@ -262,8 +274,8 @@
                                 <span class="ops-ds-break-val">@Money(partner.TotalAmount)</span>
                             </div>
                         }
-                    </div>
-                }
+                    }
+                </div>
             </div>
         </div>
     }
@@ -289,14 +301,24 @@
                character would put fifty of them behind one typed reference. *@
             <div class="ops-search ops-ds-search">
                 <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                <input type="search" class="ops-input" placeholder="Fiscal number, SAP invoice or customer"
-                       aria-label="Search fiscal number, SAP invoice or customer"
+                <input type="search" class="ops-input" placeholder="Sale no., receipt, SAP no. or customer"
+                       aria-label="Search by sale number, receipt, SAP number or customer"
                        @bind="filterSearch" @bind:after="ApplyFilters" />
             </div>
 
+            @* Said rather than left to be inferred. A search reaches every date — see IsSearching —
+               so the period beside it is not being applied, and a period control that looked live
+               while deciding nothing is the one lie this row could tell. *@
+            @if (IsSearching)
+            {
+                <span class="ops-ds-alldates">
+                    <i class="ph ph-calendar-blank" aria-hidden="true"></i>every date
+                </span>
+            }
+
             @* Not a <label>: the segment is four buttons, and a label would
                hand every click to the first of them. *@
-            <div class="ops-ds-seg" role="group" aria-label="Period">
+            <div class="ops-ds-seg @(IsSearching ? "is-off" : "")" role="group" aria-label="Period">
                 @foreach (var option in PeriodOptions)
                 {
                     <button type="button" class="ops-ds-seg-opt @(period == option.Value ? "is-on" : "")"
@@ -518,7 +540,7 @@
                                            checked="@allPostableSelected" @onchange="ToggleSelectAll" />
                                 }
                             </th>
-                            <th>Fiscal number</th>
+                            <th>Sale</th>
                             <th>Customer</th>
                             <th>Warehouse</th>
                             <th>Fiscalized</th>
@@ -545,7 +567,7 @@
                                     @onclick:stopPropagation="true">
                                     @if (sale.CanPostToSap)
                                     {
-                                        <input type="checkbox" aria-label="@($"Select sale {sale.ExternalReferenceId} for posting")"
+                                        <input type="checkbox" aria-label="@($"Select sale {sale.Number} for posting")"
                                                checked="@selected.Contains(sale.ExternalReferenceId)"
                                                @onchange="e => ToggleSelected(sale, e)" />
                                     }
@@ -558,8 +580,15 @@
                                         </span>
                                     }
                                 </td>
-                                <td data-label="Fiscal number">
-                                    <span class="ops-code">@sale.ExternalReferenceId</span>
+                                @* The short number leads and the device reference sits under it. The
+                                   reference is still here, and still in full, because fiscal and support
+                                   work is keyed on it — but it is not what a person picking a sale to
+                                   credit should have to read, which is the whole reason the number above
+                                   it exists. It is also what the till printed on the customer's receipt,
+                                   so a return is matched by reading one short string off the paper. *@
+                                <td data-label="Sale">
+                                    <span class="ops-ds-saleno">@sale.Number</span>
+                                    <div class="ops-sub ops-code ops-ds-devref">@sale.ExternalReferenceId</div>
                                     @if (sale.SapDocNum.HasValue)
                                     {
                                         <div class="ops-sub">SAP #@sale.SapDocNum</div>
@@ -680,7 +709,7 @@
                     <dt>Value listed</dt>
                     <dd>@Money(awaitingValue)</dd>
                     <dt>Already consolidated</dt>
-                    <dd>@(report?.PostedInvoiceCount ?? 0)</dd>
+                    <dd>@consolidatedCount</dd>
                     <dt>Posting date</dt>
                     <dd>@DateTime.Today.ToString("dd.MM.yyyy")</dd>
                 </dl>
@@ -723,16 +752,17 @@
 
     <div class="ops-overlay ops-overlay-right" @onclick="CloseDrawer">
         <aside class="ops-drawer ops-ds-drawer" role="dialog" aria-modal="true"
-               aria-label="Fiscalized invoice @selectedSale.ExternalReferenceId"
+               aria-label="Sale @selectedSale.Number"
                @onclick:stopPropagation="true">
 
-            @* The head states the document rather than the page: a kicker, the
-               fiscal reference in full, and the two statuses as marks. The
-               reference is a long device-issued string, so it wraps instead of
-               being truncated into something nobody can match to a receipt. *@
+            @* The head states the document rather than the page: a kicker, the sale's own short number
+               as the heading, and the two statuses as marks. The device reference follows it in full
+               and wraps rather than being truncated — it is the string support and ZIMRA work is keyed
+               on, and a truncated one matches nothing. *@
             <div class="ops-drawer-head ops-ds-dhead">
                 <div class="ops-ds-dhead-id">
                     <span class="ops-kicker">Fiscalized invoice</span>
+                    <span class="ops-ds-dhead-no">@selectedSale.Number</span>
                     <span class="ops-ds-dhead-ref">@selectedSale.ExternalReferenceId</span>
                 </div>
 
@@ -1264,6 +1294,7 @@
 @* The credit dialog, which used to be written out here in full. It is now shared with the vending
    and van sale lists, which had no way to raise a credit at all — see DesktopCreditNoteDialog. *@
 <DesktopCreditNoteDialog Reference="@creditSale?.ExternalReferenceId"
+                         SaleNumber="@creditSale?.Number"
                          Currency="@creditSale?.Currency"
                          IsConsolidated="@(creditSale?.ConsolidationId is not null)"
                          OnClosed="CloseDesktopCredit" />
@@ -1469,6 +1500,16 @@
 
     private int filterCount => activeFilters.Count;
 
+    /// <summary>Whether the operator is looking for one sale rather than reading a day.</summary>
+    /// <remarks>
+    /// While this is true the period is not sent, so the search reaches the whole history. The two
+    /// cannot both apply: a credit is raised against a sale that was made before today, and a search
+    /// that silently kept the date filter would report the sale as missing.
+    ///
+    /// Everything else in the panel still applies. A search finds; it does not widen.
+    /// </remarks>
+    private bool IsSearching => !string.IsNullOrWhiteSpace(filterSearch);
+
     protected override async Task OnInitializedAsync()
     {
         filterFromDate = DateTime.Today;
@@ -1523,8 +1564,10 @@
                 MaxTotal = Amount(amountMax),
                 PaymentDifference = paidCompare == PaidAny ? null : paidCompare,
                 Sort = sort,
-                FromDate = filterFromDate,
-                ToDate = filterToDate,
+                // Not while searching. A customer returns goods days after buying them, so a search
+                // pinned to Today would answer "no such sale" for the ordinary case — see IsSearching.
+                FromDate = IsSearching ? null : filterFromDate,
+                ToDate = IsSearching ? null : filterToDate,
                 Page = currentPage,
                 PageSize = pageSize,
 
@@ -2454,7 +2497,7 @@
 
     private void CloseConsolidate() => showConsolidate = false;
 
-    private decimal awaitingValue => report?.UnpostedSales.Sum(s => s.Amount) ?? 0m;
+    private decimal awaitingValue => DesktopSalesDaySummary.AwaitingValue(report);
 
     private async Task TriggerConsolidation()
     {
@@ -2536,49 +2579,23 @@
 
     // ── The day summary ──────────────────────────────────────────────────
 
-    private sealed record Lane(string Name, int Count, string Family);
-
     private string dayLabel => report == null
         ? "Day in progress"
         : report.ReportDate.Date == DateTime.Today
             ? "Day in progress"
             : report.ReportDate.ToString("dd MMM yyyy");
 
-    // Drawn from the report rather than from `sales`, which is one page of a
-    // filtered list and would make the lanes disagree with the total above them.
-    // The unposted list carries a status per row; the counts it does not explain
-    // fall into "awaiting close", so the four always add up to the day.
-    private List<Lane> lanes
-    {
-        get
-        {
-            if (report == null)
-            {
-                return new();
-            }
-
-            var listed = report.UnpostedSales;
-            var failed = listed.Count(s => Is(s.ConsolidationStatus, "Failed"));
-            var excluded = listed.Count(s => Is(s.ConsolidationStatus, "Excluded"));
-            var awaiting = Math.Max(0, report.UnpostedInvoiceCount - failed - excluded);
-
-            return new()
-            {
-                new Lane("Awaiting close", awaiting, "ops-fam-accent"),
-                new Lane("Consolidated", report.PostedInvoiceCount, "ops-fam-good"),
-                new Lane("Failed", failed, "ops-fam-bad"),
-                new Lane("Excluded", excluded, "ops-fam-neutral")
-            };
-        }
-    }
+    // The arithmetic lives in DesktopSalesDaySummary so it can be tested; this
+    // page only draws it. Drawn from the report rather than from `sales`, which
+    // is one page of a filtered list and would make the lanes disagree with the
+    // total above them.
+    private List<DesktopSalesDaySummary.Lane> lanes => DesktopSalesDaySummary.Lanes(report);
 
     private int laneTotal => lanes.Sum(l => l.Count);
 
-    private List<BPSummaryDto> topPartners => report?.BusinessPartnerSummaries
-        .Where(b => b.TotalAmount > 0)
-        .OrderByDescending(b => b.TotalAmount)
-        .Take(5)
-        .ToList() ?? new();
+    private int consolidatedCount => DesktopSalesDaySummary.ConsolidatedCount(report);
+
+    private List<DesktopSalesDaySummary.PartnerValue> topPartners => DesktopSalesDaySummary.OnDevice(report);
 
     private decimal topPartnerMax => topPartners.Count > 0 ? topPartners.Max(b => b.TotalAmount) : 0m;
 

@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
@@ -94,6 +94,7 @@ public sealed class CreateInvoiceHandler(
         // The claim taken off the shared stock ledger, and whether the post that justifies it went
         // through. Held here so the failure paths can decide whether to give the units back.
         List<StockLedgerLine>? ledgerClaim = null;
+        string? ledgerDocumentKey = null;
         var ledgerCommitted = false;
 
         // Whether the request to SAP has left this process. Past that point the invoice may exist
@@ -338,7 +339,18 @@ public sealed class CreateInvoiceHandler(
                 .ToList() ?? [];
 
             var ledgerReference = request.U_Van_saleorder ?? request.NumAtCard ?? "invoice";
-            var ledgerOutcome = await stockLedger.TryCommitAsync(ledgerClaim, ledgerReference, CancellationToken.None);
+
+            // The reference falls back to the literal "invoice", so it is a label and not an
+            // identity — keying on it would have every unnamed invoice of the day look like a repeat
+            // of the first, and every one after that would take no stock at all. Only the two fields
+            // that actually identify a document are used, and when neither is present the movement
+            // is journalled without a key rather than under a guessed one.
+            ledgerDocumentKey = FirstNonBlank(request.U_Van_saleorder, request.NumAtCard) is { } identity
+                ? $"invoice:{identity}"
+                : null;
+
+            var ledgerOutcome = await stockLedger.TryCommitAsync(
+                ledgerClaim, ledgerReference, ledgerDocumentKey, CancellationToken.None);
 
             if (!ledgerOutcome.Committed)
             {
@@ -443,7 +455,7 @@ public sealed class CreateInvoiceHandler(
         {
             // Thrown by the client's own checks before anything is sent, so SAP has not seen it.
             releaseIdempotencyRequest &= NothingWasCreated(postIssued, ex);
-            await ReturnLedgerClaimAsync(ledgerClaim, ledgerCommitted, "validation error");
+            await ReturnLedgerClaimAsync(ledgerClaim, ledgerDocumentKey, ledgerCommitted, "validation error");
             logger.LogWarning(ex, "Validation error creating invoice");
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Validation error: {ex.Message}", false, ex.Message); } catch { }
             return Errors.Invoice.ValidationFailed(ex.Message);
@@ -452,7 +464,7 @@ public sealed class CreateInvoiceHandler(
         {
             // SAP answered, and its answer was no. The document does not exist.
             releaseIdempotencyRequest &= NothingWasCreated(postIssued, ex);
-            await ReturnLedgerClaimAsync(ledgerClaim, ledgerCommitted, "posting period rejected");
+            await ReturnLedgerClaimAsync(ledgerClaim, ledgerDocumentKey, ledgerCommitted, "posting period rejected");
             logger.LogWarning(
                 "SAP rejected invoice document dates starting from DocDate {DocDate}: {Message}",
                 ex.DocDate,
@@ -866,8 +878,13 @@ public sealed class CreateInvoiceHandler(
     /// failure this whole ledger was built to stop.
     /// </para>
     /// </remarks>
+    /// <summary>The first of these that is actually a value, or null.</summary>
+    private static string? FirstNonBlank(params string?[] candidates) =>
+        candidates.FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate));
+
     private async Task ReturnLedgerClaimAsync(
         List<StockLedgerLine>? claim,
+        string? documentKey,
         bool alreadyPosted,
         string reason)
     {
@@ -878,7 +895,11 @@ public sealed class CreateInvoiceHandler(
 
         try
         {
-            await stockLedger.ReleaseAsync(claim, $"invoice not posted ({reason})", CancellationToken.None);
+            // The release carries the document's key, not the reason. The reason varies between the
+            // paths that abandon an invoice, so keying on it would let the same claim be returned
+            // once per reason — and a claim returned twice promises stock that is not on the shelf.
+            await stockLedger.ReleaseAsync(
+                claim, $"invoice not posted ({reason})", documentKey, CancellationToken.None);
         }
         catch (Exception ex)
         {

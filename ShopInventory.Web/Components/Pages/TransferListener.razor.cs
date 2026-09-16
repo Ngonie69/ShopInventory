@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Features.TransferListener.Commands.TriggerTransferListenerCheck;
@@ -18,7 +18,7 @@ namespace ShopInventory.Web.Components.Pages;
 /// tell the difference between "the API could not ask" and "the listener is down", which look
 /// identical on screen and send someone to different machines.
 ///
-/// There is no auto-refresh. The listener polls SAP every five minutes, so a page that re-read every
+/// There is no auto-refresh. The listener polls SAP every two minutes, so a page that re-read every
 /// thirty seconds would mostly redraw the same numbers, and the one action on it is a write.
 /// </remarks>
 public partial class TransferListener

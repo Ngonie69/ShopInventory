@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
@@ -108,9 +108,20 @@ public interface IStockLedger
     /// Takes every line or none. Lines in warehouses the ledger does not track are passed over and
     /// named in <see cref="StockLedgerOutcome.UntrackedWarehouses"/> for the caller to rule on.
     /// </summary>
+    /// <param name="lines">The document's claim on the shelf, one entry per line.</param>
+    /// <param name="reference">How the movement reads to a person. A label, never an identity.</param>
+    /// <param name="documentKey">
+    /// A stable identity for the document, or null when the caller has none. Given one, a second
+    /// call for the same document takes nothing and reports the first call's success — which is what
+    /// makes a retried command safe. Pass null rather than something that might repeat across
+    /// documents: a colliding key would silently stop the second real document taking its units,
+    /// which is worse than the double-take it was meant to prevent.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the read and the save.</param>
     Task<StockLedgerOutcome> TryCommitAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
+        string? documentKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -126,18 +137,32 @@ public interface IStockLedger
     /// is not in doubt — SAP has the document — so refusing would only leave the ledger claiming
     /// stock that is physically gone, which is the direction that oversells.
     /// </remarks>
+    /// <param name="lines">The document's claim on the shelf, one entry per line.</param>
+    /// <param name="reference">How the movement reads to a person. A label, never an identity.</param>
+    /// <param name="documentKey">
+    /// As on <see cref="TryCommitAsync"/>. A repeat under a known key takes nothing and reports no
+    /// shortfalls — the shortfalls of the first call were reported then, and re-deriving them now
+    /// would describe a ledger that has already moved on.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the read and the save.</param>
     Task<IReadOnlyList<StockLedgerShortfall>> TakeSettledAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
+        string? documentKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Puts units back — a document that was refused after its claim was taken, or one that was
     /// reversed. Never fails on an untracked warehouse.
     /// </summary>
+    /// <param name="lines">The document's claim on the shelf, one entry per line.</param>
+    /// <param name="reference">How the movement reads to a person. A label, never an identity.</param>
+    /// <param name="documentKey">As on <see cref="TryCommitAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels the read and the save.</param>
     Task ReleaseAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
+        string? documentKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -181,11 +206,23 @@ public sealed class StockLedger(
     public async Task<StockLedgerOutcome> TryCommitAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
+        string? documentKey,
         CancellationToken cancellationToken = default)
     {
         var claims = Aggregate(lines);
         if (claims.Count == 0)
         {
+            return StockLedgerOutcome.Success;
+        }
+
+        if (await AlreadyRecordedAsync(StockMovementKinds.Commit, documentKey, cancellationToken))
+        {
+            // The document took its units already. Reporting success is not a convenience: the
+            // caller asked whether it may proceed, and the answer that made it an obligation was
+            // yes. Taking them a second time is the failure this key exists to prevent.
+            logger.LogInformation(
+                "Stock ledger already holds a commit for {Reference} ({DocumentKey}); took nothing",
+                reference, documentKey);
             return StockLedgerOutcome.Success;
         }
 
@@ -240,7 +277,8 @@ public sealed class StockLedger(
 
             foreach (var (claim, rows) in trackedClaims)
             {
-                Take(rows, claim.Quantity);
+                var taken = Take(rows, claim.Quantity).Sum(row => row.Taken);
+                Journal(StockMovementKinds.Commit, claim, rows, -taken, reference, documentKey);
             }
 
             try
@@ -274,9 +312,18 @@ public sealed class StockLedger(
     public async Task<IReadOnlyList<StockLedgerShortfall>> TakeSettledAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
+        string? documentKey,
         CancellationToken cancellationToken = default)
     {
         var shortfalls = new List<StockLedgerShortfall>();
+
+        if (await AlreadyRecordedAsync(StockMovementKinds.Settle, documentKey, cancellationToken))
+        {
+            logger.LogInformation(
+                "Stock ledger already holds a settlement for {Reference} ({DocumentKey}); took nothing",
+                reference, documentKey);
+            return shortfalls;
+        }
 
         foreach (var claim in Aggregate(lines))
         {
@@ -290,7 +337,8 @@ public sealed class StockLedger(
                 .ToListAsync(cancellationToken);
 
             var availableBefore = rows.Sum(row => row.AvailableQuantity);
-            Take(rows, claim.Quantity);
+            var taken = Take(rows, claim.Quantity).Sum(row => row.Taken);
+            Journal(StockMovementKinds.Settle, claim, rows, -taken, reference, documentKey);
 
             // Take stops when the rows run out, so the shortfall goes unrecorded rather than driving
             // a row negative. Worth saying: a settled document for more than the ledger held means
@@ -314,9 +362,20 @@ public sealed class StockLedger(
     public async Task ReleaseAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
+        string? documentKey,
         CancellationToken cancellationToken = default)
     {
         var claims = Aggregate(lines);
+
+        if (await AlreadyRecordedAsync(StockMovementKinds.Release, documentKey, cancellationToken))
+        {
+            // Releasing twice is the direction that oversells: it puts units back that were never
+            // taken a second time, and the ledger then promises stock that is not on the shelf.
+            logger.LogInformation(
+                "Stock ledger already holds a release for {Reference} ({DocumentKey}); returned nothing",
+                reference, documentKey);
+            return;
+        }
 
         foreach (var claim in claims)
         {
@@ -342,7 +401,8 @@ public sealed class StockLedger(
             }
 
             // Back into the row it would have come out of first.
-            rows[0].AvailableQuantity += claim.Quantity;
+            rows[0].Move(claim.Quantity);
+            Journal(StockMovementKinds.Release, claim, rows, claim.Quantity, reference, documentKey);
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -364,8 +424,16 @@ public sealed class StockLedger(
     /// Takes <paramref name="quantity"/> across the rows, soonest to expire first — the same order
     /// the till's own deduction used, and the order SAP's FEFO allocation picks.
     /// </summary>
-    private static void Take(List<DailyStockSnapshotItemEntity> rows, decimal quantity)
+    /// <returns>
+    /// What came out of each row. Returned rather than applied silently because the journal has to
+    /// record the movement at the grain it actually happened — per batch row — and only this method
+    /// knows how the claim was spread.
+    /// </returns>
+    private static List<(DailyStockSnapshotItemEntity Row, decimal Taken)> Take(
+        List<DailyStockSnapshotItemEntity> rows,
+        decimal quantity)
     {
+        var taken = new List<(DailyStockSnapshotItemEntity, decimal)>();
         var remaining = quantity;
 
         foreach (var row in rows)
@@ -380,11 +448,84 @@ public sealed class StockLedger(
                 continue;
             }
 
-            var taken = Math.Min(row.AvailableQuantity, remaining);
-            row.AvailableQuantity -= taken;
-            remaining -= taken;
+            var fromRow = Math.Min(row.AvailableQuantity, remaining);
+            row.Move(-fromRow);
+            remaining -= fromRow;
+            taken.Add((row, fromRow));
         }
+
+        return taken;
     }
+
+    /// <summary>
+    /// Writes the movement, in the same change tracker as the balances so that both reach the
+    /// database in one save or neither does.
+    /// </summary>
+    /// <param name="kind">One of <see cref="StockMovementKinds"/>.</param>
+    /// <param name="claim">The item and warehouse the movement is about.</param>
+    /// <param name="rows">
+    /// The snapshot rows behind that claim, already updated. Their total is what the movement
+    /// records as the balance afterwards — the per-batch split stays on the rows themselves.
+    /// </param>
+    /// <param name="quantity">
+    /// Signed as the balance moved: negative where units left. Taken from what the rows actually
+    /// gave rather than from what was asked for, so a settlement that ran the rows out journals
+    /// the units that really moved and the invariant still holds.
+    /// </param>
+    /// <param name="reference">How the movement reads to a person.</param>
+    /// <param name="documentKey">The document's identity, or null when it has none.</param>
+    private void Journal(
+        string kind,
+        StockLedgerLine claim,
+        List<DailyStockSnapshotItemEntity> rows,
+        decimal quantity,
+        string reference,
+        string? documentKey)
+    {
+        StockMovementJournal.Append(
+            context,
+            CurrentLedgerDay,
+            kind,
+            documentKey,
+            claim.ItemCode,
+            claim.WarehouseCode,
+            quantity,
+            rows.Sum(row => row.AvailableQuantity),
+            reference);
+    }
+
+    /// <summary>
+    /// Whether this document has already moved the ledger this way today.
+    /// </summary>
+    /// <param name="kind">Which of <see cref="StockMovementKinds"/> to look for.</param>
+    /// <param name="documentKey">The document's identity. Null always answers false.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <remarks>
+    /// The unique index is the guarantee; this read is what turns the guarantee into an answer
+    /// rather than an exception, and what stops the balances being moved before the insert that
+    /// would have rejected them. Both are needed: two concurrent replays can pass this check
+    /// together, and the index is what settles which of them wins.
+    /// </remarks>
+    private async Task<bool> AlreadyRecordedAsync(
+        string kind,
+        string? documentKey,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(documentKey))
+        {
+            // No identity, nothing to recognise a repeat by. The movement is still journalled; it
+            // simply cannot be deduplicated, which is the honest answer rather than a guessed one.
+            return false;
+        }
+
+        var day = CurrentLedgerDay;
+        return await context.StockMovements.AnyAsync(
+            movement => movement.LedgerDay == day
+                     && movement.Kind == kind
+                     && movement.DocumentKey == documentKey,
+            cancellationToken);
+    }
+
 
     /// <summary>
     /// One claim per item and warehouse. Two lines of the same document naming the same item are one
@@ -459,9 +600,24 @@ public sealed class StockLedger(
             cancellationToken);
     }
 
+    /// <summary>
+    /// Drops what the failed attempt read and wrote, so the retry starts from the database rather
+    /// than from its own stale copy.
+    /// </summary>
+    /// <remarks>
+    /// The journal rows have to go with the snapshot rows. They were added for a save that did not
+    /// happen, and leaving them tracked would have the retry insert a movement for each attempt —
+    /// the journal claiming a document moved the ledger twice when it moved it once, which is
+    /// exactly the reading this table exists to make trustworthy.
+    /// </remarks>
     private void Detach()
     {
         foreach (var entry in context.ChangeTracker.Entries<DailyStockSnapshotItemEntity>())
+        {
+            entry.State = EntityState.Detached;
+        }
+
+        foreach (var entry in context.ChangeTracker.Entries<StockMovementEntity>())
         {
             entry.State = EntityState.Detached;
         }

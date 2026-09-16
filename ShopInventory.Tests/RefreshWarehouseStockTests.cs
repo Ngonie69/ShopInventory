@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -297,11 +297,9 @@ public sealed class RefreshWarehouseStockTests : IDisposable
             ItemCode = itemCode,
             WarehouseCode = warehouse,
             BatchNumber = batch,
-            OriginalQuantity = original,
-            AvailableQuantity = available,
             // See SnapshotSqliteContext for why the concurrency token is set by hand here.
             Version = 1
-        });
+        }.MovedTo(original, available));
 
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();

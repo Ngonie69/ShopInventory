@@ -978,6 +978,28 @@
     white-space: nowrap;
 }
 
+/* The sale's own short number, leading the row on /desktop-sales.
+   Sized and inked above .ops-code below it, because the point of the pair is
+   that the eye lands on the short number: a device reference is 28 characters
+   and picking one out of a page of them by sight is what this replaced.
+   Tabular so a column of them lines up digit under digit. */
+.ops-ds-saleno {
+    font-family: var(--ops-mono);
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+    white-space: nowrap;
+}
+
+/* The device reference under it. Muted and on one line, so the column keeps the
+   width it had when the reference was the only thing in it. */
+.ops-ds-devref {
+    display: block;
+    margin-top: 2px;
+    white-space: nowrap;
+}
+
 /* The name beside a code: the long column, and the one that has to give. */
 .ops-name {
     color: var(--ops-ink-2);
@@ -2452,6 +2474,15 @@
     font-size: 12px;
 }
 
+/* A day whose sales have all reached the back office has nothing to break
+   down. The card says so rather than ending on a bare figure — and saying it
+   here keeps the list beneath the headline honest about being its composition. */
+.ops-ds .ops-ds-empty {
+    color: var(--ops-mute-3);
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+
 .ops-ds .ops-ds-break-row {
     display: flex;
     align-items: center;
@@ -2937,6 +2968,22 @@
     color: var(--ops-accent-text);
 }
 
+/* A search reaches every date, so the period beside it decides nothing while one
+   is typed. The segment stays live — clearing the search puts it back in charge —
+   but it stops claiming to be in charge, and the note says what is. */
+.ops-ds .ops-ds-seg.is-off {
+    opacity: .5;
+}
+
+.ops-ds .ops-ds-alldates {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--ops-accent-text);
+    white-space: nowrap;
+}
+
 /* The panel's copy sits under a kicker rather than in a row of 34px controls. */
 .ops-ds .ops-ds-seg-sm {
     height: 30px;
@@ -3235,14 +3282,27 @@
     min-width: 0;
 }
 
-/* Wraps rather than truncates: a device-issued reference is what someone
-   matches against a paper receipt, and half of one matches nothing. */
+/* The drawer's heading: the sale's short number, which is what the operator
+   read off the customer's receipt to get here. */
+.ops-overlay .ops-ds-dhead-no {
+    font-family: var(--ops-mono);
+    font-size: 17px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    color: var(--ops-ink);
+}
+
+/* Wraps rather than truncates. It is no longer the heading — the sale number
+   above it is, and that is what the customer's receipt actually prints — but it
+   is still what a fiscal reconciliation is keyed on, and half a reference
+   matches nothing. */
 .ops-overlay .ops-ds-dhead-ref {
     font-family: var(--ops-mono);
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.45;
     overflow-wrap: anywhere;
-    color: var(--ops-ink);
+    color: var(--ops-mute-3);
 }
 
 .ops-overlay .ops-ds-dnav {

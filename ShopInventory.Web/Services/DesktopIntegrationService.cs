@@ -941,6 +941,28 @@ public static class DesktopSalesFilterValues
 public class DesktopSaleDto
 {
     public int Id { get; set; }
+
+    /// <summary>
+    /// The short number a person names this sale by — <c>INV10427</c> — as the API formatted it, and as
+    /// the till printed it on the customer's receipt.
+    /// </summary>
+    /// <remarks>
+    /// Read <see cref="Number"/> rather than this, which is empty when the answer came from an API that
+    /// predates the field.
+    /// </remarks>
+    public string SaleNumber { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The sale number to show, falling back to building one from <see cref="Id"/>.
+    /// </summary>
+    /// <remarks>
+    /// The API owns the format and sends it formatted, so that what a receipt prints and what this
+    /// console displays cannot drift apart. The fallback exists only for the minutes of a rolling
+    /// deploy when the Web is ahead of the API: without it the identifier every row now leads with
+    /// would render blank, which reads as a broken page rather than an old API.
+    /// </remarks>
+    public string Number => string.IsNullOrWhiteSpace(SaleNumber) ? $"INV{Id}" : SaleNumber;
+
     public string ExternalReferenceId { get; set; } = string.Empty;
     public string? SourceSystem { get; set; }
     public string CardCode { get; set; } = string.Empty;
