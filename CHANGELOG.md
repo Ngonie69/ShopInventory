@@ -163,6 +163,25 @@ otherwise be surprised.
   include both card and mobile wallet money, the account is left off and SAP's default applies to the
   whole transfer sum — posting wallet takings into the card settlement account would be an error only a
   hand reconciliation could find. The daily payment logs a warning naming the payment when that happens.
+- **A node running an older build than the rest of the cluster no longer runs background jobs.**
+
+  Quartz hands each trigger to whichever clustered node takes it first, so a node nobody deploys to
+  keeps doing its share of the work with the code it last received. On 2026-09-15 that settled 45
+  till sales with an incoming payment each, weeks after the per-sale payment was replaced by the one
+  daily payment per customer, because `DEV-TEST-SERVER` was still a cluster member on a 2026-09-12
+  build.
+
+  Each API process now records the build it runs in `ClusterNodes` and refreshes it every minute. If
+  a node that is heart-beating holds a newer build, this node vetoes every job fire and logs why,
+  while continuing to serve HTTP normally. Builds that no deploy published — every developer build —
+  neither block nor are blocked. A rollback needs nothing switched off: once the newer node stops, its
+  registration goes stale within five minutes (immediately on a clean shutdown) and the older build
+  resumes.
+
+  **For operators:** a node that is quietly doing no background work is now a supported state, and the
+  reason is in its log and in `ClusterNodes.VetoReason`. If jobs stop running everywhere, check that
+  the newest-stamped node is actually running. The stamp comes from `Update-Production.ps1`, so a
+  deploy made any other way leaves a node unstamped and ungated.
 
 
 - **Vendors at a vending depot must be coded VMB, VMP or VMM and three digits.**

@@ -245,6 +245,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   // One incoming payment per business partner per day, and the invoices each one settles.
   public DbSet<DailyIncomingPaymentEntity> DailyIncomingPayments { get; set; }
+
+  /// <summary>One row per running API process, carrying the build it runs. See <see cref="ClusterBuildRegistry"/>.</summary>
+  public DbSet<ClusterNodeEntity> ClusterNodes { get; set; }
   public DbSet<DailyIncomingPaymentLineEntity> DailyIncomingPaymentLines { get; set; }
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -1,4 +1,5 @@
 using Quartz;
+using ShopInventory.Common.Cluster;
 using ShopInventory.Services;
 
 namespace ShopInventory.Configuration;
@@ -52,6 +53,11 @@ public static class QuartzConfiguration
                     cluster.CheckinMisfireThreshold = TimeSpan.FromSeconds(20);
                 });
             });
+
+            // Every job, guarded in one place: a node running an older build than a live peer takes no
+            // work. Registered here rather than per job, because the failure it exists to stop is a
+            // node nobody remembered to think about (see StaleBuildJobGuard).
+            q.AddTriggerListener<StaleBuildJobGuard>();
 
             // DB-queue pollers and periodic maintenance → interval triggers (cadence preserved).
             AddIntervalJob<MobileOrderPostProcessingJob>(q, "mobile-order-post-processing", TimeSpan.FromSeconds(5));
@@ -295,6 +301,12 @@ public static class QuartzConfiguration
                 AddCronJob<CreditLimitReviewJob>(q, "credit-limit-review", BuildDailyCron(creditLimit.ReviewTimeCAT, "19:15"));
             }
         });
+
+        // Before Quartz's own hosted service, so this node knows whether the cluster holds a newer
+        // build before the first trigger can fire rather than one heartbeat later.
+        services.AddSingleton(BuildStampProvider.FromAssembly());
+        services.AddSingleton<ClusterBuildRegistry>();
+        services.AddHostedService<ClusterNodeHeartbeatService>();
 
         services.AddQuartzHostedService(options =>
         {

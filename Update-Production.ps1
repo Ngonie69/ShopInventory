@@ -1330,7 +1330,10 @@ $publishedApps = @()
 
 if ($DeployTarget -eq "Both" -or $DeployTarget -eq "API") {
     Write-Host "Publishing API..." -ForegroundColor White
-    dotnet publish $ApiProjectPath -c Release -o "$PublishPath\api" --no-self-contained
+    # Stamped so a node can tell its build from a peer's: the API refuses to run clustered jobs
+    # while a live node holds a newer stamp (StaleBuildJobGuard). Nothing else reads it.
+    $buildTimestampUtc = (Get-Date).ToUniversalTime().ToString('o')
+    dotnet publish $ApiProjectPath -c Release -o "$PublishPath\api" --no-self-contained -p:BuildTimestampUtc=$buildTimestampUtc
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: API publish failed!" -ForegroundColor Red
         Wait-ForExitPrompt
