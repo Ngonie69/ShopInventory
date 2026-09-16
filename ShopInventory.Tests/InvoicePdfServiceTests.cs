@@ -133,9 +133,41 @@ public class InvoicePdfServiceTests
 
         var page = Assert.Single(await RenderAsync(invoice, "everything"));
 
-        Assert.Contains("Graniteside", page);
+        Assert.Contains("Samora Machel", page);
         Assert.Contains("accounts@example.co.zw", page);
         Assert.Matches(@"TIN NUMBER:\s+2000123456", page);
+    }
+
+    [Fact]
+    public async Task TheDeliveryBoxCarriesContactDetailsAlone()
+    {
+        // As the design draws it: no ship-to row, even when SAP holds a ship-to address.
+        var invoice = DesignInvoice();
+        invoice.ShipToAddress = "Warehouse 9, Graniteside Industrial Park" + Environment.NewLine + "Harare";
+        invoice.CustomerPhone = "+263 77 123 4567";
+
+        var page = Assert.Single(await RenderAsync(invoice, "delivery"));
+
+        Assert.DoesNotContain("Graniteside", page);
+        // "Customer Address:" stays; a bare "Address:" row does not.
+        Assert.DoesNotMatch(@"(?<!Customer )Address:", page);
+        Assert.Contains("+263 77 123 4567", page);
+    }
+
+    [Fact]
+    public async Task TheInvoiceIsSetInTheDesignsInter()
+    {
+        var bytes = await Service.GenerateInvoicePdfAsync(DesignInvoice(), QrPayload);
+
+        using var pdf = new PdfDocument(new PdfReader(new MemoryStream(bytes)));
+        var fonts = pdf.GetPage(1).GetResources().GetResource(PdfName.Font);
+        var names = fonts.KeySet()
+            .Select(key => fonts.GetAsDictionary(key).GetAsName(PdfName.BaseFont).GetValue())
+            // A subset font's name carries a six-letter tag: ABCDEF+Inter-Bold.
+            .Select(name => name.Contains('+') ? name[(name.IndexOf('+') + 1)..] : name)
+            .ToHashSet();
+
+        Assert.Equal(new HashSet<string> { "Inter-Regular", "Inter-SemiBold", "Inter-Bold" }, names);
     }
 
     public static TheoryData<int> LineCounts()
