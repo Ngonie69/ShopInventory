@@ -153,4 +153,23 @@ public class SystemHealthModel
     };
 }
 
+/// <summary>
+/// Mirrors the API's <c>ItemTaxGroupSyncResult</c> from <c>POST api/Sync/item-tax-groups</c>.
+/// </summary>
+public class ItemTaxGroupSyncResultModel
+{
+    public int ItemsRead { get; set; }
+    public int Added { get; set; }
+    public List<ItemTaxGroupChangeModel> Changed { get; set; } = [];
+    public List<string> UnconfiguredGroups { get; set; } = [];
+    public DateTime CompletedAtUtc { get; set; }
+}
+
+public class ItemTaxGroupChangeModel
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string Was { get; set; } = string.Empty;
+    public string Now { get; set; } = string.Empty;
+}
+
 // Note: NotificationModel and NotificationListResponse are defined in ReportModels.cs

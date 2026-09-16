@@ -5,6 +5,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.Sync.Commands.CancelTransaction;
 using ShopInventory.Features.Sync.Commands.ProcessQueue;
 using ShopInventory.Features.Sync.Commands.RetryTransaction;
+using ShopInventory.Features.Sync.Commands.SyncItemTaxGroups;
 using ShopInventory.Features.Sync.Commands.TestConnection;
 using ShopInventory.Features.Sync.Queries.CheckSapConnection;
 using ShopInventory.Features.Sync.Queries.GetCacheStatus;
@@ -134,6 +135,26 @@ public class SyncController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new CancelTransactionCommand(id), cancellationToken);
         return result.Match(_ => Ok(new { Message = "Transaction cancelled" }), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Sync item tax groups from SAP (admin only)
+    /// </summary>
+    /// <remarks>
+    /// Copies every item's VAT group from the SAP item master into the table till sales are taxed
+    /// from, instead of waiting for the 03:45 CAT job. Tills re-read it within four hours, or at once
+    /// when Refresh is pressed on the till. Sales already recorded keep the tax code they were made under.
+    /// </remarks>
+    [HttpPost("item-tax-groups")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(ItemTaxGroupSyncResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SyncItemTaxGroups(CancellationToken cancellationToken)
+    {
+        using var syncTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        syncTimeout.CancelAfter(TimeSpan.FromMinutes(10));
+        var result = await mediator.Send(new SyncItemTaxGroupsCommand(), syncTimeout.Token);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
