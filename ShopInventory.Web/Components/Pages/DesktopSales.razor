@@ -269,6 +269,23 @@
     }
 
     <div class="ops-ds-filters">
+        @* Finding one sale, which is what someone raising a credit is doing. The API has answered this
+           search all along and this page never asked it; the only way to reach a sale was to page
+           through the day looking at device references.
+
+           It deliberately ignores the period below. A customer returns goods days after buying them, so
+           a search pinned to Today would answer "no such sale" for the ordinary case — which is the
+           complaint this whole screen is meant to end, not restate. *@
+        <div class="ops-field ops-field-wide">
+            <label class="ops-label" for="ds-find">Find a sale</label>
+            <input id="ds-find" type="search" class="ops-input" placeholder="Sale no., receipt or SAP no."
+                   @bind="filterSearch" @bind:after="ApplyFilters" />
+            @if (IsSearching)
+            {
+                <div class="ops-sub">Searching every date</div>
+            }
+        </div>
+
         <div class="ops-field">
             <label class="ops-label" for="ds-warehouse">Warehouse</label>
             <NocturneSelect Id="ds-warehouse" Class="nsel-block" Options="WarehouseFilterOptions"
@@ -381,7 +398,7 @@
                                            checked="@allPostableSelected" @onchange="ToggleSelectAll" />
                                 }
                             </th>
-                            <th>Fiscal number</th>
+                            <th>Sale</th>
                             <th>Customer</th>
                             <th>Warehouse</th>
                             <th>Fiscalized</th>
@@ -408,7 +425,7 @@
                                     @onclick:stopPropagation="true">
                                     @if (sale.CanPostToSap)
                                     {
-                                        <input type="checkbox" aria-label="@($"Select sale {sale.ExternalReferenceId} for posting")"
+                                        <input type="checkbox" aria-label="@($"Select sale {sale.Number} for posting")"
                                                checked="@selected.Contains(sale.ExternalReferenceId)"
                                                @onchange="e => ToggleSelected(sale, e)" />
                                     }
@@ -421,8 +438,15 @@
                                         </span>
                                     }
                                 </td>
-                                <td data-label="Fiscal number">
-                                    <span class="ops-code">@sale.ExternalReferenceId</span>
+                                @* The short number leads and the device reference sits under it. The
+                                   reference is still here, and still in full, because fiscal and support
+                                   work is keyed on it — but it is not what a person picking a sale to
+                                   credit should have to read, which is the whole reason the number above
+                                   it exists. It is also what the till printed on the customer's receipt,
+                                   so a return is matched by reading one short string off the paper. *@
+                                <td data-label="Sale">
+                                    <span class="ops-ds-saleno">@sale.Number</span>
+                                    <div class="ops-sub ops-code ops-ds-devref">@sale.ExternalReferenceId</div>
                                     @if (sale.SapDocNum.HasValue)
                                     {
                                         <div class="ops-sub">SAP #@sale.SapDocNum</div>
@@ -582,16 +606,17 @@
 
     <div class="ops-overlay ops-overlay-right" @onclick="CloseDrawer">
         <aside class="ops-drawer ops-ds-drawer" role="dialog" aria-modal="true"
-               aria-label="Fiscalized invoice @selectedSale.ExternalReferenceId"
+               aria-label="Sale @selectedSale.Number"
                @onclick:stopPropagation="true">
 
-            @* The head states the document rather than the page: a kicker, the
-               fiscal reference in full, and the two statuses as marks. The
-               reference is a long device-issued string, so it wraps instead of
-               being truncated into something nobody can match to a receipt. *@
+            @* The head states the document rather than the page: a kicker, the sale's own short number
+               as the heading, and the two statuses as marks. The device reference follows it in full
+               and wraps rather than being truncated — it is the string support and ZIMRA work is keyed
+               on, and a truncated one matches nothing. *@
             <div class="ops-drawer-head ops-ds-dhead">
                 <div class="ops-ds-dhead-id">
                     <span class="ops-kicker">Fiscalized invoice</span>
+                    <span class="ops-ds-dhead-no">@selectedSale.Number</span>
                     <span class="ops-ds-dhead-ref">@selectedSale.ExternalReferenceId</span>
                 </div>
 
@@ -1123,6 +1148,7 @@
 @* The credit dialog, which used to be written out here in full. It is now shared with the vending
    and van sale lists, which had no way to raise a credit at all — see DesktopCreditNoteDialog. *@
 <DesktopCreditNoteDialog Reference="@creditSale?.ExternalReferenceId"
+                         SaleNumber="@creditSale?.Number"
                          Currency="@creditSale?.Currency"
                          IsConsolidated="@(creditSale?.ConsolidationId is not null)"
                          OnClosed="CloseDesktopCredit" />
@@ -1243,6 +1269,7 @@
     // Filters
     private string filterWarehouse = "";
     private string filterCardCode = "";
+    private string filterSearch = "";
     private string filterStatus = "";
     private string filterSource = "";
     private string period = PeriodToday;
@@ -1258,7 +1285,15 @@
 
     private bool hasFilters =>
         filterWarehouse != "" || filterCardCode != "" || filterStatus != "" || filterSource != ""
-        || period != PeriodToday;
+        || IsSearching || period != PeriodToday;
+
+    /// <summary>Whether the operator is looking for one sale rather than reading a day.</summary>
+    /// <remarks>
+    /// While this is true the period is not sent, so the search reaches the whole history. The two
+    /// cannot both apply: a credit is raised against a sale that was made before today, and a search
+    /// that silently kept the date filter would report the sale as missing.
+    /// </remarks>
+    private bool IsSearching => !string.IsNullOrWhiteSpace(filterSearch);
 
     protected override async Task OnInitializedAsync()
     {
@@ -1308,11 +1343,12 @@
                 string.IsNullOrEmpty(filterWarehouse) ? null : filterWarehouse,
                 string.IsNullOrEmpty(filterCardCode) ? null : filterCardCode,
                 string.IsNullOrEmpty(filterStatus) ? null : filterStatus,
-                filterFromDate,
-                filterToDate,
+                IsSearching ? null : filterFromDate,
+                IsSearching ? null : filterToDate,
                 currentPage,
                 pageSize,
-                string.IsNullOrEmpty(filterSource) ? null : filterSource);
+                string.IsNullOrEmpty(filterSource) ? null : filterSource,
+                IsSearching ? filterSearch.Trim() : null);
 
             if (response != null)
             {
@@ -1402,6 +1438,7 @@
     {
         filterWarehouse = "";
         filterCardCode = "";
+        filterSearch = "";
         filterStatus = "";
         filterSource = "";
         period = PeriodToday;
