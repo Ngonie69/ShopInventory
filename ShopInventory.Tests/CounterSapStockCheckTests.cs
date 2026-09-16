@@ -362,7 +362,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
         await SeedLedgerAsync(Cheese, 30m);
         _sapBatches.Add(("B1", 21m));
 
-        var result = await SellAsync(fiscalize: true, Line(Cheese, 22m));
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 22m));
 
         Assert.True(result.IsError);
         Assert.Equal("DesktopSales.SapStockShort", result.FirstError.Code);
@@ -376,11 +376,59 @@ public sealed class CounterSapStockCheckTests : IDisposable
         await SeedLedgerAsync(Cheese, 30m);
         _sapBatches.Add(("B1", 21m));
 
-        var result = await SellAsync(fiscalize: false, Line(Cheese, 21m));
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 21m));
 
         Assert.False(result.IsError);
         Assert.Equal(1, await _context.DesktopSales.CountAsync());
         Assert.Equal(9m, await LedgerAsync(Cheese));
+    }
+
+    /// <summary>
+    /// A till or vending sale may not be created with fiscalisation switched off.
+    /// </summary>
+    /// <remarks>
+    /// <c>fiscalize: false</c> used to be honoured: the sale was written <c>Skipped</c>, and a Skipped
+    /// sale posted to SAP exactly as a fiscalised one did — so one flag in a request body put an A/R
+    /// invoice in the ledger for goods ZIMRA was never told about, with nothing to show for it but the
+    /// words "Not fiscalised" in the Remarks of a document nobody re-reads.
+    /// </remarks>
+    [Theory]
+    [InlineData(SaleSourceSystems.ShopTill)]
+    [InlineData(SaleSourceSystems.Vending)]
+    public async Task A_sale_that_asks_not_to_be_fiscalised_is_refused(string source)
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+
+        var result = await SellAsync(fiscalize: false, source: source, lines: Line(Cheese, 21m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.FiscalisationRequired", result.FirstError.Code);
+
+        // A 400, not a 409: the till shows the server's reason only for a 400, and reads anything else
+        // as "the sale may or may not have been created". Here it certainly was not.
+        Assert.Equal(ErrorType.Validation, result.FirstError.Type);
+        Assert.Equal(0, await _context.DesktopSales.CountAsync());
+
+        // And nothing was promised against the ledger on the way to the refusal.
+        Assert.Equal(30m, await LedgerAsync(Cheese));
+    }
+
+    /// <summary>
+    /// The legacy desktop source is deliberately left alone: it is consolidated at 18:00 rather than
+    /// posted per sale, and its callers predate the flag.
+    /// </summary>
+    [Fact]
+    public async Task The_legacy_desktop_source_may_still_ask_not_to_be_fiscalised()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+
+        var result = await SellAsync(
+            fiscalize: false, source: SaleSourceSystems.LegacyDesktop, lines: Line(Cheese, 21m));
+
+        Assert.False(result.IsError);
+        Assert.Equal(1, await _context.DesktopSales.CountAsync());
     }
 
     /// <summary>
@@ -393,7 +441,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
         await SeedLedgerAsync(Cheese, 5m);
         _sapBatches.Add(("B1", 50m));
 
-        var result = await SellAsync(fiscalize: true, Line(Cheese, 6m));
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 6m));
 
         Assert.True(result.IsError);
         Assert.Equal("DesktopSales.StockLedgerRefused", result.FirstError.Code);
@@ -449,7 +497,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
         await SeedLedgerAsync(Cheese, 30m);
         _batchRead = _ => Task.FromException<List<BatchNumber>>(new HttpRequestException("SAP is down"));
 
-        var result = await SellAsync(fiscalize: true, Line(Cheese, 1m));
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
 
         Assert.True(result.IsError);
         Assert.Equal("DesktopSales.SapStockUnreadable", result.FirstError.Code);
@@ -559,6 +607,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
 
     private async Task<ErrorOr<CreateDesktopSaleResult>> SellAsync(
         bool fiscalize,
+        string? source = null,
         params CreateDesktopSaleLineRequest[] lines)
     {
         if (!await _context.Users.AnyAsync(user => user.Id == TillUserId))
@@ -578,9 +627,11 @@ public sealed class CounterSapStockCheckTests : IDisposable
 
         var handler = new CreateDesktopSaleHandler(
             _context,
-            // Never reached by a refused sale, and a sale that is not refused is sent with
-            // Fiscalize = false. Anything that reached it would throw.
-            null!,
+            // Reached only by a sale that is not refused, and these tests are about the stock check
+            // rather than the device, so it signs whatever it is given. It used to be null!, because
+            // every sale here was sent with Fiscalize = false — which the handler now refuses outright
+            // for a till sale, so there was no longer any way to reach the end of a successful sell.
+            Fiscaliser(),
             Locks(),
             Ledger(),
             Check(),
@@ -592,7 +643,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
 
         var request = new CreateDesktopSaleRequest
         {
-            SourceSystem = SaleSourceSystems.ShopTill,
+            SourceSystem = source ?? SaleSourceSystems.ShopTill,
             Fiscalize = fiscalize,
             PaymentMethod = TenderTypes.Cash,
             DocCurrency = "USD",
@@ -603,6 +654,39 @@ public sealed class CounterSapStockCheckTests : IDisposable
         _context.ChangeTracker.Clear();
         return result;
     }
+
+    /// <summary>
+    /// A device that signs everything it is handed.
+    /// </summary>
+    /// <remarks>
+    /// These tests are about what the counter's SAP stock check allows through, not about
+    /// fiscalisation, so the device is given no opinion — but it has to exist, because a till sale can
+    /// no longer be created with fiscalisation switched off.
+    /// </remarks>
+    private static DesktopSaleFiscaliser Fiscaliser() => new(
+        StubProxy.For<IFiscalizationService>((method, _) => method.Name switch
+        {
+            nameof(IFiscalizationService.FindPreSapReceiptAsync) =>
+                (object)Task.FromResult<FiscalizationResult?>(null),
+            nameof(IFiscalizationService.FiscalizePreSapInvoiceAsync) =>
+                Task.FromResult(new FiscalizationResult
+                {
+                    Success = true,
+                    ReceiptGlobalNo = "1",
+                    DeviceSerial = "DEV-1",
+                    QRCode = "qr",
+                    VerificationCode = "vc",
+                    FiscalDayNo = "1"
+                }),
+            _ => throw new InvalidOperationException($"IFiscalizationService.{method.Name} was not expected.")
+        }),
+        StubProxy.For<INotificationService>((method, _) => method.Name switch
+        {
+            nameof(INotificationService.CreateNotificationAsync) => Task.FromResult(0),
+            _ => throw new InvalidOperationException($"INotificationService.{method.Name} was not expected.")
+        }),
+        Options.Create(new TaxSettings()),
+        NullLogger<DesktopSaleFiscaliser>.Instance);
 
     private static IInventoryLockService Locks() =>
         StubProxy.For<IInventoryLockService>((method, _) => method.Name switch

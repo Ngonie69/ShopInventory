@@ -24,11 +24,11 @@ public sealed record DesktopSaleRemarkNames(string? ShopName, string? CapturedBy
 /// route happened to post. One builder, used by both.
 ///
 /// <para>
-/// The column is 254 characters. A typical sale needs about 165, so normally everything fits. When it
-/// does not, parts go in the reverse of how much they matter: payment first, then who captured it,
-/// then where it came from, then the reference. The fiscal receipt goes last of all, because it is
-/// the join between this invoice and the ZIMRA receipt the customer holds, and nothing else on the
-/// document carries it.
+/// The column is 254 characters. A typical sale needs about 200, so normally everything fits. When it
+/// does not, parts go in the reverse of how much they matter: the tender first, then the time of sale,
+/// then who captured it, then where it came from, then who bought, then the reference. The fiscal
+/// receipt goes last of all, because it is the join between this invoice and the ZIMRA receipt the
+/// customer holds, and nothing else on the document carries it.
 /// </para>
 /// </remarks>
 public static class DesktopSaleInvoiceRemarks
@@ -37,6 +37,25 @@ public static class DesktopSaleInvoiceRemarks
     public const int MaxLength = 254;
 
     private const string Separator = " | ";
+
+    /// <summary>
+    /// How much each part matters, for the order they are given up in when the column is short.
+    /// </summary>
+    /// <remarks>
+    /// Named rather than written as literals at each call, because the ranking is only meaningful as a
+    /// whole: a value repeated or skipped makes the drop order arbitrary between two parts, and which
+    /// one an auditor loses then depends on list order rather than on anything anybody decided.
+    /// </remarks>
+    private static class Keep
+    {
+        public const int Payment = 0;
+        public const int SoldAt = 1;
+        public const int CapturedBy = 2;
+        public const int Origin = 3;
+        public const int Party = 4;
+        public const int Reference = 5;
+        public const int FiscalReceipt = 6;
+    }
 
     public static string Build(DesktopSaleEntity sale, DesktopSaleRemarkNames names)
     {
@@ -51,12 +70,62 @@ public static class DesktopSaleInvoiceRemarks
             }
         }
 
-        Add(DescribeOrigin(sale, names.ShopName), keep: 2);
-        Add(string.IsNullOrWhiteSpace(sale.ExternalReferenceId) ? null : $"Ref {sale.ExternalReferenceId.Trim()}", keep: 3);
-        Add(DescribeFiscalReceipt(sale), keep: 4);
-        Add(string.IsNullOrWhiteSpace(names.CapturedBy) ? null : $"Captured by {names.CapturedBy.Trim()}", keep: 1);
-        Add(DescribePayment(sale), keep: 0);
+        Add(DescribeOrigin(sale.SourceSystem, sale.WarehouseCode, names.ShopName), Keep.Origin);
+        Add(DescribeParty(sale.SourceSystem, sale.RouteCustomerCode, sale.RouteCustomerName), Keep.Party);
+        Add(DescribeReference(sale.ExternalReferenceId), Keep.Reference);
+        Add(DescribeFiscalReceipt(sale), Keep.FiscalReceipt);
+        Add(DescribeCapturedBy(names.CapturedBy), Keep.CapturedBy);
+        Add(DescribeSoldAt(sale.ReceiptDate ?? sale.CreatedAt), Keep.SoldAt);
+        Add(DescribePayment(sale.PaymentMethod, sale.PaymentReference), Keep.Payment);
 
+        return Assemble(parts);
+    }
+
+    /// <summary>
+    /// The same remark for an online van sale, whose invoice posts from a reservation before any sale
+    /// row exists to build it from.
+    /// </summary>
+    /// <remarks>
+    /// Those invoices used to reach SAP saying "Posted from reservation 41c8…", which names a row in
+    /// this system's own table and nothing a person can act on. They carry no receipt part: the sale is
+    /// fiscalised from the invoice itself, minutes later and by a different path, so there is no receipt
+    /// to quote at the moment this is written.
+    /// </remarks>
+    public static string BuildForOnlineVanSale(
+        string? warehouseCode,
+        string? shopName,
+        string? routeCustomerCode,
+        string? routeCustomerName,
+        string? externalReference,
+        string? capturedBy,
+        string? paymentMethod,
+        DateTime soldAtUtc)
+    {
+        var parts = new List<(string Text, int Keep)>();
+
+        void Add(string? text, int keep)
+        {
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                parts.Add((text, keep));
+            }
+        }
+
+        Add(DescribeOrigin(SaleSourceSystems.VanSalesOnline, warehouseCode, shopName), Keep.Origin);
+        Add(DescribeParty(SaleSourceSystems.VanSalesOnline, routeCustomerCode, routeCustomerName), Keep.Party);
+        Add(DescribeReference(externalReference), Keep.Reference);
+        Add(DescribeCapturedBy(capturedBy), Keep.CapturedBy);
+        Add(DescribeSoldAt(soldAtUtc), Keep.SoldAt);
+        Add(DescribePayment(paymentMethod, paymentReference: null), Keep.Payment);
+
+        return Assemble(parts);
+    }
+
+    /// <summary>
+    /// Joins the parts, giving up the least important until the column will take them.
+    /// </summary>
+    private static string Assemble(List<(string Text, int Keep)> parts)
+    {
         var text = string.Join(Separator, parts.Select(part => part.Text));
 
         while (text.Length > MaxLength && parts.Count > 1)
@@ -136,18 +205,81 @@ public static class DesktopSaleInvoiceRemarks
         }
     }
 
-    private static string? DescribeOrigin(DesktopSaleEntity sale, string? shopName)
+    private static string? DescribeReference(string? externalReference) =>
+        string.IsNullOrWhiteSpace(externalReference) ? null : $"Ref {externalReference.Trim()}";
+
+    private static string? DescribeCapturedBy(string? capturedBy) =>
+        string.IsNullOrWhiteSpace(capturedBy) ? null : $"Captured by {capturedBy.Trim()}";
+
+    /// <summary>
+    /// When the sale actually happened, to the minute.
+    /// </summary>
+    /// <remarks>
+    /// <c>DocDate</c> is the trading day and nothing else on the document narrows it, so until this the
+    /// time of a sale existed nowhere in SAP — which is the one thing an investigation into a disputed
+    /// takings figure asks for first. Read from <see cref="DesktopSaleEntity.ReceiptDate"/> where there
+    /// is one, because that is the taxpayer's wall clock as the receipt was signed in it, and it is
+    /// what the customer's copy shows; <see cref="DesktopSaleEntity.CreatedAt"/> is the fallback and is
+    /// UTC, which for a Zimbabwean trading day differs by two hours. Both are labelled by the same
+    /// caller-visible text deliberately: a remark that said "UTC" on some sales and not others would
+    /// invite the reader to assume the unlabelled ones are local.
+    /// </remarks>
+    private static string? DescribeSoldAt(DateTime soldAt) =>
+        soldAt == default ? null : $"Sold {soldAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// Who bought, for the routes where <c>CardCode</c> does not say.
+    /// </summary>
+    /// <remarks>
+    /// A van invoices its own business partner and a vending sale is billed to the depot, so on both the
+    /// billed account is the same on every sale and answers "which van" or "which depot" rather than
+    /// "who bought". This is also on the invoice's <c>NumAtCard</c> — see
+    /// <see cref="DesktopSaleCustomerReference"/> — and is repeated here rather than left to it, because
+    /// that field takes one value and is capped: a van names the shop and loses the code, vending names
+    /// the code and loses the shop, and a long name is truncated outright. Here both fit.
+    ///
+    /// <para>
+    /// Null for a shop till, which sells over a counter and has no counterparty to name.
+    /// </para>
+    /// </remarks>
+    private static string? DescribeParty(string? sourceSystem, string? code, string? name)
     {
-        var source = sale.SourceSystem?.Trim() switch
+        var label = SaleSourceSystems.IsVanSale(sourceSystem)
+            ? "Customer"
+            : string.Equals(sourceSystem?.Trim(), SaleSourceSystems.Vending, StringComparison.OrdinalIgnoreCase)
+                ? "Vendor"
+                : null;
+
+        if (label is null)
+        {
+            return null;
+        }
+
+        var trimmedCode = string.IsNullOrWhiteSpace(code) ? null : code.Trim();
+        var trimmedName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+
+        return (trimmedCode, trimmedName) switch
+        {
+            (null, null) => null,
+            (null, _) => $"{label} {trimmedName}",
+            (_, null) => $"{label} {trimmedCode}",
+            _ => $"{label} {trimmedCode} — {trimmedName}"
+        };
+    }
+
+    private static string? DescribeOrigin(string? sourceSystem, string? warehouseCode, string? shopName)
+    {
+        var source = sourceSystem?.Trim() switch
         {
             SaleSourceSystems.ShopTill => "Shop till",
             SaleSourceSystems.Vending => "Vending",
             SaleSourceSystems.VanSales => "Van sale",
+            SaleSourceSystems.VanSalesOnline => "Van sale",
             null or "" => null,
             var other => other
         };
 
-        var code = string.IsNullOrWhiteSpace(sale.WarehouseCode) ? null : sale.WarehouseCode.Trim();
+        var code = string.IsNullOrWhiteSpace(warehouseCode) ? null : warehouseCode.Trim();
         var name = string.IsNullOrWhiteSpace(shopName) ? null : shopName.Trim();
 
         var place = (name, code) switch
@@ -209,15 +341,15 @@ public static class DesktopSaleInvoiceRemarks
         return details.Count == 0 ? null : "Fiscal " + string.Join(", ", details);
     }
 
-    private static string? DescribePayment(DesktopSaleEntity sale)
+    private static string? DescribePayment(string? paymentMethod, string? paymentReference)
     {
-        if (string.IsNullOrWhiteSpace(sale.PaymentMethod))
+        if (string.IsNullOrWhiteSpace(paymentMethod))
         {
             return null;
         }
 
-        return string.IsNullOrWhiteSpace(sale.PaymentReference)
-            ? $"Paid {sale.PaymentMethod.Trim()}"
-            : $"Paid {sale.PaymentMethod.Trim()} ({sale.PaymentReference.Trim()})";
+        return string.IsNullOrWhiteSpace(paymentReference)
+            ? $"Paid {paymentMethod.Trim()}"
+            : $"Paid {paymentMethod.Trim()} ({paymentReference.Trim()})";
     }
 }

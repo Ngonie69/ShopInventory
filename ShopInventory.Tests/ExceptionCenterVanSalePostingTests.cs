@@ -381,6 +381,7 @@ public sealed class ExceptionCenterVanSalePostingTests : IDisposable
                 SaleBatchAllocators.Holding(),
                 new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
                 SalePostGuards.Backed(_connection),
+                DesktopCreditPosters.Idle(_context),
                 Options.Create(new VanSalesPostingSettings()),
                 NullLogger<VanSalesEndOfDayPostingService>.Instance),
             StubProxy.Unused<MediatR.IMediator>(),

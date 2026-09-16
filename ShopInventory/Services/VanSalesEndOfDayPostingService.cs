@@ -4,6 +4,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -34,6 +35,7 @@ public sealed class VanSalesEndOfDayPostingService(
     IBatchInventoryValidationService batchValidation,
     IStockLedger stockLedger,
     IDesktopSalePostGuard postGuard,
+    DesktopCreditSapPoster creditPoster,
     IOptions<VanSalesPostingSettings> settings,
     ILogger<VanSalesEndOfDayPostingService> logger)
 {
@@ -89,6 +91,19 @@ public sealed class VanSalesEndOfDayPostingService(
                         s.DocDate <= date &&
                         s.SourceSystem == SaleSourceSystems.VanSales &&
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
+                        // Fiscalised, and nothing else. This route had no fiscal test at all: it
+                        // selected on the consolidation status alone, so a van sale that the handset
+                        // never stamped and the REVMax sweep could not sign — a blocked item, six
+                        // failed attempts, fiscalisation switched off for the day — still reached SAP
+                        // as an ordinary A/R invoice. The till route has always required this; the
+                        // difference was an oversight rather than a decision, and it is the more
+                        // dangerous half of the two, because a van sale is posted one-to-one and its
+                        // invoice is what the SAP-to-FDMS reconciliation expects to find a receipt for.
+                        //
+                        // Skipped is refused along with Pending and Failed, unlike on the till route
+                        // where it used to mean "fiscalisation was never asked for". Nothing asks for
+                        // a van sale without it.
+                        s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success &&
                         s.PostingAttempts < MaxPostingAttempts)
             // Oldest day first, so a backlog reaches SAP in the order it was sold rather than the order
             // it happened to be uploaded in.
@@ -251,6 +266,60 @@ public sealed class VanSalesEndOfDayPostingService(
         IStockReadWindow readWindow,
         CancellationToken cancellationToken)
     {
+        await PostInvoiceAsync(sale, result, readWindow, cancellationToken);
+
+        // Whatever the invoice did, any fiscal credit already taken against this sale is raised now.
+        // Outside the invoice work rather than inside it, so it also covers the paths that post nothing
+        // because SAP turned out to hold the invoice already — a credit against an adopted invoice is
+        // owed exactly as much as one against an invoice this pass created.
+        await RaiseDeferredCreditsAsync(sale);
+    }
+
+    /// <summary>
+    /// Raises the SAP credit memos for fiscal credits taken against this sale before it got here.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same hook <c>DesktopSalePostingService</c> has, and the van route went without it: a credit
+    /// raised against a van sale in the morning waited for <c>DesktopCreditSapSweep</c> to notice that
+    /// the evening run had posted the invoice, rather than being raised the moment it became raisable.
+    /// The sweep still covers what this cannot — a process that died between the two, and every retry.
+    /// </para>
+    /// <para>
+    /// Advisory, and never allowed to fail the post. The invoice is in SAP by the time this runs;
+    /// turning a credit's failure into an error here would put a van sale back on the queue over a
+    /// document that already exists, and a van sale re-posted is a second fiscal document for one
+    /// ZIMRA receipt. A credit left owing is recorded on its own row and picked up by the sweep.
+    /// </para>
+    /// </remarks>
+    private async Task RaiseDeferredCreditsAsync(DesktopSaleEntity sale)
+    {
+        if (sale.SapDocEntry is not > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await creditPoster.SettleForSaleAsync(sale.Id, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Van sale {ExternalReference} posted, but the fiscal credits against it could not be "
+                + "raised in SAP.",
+                sale.ExternalReferenceId);
+        }
+    }
+
+    private async Task PostInvoiceAsync(
+        DesktopSaleEntity sale,
+        VanSalesPostingRunResult result,
+        IStockReadWindow readWindow,
+        CancellationToken cancellationToken)
+    {
+
         // One post per sale at a time. The lookups below make a *sequence* of attempts safe; they say
         // nothing about two running at once, and a van sale is the strictest case in the system — it
         // already carries its own ZIMRA receipt, so a second invoice is a second fiscal document for

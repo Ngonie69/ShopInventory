@@ -56,7 +56,7 @@ public sealed class DesktopSaleInvoiceRemarksTests : IDisposable
         Assert.Equal(
             "Shop till, Greystone (KEFGRS) | Ref GRC-FAC-20260910-0A519807CF88 | "
             + "Fiscal device 8DE6996C0188, day 524, receipt 1187, code 4483-3DDB-7201-5905 | "
-            + "Captured by Tendai Moyo | Paid Cash",
+            + "Captured by Tendai Moyo | Sold 2026-09-10 14:32 | Paid Cash",
             remarks);
 
         Assert.True(remarks.Length <= DesktopSaleInvoiceRemarks.MaxLength);
@@ -88,6 +88,106 @@ public sealed class DesktopSaleInvoiceRemarksTests : IDisposable
 
         Assert.StartsWith("Van sale, VAN006 | ", remarks);
         Assert.Contains("receipt 501", remarks);
+    }
+
+    [Fact]
+    public void A_van_invoice_names_the_shop_that_bought()
+    {
+        // CardCode is the van's own business partner and is the same on every sale it makes, so
+        // without this the document cannot say who bought. Named here as well as in NumAtCard because
+        // that field takes one value and is capped: it carries the name and loses the code.
+        var sale = TillSale();
+        sale.SourceSystem = SaleSourceSystems.VanSales;
+        sale.WarehouseCode = "VAN006";
+        sale.RouteCustomerCode = "RC014";
+        sale.RouteCustomerName = "Mereki Store";
+
+        var remarks = DesktopSaleInvoiceRemarks.Build(sale, DesktopSaleRemarkNames.None);
+
+        Assert.Contains("Customer RC014 — Mereki Store", remarks);
+        Assert.True(remarks.Length <= DesktopSaleInvoiceRemarks.MaxLength);
+    }
+
+    [Fact]
+    public void A_vending_invoice_names_the_vendor()
+    {
+        var sale = TillSale();
+        sale.SourceSystem = SaleSourceSystems.Vending;
+        sale.RouteCustomerCode = "VMB001";
+        sale.RouteCustomerName = "Tarisai";
+
+        var remarks = DesktopSaleInvoiceRemarks.Build(sale, DesktopSaleRemarkNames.None);
+
+        Assert.StartsWith("Vending, KEFGRS | Vendor VMB001 — Tarisai | ", remarks);
+    }
+
+    [Fact]
+    public void A_till_invoice_names_no_party()
+    {
+        // A till sells over a counter to whoever is standing there. There is nobody to name, and a
+        // label with nothing after it would read as a missing value rather than an absent one.
+        var remarks = DesktopSaleInvoiceRemarks.Build(TillSale(), DesktopSaleRemarkNames.None);
+
+        Assert.DoesNotContain("Customer", remarks);
+        Assert.DoesNotContain("Vendor", remarks);
+    }
+
+    [Fact]
+    public void The_time_of_sale_comes_from_the_signed_receipt_where_there_is_one()
+    {
+        // DocDate is the trading day and nothing else on the SAP document narrows it, so until this
+        // the time of a sale existed nowhere in SAP. ReceiptDate is the taxpayer's wall clock as the
+        // receipt was signed in it, which is what the customer's copy shows; CreatedAt is UTC, and for
+        // a Zimbabwean trading day the two differ by two hours.
+        var sale = TillSale();
+        sale.ReceiptDate = new DateTime(2026, 9, 10, 16, 32, 0);
+
+        Assert.Contains("Sold 2026-09-10 16:32", DesktopSaleInvoiceRemarks.Build(sale, DesktopSaleRemarkNames.None));
+    }
+
+    [Fact]
+    public void A_column_too_short_gives_up_the_tender_before_the_party_and_the_receipt_last_of_all()
+    {
+        var sale = TillSale();
+        sale.SourceSystem = SaleSourceSystems.VanSales;
+        sale.RouteCustomerCode = "RC014";
+        sale.RouteCustomerName = "Mereki Store";
+        // Enough to overflow the column by a little, so exactly one part has to go. A name long
+        // enough to overflow it by a lot would drop everything below the party and then the party
+        // too, which proves the loop terminates and nothing about the order.
+        sale.PaymentReference = new string('P', 60);
+
+        var remarks = DesktopSaleInvoiceRemarks.Build(
+            sale, new DesktopSaleRemarkNames("Greystone", "Tendai Moyo"));
+
+        Assert.True(remarks.Length <= DesktopSaleInvoiceRemarks.MaxLength);
+
+        // The tender goes first: it is the one part the document does not depend on, because no sale
+        // here carries a payment of its own — the day's incoming payment settles them all at 17:00.
+        Assert.DoesNotContain("Paid Cash", remarks);
+
+        // Everything that answers a question about the sale survives it.
+        Assert.Contains("receipt 1187", remarks);
+        Assert.Contains("Customer RC014", remarks);
+        Assert.Contains("Sold 2026-09-10 14:32", remarks);
+        Assert.Contains("Captured by Tendai Moyo", remarks);
+    }
+
+    [Fact]
+    public void The_fiscal_receipt_is_the_last_thing_a_short_column_gives_up()
+    {
+        // It is the join between this invoice and the ZIMRA receipt the customer holds, and nothing
+        // else on the document carries it at all.
+        var sale = TillSale();
+        sale.SourceSystem = SaleSourceSystems.VanSales;
+        sale.RouteCustomerCode = "RC014";
+        sale.RouteCustomerName = new string('M', 400);
+
+        var remarks = DesktopSaleInvoiceRemarks.Build(
+            sale, new DesktopSaleRemarkNames("Greystone", "Tendai Moyo"));
+
+        Assert.True(remarks.Length <= DesktopSaleInvoiceRemarks.MaxLength);
+        Assert.Contains("receipt 1187", remarks);
     }
 
     [Fact]
@@ -236,7 +336,7 @@ public sealed class DesktopSaleInvoiceRemarksTests : IDisposable
         Assert.Equal(
             "Shop till, Greystone (KEFGRS) | Ref GRC-FAC-20260910-0A519807CF88 | "
             + "Fiscal device 8DE6996C0188, day 524, receipt 1187, code 4483-3DDB-7201-5905 | "
-            + "Captured by Tendai Moyo | Paid Cash",
+            + "Captured by Tendai Moyo | Sold 2026-09-10 14:32 | Paid Cash",
             Assert.Single(sap.Created).Comments);
     }
 
@@ -261,6 +361,7 @@ public sealed class DesktopSaleInvoiceRemarksTests : IDisposable
             SaleBatchAllocators.Holding(),
             new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             SalePostGuards.Backed(_connection),
+            DesktopCreditPosters.Idle(_context),
             Options.Create(new VanSalesPostingSettings()),
             NullLogger<VanSalesEndOfDayPostingService>.Instance).PostPendingSalesAsync(today);
 
@@ -280,6 +381,9 @@ public sealed class DesktopSaleInvoiceRemarksTests : IDisposable
         SourceSystem = SaleSourceSystems.ShopTill,
         CardCode = "COR007",
         DocDate = new DateTime(2026, 9, 10),
+        // Pinned, because the remark now says when the sale happened and this column otherwise
+        // defaults to the moment the test ran.
+        CreatedAt = new DateTime(2026, 9, 10, 14, 32, 0, DateTimeKind.Utc),
         TotalAmount = 7.22m,
         VatAmount = 0.97m,
         Currency = "USD",

@@ -17,7 +17,11 @@ public static class DesktopSaleInvoiceRequestBuilder
         CardCode = sale.CardCode,
         DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
         DocDueDate = sale.DocDate.ToString("yyyy-MM-dd"),
-        NumAtCard = sale.ExternalReferenceId,
+        // Who bought, where SAP shows a customer reference — the route customer's name for a van, the
+        // vendor's code for vending. CardCode cannot answer that on either route: it names the van or
+        // the depot. See DesktopSaleCustomerReference, including why this is safe to change and why a
+        // credit memo's NumAtCard is not. A till sale still carries its own reference here.
+        NumAtCard = DesktopSaleCustomerReference.For(sale),
         // Both the SAP-side duplicate guard and the local idempotency key. Set from the sale's own
         // reference, which is derivable without anything the post returns — the property that makes
         // recovery after a lost reply possible at all.

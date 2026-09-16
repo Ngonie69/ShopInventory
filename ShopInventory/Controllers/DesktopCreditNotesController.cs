@@ -7,7 +7,11 @@ namespace ShopInventory.Controllers;
 
 [ApiController]
 [Route("api/DesktopIntegration/sales/{reference}/credit-notes")]
-[Authorize(Policy = "ApiAccess", Roles = "Admin,Cashier,Manager,ApiUser")]
+// CartVendor sells vending, and a return handed back at a cart is the commonest credit there is. Safe
+// to admit because every method here goes through DesktopCreditNoteService.ReadSale, and
+// DesktopSalesReadScope already confines a cart vendor to the one warehouse it sells out of — a code
+// naming another depot's sale is refused there, not here.
+[Authorize(Policy = "ApiAccess", Roles = "Admin,Cashier,Manager,ApiUser,CartVendor")]
 public sealed class DesktopCreditNotesController(DesktopCreditNoteService service,
     ILogger<DesktopCreditNotesController> logger) : ControllerBase
 {
