@@ -106,6 +106,12 @@ public class InvoicePdfService : IInvoicePdfService
 
         private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
+        // An address value is a min-height: 15px div on a baseline-aligned row. Left empty it has no
+        // text baseline, so the browser takes its bottom edge as one and drops the label to meet it:
+        // 4px, as Chrome lays the design out in Arial, which is metrically Helvetica. The design's own
+        // sample leaves three of these empty, and a cash customer's invoice usually does too.
+        private static readonly float EmptyValueDrop = Px(4);
+
         private static readonly (string Label, string Value)[] DepositAccount =
         [
             ("Bank:", "Stanbic Bank Zimbabwe"),
@@ -180,10 +186,14 @@ public class InvoicePdfService : IInvoicePdfService
                     .SetCharacterSpacing(Tracking(20, 0.01f))
                     .SetTextAlignment(TextAlignment.CENTER)));
 
+            // align-items: baseline. Both cells sit on the rule, so the smaller page count is lifted
+            // until its baseline meets the title's.
             var count = new Table(2).SetHorizontalAlignment(HorizontalAlignment.RIGHT);
             count.AddCell(Bare().Add(PageCountLine($"PAGE  {page}")));
             count.AddCell(Bare().SetPaddingLeft(Px(18)).Add(PageCountLine($"OF  {pageCount}")));
-            band.AddCell(TitleBandCell().Add(count));
+            band.AddCell(TitleBandCell()
+                .SetPaddingBottom(Px(10) + BaselineLift(_bold, Px(20), Px(10), BodyLeading))
+                .Add(count));
 
             return band;
         }
@@ -281,7 +291,8 @@ public class InvoicePdfService : IInvoicePdfService
 
             details.AddCell(Bare()
                 .SetPaddingRight(Px(20))
-                .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+                // The grid is align-items: start, so the flex column's centring has no height to act in.
+                .SetVerticalAlignment(VerticalAlignment.TOP)
                 .Add(Strong("VAT Reg: 220140892").SetTextAlignment(TextAlignment.RIGHT))
                 .Add(Strong("TIN No: 2000022395").SetTextAlignment(TextAlignment.RIGHT).SetMarginTop(Px(4))));
 
@@ -361,7 +372,8 @@ public class InvoicePdfService : IInvoicePdfService
             for (var index = 0; index < rows.Length; index++)
             {
                 var rowGap = index == rows.Length - 1 ? 0 : Px(7);
-                grid.AddCell(Bare().SetPaddingBottom(rowGap).Add(Strong(rows[index].Label)));
+                var drop = string.IsNullOrWhiteSpace(rows[index].Value) ? EmptyValueDrop : 0f;
+                grid.AddCell(Bare().SetPaddingTop(drop).SetPaddingBottom(rowGap).Add(Strong(rows[index].Label)));
                 grid.AddCell(Bare().SetPaddingBottom(rowGap).Add(Body(rows[index].Value ?? string.Empty, Filled)));
             }
 
@@ -372,7 +384,7 @@ public class InvoicePdfService : IInvoicePdfService
 
         private Table LineItems(InvoiceDto invoice)
         {
-            var items = new Table(UnitValue.CreatePercentArray(ItemColumns.Select(column => column.Percent).ToArray()))
+            var items = new Table(UnitValue.CreatePointArray(ItemColumnWidths()))
                 .SetWidth(ContentWidth)
                 .SetFixedLayout()
                 .SetMarginTop(Px(18));
@@ -402,6 +414,23 @@ public class InvoicePdfService : IInvoicePdfService
             }
 
             return items;
+        }
+
+        /// <summary>The item columns' widths as the browser lays out the design's fixed table.</summary>
+        /// <remarks>
+        /// Under table-layout: fixed a cell's width is its content box, so each column claims its
+        /// percentage plus the cell's 16px of padding and its 1px border, and the whole is then scaled
+        /// back to the table's width. Taken as bare percentages, Service Description came out 13pt
+        /// too wide and the price columns sat up to 7pt right of the design.
+        /// </remarks>
+        private static float[] ItemColumnWidths()
+        {
+            var claimed = ItemColumns
+                .Select(column => ContentWidth * column.Percent / 100f + Px(16) + Px(1))
+                .ToArray();
+            var scale = ContentWidth / claimed.Sum();
+
+            return claimed.Select(width => width * scale).ToArray();
         }
 
         private void ItemCell(Table table, string text, Color color, TextAlignment align)
@@ -537,7 +566,7 @@ public class InvoicePdfService : IInvoicePdfService
             block.Add(new Paragraph()
                 .Add(new Text("Verify this receipt manually at ").SetFont(_regular).SetFontSize(Px(10)).SetFontColor(Muted))
                 .Add(new Link(site, PdfAction.CreateURI(site)).SetFont(_regular).SetFontSize(Px(10)).SetFontColor(LinkInk))
-                .SetMultipliedLeading(1.4f)
+                .SetFixedLeading(LineHeight(Px(10), 1.4f))
                 .SetMargin(0)
                 .SetMarginTop(Px(3)));
 
@@ -561,7 +590,7 @@ public class InvoicePdfService : IInvoicePdfService
                     // A verification code is read out over the phone; broken at a hyphen, the last group
                     // reads as a separate figure. When it does not fit beside its label it drops whole.
                     .SetSplitCharacters(KeepWhole.Instance))
-                .SetMultipliedLeading(1.35f)
+                .SetFixedLeading(LineHeight(Px(10), 1.35f))
                 .SetMargin(0)
                 .SetMarginBottom(Px(3)));
         }
@@ -666,8 +695,31 @@ public class InvoicePdfService : IInvoicePdfService
                 .SetFont(font)
                 .SetFontSize(size)
                 .SetFontColor(color)
-                .SetMultipliedLeading(BodyLeading)
+                .SetFixedLeading(LineHeight(size, BodyLeading))
                 .SetMargin(0);
+
+        /// <summary>
+        /// How far a line set at <paramref name="smallSize"/> must sit above the foot of a line set at
+        /// <paramref name="largeSize"/> for their baselines to meet, when both share a font and a
+        /// line-height. Under a fixed leading iText centres the font's ascent-to-descent span in the
+        /// line, so a baseline sits (leading - ascent - descent) / 2 above the line's foot, the descent
+        /// counting negative.
+        /// </summary>
+        private static float BaselineLift(PdfFont font, float largeSize, float smallSize, float lineHeight)
+        {
+            var metrics = TextRenderer.CalculateAscenderDescender(font);
+            var ascentPlusDescent = (metrics[0] + metrics[1]) / 1000f;
+
+            return (LineHeight(largeSize, lineHeight) - LineHeight(smallSize, lineHeight)) / 2
+                - ascentPlusDescent * (largeSize - smallSize) / 2;
+        }
+
+        /// <summary>
+        /// A CSS line-height, as a fixed leading. iText's multiplied leading scales the font's own
+        /// ascent-to-descent span rather than the font size, so 1.45 set that way ran each Helvetica
+        /// line about 1.3pt taller than the design's and the drift added up down the page.
+        /// </summary>
+        private static float LineHeight(float size, float multiplier) => size * multiplier;
 
         private Paragraph Body(string text, Color color) => Line(text, _regular, BodySize, color);
 

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+<!--
+  Fiscal Tax Invoice.dc.html (claude.ai design project 897f4900-e29e-417a-b893-d34ae6031bc7) as a
+  static page, so headless Chrome can print it with no design runtime. Kept to the design's markup:
+  <doc-page> and <image-slot> become fixed boxes, the sc-if blocks are resolved to the design's
+  defaults (delivery box and QR shown, row rules hidden), and the sample values are the test
+  fixture's (DesignInvoice) so every text run has a partner in the service's PDF; INVOICE NUMBER
+  carries the DocNum the service prints, where the design's sample reads INV-772398. The font is the
+  design's own fallback, Arial, which is metrically the PDF's Helvetica.
+-->
+<meta charset="utf-8">
+<style>
+@page{size:210mm 297mm;margin:0}
+html,body{margin:0;padding:0}
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+a{color:#5a2a8f}
+.page{width:210mm;height:297mm;overflow:hidden;position:relative;box-sizing:border-box}
+</style>
+</head>
+<body>
+<section class="page" data-screen-label="Invoice">
+<div style="height:100%;box-sizing:border-box;padding:40px 44px 36px;display:flex;flex-direction:column;background:#ffffff;color:#14141a;font-family:Arial, Helvetica, sans-serif;font-size:11px;line-height:1.45;-webkit-font-smoothing:antialiased">
+
+<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:baseline;gap:16px;padding-bottom:10px;border-bottom:1.5px solid #14141a">
+<div></div>
+<div style="font-size:20px;font-weight:700;letter-spacing:0.01em;white-space:nowrap">Fiscal Tax Invoice</div>
+<div style="display:flex;justify-content:flex-end;align-items:baseline;gap:18px;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#3a3a46">
+<span>PAGE&nbsp;&nbsp;1</span>
+<span>OF&nbsp;&nbsp;1</span>
+</div>
+</div>
+
+<div style="margin-top:20px;text-align:center;font-size:14.5px;font-weight:700;letter-spacing:0.02em">KEFALOS CHEESE PRODUCTS PVT (LTD)</div>
+
+<div style="margin-top:14px;display:grid;grid-template-columns:200px 1fr 1fr;gap:28px;align-items:start">
+<div style="width:200px;height:100px;background:#eee"></div>
+<div>
+<div style="font-size:10.5px;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">ADMINISTRATION OFFICE</div>
+<div style="display:flex;flex-direction:column;gap:2px;color:#7a2020">
+<div>35C Kingsmead Road, Borrowdale</div>
+<div>Harare, Zimbabwe</div>
+<div>Tel: +263/242 764 301/02/03</div>
+<div>Email: marketing@kefaloscheese.com</div>
+<div>Website: www.kefalosfood.com</div>
+</div>
+</div>
+<div>
+<div style="font-size:10.5px;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">FACTORY</div>
+<div style="display:flex;flex-direction:column;gap:2px;color:#7a2020">
+<div>Bhara Bhara Farm, Mubaira Road</div>
+<div>Harare South, Harare, Zimbabwe</div>
+<div>Tel: +263 242 613 454/5/6/5</div>
+<div>Email: kefalos@kefaloscheese.com</div>
+<div>Facebook: www.facebook.com/kefalosproducts</div>
+</div>
+</div>
+</div>
+
+<div style="margin-top:18px;display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start">
+<div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:4px;font-weight:600;text-align:right">
+<div>VAT Reg: 220140892</div>
+<div>TIN No: 2000022395</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid #14141a">
+<div style="padding:4px 8px;font-weight:700;letter-spacing:0.02em;font-size:10px;border-right:1px solid #14141a;border-bottom:1px solid #14141a">DOC NUMBER</div>
+<div style="padding:4px 8px;border-bottom:1px solid #14141a;color:#7a2020;font-size:10px">772398</div>
+<div style="padding:4px 8px;font-weight:700;letter-spacing:0.02em;font-size:10px;border-right:1px solid #14141a;border-bottom:1px solid #14141a;white-space:nowrap">INVOICE NUMBER</div>
+<div style="padding:4px 8px;border-bottom:1px solid #14141a;color:#7a2020;font-size:10px">772398</div>
+<div style="padding:4px 8px;font-weight:700;letter-spacing:0.02em;font-size:10px;border-right:1px solid #14141a;border-bottom:1px solid #14141a">REF :</div>
+<div style="padding:4px 8px;border-bottom:1px solid #14141a;color:#7a2020;font-size:10px">Kefalos Shop</div>
+<div style="padding:4px 8px;font-weight:700;letter-spacing:0.02em;font-size:10px;border-right:1px solid #14141a">DATE</div>
+<div style="padding:4px 8px;color:#7a2020;font-size:10px">11/09/26</div>
+</div>
+</div>
+
+<div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch">
+<div style="border:1px solid #14141a;padding:9px 12px 12px;display:flex;flex-direction:column;gap:8px">
+<div style="font-size:10.5px;font-weight:700;letter-spacing:0.06em">INVOICE ADDRESS</div>
+<div style="display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:12px;row-gap:7px;align-items:baseline">
+<div style="font-weight:600;white-space:nowrap">Customer Name:</div><div style="color:#7a2020;min-height:15px">Kefalos Shop</div>
+<div style="font-weight:600;white-space:nowrap">Customer Address:</div><div style="color:#7a2020;min-height:15px"></div>
+<div style="font-weight:600;white-space:nowrap">VAT NO:</div><div style="color:#7a2020;min-height:15px"></div>
+<div style="font-weight:600;white-space:nowrap">TIN NUMBER:</div><div style="color:#7a2020;min-height:15px"></div>
+</div>
+</div>
+<div style="border:1px solid #14141a;padding:9px 12px 12px;display:flex;flex-direction:column;gap:8px;height:100%;box-sizing:border-box">
+<div style="font-size:10.5px;font-weight:700;letter-spacing:0.06em">DELIVERY ADDRESS</div>
+<div style="display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:12px;row-gap:7px;align-items:baseline">
+<div style="font-weight:600;white-space:nowrap">Contact Details:</div><div style="color:#7a2020;min-height:15px"></div>
+</div>
+</div>
+</div>
+
+<div style="margin-top:18px;flex:1;display:flex;flex-direction:column;min-height:0">
+<table style="width:100%;border-collapse:collapse;table-layout:fixed">
+<thead>
+<tr>
+<th style="width:13%;text-align:left;font-weight:700;letter-spacing:0.03em;padding:6px 8px;border:1px solid #14141a;white-space:nowrap">Item Code</th>
+<th style="width:10%;text-align:left;font-weight:700;letter-spacing:0.03em;padding:6px 8px;border:1px solid #14141a;white-space:nowrap">Quantity</th>
+<th style="width:32%;text-align:left;font-weight:700;letter-spacing:0.03em;padding:6px 8px;border:1px solid #14141a;white-space:nowrap">Service Description</th>
+<th style="width:12%;text-align:right;font-weight:700;letter-spacing:0.03em;padding:6px 8px;border:1px solid #14141a;white-space:nowrap">Unit Price</th>
+<th style="width:12%;text-align:right;font-weight:700;letter-spacing:0.03em;padding:6px 8px;border:1px solid #14141a;white-space:nowrap">Total Exc</th>
+<th style="width:9%;text-align:right;font-weight:700;letter-spacing:0.03em;padding:6px 8px;border:1px solid #14141a;white-space:nowrap">VAT</th>
+<th style="width:12%;text-align:right;font-weight:700;letter-spacing:0.03em;padding:6px 8px;border:1px solid #14141a;white-space:nowrap">Total Inc</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding:8px;vertical-align:top;color:#14141a">SUP001</td>
+<td style="padding:8px;vertical-align:top">1</td>
+<td style="padding:8px;vertical-align:top;color:#7a2020">Superior White</td>
+<td style="padding:8px;vertical-align:top;text-align:right;font-variant-numeric:tabular-nums">1.00</td>
+<td style="padding:8px;vertical-align:top;text-align:right;font-variant-numeric:tabular-nums">1.00</td>
+<td style="padding:8px;vertical-align:top;text-align:right;font-variant-numeric:tabular-nums">0.15</td>
+<td style="padding:8px;vertical-align:top;text-align:right;font-variant-numeric:tabular-nums">1.15</td>
+</tr>
+</tbody>
+</table>
+<div style="flex:1;min-height:24px"></div>
+<div style="border-top:1px solid #c9c9d2"></div>
+</div>
+
+<div style="margin-top:18px;display:grid;grid-template-columns:auto 1fr 320px;gap:24px;align-items:end">
+<div style="display:flex;flex-direction:column;gap:7px;width:170px">
+<div style="width:104px;height:104px;background:#eee"></div>
+<div style="display:flex;flex-direction:column;gap:3px;font-size:10px;line-height:1.35">
+<div><span style="font-weight:600">Verification Code:</span> <span style="color:#7a2020">60A7-4CD9-6120-2377</span></div>
+<div><span style="font-weight:600">Fiscal Day:</span> <span style="color:#7a2020">128</span></div>
+<div><span style="font-weight:600">Device ID:</span> <span style="color:#7a2020">22862</span></div>
+<div style="margin-top:3px;color:#3a3a46;line-height:1.4">Verify this receipt manually at <a href="https://fdms.zimra.co.zw" style="text-decoration:none">https://fdms.zimra.co.zw</a></div>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font-weight:700;letter-spacing:0.02em">Please deposit into:</div>
+<div style="display:grid;grid-template-columns:auto 1fr;column-gap:14px;row-gap:4px;align-items:baseline">
+<div style="font-weight:600">Bank:</div><div style="color:#7a2020">Stanbic Bank Zimbabwe</div>
+<div style="font-weight:600">Account Name:</div><div style="color:#7a2020">Kefalos Cheese Products</div>
+<div style="font-weight:600">Account Number:</div><div style="color:#7a2020">9140005966435</div>
+<div style="font-weight:600">Branch:</div><div style="color:#7a2020">Belgravia</div>
+<div style="font-weight:600">Currency:</div><div style="color:#7a2020">USD</div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr auto;border:1px solid #14141a;font-variant-numeric:tabular-nums">
+<div style="padding:5px 10px;font-weight:600;border-right:1px solid #14141a;border-bottom:1px solid #14141a">Net Total</div>
+<div style="padding:5px 10px;text-align:right;border-bottom:1px solid #14141a;min-width:86px">1.00</div>
+<div style="padding:5px 10px;font-weight:600;border-right:1px solid #14141a;border-bottom:1px solid #14141a">Discount</div>
+<div style="padding:5px 10px;text-align:right;border-bottom:1px solid #14141a">0.00</div>
+<div style="padding:5px 10px;font-weight:600;border-right:1px solid #14141a;border-bottom:1px solid #14141a">Freight</div>
+<div style="padding:5px 10px;text-align:right;border-bottom:1px solid #14141a">0.00</div>
+<div style="padding:5px 10px;font-weight:600;border-right:1px solid #14141a;border-bottom:1px solid #14141a">Total EXC VAT</div>
+<div style="padding:5px 10px;text-align:right;border-bottom:1px solid #14141a">1.00</div>
+<div style="padding:5px 10px;font-weight:600;border-right:1px solid #14141a;border-bottom:1px solid #14141a">VAT Total</div>
+<div style="padding:5px 10px;text-align:right;border-bottom:1px solid #14141a">0.15</div>
+<div style="padding:5px 10px;font-weight:700;border-right:1px solid #14141a">Invoice Total</div>
+<div style="padding:5px 10px;text-align:right;font-weight:700">USD 1.15</div>
+</div>
+</div>
+
+</div>
+</section>
+</body>
+</html>
