@@ -1305,7 +1305,7 @@
                         }
 
                         <div class="stg-sync-grid">
-                            @* Five near-identical tiles; every per-entity difference
+                            @* Six near-identical tiles; every per-entity difference
                                is carried on the tile itself. *@
                             @foreach (var tile in SyncTiles)
                             {
@@ -1715,6 +1715,9 @@
         /// <summary>Where the success message says the data came from.</summary>
         public string Source { get; init; } = "SAP";
 
+        /// <summary>What the success message adds after the count, for a sync with more to say.</summary>
+        public Func<string?>? Detail { get; init; }
+
         public bool IsBusy { get; set; }
         public DateTime? LastSync { get; set; }
 
@@ -1740,8 +1743,46 @@
         },
         new("Business Partners", "ph-users", "BusinessPartners", CacheService.SyncBusinessPartnersFromApiAsync),
         new("Warehouses", "ph-buildings", "Warehouses", CacheService.SyncWarehousesFromApiAsync),
-        new("Cost Centres", "ph-tree-structure", "CostCentres", CacheService.SyncCostCentresFromApiAsync)
+        new("Cost Centres", "ph-tree-structure", "CostCentres", CacheService.SyncCostCentresFromApiAsync),
+        new("Item Tax Groups", "ph-percent", MasterDataCacheService.ItemTaxGroupsSyncKey, async progress =>
+        {
+            lastTaxGroupSync = await CacheService.SyncItemTaxGroupsFromSapAsync(progress);
+            return lastTaxGroupSync.ItemsRead;
+        })
+        {
+            Source = "SAP into the API",
+            Detail = DescribeTaxGroupSync
+        }
     ];
+
+    private ItemTaxGroupSyncResultModel? lastTaxGroupSync;
+
+    /// <summary>
+    /// Names the items whose tax group moved, because that is what the person pressing the button
+    /// changed in SAP and wants to see land, and says when the shops will charge it.
+    /// </summary>
+    private string? DescribeTaxGroupSync()
+    {
+        if (lastTaxGroupSync is not { } result)
+        {
+            return null;
+        }
+
+        const int shown = 10;
+        var changed = result.Changed.Count == 0
+            ? "No item changed tax group."
+            : $"{result.Changed.Count} item(s) changed tax group: "
+                + string.Join(", ", result.Changed.Take(shown).Select(c => $"{c.ItemCode} {c.Was} → {c.Now}"))
+                + (result.Changed.Count > shown ? $" and {result.Changed.Count - shown} more." : ".");
+
+        var unconfigured = result.UnconfiguredGroups.Count == 0
+            ? ""
+            : $" Not configured, so charged or declared at the standard rate: {string.Join(", ", result.UnconfiguredGroups)}.";
+
+        return changed + unconfigured
+            + " Tills pick changes up within 4 hours, or at once when Refresh is pressed on the till."
+            + " Sales already made keep the tax they were charged.";
+    }
 
     private bool isRefreshingAll = false;
     // "Sync everything" walks its entities one at a time, so it can report real
@@ -2568,7 +2609,7 @@
         {
             var count = await RunSync(tile);
             refreshSuccess = true;
-            refreshMessage = $"Successfully synced {count} {name} from {tile.Source}.";
+            refreshMessage = $"Successfully synced {count} {name} from {tile.Source}. {tile.Detail?.Invoke()}".TrimEnd();
             await LogAudit(AuditActions.UpdateSettings, $"Refreshed {name} cache: {count} items synced");
         }
         catch (Exception ex)
@@ -2585,8 +2626,8 @@
     private async Task RefreshAllData()
     {
         // One entity per step, in tile order. A step that throws is recorded and
-        // the pass carries on, so a single failing entity never costs the other
-        // four. Each tile reports its own phases while its step runs, so the grid
+        // the pass carries on, so a single failing entity never costs the others.
+        // Each tile reports its own phases while its step runs, so the grid
         // shows both where the pass is and what the current entity is doing.
         isRefreshingAll = true;
         refreshMessage = null;

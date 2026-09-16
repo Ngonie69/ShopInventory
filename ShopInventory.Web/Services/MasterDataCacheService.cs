@@ -44,6 +44,9 @@ public interface IMasterDataCacheService
     Task<int> SyncWarehousesFromApiAsync(IProgress<SyncProgress>? progress = null);
     Task<int> SyncGLAccountsFromApiAsync();
     Task<int> SyncCostCentresFromApiAsync(IProgress<SyncProgress>? progress = null);
+
+    // Not a Web cache: copies SAP's item VAT groups into the API table till sales are taxed from.
+    Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null);
 }
 
 public class MasterDataCacheService : IMasterDataCacheService
@@ -676,6 +679,43 @@ public class MasterDataCacheService : IMasterDataCacheService
             syncResponse.StatusCode,
             errorContent,
             "We couldn't sync prices from SAP right now.");
+    }
+
+    public const string ItemTaxGroupsSyncKey = "ItemTaxGroups";
+
+    /// <summary>
+    /// Has the API copy every item's VAT group from SAP now, rather than at its 03:45 CAT job.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is cached on the Web side. The API table is what a till sale is taxed from and what
+    /// tills read their rates from, so it is the only copy that matters.
+    /// </remarks>
+    public async Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null)
+    {
+        var phases = new SyncPhaseReporter(progress, 1);
+        phases.Next("Reading the SAP item master");
+
+        var syncClient = _httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
+        using var response = await SendAuthenticatedAsync(
+            () => syncClient.PostAsync("api/sync/item-tax-groups", null),
+            syncClient);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Item tax group sync failed with status {Status}: {Error}", response.StatusCode, errorContent);
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorContent,
+                "We couldn't sync item tax groups from SAP right now.");
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<ItemTaxGroupSyncResultModel>()
+            ?? throw new InvalidOperationException("The API answered the item tax group sync with an empty body.");
+
+        _lastRefreshTimes[ItemTaxGroupsSyncKey] = DateTime.Now;
+        phases.Complete();
+        return result;
     }
 
     public async Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false)

@@ -3983,7 +3983,7 @@ on the web, and refused at the point of posting instead. `POST /mobile/order` ca
 ### 39. Sync & SAP Connection
 
 **Base route:** `/api/Sync`  
-**Auth:** Bearer + `ApiAccess`; `queue/process` is Admin
+**Auth:** Bearer + `ApiAccess`; `queue/process` and `item-tax-groups` are Admin
 
 The health of this API's link to SAP, and the offline queue that holds documents while it is down.
 
@@ -4001,9 +4001,17 @@ The health of this API's link to SAP, and the offline queue that holds documents
 | POST | `/api/Sync/queue/{id}/retry` | Retry one queued transaction |
 | POST | `/api/Sync/queue/{id}/cancel` | Cancel one |
 | POST | `/api/Sync/queue/process` | **Admin.** Drain the queue now |
+| POST | `/api/Sync/item-tax-groups` | **Admin.** Copy item VAT groups from SAP now |
 
 `/queue` and `/queue/status` are two routes on one action, not two endpoints — they answer
 identically, and neither is deprecated.
+
+`item-tax-groups` does now what the 03:45 CAT `SapItemTaxGroupWarmJob` does nightly: reads
+every sellable item's VAT group from the SAP item master, bypassing the six-hour cache, into
+`SapItemTaxGroups`, the table till sales are taxed from and `DesktopIntegration/tax/item-rates`
+serves. It answers with the counts, each item whose group changed (`itemCode`, `was`, `now`), and
+any group in use with no configured rate or tax id. A failed or empty SAP read changes nothing and
+answers an error; a sync already running answers 409. Tills re-read within four hours, or on Refresh.
 
 ---
 
