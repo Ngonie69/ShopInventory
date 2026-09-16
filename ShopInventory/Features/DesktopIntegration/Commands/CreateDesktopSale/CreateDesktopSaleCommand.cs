@@ -91,6 +91,20 @@ public class CreateDesktopSaleLineRequest
 public class DesktopSaleResponseDto
 {
     public int SaleId { get; set; }
+
+    /// <summary>
+    /// The short number this sale is known by, formatted — <c>INV10427</c>.
+    /// </summary>
+    /// <remarks>
+    /// This is the number the customer's receipt already carries: the KefShop till prints
+    /// <c>INV{saleId}</c> from <see cref="SaleId"/> below, and it is what the customer reads back when
+    /// they return goods. It is sent formatted so that a client printing it has no format of its own to
+    /// get wrong — the console searches for this exact string, and a receipt spelling it differently
+    /// would be a receipt the console cannot find.
+    /// See <see cref="Common.Sales.DesktopSaleNumber"/>.
+    /// </remarks>
+    public string SaleNumber { get; set; } = string.Empty;
+
     public string ExternalReferenceId { get; set; } = string.Empty;
     public string CardCode { get; set; } = string.Empty;
 

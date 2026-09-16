@@ -714,6 +714,7 @@ public sealed class CreateDesktopSaleHandler(
         var result = new DesktopSaleResponseDto
         {
             SaleId = sale.Id,
+            SaleNumber = DesktopSaleNumber.Format(sale.Id),
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
             WarehouseCode = sale.WarehouseCode,
@@ -749,6 +750,7 @@ public sealed class CreateDesktopSaleHandler(
         return new DesktopSaleResponseDto
         {
             SaleId = sale.Id,
+            SaleNumber = DesktopSaleNumber.Format(sale.Id),
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
             WarehouseCode = sale.WarehouseCode,

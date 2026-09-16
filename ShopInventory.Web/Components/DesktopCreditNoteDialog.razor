@@ -24,8 +24,16 @@
             <div class="ops-dcn-head">
                 <div class="ops-dcn-id">
                     <div class="ops-dcn-eyebrow">Credit note</div>
-                    <h2 id="desktop-credit-title" class="ops-dcn-ref">@Reference</h2>
+                    @* The sale is named by its short number, which is what the operator read off the
+                       customer's receipt to find it. The device reference follows in the meta row
+                       below rather than heading the dialog: it confirms the right sale to anyone
+                       checking against ZIMRA, and confirms nothing to the person at the counter. *@
+                    <h2 id="desktop-credit-title" class="ops-dcn-ref">@Heading</h2>
                     <div class="ops-dcn-meta">
+                        @if (!string.IsNullOrWhiteSpace(SaleNumber) && !string.IsNullOrWhiteSpace(Reference))
+                        {
+                            <span class="ops-code">@Reference</span>
+                        }
                         @if (form != null)
                         {
                             <span>Receipt <b>@form.Source.ReceiptGlobalNo</b></span>
@@ -304,6 +312,21 @@
     /// The sale being credited. Null or empty closes the dialog, which is how a host opens and shuts it.
     /// </summary>
     [Parameter, EditorRequired] public string? Reference { get; set; }
+
+    /// <summary>
+    /// The sale's short number — <c>INV10427</c> — which is what the heading names it by.
+    /// </summary>
+    /// <remarks>
+    /// Display only. <see cref="Reference"/> stays the key every call this dialog makes is addressed
+    /// by, because it is what the device signed the receipt under and what the API looks the sale up
+    /// by; the number is what the operator matched against the customer's receipt to get here, so it
+    /// is what the dialog should confirm back to them. Falls back to the reference when a host has
+    /// not supplied one.
+    /// </remarks>
+    [Parameter] public string? SaleNumber { get; set; }
+
+    /// <summary>What to head the dialog with: the short number, or the reference if there is none.</summary>
+    private string Heading => string.IsNullOrWhiteSpace(SaleNumber) ? Reference ?? "" : SaleNumber;
 
     /// <summary>
     /// The sale's currency, used until the prepared receipt states its own.
