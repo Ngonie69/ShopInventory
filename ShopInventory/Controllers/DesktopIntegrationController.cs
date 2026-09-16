@@ -15,6 +15,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.CreateQueuedTransfer;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateReservation;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateTransfer;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateTransferRequest;
+using ShopInventory.Features.DesktopIntegration.Commands.CreateVendorForAccount;
 using ShopInventory.Features.DesktopIntegration.Commands.RenewReservation;
 using ShopInventory.Features.DesktopIntegration.Commands.RetryQueuedInvoice;
 using ShopInventory.Features.DesktopIntegration.Commands.RetryQueuedTransfer;
@@ -951,6 +952,33 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             new GetVendorsForAccountQuery(userId.Value), cancellationToken);
 
         return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Adds a vendor to the depot this cart-vendor account sells on.
+    /// </summary>
+    /// <remarks>
+    /// Not gated on <c>customers.create</c>, which a cart vendor deliberately lacks: that permission also
+    /// opens the administrative routes that name a depot in the request. This one takes the depot off the
+    /// account, the way <see cref="GetVendors"/> does, and refuses any account that is not a cart vendor
+    /// on a recognised depot. The code follows the depot's VMB/VMP/VMM convention — issued when left
+    /// blank, refused when it does not fit — through the same handler the Vending page uses.
+    /// </remarks>
+    [HttpPost("vendors")]
+    public async Task<IActionResult> CreateVendor(
+        [FromBody] CreateDesktopVendorRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new CreateVendorForAccountCommand(request, userId.Value), cancellationToken);
+
+        return result.Match(
+            created => StatusCode(StatusCodes.Status201Created, created),
+            Problem);
     }
 
     /// <summary>
