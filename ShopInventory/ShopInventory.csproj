@@ -7,6 +7,15 @@
     <NoWarn>$(NoWarn);1591</NoWarn>
     <UserSecretsId>2fee8ae2-b581-4db3-8bc4-de6892c0b9d8</UserSecretsId>
   </PropertyGroup>
+  <!--
+    Update-Production.ps1 passes -p:BuildTimestampUtc=<round-trip UTC> when it publishes, and the API
+    reads it back through BuildStamp to tell whether a clustered peer is running newer code. Left empty
+    for every other build on purpose: an unstamped build neither blocks a deployed node nor is blocked
+    by one, and adding the current time here would make every local build recompile.
+  -->
+  <ItemGroup Condition="'$(BuildTimestampUtc)' != ''">
+    <AssemblyMetadata Include="BuildTimestampUtc" Value="$(BuildTimestampUtc)" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="Asp.Versioning.Mvc" Version="10.2.1" />
