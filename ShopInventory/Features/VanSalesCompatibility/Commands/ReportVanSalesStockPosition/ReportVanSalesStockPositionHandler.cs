@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -104,10 +104,8 @@ public sealed class ReportVanSalesStockPositionHandler(
                 ItemDescription = line.Description,
                 WarehouseCode = warehouseCode,
                 BatchNumber = string.IsNullOrWhiteSpace(line.Batch) ? null : line.Batch.Trim(),
-                OriginalQuantity = line.Quantity,
-                AvailableQuantity = line.Quantity,
                 ExpiryDate = ParseDate(line.ExpiryDate)
-            })
+            }.Opening(line.Quantity))
             .ToList();
 
         if (items.Count == 0)

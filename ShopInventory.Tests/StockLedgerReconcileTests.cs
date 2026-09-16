@@ -871,12 +871,10 @@ public sealed class StockLedgerReconcileTests : IDisposable
             ItemCode = itemCode,
             WarehouseCode = warehouse,
             BatchNumber = batch,
-            OriginalQuantity = original,
-            AvailableQuantity = available,
             ExpiryDate = expiry,
             // See SnapshotSqliteContext for why the concurrency token is set by hand here.
             Version = 1
-        });
+        }.MovedTo(original, available));
 
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();

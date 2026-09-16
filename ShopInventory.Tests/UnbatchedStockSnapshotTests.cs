@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -416,8 +416,8 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         var sold = await _context.DailyStockSnapshotItems
             .Where(row => row.ItemCode == "CHE011")
             .ToListAsync();
-        sold[0].AvailableQuantity = 2m;
-        sold[1].AvailableQuantity = 0m;
+        sold[0].MovedTo(sold[0].OriginalQuantity, 2m);
+        sold[1].MovedTo(sold[1].OriginalQuantity, 0m);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
 

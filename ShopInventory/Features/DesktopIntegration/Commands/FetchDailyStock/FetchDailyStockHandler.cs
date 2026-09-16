@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -187,10 +187,8 @@ public sealed class FetchDailyStockHandler(
                     ItemDescription = b.ItemName,
                     WarehouseCode = warehouseCode,
                     BatchNumber = b.BatchNum,
-                    OriginalQuantity = b.Quantity,
-                    AvailableQuantity = b.Quantity,
                     ExpiryDate = DateTime.TryParse(b.ExpiryDate, out var expiry) ? expiry : null
-                }).ToList();
+                }.Opening(b.Quantity)).ToList();
             }
             else
             {
@@ -213,10 +211,8 @@ public sealed class FetchDailyStockHandler(
                         ItemDescription = row.ItemDescription,
                         WarehouseCode = warehouseCode,
                         BatchNumber = row.BatchNumber,
-                        OriginalQuantity = row.OriginalQuantity,
-                        AvailableQuantity = row.AvailableQuantity,
                         ExpiryDate = row.ExpiryDate
-                    }).ToList();
+                    }.Opening(row.AvailableQuantity)).ToList();
             }
 
             var (unbatched, unbatchedProblem, unbatchedReadFailed) =
@@ -467,10 +463,8 @@ public sealed class FetchDailyStockHandler(
                 // ExpiryDate like any other and there is only ever one row per item here, so nothing
                 // downstream has to choose between them.
                 BatchNumber = null,
-                OriginalQuantity = group.Sum(item => item.InStock),
-                AvailableQuantity = group.Sum(item => item.InStock),
                 ExpiryDate = null
-            })
+            }.Opening(group.Sum(item => item.InStock)))
             .ToList();
 
         return (rows, sourceNote, false);

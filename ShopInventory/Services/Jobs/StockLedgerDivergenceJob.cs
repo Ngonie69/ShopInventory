@@ -405,7 +405,7 @@ public sealed class StockLedgerDivergenceJob(
                 // OriginalQuantity stays at zero: the warehouse held none of this at the morning
                 // fetch, which is what that field means and what keeps the row visible to the
                 // comparison from now on.
-                row.AvailableQuantity = composed.AvailableQuantity;
+                row.Move(composed.AvailableQuantity);
                 rows.Add(row);
             }
 
@@ -640,7 +640,7 @@ public sealed class StockLedgerDivergenceJob(
                 row = NewRow(db, snapshotId, warehouseCode, itemCode, batch: null, expiry: null);
             }
 
-            row.AvailableQuantity += remaining;
+            row.Move(remaining);
             return remaining;
         }
 
@@ -675,7 +675,7 @@ public sealed class StockLedgerDivergenceJob(
             }
 
             var added = Math.Min(headroom, remaining);
-            row.AvailableQuantity += added;
+            row.Move(added);
             remaining -= added;
         }
 
@@ -707,7 +707,6 @@ public sealed class StockLedgerDivergenceJob(
             WarehouseCode = warehouseCode,
             BatchNumber = batch,
             OriginalQuantity = 0m,
-            AvailableQuantity = 0m,
             ExpiryDate = expiry
         };
 

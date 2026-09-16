@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -253,11 +253,9 @@ public sealed class StockMovementInvariantTests : IDisposable
             SnapshotId = snapshot.Id,
             ItemCode = Item,
             WarehouseCode = warehouse,
-            OriginalQuantity = units,
-            AvailableQuantity = units,
             // See SnapshotSqliteContext for why this is set by hand.
             Version = 1
-        });
+        }.Opened(units));
 
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();

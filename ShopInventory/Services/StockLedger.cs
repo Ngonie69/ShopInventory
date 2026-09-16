@@ -401,7 +401,7 @@ public sealed class StockLedger(
             }
 
             // Back into the row it would have come out of first.
-            rows[0].AvailableQuantity += claim.Quantity;
+            rows[0].Move(claim.Quantity);
             Journal(StockMovementKinds.Release, claim, rows, claim.Quantity, reference, documentKey);
         }
 
@@ -449,7 +449,7 @@ public sealed class StockLedger(
             }
 
             var fromRow = Math.Min(row.AvailableQuantity, remaining);
-            row.AvailableQuantity -= fromRow;
+            row.Move(-fromRow);
             remaining -= fromRow;
             taken.Add((row, fromRow));
         }

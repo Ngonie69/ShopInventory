@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -485,9 +485,7 @@ public sealed class VanSalesOrderIdempotencyTests : IDisposable
             SnapshotId = snapshot.Id,
             ItemCode = itemCode,
             WarehouseCode = "KEFGRC",
-            OriginalQuantity = available,
-            AvailableQuantity = available
-        });
+        }.Opened(available));
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
     }

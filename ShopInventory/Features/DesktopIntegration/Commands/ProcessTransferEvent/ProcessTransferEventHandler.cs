@@ -144,7 +144,7 @@ public sealed class ProcessTransferEventHandler(
             // For inbound, add to first matching row or create a new row
             if (snapshotItems.Count > 0)
             {
-                snapshotItems[0].AvailableQuantity += adjustmentQty;
+                snapshotItems[0].Move(adjustmentQty);
                 newAvailable = snapshotItems[0].AvailableQuantity;
                 moved = adjustmentQty;
             }
@@ -168,9 +168,12 @@ public sealed class ProcessTransferEventHandler(
                     ItemCode = itemCode,
                     WarehouseCode = warehouseCode,
                     OriginalQuantity = 0,
-                    AvailableQuantity = adjustmentQty,
                     ExpiryDate = null
                 };
+
+                // Opens at nothing and is moved to its quantity, so the arrival is a journalled
+                // movement rather than a row that simply appears holding stock.
+                created.Move(adjustmentQty);
 
                 context.DailyStockSnapshotItems.Add(created);
 
@@ -193,7 +196,7 @@ public sealed class ProcessTransferEventHandler(
                 if (remaining <= 0) break;
 
                 var deduct = Math.Min(item.AvailableQuantity, remaining);
-                item.AvailableQuantity -= deduct;
+                item.Move(-deduct);
                 remaining -= deduct;
             }
 

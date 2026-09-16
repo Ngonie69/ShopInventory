@@ -258,12 +258,10 @@ public sealed class StockLedgerJournalTests
             ItemCode = itemCode,
             WarehouseCode = warehouseCode,
             BatchNumber = batch,
-            OriginalQuantity = units,
-            AvailableQuantity = units,
             ExpiryDate = expiry,
             // See SnapshotSqliteContext for why this is set by hand.
             Version = 1
-        });
+        }.Opened(units));
 
         await context.SaveChangesAsync();
     }

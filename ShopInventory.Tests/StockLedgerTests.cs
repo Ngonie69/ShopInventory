@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -606,13 +606,11 @@ public sealed class StockLedgerTests
             ItemCode = itemCode,
             WarehouseCode = warehouseCode,
             BatchNumber = batch,
-            OriginalQuantity = units,
-            AvailableQuantity = units,
             ExpiryDate = expiry,
             // See SnapshotSqliteContext for why this is set by hand here, and for why the
             // ledger's retry-on-conflict path is not reachable from this suite.
             Version = 1
-        });
+        }.Opened(units));
 
         await context.SaveChangesAsync();
     }
