@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Quartz;
 using ShopInventory.Common.Stock;
@@ -350,7 +350,8 @@ public sealed class StockLedgerDivergenceJob(
         var warehouseStock = await sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
 
         return await AddArrivalsAsync(
-            db, snapshot.Id, warehouseCode, known, batches, warehouseStock, outstanding, logger, cancellationToken);
+            db, snapshot.Id, ledgerDay, warehouseCode, known, batches, warehouseStock, outstanding,
+            logger, cancellationToken);
     }
 
     /// <summary>
@@ -364,6 +365,7 @@ public sealed class StockLedgerDivergenceJob(
     internal static async Task<int> AddArrivalsAsync(
         ApplicationDbContext db,
         int snapshotId,
+        DateTime ledgerDay,
         string warehouseCode,
         IReadOnlySet<string> known,
         IEnumerable<BatchNumber> batches,
@@ -412,17 +414,34 @@ public sealed class StockLedgerDivergenceJob(
                 UnpostedTillSales.DrawDown(rows, sold);
             }
 
-            if (rows.Sum(row => row.AvailableQuantity) <= 0)
+            var arrived = rows.Sum(row => row.AvailableQuantity);
+
+            if (arrived <= 0)
             {
+                // The rows still exist, holding nothing. Opening quantity zero and no movement is a
+                // complete account of that, so there is nothing to journal.
                 continue;
             }
 
             added++;
 
+            // These rows open at zero by construction, so the movement is the whole of what the
+            // warehouse now holds — and the invariant covers a row that was born mid-day.
+            StockMovementJournal.Append(
+                db,
+                ledgerDay,
+                StockMovementKinds.Reconciliation,
+                documentKey: null,
+                arrival.Key,
+                warehouseCode,
+                arrived,
+                arrived,
+                "arrived in SAP with no row in today's snapshot");
+
             logger.LogInformation(
                 "Stock ledger added {ItemCode} to {WarehouseCode} with {Quantity}: the warehouse is "
                 + "holding it and today's snapshot had no row for it",
-                arrival.Key, warehouseCode, rows.Sum(row => row.AvailableQuantity));
+                arrival.Key, warehouseCode, arrived);
         }
 
         if (added > 0)
@@ -526,6 +545,20 @@ public sealed class StockLedgerDivergenceJob(
             }
 
             moved++;
+
+            // A correction moves the balance with no document behind it, which is the one movement
+            // a reader would otherwise have no way to account for: before this it was the difference
+            // between two numbers nobody recorded. No key — see StockMovementKinds.Reconciliation.
+            StockMovementJournal.Append(
+                db,
+                ledgerDay,
+                StockMovementKinds.Reconciliation,
+                documentKey: null,
+                itemCode,
+                warehouseCode,
+                applied,
+                current + applied,
+                "reconciled to SAP less unposted till sales");
 
             logger.LogInformation(
                 "Stock ledger corrected {ItemCode} in {WarehouseCode} from {From} to {To} "
@@ -739,10 +772,22 @@ public sealed class StockLedgerDivergenceJob(
     /// Today's ledger rows whose quantity has changed since the morning fetch, summed per item.
     /// </summary>
     /// <remarks>
-    /// A row still at its original quantity has had nothing happen to it that this system knows
-    /// about, and asking SAP about it would only find divergence caused elsewhere — which is real,
-    /// but is what the morning fetch is for. Restricting the question to what moved is what keeps
-    /// this off the SAP slot pool.
+    /// A row nothing has happened to would only show divergence caused elsewhere — real, but what
+    /// the morning fetch is for. Restricting the question to what moved is what keeps this off the
+    /// SAP slot pool.
+    ///
+    /// <para><b>"Moved" is now read from the journal, not inferred from the balance.</b> The test
+    /// used to be <c>AvailableQuantity != OriginalQuantity</c>, which is a proxy, and one that fails
+    /// in exactly the wrong place: movements that cancel — a transfer in of ten against sales of
+    /// ten, a commit and its release — leave the row back at its opening figure, so the busiest item
+    /// in the warehouse looked untouched and was never compared. A journal row is the fact itself
+    /// rather than a shadow of it, so an item that moved and came back is now asked about.</para>
+    ///
+    /// <para>The balance test is kept alongside it as a floor. It costs one more query and covers
+    /// the day this ships, when rows have moved under a journal that did not exist yet, and any
+    /// future writer that changes the cell before it learns to journal. The two are unioned rather
+    /// than one replacing the other because being asked about twice costs a comparison, and being
+    /// missed costs a trading day.</para>
     /// </remarks>
     private static async Task<Dictionary<string, decimal>> MovedTodayAsync(
         ApplicationDbContext db,
@@ -750,7 +795,15 @@ public sealed class StockLedgerDivergenceJob(
         string warehouseCode,
         CancellationToken cancellationToken)
     {
-        var touchedItems = await db.DailyStockSnapshotItems
+        var journalled = await db.StockMovements
+            .Where(movement => movement.LedgerDay == ledgerDay
+                            && movement.WarehouseCode == warehouseCode)
+            .Select(movement => movement.ItemCode)
+            .Distinct()
+            .Take(MaxRowsPerRun)
+            .ToListAsync(cancellationToken);
+
+        var offOpening = await db.DailyStockSnapshotItems
             .Where(row => row.Snapshot.SnapshotDate == ledgerDay
                        && row.WarehouseCode == warehouseCode
                        && row.AvailableQuantity != row.OriginalQuantity)
@@ -758,6 +811,11 @@ public sealed class StockLedgerDivergenceJob(
             .Distinct()
             .Take(MaxRowsPerRun)
             .ToListAsync(cancellationToken);
+
+        var touchedItems = journalled
+            .Union(offOpening, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxRowsPerRun)
+            .ToList();
 
         if (touchedItems.Count == 0)
         {

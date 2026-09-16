@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -632,6 +632,94 @@ public sealed class StockLedgerReconcileTests : IDisposable
         Assert.Empty(StockLedgerDivergenceJob.DiscoverySlots(["A"], perPass: 0, DateTime.UtcNow));
     }
 
+    // ---------------------------------------------------------------
+    // What the comparison is allowed to see
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// The item the old test could never see. "Has this moved?" used to be answered by comparing the
+    /// row against its opening figure, which is a proxy — and movements that cancel leave the row
+    /// exactly where it started. A transfer of ten in against ten sold reads as a quiet day on the
+    /// busiest line in the shop, and the comparison skipped it for the whole trading day.
+    /// </summary>
+    [Fact]
+    public async Task An_item_whose_movements_cancel_out_is_still_compared()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        await SeedMovementAsync(StockMovementKinds.Transfer, 10m, balanceAfter: 110m);
+        await SeedMovementAsync(StockMovementKinds.Commit, -10m, balanceAfter: 100m);
+
+        _sapIssuable[Item] = 92m;
+
+        await RunAsync();
+
+        Assert.Equal(92m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// The balance test is kept as a floor, for the day this ships and for any writer that changes
+    /// the cell before it learns to journal.
+    /// </summary>
+    [Fact]
+    public async Task An_item_off_its_opening_figure_with_no_journal_row_is_still_compared()
+    {
+        await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
+
+        _sapIssuable[Item] = 92m;
+
+        await RunAsync();
+
+        Assert.Equal(92m, await AvailableAsync(Shop, Item));
+    }
+
+    // ---------------------------------------------------------------
+    // Corrections account for themselves
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_correction_is_journalled_rather_than_written_in_silently()
+    {
+        await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
+        _sapIssuable[Item] = 92m;
+
+        await RunAsync();
+
+        var movement = await _context.StockMovements
+            .AsNoTracking()
+            .SingleAsync(m => m.Kind == StockMovementKinds.Reconciliation);
+
+        Assert.Equal(-8m, movement.Quantity);
+        Assert.Equal(92m, movement.BalanceAfter);
+
+        // A correction is not a document and never carries a key: the same item may legitimately
+        // need correcting again an hour from now, and a key would make that second one vanish.
+        Assert.Null(movement.DocumentKey);
+    }
+
+    [Fact]
+    public async Task A_corrected_item_still_has_its_balance_accounted_for()
+    {
+        await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
+        await SeedMovementAsync(StockMovementKinds.Commit, -20m, balanceAfter: 100m);
+        _sapIssuable[Item] = 92m;
+
+        await RunAsync();
+
+        // 120 opening, 20 sold, 8 corrected away. The journal has to add up to what the guard reads,
+        // and the correction is the entry that used to be missing from that sum.
+        var opening = await _context.DailyStockSnapshotItems
+            .AsNoTracking()
+            .Where(row => row.WarehouseCode == Shop && row.ItemCode == Item)
+            .SumAsync(row => row.OriginalQuantity);
+
+        var journalled = await _context.StockMovements
+            .AsNoTracking()
+            .Where(m => m.WarehouseCode == Shop && m.ItemCode == Item)
+            .SumAsync(m => m.Quantity);
+
+        Assert.Equal(await AvailableAsync(Shop, Item), opening + journalled);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private DateTime LedgerDay => StockLedgerDay.Today(_settings.StockFetchTimeCAT);
@@ -728,6 +816,24 @@ public sealed class StockLedgerReconcileTests : IDisposable
             SnapshotDate = LedgerDay,
             WarehouseCode = warehouse,
             Status = status
+        });
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    /// <summary>A movement already on the journal, as another subsystem would have left it.</summary>
+    private async Task SeedMovementAsync(string kind, decimal quantity, decimal balanceAfter)
+    {
+        _context.StockMovements.Add(new StockMovementEntity
+        {
+            LedgerDay = LedgerDay,
+            Kind = kind,
+            ItemCode = Item,
+            WarehouseCode = Shop,
+            Quantity = quantity,
+            BalanceAfter = balanceAfter,
+            Reference = "seeded by test"
         });
 
         await _context.SaveChangesAsync();

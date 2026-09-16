@@ -25,6 +25,19 @@ public static class StockMovementKinds
     /// the one movement that puts stock *into* a warehouse during the day.
     /// </summary>
     public const string Transfer = "Transfer";
+
+    /// <summary>
+    /// The hourly comparison putting the ledger back in step with SAP.
+    /// </summary>
+    /// <remarks>
+    /// The only kind that is never a document. It carries no key and is never deduplicated on
+    /// purpose: a correction is a statement about one moment, the same item may legitimately need
+    /// correcting again an hour later, and a key would make the second one disappear. What it buys
+    /// the journal is that a correction stops being a silent overwrite — the balance moving without
+    /// a document behind it is now itself a recorded event, and a warehouse that needs correcting
+    /// every hour says so in a table rather than in a log nobody reads.
+    /// </remarks>
+    public const string Reconciliation = "Reconciliation";
 }
 
 /// <summary>
