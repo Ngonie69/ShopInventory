@@ -39,39 +39,3 @@ public sealed class ReservationCleanupJob : IJob
         }
     }
 }
-
-/// <summary>
-/// Implementation of IReservedQuantityProvider that wraps IStockReservationService
-/// </summary>
-public class ReservedQuantityProvider : IReservedQuantityProvider
-{
-    private readonly IStockReservationService _reservationService;
-
-    public ReservedQuantityProvider(IStockReservationService reservationService)
-    {
-        _reservationService = reservationService;
-    }
-
-    public Task<decimal> GetReservedQuantityAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default)
-    {
-        return _reservationService.GetReservedQuantityAsync(itemCode, warehouseCode, cancellationToken);
-    }
-
-    public Task<decimal> GetReservedBatchQuantityAsync(string itemCode, string warehouseCode, string batchNumber, CancellationToken cancellationToken = default)
-    {
-        return _reservationService.GetReservedBatchQuantityAsync(itemCode, warehouseCode, batchNumber, cancellationToken);
-    }
-
-    public Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
-        string itemCode,
-        string warehouseCode,
-        IEnumerable<string> batchNumbers,
-        CancellationToken cancellationToken = default)
-    {
-        return _reservationService.GetReservedBatchQuantitiesAsync(
-            itemCode,
-            warehouseCode,
-            batchNumbers,
-            cancellationToken);
-    }
-}

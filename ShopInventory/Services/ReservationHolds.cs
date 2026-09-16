@@ -9,10 +9,11 @@ namespace ShopInventory.Services;
 /// </summary>
 /// <remarks>
 /// There are two readers and they used to disagree by construction. <see cref="StockLedger"/> nets
-/// holds off the morning snapshot for till sales; <see cref="StockReservationService"/> nets them off
-/// SAP's issuable figure for everything that posts through SAP. Both wrote the rule out by hand — the
-/// same two clauses, in eight places — so a change to what counts as a hold could be applied to one
-/// side and not the other, and the two ledgers would quietly start promising different stock.
+/// holds off the morning snapshot for till sales; <see cref="ReservedQuantityProvider"/> nets them
+/// off SAP's issuable figure for everything that posts through SAP. Both wrote the rule out by hand,
+/// so a change to what counts as a hold could be applied to one side and not the other — and it was:
+/// the provider learned to disregard a reservation whose invoice consolidation had already posted,
+/// and the ledger went on holding the same units, refusing tills the stock SAP had just issued.
 ///
 /// <para>
 /// The rule is: a reservation holds while it is Pending, unexpired, and its invoice has not yet been

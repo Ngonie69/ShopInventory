@@ -1,12 +1,37 @@
 # GitHub Actions Deploy Runner
 
-This runbook sets up automatic production deployment on merge to `main`, gated behind a manual
-approval. It covers the self-hosted runner the deployment needs, the credential it uses, and the
-GitHub environment that holds the gate.
+This runbook sets up automatic production deployment on merge to `main`. It covers the self-hosted
+runner the deployment needs, the credential it uses, and the GitHub environment the job runs in.
 
-Once it is in place, merging to `main` runs the tests, then parks a deployment awaiting approval.
-Nothing reaches production until someone approves it, and the job runs no steps at all while it
-waits.
+Once it is in place, merging to `main` runs the tests and then deploys, outside trading hours. See
+[When a merge deploys](#when-a-merge-deploys).
+
+## When a merge deploys
+
+A cutover drops every request in flight. `Update-Production.ps1` moves the public port binding from
+the old IIS slot to the new one, and between the two nothing listens on the port: a new request gets
+a 404 from HTTP.sys, and a request already running is cut off, which nginx reports as a 502. On
+14 September 2026 three merges deployed between 16:00 and 16:40 CAT. The KEFSHOP till lost its
+notification connection at the end of each, and a sale posted at 16:41 got a 502 while the API went
+on writing it, so the customer left with no receipt.
+
+| Trigger | What deploys |
+| --- | --- |
+| Tests pass on a push to `main`, outside 07:00–19:00 CAT | The commit that passed, straight away |
+| Tests pass inside 07:00–19:00 CAT | Nothing. The run's summary says it waits for the evening deploy |
+| The evening run, 19:30 CAT every day | `main`'s head, if Tests passed for it and it is not already live |
+| **Run workflow** by hand | The chosen ref, straight away, whatever the time: the way to ship an urgent fix |
+
+The window covers every shop's hours (the earliest opens at 08:00, the latest closes at 17:00, and
+CORMACH2 trades on Sundays), an hour before opening for vans, and the 17:00 incoming-payment run and
+18:00 consolidation. The rule is `scripts/DeployWindow/deploy_window.py`. Change the hours there, and
+run `python scripts/DeployWindow/test_deploy_window.py`, which also fails if the workflow's cron no
+longer matches the evening deploy time.
+
+The evening run knows what is live from `production-live-commit.txt` in the runner's work folder
+(`RUNNER_WORKSPACE`), written after every deploy of both applications that verified. Delete the file
+to make the next evening run deploy regardless. A deploy of the API or the Web alone does not write
+it, so the evening run still ships whatever that deploy left behind.
 
 ## Why a self-hosted runner
 
@@ -154,16 +179,18 @@ Verify the seal before relying on it — **as the service account**:
 It should print the deploy account. Running the same line as any other account is expected to fail;
 that failure is the protection working.
 
-## Create the approval gate
+## Create the environment
 
 In the repository, go to **Settings → Environments → New environment** and name it `production` —
-the name must match exactly, or the job will run with no gate at all.
+the name must match exactly.
 
 In that environment:
 
-- Tick **Required reviewers** and add whoever may release. This is the gate: the job stays pending
-  until one of them approves.
-- Optionally set **Deployment branches** to `main` only.
+- Set **Deployment branches** to protected branches only.
+- Leave **Required reviewers** off. It was on briefly on 14 September 2026 and taken off the same day:
+  GitHub keeps one *pending* run per concurrency group, so each merge silently cancelled the previous
+  unapproved deploy, and seven merges sat undeployed for four and a half hours. The deploy window in
+  [When a merge deploys](#when-a-merge-deploys) is what keeps deploys out of trading hours now.
 
 Three optional settings, all in the same environment:
 
@@ -178,7 +205,7 @@ Three optional settings, all in the same environment:
 ## First run
 
 Trigger it by hand before trusting it on a merge. **Actions → Deploy to production → Run workflow**,
-target `Both`. The run should stop at the approval gate; approve it and watch it through.
+target `Both`, outside trading hours. A run by hand deploys at once, so watch it through.
 
 A healthy run:
 
@@ -294,9 +321,15 @@ rights from a *local* account arriving that way. Use a domain account for the de
 `-ValidateOnly` confirms the listener answers but cannot detect this — it only shows up once a real
 credential is used.
 
-**Tests pass but no deployment appears.** The deploy workflow triggers on the *Tests* workflow
-completing. If the Tests run was skipped or cancelled rather than passing, there is nothing to
-trigger from. Use **Run workflow** to deploy manually.
+**Tests pass but no deployment appears.** First check the time. A merge whose Tests finish between
+07:00 and 19:00 CAT deploys nothing until the 19:30 CAT run, and its run's *Decide whether to deploy*
+summary says so. Otherwise, the deploy workflow triggers on the *Tests* workflow completing. If the
+Tests run was skipped or cancelled rather than passing, there is nothing to trigger from. Use
+**Run workflow** to deploy manually.
+
+**The evening run deployed nothing.** Its summary says why: Tests had not passed for `main`'s head,
+or that commit was already live. A red Tests run on the last merge of the day holds everything
+merged before it too, until the next evening or a run by hand.
 
 **"Deployment failed for 10.10.10.58".** The nodes deploy in order and the run stops at the first
 failure, so `10.10.10.9` is already updated and `.58` is not — the two are serving different
@@ -339,4 +372,4 @@ blue-green and health-checked before the next one starts.
 - **No automatic rollback.** Blue-green keeps the previous slot, but swapping back is manual. A
   failed run leaves production on whatever slot the cutover reached. With two nodes, a failure on
   the second leaves the first already updated.
-- **No deploy on a red build.** By design — a failed or cancelled test run cannot reach the gate.
+- **No deploy on a red build.** By design — a failed or cancelled test run cannot reach production.

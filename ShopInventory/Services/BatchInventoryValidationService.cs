@@ -9,24 +9,34 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Interface for getting reserved quantities (to break circular dependency)
+/// What pending reservations hold, for netting off SAP's figures. See <see cref="ReservedQuantityProvider"/>.
 /// </summary>
 public interface IReservedQuantityProvider
 {
     /// <summary>
-    /// Gets the total reserved quantity for an item in a warehouse.
+    /// Gets the total reserved quantity for an item in a warehouse, leaving out the named reservations.
     /// </summary>
-    Task<decimal> GetReservedQuantityAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
+    Task<decimal> GetReservedQuantityAsync(
+        string itemCode,
+        string warehouseCode,
+        IReadOnlyCollection<string> disregardedReservationIds,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets the reserved quantity for a specific batch.
+    /// Gets the reserved quantity for a specific batch, leaving out the named reservations.
     /// </summary>
-    Task<decimal> GetReservedBatchQuantityAsync(string itemCode, string warehouseCode, string batchNumber, CancellationToken cancellationToken = default);
+    Task<decimal> GetReservedBatchQuantityAsync(
+        string itemCode,
+        string warehouseCode,
+        string batchNumber,
+        IReadOnlyCollection<string> disregardedReservationIds,
+        CancellationToken cancellationToken = default);
 
     Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
         string itemCode,
         string warehouseCode,
         IEnumerable<string> batchNumbers,
+        IReadOnlyCollection<string> disregardedReservationIds,
         CancellationToken cancellationToken = default);
 }
 
@@ -115,6 +125,18 @@ public interface IBatchInventoryValidationService
     IStockReadWindow BeginSharedReadWindow();
 
     /// <summary>
+    /// Stops the named reservations being netted off stock until the returned scope is disposed.
+    /// </summary>
+    /// <remarks>
+    /// For a caller posting the very sales those reservations hold stock for. Pending reservations are
+    /// taken off what SAP shows, which is right for every other document and wrong for the one the
+    /// reservation belongs to: its own units would be counted as held against itself, and a warehouse
+    /// holding exactly enough would refuse it. End-of-day consolidation is that caller, because a
+    /// queued invoice keeps its reservation Pending until it expires.
+    /// </remarks>
+    IDisposable DisregardReservations(IEnumerable<string> reservationIds);
+
+    /// <summary>
     /// Validates and optionally auto-allocates batches for invoice lines.
     /// This is the main entry point for batch validation before posting to SAP.
     /// </summary>
@@ -129,13 +151,21 @@ public interface IBatchInventoryValidationService
     /// invoice back. Batch and serial lines are read either way: there the reading is the selection
     /// SAP requires.
     /// </param>
+    /// <param name="claimedAhead">
+    /// Units SAP still shows in a warehouse that are already spoken for by documents it has not
+    /// received — sales taken at a till and not yet posted. Taken off the batches, soonest to expire
+    /// first, before this document is allocated, because those documents will reach SAP first and
+    /// take them. Only a check made before a sale exists passes this; a document being posted is
+    /// allocated against SAP as it stands.
+    /// </param>
     /// <returns>Validation result with allocated batches</returns>
     Task<BatchAllocationResult> ValidateAndAllocateBatchesAsync(
         CreateInvoiceRequest request,
         bool autoAllocate = true,
         BatchAllocationStrategy strategy = BatchAllocationStrategy.FEFO,
         CancellationToken cancellationToken = default,
-        bool checkNonBatchStock = true);
+        bool checkNonBatchStock = true,
+        IReadOnlyList<StockLedgerLine>? claimedAhead = null);
 
     /// <summary>
     /// Validates that batch allocations match line quantities (with UoM conversion).
@@ -204,7 +234,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private readonly IInventoryLockService _lockService;
     private readonly IOptions<SAPSettings> _settings;
     private readonly ILogger<BatchInventoryValidationService> _logger;
-    private IReservedQuantityProvider? _reservedQuantityProvider;
+    private readonly IReservedQuantityProvider? _reservedQuantityProvider;
+    private readonly HashSet<string> _disregardedReservationIds = new(StringComparer.Ordinal);
     private SharedReadWindow? _sharedWindow;
     private const decimal QuantityTolerance = 0.0001m;
 
@@ -212,26 +243,51 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     // lifetime, where a process-wide dictionary held its first answer — right or wrong — until
     // the application restarted.
 
+    /// <param name="reservedQuantityProvider">
+    /// Null only where a test constructs the service by hand and has no reservations to net off. The
+    /// application registers one (<see cref="StockReservationServiceCollectionExtensions.AddStockReservations"/>),
+    /// and it must arrive here rather than through a setter: the setter reached one startup instance
+    /// of a scoped service, and every instance that did any work netted nothing off.
+    /// </param>
     public BatchInventoryValidationService(
         ApplicationDbContext dbContext,
         ISAPServiceLayerClient sapClient,
         IInventoryLockService lockService,
         IOptions<SAPSettings> settings,
-        ILogger<BatchInventoryValidationService> logger)
+        ILogger<BatchInventoryValidationService> logger,
+        IReservedQuantityProvider? reservedQuantityProvider = null)
     {
         _dbContext = dbContext;
         _sapClient = sapClient;
         _lockService = lockService;
         _settings = settings;
         _logger = logger;
+        _reservedQuantityProvider = reservedQuantityProvider;
     }
 
-    /// <summary>
-    /// Sets the reserved quantity provider (called by DI after construction to avoid circular dependency)
-    /// </summary>
-    public void SetReservedQuantityProvider(IReservedQuantityProvider provider)
+    /// <inheritdoc/>
+    public IDisposable DisregardReservations(IEnumerable<string> reservationIds)
     {
-        _reservedQuantityProvider = provider;
+        var added = reservationIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Where(_disregardedReservationIds.Add)
+            .ToList();
+
+        return new DisregardedReservations(_disregardedReservationIds, added);
+    }
+
+    private sealed class DisregardedReservations(HashSet<string> disregarded, List<string> added) : IDisposable
+    {
+        public void Dispose()
+        {
+            // Only what this scope added, so a nested scope ending does not re-admit an outer one's.
+            foreach (var id in added)
+            {
+                disregarded.Remove(id);
+            }
+
+            added.Clear();
+        }
     }
 
     /// <summary>
@@ -243,7 +299,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         if (_reservedQuantityProvider == null)
             return 0;
 
-        return await _reservedQuantityProvider.GetReservedQuantityAsync(itemCode, warehouseCode, cancellationToken);
+        return await _reservedQuantityProvider.GetReservedQuantityAsync(
+            itemCode, warehouseCode, _disregardedReservationIds, cancellationToken);
     }
 
     /// <summary>
@@ -255,7 +312,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         if (_reservedQuantityProvider == null)
             return 0;
 
-        return await _reservedQuantityProvider.GetReservedBatchQuantityAsync(itemCode, warehouseCode, batchNumber, cancellationToken);
+        return await _reservedQuantityProvider.GetReservedBatchQuantityAsync(
+            itemCode, warehouseCode, batchNumber, _disregardedReservationIds, cancellationToken);
     }
 
     private Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesInternalAsync(
@@ -274,6 +332,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             itemCode,
             warehouseCode,
             batchNumbers,
+            _disregardedReservationIds,
             cancellationToken);
     }
 
@@ -283,7 +342,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         bool autoAllocate = true,
         BatchAllocationStrategy strategy = BatchAllocationStrategy.FEFO,
         CancellationToken cancellationToken = default,
-        bool checkNonBatchStock = true)
+        bool checkNonBatchStock = true,
+        IReadOnlyList<StockLedgerLine>? claimedAhead = null)
     {
         var result = new BatchAllocationResult
         {
@@ -341,6 +401,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 autoAllocate,
                 strategy,
                 checkNonBatchStock,
+                claimedAhead,
                 cancellationToken);
 
             allocatedLines = aggregateResult.AllocatedLines;
@@ -735,6 +796,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         bool autoAllocate,
         BatchAllocationStrategy strategy,
         bool checkNonBatchStock,
+        IReadOnlyList<StockLedgerLine>? claimedAhead,
         CancellationToken cancellationToken)
     {
         var result = new AggregateAllocationResult
@@ -758,6 +820,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             requestLinesByNumber,
             autoAllocate,
             strategy,
+            claimedAhead,
             cancellationToken);
 
         return result;
@@ -866,6 +929,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         Dictionary<int, CreateInvoiceLineRequest> requestLinesByNumber,
         bool autoAllocate,
         BatchAllocationStrategy strategy,
+        IReadOnlyList<StockLedgerLine>? claimedAhead,
         CancellationToken cancellationToken)
     {
         var batchGroups = result.AllocatedLines
@@ -938,6 +1002,19 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
                 availabilityStates.Add(state);
                 availabilityByBatch[batch.BatchNumber] = state;
+            }
+
+            // What documents SAP has not yet received will take from these batches before this one
+            // reaches it. Drawn from RemainingQuantity, soonest to expire first as their own posts will
+            // draw, so the lines below are allocated from what will actually be left.
+            var claimedAheadQuantity = (claimedAhead ?? [])
+                .Where(claim => string.Equals(claim.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)
+                             && string.Equals(claim.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase))
+                .Sum(claim => claim.Quantity);
+
+            if (claimedAheadQuantity > 0)
+            {
+                AllocateFromRemainingBatches(availabilityStates, claimedAheadQuantity);
             }
 
             var errorsBeforeGroup = result.Errors.Count;
@@ -1026,7 +1103,9 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                         warehouseCode,
                         requestedQuantity,
                         totalRemaining,
-                        $"Insufficient remaining batch stock for line {allocatedLine.LineNumber}. Need {requestedQuantity:N4}, available {totalRemaining:N4} after other invoice lines",
+                        claimedAheadQuantity > 0
+                            ? $"Insufficient remaining batch stock for line {allocatedLine.LineNumber}. Need {requestedQuantity:N4}, available {totalRemaining:N4} after other invoice lines and {claimedAheadQuantity:N4} already sold but not yet in SAP"
+                            : $"Insufficient remaining batch stock for line {allocatedLine.LineNumber}. Need {requestedQuantity:N4}, available {totalRemaining:N4} after other invoice lines",
                         $"Reduce quantity to {totalRemaining:N4} or transfer more stock",
                         availableBatches));
                     continue;

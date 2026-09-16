@@ -457,6 +457,12 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
     private IBatchInventoryValidationService BuildBatchValidation() =>
         StubProxy.For<IBatchInventoryValidationService>((method, args) =>
         {
+            // A stub nets no reservations off, so there are none for it to leave out.
+            if (method.Name == nameof(IBatchInventoryValidationService.DisregardReservations))
+            {
+                return new NoReservationsDisregarded();
+            }
+
             if (method.Name != nameof(IBatchInventoryValidationService.ValidateAndAllocateBatchesAsync))
             {
                 throw new InvalidOperationException(
@@ -501,7 +507,7 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
     /// <summary>
     /// The consolidation broadcast. Nothing here asserts on it; it just has to not throw.
     /// </summary>
-    private static IHubContext<NotificationHub> BuildHubContext()
+    internal static IHubContext<NotificationHub> BuildHubContext()
     {
         var clientProxy = StubProxy.For<IClientProxy>((method, _) =>
             method.Name == nameof(IClientProxy.SendCoreAsync)
@@ -523,7 +529,7 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
     /// Takes the fiscal transaction row the adoption writes. It is best-effort in production — the
     /// marker is what the guards read — so this only has to answer.
     /// </summary>
-    private static ISender BuildSender() =>
+    internal static ISender BuildSender() =>
         StubProxy.For<ISender>((method, args) =>
         {
             if (method.Name != nameof(ISender.Send))
