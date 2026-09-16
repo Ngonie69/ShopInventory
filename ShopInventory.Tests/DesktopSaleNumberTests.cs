@@ -261,6 +261,6 @@ public sealed class DesktopSaleNumberTests : IDisposable
         new GetDesktopSalesHandler(
                 _context,
                 new RecordingAuditService(),
-                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.FiscalisationSettings()))
+                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.FiscalisationSettings()), Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()), Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.VanSalesPostingSettings()))
             .Handle(new GetDesktopSalesQuery(callerId, Search: search), CancellationToken.None);
 }

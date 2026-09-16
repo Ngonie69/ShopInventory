@@ -1137,9 +1137,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     #region Invoice Operations
 
-    public async Task<Invoice> CreateInvoiceAsync(
+    /// <summary>
+    /// Everything <see cref="CreateInvoiceAsync"/> does before the document goes out: validation, the
+    /// session, the dates and the series.
+    /// </summary>
+    private async Task<PreparedInvoicePost> PrepareInvoicePostAsync(
         CreateInvoiceRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         // Validate request
         ValidateInvoiceRequest(request);
@@ -1232,6 +1236,45 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         json = AddMobileInvoiceNumberUdf(json, request.MobileInvoiceNumber);
 
+        return new PreparedInvoicePost(
+            json, currentSession, sapCompanyDb, formattedDocDate, formattedTaxDate, formattedDocDueDate, formattedSeries);
+    }
+
+    private sealed record PreparedInvoicePost(
+        string Json,
+        string? Session,
+        string CompanyDb,
+        string DocDate,
+        string TaxDate,
+        string DocDueDate,
+        string Series);
+
+    public async Task<Invoice> CreateInvoiceAsync(
+        CreateInvoiceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Nothing below the try has been sent yet, and a failure in it is marked so. The posting
+        // services record that a post went out before calling this method, so without the mark a
+        // SAP login that failed would hold a sale for the grace window as though SAP might have
+        // taken an invoice it never received. See SapFailureClassifier.DefinitelyNotCommitted.
+        PreparedInvoicePost prepared;
+        try
+        {
+            prepared = await PrepareInvoicePostAsync(request, cancellationToken);
+        }
+        catch (Exception ex) when (SapFailureClassifier.MarkNotSent(ex))
+        {
+            throw;
+        }
+
+        var currentSession = prepared.Session;
+        var json = prepared.Json;
+        var sapCompanyDb = prepared.CompanyDb;
+        var formattedDocDate = prepared.DocDate;
+        var formattedTaxDate = prepared.TaxDate;
+        var formattedDocDueDate = prepared.DocDueDate;
+        var formattedSeries = prepared.Series;
+
         var httpContent = new StringContent(json, Encoding.UTF8, "application/json");
 
         var httpRequest = new HttpRequestMessage(HttpMethod.Post, "Invoices");
@@ -1243,7 +1286,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            // SAP answered the first attempt with a 401, so nothing was created by it, and a failure
+            // to log in again happens before the second attempt is sent.
+            try
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+            }
+            catch (Exception ex) when (SapFailureClassifier.MarkNotSent(ex))
+            {
+                throw;
+            }
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "Invoices");
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");

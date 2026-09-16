@@ -156,7 +156,7 @@ public sealed class DesktopSaleOperatorNameTests : IDisposable
     {
         var console = await AddUser($"console{Guid.NewGuid():N}"[..12], null, null, ApplicationRoles.Cashier);
 
-        var result = await new GetDesktopSalesHandler(_context, new RecordingAuditService(), Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.FiscalisationSettings()))
+        var result = await new GetDesktopSalesHandler(_context, new RecordingAuditService(), Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.FiscalisationSettings()), Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()), Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.VanSalesPostingSettings()))
             .Handle(new GetDesktopSalesQuery(console), CancellationToken.None);
 
         Assert.False(result.IsError);

@@ -377,9 +377,9 @@ public sealed class VanSalesEndOfDayPostingService(
             return;
         }
 
-        var grace = TimeSpan.FromMinutes(Math.Max(0, settings.Value.UnresolvedPostGraceMinutes));
+        var graceMinutes = settings.Value.UnresolvedPostGraceMinutes;
 
-        if (sale.PostIssuedAtUtc is { } issuedAt && DateTime.UtcNow - issuedAt < grace)
+        if (UnresolvedPostHold.IsHeld(sale.PostIssuedAtUtc, graceMinutes, DateTime.UtcNow))
         {
             // A post went out for this sale very recently and SAP does not show an invoice for it.
             // That is exactly what a committed-but-not-yet-visible invoice looks like, so the
@@ -391,17 +391,19 @@ public sealed class VanSalesEndOfDayPostingService(
             //
             // Van sales are the strictest case in the system. Each is already stamped with its own
             // ZIMRA receipt, so a second invoice is a second fiscal document for one sale.
-            sale.LastPostingError =
-                $"A post was issued for this sale at {sale.PostIssuedAtUtc:yyyy-MM-dd HH:mm:ss}Z and SAP has not "
-                + "shown an invoice for it since. It has not been posted again, because SAP may hold the invoice "
-                + $"already. Check SAP for U_Van_saleorder '{sale.ExternalReferenceId}'.";
+            //
+            // The recorded error is left as the post's own failure rather than replaced with a note
+            // about the wait, which hid why the post failed. See UnresolvedPostHold.
+            sale.LastPostingError ??= UnresolvedPostHold.NoReplyRecorded(sale.ExternalReferenceId);
             result.Failed++;
-            result.Errors.Add($"{sale.ExternalReferenceId}: post issued, outcome unknown");
+            result.Errors.Add(
+                $"{sale.ExternalReferenceId}: "
+                + UnresolvedPostHold.Describe(sale.PostIssuedAtUtc!.Value, graceMinutes));
 
             logger.LogWarning(
                 "Van sale {ExternalReference} had a post issued at {PostIssuedAt} that SAP does not yet show. "
-                + "Waiting {Grace} before it may be sent again, in case SAP holds it already.",
-                sale.ExternalReferenceId, sale.PostIssuedAtUtc, grace);
+                + "Waiting {Grace} minutes before it may be sent again, in case SAP holds it already.",
+                sale.ExternalReferenceId, sale.PostIssuedAtUtc, graceMinutes);
             return;
         }
 

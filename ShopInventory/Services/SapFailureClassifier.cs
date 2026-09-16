@@ -92,11 +92,41 @@ public static class SapFailureClassifier
     /// Note what is <i>not</i> here: a bare <see cref="Exception"/>. CreateInvoiceAsync throws one
     /// when it cannot deserialise SAP's reply, and that happens after SAP has committed.
     /// </para>
+    ///
+    /// <para>
+    /// Two more prove it by where they happened rather than what they are. An open circuit refuses
+    /// the request before it is handed to the network. And a failure the client marked with
+    /// <see cref="MarkNotSent"/> — logging in, looking up the invoice series — was raised before the
+    /// document went out, whatever its type. Those used to hold a sale for the whole grace window
+    /// over a post SAP never received: an HttpRequestException from the login reads exactly like one
+    /// from the post.
+    /// </para>
     /// </remarks>
     public static bool DefinitelyNotCommitted(Exception? exception) =>
         exception is ArgumentException
                   or SapPostingPeriodException
-                  or SapRequestRejectedException;
+                  or SapRequestRejectedException
+                  or SapCircuitOpenException
+        || exception?.Data[NotSentKey] is true;
+
+    private const string NotSentKey = "ShopInventory.SapRequestNotSent";
+
+    /// <summary>
+    /// Records on <paramref name="exception"/> that it was raised before the document was sent to
+    /// SAP, so <see cref="DefinitelyNotCommitted"/> can tell. Always returns false.
+    /// </summary>
+    /// <remarks>
+    /// A mark rather than a wrapping type, and written to be called from an exception filter:
+    /// <c>catch (Exception ex) when (SapFailureClassifier.MarkNotSent(ex))</c>. The filter never
+    /// matches, so the original exception keeps its type and stack. Every caller of the client
+    /// catches by type — a timeout, an HttpRequestException, a validation error — and a wrapper
+    /// would silently change which of those catches runs.
+    /// </remarks>
+    public static bool MarkNotSent(Exception exception)
+    {
+        exception.Data[NotSentKey] = true;
+        return false;
+    }
 
     public static bool IsTransientStatusCode(HttpStatusCode statusCode)
     {

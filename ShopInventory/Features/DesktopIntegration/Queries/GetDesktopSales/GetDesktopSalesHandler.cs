@@ -15,7 +15,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 public sealed class GetDesktopSalesHandler(
     ApplicationDbContext db,
     IAuditService auditService,
-    IOptions<FiscalisationSettings> fiscalisationSettings)
+    IOptions<FiscalisationSettings> fiscalisationSettings,
+    IOptions<DesktopSalePostingSettings> tillPostingSettings,
+    IOptions<VanSalesPostingSettings> vanPostingSettings)
     : IRequestHandler<GetDesktopSalesQuery, ErrorOr<DesktopSalesListResult>>
 {
     /// <summary>
@@ -250,6 +252,7 @@ public sealed class GetDesktopSalesHandler(
                 s.ConsolidationStatus,
                 s.FiscalizationStatus,
                 s.FiscalizationRequiresReconciliation,
+                s.PostIssuedAtUtc,
                 Sale = new DesktopSaleListItemDto(
                 s.Id,
                 // Filled below, with the rest of what a method has to compute. The formatter cannot be
@@ -329,7 +332,8 @@ public sealed class GetDesktopSalesHandler(
                     row.FiscalizationRequiresReconciliation,
                     row.Sale.CreatedAt,
                     nowUtc,
-                    usesPlatform)
+                    usesPlatform),
+                PostHeldUntilUtc = PostHeldUntil(row.Sale, row.PostIssuedAtUtc, nowUtc)
             })
             .ToList();
 
@@ -342,6 +346,26 @@ public sealed class GetDesktopSalesHandler(
             unfilteredCount,
             facets
         );
+    }
+
+    /// <summary>
+    /// When a sale held after a post whose outcome is unknown may be sent again, or null when it is
+    /// not held. The window is the one the route that posts the sale waits out.
+    /// </summary>
+    private DateTime? PostHeldUntil(DesktopSaleListItemDto sale, DateTime? postIssuedAtUtc, DateTime nowUtc)
+    {
+        if (sale.SapDocEntry.HasValue || postIssuedAtUtc is not { } issuedAt)
+        {
+            return null;
+        }
+
+        var graceMinutes = string.Equals(sale.SourceSystem, SaleSourceSystems.VanSales, StringComparison.Ordinal)
+            ? vanPostingSettings.Value.UnresolvedPostGraceMinutes
+            : tillPostingSettings.Value.UnresolvedPostGraceMinutes;
+
+        return UnresolvedPostHold.IsHeld(issuedAt, graceMinutes, nowUtc)
+            ? UnresolvedPostHold.RetryAfterUtc(issuedAt, graceMinutes)
+            : null;
     }
 
     /// <summary>The filter group one facet count lifts, or <see cref="None"/> for the list itself.</summary>

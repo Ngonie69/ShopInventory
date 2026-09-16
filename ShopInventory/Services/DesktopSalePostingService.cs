@@ -340,8 +340,8 @@ public sealed class DesktopSalePostingService(
             {
                 AdoptInvoice(sale, existing, result);
             }
-            else if (sale.PostIssuedAtUtc is { } issuedAt
-                     && DateTime.UtcNow - issuedAt < TimeSpan.FromMinutes(Math.Max(0, settings.Value.UnresolvedPostGraceMinutes)))
+            else if (UnresolvedPostHold.IsHeld(
+                         sale.PostIssuedAtUtc, settings.Value.UnresolvedPostGraceMinutes, DateTime.UtcNow))
             {
                 // A post went out very recently and SAP does not show an invoice for it. That is
                 // exactly what a committed-but-not-yet-visible invoice looks like, so the lookup's
@@ -463,35 +463,34 @@ public sealed class DesktopSalePostingService(
     }
 
     /// <summary>
-    /// Whether SAP already holds an invoice for this sale.
-    /// </summary>
-    /// <remarks>
-    /// An unanswerable lookup throws rather than returning null. Treating "I could not ask" as "it is
-    /// not there" is how a sale gets invoiced twice.
-    /// </remarks>
-    /// <summary>
     /// Records a sale whose post was issued and whose outcome is still unknown, without posting it
     /// again.
     /// </summary>
     /// <remarks>
-    /// An attempt is spent on purpose. Each pass re-asks SAP, so an invoice that was merely slow to
-    /// become visible is adopted within a minute or two and this is never seen again; a sale still
-    /// unresolved after the whole budget is one where the post genuinely vanished, and that is worth
-    /// a person's attention rather than an indefinite quiet loop.
+    /// <para>
+    /// No attempt is spent: each pass re-asks SAP, so an invoice that was merely slow to become
+    /// visible is adopted within a minute or two, and one that never landed posts once the window
+    /// has passed.
+    /// </para>
+    /// <para>
+    /// The sale's recorded error is left alone. It holds what the post actually failed with — a
+    /// timeout, a dropped connection — and that used to be overwritten here on every pass in the
+    /// window, so the one thing anybody could read was that the sale was waiting, never why. The
+    /// hold itself is stated where it is asked about: in the run's errors, which a manual post
+    /// reports, and on the sales list, which works out when it ends.
+    /// </para>
     /// </remarks>
     private void RecordUnresolvedPost(
         DesktopSaleEntity sale,
         DesktopSalePostingRunResult result,
         DesktopSalePostingSettings options)
     {
-        sale.LastPostingError =
-            $"A post was issued for this sale at {sale.PostIssuedAtUtc:yyyy-MM-dd HH:mm:ss}Z and SAP has not "
-            + "shown an invoice for it since. It has not been posted again, because SAP may hold the invoice "
-            + "already and a second one cannot be withdrawn from ZIMRA. Check SAP for "
-            + $"U_Van_saleorder '{sale.ExternalReferenceId}'.";
+        sale.LastPostingError ??= UnresolvedPostHold.NoReplyRecorded(sale.ExternalReferenceId);
 
         result.Failed++;
-        result.Errors.Add($"{sale.ExternalReferenceId}: post issued, outcome unknown");
+        result.Errors.Add(
+            $"{sale.ExternalReferenceId}: "
+            + UnresolvedPostHold.Describe(sale.PostIssuedAtUtc!.Value, options.UnresolvedPostGraceMinutes));
 
         logger.LogWarning(
             "Till sale {ExternalReference} had a post issued at {PostIssuedAt} that SAP does not yet show. "
@@ -499,6 +498,13 @@ public sealed class DesktopSalePostingService(
             sale.ExternalReferenceId, sale.PostIssuedAtUtc, options.UnresolvedPostGraceMinutes);
     }
 
+    /// <summary>
+    /// Whether SAP already holds an invoice for this sale.
+    /// </summary>
+    /// <remarks>
+    /// An unanswerable lookup throws rather than returning null. Treating "I could not ask" as "it is
+    /// not there" is how a sale gets invoiced twice.
+    /// </remarks>
     private async Task<Invoice?> FindAlreadyPostedAsync(
         DesktopSaleEntity sale, CancellationToken cancellationToken)
     {
