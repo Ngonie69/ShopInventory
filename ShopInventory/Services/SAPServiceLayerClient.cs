@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -950,7 +950,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// The filter cannot reach the lines: this Service Layer refuses lambda operators on document
     /// collections (<c>DocumentLines/any(...)</c> answers 400, code 201, as recorded beside the credit
     /// note lookup in this class). So SAP is asked by date alone — the same query the listener runs
-    /// every five minutes over three days — and the documents are matched here, line by line.
+    /// on every poll over three days — and the documents are matched here, line by line.
     /// </para>
     /// </remarks>
     public async Task<List<InventoryTransfer>> GetInventoryTransfersTouchingWarehouseAsync(
