@@ -8,10 +8,15 @@
   defaults (delivery box and QR shown, row rules hidden), and the sample values are the test
   fixture's (DesignInvoice) so every text run has a partner in the service's PDF; INVOICE NUMBER
   carries the DocNum the service prints, where the design's sample reads INV-772398. The font is the
-  design's own fallback, Arial, which is metrically the PDF's Helvetica.
+  design's Inter, loaded from the same static TTFs the service embeds (ShopInventory/Resources/Fonts).
+  Google Fonts serves the design's css2 request with the optical-size axis pinned at its default, so
+  these instances are the ones the design renders with.
 -->
 <meta charset="utf-8">
 <style>
+@font-face{font-family:Inter;font-weight:400;src:url(../../ShopInventory/Resources/Fonts/Inter-Regular.ttf)}
+@font-face{font-family:Inter;font-weight:600;src:url(../../ShopInventory/Resources/Fonts/Inter-SemiBold.ttf)}
+@font-face{font-family:Inter;font-weight:700;src:url(../../ShopInventory/Resources/Fonts/Inter-Bold.ttf)}
 @page{size:210mm 297mm;margin:0}
 html,body{margin:0;padding:0}
 *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -21,7 +26,7 @@ a{color:#5a2a8f}
 </head>
 <body>
 <section class="page" data-screen-label="Invoice">
-<div style="height:100%;box-sizing:border-box;padding:40px 44px 36px;display:flex;flex-direction:column;background:#ffffff;color:#14141a;font-family:Arial, Helvetica, sans-serif;font-size:11px;line-height:1.45;-webkit-font-smoothing:antialiased">
+<div style="height:100%;box-sizing:border-box;padding:40px 44px 36px;display:flex;flex-direction:column;background:#ffffff;color:#14141a;font-family:Inter, Arial, Helvetica, sans-serif;font-size:11px;line-height:1.45;-webkit-font-smoothing:antialiased">
 
 <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:baseline;gap:16px;padding-bottom:10px;border-bottom:1.5px solid #14141a">
 <div></div>

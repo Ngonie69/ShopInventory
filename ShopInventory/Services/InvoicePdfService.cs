@@ -1,5 +1,6 @@
 using System.Globalization;
 using iText.Barcodes;
+using iText.IO.Font;
 using iText.IO.Font.Constants;
 using iText.IO.Font.Otf;
 using iText.IO.Image;
@@ -37,8 +38,9 @@ public interface IInvoicePdfService
 /// can be checked against the design by reading it rather than by re-measuring the output. A4 is
 /// 794 CSS px across and 595.28 pt, and a CSS pixel is exactly 0.75 pt.
 ///
-/// The design sets Inter. It is not embedded here, so the design's own fallback, Helvetica, stands
-/// in, and the design's 600 and 700 weights both land on Helvetica-Bold.
+/// The design sets Inter, and so does this: Regular, SemiBold and Bold, the design's 400, 600 and
+/// 700, embedded from Resources/Fonts. They are the static instances Google Fonts serves for the
+/// design's own request. Only when those files are missing does Helvetica stand in, with a warning.
 ///
 /// An invoice with more lines than one sheet holds keeps flowing: the item table repeats its head on
 /// every page, the title rule and page count are stamped on each, and the footer sits at the bottom
@@ -108,7 +110,7 @@ public class InvoicePdfService : IInvoicePdfService
 
         // An address value is a min-height: 15px div on a baseline-aligned row. Left empty it has no
         // text baseline, so the browser takes its bottom edge as one and drops the label to meet it:
-        // 4px, as Chrome lays the design out in Arial, which is metrically Helvetica. The design's own
+        // 4px, as Chrome lays the design out in Inter (and in Arial before it). The design's own
         // sample leaves three of these empty, and a cash customer's invoice usually does too.
         private static readonly float EmptyValueDrop = Px(4);
 
@@ -135,14 +137,19 @@ public class InvoicePdfService : IInvoicePdfService
         private readonly PdfDocument _pdf;
         private readonly Document _document;
         private readonly ILogger _logger;
-        private readonly PdfFont _bold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
-        private readonly PdfFont _regular = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+        // font-weight 400, 600 and 700. A PdfFont belongs to one document, so each sheet makes its own.
+        private readonly PdfFont _regular;
+        private readonly PdfFont _semibold;
+        private readonly PdfFont _bold;
 
         public InvoiceSheet(PdfDocument pdf, Document document, ILogger logger)
         {
             _pdf = pdf;
             _document = document;
             _logger = logger;
+            _regular = InvoiceFonts.Create(InvoiceFonts.Regular, StandardFonts.HELVETICA, logger);
+            _semibold = InvoiceFonts.Create(InvoiceFonts.SemiBold, StandardFonts.HELVETICA_BOLD, logger);
+            _bold = InvoiceFonts.Create(InvoiceFonts.Bold, StandardFonts.HELVETICA_BOLD, logger);
         }
 
         public void Render(InvoiceDto invoice, string? fiscalQrCode)
@@ -204,8 +211,11 @@ public class InvoicePdfService : IInvoicePdfService
                 .SetPaddingBottom(Px(10))
                 .SetVerticalAlignment(VerticalAlignment.BOTTOM);
 
+        // Lifted onto the title's baseline in layout, so it is drawn with the title's shift, not its own.
         private Paragraph PageCountLine(string text)
-            => Line(text, _bold, Px(10), Muted).SetCharacterSpacing(Tracking(10, 0.1f));
+            => Line(text, _semibold, Px(10), Muted)
+                .SetCharacterSpacing(Tracking(10, 0.1f))
+                .SetRelativePosition(0, -BaselineCorrection(_bold, Px(20), BodyLeading), 0, 0);
 
         // ── Company ─────────────────────────────────────────────────────────
 
@@ -337,16 +347,9 @@ public class InvoicePdfService : IInvoicePdfService
 
             boxes.AddCell(Bare());
 
-            // The design draws the delivery box with contact details alone. A ship-to address, when
-            // SAP holds one, keeps its place above them rather than silently leaving the invoice.
-            var delivery = new List<(string Label, string? Value)>();
-            if (!string.IsNullOrWhiteSpace(invoice.ShipToAddress))
-            {
-                delivery.Add(("Address:", JoinAddress(invoice.ShipToAddress)));
-            }
-
-            delivery.Add(("Contact Details:", JoinContact(invoice.CustomerPhone, invoice.CustomerEmail)));
-            boxes.AddCell(AddressBox("DELIVERY ADDRESS", boxWidth, delivery.ToArray()));
+            // The design draws the delivery box with contact details alone, and so does the invoice.
+            boxes.AddCell(AddressBox("DELIVERY ADDRESS", boxWidth,
+                ("Contact Details:", JoinContact(invoice.CustomerPhone, invoice.CustomerEmail))));
 
             return boxes;
         }
@@ -364,7 +367,7 @@ public class InvoicePdfService : IInvoicePdfService
                     .SetMarginBottom(Px(8)));
 
             var innerWidth = width - 2 * Px(12);
-            var labelWidth = rows.Max(row => _bold.GetWidth(row.Label, BodySize)) + Px(12) + 1f;
+            var labelWidth = rows.Max(row => _semibold.GetWidth(row.Label, BodySize)) + Px(12) + 1f;
             var grid = new Table(UnitValue.CreatePointArray([labelWidth, innerWidth - labelWidth]))
                 .SetWidth(innerWidth)
                 .SetFixedLayout();
@@ -392,7 +395,7 @@ public class InvoicePdfService : IInvoicePdfService
             foreach (var column in ItemColumns)
             {
                 items.AddHeaderCell(Pad(Boxed(), 6, 8).Add(
-                    Strong(column.Header)
+                    Heavy(column.Header)
                         .SetCharacterSpacing(Tracking(11, 0.03f))
                         .SetTextAlignment(column.Align)));
             }
@@ -407,10 +410,10 @@ public class InvoicePdfService : IInvoicePdfService
                 ItemCell(items, line.ItemCode ?? "-", Ink, TextAlignment.LEFT);
                 ItemCell(items, line.Quantity.ToString("G29", Invariant), Ink, TextAlignment.LEFT);
                 ItemCell(items, line.ItemDescription ?? "-", Filled, TextAlignment.LEFT);
-                ItemCell(items, Money(line.UnitPrice), Ink, TextAlignment.RIGHT);
-                ItemCell(items, Money(line.LineTotal), Ink, TextAlignment.RIGHT);
-                ItemCell(items, Money(vat), Ink, TextAlignment.RIGHT);
-                ItemCell(items, Money(totalInc), Ink, TextAlignment.RIGHT);
+                ItemCell(items, Money(line.UnitPrice), Ink, TextAlignment.RIGHT, tabular: true);
+                ItemCell(items, Money(line.LineTotal), Ink, TextAlignment.RIGHT, tabular: true);
+                ItemCell(items, Money(vat), Ink, TextAlignment.RIGHT, tabular: true);
+                ItemCell(items, Money(totalInc), Ink, TextAlignment.RIGHT, tabular: true);
             }
 
             return items;
@@ -433,11 +436,12 @@ public class InvoicePdfService : IInvoicePdfService
             return claimed.Select(width => width * scale).ToArray();
         }
 
-        private void ItemCell(Table table, string text, Color color, TextAlignment align)
+        // The price columns are font-variant-numeric: tabular-nums.
+        private void ItemCell(Table table, string text, Color color, TextAlignment align, bool tabular = false)
             => table.AddCell(Bare()
                 .SetPadding(Px(8))
                 .SetVerticalAlignment(VerticalAlignment.TOP)
-                .Add(Body(text, color).SetTextAlignment(align)));
+                .Add((tabular ? Figures(text, _regular, BodySize, color) : Body(text, color)).SetTextAlignment(align)));
 
         /// <summary>A line's VAT and its VAT-inclusive total.</summary>
         /// <remarks>
@@ -491,13 +495,13 @@ public class InvoicePdfService : IInvoicePdfService
             // shrinks below its content, so when the bank details cannot fit beside a 320px totals
             // block the totals give way, down to their own content, rather than the account number
             // breaking mid-digit.
-            var bankLabelWidth = DepositAccount.Max(row => _bold.GetWidth(row.Label, BodySize)) + Px(14);
+            var bankLabelWidth = DepositAccount.Max(row => _semibold.GetWidth(row.Label, BodySize)) + Px(14);
             var bankContentWidth = bankLabelWidth + DepositAccount.Max(row => _regular.GetWidth(row.Value, BodySize)) + 1f;
 
-            var totalsLabelWidth = totals.Max(row => _bold.GetWidth(row.Label, BodySize)) + 2 * Px(10) + 1f;
+            var totalsLabelWidth = totals.Max(row => TotalFont(row.Strong).GetWidth(row.Label, BodySize)) + 2 * Px(10) + 1f;
             var totalsValueWidth = Math.Max(
                 Px(86) + 2 * Px(10),
-                totals.Max(row => (row.Strong ? _bold : _regular).GetWidth(row.Value, BodySize)) + 2 * Px(10) + 1f);
+                totals.Max(row => FiguresWidth(row.Value, row.Strong ? _bold : _regular, BodySize)) + 2 * Px(10) + 1f);
 
             var fiscalWidth = fiscal is null ? 0f : Px(170) + Px(24);
             var besideFiscal = ContentWidth - fiscalWidth;
@@ -563,10 +567,9 @@ public class InvoicePdfService : IInvoicePdfService
             FiscalLine(block, "Device ID:", invoice.FiscalDeviceId);
 
             var site = VerificationSite(qrPayload);
-            block.Add(new Paragraph()
+            block.Add(SetLeading(new Paragraph(), _regular, Px(10), 1.4f)
                 .Add(new Text("Verify this receipt manually at ").SetFont(_regular).SetFontSize(Px(10)).SetFontColor(Muted))
                 .Add(new Link(site, PdfAction.CreateURI(site)).SetFont(_regular).SetFontSize(Px(10)).SetFontColor(LinkInk))
-                .SetFixedLeading(LineHeight(Px(10), 1.4f))
                 .SetMargin(0)
                 .SetMarginTop(Px(3)));
 
@@ -581,8 +584,8 @@ public class InvoicePdfService : IInvoicePdfService
                 return;
             }
 
-            block.Add(new Paragraph()
-                .Add(new Text(label + " ").SetFont(_bold).SetFontSize(Px(10)).SetFontColor(Ink))
+            block.Add(SetLeading(new Paragraph(), _regular, Px(10), 1.35f)
+                .Add(new Text(label + " ").SetFont(_semibold).SetFontSize(Px(10)).SetFontColor(Ink))
                 .Add(new Text(value.Trim())
                     .SetFont(_regular)
                     .SetFontSize(Px(10))
@@ -590,9 +593,50 @@ public class InvoicePdfService : IInvoicePdfService
                     // A verification code is read out over the phone; broken at a hyphen, the last group
                     // reads as a separate figure. When it does not fit beside its label it drops whole.
                     .SetSplitCharacters(KeepWhole.Instance))
-                .SetFixedLeading(LineHeight(Px(10), 1.35f))
                 .SetMargin(0)
                 .SetMarginBottom(Px(3)));
+        }
+
+        /// <summary>Text whose digits are swapped for the font's tabular figures, the OpenType tnum feature.</summary>
+        /// <remarks>
+        /// iText applies no OpenType features without pdfCalligraph, so the substitution is made here from
+        /// the font's own GSUB table. Each figure keeps its character, so the PDF's text still reads "1.00".
+        /// A font with no tnum feature, Helvetica included, prints its ordinary figures.
+        /// </remarks>
+        private sealed class TabularText(string text, PdfFont font) : Text(text)
+        {
+            public static GlyphLine Glyphs(string text, PdfFont font)
+            {
+                var line = font.CreateGlyphLine(text);
+                var figures = InvoiceFonts.TabularFigures(font.GetFontProgram());
+
+                for (var index = 0; index < line.Size(); index++)
+                {
+                    if (figures.TryGetValue(line.Get(index).GetUnicode(), out var figure))
+                    {
+                        line.Set(index, figure);
+                    }
+                }
+
+                return line;
+            }
+
+            protected override IRenderer MakeNewRenderer() => new Renderer(this, font);
+
+            private sealed class Renderer : TextRenderer
+            {
+                private readonly TabularText _text;
+                private readonly PdfFont _font;
+
+                public Renderer(TabularText text, PdfFont font) : base(text)
+                {
+                    _text = text;
+                    _font = font;
+                    SetText(Glyphs(text.GetText(), font), font);
+                }
+
+                public override IRenderer GetNextRenderer() => new Renderer(_text, _font);
+            }
         }
 
         private sealed class KeepWhole : ISplitCharacters
@@ -637,7 +681,7 @@ public class InvoicePdfService : IInvoicePdfService
             }
 
             return new Div()
-                .Add(Strong("Please deposit into:")
+                .Add(Heavy("Please deposit into:")
                     .SetCharacterSpacing(Tracking(11, 0.02f))
                     .SetMarginBottom(Px(7)))
                 .Add(grid);
@@ -670,13 +714,16 @@ public class InvoicePdfService : IInvoicePdfService
 
             foreach (var row in rows)
             {
-                totals.AddCell(Pad(Boxed(), 5, 10).Add(Strong(row.Label)));
+                totals.AddCell(Pad(Boxed(), 5, 10).Add(Line(row.Label, TotalFont(row.Strong), BodySize, Ink)));
                 totals.AddCell(Pad(Boxed(), 5, 10).Add(
-                    Line(row.Value, row.Strong ? _bold : _regular, BodySize, Ink).SetTextAlignment(TextAlignment.RIGHT)));
+                    Figures(row.Value, row.Strong ? _bold : _regular, BodySize, Ink).SetTextAlignment(TextAlignment.RIGHT)));
             }
 
             return totals;
         }
+
+        /// <summary>A totals label is 600; Invoice Total, label and figure, is 700.</summary>
+        private PdfFont TotalFont(bool strong) => strong ? _bold : _semibold;
 
         // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -691,12 +738,58 @@ public class InvoicePdfService : IInvoicePdfService
         }
 
         private static Paragraph Line(string text, PdfFont font, float size, Color color)
-            => new Paragraph(text)
+            => SetLeading(new Paragraph(text), font, size, BodyLeading)
                 .SetFont(font)
                 .SetFontSize(size)
                 .SetFontColor(color)
-                .SetFixedLeading(LineHeight(size, BodyLeading))
                 .SetMargin(0);
+
+        /// <summary>A line whose digits are the font's tabular figures: font-variant-numeric: tabular-nums.</summary>
+        private static Paragraph Figures(string text, PdfFont font, float size, Color color)
+            => SetLeading(new Paragraph().Add(new TabularText(text, font)), font, size, BodyLeading)
+                .SetFont(font)
+                .SetFontSize(size)
+                .SetFontColor(color)
+                .SetMargin(0);
+
+        /// <summary>The width <paramref name="text"/> takes when set by <see cref="Figures"/>.</summary>
+        private static float FiguresWidth(string text, PdfFont font, float size)
+        {
+            var glyphs = TabularText.Glyphs(text, font);
+            return Enumerable.Range(0, glyphs.Size()).Sum(index => glyphs.Get(index).GetWidth()) * size / 1000f;
+        }
+
+        /// <summary>A CSS line-height on a paragraph, with its baseline where Chrome puts it.</summary>
+        private static Paragraph SetLeading(Paragraph paragraph, PdfFont font, float size, float multiplier)
+            => paragraph
+                .SetFixedLeading(LineHeight(size, multiplier))
+                .SetRelativePosition(0, -BaselineCorrection(font, size, multiplier), 0, 0);
+
+        /// <summary>
+        /// How far iText's baseline sits below Chrome's in a line of the same height, in points.
+        /// </summary>
+        /// <remarks>
+        /// iText centres the font's exact ascent-to-descent span in the line. Chrome rounds the ascent
+        /// and the descent to whole pixels each, and gives the ascent side the smaller half of the
+        /// leading, floored to a whole pixel: a 20px Inter title on a 29px line has its baseline 21px
+        /// down, not 21.8. Left alone, the difference put every Inter line up to 1pt low. The shift is
+        /// drawn, not laid out, so line boxes, and everything measured from them, stay where they are.
+        /// </remarks>
+        private static float BaselineCorrection(PdfFont font, float size, float multiplier)
+        {
+            var metrics = TextRenderer.CalculateAscenderDescender(font);
+            var sizePx = size / Px(1);
+            var ascent = metrics[0] / 1000f * sizePx;
+            var descent = -metrics[1] / 1000f * sizePx;
+            var lineHeight = sizePx * multiplier;
+
+            var itext = (lineHeight - ascent - descent) / 2 + ascent;
+            var roundedAscent = MathF.Floor(ascent + 0.5f);
+            var roundedDescent = MathF.Floor(descent + 0.5f);
+            var chrome = MathF.Floor((lineHeight - roundedAscent - roundedDescent) / 2) + roundedAscent;
+
+            return Px(itext - chrome);
+        }
 
         /// <summary>
         /// How far a line set at <paramref name="smallSize"/> must sit above the foot of a line set at
@@ -723,7 +816,11 @@ public class InvoicePdfService : IInvoicePdfService
 
         private Paragraph Body(string text, Color color) => Line(text, _regular, BodySize, color);
 
-        private Paragraph Strong(string text) => Line(text, _bold, BodySize, Ink);
+        /// <summary>Body text at font-weight 600, the design's labels.</summary>
+        private Paragraph Strong(string text) => Line(text, _semibold, BodySize, Ink);
+
+        /// <summary>Body text at font-weight 700, the design's headings.</summary>
+        private Paragraph Heavy(string text) => Line(text, _bold, BodySize, Ink);
 
         private static Cell Bare() => new Cell().SetBorder(Border.NO_BORDER).SetPadding(0);
 
@@ -762,6 +859,77 @@ public class InvoicePdfService : IInvoicePdfService
             return DateTime.TryParse(docDate, Invariant, DateTimeStyles.None, out var date)
                 ? date.ToString("dd/MM/yy", Invariant)
                 : docDate;
+        }
+    }
+
+    /// <summary>The invoice's Inter faces, read once and shared by every document.</summary>
+    private static class InvoiceFonts
+    {
+        public const string Regular = "Inter-Regular.ttf";
+        public const string SemiBold = "Inter-SemiBold.ttf";
+        public const string Bold = "Inter-Bold.ttf";
+
+        private static readonly Dictionary<string, Lazy<FontProgram?>> Programs = new[] { Regular, SemiBold, Bold }
+            .ToDictionary(name => name, name => new Lazy<FontProgram?>(() => Load(name)));
+
+        /// <summary>The face as a font for one document, embedded and subset; Helvetica when the file is missing.</summary>
+        public static PdfFont Create(string name, string standardFallback, ILogger logger)
+        {
+            var program = Programs[name].Value;
+            if (program is null)
+            {
+                logger.LogWarning(
+                    "The invoice font {FontFile} is missing from Resources/Fonts; the invoice PDF falls back to {Fallback}",
+                    name, standardFallback);
+                return PdfFontFactory.CreateFont(standardFallback);
+            }
+
+            return PdfFontFactory.CreateFont(program, PdfEncodings.IDENTITY_H, PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED);
+        }
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FontProgram, IReadOnlyDictionary<int, Glyph>> Figures = new();
+
+        /// <summary>Each digit's tabular figure, by the digit's code point; empty for a font without tnum.</summary>
+        public static IReadOnlyDictionary<int, Glyph> TabularFigures(FontProgram program)
+            => Figures.GetValue(program, static program =>
+            {
+                var figures = new Dictionary<int, Glyph>();
+                if (program is not TrueTypeFont { } trueType || trueType.GetGsubTable() is not { } gsub)
+                {
+                    return figures;
+                }
+
+                var tnum = gsub.GetFeatureRecords().Where(feature => feature.GetTag() == "tnum").ToArray();
+                if (tnum.Length == 0)
+                {
+                    return figures;
+                }
+
+                var lookups = gsub.GetLookups(tnum);
+                for (var digit = '0'; digit <= '9'; digit++)
+                {
+                    var glyph = program.GetGlyph(digit);
+                    if (glyph is null)
+                    {
+                        continue;
+                    }
+
+                    var line = new GlyphLine(new List<Glyph> { glyph });
+                    foreach (var lookup in lookups)
+                    {
+                        lookup.TransformLine(line);
+                    }
+
+                    figures[digit] = new Glyph(line.Get(0), digit);
+                }
+
+                return figures;
+            });
+
+        private static FontProgram? Load(string name)
+        {
+            var path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Fonts", name);
+            return File.Exists(path) ? FontProgramFactory.CreateFont(File.ReadAllBytes(path)) : null;
         }
     }
 }

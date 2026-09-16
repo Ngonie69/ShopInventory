@@ -20,7 +20,7 @@ TOLERANCE_PT = 1.5
 
 # Runs in the footer whose placement follows from the deliberate departures above.
 DELIBERATE = re.compile(
-    r"^(60A7-|2377$|Please deposit into:|Bank:|Stanbic|Zimbabwe|Account|Name:|Number:|Kefalos Cheese|Products|"
+    r"^(60A7-|6120-2377$|2377$|Please deposit into:|Bank:|Stanbic|Zimbabwe|Account|Name:|Number:|Kefalos Cheese|Products|"
     r"9140005966435|Branch:|Belgravia|Currency:|USD$|Net Total|Discount|Freight|Total EXC VAT|VAT Total|Invoice Total)"
 )
 
