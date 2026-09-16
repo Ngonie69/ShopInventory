@@ -185,6 +185,7 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
             {
                 DocNum = docNum,
                 Found = false,
+                LookupFailed = lookupFailures.ContainsKey(docNum),
                 ErrorMessage = lookupFailures.TryGetValue(docNum, out var errorMessage)
                     ? errorMessage
                     : $"Invoice #{docNum} not found in SAP"
@@ -209,7 +210,6 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
         var linkedInvoices = new List<(int SalesOrderDocEntry, int SalesOrderDocNum, string? CustomerCode, string? CustomerName, int InvoiceDocEntry, int InvoiceDocNum, DateTime? InvoiceDocDate)>();
         var lookupFailures = new Dictionary<int, string>();
         var locallyResolvedSalesOrderDocNums = new HashSet<int>();
-        var chunkIndex = 0;
 
         var localLinks = await context.SalesOrders
             .AsNoTracking()
@@ -254,14 +254,23 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
         // filtered below.
         var unresolvedSalesOrderDocNumSet = unresolvedSalesOrderDocNums.ToHashSet();
 
+        // Every range runs the same statement against the same SAP, so once one fails the rest would
+        // only fail the same way, each after its own retries. They are reported failed without asking.
+        var sapLookupFailed = false;
+
         foreach (var (rangeStart, rangeEnd) in SqlIdRangeCover.Cover(unresolvedSalesOrderDocNums))
         {
-            chunkIndex++;
-
             // Failure reporting is per requested doc num, so narrow the range back down first.
             var rangeDocNums = unresolvedSalesOrderDocNums
                 .Where(docNum => docNum >= rangeStart && docNum <= rangeEnd)
                 .ToList();
+
+            if (sapLookupFailed)
+            {
+                foreach (var docNum in rangeDocNums)
+                    lookupFailures[docNum] = $"Sales order #{docNum} invoice lookup skipped (SAP unavailable)";
+                continue;
+            }
 
             try
             {
@@ -308,18 +317,21 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
                 logger.LogWarning(ex, "Timed out while resolving invoice links for {Count} sales orders", rangeDocNums.Count);
                 foreach (var docNum in rangeDocNums)
                     lookupFailures[docNum] = $"Sales order #{docNum} invoice lookup failed (SAP timeout)";
+                sapLookupFailed = true;
             }
             catch (HttpRequestException ex)
             {
                 logger.LogWarning(ex, "Network error while resolving invoice links for {Count} sales orders", rangeDocNums.Count);
                 foreach (var docNum in rangeDocNums)
                     lookupFailures[docNum] = $"Sales order #{docNum} invoice lookup failed (SAP connection error)";
+                sapLookupFailed = true;
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Unexpected error while resolving invoice links for {Count} sales orders", rangeDocNums.Count);
                 foreach (var docNum in rangeDocNums)
                     lookupFailures[docNum] = $"Sales order #{docNum} invoice lookup failed";
+                sapLookupFailed = true;
             }
         }
 
@@ -342,6 +354,7 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
                 {
                     SalesOrderDocNum = salesOrderDocNum,
                     Found = false,
+                    LookupFailed = lookupFailures.ContainsKey(salesOrderDocNum),
                     ErrorMessage = lookupFailures.TryGetValue(salesOrderDocNum, out var errorMessage)
                         ? errorMessage
                         : $"No invoices found for sales order #{salesOrderDocNum}"

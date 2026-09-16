@@ -13,5 +13,11 @@ public class BulkPodValidationResultDto
     public string? CardName { get; set; }
     public bool Found { get; set; }
     public int ExistingPodCount { get; set; }
+
+    /// <summary>
+    /// SAP could not be asked, so Found says nothing about the document. False for a clean "not found".
+    /// </summary>
+    public bool LookupFailed { get; set; }
+
     public string? ErrorMessage { get; set; }
 }
