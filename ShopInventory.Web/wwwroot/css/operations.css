@@ -2443,6 +2443,15 @@
     font-size: 12px;
 }
 
+/* A day whose sales have all reached the back office has nothing to break
+   down. The card says so rather than ending on a bare figure — and saying it
+   here keeps the list beneath the headline honest about being its composition. */
+.ops-ds .ops-ds-empty {
+    color: var(--ops-mute-3);
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+
 .ops-ds .ops-ds-break-row {
     display: flex;
     align-items: center;

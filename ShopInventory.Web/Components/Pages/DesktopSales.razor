@@ -1,6 +1,7 @@
 @page "/desktop-sales"
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.DesktopSalesDay
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IDesktopIntegrationService DesktopService
@@ -231,11 +232,22 @@
                     <span>not yet in the back office · @report.UnpostedInvoiceCount awaiting close</span>
                 </div>
 
-                @if (topPartners.Count > 0)
-                {
-                    <div class="ops-ds-split"></div>
-                    <div class="ops-ds-breakdown">
-                        <div class="ops-ds-card-label">Largest customers</div>
+                @* The breakdown answers "made up of what?", so it lists the
+                   customers whose sales are still on the device — not the day's
+                   largest, which would contradict the figure above it. *@
+                <div class="ops-ds-split"></div>
+                <div class="ops-ds-breakdown">
+                    @if (topPartners.Count == 0)
+                    {
+                        <div class="ops-ds-empty">
+                            @(report.TotalSalesCount == 0
+                                ? "No sales captured for the day."
+                                : $"All {report.TotalSalesCount} of the day's sales are in the back office.")
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ops-ds-card-label">Largest on the device</div>
                         @foreach (var partner in topPartners)
                         {
                             <div class="ops-ds-break-row">
@@ -249,8 +261,8 @@
                                 <span class="ops-ds-break-val">@Money(partner.TotalAmount)</span>
                             </div>
                         }
-                    </div>
-                }
+                    }
+                </div>
             </div>
         </div>
     }
@@ -525,7 +537,7 @@
                     <dt>Value listed</dt>
                     <dd>@Money(awaitingValue)</dd>
                     <dt>Already consolidated</dt>
-                    <dd>@(report?.PostedInvoiceCount ?? 0)</dd>
+                    <dd>@consolidatedCount</dd>
                     <dt>Posting date</dt>
                     <dd>@DateTime.Today.ToString("dd.MM.yyyy")</dd>
                 </dl>
@@ -2436,7 +2448,7 @@
 
     private void CloseConsolidate() => showConsolidate = false;
 
-    private decimal awaitingValue => report?.UnpostedSales.Sum(s => s.Amount) ?? 0m;
+    private decimal awaitingValue => DesktopSalesDaySummary.AwaitingValue(report);
 
     private async Task TriggerConsolidation()
     {
@@ -2518,49 +2530,23 @@
 
     // ── The day summary ──────────────────────────────────────────────────
 
-    private sealed record Lane(string Name, int Count, string Family);
-
     private string dayLabel => report == null
         ? "Day in progress"
         : report.ReportDate.Date == DateTime.Today
             ? "Day in progress"
             : report.ReportDate.ToString("dd MMM yyyy");
 
-    // Drawn from the report rather than from `sales`, which is one page of a
-    // filtered list and would make the lanes disagree with the total above them.
-    // The unposted list carries a status per row; the counts it does not explain
-    // fall into "awaiting close", so the four always add up to the day.
-    private List<Lane> lanes
-    {
-        get
-        {
-            if (report == null)
-            {
-                return new();
-            }
-
-            var listed = report.UnpostedSales;
-            var failed = listed.Count(s => Is(s.ConsolidationStatus, "Failed"));
-            var excluded = listed.Count(s => Is(s.ConsolidationStatus, "Excluded"));
-            var awaiting = Math.Max(0, report.UnpostedInvoiceCount - failed - excluded);
-
-            return new()
-            {
-                new Lane("Awaiting close", awaiting, "ops-fam-accent"),
-                new Lane("Consolidated", report.PostedInvoiceCount, "ops-fam-good"),
-                new Lane("Failed", failed, "ops-fam-bad"),
-                new Lane("Excluded", excluded, "ops-fam-neutral")
-            };
-        }
-    }
+    // The arithmetic lives in DesktopSalesDaySummary so it can be tested; this
+    // page only draws it. Drawn from the report rather than from `sales`, which
+    // is one page of a filtered list and would make the lanes disagree with the
+    // total above them.
+    private List<DesktopSalesDaySummary.Lane> lanes => DesktopSalesDaySummary.Lanes(report);
 
     private int laneTotal => lanes.Sum(l => l.Count);
 
-    private List<BPSummaryDto> topPartners => report?.BusinessPartnerSummaries
-        .Where(b => b.TotalAmount > 0)
-        .OrderByDescending(b => b.TotalAmount)
-        .Take(5)
-        .ToList() ?? new();
+    private int consolidatedCount => DesktopSalesDaySummary.ConsolidatedCount(report);
+
+    private List<DesktopSalesDaySummary.PartnerValue> topPartners => DesktopSalesDaySummary.OnDevice(report);
 
     private decimal topPartnerMax => topPartners.Count > 0 ? topPartners.Max(b => b.TotalAmount) : 0m;
 
