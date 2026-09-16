@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 """Decides whether a "Deploy to production" run deploys, and which commit.
 
-A production cutover drops every request in flight. Update-Production.ps1 moves the public port
-binding from the old IIS slot to the new one, and between the removal and the addition nothing listens
-on the port: new requests get a 404 from HTTP.sys, and requests already running are cut off, so nginx
-answers them 502. On 14 September 2026 three merges deployed between 16:00 and 16:40 CAT. KEFSHOP's
-till lost its notification connection at the end of each, and a sale posted at 16:41 got a 502 while
-the API went on writing it. The customer left with no receipt.
+A merge used to be held out of trading hours, because a cutover dropped every request in flight.
+Update-Production.ps1 moved the public port binding from the old IIS slot to the new one in a
+separate write to applicationHost.config for each site it touched, and between the first removal and
+the addition nothing listened on the port: new requests got a 404 from HTTP.sys, and requests already
+running were cut off, so nginx answered them 502. On 14 September 2026 three merges deployed between
+16:00 and 16:40 CAT. KEFSHOP's till lost its notification connection at the end of each, and a sale
+posted at 16:41 got a 502 while the API went on writing it. The customer left with no receipt.
 
-So a merge no longer deploys during trading hours:
+The handover is now one commit - see Switch-PublicTrafficToSite and its tests in
+scripts/Test-DeployPublicBindingSwap.ps1 - so no committed configuration has the port belonging to
+nobody, and every cutover measures the public port across the switch and says in the run summary how
+long, if at all, it answered nothing. That number is the standing evidence for this file being what
+it is. If it stops reading zero, put the window back.
 
-    workflow_run (Tests passed on a push to main)
-        outside 07:00-19:00 CAT   deploy the commit that passed
-        inside it                 do not; the evening run deploys it
-    schedule (19:30 CAT)          deploy main's head, if Tests passed for it
-                                  (the deploy job skips a commit that is already live)
-    workflow_dispatch             deploy now, whatever the time: the way to ship an urgent fix
+    workflow_run (Tests passed on a push to main)   deploy the commit that passed, whatever the time
+    schedule (19:30 CAT)                            deploy main's head if Tests passed for it, as a
+                                                    backstop for a merge whose deploy never ran; the
+                                                    deploy job skips a commit already live, so on an
+                                                    ordinary night this does nothing
+    workflow_dispatch                               deploy the chosen ref now
 
 Reads its inputs from the environment and writes deploy, sha and reason to $GITHUB_OUTPUT.
 
@@ -32,46 +37,26 @@ import os
 import sys
 from datetime import datetime, time, timedelta, timezone
 
-# Zimbabwe keeps UTC+2 all year, with no daylight saving to move the window.
+# Zimbabwe keeps UTC+2 all year. Only used to say the time in the reason a human reads.
 CAT = timezone(timedelta(hours=2), "CAT")
 
-# Every shop's hours fall inside this, as Kefalos gave them on 14 September 2026: the earliest opens at
-# 08:00 and the latest closes at 17:00, and CORMACH2 trades on Sundays. The hour before opening is for
-# vans getting ready. The two hours after closing cover the 17:00 incoming-payment run and the 18:00
-# consolidation, both of which a restart would cut through. Every day, because CORMACH2 has no day off.
-TRADING_STARTS = time(7, 0)
-TRADING_ENDS = time(19, 0)
-
-# The scheduled run, in CAT. Kept here beside the window it has to fall outside; the workflow's cron
-# says 17:30 UTC, and test_deploy_window.py fails if the two disagree.
+# The backstop run, in CAT. The workflow's cron says 17:30 UTC, and test_deploy_window.py fails if
+# the two disagree.
 EVENING_DEPLOY = time(19, 30)
-
-
-def trading(now_utc: datetime) -> bool:
-    """Whether a deploy starting at now_utc would start during trading hours."""
-    local = now_utc.astimezone(CAT).time()
-    return TRADING_STARTS <= local < TRADING_ENDS
 
 
 def decide(event: str, now_utc: datetime, tested_sha: str, head_sha: str, tests_passed: bool):
     """(deploy, sha, reason) for one run."""
     local = now_utc.astimezone(CAT).strftime("%H:%M")
-    window = f"{TRADING_STARTS:%H:%M}-{TRADING_ENDS:%H:%M} CAT"
 
     if event == "workflow_dispatch":
-        return True, head_sha, f"Run by hand at {local} CAT: deploys whatever the time."
+        return True, head_sha, f"Run by hand at {local} CAT."
 
     if event == "workflow_run":
         if not tested_sha:
             return False, "", "No tested commit on the triggering run, so there is nothing known good to deploy."
 
-        if trading(now_utc):
-            return False, tested_sha, (
-                f"Tests passed at {local} CAT, inside trading hours ({window}). A cutover drops the requests in "
-                f"flight, so this waits for the {EVENING_DEPLOY:%H:%M} CAT deploy. Run the workflow by hand to "
-                "deploy now.")
-
-        return True, tested_sha, f"Tests passed at {local} CAT, outside trading hours ({window})."
+        return True, tested_sha, f"Tests passed at {local} CAT. The cutover is a handover, so it ships now."
 
     if event == "schedule":
         if not head_sha:
@@ -79,10 +64,12 @@ def decide(event: str, now_utc: datetime, tested_sha: str, head_sha: str, tests_
 
         if not tests_passed:
             return False, head_sha, (
-                f"Tests have not passed for main's head {head_sha[:7]}, so the evening deploy does not ship it. "
-                "It deploys the next evening once they do, or run the workflow by hand.")
+                f"Tests have not passed for main's head {head_sha[:7]}, so the backstop run does not ship it. "
+                "It ships as soon as they do, or run the workflow by hand.")
 
-        return True, head_sha, f"Evening deploy at {local} CAT of main's head {head_sha[:7]}."
+        return True, head_sha, (
+            f"Backstop run at {local} CAT of main's head {head_sha[:7]}, in case its merge did not deploy. "
+            "Skipped without a cutover if it is already live.")
 
     return False, "", f"Not a deploy trigger: {event!r}."
 

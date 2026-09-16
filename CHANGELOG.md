@@ -159,6 +159,18 @@ otherwise be surprised.
 
 ### Changed
 
+- **A merge deploys to production again as soon as its tests pass, at any hour.**
+
+  For two days a merge between 07:00 and 19:00 CAT deployed nothing and waited for a 19:30 run,
+  because a cutover dropped the requests in flight: `Update-Production.ps1` moved the public port
+  binding from the old IIS slot to the new one in a separate write to `applicationHost.config` per
+  site, and in between nothing listened on the port. The handover is now one write, and the new slot
+  is started and health-checked on its private port before it is given the public one. Every cutover
+  measures the public port across the switch and reports what it saw as a **Cutover** table in the
+  run summary; the 19:30 run remains as a backstop for a merge whose deploy never ran, and on an
+  ordinary night deploys nothing. If that table ever reports milliseconds rather than "none seen",
+  requests were dropped — see the runbook.
+
 - **A card swipe now settles as bank transfer money, against a configured G/L account.**
 
   `SAP:SwipeCreditCardCode` was the only route a swipe could take, and it could never be set: the
