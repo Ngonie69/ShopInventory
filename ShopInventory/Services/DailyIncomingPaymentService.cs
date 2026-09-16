@@ -216,7 +216,7 @@ public sealed class DailyIncomingPaymentService(
         CancellationToken cancellationToken)
     {
         var options = settings.Value;
-        var swipeCode = sapSettings.Value.SwipeCreditCardCode;
+        var swipe = SwipeSettlementFromSettings();
         var lookbackStart = paymentDate.AddDays(-Math.Max(1, options.DailyPaymentLookbackDays));
 
         // A customer with any payment for the day is left alone, so a second pass never starts a second
@@ -275,7 +275,7 @@ public sealed class DailyIncomingPaymentService(
         // In memory: SQLite, which the tests run on, cannot compare decimals.
         foreach (var sale in sales.Where(sale => sale.AmountPaid > 0))
         {
-            var split = DailyIncomingPaymentBuilder.SplitSale(sale, swipeCode);
+            var split = DailyIncomingPaymentBuilder.SplitSale(sale, swipe);
             if (!split.IsMapped)
             {
                 sale.PaymentStatus = DesktopSalePaymentStatuses.Unmapped;
@@ -291,7 +291,7 @@ public sealed class DailyIncomingPaymentService(
             var split = DailyIncomingPaymentBuilder.SplitConsolidation(
                 consolidation,
                 linkedSales.Where(sale => sale.ConsolidationId == consolidation.Id).ToList(),
-                swipeCode);
+                swipe);
 
             if (!split.IsMapped)
             {
@@ -469,7 +469,21 @@ public sealed class DailyIncomingPaymentService(
                 + "One payment cannot carry two currencies.");
         }
 
-        var request = DailyIncomingPaymentBuilder.BuildRequest(payment, sapSettings.Value.SwipeCreditCardCode);
+        var swipe = SwipeSettlementFromSettings();
+
+        if (swipe.AsTransfer && payment.CreditSum > 0m && payment.TransferSum > 0m)
+        {
+            // Both kinds of transferred money on one document, and SAP carries one account for the pair.
+            // The account is left off rather than applied to money it does not belong to; this says so
+            // out loud, because otherwise it is only findable by reconciling the bank by hand.
+            logger.LogWarning(
+                "Daily payment {Reference} settles {Card} of card money and {Wallet} of wallet money together. "
+                + "SAP takes one transfer account per payment, so {Account} is left off and SAP's default "
+                + "applies to both.",
+                payment.Reference, payment.CreditSum, payment.TransferSum, swipe.TransferAccount);
+        }
+
+        var request = DailyIncomingPaymentBuilder.BuildRequest(payment, swipe);
 
         // The last point at which walking away costs nothing.
         cancellationToken.ThrowIfCancellationRequested();
@@ -688,6 +702,10 @@ public sealed class DailyIncomingPaymentService(
             .OrderByDescending(candidate => candidate.DocEntry)
             .FirstOrDefault();
     }
+
+    /// <summary>How a swipe reaches SAP, as configured. See <see cref="SwipeSettlement"/>.</summary>
+    private SwipeSettlement SwipeSettlementFromSettings() =>
+        new(sapSettings.Value.SwipeCreditCardCode, sapSettings.Value.SwipeTransferAccount);
 
     private static void RecomputeSums(DailyIncomingPaymentEntity payment)
     {

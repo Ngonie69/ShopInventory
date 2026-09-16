@@ -137,6 +137,28 @@ otherwise be surprised.
 
 ### Changed
 
+- **A card swipe now settles as bank transfer money, against a configured G/L account.**
+
+  `SAP:SwipeCreditCardCode` was the only route a swipe could take, and it could never be set: the
+  company database has no credit card records at all. So every card sale since the daily payment went
+  live was invoiced and then left open — 15 of them on 2026-09-15 alone, 596.83 that the cash desk had
+  already counted and banked, which is why the system's settlement kept coming up short of the count.
+
+  Set **`SAP:SwipeTransferAccount`** to the G/L account card takings are banked into and swipes settle
+  as transfer money on the day's payment, which is what the money actually does: the acquirer pays the
+  bank. It takes precedence over `SAP:SwipeCreditCardCode`, which still works for anyone carrying card
+  money on a card account. With neither set, a swipe is still invoiced and left `Unmapped`, and the
+  reason now names both settings.
+
+  Waiting sales settle themselves: the daily payment looks back seven days, so swipes left `Unmapped`
+  within that window join the next pass once the account is configured.
+
+  **One limit worth knowing:** SAP carries one transfer account per payment. On a day whose takings
+  include both card and mobile wallet money, the account is left off and SAP's default applies to the
+  whole transfer sum — posting wallet takings into the card settlement account would be an error only a
+  hand reconciliation could find. The daily payment logs a warning naming the payment when that happens.
+
+
 - **Vendors at a vending depot must be coded VMB, VMP or VMM and three digits.**
 
   `POST /api/route-customers` under a business partner a `CartVendor` account sells on now holds the
