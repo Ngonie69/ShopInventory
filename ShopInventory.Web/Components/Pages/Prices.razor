@@ -22,13 +22,32 @@
             <div class="ops-kicker">Master data</div>
             <h1>Price List</h1>
             <p>
-                Item prices as they stand on each SAP price list. Pick a list to see what it
-                charges, or search a code to read one price straight off.
+                Item prices as they stand on each SAP price list, or for one customer — the
+                price its tills charge, special prices included.
             </p>
         </div>
         <div class="ops-hero-actions">
+            @* Admin only, like the Settings tile that runs the same sync. The page
+               itself is open to every catalogue role, and the API cannot tell them
+               apart: Web calls carry the API key. *@
+            <AuthorizeView Roles="@UserRoles.Admin" Context="sapSyncAccess">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="SyncFromSap"
+                        disabled="@(isSyncingFromSap || isLoadingPriceLists)"
+                        title="Read every price list, business partner price and special price from SAP now, instead of waiting for the next scheduled sync">
+                    @if (isSyncingFromSap)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>@(sapSyncPhase ?? "Syncing from SAP")&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-cloud-arrow-down" aria-hidden="true"></i>
+                        <span>Sync from SAP</span>
+                    }
+                </button>
+            </AuthorizeView>
             <button type="button" class="ops-btn ops-btn-primary" @onclick="RefreshPriceLists"
-                    disabled="@isLoadingPriceLists">
+                    disabled="@(isLoadingPriceLists || isSyncingFromSap)">
                 @if (isLoadingPriceLists)
                 {
                     <span class="ops-spin"></span>
@@ -43,6 +62,200 @@
         </div>
     </div>
 
+    @if (sapSyncNotice != null)
+    {
+        <div class="ops-msg @sapSyncNoticeFamily" role="alert">
+            <i class="ph @(sapSyncNoticeFamily == "ops-fam-bad" ? "ph-warning-octagon" : "ph-check-circle")" aria-hidden="true"></i>
+            <div class="ops-msg-body">@sapSyncNotice</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => sapSyncNotice = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
+
+    <div class="ops-tabs" role="tablist">
+        <button type="button" role="tab" class="ops-tab @(activeView == PriceView.PriceList ? "is-on" : "")"
+                aria-selected="@(activeView == PriceView.PriceList)" @onclick="() => activeView = PriceView.PriceList">
+            <i class="ph ph-list-bullets" aria-hidden="true"></i>
+            <span>By price list</span>
+        </button>
+        <button type="button" role="tab" class="ops-tab @(activeView == PriceView.Customer ? "is-on" : "")"
+                aria-selected="@(activeView == PriceView.Customer)" @onclick="ShowCustomerView">
+            <i class="ph ph-storefront" aria-hidden="true"></i>
+            <span>By customer</span>
+            @if (customerPricing?.Prices != null)
+            {
+                <span class="ops-tab-count">@customerPricing.Prices.Count</span>
+            }
+        </button>
+    </div>
+
+    @if (activeView == PriceView.Customer)
+    {
+        <section class="ops-panel">
+            <div class="ops-panel-head">
+                <h2>
+                    <i class="ph ph-storefront" aria-hidden="true"></i>
+                    @(selectedCustomerOption?.Label ?? "Select a customer")
+                </h2>
+                @if (customerPricing is { PriceListNum: > 0 })
+                {
+                    <span class="ops-badge ops-fam-accent">@(string.IsNullOrEmpty(customerPricing.Currency)
+                        ? "No currency" : customerPricing.Currency)</span>
+                    <span class="ops-badge ops-fam-neutral">@(customerPricing.PriceListName ?? $"List {customerPricing.PriceListNum}")</span>
+                }
+                @if (filteredCustomerPrices != null && customerPricing?.Prices != null)
+                {
+                    <span class="ops-count">
+                        @filteredCustomerPrices.Count of @customerPricing.Prices.Count items
+                        @if (SpecialPriceCount > 0)
+                        {
+                            <text>&middot; @SpecialPriceCount special</text>
+                        }
+                    </span>
+                }
+            </div>
+
+            <div class="ops-filters">
+                <div class="ops-field">
+                    <label class="ops-label" for="prc-customer">Customer</label>
+                    <NocturnePicker Id="prc-customer" Class="npick-block" Options="customerOptions"
+                                    Value="@selectedCardCode" ValueChanged="@(code => OnCustomerChanged(code))"
+                                    Loading="isLoadingCustomers" LoadingText="Loading customers…"
+                                    Placeholder="Select a customer" AriaLabel="Customer"
+                                    EmptyText="No customers have been synced" />
+                </div>
+                <div class="ops-field">
+                    <label class="ops-label" for="prc-customer-search">Search items</label>
+                    <div class="ops-search">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <input id="prc-customer-search" type="search" class="ops-input" placeholder="Item code or description"
+                               disabled="@(customerPricing?.Prices == null)"
+                               @bind="customerSearchTerm" @bind:event="oninput" @bind:after="FilterCustomerPrices" />
+                    </div>
+                </div>
+                <div class="ops-filter-actions">
+                    @if (!string.IsNullOrWhiteSpace(customerSearchTerm))
+                    {
+                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearCustomerSearch">
+                            <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @if (isLoadingCustomerPrices)
+            {
+                <div class="ops-loading">
+                    <span class="ops-spin ops-spin-lg"></span>
+                    <p>Loading prices for @(selectedCustomerOption?.Label ?? selectedCardCode)&hellip;</p>
+                </div>
+            }
+            else if (customerErrorMessage != null)
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                    <h3>Could not load prices</h3>
+                    <p>@customerErrorMessage</p>
+                    <div class="ops-empty-actions">
+                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="RetryCustomerView">Retry</button>
+                    </div>
+                </div>
+            }
+            else if (string.IsNullOrEmpty(selectedCardCode))
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-storefront" aria-hidden="true"></i>
+                    <h3>Pick a customer</h3>
+                    <p>
+                        Choose a shop's business partner to see every item at the price its tills charge:
+                        the partner's price list, with its special prices applied.
+                    </p>
+                </div>
+            }
+            else if (customerPricing?.Prices is not { Count: > 0 })
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-tag" aria-hidden="true"></i>
+                    <h3>No prices for @selectedCardCode</h3>
+                    <p>
+                        The price catalogue holds no price list for this customer, so its tills would
+                        price every item at zero. Check the partner's price list in SAP, then sync.
+                    </p>
+                </div>
+            }
+            else if (filteredCustomerPrices?.Any() == true)
+            {
+                <div class="ops-scroll ops-tall">
+                    <table class="ops-table">
+                        <thead>
+                            <tr>
+                                <th>Item code</th>
+                                <th>Item name</th>
+                                <th class="ops-num">List price</th>
+                                <th class="ops-num">Discount</th>
+                                <th class="ops-num">Till price @(string.IsNullOrEmpty(customerPricing.Currency)
+                                    ? "" : $"({customerPricing.Currency})")</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in filteredCustomerPrices)
+                            {
+                                <tr>
+                                    <td><span class="ops-code">@HighlightMatch(item.ItemCode, customerSearchTerm)</span></td>
+                                    <td class="ops-name">@HighlightMatch(item.ItemName, customerSearchTerm)</td>
+                                    <td class="ops-num">
+                                        @if (item.PriceBeforeDiscount.HasValue)
+                                        {
+                                            @GetCurrencySymbol(customerPricing.Currency)@item.PriceBeforeDiscount.Value.ToString("N2")
+                                        }
+                                        else
+                                        {
+                                            <span class="ops-prc-none">&mdash;</span>
+                                        }
+                                    </td>
+                                    <td class="ops-num">
+                                        @if (item.DiscountPercent.HasValue)
+                                        {
+                                            <span class="ops-badge ops-fam-good">@item.DiscountPercent.Value.ToString("0.##")%</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="ops-prc-none">&mdash;</span>
+                                        }
+                                    </td>
+                                    <td class="ops-num">
+                                        @if (item.Price <= 0)
+                                        {
+                                            @* A till refuses to sell at zero, so this is the row to act on. *@
+                                            <span class="ops-badge ops-fam-warn" title="Tills refuse to sell an item priced at zero">Not priced</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="ops-qty">@GetCurrencySymbol(customerPricing.Currency)@item.Price.ToString("N2")</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <h3>Nothing matches "@customerSearchTerm"</h3>
+                    <p>Try a shorter term, or a code rather than a description.</p>
+                    <div class="ops-empty-actions">
+                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearCustomerSearch">Clear search</button>
+                    </div>
+                </div>
+            }
+        </section>
+    }
+    else
+    {
     <section class="ops-panel">
         <div class="ops-panel-head">
             <h2><i class="ph ph-tag" aria-hidden="true"></i>@(selectedPriceList?.ListName ?? "Select a price list")</h2>
@@ -227,6 +440,7 @@
             </div>
         }
     </section>
+    }
 </div>
 
 @code {
@@ -254,6 +468,29 @@
     private bool isLoadingPriceLists = false;
     private string? errorMessage;
     private string? searchTerm;
+    private bool isSyncingFromSap = false;
+    private string? sapSyncPhase;
+    private string? sapSyncNotice;
+    private string sapSyncNoticeFamily = "ops-fam-good";
+
+    private enum PriceView { PriceList, Customer }
+    private PriceView activeView = PriceView.PriceList;
+
+    private List<NocturnePickerOption> customerOptions = [];
+    private bool customersLoaded;
+    private bool isLoadingCustomers;
+    private string? selectedCardCode;
+    private ItemPricesByListResponse? customerPricing;
+    private List<ItemPriceByListDto>? filteredCustomerPrices;
+    private string? customerSearchTerm;
+    private bool isLoadingCustomerPrices;
+    private string? customerErrorMessage;
+
+    private NocturnePickerOption? selectedCustomerOption =>
+        customerOptions.FirstOrDefault(option => option.Value == selectedCardCode);
+
+    private int SpecialPriceCount =>
+        customerPricing?.Prices?.Count(price => price.PriceBeforeDiscount.HasValue) ?? 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -305,6 +542,204 @@
         {
             await LoadPricesForList();
         }
+
+        if (!string.IsNullOrEmpty(selectedCardCode))
+        {
+            await LoadCustomerPrices();
+        }
+    }
+
+    /// <summary>
+    /// Opens the customer view, loading the partner list the first time it is asked for.
+    /// </summary>
+    /// <remarks>
+    /// Loaded on first use rather than with the page: most visits only read a price list, and
+    /// the partner cache is a couple of thousand rows.
+    /// </remarks>
+    private async Task ShowCustomerView()
+    {
+        activeView = PriceView.Customer;
+        if (customersLoaded || isLoadingCustomers)
+        {
+            return;
+        }
+
+        isLoadingCustomers = true;
+        StateHasChanged();
+
+        try
+        {
+            customerOptions = BusinessPartnerOptions.From(await CacheService.GetBusinessPartnersAsync());
+            customersLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customers for the Price List page");
+            customerErrorMessage = "The customer list could not be loaded.";
+        }
+        finally
+        {
+            isLoadingCustomers = false;
+        }
+    }
+
+    private async Task RetryCustomerView()
+    {
+        customerErrorMessage = null;
+        if (!customersLoaded)
+        {
+            await ShowCustomerView();
+        }
+
+        await LoadCustomerPrices();
+    }
+
+    private async Task OnCustomerChanged(string? cardCode)
+    {
+        selectedCardCode = cardCode;
+        customerPricing = null;
+        filteredCustomerPrices = null;
+        customerSearchTerm = null;
+        customerErrorMessage = null;
+
+        if (!string.IsNullOrEmpty(cardCode))
+        {
+            await LoadCustomerPrices();
+        }
+    }
+
+    /// <summary>
+    /// Reads a customer's prices the way its tills do.
+    /// </summary>
+    /// <remarks>
+    /// <c>useLivePricing=false</c> is the point of this view. The tills' route,
+    /// <c>DesktopIntegration/prices/business-partner</c>, answers only from the API's price
+    /// catalogue, and so does this. Live pricing would show SAP's figure before the catalogue has
+    /// synced it, which is exactly the price a till is not yet charging.
+    /// </remarks>
+    private async Task LoadCustomerPrices()
+    {
+        if (string.IsNullOrEmpty(selectedCardCode))
+        {
+            return;
+        }
+
+        isLoadingCustomerPrices = true;
+        customerErrorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            await EnsureAuthenticatedAsync();
+            var response = await PriceService.GetPricesByBusinessPartnerAsync(selectedCardCode, useLivePricing: false);
+
+            if (response == null)
+            {
+                customerPricing = null;
+                filteredCustomerPrices = null;
+                customerErrorMessage = "The server did not answer with prices for this customer.";
+            }
+            else
+            {
+                customerPricing = response;
+                FilterCustomerPrices();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading prices for customer {CardCode}", selectedCardCode);
+            customerErrorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingCustomerPrices = false;
+            StateHasChanged();
+        }
+    }
+
+    private void FilterCustomerPrices()
+    {
+        var prices = customerPricing?.Prices;
+        if (prices == null)
+        {
+            filteredCustomerPrices = null;
+            return;
+        }
+
+        var term = customerSearchTerm?.Trim();
+
+        filteredCustomerPrices = prices
+            .Where(price => string.IsNullOrEmpty(term) ||
+                (price.ItemCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (price.ItemName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+            .OrderBy(price => price.ItemCode)
+            .ToList();
+    }
+
+    private void ClearCustomerSearch()
+    {
+        customerSearchTerm = null;
+        FilterCustomerPrices();
+    }
+
+    /// <summary>
+    /// Pulls SAP's prices into the API's catalogue now rather than at the next scheduled sync.
+    /// </summary>
+    /// <remarks>
+    /// The API answers every price read from that catalogue: this page, the invoicing guard and the
+    /// shop tills' <c>prices/business-partner</c> route alike. So a price changed in SAP reaches none
+    /// of them until the catalogue is synced, and the schedule (<c>SAP:SyncIntervalHours</c>) is
+    /// four hours by default. This runs the same sync the Settings "Prices" tile does, the Web's own
+    /// price cache included, so the two cannot disagree about what a sync from here did.
+    /// </remarks>
+    private async Task SyncFromSap()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (!auth.User.IsInRole(UserRoles.Admin))
+        {
+            return;
+        }
+
+        isSyncingFromSap = true;
+        sapSyncPhase = null;
+        sapSyncNotice = null;
+        StateHasChanged();
+
+        var progress = new Progress<SyncProgress>(step =>
+        {
+            sapSyncPhase = step.Phase;
+            _ = InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            var cachedCount = await CacheService.SyncPricesFromApiAsync(progress);
+
+            // Tills hold a business partner's price list for 30 minutes and re-read on a ten-minute
+            // timer, so 40 minutes is the longest an unattended till can go on charging the old price.
+            sapSyncNotice = $"Prices synced from SAP at {DateTime.Now:HH:mm} ({cachedCount:N0} item prices). " +
+                "Shop tills pick them up within 40 minutes, or straight away when Refresh is pressed on the till.";
+            sapSyncNoticeFamily = "ops-fam-good";
+
+            await AuditService.LogAsync(AuditActions.SyncPrices, "PriceList", null,
+                $"Synced from SAP on the Price List page; {cachedCount} item prices cached", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "SAP price sync from the Price List page failed");
+            sapSyncNotice = ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't sync prices from SAP right now.");
+            sapSyncNoticeFamily = "ops-fam-bad";
+
+            await AuditService.LogAsync(AuditActions.SyncPrices, "PriceList", null,
+                "Sync from SAP on the Price List page", false, sapSyncNotice);
+        }
+        finally
+        {
+            isSyncingFromSap = false;
+            sapSyncPhase = null;
+        }
+
+        await RefreshPriceLists();
     }
 
     private void SelectPriceList(int listNum)
