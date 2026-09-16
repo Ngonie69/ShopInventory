@@ -210,6 +210,9 @@ jobs:
           # so both have to move or the two serve different builds to different users. Set the
           # repo variable to `none` to deploy the primary alone.
           ADDITIONAL_PRODUCTION_SERVERS: ${{ vars.ADDITIONAL_PRODUCTION_SERVERS || '10.10.10.58' }}
+          # The G/L account card swipes are banked into. Set the repo variable once; leaving it unset
+          # keeps whatever the live slot already has, so this is only for setting or changing it.
+          SAP_SWIPE_TRANSFER_ACCOUNT: ${{ vars.SAP_SWIPE_TRANSFER_ACCOUNT }}
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -243,6 +246,14 @@ jobs:
           $smtp = $env:DEPLOY_SMTP_PASSWORD
           if ([string]::IsNullOrWhiteSpace($smtp)) { $smtp = $env:SHOPINVENTORY_WEB_SMTP_PASSWORD }
           if (-not [string]::IsNullOrWhiteSpace($smtp)) { $deployArgs.WebEmailSmtpPassword = $smtp }
+
+          # Only passed when the variable is set: the script keeps the value already on the node
+          # otherwise, so an empty variable must not blank out card settlement.
+          $swipeAccount = $env:SAP_SWIPE_TRANSFER_ACCOUNT
+          if (-not [string]::IsNullOrWhiteSpace($swipeAccount)) {
+            $deployArgs.SapSwipeTransferAccount = $swipeAccount
+            Write-Host "Applying SAP__SwipeTransferAccount = $swipeAccount" -ForegroundColor Cyan
+          }
 
           ./Update-Production.ps1 @deployArgs
 

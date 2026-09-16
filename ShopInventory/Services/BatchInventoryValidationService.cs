@@ -148,14 +148,17 @@ public interface IBatchInventoryValidationService
     /// Whether a line that is neither batch- nor serial-managed is checked against the warehouse's
     /// stock. Off only for a sale that has already happened — a till, vending or van sale, paid for
     /// and fiscalised — where the check cannot prevent anything and a hung read only holds the
-    /// invoice back. Batch and serial lines are read either way: there the reading is the selection
-    /// SAP requires.
+    /// invoice back. On for anything asked <i>before</i> the sale exists, including
+    /// <c>CounterSapStockCheck</c>: SAP refuses a non-batch line that goes below zero just as it
+    /// refuses a batch one, and there the refusal can still stop the receipt. Batch and serial lines
+    /// are read either way: there the reading is the selection SAP requires.
     /// </param>
     /// <param name="claimedAhead">
     /// Units SAP still shows in a warehouse that are already spoken for by documents it has not
-    /// received — sales taken at a till and not yet posted. Taken off the batches, soonest to expire
-    /// first, before this document is allocated, because those documents will reach SAP first and
-    /// take them. Only a check made before a sale exists passes this; a document being posted is
+    /// received — sales taken at a till and not yet posted. Taken off before this document is
+    /// allocated, because those documents will reach SAP first and take them: drawn from the batches
+    /// soonest to expire first for a batch line, and straight off the issuable figure for a
+    /// non-batch one. Only a check made before a sale exists passes this; a document being posted is
     /// allocated against SAP as it stands.
     /// </param>
     /// <returns>Validation result with allocated batches</returns>
@@ -369,6 +372,11 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         // same one. Batch quantities are reconciled across lines further down, in the aggregate
         // pass; serials have no quantity to aggregate and are tracked here instead.
         var claimedSerials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (checkNonBatchStock)
+        {
+            await PrefetchWarehouseStockAsync(request.Lines, cancellationToken);
+        }
 
         var lineResults = new List<LineValidationResult>();
         for (int i = 0; i < request.Lines.Count; i++)
@@ -813,7 +821,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
         if (checkNonBatchStock)
         {
-            await ValidateAggregateNonBatchStockAsync(result, cancellationToken);
+            await ValidateAggregateNonBatchStockAsync(result, claimedAhead, cancellationToken);
         }
         await ValidateAndNormalizeAggregateBatchAllocationsAsync(
             result,
@@ -826,8 +834,18 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         return result;
     }
 
+    /// <param name="claimedAhead">
+    /// Units SAP still shows that documents it has not received will take first — the batch side's
+    /// <c>claimedAhead</c>, applied here for the same reason. A non-batch line has no batches to draw
+    /// them from, so they come straight off the issuable figure. Without this a till checked against
+    /// SAP would count the same units twice: once for the sale still waiting to post, and again for
+    /// the one at the counter.
+    /// </param>
+    /// <param name="result">The allocation so far; any shortfall is added to its errors.</param>
+    /// <param name="cancellationToken">Cancels the SAP stock reads this makes.</param>
     private async Task ValidateAggregateNonBatchStockAsync(
         AggregateAllocationResult result,
+        IReadOnlyList<StockLedgerLine>? claimedAhead,
         CancellationToken cancellationToken)
     {
         // Serial-managed lines are left out: every unit they carry is a serial number claimed once
@@ -874,13 +892,32 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                     warehouseCode,
                     cancellationToken);
                 var issuableQuantity = stock.Issuable;
-                var effectiveAvailable = issuableQuantity - reservedQuantity;
+
+                // Documents SAP has not received yet will take from this figure before the one being
+                // checked reaches it. Floored at zero: a warehouse already oversold has nothing left
+                // to promise, and a negative available would read as stock owed rather than absent.
+                var claimedAheadQuantity = (claimedAhead ?? [])
+                    .Where(claim => string.Equals(claim.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)
+                                 && string.Equals(claim.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase))
+                    .Sum(claim => claim.Quantity);
+
+                var effectiveAvailable = Math.Max(0m, issuableQuantity - reservedQuantity - claimedAheadQuantity);
 
                 if (requestedQuantity > effectiveAvailable + QuantityTolerance)
                 {
                     var lineNumbers = string.Join(", ", groupLines.Select(line => line.LineNumber));
-                    var message = reservedQuantity > 0
-                        ? $"Combined invoice quantity for item {itemCode} in warehouse {warehouseCode} across lines {lineNumbers} is {requestedQuantity:N4}, available {effectiveAvailable:N4} (On hand less committed: {issuableQuantity:N4}, Reserved: {reservedQuantity:N4})"
+                    var held = new List<string> { $"On hand less committed: {issuableQuantity:N4}" };
+                    if (reservedQuantity > 0)
+                    {
+                        held.Add($"Reserved: {reservedQuantity:N4}");
+                    }
+                    if (claimedAheadQuantity > 0)
+                    {
+                        held.Add($"Already sold but not yet in SAP: {claimedAheadQuantity:N4}");
+                    }
+
+                    var message = held.Count > 1
+                        ? $"Combined invoice quantity for item {itemCode} in warehouse {warehouseCode} across lines {lineNumbers} is {requestedQuantity:N4}, available {effectiveAvailable:N4} ({string.Join(", ", held)})"
                         : $"Combined invoice quantity for item {itemCode} in warehouse {warehouseCode} across lines {lineNumbers} is {requestedQuantity:N4}, available {issuableQuantity:N4}";
 
                     result.Errors.Add(CreateError(
@@ -1280,6 +1317,18 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     /// </para>
     ///
     /// <para>
+    /// <b>SAP, and only SAP.</b> This used to read the local <c>ProductBatches</c> table first and ask
+    /// SAP only when it came back empty — with, despite the comment that said "or stale", no staleness
+    /// test of any kind. Nothing in this codebase has ever written that table, so in practice SAP was
+    /// always read; the danger was that a single row would have been enough to silence it. That matters
+    /// here more than anywhere else in the class, because <c>CounterSapStockCheck</c> is built on this
+    /// read: its whole purpose is to refuse a till sale SAP cannot supply <i>before</i> the sale is
+    /// fiscalised, and a guard satisfied by a stale local row would pass the sale and let the ZIMRA
+    /// receipt print anyway. A second source for a figure that has only one true home is worse than no
+    /// cache, so there is no longer one.
+    /// </para>
+    ///
+    /// <para>
     /// Cleared by <see cref="BeginStockReadPass"/>, so it lives exactly one pass and no longer. That
     /// boundary is load-bearing in two directions. <see cref="PrePostValidationAsync"/> runs a second
     /// pass under the inventory locks precisely so that it reads afresh, and carrying an answer into
@@ -1300,43 +1349,26 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             return memoised.Batches;
         }
 
-        // Try local database first
-        var localBatches = await _dbContext.ProductBatches
-            .AsNoTracking()
-            .Include(b => b.Product)
-            .Where(b => b.Product.ItemCode == itemCode
-                     && b.WarehouseCode == warehouseCode
-                     && b.IsActive
-                     && b.Quantity > 0)
-            .ToListAsync(cancellationToken);
-
         List<BatchNumber>? sapBatches = null;
         Exception? failure = null;
 
-        // If no local data or stale, fetch from SAP
-        if (localBatches.Count == 0)
+        try
         {
-            try
-            {
-                sapBatches = await _sapClient.GetBatchNumbersForItemInWarehouseAsync(
-                    itemCode, warehouseCode, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // Not memoised for a cancellation, which is the caller hanging up rather than
-                // anything about this warehouse.
-                failure = ex;
+            sapBatches = await _sapClient.GetBatchNumbersForItemInWarehouseAsync(
+                itemCode, warehouseCode, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Not memoised for a cancellation, which is the caller hanging up rather than
+            // anything about this warehouse.
+            failure = ex;
 
-                _logger.LogWarning(ex, "Failed to fetch batches from SAP for {ItemCode} in {Warehouse}",
-                    itemCode, warehouseCode);
-            }
+            _logger.LogWarning(ex, "Failed to fetch batches from SAP for {ItemCode} in {Warehouse}",
+                itemCode, warehouseCode);
         }
 
-        var batches = new List<AvailableBatchDto>();
-
-        if (sapBatches != null && sapBatches.Count > 0)
-        {
-            batches = sapBatches
+        var batches = sapBatches is { Count: > 0 }
+            ? sapBatches
                 .Where(b => b.Quantity > 0)
                 .Select(b => new AvailableBatchDto
                 {
@@ -1345,20 +1377,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                     ExpiryDate = ParseDate(b.ExpiryDate),
                     AdmissionDate = ParseDate(b.AdmissionDate)
                 })
-                .ToList();
-        }
-        else if (localBatches.Count > 0)
-        {
-            batches = localBatches
-                .Select(b => new AvailableBatchDto
-                {
-                    BatchNumber = b.BatchNumber,
-                    AvailableQuantity = b.Quantity,
-                    ExpiryDate = b.ExpiryDate,
-                    AdmissionDate = b.AdmissionDate
-                })
-                .ToList();
-        }
+                .ToList()
+            : [];
 
         _passBatchReads[key] = (batches, failure);
         return batches;
@@ -2185,6 +2205,82 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     /// Reads one item's stock in one warehouse, at most once per pass. Rethrows the original
     /// failure, so every caller's own handling of an unreadable warehouse is unchanged.
     /// </summary>
+    /// <summary>
+    /// Fills the pass memo for every item on the document in one read per warehouse, so the per-line
+    /// checks below are served from memory.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="ReadWarehouseStockAsync"/> asks SAP for one item at a time, and the underlying query
+    /// already returns a superset: it is scoped by warehouse and three-character item-code family, and
+    /// codes outside the requested set are filtered off afterwards. A twenty-line basket therefore
+    /// spent twenty round trips — each holding one of six process-wide slots — fetching largely the
+    /// same rows. Asking for all twenty at once costs one round trip per code family, which is the
+    /// same work SAP was already doing on the first line alone.
+    /// </para>
+    /// <para>
+    /// This matters at the till, where the whole check runs inside
+    /// <c>DailyStockSettings.CounterSapCheckSeconds</c> with a customer waiting. It is a warm-up and
+    /// nothing else: a failure here is swallowed and nothing is memoised, so the per-line read runs
+    /// exactly as it did before and raises its own error. Memoising a bulk failure would turn one
+    /// unlucky read into a refusal for every line on the document.
+    /// </para>
+    /// </remarks>
+    private async Task PrefetchWarehouseStockAsync(
+        IReadOnlyList<CreateInvoiceLineRequest> lines,
+        CancellationToken cancellationToken)
+    {
+        var byWarehouse = lines
+            .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode)
+                        && !string.IsNullOrWhiteSpace(line.WarehouseCode))
+            .GroupBy(line => line.WarehouseCode!, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var warehouse in byWarehouse)
+        {
+            var itemCodes = warehouse
+                .Select(line => line.ItemCode!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(itemCode => !_passStockReads.ContainsKey(BuildStockKey(itemCode, warehouse.Key)))
+                .ToList();
+
+            // One item is what the per-line read would ask for anyway, so there is nothing to save.
+            if (itemCodes.Count < 2)
+            {
+                continue;
+            }
+
+            try
+            {
+                var stocks = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+                    warehouse.Key, itemCodes, cancellationToken);
+
+                var byItem = (stocks ?? [])
+                    .Where(stock => !string.IsNullOrWhiteSpace(stock.ItemCode))
+                    .ToDictionary(stock => stock.ItemCode!, stock => stock, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var itemCode in itemCodes)
+                {
+                    // A miss is memoised as a miss, which is what the per-line read's
+                    // FirstOrDefault would have returned for an item the warehouse does not carry.
+                    _passStockReads[BuildStockKey(itemCode, warehouse.Key)] =
+                        (byItem.GetValueOrDefault(itemCode), null);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The caller hung up, or the till's budget ran out. Either way the pass is over and
+                // the per-line reads will see the same token.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex,
+                    "Could not pre-read stock for {Count} items in {Warehouse}; each line will read its own",
+                    itemCodes.Count, warehouse.Key);
+            }
+        }
+    }
+
     private async Task<StockQuantityDto?> ReadWarehouseStockAsync(
         string itemCode,
         string warehouseCode,

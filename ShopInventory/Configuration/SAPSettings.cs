@@ -236,4 +236,25 @@ public class SAPSettings
     /// themselves on the next pass.
     /// </remarks>
     public int? SwipeCreditCardCode { get; set; }
+
+    /// <summary>
+    /// The SAP G/L account a shop's card swipes settle into, when card money is banked rather than
+    /// carried on a card account.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set this and a swipe is booked as transfer money against this account, which is what actually
+    /// happens to it: the acquirer pays the bank. It takes precedence over
+    /// <see cref="SwipeCreditCardCode"/>, and needs no credit card record in SAP - the company database
+    /// has none defined, which is why every card sale since the daily payment went live has been
+    /// invoiced and left unsettled.
+    /// </para>
+    /// <para>
+    /// SAP carries one transfer account per payment, so on a day whose takings include both card and
+    /// mobile wallet money this account is left off and SAP's default applies to the whole transfer sum
+    /// - the two cannot be told apart on one document, and posting wallet money into the card
+    /// settlement account is the kind of error only a hand reconciliation would find.
+    /// </para>
+    /// </remarks>
+    public string? SwipeTransferAccount { get; set; }
 }

@@ -47,16 +47,23 @@ namespace ShopInventory.Services;
 /// <see cref="DailyStockSettings.ReconcileWarehouses"/> — because a van's row is deliberately its
 /// morning load rather than a live figure.</para>
 ///
-/// <para><b>Only what moved.</b> Comparing every item in every monitored warehouse would be the
-/// whole-warehouse scan this codebase has repeatedly optimised away: there are six process-wide SAP
-/// slots and a stock read is what fills them, so an hourly full sweep would starve the interactive
-/// users it exists to protect. Divergence can only appear where a quantity changed, so the job asks
-/// SAP about the rows the day has touched and no others. On a quiet warehouse that is nothing at
-/// all. The cost of that restraint is real and worth naming: an item that had no row this morning and
-/// arrived during the day is invisible here, because there is nothing of it to have moved. Transfers
-/// bring their own rows in through the listener; a goods receipt booked straight into SAP waits for
-/// the next morning, unless someone presses "Refresh quantities from SAP" on the local stock page —
-/// see <c>RefreshWarehouseStockHandler</c>, which runs this job's correction over every item.</para>
+/// <para><b>What moved, plus a slice of what did not.</b> Comparing every item in every monitored
+/// warehouse would be the whole-warehouse scan this codebase has repeatedly optimised away: there are
+/// six process-wide SAP slots and a stock read is what fills them. But asking only about rows the
+/// ledger moved left the hole this job exists to close still open — a goods issue, a stock count or an
+/// invoice raised in the SAP client moves SAP and not the ledger, so the row looks untouched, is never
+/// compared, and is still wrong at closing time. So a reconciled warehouse compares every row that
+/// moved and, on top of that, a rotating slice of the rows that did not
+/// (<see cref="DailyStockSettings.ReconcileItemsPerPass"/>, <see cref="RotatingWindow"/>), which comes
+/// round to the whole catalogue over the trading day. The slice is contiguous in item-code order and
+/// the read is bucketed by three-character code family, so it largely shares the round trips the moved
+/// rows were paying anyway. Vans are left on moved-rows-only: their figures are a morning load by
+/// design, so every untouched row would report a divergence that is not a fault.</para>
+///
+/// <para>An item with no row at all this morning is still invisible to the comparison — there is
+/// nothing of it to compare — and is handled separately by <see cref="DiscoverArrivalsAsync"/>, or by
+/// someone pressing "Refresh quantities from SAP" on the local stock page; see
+/// <c>RefreshWarehouseStockHandler</c>, which runs this job's correction over every item.</para>
 /// </remarks>
 [DisallowConcurrentExecution]
 public sealed class StockLedgerDivergenceJob(
@@ -110,13 +117,25 @@ public sealed class StockLedgerDivergenceJob(
 
             try
             {
-                var moved = await MovedTodayAsync(db, ledgerDay, warehouseCode, context.CancellationToken);
-                if (moved.Count == 0)
+                var mayCorrect = reconcilable.Contains(warehouseCode);
+
+                // A warehouse being reconciled also compares a rotating slice of the rows nothing
+                // moved today, because those are exactly the ones a goods issue done in the SAP
+                // client hides in. A van does not: its row is deliberately its morning load rather
+                // than a live figure, so every untouched row would report a divergence that is not a
+                // fault, and the vans are already the bulk of what this job reports.
+                var comparing = await ItemsToCompareAsync(
+                    db,
+                    ledgerDay,
+                    warehouseCode,
+                    mayCorrect ? settings.ReconcileItemsPerPass : 0,
+                    DateTime.UtcNow,
+                    context.CancellationToken);
+
+                if (comparing.Count == 0)
                 {
                     continue;
                 }
-
-                var mayCorrect = reconcilable.Contains(warehouseCode);
 
                 // What this system has promised that SAP has not seen. Read once per warehouse rather
                 // than per item: it is one grouped query either way, and it must be the same figure
@@ -135,7 +154,7 @@ public sealed class StockLedgerDivergenceJob(
 
                 var sapStock = await sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
                     warehouseCode,
-                    moved.Keys,
+                    comparing.Keys,
                     context.CancellationToken);
 
                 var sapByItem = sapStock
@@ -144,7 +163,7 @@ public sealed class StockLedgerDivergenceJob(
 
                 var targets = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var (itemCode, ledgerQuantity) in moved)
+                foreach (var (itemCode, ledgerQuantity) in comparing)
                 {
                     if (!sapByItem.TryGetValue(itemCode, out var stock))
                     {
@@ -288,6 +307,34 @@ public sealed class StockLedgerDivergenceJob(
         for (var offset = 0; offset < take; offset++)
         {
             yield return warehouses[(start + offset) % warehouses.Count];
+        }
+    }
+
+    /// <summary>
+    /// A contiguous window of <paramref name="items"/>, advancing one window per hour and wrapping.
+    /// </summary>
+    /// <remarks>
+    /// The item counterpart of <see cref="DiscoverySlots"/>, held to the same rule and for the same
+    /// reason: the hour is a counter every node already agrees on, so no cursor has to be stored,
+    /// and none can get stuck on the same slice in a way that looks exactly like working.
+    /// </remarks>
+    internal static IEnumerable<string> RotatingWindow(
+        IReadOnlyList<string> items,
+        int perPass,
+        DateTime utcNow)
+    {
+        if (items.Count == 0 || perPass <= 0)
+        {
+            yield break;
+        }
+
+        var take = Math.Min(perPass, items.Count);
+        var cycle = utcNow.Ticks / TimeSpan.TicksPerHour;
+        var start = (int)(cycle * take % items.Count);
+
+        for (var offset = 0; offset < take; offset++)
+        {
+            yield return items[(start + offset) % items.Count];
         }
     }
 
@@ -768,9 +815,27 @@ public sealed class StockLedgerDivergenceJob(
     }
 
     /// <summary>
-    /// Today's ledger rows whose quantity has changed since the morning fetch, summed per item.
+    /// The items this pass compares against SAP: everything the day moved, plus — where
+    /// <paramref name="alsoUntouched"/> allows it — a rotating slice of everything it did not.
     /// </summary>
     /// <remarks>
+    /// <para><b>Why the untouched rows have to be asked about.</b> Comparing only what moved was a
+    /// deliberate restraint, and it had a hole this job itself named: divergence can only appear
+    /// where a quantity changed <i>in the ledger</i>, but a goods issue, a stock count or an invoice
+    /// raised in the SAP client changes SAP without touching the ledger at all. Such a row looks
+    /// untouched, is never compared, and stays wrong until the next morning's fetch. That is the
+    /// staleness the till then sells against.</para>
+    ///
+    /// <para><b>And why it is still not a sweep.</b> The read this feeds is scoped by warehouse and
+    /// three-character item-code family, so a contiguous slice of item codes shares its buckets and
+    /// costs the round trips the moved rows were already paying. The slice is bounded by
+    /// <see cref="DailyStockSettings.ReconcileItemsPerPass"/> and the pass by
+    /// <see cref="MaxRowsPerRun"/>, and moved rows keep their priority: a busy warehouse spends its
+    /// whole budget on what actually changed and adds nothing.</para>
+    ///
+    /// <para>The rotation is the clock, for the reasons given on <see cref="DiscoverySlots"/>:
+    /// consecutive hourly passes take consecutive slices, and there is no cursor to get stuck on.</para>
+    ///
     /// A row nothing has happened to would only show divergence caused elsewhere — real, but what
     /// the morning fetch is for. Restricting the question to what moved is what keeps this off the
     /// SAP slot pool.
@@ -788,10 +853,12 @@ public sealed class StockLedgerDivergenceJob(
     /// than one replacing the other because being asked about twice costs a comparison, and being
     /// missed costs a trading day.</para>
     /// </remarks>
-    private static async Task<Dictionary<string, decimal>> MovedTodayAsync(
+    private static async Task<Dictionary<string, decimal>> ItemsToCompareAsync(
         ApplicationDbContext db,
         DateTime ledgerDay,
         string warehouseCode,
+        int alsoUntouched,
+        DateTime utcNow,
         CancellationToken cancellationToken)
     {
         var journalled = await db.StockMovements
@@ -811,10 +878,32 @@ public sealed class StockLedgerDivergenceJob(
             .Take(MaxRowsPerRun)
             .ToListAsync(cancellationToken);
 
+        // The union is what the day actually moved. Journal rows are the fact; the balance test is
+        // the floor under it, for rows that moved before there was a journal to say so.
         var touchedItems = journalled
             .Union(offOpening, StringComparer.OrdinalIgnoreCase)
             .Take(MaxRowsPerRun)
             .ToList();
+
+        var budget = MaxRowsPerRun - touchedItems.Count;
+
+        if (alsoUntouched > 0 && budget > 0)
+        {
+            // Ordered so the window is contiguous in item-code order, which keeps the code families
+            // it spans — and so the SAP buckets it costs — as few as possible.
+            var untouched = await db.DailyStockSnapshotItems
+                .Where(row => row.Snapshot.SnapshotDate == ledgerDay
+                           && row.WarehouseCode == warehouseCode
+                           && row.AvailableQuantity == row.OriginalQuantity)
+                .Select(row => row.ItemCode)
+                .Distinct()
+                .OrderBy(itemCode => itemCode)
+                .ToListAsync(cancellationToken);
+
+            touchedItems.AddRange(
+                RotatingWindow(untouched, Math.Min(alsoUntouched, budget), utcNow)
+                    .Except(touchedItems, StringComparer.OrdinalIgnoreCase));
+        }
 
         if (touchedItems.Count == 0)
         {

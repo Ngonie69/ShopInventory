@@ -1,8 +1,10 @@
 using System.Data;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -10,7 +12,8 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.DesktopCreditNotes;
 
 public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCreditFiscalGateway fiscal,
-    DesktopCreditSapPoster sapPoster, IAuditService audit, ILogger<DesktopCreditNoteService> logger)
+    DesktopCreditSapPoster sapPoster, IAuditService audit,
+    IOptions<FiscalisationSettings> fiscalisationSettings, ILogger<DesktopCreditNoteService> logger)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -38,6 +41,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     {
         var sale = await ReadSale(caller, reference, ct);
         RequireFiscalised(sale);
+        RequireCreditableHere(sale);
         var source = await fiscal.ReadOriginalAsync(sale, ct);
         var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id).ToListAsync(ct);
         return new DesktopCreditForm(source, notes.Select(Map).ToList(), Reserved(notes),
@@ -83,6 +87,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     {
         var sale = await ReadSale(caller, reference, ct);
         RequireFiscalised(sale);
+        RequireCreditableHere(sale);
         if (!Guid.TryParseExact(request.RequestKey, "N", out _) || request.Lines is null)
             throw new InvalidOperationException("A valid request key and selected lines are required.");
         request = request with { Lines = request.Lines.OrderBy(l => l.LineNo).ToList() };
@@ -249,6 +254,48 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     {
         if (sale.FiscalizationStatus != DesktopSaleFiscalizationStatus.Success)
             throw new InvalidOperationException("The original sale must have a fiscal receipt before it can be credited.");
+    }
+
+    /// <summary>
+    /// Refuses the sales this dialog cannot credit, saying which, before anything is prepared.
+    /// </summary>
+    /// <remarks>
+    /// Both of these already failed — deep inside <c>RevmaxDesktopCreditGateway</c>, several reads in,
+    /// with a message about REVMax returning a different invoice or not being enabled. That is a true
+    /// statement about the plumbing and no help at all to the person holding the goods, who needs to be
+    /// told either where to go instead or that nobody can do this today.
+    /// </remarks>
+    private void RequireCreditableHere(DesktopSaleEntity sale)
+    {
+        // An online van sale's row is not a sale; it is the carrier for a receipt. The invoice reached
+        // SAP inside the request that made it, and was fiscalised from that invoice by
+        // InvoiceFiscalizationBackgroundService — so its receipt is filed under the SAP DocNum, not
+        // under this sale's reference, which is the only number this dialog knows how to ask for.
+        //
+        // The classic credit-note path does know: CreditNoteOriginalReceipt.ResolveAsync resolves the
+        // receipt from the DocNum, and falls back to the DocNum itself for exactly this row, because
+        // PerSaleInvoiceRegistry filters on a Success fiscalisation and an online van row is not one.
+        if (string.Equals(sale.SourceSystem, SaleSourceSystems.VanSalesOnline, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "This sale reached SAP through its reservation and was fiscalised from the SAP invoice, "
+                + $"so its receipt is held under invoice {sale.SapDocNum?.ToString() ?? "number"} rather than "
+                + "under the sale's reference. Raise the credit note against the SAP invoice instead, from "
+                + "Credit notes.");
+        }
+
+        // No platform credit gateway exists — Program.cs registers only the REVMax one. Under the
+        // platform a van sale's receipt is signed on the handset's own chain, and a device has one
+        // chain with one writer, so this server cannot sign a credit onto it however the code is
+        // arranged. Said plainly rather than as "REVMax must be enabled", which reads like a setting
+        // somebody could go and switch on.
+        if (fiscalisationSettings.Value.UsesPlatform)
+        {
+            throw new InvalidOperationException(
+                "Credit notes are filed on the REVMax device, and this server is set to the in-house "
+                + "fiscalisation platform. Nothing here can credit a receipt while that is so — raise it "
+                + "on the device.");
+        }
     }
 
     private static Dictionary<int, decimal> Reserved(IEnumerable<DesktopCreditNoteEntity> notes) => notes

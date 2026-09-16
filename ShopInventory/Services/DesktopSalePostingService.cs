@@ -69,12 +69,19 @@ public sealed class DesktopSalePostingService(
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
                         // Ready to be invoiced. Pending means vending has not fiscalised it yet, and
                         // Failed means it needs a human — posting either would put an invoice in SAP
-                        // for a sale that has no receipt. Skipped is not the same thing: it is what a
-                        // sale gets when fiscalisation was not asked for or is switched off, so it
-                        // will never become Success and must still reach SAP, as it did before this
-                        // route existed.
-                        (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success ||
-                         s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Skipped))
+                        // for a sale that has no receipt.
+                        //
+                        // Skipped is refused too, and used not to be. The reasoning for admitting it
+                        // was that it will never become Success, so holding it would strand it; what
+                        // that overlooked is what it means to let it through — an A/R invoice in SAP
+                        // for goods ZIMRA was never told about, indistinguishable in the ledger from
+                        // a fiscalised one, on nothing more than a caller having sent
+                        // `fiscalize: false`. That flag is now refused outright for till and vending
+                        // sales (see CreateDesktopSaleHandler), so no new row can arrive here Skipped.
+                        // The rows that already have are held rather than posted, and can be rescued:
+                        // DesktopSaleFiscalisationRetry now allows a Skipped sale to be offered to
+                        // the device, which is the only thing that can make it postable again.
+                        s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success)
             .OrderBy(s => s.Id)
             .Take(options.BatchSize)
             .ToListAsync(cancellationToken);

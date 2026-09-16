@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
+using ShopInventory.Common.Sales;
 using ShopInventory.Common.Stock;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
@@ -556,7 +557,15 @@ public class StockReservationService : IStockReservationService
             CardCode = reservation.CardCode,
             DocDate = request.DocDate ?? DateTime.UtcNow.ToString("yyyy-MM-dd"),
             DocDueDate = request.DocDueDate,
-            NumAtCard = request.NumAtCard ?? reservation.ExternalReferenceId,
+            // An explicit caller still wins; otherwise who bought, by the same rule the deferred routes
+            // use — the route customer's name for a van sale, the reference for anything else. See
+            // DesktopSaleCustomerReference.
+            NumAtCard = request.NumAtCard ?? DesktopSaleCustomerReference.For(
+                reservation.SourceSystem,
+                reservation.RouteCustomerCode,
+                reservation.RouteCustomerName,
+                reservation.CardName,
+                reservation.ExternalReferenceId),
             Comments = request.Comments ?? $"Posted from reservation {reservation.ReservationId}",
             DocCurrency = reservation.Currency,
             SalesPersonCode = request.SalesPersonCode,

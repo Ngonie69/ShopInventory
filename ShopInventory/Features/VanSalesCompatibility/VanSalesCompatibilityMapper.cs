@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using ShopInventory.Common.Mobile;
+using ShopInventory.Common.Sales;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -153,8 +154,17 @@ public static partial class VanSalesCompatibilityMapper
             RouteCustomerName = customer.RouteCustomerName,
             DocDate = NormalizeDocumentDate(request.DueDate),
             DocDueDate = NormalizeDocumentDate(request.DueDate),
-            NumAtCard = request.VanOrder,
-            Comments = BuildInvoiceComments(request),
+            // Who bought, where SAP shows a customer reference. CardCode above is the van's own
+            // business partner and is the same on every sale it makes, so it cannot answer this; the
+            // shop can, and had nowhere on the document to be said until now. Same rule as the
+            // end-of-day route — see DesktopSaleCustomerReference.
+            NumAtCard = DesktopSaleCustomerReference.For(
+                SaleSourceSystems.VanSalesOnline,
+                customer.RouteCustomerCode,
+                customer.RouteCustomerName,
+                request.Reference,
+                request.VanOrder),
+            Comments = BuildInvoiceComments(request, customer, warehouseCode),
             DocCurrency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim(),
             // Null from a handset that predates the payment step. Left null rather than defaulted to
             // cash: an assumed tender in a cash-control report is worse than an absent one.
@@ -746,16 +756,48 @@ public static partial class VanSalesCompatibilityMapper
             : trimmed;
     }
 
-    private static string BuildInvoiceComments(VanSalesOrderRequest request)
+    /// <summary>
+    /// What SAP shows in an online van sale invoice's Remarks.
+    /// </summary>
+    /// <remarks>
+    /// The same parts, in the same order and under the same 254-character rule, as the end-of-day route
+    /// — see <see cref="DesktopSaleInvoiceRemarks"/>. Before this the column said "Van sales direct
+    /// invoice <c>{vanOrder}</c>", which repeated a reference already on the document twice and named
+    /// neither the shop that bought nor the warehouse it was served from.
+    ///
+    /// <para>
+    /// The originating sales order is not lost: it goes on the end, as the least important part, so it
+    /// is the first thing given up when the column will not take everything.
+    /// </para>
+    /// </remarks>
+    private static string BuildInvoiceComments(
+        VanSalesOrderRequest request,
+        VanSalesCustomerResolution customer,
+        string warehouseCode)
     {
-        if (!string.IsNullOrWhiteSpace(request.SalesOrder))
+        var remarks = DesktopSaleInvoiceRemarks.BuildForOnlineVanSale(
+            warehouseCode,
+            // Resolved from the warehouse by the deferred route, which has a database to read. This one
+            // runs inside the sale request and is not worth a query: the code alone is what a person
+            // reading the invoice matches against, and the shop name is on the party part beside it.
+            shopName: null,
+            customer.RouteCustomerCode,
+            customer.RouteCustomerName,
+            request.VanOrder,
+            // The handset says who is driving in `ref`, which is also the CardName above. Not an
+            // account name, so it is not claimed to be one.
+            capturedBy: null,
+            request.PaymentMethod,
+            DateTime.UtcNow);
+
+        if (string.IsNullOrWhiteSpace(request.SalesOrder))
         {
-            return $"Van sales invoice for {request.SalesOrder}";
+            return remarks;
         }
 
-        return string.IsNullOrWhiteSpace(request.VanOrder)
-            ? "Van sales direct invoice"
-            : $"Van sales direct invoice {request.VanOrder}";
+        var withOrder = $"{remarks} | Order {request.SalesOrder.Trim()}";
+
+        return withOrder.Length <= DesktopSaleInvoiceRemarks.MaxLength ? withOrder : remarks;
     }
 
     private static string ResolveBranch(User user, BusinessPartnerDto? partner)

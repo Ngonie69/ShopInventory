@@ -332,7 +332,7 @@ public sealed class DesktopCreditSapPoster(
             OriginalInvoiceDocEntry = sale.SapDocEntry,
             OriginalInvoiceDocNum = sale.SapDocNum,
             Reason = note.Reason,
-            Comments = $"Reverses till sale {sale.ExternalReferenceId} — fiscal credit {note.Number}.",
+            Comments = BuildComments(note, sale),
             Currency = sale.Currency,
             RestockItems = true,
             RestockWarehouseCode = sale.WarehouseCode,
@@ -340,6 +340,86 @@ public sealed class DesktopCreditSapPoster(
             // as this credit's, and a caller must never be able to name it.
             SapReference = note.SapReference,
             Lines = lines
+        };
+    }
+
+    /// <summary>
+    /// What SAP shows in the credit memo's Remarks.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It used to say "Reverses till sale {reference}" on every memo, which was wrong on two of the
+    /// three routes that reach here: a van sale and a vending sale are not till sales, and calling them
+    /// one sends whoever is reconciling the return to the wrong place to look for it.
+    /// </para>
+    /// <para>
+    /// The buying party is named here and not in <c>NumAtCard</c>, which is the opposite of the
+    /// invoice's arrangement and is deliberate. A memo's <c>NumAtCard</c> holds the fiscal credit
+    /// number because it is the only key <c>GetCreditNoteByReferenceAsync</c> can probe on after a lost
+    /// reply — a memo nothing can find again is a memo that gets raised twice, against a return that
+    /// happened once.
+    /// </para>
+    /// <para>
+    /// Capped at the same 254 characters as an invoice's Remarks, and built in reading order so what a
+    /// cap takes off the end is the least load-bearing part. In practice nothing is: the longest of
+    /// these runs to about 160.
+    /// </para>
+    /// </remarks>
+    private static string BuildComments(DesktopCreditNoteEntity note, DesktopSaleEntity sale)
+    {
+        var origin = sale.SourceSystem?.Trim() switch
+        {
+            SaleSourceSystems.ShopTill => "till sale",
+            SaleSourceSystems.Vending => "vending sale",
+            SaleSourceSystems.VanSales or SaleSourceSystems.VanSalesOnline => "van sale",
+            _ => "sale"
+        };
+
+        var parts = new List<string> { $"Reverses {origin} {sale.ExternalReferenceId}" };
+
+        var party = Party(sale);
+        if (party is not null)
+        {
+            parts.Add(party);
+        }
+
+        parts.Add($"fiscal credit {note.Number}");
+
+        if (!string.IsNullOrWhiteSpace(sale.FiscalReceiptNumber))
+        {
+            parts.Add($"against receipt {sale.FiscalReceiptNumber.Trim()}");
+        }
+
+        var text = string.Join(" — ", parts) + ".";
+
+        return text.Length <= DesktopSaleInvoiceRemarks.MaxLength
+            ? text
+            : text[..DesktopSaleInvoiceRemarks.MaxLength];
+    }
+
+    /// <summary>Who bought, where <c>CardCode</c> names the van or the depot rather than the buyer.</summary>
+    private static string? Party(DesktopSaleEntity sale)
+    {
+        var label = SaleSourceSystems.IsVanSale(sale.SourceSystem)
+            ? "customer"
+            : string.Equals(sale.SourceSystem, SaleSourceSystems.Vending, StringComparison.Ordinal)
+                ? "vendor"
+                : null;
+
+        if (label is null)
+        {
+            return null;
+        }
+
+        var code = string.IsNullOrWhiteSpace(sale.RouteCustomerCode) ? null : sale.RouteCustomerCode.Trim();
+        var name = string.IsNullOrWhiteSpace(sale.RouteCustomerName) ? null : sale.RouteCustomerName.Trim();
+
+        return (code, name) switch
+        {
+            (null, null) => null,
+            (null, _) => $"{label} {name}",
+            (_, null) => $"{label} {code}",
+            _ => $"{label} {code} ({name})"
         };
     }
 
