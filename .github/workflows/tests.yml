@@ -126,3 +126,13 @@ jobs:
         run: |
           ./scripts/Test-DeploySlotSeeding.ps1
           exit $LASTEXITCODE
+
+      # A merge deploys during trading hours now, which rests entirely on the cutover handing the
+      # public port over in one write rather than taking it away and giving it back. Break that and
+      # nothing here goes red on its own - it drops the requests in flight on a shop floor, which is
+      # how a till sale lost its receipt on 14 September 2026.
+      - name: Check the cutover hands the public port over without dropping it
+        shell: pwsh
+        run: |
+          ./scripts/Test-DeployPublicBindingSwap.ps1
+          exit $LASTEXITCODE
