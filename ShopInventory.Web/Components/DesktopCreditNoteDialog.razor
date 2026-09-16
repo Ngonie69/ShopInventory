@@ -1,0 +1,512 @@
+@using System.Globalization
+@using ShopInventory.Web.Features.DesktopCreditNotes
+@using ShopInventory.Web.Services
+@inject IDesktopIntegrationService DesktopService
+@inject ICreditNoteService CreditNoteService
+
+@*
+    Raising and chasing a fiscal credit against one desktop sale.
+
+    Lifted out of /desktop-sales, where it was the only place in the app a credit could be raised at
+    all. Vending sells to named vendors and vans to named shops, and a return handed back at either is
+    the commonest credit there is — but neither had any way to reach this, and /desktop-sales is gated
+    to roles they do not hold. One component, hosted by each list that shows these sales.
+
+    It owns all of its own state and talks to the API itself, so a host only has to say which sale and
+    what to do when it closes.
+*@
+
+@if (Reference is { Length: > 0 })
+{
+    var creditCurrency = form?.Source.Currency ?? Currency;
+    <div class="ops-overlay ops-overlay-center">
+        <div class="ops-dialog ops-dcn" role="dialog" aria-modal="true" aria-labelledby="desktop-credit-title">
+            <div class="ops-dcn-head">
+                <div class="ops-dcn-id">
+                    <div class="ops-dcn-eyebrow">Credit note</div>
+                    <h2 id="desktop-credit-title" class="ops-dcn-ref">@Reference</h2>
+                    <div class="ops-dcn-meta">
+                        @if (form != null)
+                        {
+                            <span>Receipt <b>@form.Source.ReceiptGlobalNo</b></span>
+                            <span>Device <b>@form.Source.DeviceId</b></span>
+                            <span>Fiscal day <b>@form.Source.FiscalDayNo</b></span>
+                            @* Read from the API's prepare answer rather than the list row, which was
+                               loaded before this dialog opened and may predate the sale posting. It
+                               decides which of the two actions below is available. *@
+                            @if (form.SaleInSap)
+                            {
+                                <span class="ops-badge ops-fam-accent">@(form.SaleSapDocNum is { } docNum ? $"In SAP · invoice #{docNum}" : "In SAP")</span>
+                            }
+                            else
+                            {
+                                <span class="ops-badge ops-fam-neutral">Not yet in SAP</span>
+                            }
+                        }
+                    </div>
+                </div>
+                <button type="button" class="ops-x" aria-label="Close" disabled="@busy" @onclick="Close">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body ops-dcn-body">
+                @if (!string.IsNullOrWhiteSpace(error))
+                {
+                    <div class="ops-dcn-alert ops-fam-bad" role="alert">@error</div>
+                }
+
+                @if (result is { } done)
+                {
+                    <div class="ops-dcn-done @DesktopCreditLabels.Family(done.Status)" role="status">
+                        <span class="ops-dcn-done-mark">
+                            <i class="ph @(Is(done.Status, "Fiscalised") ? "ph-check" : Is(done.Status, "Rejected") ? "ph-x" : "ph-question")" aria-hidden="true"></i>
+                        </span>
+                        <div class="ops-dcn-done-copy">
+                            <div class="ops-dcn-done-title">@DesktopCreditLabels.Outcome(done.Status)</div>
+                            @if (!string.IsNullOrWhiteSpace(done.Message))
+                            {
+                                <p>@done.Message</p>
+                            }
+                            <dl class="ops-dcn-facts">
+                                <dt>Credit note</dt><dd class="ops-code">@done.Number</dd>
+                                <dt>Total credited</dt><dd>@Money(done.Amount, done.Currency)</dd>
+                                @if (!string.IsNullOrWhiteSpace(done.ReceiptGlobalNo))
+                                {
+                                    <dt>Credit receipt</dt><dd class="ops-code">@done.ReceiptGlobalNo</dd>
+                                }
+                                <dt>SAP credit memo</dt><dd>@DesktopCreditLabels.Sap(done)</dd>
+                            </dl>
+                            @if (!string.IsNullOrWhiteSpace(done.SapError))
+                            {
+                                <div class="ops-ds-sapsaid ops-dcn-sapsaid">@done.SapError</div>
+                            }
+                        </div>
+                        @if (FiscalQrCode.ToImageSource(done.QrCode) is { Length: > 0 } doneQr)
+                        {
+                            <div class="ops-ds-qr-plate">
+                                <img src="@doneQr" alt="Credit note verification QR code" />
+                            </div>
+                        }
+                    </div>
+                }
+
+                @* Credits already raised against this sale, with the two follow-ups a stalled one
+                   needs. "Deferred" and its siblings are shown in words, because the raw status name
+                   reads to an operator as something having gone wrong. *@
+                @if (notes.Where(n => n.Id != result?.Id).ToList() is { Count: > 0 } earlier)
+                {
+                    <div class="ops-ds-block">
+                        <div class="ops-label">Credits already raised</div>
+                        <div class="ops-ds-credits">
+                            @foreach (var note in earlier)
+                            {
+                                <div class="ops-ds-credit">
+                                    <div class="ops-ds-credit-top">
+                                        <span class="ops-code">@note.Number</span>
+                                        <span class="ops-ds-credit-amt">@Money(note.Amount, note.Currency)</span>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(note.Reason))
+                                    {
+                                        <div class="ops-sub">@note.Reason</div>
+                                    }
+                                    <div class="ops-ds-state @DesktopCreditLabels.Family(note.Status)">
+                                        <span class="ops-dot"></span>@DesktopCreditLabels.Fiscal(note.Status)
+                                    </div>
+                                    <div class="ops-sub">SAP: @DesktopCreditLabels.Sap(note) · raised @Full(note.CreatedAtUtc)</div>
+                                    @if (!string.IsNullOrWhiteSpace(note.SapError))
+                                    {
+                                        <div class="ops-sub">@note.SapError</div>
+                                    }
+                                    @if (note.Status is "Submitting" or "ReconciliationRequired" or "Prepared")
+                                    {
+                                        <div class="ops-sub">@note.Message</div>
+                                        <div>
+                                            <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" disabled="@busy"
+                                                    @onclick="() => Check(note)">@(note.Status == "Prepared" ? "Continue fiscalisation" : "Check fiscal status")</button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (form == null && busy)
+                {
+                    <div class="ops-sub" role="status"><span class="ops-spin"></span> Reading the original receipt&hellip;</div>
+                }
+
+                @if (form != null && !submitted)
+                {
+                    <div class="ops-dcn-grid">
+                        <div class="ops-dcn-lines">
+                            <div class="ops-dcn-lines-head">
+                                <span class="ops-label">Lines to credit</span>
+                                @if (AllAtMax)
+                                {
+                                    <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" disabled="@busy"
+                                            @onclick="ClearAll">Clear all</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm"
+                                            disabled="@(busy || lines.All(l => l.Available <= 0))"
+                                            @onclick="CreditEverything">Credit everything</button>
+                                }
+                            </div>
+                            <div class="ops-dcn-scroll">
+                                <table class="ops-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th class="ops-num">Avail.</th>
+                                            <th>Credit qty</th>
+                                            <th class="ops-num">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var line in lines)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="ops-dcn-item">@line.Source.Name</div>
+                                                    <div class="ops-sub">@UnitLine(line.Source, creditCurrency)</div>
+                                                </td>
+                                                <td class="ops-num ops-dcn-avail">@QuantityDisplay.Format(line.Available)</td>
+                                                <td>
+                                                    <div class="ops-dcn-stepper">
+                                                        <button type="button" class="ops-dcn-step" aria-label="Decrease @line.Source.Name"
+                                                                disabled="@(busy || line.Quantity <= 0)" @onclick="() => line.Quantity -= 1">
+                                                            <i class="ph ph-minus" aria-hidden="true"></i>
+                                                        </button>
+                                                        <input type="text" inputmode="decimal" class="ops-input ops-dcn-qty"
+                                                               aria-label="Credit quantity for @line.Source.Name"
+                                                               @bind="line.Quantity" disabled="@busy" />
+                                                        <button type="button" class="ops-dcn-step" aria-label="Increase @line.Source.Name"
+                                                                disabled="@(busy || line.Quantity >= line.Available)" @onclick="() => line.Quantity += 1">
+                                                            <i class="ph ph-plus" aria-hidden="true"></i>
+                                                        </button>
+                                                        <button type="button" class="ops-dcn-step ops-dcn-max" aria-label="Credit all @QuantityDisplay.Format(line.Available) of @line.Source.Name"
+                                                                disabled="@(busy || line.Quantity >= line.Available)" @onclick="() => line.Quantity = line.Available">Max</button>
+                                                    </div>
+                                                </td>
+                                                <td class="ops-num @(line.Quantity > 0 ? "ops-dcn-amt-on" : "ops-dcn-amt-off")">@Money(line.Amount, creditCurrency)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (form.Source.ExternalCredits is { Count: > 0 } elsewhere)
+                            {
+                                <div class="ops-hint" role="note">ZIMRA already holds credits against this receipt that were
+                                    not raised here: @string.Join("; ", elsewhere). They count against what can still be credited.</div>
+                            }
+                            @if (form.Source.ExcludedLines is { Count: > 0 } skipped)
+                            {
+                                <div class="ops-hint" role="note">Not offered for credit: @string.Join("; ", skipped). The credit is
+                                    still capped at the original receipt's total.</div>
+                            }
+                        </div>
+
+                        <div class="ops-dcn-side">
+                            <div class="ops-field">
+                                <label class="ops-label" for="desktop-credit-reason">Reason for credit</label>
+                                @* SAP's own list: the reason becomes each memo line's return reason, and
+                                   SAP refuses a value its list does not define — a free-typed reason
+                                   would fiscalise and then fail in SAP. Free text is kept only for when
+                                   the list cannot be read, so a credit is never blocked by it. *@
+                                @if (reasons.Count > 0)
+                                {
+                                    <select id="desktop-credit-reason" class="ops-input" @bind="reason" disabled="@busy">
+                                        <option value="">Select a reason&hellip;</option>
+                                        @foreach (var option in reasons)
+                                        {
+                                            <option value="@option.Value">@(string.IsNullOrWhiteSpace(option.Description) ? option.Value : option.Description)</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input id="desktop-credit-reason" type="text" class="ops-input" maxlength="250"
+                                           @bind="reason" disabled="@busy" placeholder="Why is this being credited?" />
+                                }
+                            </div>
+                            <div class="ops-field">
+                                <label class="ops-label" for="desktop-credit-note">Note <span class="ops-dcn-opt">(printed on the credit note)</span></label>
+                                <textarea id="desktop-credit-note" class="ops-input ops-dcn-note" maxlength="240"
+                                          @bind="note" disabled="@busy"
+                                          placeholder="Reference, driver, claim number…"></textarea>
+                            </div>
+                            <div class="ops-dcn-total">
+                                <div class="ops-ds-sum">
+                                    @if (form.RemainingAmount is { } remaining)
+                                    {
+                                        <div><span>Receipt total</span><span>@Money(form.Source.OriginalTotal, creditCurrency)</span></div>
+                                        <div><span>Still creditable</span><span>@Money(remaining, creditCurrency)</span></div>
+                                    }
+                                    <div><span>Lines credited</span><span>@lines.Count(l => l.Quantity > 0) of @lines.Count</span></div>
+                                    <div><span>Excl. VAT</span><span>@Money(Amount - Vat, creditCurrency)</span></div>
+                                    <div><span>VAT</span><span>@Money(Vat, creditCurrency)</span></div>
+                                </div>
+                                <div class="ops-dcn-total-label">Total credit</div>
+                                <div class="ops-dcn-total-num">@Money(Amount, creditCurrency)</div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="ops-dialog-foot ops-dcn-foot">
+                @if (result != null)
+                {
+                    <button type="button" class="ops-btn ops-btn-ghost" disabled="@busy" @onclick="Refresh">Credit more lines</button>
+                    <button type="button" class="ops-btn ops-btn-primary" disabled="@busy" @onclick="Close">Done</button>
+                }
+                else
+                {
+                    <div class="ops-ds-foot-why" aria-live="polite">
+                        @if (busy && submitted)
+                        {
+                            <span class="ops-dcn-working"><span class="ops-spin"></span> Fiscalising with REVMax&hellip;</span>
+                        }
+                        else if (form != null && !submitted)
+                        {
+                            @Hint
+                        }
+                    </div>
+                    <button type="button" class="ops-btn ops-btn-ghost" disabled="@busy" @onclick="Close">Close</button>
+                    <button type="button" class="ops-btn ops-btn-ghost" disabled="@busy" @onclick="Refresh">Refresh</button>
+                    @if (form != null && !submitted)
+                    {
+                        @* Fiscalise only is always offered; posting needs the sale's own invoice. On a
+                           sale in SAP, Fiscalise only means SAP gets nothing — no memo, no stock back —
+                           for a fiscal correction such as a sale ZIMRA was sent twice. The API refuses it
+                           when the sale posted after this form was read; Refresh re-reads the state. *@
+                        <button type="button" class="ops-btn ops-btn-ghost"
+                                disabled="@(!CanCreate)"
+                                title="@(form.SaleInSap ? "File the credit with ZIMRA only. No SAP credit memo is raised and no stock is returned." : null)"
+                                @onclick="() => Create(postToSap: false)">Fiscalise only</button>
+                        <button type="button" class="ops-btn ops-btn-primary"
+                                disabled="@(!CanCreate || !form.SaleInSap)"
+                                @onclick="() => Create(postToSap: true)">
+                            Fiscalise and post to SAP<i class="ph ph-arrow-right" aria-hidden="true"></i>
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// The sale being credited. Null or empty closes the dialog, which is how a host opens and shuts it.
+    /// </summary>
+    [Parameter, EditorRequired] public string? Reference { get; set; }
+
+    /// <summary>
+    /// The sale's currency, used until the prepared receipt states its own.
+    /// </summary>
+    [Parameter] public string? Currency { get; set; }
+
+    /// <summary>
+    /// Whether the sale reached SAP inside a consolidated invoice. It changes only what the footer
+    /// tells the operator to expect of the SAP half; the API decides what actually happens.
+    /// </summary>
+    [Parameter] public bool IsConsolidated { get; set; }
+
+    /// <summary>
+    /// Raised when the operator closes the dialog. The host re-reads its own view of the sale from
+    /// here: a credit just raised has to show wherever the host was already listing them.
+    /// </summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private DesktopCreditForm? form;
+    private List<DesktopCreditNoteResult> notes = [];
+    private List<Selection> lines = [];
+    private bool busy;
+    private bool submitted;
+    private string? error;
+    private string reason = "";
+    private string note = "";
+    private string requestKey = "";
+    private DesktopCreditNoteResult? result;
+    private IReadOnlyList<CreditNoteReasonOption> reasons = [];
+
+    /// <summary>The reference the currently-loaded state belongs to, so a changed one reloads.</summary>
+    private string? loadedFor;
+
+    private decimal Amount => lines.Sum(l => l.Amount);
+
+    /// <remarks>
+    /// Per line at the receipt's own rate, because the prices are tax-inclusive and a basket can mix
+    /// rates. A display figure: the device computes the filed tax itself, and may differ by a cent.
+    /// </remarks>
+    private decimal Vat => lines.Sum(l => l.Source.TaxPercent is > 0 and var rate
+        ? decimal.Round(l.Amount - l.Amount / (1 + rate / 100m), 2, MidpointRounding.AwayFromZero)
+        : 0m);
+
+    private bool CanCreate => !busy && !submitted &&
+        !string.IsNullOrWhiteSpace(reason) && lines.Any(l => l.Quantity > 0) && !OverBalance;
+
+    /// <summary>The selection is worth more than ZIMRA will still accept against the receipt.</summary>
+    private bool OverBalance => form?.RemainingAmount is { } remaining && Amount > remaining;
+
+    /// <summary>Every creditable line is already at its maximum, so the header offers to undo it.</summary>
+    private bool AllAtMax =>
+        lines.Any(l => l.Available > 0) && lines.All(l => l.Quantity >= l.Available);
+
+    private sealed class Selection(DesktopCreditLine source, decimal available)
+    {
+        private decimal quantity;
+        public DesktopCreditLine Source { get; } = source;
+        public decimal Available { get; } = Math.Max(0, available);
+
+        /// <summary>Held between none and what is left, at the six places the API accepts.</summary>
+        /// <remarks>
+        /// Clamped here rather than refused on submit, so the stepper and a typed value cannot put a
+        /// quantity on screen that the button would then silently not accept.
+        /// </remarks>
+        public decimal Quantity
+        {
+            get => quantity;
+            set => quantity = decimal.Round(Math.Clamp(value, 0, Available), 6, MidpointRounding.ToZero);
+        }
+
+        public decimal Amount => decimal.Round(Quantity * Source.UnitPrice, 2, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>
+    /// Loads on first sight of a reference, and again whenever the host points at a different sale.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrEmpty(Reference))
+        {
+            loadedFor = null;
+            return;
+        }
+
+        if (loadedFor == Reference)
+        {
+            return;
+        }
+
+        loadedFor = Reference;
+        notes = [];
+        result = null;
+        form = null;
+        // Read once per opening; the service answers an empty list rather than throwing, which leaves
+        // the free-text reason in place.
+        var reading = CreditNoteService.GetReasonsAsync();
+        await Refresh();
+        reasons = await reading;
+    }
+
+    /// <summary>What stands between the operator and the button, or what the button will do.</summary>
+    private string Hint =>
+        form?.RemainingAmount is <= 0 ? "This receipt has already been fully credited with ZIMRA, so no further credit can be filed against it."
+        : lines.All(l => l.Available <= 0) ? "Every line of this receipt has already been credited."
+        : OverBalance ? $"This credit is more than the {Money(form!.RemainingAmount!.Value, form.Source.Currency)} still creditable on this receipt. Reduce the quantities."
+        : !lines.Any(l => l.Quantity > 0) ? "Enter a credit quantity on at least one line to continue."
+        : string.IsNullOrWhiteSpace(reason) ? "Pick a reason for credit to continue."
+        : form!.SaleInSap
+            ? $"This sale is in SAP{(form.SaleSapDocNum is { } docNum ? $" as invoice #{docNum}" : "")}. Post to SAP raises the credit memo and returns the stock; Fiscalise only files the credit with ZIMRA and leaves SAP and stock untouched."
+        : IsConsolidated
+            ? "This sale went to SAP inside a consolidated invoice, so it is fiscalised only. The SAP credit memo has to be raised by hand."
+            : "This sale is not in SAP yet, so it is fiscalised only. The SAP credit memo and stock return follow on their own once the sale posts.";
+
+    private void CreditEverything()
+    {
+        foreach (var line in lines) line.Quantity = line.Available;
+    }
+
+    private void ClearAll()
+    {
+        foreach (var line in lines) line.Quantity = 0;
+    }
+
+    private Task Close() => OnClosed.InvokeAsync();
+
+    private async Task Refresh()
+    {
+        if (string.IsNullOrEmpty(Reference) || busy) return;
+        busy = true;
+        form = null;
+        error = null;
+        result = null;
+        try
+        {
+            // Load saved results even when REVMax is unavailable or the original cannot be prepared.
+            notes = await DesktopService.GetCreditNotesAsync(Reference);
+            form = await DesktopService.PrepareCreditNoteAsync(Reference);
+            // A receipt with nothing left to credit offers no quantities, whatever its lines say: credits
+            // filed outside this dialog are known only as an amount, not per line.
+            var exhausted = form.RemainingAmount is <= 0;
+            lines = form.Source.Lines.Select(l => new Selection(l,
+                exhausted ? 0 : l.Quantity - form.ReservedQuantities.GetValueOrDefault(l.LineNo))).ToList();
+            requestKey = Guid.NewGuid().ToString("N");
+            reason = "";
+            note = "";
+            submitted = false;
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private async Task Create(bool postToSap)
+    {
+        if (string.IsNullOrEmpty(Reference) || !CanCreate) return;
+        busy = true;
+        submitted = true;
+        error = null;
+        try
+        {
+            var created = await DesktopService.CreateCreditNoteAsync(Reference,
+                new CreateDesktopCreditRequest(requestKey, reason,
+                    lines.Where(l => l.Quantity > 0).Select(l => new DesktopCreditQuantity(l.Source.LineNo, l.Quantity)).ToList(),
+                    string.IsNullOrWhiteSpace(note) ? null : note.Trim(), postToSap,
+                    form?.SaleInSap));
+            notes.Insert(0, created);
+            result = created;
+        }
+        catch (Exception ex) { error = ex.Message + " Refresh to check the saved notes before creating another credit."; }
+        finally { busy = false; }
+    }
+
+    private async Task Check(DesktopCreditNoteResult target)
+    {
+        if (string.IsNullOrEmpty(Reference) || busy) return;
+        busy = true;
+        var released = false;
+        try
+        {
+            var updated = target.Status == "Prepared"
+                ? await DesktopService.ContinueCreditNoteAsync(Reference, target.Id)
+                : await DesktopService.ReconcileCreditNoteAsync(Reference, target.Id);
+            var index = notes.FindIndex(n => n.Id == target.Id);
+            if (index >= 0) notes[index] = updated;
+            // A released credit hands its quantities back. The form below still has them reserved, so
+            // it is reloaded rather than left telling the operator the lines are unavailable.
+            released = updated.Status == "Rejected" && target.Status != "Rejected";
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+        if (released) await Refresh();
+    }
+
+    private static string UnitLine(DesktopCreditLine line, string? currency) =>
+        line.TaxPercent is { } rate
+            ? $"{Money(line.UnitPrice, currency)} / unit · VAT {rate.ToString("0.##", CultureInfo.InvariantCulture)}%"
+            : $"{Money(line.UnitPrice, currency)} / unit";
+
+    private static string Money(decimal value, string? code) =>
+        string.IsNullOrEmpty(code) ? value.ToString("N2") : $"{code} {value.ToString("N2")}";
+
+    // The +2h is the app's standing display offset for these timestamps.
+    private static string Full(DateTime utc) => utc.AddHours(2).ToString("dd MMM yyyy, HH:mm");
+
+    private static bool Is(string? status, string value) =>
+        string.Equals(status, value, StringComparison.OrdinalIgnoreCase);
+}

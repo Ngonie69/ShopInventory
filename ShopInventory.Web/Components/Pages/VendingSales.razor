@@ -10,6 +10,7 @@
 @using System.Globalization
 @using MediatR
 @using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis
+@using ShopInventory.Web.Features.DesktopCreditNotes
 @using ShopInventory.Web.Features.Vending
 
 <PageTitle>Vending Sales - Shop Inventory</PageTitle>
@@ -260,6 +261,7 @@
                         <th class="vend-num">Amount</th>
                         <th>Method</th>
                         <th>Status</th>
+                        <th class="vend-num vend-credit-col">Credit</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -304,6 +306,19 @@
                             <td>
                                 <span class="shop-chip @VendorSalesDigest.StateChip(state)" title="@PostingTitle(sale)">@VendorSalesDigest.StateLabel(state)</span>
                             </td>
+                            @* A return handed back at a cart is the commonest credit there is, and until
+                               now there was nowhere to raise one: the dialog existed only on
+                               /desktop-sales, which vending staff cannot open. Offered only on a sale
+                               that has a receipt — a credit reverses the receipt, so there is nothing
+                               to credit without one, and the API refuses it. *@
+                            <td class="vend-num vend-credit-col">
+                                @if (string.Equals(sale.FiscalizationStatus, "Success", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <button type="button" class="shop-btn shop-btn-ghost"
+                                            @onclick:stopPropagation="true"
+                                            @onclick="() => creditSale = sale">Credit</button>
+                                }
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -325,6 +340,11 @@
     </div>
 </div>
 
+<DesktopCreditNoteDialog Reference="@creditSale?.ExternalReferenceId"
+                         Currency="@creditSale?.Currency"
+                         IsConsolidated="@(creditSale?.ConsolidationId is not null)"
+                         OnClosed="CloseCredit" />
+
 @code {
     private const int PageSize = 50;
     private const int ChartDays = VendorSalesDigest.DailyWindowDays;
@@ -339,6 +359,21 @@
     ];
 
     private readonly DateTime today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+
+    /// <summary>
+    /// The sale whose credit dialog is open, if any.
+    /// </summary>
+    private DesktopSaleDto? creditSale;
+
+    /// <summary>
+    /// Re-reads the page after the dialog closes, so a sale just credited shows its new state rather
+    /// than the one it had when the list was loaded.
+    /// </summary>
+    private async Task CloseCredit()
+    {
+        creditSale = null;
+        await ReloadListAsync();
+    }
 
     private VendingOverviewModel? overview;
     private Dictionary<string, string> partnerNames = new(StringComparer.OrdinalIgnoreCase);

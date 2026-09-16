@@ -71,6 +71,7 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
             SaleBatchAllocators.Holding(),
             new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             SalePostGuards.Backed(_connection),
+            DesktopCreditPosters.Idle(_context),
             Options.Create(settings),
             NullLogger<VanSalesEndOfDayPostingService>.Instance);
     }
@@ -436,6 +437,38 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     }
 
     /// <summary>Trips the breaker the way a real outage does, one recorded failure at a time.</summary>
+    /// <summary>
+    /// A van sale with no fiscal receipt does not reach SAP.
+    /// </summary>
+    /// <remarks>
+    /// This route had no fiscal test at all: it selected on the consolidation status alone, so a van
+    /// sale the handset never stamped and the REVMax sweep had not signed still posted as an ordinary
+    /// A/R invoice. It matters more here than on a till, not less — a van sale posts one-to-one, and
+    /// its invoice is exactly what the SAP-to-FDMS reconciliation goes looking for a receipt against.
+    /// </remarks>
+    [Theory]
+    [InlineData(DesktopSaleFiscalizationStatus.Pending)]
+    [InlineData(DesktopSaleFiscalizationStatus.Failed)]
+    [InlineData(DesktopSaleFiscalizationStatus.Skipped)]
+    public async Task A_van_sale_without_a_receipt_is_not_posted(DesktopSaleFiscalizationStatus status)
+    {
+        var sale = AddSale("VAN-UNSIGNED", 700);
+        sale.FiscalizationStatus = status;
+        await _context.SaveChangesAsync();
+
+        var result = await BuildService().PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(0, result.Posted);
+        Assert.Empty(_sap.Created);
+
+        // Held, not failed: nothing is wrong with the sale and no attempt is spent on it. The sweep
+        // signs it and the next pass posts it.
+        var held = await _context.DesktopSales.AsNoTracking().SingleAsync();
+        Assert.Equal(DesktopSaleConsolidationStatus.Pending, held.ConsolidationStatus);
+        Assert.Equal(0, held.PostingAttempts);
+        Assert.Null(held.SapDocNum);
+    }
+
     private void OpenTheCircuit()
     {
         for (var failure = 0; failure < new SAPSettings().CircuitFailureThreshold; failure++)

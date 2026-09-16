@@ -221,6 +221,7 @@ public sealed class DesktopSalePostGuardTests : IDisposable
             SaleBatchAllocators.Holding(),
             new StockLedger(context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             _guard,
+            DesktopCreditPosters.Idle(context),
             Options.Create(new VanSalesPostingSettings()),
             NullLogger<VanSalesEndOfDayPostingService>.Instance);
 
