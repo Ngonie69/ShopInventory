@@ -43,6 +43,12 @@ param(
     # portal's JWTs, so a token issued by one node has to verify on the next; a freshly generated
     # value silently signs every portal user out the moment traffic reaches that node.
     [string]$CustomerPortalJwtSecret = $env:SHOPINVENTORY_CUSTOMERPORTAL_JWTSECRET,
+    # The G/L account a shop's card swipes are banked into. Only needed to set or change it: every
+    # later deployment carries the value forward from the live slot's web.config, the way the SMTP
+    # password is. Until it is set once, card sales are invoiced and left unsettled (Unmapped) -
+    # SAP:SwipeCreditCardCode is the alternative and needs a credit card record the company database
+    # does not have.
+    [string]$SapSwipeTransferAccount = $env:SHOPINVENTORY_SAP_SWIPE_TRANSFER_ACCOUNT,
     [string]$WebEmailFromEmail = "alerts@kefaloscheese.com",
     [string]$WebEmailFromName = "Kefalos Cheese - POD Reports",
     [string]$WebEmailApplicationUrl = "https://sis.kefaloscheese.com",
@@ -1890,9 +1896,49 @@ try {
 
         Write-Host "  Deploying to inactive slot and warming it up..." -ForegroundColor Gray
         $cutoverResult = Invoke-DeploymentCommand -ScriptBlock {
-            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides, $ApiKeyExpiryToDeploy, $ApiKeyIndexToDeploy)
+            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides, $ApiKeyExpiryToDeploy, $ApiKeyIndexToDeploy, $SapSwipeTransferAccount)
 
             Import-Module WebAdministration
+
+            function Set-SlotSwipeTransferAccount {
+                <#
+                    The G/L account a shop's card swipes are banked into, put on the slot about to go
+                    live. A fresh slot's web.config comes from the package with no value, so without
+                    carrying it forward a deploy would quietly take card settlement back to Unmapped -
+                    invoices raised and never settled, which is how 596.83 of counted card money sat
+                    open on 2026-09-15. Returns where the value came from: 'input', 'preserved' or
+                    'none'.
+                #>
+                param(
+                    [object]$DeploymentPlan,
+                    [string]$Account
+                )
+
+                $targetWebConfig = Join-Path $DeploymentPlan.TargetPath 'web.config'
+
+                if (-not [string]::IsNullOrWhiteSpace($Account)) {
+                    Set-WebConfigEnvironmentVariableValue -WebConfigPath $targetWebConfig -Name 'SAP__SwipeTransferAccount' -Value $Account
+                    Write-Host "  Applied SAP__SwipeTransferAccount = $Account from deployment input" -ForegroundColor Green
+                    return 'input'
+                }
+
+                $existing = $null
+                if (-not [string]::IsNullOrWhiteSpace($DeploymentPlan.CurrentPath)) {
+                    $currentWebConfig = Join-Path $DeploymentPlan.CurrentPath 'web.config'
+                    if (Test-Path $currentWebConfig) {
+                        $existing = Get-WebConfigEnvironmentVariableValue -WebConfigPath $currentWebConfig -Name 'SAP__SwipeTransferAccount'
+                    }
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($existing)) {
+                    Set-WebConfigEnvironmentVariableValue -WebConfigPath $targetWebConfig -Name 'SAP__SwipeTransferAccount' -Value $existing
+                    Write-Host "  Preserved SAP__SwipeTransferAccount = $existing from the live slot" -ForegroundColor Green
+                    return 'preserved'
+                }
+
+                Write-Host "  WARNING: SAP__SwipeTransferAccount is not configured, so card swipes stay Unmapped and unsettled. Pass -SapSwipeTransferAccount <G/L account> once to set it." -ForegroundColor Yellow
+                return 'none'
+            }
 
             function Initialize-SlotWebConfig {
                 param(
@@ -2418,6 +2464,8 @@ Then redeploy with:
                             -Value $ApiKeyExpiryToDeploy
                         Write-Host "  Applied MainIntegration API-key expiry to $apiWebConfigPath" -ForegroundColor Green
                     }
+
+                    $null = Set-SlotSwipeTransferAccount -DeploymentPlan $Plan -Account $SapSwipeTransferAccount
                 }
 
                 $databaseConnectionString = $DatabaseConnectionOverrides[$Plan.Name]
@@ -2545,7 +2593,7 @@ Then redeploy with:
                 Remove-Item -Path $tempPath -Recurse -Force -ErrorAction SilentlyContinue
                 Remove-Item -Path $zipFullPath -Force -ErrorAction SilentlyContinue
             }
-        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides, $apiKeyExpiryToDeploy, $apiKeyIndexToDeploy -ErrorAction Stop
+        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides, $apiKeyExpiryToDeploy, $apiKeyIndexToDeploy, $SapSwipeTransferAccount -ErrorAction Stop
 
         $cutoverResults += $cutoverResult
 
