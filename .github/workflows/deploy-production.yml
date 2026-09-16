@@ -1,11 +1,9 @@
 name: Deploy to production
 
-# A merge deploys once Tests go green on main, whatever the hour. It was held out of 07:00-19:00 CAT
-# for as long as a cutover dropped the requests in flight; the public port now changes hands in a
-# single write to applicationHost.config, and each cutover measures the port across the switch and
-# reports in the summary below how long it answered nothing. The 19:30 CAT run is a backstop for a
-# merge whose deploy never ran, and skips a commit that is already live. Running the workflow by hand
-# deploys at once. The rule is in scripts/DeployWindow/deploy_window.py, and its tests are beside it.
+# A merge deploys once Tests go green on main, unless that happens during trading hours. A cutover
+# drops every request in flight, so a merge between 07:00 and 19:00 CAT waits for the 19:30 CAT run,
+# which deploys main's head. Running the workflow by hand deploys at once, whatever the time. The
+# rule is in scripts/DeployWindow/deploy_window.py, and its tests are beside it.
 #
 # Setup is in docs/operations/github-actions-deploy-runner.md. The deploy job cannot run on a
 # GitHub-hosted runner: production is 10.10.10.9, a private address no Azure runner can route to. It
@@ -16,9 +14,8 @@ on:
     types: [completed]
     branches: [main]
   schedule:
-    # 19:30 CAT, every day: the backstop. Zimbabwe keeps UTC+2 all year. test_deploy_window.py fails
-    # if this and EVENING_DEPLOY disagree. GitHub can start a scheduled run late under load, never
-    # early. On an ordinary night main's head is already live and this deploys nothing.
+    # 19:30 CAT, every day. Zimbabwe keeps UTC+2 all year. test_deploy_window.py fails if this and
+    # EVENING_DEPLOY disagree. GitHub can start a scheduled run late under load, never early.
     - cron: '30 17 * * *'
   workflow_dispatch:
     inputs:
@@ -37,7 +34,7 @@ concurrency:
 
 permissions:
   contents: read
-  # The backstop run asks whether Tests passed for main's head.
+  # The evening run asks whether Tests passed for main's head.
   actions: read
 
 jobs:
@@ -59,8 +56,8 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
-    # GitHub-hosted: deciding needs nothing from the production box, and a run that deploys nothing
-    # should not queue for it.
+    # GitHub-hosted: deciding needs nothing from the production box, and a merge that is held should not
+    # queue for it.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -124,7 +121,7 @@ jobs:
       - name: Checkout the commit that passed
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # The commit the decide job named: the run that passed Tests, main's head for the backstop
+          # The commit the decide job named: the run that passed Tests, main's head for the evening
           # run, or the ref chosen by hand. Naming the sha is what makes the thing deployed the same
           # thing that was tested, even when a second merge lands while this one queues.
           ref: ${{ needs.decide.outputs.sha }}
@@ -138,10 +135,10 @@ jobs:
         env:
           SHA: ${{ needs.decide.outputs.sha }}
         run: |
-          # The backstop run fires every night, and on an ordinary night every merge has already
-          # deployed. Cutting over to the commit already live would be a restart for nothing. Written by
-          # the last successful full deploy - see "Remember what is live" below. This runner is the
-          # production box, and its work folder outlives the checkout.
+          # The evening run fires every night, and most nights nothing merged during the day. Deploying
+          # the commit already live would cut over for nothing. Written by the last successful full
+          # deploy - see "Remember what is live" below. This runner is the production box, and its
+          # work folder outlives the checkout.
           $marker = Join-Path $env:RUNNER_WORKSPACE 'production-live-commit.txt'
           $live = if (Test-Path -LiteralPath $marker) { (Get-Content -LiteralPath $marker -Raw).Trim() } else { '' }
 
@@ -295,7 +292,7 @@ jobs:
 
       - name: Remember what is live
         # Only after a full deploy that verified. A deploy of the API or the Web alone leaves the other
-        # on an older commit, and recording it would let the backstop run skip what is still missing.
+        # on an older commit, and recording it would let the evening run skip what is still missing.
         if: success() && steps.live.outputs.live != 'true' && (inputs.target || 'Both') == 'Both'
         shell: powershell
         env:

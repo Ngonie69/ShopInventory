@@ -526,9 +526,6 @@ function Get-BlueGreenDeploymentDefinitions {
             LegacyPath           = $ApiPath
             WarmupPath           = '/health/deploy-ready'
             ReadyPath            = '/health/ready'
-            # The cheap one. It is polled several times a second across the cutover, so it has to be
-            # the check that touches nothing: /health/ready pings the database and the API.
-            LivePath             = '/health/live'
             WarmupTimeoutSeconds = 180
             Slots                = @(
                 [pscustomobject]@{
@@ -555,7 +552,6 @@ function Get-BlueGreenDeploymentDefinitions {
             LegacyPath           = $WebPath
             WarmupPath           = '/health/deploy-ready'
             ReadyPath            = '/health/ready'
-            LivePath             = '/health/live'
             WarmupTimeoutSeconds = 240
             Slots                = @(
                 [pscustomobject]@{
@@ -1575,7 +1571,6 @@ try {
                 PublicPort           = [int]$definition.PublicPort
                 WarmupPath           = $definition.WarmupPath
                 ReadyPath            = $definition.ReadyPath
-                LivePath             = $definition.LivePath
                 WarmupTimeoutSeconds = [int]$definition.WarmupTimeoutSeconds
                 ActiveSlot           = $activeSlot
                 CurrentSiteName      = $currentSiteName
@@ -1588,7 +1583,6 @@ try {
                 TargetPort           = [int]$targetConfig.Port
                 TargetWarmupUrl      = "http://localhost:$($targetConfig.Port)$($definition.WarmupPath)"
                 PublicReadyUrl       = "http://localhost:$($definition.PublicPort)$($definition.ReadyPath)"
-                PublicLiveUrl        = "http://localhost:$($definition.PublicPort)$($definition.LivePath)"
             }
         }
 
@@ -2292,187 +2286,6 @@ Then redeploy with:
                 return [pscustomobject]@{ Success = $false; Message = $lastError }
             }
 
-            # A cutover is meant to be a handover, not an outage, and for a long time nobody could say
-            # which it was. These three watch the public port from the box itself across the switch, so
-            # every deployment states how long the port answered nothing. That number is what says a
-            # merge can ship while the shops are trading; if it stops reading zero, the deploy has
-            # already told you why.
-            #
-            # Get-LongestOutage is pure so scripts/Test-DeployPublicBindingSwap.ps1 can hand it
-            # sequences no real cutover would conveniently produce.
-            function Get-LongestOutage {
-                param([object[]]$Samples)
-
-                $ordered = @(@($Samples) | Sort-Object At)
-                $failures = @($ordered | Where-Object { -not $_.Ok }).Count
-
-                # Measured from the last probe that answered to the first that answered again, so it is
-                # an upper bound: the port may have come back at any point in between. Erring long is
-                # the right way round for a number being used to decide whether to deploy on a trading
-                # day.
-                $longest = 0.0
-                $lastGoodAt = $null
-                $outageOpen = $false
-
-                foreach ($sample in $ordered) {
-                    if ($sample.Ok) {
-                        if ($outageOpen) {
-                            $from = if ($null -ne $lastGoodAt) { $lastGoodAt } else { $ordered[0].At }
-                            $longest = [math]::Max($longest, ($sample.At - $from).TotalMilliseconds)
-                            $outageOpen = $false
-                        }
-
-                        $lastGoodAt = $sample.At
-                        continue
-                    }
-
-                    $outageOpen = $true
-                }
-
-                # Still down when the probe stopped. Measured to the last sample, which is all that is known.
-                if ($outageOpen -and $ordered.Count -gt 0) {
-                    $from = if ($null -ne $lastGoodAt) { $lastGoodAt } else { $ordered[0].At }
-                    $longest = [math]::Max($longest, ($ordered[$ordered.Count - 1].At - $from).TotalMilliseconds)
-                }
-
-                # How far apart consecutive probes actually landed. "No failures" is only ever as strong
-                # as this: an outage shorter than the widest gap between two probes could have happened
-                # between them and gone unseen. A thread that stalls shows up here rather than as a
-                # clean bill of health.
-                $widestGap = 0.0
-                for ($i = 1; $i -lt $ordered.Count; $i++) {
-                    $widestGap = [math]::Max($widestGap, ($ordered[$i].At - $ordered[$i - 1].At).TotalMilliseconds)
-                }
-
-                [pscustomobject]@{
-                    Probes          = $ordered.Count
-                    Failures        = $failures
-                    LongestOutageMs = [int][math]::Round($longest)
-                    MaxSampleGapMs  = [int][math]::Round($widestGap)
-                }
-            }
-
-            function Start-PublicPortProbe {
-                param(
-                    [string]$Url,
-                    [int]$IntervalMilliseconds = 40
-                )
-
-                if ([string]::IsNullOrWhiteSpace($Url)) { return $null }
-
-                try {
-                    $shared = [hashtable]::Synchronized(@{
-                            Stop    = $false
-                            Samples = New-Object System.Collections.ArrayList
-                        })
-
-                    # A runspace, not Start-Job: this runs inside a WinRM session, where a child
-                    # process is both slower to start and easier to have blocked.
-                    $runspace = [runspacefactory]::CreateRunspace()
-                    $runspace.Open()
-                    $runspace.SessionStateProxy.SetVariable('shared', $shared)
-                    $runspace.SessionStateProxy.SetVariable('probeUrl', $Url)
-                    $runspace.SessionStateProxy.SetVariable('probeInterval', $IntervalMilliseconds)
-
-                    $shell = [powershell]::Create()
-                    $shell.Runspace = $runspace
-                    [void]$shell.AddScript({
-                            while (-not $shared.Stop) {
-                                $answered = $false
-
-                                try {
-                                    $request = [System.Net.HttpWebRequest]::Create($probeUrl)
-                                    $request.Method = 'GET'
-                                    # Short on purpose. A probe that straddles the switch can connect
-                                    # into a listen backlog whose socket is then closed, and wait for
-                                    # a response that is never coming; at two seconds that one probe
-                                    # blinded the measurement for longer than the outage it was there
-                                    # to see. /health/live on localhost answers in single-figure
-                                    # milliseconds, and a public port that cannot manage 300ms is not
-                                    # serving a till either way.
-                                    $request.Timeout = 300
-                                    $request.ReadWriteTimeout = 300
-                                    # No proxy lookup: the target is localhost, and resolving the
-                                    # system proxy on every call is latency inside the sample.
-                                    $request.Proxy = $null
-                                    # A fresh connection each time. A pooled one would go on answering
-                                    # from a socket HTTP.sys had already handed over, which is exactly
-                                    # the thing being measured.
-                                    $request.KeepAlive = $false
-                                    $response = $request.GetResponse()
-                                    $answered = ([int]$response.StatusCode -lt 400)
-                                    $response.Close()
-                                }
-                                catch {
-                                    $answered = $false
-                                }
-
-                                [void]$shared.Samples.Add([pscustomobject]@{ At = [DateTime]::UtcNow; Ok = $answered })
-                                Start-Sleep -Milliseconds $probeInterval
-                            }
-                        })
-
-                    $probe = [pscustomobject]@{
-                        Shared   = $shared
-                        Shell    = $shell
-                        Runspace = $runspace
-                        Handle   = $null
-                    }
-
-                    $probe.Handle = $shell.BeginInvoke()
-
-                    # BeginInvoke queues the loop; it does not run it. Returning before the first probe
-                    # has been taken would let the switch happen while the runspace was still waiting
-                    # for a thread, and the cutover would then report a clean handover it never
-                    # watched. Saying nothing is fine. Saying zero when nobody looked is not.
-                    $deadline = (Get-Date).AddSeconds(10)
-                    while ($shared.Samples.Count -eq 0 -and (Get-Date) -lt $deadline) {
-                        Start-Sleep -Milliseconds 5
-                    }
-
-                    if ($shared.Samples.Count -eq 0) {
-                        $shared.Stop = $true
-                        try { [void]$shell.EndInvoke($probe.Handle) } catch { }
-                        $shell.Dispose()
-                        $runspace.Dispose()
-
-                        Write-Host "  Note: the public port probe never took a sample, so this cutover goes unmeasured." -ForegroundColor DarkGray
-                        return $null
-                    }
-
-                    return $probe
-                }
-                catch {
-                    # Measuring the cutover must never be the reason a cutover fails.
-                    Write-Host "  Note: could not start the public port probe, so this cutover goes unmeasured: $($_.Exception.Message)" -ForegroundColor DarkGray
-                    return $null
-                }
-            }
-
-            function Stop-PublicPortProbe {
-                param([object]$Probe)
-
-                if ($null -eq $Probe) { return $null }
-
-                try {
-                    $Probe.Shared.Stop = $true
-                    [void]$Probe.Shell.EndInvoke($Probe.Handle)
-                    $samples = @($Probe.Shared.Samples)
-                }
-                catch {
-                    Write-Host "  Note: the public port probe did not finish cleanly: $($_.Exception.Message)" -ForegroundColor DarkGray
-                    $samples = @()
-                }
-                finally {
-                    $Probe.Shell.Dispose()
-                    $Probe.Runspace.Dispose()
-                }
-
-                if (@($samples).Count -eq 0) { return $null }
-
-                return Get-LongestOutage -Samples $samples
-            }
-
             function Get-LatestStdoutLogTail {
                 param([string]$AppPath)
 
@@ -2497,125 +2310,36 @@ Then redeploy with:
                 return ($latestLog.Name + [Environment]::NewLine + ($tail -join [Environment]::NewLine))
             }
 
-            # Which bindings have to move for the public port to belong to $DestinationSiteName, worked
-            # out from a snapshot rather than from IIS, so scripts/Test-DeployPublicBindingSwap.ps1 can
-            # put any arrangement of sites in front of it.
-            #
-            # $Sites is @({ Name; Bindings = @({ Protocol; BindingInformation }) }) and only the sites
-            # the caller nominates are in it: a site nobody named keeps whatever it has.
-            function Get-PublicBindingPlan {
+            function Remove-PublicPortBinding {
                 param(
-                    [object[]]$Sites,
-                    [string]$DestinationSiteName,
+                    [string]$SiteName,
                     [int]$Port
                 )
 
-                $remove = @()
-                $destinationAlreadyHasIt = $false
+                $bindings = Get-WebBinding -Name $SiteName -Protocol 'http' -ErrorAction SilentlyContinue |
+                Where-Object { $_.bindingInformation -match "^[^:]*:${Port}:" }
 
-                foreach ($site in @($Sites)) {
-                    foreach ($binding in @($site.Bindings)) {
-                        if ($binding.Protocol -ne 'http') { continue }
-                        if ($binding.BindingInformation -notmatch "^[^:]*:${Port}:") { continue }
-
-                        if ($site.Name -eq $DestinationSiteName) {
-                            $destinationAlreadyHasIt = $true
-                            continue
-                        }
-
-                        $remove += [pscustomobject]@{
-                            SiteName           = $site.Name
-                            BindingInformation = $binding.BindingInformation
-                        }
-                    }
-                }
-
-                [pscustomobject]@{
-                    Remove = $remove
-                    Add    = (-not $destinationAlreadyHasIt)
-                    AddTo  = $DestinationSiteName
-                    Port   = $Port
-                }
-            }
-
-            # Applies the whole plan in ONE write to applicationHost.config. This is the point of the
-            # exercise: a removal and an addition made separately leave a committed state in which the
-            # public port belongs to nobody, and every request arriving in that state is lost.
-            #
-            # $Manager is a Microsoft.Web.Administration.ServerManager in production and a stand-in
-            # with the same shape under test. Sites are found by walking the collection rather than by
-            # its name indexer, because that is what both can do.
-            function Invoke-PublicBindingPlan {
-                param(
-                    [object]$Plan,
-                    [object]$Manager
-                )
-
-                # Looked up before anything is changed. If the new slot's site is missing, this has to
-                # fail with the live configuration untouched, not half-unpicked.
-                $destination = $null
-                if ($Plan.Add) {
-                    $destination = @($Manager.Sites) | Where-Object { $_.Name -eq $Plan.AddTo } | Select-Object -First 1
-                    if ($null -eq $destination) {
-                        throw "Cannot hand the public port to '$($Plan.AddTo)': IIS has no site by that name."
-                    }
-                }
-
-                foreach ($removal in @($Plan.Remove)) {
-                    $site = @($Manager.Sites) | Where-Object { $_.Name -eq $removal.SiteName } | Select-Object -First 1
-                    if ($null -eq $site) { continue }
-
-                    # Collected before removing: the collection is being mutated underneath.
-                    $doomed = @(@($site.Bindings) | Where-Object {
-                            $_.Protocol -eq 'http' -and $_.BindingInformation -eq $removal.BindingInformation
-                        })
-
-                    foreach ($binding in $doomed) {
-                        $site.Bindings.Remove($binding)
-                    }
-                }
-
-                if ($Plan.Add) {
-                    $destination.Bindings.Add("*:$($Plan.Port):", 'http') | Out-Null
-                }
-
-                # Nothing above touched the live configuration. This line is the handover.
-                $Manager.CommitChanges()
-            }
-
-            # $null when the assembly is not on this box, which is the signal to fall back.
-            function New-IisServerManager {
-                $assemblyPath = Join-Path $env:windir 'system32\inetsrv\Microsoft.Web.Administration.dll'
-                if (-not (Test-Path -LiteralPath $assemblyPath)) {
-                    return $null
-                }
-
-                try {
-                    # LoadFrom rather than Add-Type: it is happy to be called again for an assembly
-                    # this session has already loaded.
-                    [void][System.Reflection.Assembly]::LoadFrom($assemblyPath)
-                    return New-Object Microsoft.Web.Administration.ServerManager
-                }
-                catch {
-                    return $null
-                }
-            }
-
-            # The old way, kept only for a box without Microsoft.Web.Administration: one write per
-            # change, with the gap between them that this all exists to close.
-            function Invoke-PublicBindingPlanWithCmdlets {
-                param([object]$Plan)
-
-                foreach ($removal in @($Plan.Remove)) {
-                    $parts = $removal.BindingInformation.Split(':', 3)
+                foreach ($binding in $bindings) {
+                    $parts = $binding.bindingInformation.Split(':', 3)
                     $ipAddress = if ([string]::IsNullOrWhiteSpace($parts[0])) { '*' } else { $parts[0] }
                     $hostHeader = if ($parts.Length -gt 2) { $parts[2] } else { '' }
 
-                    Remove-WebBinding -Name $removal.SiteName -Protocol 'http' -Port $Plan.Port -IPAddress $ipAddress -HostHeader $hostHeader -ErrorAction SilentlyContinue
+                    Remove-WebBinding -Name $SiteName -Protocol 'http' -Port $Port -IPAddress $ipAddress -HostHeader $hostHeader -ErrorAction SilentlyContinue
                 }
+            }
 
-                if ($Plan.Add) {
-                    New-WebBinding -Name $Plan.AddTo -Protocol 'http' -Port $Plan.Port -IPAddress '*' -HostHeader '' | Out-Null
+            function Ensure-PublicPortBinding {
+                param(
+                    [string]$SiteName,
+                    [int]$Port
+                )
+
+                $existingBinding = Get-WebBinding -Name $SiteName -Protocol 'http' -ErrorAction SilentlyContinue |
+                Where-Object { $_.bindingInformation -match "^[^:]*:${Port}:" } |
+                Select-Object -First 1
+
+                if ($null -eq $existingBinding) {
+                    New-WebBinding -Name $SiteName -Protocol 'http' -Port $Port -IPAddress '*' -HostHeader '' | Out-Null
                 }
             }
 
@@ -2672,52 +2396,22 @@ Then redeploy with:
                     [string]$DestinationAppPoolName
                 )
 
-                # Online BEFORE it is given the port, not after. A site that holds the public port while
-                # its app pool is still starting answers nothing, and that wait used to sit inside the
-                # window traffic was already being pointed at. If this throws, the old slot still has
-                # the port and nothing has moved.
-                Ensure-SiteOnline -SiteName $DestinationSiteName -AppPoolName $DestinationAppPoolName
-
-                # The same three sites the remove-then-add version cleaned, plus the destination, whose
-                # bindings decide whether one has to be added at all.
-                $candidates = @(
+                $sitesToClean = @(
                     $DeploymentPlan.CurrentSiteName,
                     $DeploymentPlan.PublicSiteName,
-                    $DeploymentPlan.TargetSiteName,
-                    $DestinationSiteName
+                    $DeploymentPlan.TargetSiteName
                 ) |
-                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-                Select-Object -Unique |
-                Where-Object { Test-Path "IIS:\Sites\$_" }
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne $DestinationSiteName } |
+                Select-Object -Unique
 
-                $snapshot = foreach ($siteName in $candidates) {
-                    [pscustomobject]@{
-                        Name     = $siteName
-                        Bindings = @(Get-WebBinding -Name $siteName -ErrorAction SilentlyContinue | ForEach-Object {
-                                [pscustomobject]@{ Protocol = $_.protocol; BindingInformation = $_.bindingInformation }
-                            })
+                foreach ($siteName in $sitesToClean) {
+                    if (Test-Path "IIS:\Sites\$siteName") {
+                        Remove-PublicPortBinding -SiteName $siteName -Port $DeploymentPlan.PublicPort
                     }
                 }
 
-                $bindingPlan = Get-PublicBindingPlan -Sites $snapshot -DestinationSiteName $DestinationSiteName -Port $DeploymentPlan.PublicPort
-
-                if (@($bindingPlan.Remove).Count -eq 0 -and -not $bindingPlan.Add) {
-                    return
-                }
-
-                $manager = New-IisServerManager
-                if ($null -ne $manager) {
-                    try {
-                        Invoke-PublicBindingPlan -Plan $bindingPlan -Manager $manager
-                        return
-                    }
-                    finally {
-                        $manager.Dispose()
-                    }
-                }
-
-                Write-Host "  WARNING: Microsoft.Web.Administration is not available on this box, so the public port changes hands one write at a time and is briefly bound to nobody." -ForegroundColor Yellow
-                Invoke-PublicBindingPlanWithCmdlets -Plan $bindingPlan
+                Ensure-PublicPortBinding -SiteName $DestinationSiteName -Port $DeploymentPlan.PublicPort
+                Ensure-SiteOnline -SiteName $DestinationSiteName -AppPoolName $DestinationAppPoolName
             }
 
             $zipFullPath = "C:\inetpub\$ZipFile"
@@ -2865,26 +2559,7 @@ Then redeploy with:
                 }
 
                 Write-Host "  Switching public binding to the healthy slot site..." -ForegroundColor Gray
-
-                $probe = Start-PublicPortProbe -Url $Plan.PublicLiveUrl
-                try {
-                    Switch-PublicTrafficToSite -DeploymentPlan $Plan -DestinationSiteName $Plan.TargetSiteName -DestinationAppPoolName $Plan.TargetAppPoolName
-                }
-                finally {
-                    # Long enough for the probe to see the far side of the switch, not only the near one.
-                    Start-Sleep -Milliseconds 750
-                    $cutoverOutage = Stop-PublicPortProbe -Probe $probe
-                }
-
-                if ($null -eq $cutoverOutage) {
-                    Write-Host "  Cutover went unmeasured: no probe samples." -ForegroundColor DarkGray
-                }
-                elseif ($cutoverOutage.Failures -eq 0) {
-                    Write-Host "  Public port answered all $($cutoverOutage.Probes) probes across the cutover; nothing longer than $($cutoverOutage.MaxSampleGapMs)ms could have gone unseen between them." -ForegroundColor Green
-                }
-                else {
-                    Write-Host "  Public port went unanswered for up to $($cutoverOutage.LongestOutageMs)ms across the cutover ($($cutoverOutage.Failures) of $($cutoverOutage.Probes) probes failed)." -ForegroundColor Yellow
-                }
+                Switch-PublicTrafficToSite -DeploymentPlan $Plan -DestinationSiteName $Plan.TargetSiteName -DestinationAppPoolName $Plan.TargetAppPoolName
 
                 $publicWarmup = Wait-ForHealthyEndpoint -Url $Plan.PublicReadyUrl -TimeoutSeconds $Plan.WarmupTimeoutSeconds -AppName $Plan.Name -Phase 'public' -AppPath $Plan.TargetPath
                 if (-not $publicWarmup.Success) {
@@ -2908,14 +2583,10 @@ Then redeploy with:
                 $fileCount = (Get-ChildItem -Path $Plan.TargetPath -Recurse -File -ErrorAction SilentlyContinue).Count
 
                 [pscustomobject]@{
-                    Name            = $Plan.Name
-                    ActiveSlot      = $Plan.TargetSlot
-                    FileCount       = $fileCount
-                    TargetPath      = $Plan.TargetPath
-                    CutoverOutageMs = if ($null -ne $cutoverOutage) { $cutoverOutage.LongestOutageMs } else { $null }
-                    CutoverProbes   = if ($null -ne $cutoverOutage) { $cutoverOutage.Probes } else { 0 }
-                    CutoverFailures = if ($null -ne $cutoverOutage) { $cutoverOutage.Failures } else { 0 }
-                    CutoverGapMs    = if ($null -ne $cutoverOutage) { $cutoverOutage.MaxSampleGapMs } else { 0 }
+                    Name       = $Plan.Name
+                    ActiveSlot = $Plan.TargetSlot
+                    FileCount  = $fileCount
+                    TargetPath = $Plan.TargetPath
                 }
             }
             finally {
@@ -3054,44 +2725,6 @@ foreach ($result in $cutoverResults) {
         Write-Host "  - Web: http://$ProductionServer`:5107/ (active slot: $($result.ActiveSlot))" -ForegroundColor White
     }
 }
-Write-Host ""
-Write-Host "Cutover:" -ForegroundColor Cyan
-foreach ($result in $cutoverResults) {
-    if ($null -eq $result.CutoverOutageMs) {
-        Write-Host "  - $($result.Name): unmeasured." -ForegroundColor DarkGray
-    }
-    elseif ($result.CutoverFailures -eq 0) {
-        Write-Host "  - $($result.Name): the public port answered all $($result.CutoverProbes) probes, taken at most $($result.CutoverGapMs)ms apart." -ForegroundColor White
-    }
-    else {
-        Write-Host "  - $($result.Name): the public port went unanswered for up to $($result.CutoverOutageMs)ms ($($result.CutoverFailures)/$($result.CutoverProbes) probes)." -ForegroundColor Yellow
-    }
-}
-
-# Held deploys were lifted on the strength of this number, so it goes where the person who merged
-# will see it rather than only into a runner log nobody opens. Written only when GitHub Actions is
-# the caller; a deployment by hand has it on screen already.
-if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
-    $summaryLines = @('### Cutover', '', '| Application | Active slot | Public port unanswered |', '| --- | --- | --- |')
-    foreach ($result in $cutoverResults) {
-        $outage = if ($null -eq $result.CutoverOutageMs) {
-            'not measured'
-        }
-        elseif ($result.CutoverFailures -eq 0) {
-            "none seen: all $($result.CutoverProbes) probes answered, taken at most $($result.CutoverGapMs)ms apart"
-        }
-        else {
-            "up to $($result.CutoverOutageMs)ms ($($result.CutoverFailures)/$($result.CutoverProbes) probes)"
-        }
-
-        $summaryLines += "| $($result.Name) | $($result.ActiveSlot) | $outage |"
-    }
-
-    # utf8 is fine here, unlike GITHUB_OUTPUT: a byte-order mark in the summary is invisible markdown,
-    # where in an output it would corrupt the key it leads.
-    ($summaryLines -join [Environment]::NewLine) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-}
-
 Write-Host ""
 Write-Host "Quick commands:" -ForegroundColor Yellow
 Write-Host "  - Restart only: .\Update-Production.ps1 -RestartOnly" -ForegroundColor White

@@ -3,58 +3,35 @@
 This runbook sets up automatic production deployment on merge to `main`. It covers the self-hosted
 runner the deployment needs, the credential it uses, and the GitHub environment the job runs in.
 
-Once it is in place, merging to `main` runs the tests and then deploys, at any hour. See
+Once it is in place, merging to `main` runs the tests and then deploys, outside trading hours. See
 [When a merge deploys](#when-a-merge-deploys).
 
 ## When a merge deploys
 
+A cutover drops every request in flight. `Update-Production.ps1` moves the public port binding from
+the old IIS slot to the new one, and between the two nothing listens on the port: a new request gets
+a 404 from HTTP.sys, and a request already running is cut off, which nginx reports as a 502. On
+14 September 2026 three merges deployed between 16:00 and 16:40 CAT. The KEFSHOP till lost its
+notification connection at the end of each, and a sale posted at 16:41 got a 502 while the API went
+on writing it, so the customer left with no receipt.
+
 | Trigger | What deploys |
 | --- | --- |
-| Tests pass on a push to `main` | The commit that passed, straight away, whatever the time |
-| The backstop run, 19:30 CAT every day | `main`'s head, if Tests passed for it and it is not already live |
-| **Run workflow** by hand | The chosen ref, straight away |
+| Tests pass on a push to `main`, outside 07:00–19:00 CAT | The commit that passed, straight away |
+| Tests pass inside 07:00–19:00 CAT | Nothing. The run's summary says it waits for the evening deploy |
+| The evening run, 19:30 CAT every day | `main`'s head, if Tests passed for it and it is not already live |
+| **Run workflow** by hand | The chosen ref, straight away, whatever the time: the way to ship an urgent fix |
 
-The rule is `scripts/DeployWindow/deploy_window.py`; `python scripts/DeployWindow/test_deploy_window.py`
-is its decision table, and also fails if the workflow's cron no longer matches the backstop run.
+The window covers every shop's hours (the earliest opens at 08:00, the latest closes at 17:00, and
+CORMACH2 trades on Sundays), an hour before opening for vans, and the 17:00 incoming-payment run and
+18:00 consolidation. The rule is `scripts/DeployWindow/deploy_window.py`. Change the hours there, and
+run `python scripts/DeployWindow/test_deploy_window.py`, which also fails if the workflow's cron no
+longer matches the evening deploy time.
 
-On an ordinary night the backstop deploys nothing, because every merge has already shipped. It exists
-for the merge whose deploy never ran — a cancelled Tests run, a runner that was offline. It knows what
-is live from `production-live-commit.txt` in the runner's work folder (`RUNNER_WORKSPACE`), written
-after every deploy of both applications that verified. Delete the file to make the next backstop run
-deploy regardless. A deploy of the API or the Web alone does not write it, so the backstop still ships
-whatever that deploy left behind.
-
-### Why merges used to wait for the evening
-
-Between 15 and 16 September 2026 a merge during trading hours deployed nothing, because a cutover
-dropped every request in flight. `Update-Production.ps1` moved the public port binding from the old
-IIS slot to the new one in a separate write to `applicationHost.config` for each site it touched, and
-between the first removal and the addition nothing listened on the port: a new request got a 404 from
-HTTP.sys, and a request already running was cut off, which nginx reported as a 502. On 14 September
-2026 three merges deployed between 16:00 and 16:40 CAT. The KEFSHOP till lost its notification
-connection at the end of each, and a sale posted at 16:41 got a 502 while the API went on writing it,
-so the customer left with no receipt.
-
-The handover is now a single commit of `applicationHost.config`, so no committed configuration has the
-port belonging to nobody, and the new slot is started and health-checked on its own private port
-before it is given the public one. `Switch-PublicTrafficToSite` does this and
-`scripts/Test-DeployPublicBindingSwap.ps1` holds it to it.
-
-### What the cutover cost, every time
-
-Each deployment watches the public port across the switch — several probes a second at
-`/health/live` from the box itself — and reports what it saw, both in the deploy log and as a
-**Cutover** table in the run summary:
-
-| Application | Active slot | Public port unanswered |
-| --- | --- | --- |
-| API | Green | none seen: all 34 probes answered, taken at most 62ms apart |
-| Web | Blue | none seen: all 41 probes answered, taken at most 58ms apart |
-
-Read both columns. "None seen" is only as strong as the gap beside it: an outage shorter than that
-could have fallen between two probes. A row that reports an outage in milliseconds is the deploy
-telling you it dropped requests, and is the signal to put the trading-hours hold back — revert the
-`workflow_run` branch of `deploy_window.py` — and find out why before the next merge.
+The evening run knows what is live from `production-live-commit.txt` in the runner's work folder
+(`RUNNER_WORKSPACE`), written after every deploy of both applications that verified. Delete the file
+to make the next evening run deploy regardless. A deploy of the API or the Web alone does not write
+it, so the evening run still ships whatever that deploy left behind.
 
 ## Why a self-hosted runner
 
@@ -344,19 +321,15 @@ rights from a *local* account arriving that way. Use a domain account for the de
 `-ValidateOnly` confirms the listener answers but cannot detect this — it only shows up once a real
 credential is used.
 
-**Tests pass but no deployment appears.** The deploy workflow triggers on the *Tests* workflow
-completing. If the Tests run was skipped or cancelled rather than passing, there is nothing to
-trigger from, and the *Decide whether to deploy* summary says so. Use **Run workflow** to deploy
-manually, or wait for the 19:30 CAT backstop.
+**Tests pass but no deployment appears.** First check the time. A merge whose Tests finish between
+07:00 and 19:00 CAT deploys nothing until the 19:30 CAT run, and its run's *Decide whether to deploy*
+summary says so. Otherwise, the deploy workflow triggers on the *Tests* workflow completing. If the
+Tests run was skipped or cancelled rather than passing, there is nothing to trigger from. Use
+**Run workflow** to deploy manually.
 
-**The backstop run deployed nothing.** Its summary says why: Tests had not passed for `main`'s head,
-or that commit was already live. The second is the ordinary case — the merge deployed hours earlier.
-
-**The cutover reported an outage.** The **Cutover** table in the run summary gives milliseconds
-rather than "none seen". Requests were dropped, so treat it as a live incident: check whether
-`Microsoft.Web.Administration` was available (the deploy log warns in so many words when it was not,
-and falls back to the old one-write-at-a-time swap), and put the trading-hours hold back in
-`deploy_window.py` until it reads zero again.
+**The evening run deployed nothing.** Its summary says why: Tests had not passed for `main`'s head,
+or that commit was already live. A red Tests run on the last merge of the day holds everything
+merged before it too, until the next evening or a run by hand.
 
 **"Deployment failed for 10.10.10.58".** The nodes deploy in order and the run stops at the first
 failure, so `10.10.10.9` is already updated and `.58` is not — the two are serving different
