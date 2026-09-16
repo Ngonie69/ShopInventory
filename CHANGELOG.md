@@ -153,6 +153,12 @@ otherwise be surprised.
   Waiting sales settle themselves: the daily payment looks back seven days, so swipes left `Unmapped`
   within that window join the next pass once the account is configured.
 
+  **Setting it:** the deploy owns the value. Set the repo variable `SAP_SWIPE_TRANSFER_ACCOUNT` (or pass
+  `-SapSwipeTransferAccount <G/L account>` to `Update-Production.ps1`) once, and every later deploy
+  carries it forward from the live slot the way the SMTP password is carried — a blue/green slot's
+  web.config arrives from the package without it, so a hand-edited value on the server would be lost at
+  the next cutover. A deploy that finds it configured nowhere says so in its log.
+
   **One limit worth knowing:** SAP carries one transfer account per payment. On a day whose takings
   include both card and mobile wallet money, the account is left off and SAP's default applies to the
   whole transfer sum — posting wallet takings into the card settlement account would be an error only a
