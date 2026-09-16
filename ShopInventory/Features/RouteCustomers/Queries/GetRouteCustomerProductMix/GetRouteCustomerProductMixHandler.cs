@@ -57,8 +57,15 @@ public sealed class GetRouteCustomerProductMixHandler(
             ? customer?.AssignedBusinessPartnerCode
             : query.AssignedBusinessPartnerCode.Trim();
 
-        var aggregates = await LoadOfflineAsync(customer, route, from, to, cancellationToken);
-        aggregates.AddRange(await LoadOnlineAsync(customer, route, fromUtc, toUtcExclusive, cancellationToken));
+        // A named customer already is whichever population it belongs to, so the scope is only applied
+        // when the caller asked across customers. Sales are matched on the business partner they were
+        // booked against, the same thing RouteCustomerScopes decides on.
+        var vendingDepotCodes = customer is null
+            ? (await RouteCustomerScopes.VendingDepotCodesAsync(db, query.Scope, cancellationToken)).ToList()
+            : [];
+
+        var aggregates = await LoadOfflineAsync(customer, route, query.Scope, vendingDepotCodes, from, to, cancellationToken);
+        aggregates.AddRange(await LoadOnlineAsync(customer, route, query.Scope, vendingDepotCodes, fromUtc, toUtcExclusive, cancellationToken));
 
         var items = aggregates
             .GroupBy(aggregate => aggregate.ItemCode, StringComparer.OrdinalIgnoreCase)
@@ -113,6 +120,8 @@ public sealed class GetRouteCustomerProductMixHandler(
     private async Task<List<ItemAggregate>> LoadOfflineAsync(
         RouteCustomerEntity? customer,
         string? route,
+        RouteCustomerScope scope,
+        List<string> vendingDepotCodes,
         DateTime from,
         DateTime to,
         CancellationToken cancellationToken)
@@ -133,9 +142,23 @@ public sealed class GetRouteCustomerProductMixHandler(
                  line.Sale.RouteCustomerCode == customer.Code &&
                  line.Sale.CardCode == customer.AssignedBusinessPartnerCode));
         }
-        else if (route is not null)
+        else
         {
-            linesQuery = linesQuery.Where(line => line.Sale.CardCode == route);
+            if (route is not null)
+            {
+                linesQuery = linesQuery.Where(line => line.Sale.CardCode == route);
+            }
+
+            if (vendingDepotCodes.Count > 0)
+            {
+                linesQuery = scope == RouteCustomerScope.Vending
+                    ? linesQuery.Where(line => vendingDepotCodes.Contains(line.Sale.CardCode))
+                    : linesQuery.Where(line => !vendingDepotCodes.Contains(line.Sale.CardCode));
+            }
+            else if (scope == RouteCustomerScope.Vending)
+            {
+                linesQuery = linesQuery.Where(_ => false);
+            }
         }
 
         var grouped = await linesQuery
@@ -174,6 +197,8 @@ public sealed class GetRouteCustomerProductMixHandler(
     private async Task<List<ItemAggregate>> LoadOnlineAsync(
         RouteCustomerEntity? customer,
         string? route,
+        RouteCustomerScope scope,
+        List<string> vendingDepotCodes,
         DateTime fromUtc,
         DateTime toUtcExclusive,
         CancellationToken cancellationToken)
@@ -191,9 +216,23 @@ public sealed class GetRouteCustomerProductMixHandler(
                  line.Reservation.RouteCustomerCode == customer.Code &&
                  line.Reservation.CardCode == customer.AssignedBusinessPartnerCode));
         }
-        else if (route is not null)
+        else
         {
-            linesQuery = linesQuery.Where(line => line.Reservation.CardCode == route);
+            if (route is not null)
+            {
+                linesQuery = linesQuery.Where(line => line.Reservation.CardCode == route);
+            }
+
+            if (vendingDepotCodes.Count > 0)
+            {
+                linesQuery = scope == RouteCustomerScope.Vending
+                    ? linesQuery.Where(line => vendingDepotCodes.Contains(line.Reservation.CardCode))
+                    : linesQuery.Where(line => !vendingDepotCodes.Contains(line.Reservation.CardCode));
+            }
+            else if (scope == RouteCustomerScope.Vending)
+            {
+                linesQuery = linesQuery.Where(_ => false);
+            }
         }
 
         var grouped = await linesQuery

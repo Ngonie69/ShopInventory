@@ -2922,7 +2922,8 @@ The vendor route takes **no business partner and accepts none**. It reads the co
 signed-in account through `SellingAccountResolver` — the same value `POST .../sales` resolves
 `vendorCode` against — so the list an operator picks from and the set the server will accept are one
 filter over one value, and a till cannot reach another shop's vendors because it never names one.
-Use `/api/route-customers` for the administrative view, which filters on a code the caller supplies.
+Use `/api/route-customers` for the administrative view, which filters on a code the caller supplies
+— and, because a vendor is not a route customer, needs `scope=vending` to list them at all.
 
 #### Prices
 
@@ -3804,9 +3805,27 @@ The shops on a selling route: the customers a van or merchandiser calls on, as d
 business partner they invoice against. A route customer carries `assignedBusinessPartnerCode`, which
 is the link between the two.
 
+**Vending vendors share this table and are not route customers.** A van route is a round the van
+drives and its route customers are the shops on it; a vending vendor sells from a cart out of a depot
+and is on no round at all — it has a depot, not a route. Nothing on a row says which it is: a vendor
+is a row under a business partner a `CartVendor` account sells on, the same reading the vending
+overview makes. The three read endpoints therefore take `scope`:
+
+| `scope` | Answers with |
+|---------|--------------|
+| `route` (**default**) | The vans' shops alone |
+| `vending` | The depots' vendors alone |
+| `all` | Both |
+
+The default is `route` because that is what the endpoint and every page on it say, so a caller that
+names no scope is asking about the vans. `scope` narrows and never widens: naming a depot in
+`assignedBusinessPartnerCode` under `scope=route` answers with nothing. The single-customer reads —
+`/{id}/sales`, `PUT`, `DELETE` — take no scope: they name one row, whichever population it is in,
+which is how vending writes its vendors through this base route.
+
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| GET | `/api/route-customers` | `customers.view` | The route customers |
+| GET | `/api/route-customers` | `customers.view` | The route customers (`scope`, see below) |
 | GET | `/api/route-customers/sales-summary` | `customers.view` | Sales per route customer, dormancy included |
 | GET | `/api/route-customers/product-mix` | `customers.view` | What they buy |
 | GET | `/api/route-customers/{id}/sales` | `customers.view` | One shop's sales (`from`, `to`) |
@@ -3818,9 +3837,9 @@ is the link between the two.
 
 | Endpoint | Parameters |
 |----------|------------|
-| `/api/route-customers` | `assignedBusinessPartnerCode`, `activeOnly` (default **true**) |
-| `/sales-summary` | `assignedBusinessPartnerCode`, `from`, `to`, `dormantDays`, `includeInactive` (default **true**) |
-| `/product-mix` | `assignedBusinessPartnerCode`, `routeCustomerId`, `from`, `to`, `top` (default `0`, meaning no cap) |
+| `/api/route-customers` | `assignedBusinessPartnerCode`, `activeOnly` (default **true**), `scope` (default **route**) |
+| `/sales-summary` | `assignedBusinessPartnerCode`, `from`, `to`, `dormantDays`, `includeInactive` (default **true**), `scope` (default **route**) |
+| `/product-mix` | `assignedBusinessPartnerCode`, `routeCustomerId`, `from`, `to`, `top` (default `0`, meaning no cap), `scope` (default **route**) |
 
 The two list defaults disagree on purpose: the plain list hides inactive shops, the sales summary
 counts them, because a shop that went quiet is the thing a dormancy report exists to show.

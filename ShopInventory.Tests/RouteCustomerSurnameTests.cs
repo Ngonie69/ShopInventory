@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.RouteCustomers;
 using ShopInventory.Features.RouteCustomers.Commands.CreateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.UpdateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomers;
@@ -197,7 +198,8 @@ public sealed class RouteCustomerSurnameTests : IDisposable
     private async Task<List<RouteCustomerDto>> ListAsync()
     {
         var result = await new GetRouteCustomersHandler(_context)
-            .Handle(new GetRouteCustomersQuery(RouteCode, true), CancellationToken.None);
+            // Vending scope: CIS006 is a depot here, and a vendor is not a route customer.
+            .Handle(new GetRouteCustomersQuery(RouteCode, true, RouteCustomerScope.Vending), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;

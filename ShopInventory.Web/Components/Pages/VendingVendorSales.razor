@@ -1,0 +1,32 @@
+@page "/vending/vendors/{VendorId:int}/sales"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@attribute [Authorize(Roles = UserRoles.VendingRoles)]
+@rendermode InteractiveServer
+
+@* One vending vendor's trading, in full. /vending/vendors/{id} answers "how is this vendor doing
+   this month"; this answers "what have they bought, sale by sale", over any window.
+
+   It used to be /route-customers/{id}/sales. A vendor and a van route's shop share one table, so
+   that page served both — and it put the vendor's depot in the breadcrumb under the word "route",
+   which a vendor does not have. The figures are still the one read, through
+   RouteCustomerSalesView; only the chrome differs, and it belongs to vending.
+
+   The crumb is Depots & vendors / <the depot>, matching VendingVendorDetail's own, so a vendor's
+   two views read as the same place. *@
+
+<RouteCustomerSalesView RouteCustomerId="VendorId"
+                        SubjectNoun="Vendor"
+                        PartnerNoun="Depot"
+                        OfflineSaleLabel="Vending sale"
+                        ExportFileNamePrefix="Vendor_Sales">
+    <Kicker Context="depot">
+        <a class="ops-link" href="/vending">Depots &amp; vendors</a>
+        <span class="ops-rcs-crumb-sep">/</span>
+        @depot
+    </Kicker>
+</RouteCustomerSalesView>
+
+@code {
+    [Parameter] public int VendorId { get; set; }
+}

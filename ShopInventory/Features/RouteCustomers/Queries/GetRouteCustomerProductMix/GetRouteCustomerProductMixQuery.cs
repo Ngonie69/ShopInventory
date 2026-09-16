@@ -14,5 +14,6 @@ public sealed record GetRouteCustomerProductMixQuery(
     int? RouteCustomerId,
     DateTime? From,
     DateTime? To,
-    int Top
+    int Top,
+    RouteCustomerScope Scope = RouteCustomerScope.Route
 ) : IRequest<ErrorOr<RouteCustomerProductMixDto>>;

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
+using ShopInventory.Features.RouteCustomers;
 using ShopInventory.Features.RouteCustomers.Commands.CreateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.DeleteRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.SetRouteCustomerVisitDays;
@@ -22,17 +23,22 @@ namespace ShopInventory.Controllers;
 public class RouteCustomersController(ISender mediator) : ApiControllerBase
 {
     /// <summary>
-    /// The route customers
+    /// The route customers — the van routes' shops.
+    ///
+    /// <c>scope</c> picks which half of the shared table is meant: <c>route</c> (the default) is the
+    /// vans' shops, <c>vending</c> the depots' vendors, <c>all</c> both. A vendor is not a route
+    /// customer, so it is absent unless it is asked for by name.
     /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewCustomers)]
     public async Task<IActionResult> GetRouteCustomers(
         [FromQuery] string? assignedBusinessPartnerCode = null,
         [FromQuery] bool activeOnly = true,
+        [FromQuery] RouteCustomerScope scope = RouteCustomerScope.Route,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetRouteCustomersQuery(assignedBusinessPartnerCode, activeOnly),
+            new GetRouteCustomersQuery(assignedBusinessPartnerCode, activeOnly, scope),
             cancellationToken);
 
         return result.Match(Ok, Problem);
@@ -52,10 +58,11 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
         [FromQuery] DateTime? to = null,
         [FromQuery] int? dormantDays = null,
         [FromQuery] bool includeInactive = true,
+        [FromQuery] RouteCustomerScope scope = RouteCustomerScope.Route,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetRouteCustomerSalesSummaryQuery(assignedBusinessPartnerCode, from, to, dormantDays, includeInactive),
+            new GetRouteCustomerSalesSummaryQuery(assignedBusinessPartnerCode, from, to, dormantDays, includeInactive, scope),
             cancellationToken);
 
         return result.Match(Ok, Problem);
@@ -70,10 +77,11 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         [FromQuery] int top = 0,
+        [FromQuery] RouteCustomerScope scope = RouteCustomerScope.Route,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetRouteCustomerProductMixQuery(assignedBusinessPartnerCode, routeCustomerId, from, to, top),
+            new GetRouteCustomerProductMixQuery(assignedBusinessPartnerCode, routeCustomerId, from, to, top, scope),
             cancellationToken);
 
         return result.Match(Ok, Problem);

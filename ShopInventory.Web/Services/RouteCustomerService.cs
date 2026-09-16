@@ -9,7 +9,14 @@ namespace ShopInventory.Web.Services;
 
 public interface IRouteCustomerService
 {
-    Task<List<RouteCustomerModel>> GetRouteCustomersAsync(string? assignedBusinessPartnerCode = null, bool activeOnly = true);
+    /// <summary>
+    /// The van routes' shops. Vending vendors share the table behind this endpoint but are not route
+    /// customers — they have a depot, not a route — so ask for them by <see cref="RouteCustomerScope"/>.
+    /// </summary>
+    Task<List<RouteCustomerModel>> GetRouteCustomersAsync(
+        string? assignedBusinessPartnerCode = null,
+        bool activeOnly = true,
+        RouteCustomerScope scope = RouteCustomerScope.Route);
     Task<RouteCustomerModel> UpdateRouteCustomerAsync(int id, UpdateRouteCustomerRequest request);
     Task DeleteRouteCustomerAsync(int id);
 
@@ -25,14 +32,16 @@ public interface IRouteCustomerService
         DateTime? from = null,
         DateTime? to = null,
         int? dormantDays = null,
-        bool includeInactive = true);
+        bool includeInactive = true,
+        RouteCustomerScope scope = RouteCustomerScope.Route);
 
     Task<RouteCustomerProductMixModel> GetProductMixAsync(
         string? assignedBusinessPartnerCode = null,
         int? routeCustomerId = null,
         DateTime? from = null,
         DateTime? to = null,
-        int top = 0);
+        int top = 0,
+        RouteCustomerScope scope = RouteCustomerScope.Route);
 }
 
 public class RouteCustomerService(
@@ -42,11 +51,18 @@ public class RouteCustomerService(
     CustomAuthStateProvider authStateProvider
 ) : IRouteCustomerService
 {
-    public async Task<List<RouteCustomerModel>> GetRouteCustomersAsync(string? assignedBusinessPartnerCode = null, bool activeOnly = true)
+    public async Task<List<RouteCustomerModel>> GetRouteCustomersAsync(
+        string? assignedBusinessPartnerCode = null,
+        bool activeOnly = true,
+        RouteCustomerScope scope = RouteCustomerScope.Route)
     {
         try
         {
-            var queryParams = new List<string> { $"activeOnly={activeOnly.ToString().ToLowerInvariant()}" };
+            var queryParams = new List<string>
+            {
+                $"activeOnly={activeOnly.ToString().ToLowerInvariant()}",
+                $"scope={scope}"
+            };
             if (!string.IsNullOrWhiteSpace(assignedBusinessPartnerCode))
             {
                 queryParams.Add($"assignedBusinessPartnerCode={Uri.EscapeDataString(assignedBusinessPartnerCode.Trim())}");
@@ -77,14 +93,16 @@ public class RouteCustomerService(
         DateTime? from = null,
         DateTime? to = null,
         int? dormantDays = null,
-        bool includeInactive = true)
+        bool includeInactive = true,
+        RouteCustomerScope scope = RouteCustomerScope.Route)
     {
         var query = BuildQuery(
             ("assignedBusinessPartnerCode", assignedBusinessPartnerCode?.Trim()),
             ("from", FormatDate(from)),
             ("to", FormatDate(to)),
             ("dormantDays", dormantDays?.ToString(CultureInfo.InvariantCulture)),
-            ("includeInactive", includeInactive.ToString().ToLowerInvariant()));
+            ("includeInactive", includeInactive.ToString().ToLowerInvariant()),
+            ("scope", scope.ToString()));
 
         return GetReportAsync<RouteCustomerSalesSummaryModel>(
             $"api/route-customers/sales-summary{query}",
@@ -96,14 +114,16 @@ public class RouteCustomerService(
         int? routeCustomerId = null,
         DateTime? from = null,
         DateTime? to = null,
-        int top = 0)
+        int top = 0,
+        RouteCustomerScope scope = RouteCustomerScope.Route)
     {
         var query = BuildQuery(
             ("assignedBusinessPartnerCode", assignedBusinessPartnerCode?.Trim()),
             ("routeCustomerId", routeCustomerId?.ToString(CultureInfo.InvariantCulture)),
             ("from", FormatDate(from)),
             ("to", FormatDate(to)),
-            ("top", top > 0 ? top.ToString(CultureInfo.InvariantCulture) : null));
+            ("top", top > 0 ? top.ToString(CultureInfo.InvariantCulture) : null),
+            ("scope", scope.ToString()));
 
         return GetReportAsync<RouteCustomerProductMixModel>(
             $"api/route-customers/product-mix{query}",

@@ -14,9 +14,13 @@ public sealed class GetRouteCustomersHandler(
         GetRouteCustomersQuery query,
         CancellationToken cancellationToken)
     {
-        var routeCustomersQuery = context.RouteCustomers
-            .AsNoTracking()
-            .AsQueryable();
+        var vendingDepotCodes = await RouteCustomerScopes.VendingDepotCodesAsync(
+            context, query.Scope, cancellationToken);
+
+        var routeCustomersQuery = RouteCustomerScopes.Apply(
+            context.RouteCustomers.AsNoTracking(),
+            query.Scope,
+            vendingDepotCodes);
 
         if (!string.IsNullOrWhiteSpace(query.AssignedBusinessPartnerCode))
         {
