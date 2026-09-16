@@ -121,6 +121,28 @@ public class DailyStockSettings
     public int UnpostedSaleLookbackDays { get; set; } = 30;
 
     /// <summary>
+    /// How many rows nothing moved today a reconciled warehouse also compares against SAP each hourly
+    /// pass, on top of every row that did move.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The comparison used to ask only about rows the ledger itself had moved. Anything done in the
+    /// SAP client — a goods issue, a stock count, an invoice raised there — moves SAP without touching
+    /// the ledger, so the row still looks untouched, is never compared, and stays wrong until the next
+    /// morning's fetch. The till sells against it all day.
+    /// </para>
+    /// <para>
+    /// A slice rather than the lot, rotating by the hour, because the point is to bound the cost: the
+    /// underlying read is scoped by warehouse and three-character item-code family, so a contiguous
+    /// slice of codes largely shares the buckets the moved rows already pay for. Moved rows keep their
+    /// priority and the pass is still capped, so a busy warehouse spends its budget on what changed.
+    /// Zero restores the old moved-rows-only behaviour. Vans never take a slice whatever this says —
+    /// see <see cref="ReconcileWarehouses"/>.
+    /// </para>
+    /// </remarks>
+    public int ReconcileItemsPerPass { get; set; } = 400;
+
+    /// <summary>
     /// Whether a till sale is checked against SAP's own batch stock before it is taken and fiscalised.
     /// </summary>
     /// <remarks>

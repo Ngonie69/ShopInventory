@@ -34,6 +34,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
     private const string Shop = "KEFSHOP";
     private const string Cheese = "ICA004";
     private const string Container = "CON020";
+    private const string Lid = "CON021";
 
     private static readonly Guid TillUserId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
@@ -49,9 +50,17 @@ public sealed class CounterSapStockCheckTests : IDisposable
     /// <summary>SAP's batches of <see cref="Cheese"/> at the shop.</summary>
     private readonly List<(string Batch, decimal Quantity)> _sapBatches = [];
 
+    /// <summary>
+    /// SAP's issuable quantity of <see cref="Container"/>, which is not batch-managed. Null means SAP
+    /// does not carry it in this warehouse at all.
+    /// </summary>
+    private decimal? _sapContainerStock;
+
     private Func<CancellationToken, Task<List<BatchNumber>>>? _batchRead;
+    private Func<CancellationToken, Task<List<StockQuantityDto>>>? _stockRead;
     private Exception? _itemReadFailure;
     private int _batchReads;
+    private int _stockReads;
 
     public CounterSapStockCheckTests()
     {
@@ -214,16 +223,99 @@ public sealed class CounterSapStockCheckTests : IDisposable
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
     }
 
-    /// <summary>The same as the post: SAP needs no selection for a non-batch line, so it is not read.</summary>
+    /// <summary>
+    /// The gap this check was shipped with. A non-batch line was not read from SAP at all, on the
+    /// post's reasoning that SAP needs no selection for one — so a till could sell fifty of an item
+    /// SAP held none of, fiscalise it, and only find out at posting. SAP refuses a non-batch line
+    /// that goes below zero exactly as it refuses a batch one.
+    /// </summary>
     [Fact]
-    public async Task A_non_batch_item_is_not_read_from_SAP()
+    public async Task A_non_batch_item_SAP_is_short_of_is_refused()
     {
+        _sapContainerStock = 6m;
         _batchRead = _ => throw new InvalidOperationException("A non-batch line must not read batches.");
 
         var result = await CheckAsync(Line(Container, 50m));
 
-        Assert.False(result.IsError);
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.SapStockShort", result.FirstError.Code);
+        Assert.Contains("nothing was sold", result.FirstError.Description);
         Assert.Equal(0, _batchReads);
+    }
+
+    [Fact]
+    public async Task A_non_batch_item_SAP_can_supply_passes()
+    {
+        _sapContainerStock = 50m;
+
+        var result = await CheckAsync(Line(Container, 50m));
+
+        Assert.False(result.IsError);
+    }
+
+    /// <summary>
+    /// The batch side's rule, applied to a non-batch line: a sale still waiting to post will take
+    /// these units before this one does, so they are not available twice.
+    /// </summary>
+    [Fact]
+    public async Task A_non_batch_item_already_sold_and_not_yet_in_SAP_is_set_aside()
+    {
+        _sapContainerStock = 10m;
+        await SeedSaleAsync(Container, 4m, DesktopSaleConsolidationStatus.Pending);
+
+        var refused = await CheckAsync(Line(Container, 7m));
+        var allowed = await CheckAsync(Line(Container, 6m));
+
+        Assert.True(refused.IsError);
+        Assert.Contains("once the 4 already sold but not yet in SAP are taken off", refused.FirstError.Description);
+        Assert.False(allowed.IsError);
+    }
+
+    /// <summary>An item SAP does not carry in this warehouse is not a licence to sell it.</summary>
+    [Fact]
+    public async Task A_non_batch_item_SAP_does_not_carry_is_refused()
+    {
+        _sapContainerStock = null;
+
+        var result = await CheckAsync(Line(Container, 1m));
+
+        Assert.True(result.IsError);
+    }
+
+    /// <summary>
+    /// A basket costs one stock read per warehouse, not one per item. The check runs inside
+    /// CounterSapCheckSeconds with a customer waiting, and the query returns a whole item-code family
+    /// either way, so reading per line spent round trips on rows SAP had already sent.
+    /// </summary>
+    [Fact]
+    public async Task A_basket_reads_SAP_stock_once_for_every_line()
+    {
+        _sapContainerStock = 100m;
+
+        var result = await CheckAsync(Line(Container, 1m), Line(Lid, 1m));
+
+        Assert.False(result.IsError);
+        Assert.Equal(1, _stockReads);
+    }
+
+    /// <summary>
+    /// The batch read used to consult the local <c>ProductBatches</c> table first and ask SAP only
+    /// when it found nothing there — with no staleness test, despite a comment claiming one. Nothing
+    /// writes that table, so SAP was read in practice; one stray row would have been enough to stop
+    /// it, and this check exists precisely to be the thing that asks SAP. A local row must not answer
+    /// for it.
+    /// </summary>
+    [Fact]
+    public async Task A_local_batch_row_does_not_answer_for_SAP()
+    {
+        await SeedLocalBatchAsync(Cheese, "LOCAL-STALE", 500m);
+        _sapBatches.Add(("B1", 3m));
+
+        var result = await CheckAsync(Line(Cheese, 10m));
+
+        Assert.True(_batchReads > 0);
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.SapStockShort", result.FirstError.Code);
     }
 
     [Fact]
@@ -406,15 +498,48 @@ public sealed class CounterSapStockCheckTests : IDisposable
                 : Task.FromResult<Item?>(new Item
                 {
                     ItemCode = (string)args![0]!,
-                    ManageBatchNumbers = (string)args[0]! == Container ? "tNO" : "tYES",
+                    ManageBatchNumbers = (string)args[0]! is Container or Lid ? "tNO" : "tYES",
                     ManageSerialNumbers = "tNO"
                 }),
 
             nameof(ISAPServiceLayerClient.GetBatchNumbersForItemInWarehouseAsync) =>
                 ReadBatches((CancellationToken)args![2]!),
 
+            nameof(ISAPServiceLayerClient.GetStockQuantitiesForItemsInWarehouseAsync) =>
+                ReadStock((IEnumerable<string>)args![1]!, (CancellationToken)args[2]!),
+
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
         });
+
+    /// <summary>
+    /// What SAP holds of the non-batch items asked about. Batch-managed items are deliberately absent:
+    /// their quantity comes from the batch read, and a row here would be a second source for it.
+    /// </summary>
+    private Task<List<StockQuantityDto>> ReadStock(IEnumerable<string> itemCodes, CancellationToken token)
+    {
+        _stockReads++;
+
+        if (_stockRead is not null)
+        {
+            return _stockRead(token);
+        }
+
+        var wanted = itemCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return Task.FromResult(_sapContainerStock is { } held
+            ? wanted
+                .Where(itemCode => itemCode is Container or Lid)
+                .Select(itemCode => new StockQuantityDto
+                {
+                    ItemCode = itemCode,
+                    ItemName = itemCode,
+                    WarehouseCode = Shop,
+                    InStock = held,
+                    Committed = 0m
+                })
+                .ToList()
+            : []);
+    }
 
     private Task<List<BatchNumber>> ReadBatches(CancellationToken token)
     {
@@ -518,6 +643,26 @@ public sealed class CounterSapStockCheckTests : IDisposable
             ItemCode = itemCode,
             WarehouseCode = Shop,
             Quantity = quantity
+        });
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    /// <summary>A row in the local batch table the batch read must ignore.</summary>
+    private async Task SeedLocalBatchAsync(string itemCode, string batchNumber, decimal quantity)
+    {
+        var product = new ProductEntity { ItemCode = itemCode, ItemName = itemCode, ManageBatchNumbers = true };
+        _context.Products.Add(product);
+        await _context.SaveChangesAsync();
+
+        _context.ProductBatches.Add(new ProductBatchEntity
+        {
+            ProductId = product.Id,
+            BatchNumber = batchNumber,
+            Quantity = quantity,
+            WarehouseCode = Shop,
+            IsActive = true
         });
 
         await _context.SaveChangesAsync();

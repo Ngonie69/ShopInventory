@@ -23,9 +23,16 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 /// ZIMRA receipt, and was refused six times. Nothing after the receipt can undo it.</para>
 ///
 /// <para><b>The same allocation the post runs.</b> This is <c>InvoiceBatchAllocation</c>'s own call —
-/// FEFO, batch- and serial-managed lines only — over the lines the post will build, so "passes here"
-/// and "allocates at posting" are one rule rather than two that can drift. Non-batch lines are not read,
-/// for the same reason the post does not read them: SAP needs no selection for them.</para>
+/// FEFO — over the lines the post will build, so "passes here" and "allocates at posting" are one rule
+/// rather than two that can drift.</para>
+///
+/// <para><b>Every line, batch-managed or not.</b> The post reads only batch- and serial-managed lines,
+/// because by then the sale has happened and a stock read could only hold back an invoice for goods
+/// that have already left. That reasoning inverts here: the sale has <i>not</i> happened, and SAP
+/// refuses a non-batch line that takes a warehouse below zero exactly as it refuses a batch one —
+/// "quantity falls into negative inventory", which <c>SapFailureClassifier</c> classes as permanent
+/// and parks in front of a person, with the ZIMRA receipt already printed. So this check reads them
+/// all. It is the one place where reading a non-batch line can still prevent something.</para>
 ///
 /// <para><b>Less what SAP has not been told.</b> A till sale reaches SAP up to a minute after it is
 /// taken, and a refused one not until someone fixes it. Until then SAP still shows its units, and they
@@ -89,7 +96,7 @@ public sealed class CounterSapStockCheck(
                 autoAllocate: true,
                 BatchAllocationStrategy.FEFO,
                 budget.Token,
-                checkNonBatchStock: false,
+                checkNonBatchStock: true,
                 claimedAhead: ClaimsFor(request, unposted, warehouseCode));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
