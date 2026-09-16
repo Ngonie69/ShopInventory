@@ -126,3 +126,14 @@ jobs:
         run: |
           ./scripts/Test-DeploySlotSeeding.ps1
           exit $LASTEXITCODE
+
+      # A merge waits for the evening because a cutover drops the requests in flight, and nobody could
+      # say how many. The probe answers that, so it has to be right in the one direction that matters:
+      # a probe that quietly reported zero would be believed, and would be used to argue for deploying
+      # while the shops are open. This also fails if the binding swap itself is edited here - that
+      # change belongs on its own evidence, having taken the Web down for four minutes once already.
+      - name: Check the cutover probe measures what it claims to
+        shell: pwsh
+        run: |
+          ./scripts/Test-DeployCutoverProbe.ps1
+          exit $LASTEXITCODE

@@ -33,6 +33,27 @@ The evening run knows what is live from `production-live-commit.txt` in the runn
 to make the next evening run deploy regardless. A deploy of the API or the Web alone does not write
 it, so the evening run still ships whatever that deploy left behind.
 
+### What the cutover cost
+
+Every deployment watches the public port across the switch — several probes a second at
+`/health/live`, from the box itself — and reports what it saw, in the deploy log and as a **Cutover**
+table in the run summary:
+
+| Application | Active slot | Public port unanswered |
+| --- | --- | --- |
+| API | Green | up to 577ms (2/38 probes) |
+| Web | Blue | none seen: all 41 probes answered, taken at most 58ms apart |
+
+This measures the cutover; it does not change it. The point is to find out what the existing one
+actually costs, over a run of deployments, so the question of whether a merge could ever ship during
+trading hours can be settled with numbers rather than argued. **577ms is a real reading**, from the
+API on 16 September 2026.
+
+Read both columns. "None seen" is only as strong as the gap beside it: an outage shorter than that
+could have fallen between two probes. A row saying "not measured" means the probe could not start —
+the deploy says why, and goes ahead regardless, because measuring a cutover must never be the reason
+one fails.
+
 ## Why a self-hosted runner
 
 Production is `10.10.10.9` and `10.10.10.58`, both private addresses. GitHub-hosted runners run in
