@@ -1584,6 +1584,19 @@
     text-underline-offset: 2px;
 }
 
+/* The view tabs. `overflow-x: auto` on `.ops-tabs` computes `overflow-y` to
+   auto as well, and the count pill makes the strip a pixel taller than its
+   box, which drew a vertical scrollbar beside the last tab. */
+.ops-prc .ops-tabs {
+    overflow-y: hidden;
+}
+
+/* By customer: a list price or discount the customer does not have. Faint, so
+   the rows carrying a special price are the ones the eye lands on. */
+.ops-prc .ops-prc-none {
+    color: var(--ops-mute-3);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    /route-customers — `.ops-rc`
    ═════════════════════════════════════════════════════════════════════════ */
