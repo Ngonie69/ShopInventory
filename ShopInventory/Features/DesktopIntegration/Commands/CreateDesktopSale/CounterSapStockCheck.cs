@@ -40,9 +40,13 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 /// set aside first (<see cref="UnpostedTillSales"/>). Returned credit units are deliberately not added
 /// back: SAP only gets them when the credit memo posts, which can be after this sale, or never.</para>
 ///
-/// <para><b>An unreadable SAP refuses.</b> A check that passes whenever it cannot look is the gap it
-/// exists to close. A read that fails, or does not answer within
-/// <see cref="DailyStockSettings.CounterSapCheckSeconds"/>, refuses the sale and says why.</para>
+/// <para><b>An unreadable SAP sells, and says so in the log.</b> Only SAP answering that it holds too
+/// little refuses a sale. A read that fails, or does not answer within
+/// <see cref="DailyStockSettings.CounterSapCheckSeconds"/>, lets the sale through unchecked and logs a
+/// warning naming it. This was the other way round for its first day, on 2026-09-16, and the
+/// SQLQueries reads it waits on are known to be slow or hang, so shops turned customers away with
+/// "SAP did not answer within 15 seconds" while SAP held the stock. On a slow read, a sale that
+/// might be short is the smaller risk next to refusing every sale.</para>
 ///
 /// <para>Runs inside the sale's inventory locks, so two tills cannot both be told the last units are
 /// theirs, and before the ledger commit, so a refusal here has nothing to give back.</para>
@@ -102,21 +106,17 @@ public sealed class CounterSapStockCheck(
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(
-                "Refused sale {Reference}: SAP stock for {Warehouse} did not answer within {Seconds}s",
+                "Sold {Reference} unchecked: SAP stock for {Warehouse} did not answer within {Seconds}s",
                 reference, warehouseCode, seconds);
 
-            return Errors.DesktopSales.SapStockUnreadable(
-                $"SAP did not answer within {seconds} seconds, so this sale could not be checked against "
-                + "SAP's stock and nothing was sold. Try again shortly.");
+            return Result.Success;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex,
-                "Refused sale {Reference}: SAP stock for {Warehouse} could not be read", reference, warehouseCode);
+                "Sold {Reference} unchecked: SAP stock for {Warehouse} could not be read", reference, warehouseCode);
 
-            return Errors.DesktopSales.SapStockUnreadable(
-                $"SAP could not be read, so this sale could not be checked against SAP's stock and nothing "
-                + $"was sold. Try again shortly. ({ex.Message})");
+            return Result.Success;
         }
 
         if (allocation.IsValid)
@@ -124,18 +124,29 @@ public sealed class CounterSapStockCheck(
             return Result.Success;
         }
 
+        // A line SAP could not be read for is not a line SAP refused. Only what SAP answered for can
+        // refuse the sale.
+        var refusals = allocation.ValidationErrors
+            .Where(error => error.ErrorCode != BatchValidationErrorCode.StockUnknown)
+            .ToList();
+
+        if (refusals.Count == 0)
+        {
+            logger.LogWarning(
+                "Sold {Reference} unchecked: SAP stock for {Warehouse} could not be read: {Errors}",
+                reference,
+                warehouseCode,
+                string.Join("; ", allocation.ValidationErrors.Select(error => error.Message)));
+
+            return Result.Success;
+        }
+
         logger.LogWarning(
             "Refused sale {Reference} at the counter; SAP would not allocate it: {Errors}",
             reference,
-            string.Join("; ", allocation.ValidationErrors.Select(error => error.Message)));
+            string.Join("; ", refusals.Select(error => error.Message)));
 
-        if (allocation.ValidationErrors.Any(error => error.ErrorCode == BatchValidationErrorCode.StockUnknown))
-        {
-            return Errors.DesktopSales.SapStockUnreadable(
-                "SAP's stock could not be read, so this sale could not be checked and nothing was sold. "
-                + "Try again shortly.");
-        }
-
+        allocation.ValidationErrors = refusals;
         return Errors.DesktopSales.SapStockShort(DescribeShortfall(allocation, unposted));
     }
 
