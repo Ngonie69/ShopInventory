@@ -78,36 +78,44 @@ public sealed class SnapshotCompositionTests
     }
 
     [Fact]
-    public void An_item_with_nothing_issuable_gets_no_row()
+    public void An_item_with_nothing_in_stock_gets_no_row()
     {
         var composed = SnapshotComposer.Compose(
             batches: [],
-            warehouseStock: [Stock("CON020", inStock: 5, committed: 5)]);
+            warehouseStock: [Stock("CON020", inStock: 0, committed: 0)]);
 
         Assert.Empty(composed.Rows);
     }
 
     // ---------------------------------------------------------------
-    // Commitments
+    // Only In Stock counts
     // ---------------------------------------------------------------
 
     [Fact]
-    public void Committed_stock_is_not_offered_to_a_till()
+    public void Committed_stock_is_still_offered_to_a_till()
     {
-        // Ledger A checks InStock less Committed. Ledger B used the gross batch quantity, so the two
-        // disagreed by the whole open-commitment balance before a single sale had been made.
+        // The snapshot takes SAP's In Stock and nothing else. Committed stock is still on the shelf.
         var composed = SnapshotComposer.Compose(
             batches: [Batch("CHE011", "B-1", quantity: 10, expiry: "2026-12-01")],
-            warehouseStock: [Stock("CHE011", inStock: 10, committed: 4)]);
+            warehouseStock: [Stock("CHE011", inStock: 10, committed: 4, ordered: 7)]);
 
-        Assert.Equal(6m, composed.Rows.Sum(row => row.AvailableQuantity));
-
-        // The original figure is kept, so a stock enquiry can still say what is physically there.
+        Assert.Equal(10m, composed.Rows.Sum(row => row.AvailableQuantity));
         Assert.Equal(10m, composed.Rows.Sum(row => row.OriginalQuantity));
     }
 
     [Fact]
-    public void Commitments_come_off_the_batch_that_expires_first()
+    public void An_unbatched_item_takes_in_stock_ignoring_committed_and_ordered()
+    {
+        var composed = SnapshotComposer.Compose(
+            batches: [],
+            warehouseStock: [Stock("CON020", inStock: 5, committed: 5, ordered: 20)]);
+
+        var row = Assert.Single(composed.Rows);
+        Assert.Equal(5m, row.AvailableQuantity);
+    }
+
+    [Fact]
+    public void Batches_beyond_in_stock_come_off_the_batch_that_expires_first()
     {
         var composed = SnapshotComposer.Compose(
             batches:
@@ -115,20 +123,19 @@ public sealed class SnapshotCompositionTests
                 Batch("CHE011", "LATE", quantity: 6, expiry: "2026-12-01"),
                 Batch("CHE011", "SOON", quantity: 4, expiry: "2026-09-20")
             ],
-            warehouseStock: [Stock("CHE011", inStock: 10, committed: 4)]);
+            warehouseStock: [Stock("CHE011", inStock: 6, committed: 0)]);
 
-        // The earliest-expiring stock is what an existing document will actually be given, so it is
-        // not what a new sale can have.
+        // The earliest-expiring stock is what SAP issues first, so it is the stock already gone.
         Assert.Equal(0m, composed.Rows.Single(row => row.BatchNumber == "SOON").AvailableQuantity);
         Assert.Equal(6m, composed.Rows.Single(row => row.BatchNumber == "LATE").AvailableQuantity);
     }
 
     [Fact]
-    public void A_fully_committed_batch_keeps_its_row()
+    public void A_batch_with_nothing_left_keeps_its_row()
     {
         var composed = SnapshotComposer.Compose(
             batches: [Batch("CHE011", "B-1", quantity: 5, expiry: "2026-10-01")],
-            warehouseStock: [Stock("CHE011", inStock: 5, committed: 5)]);
+            warehouseStock: [Stock("CHE011", inStock: 0, committed: 0)]);
 
         // Written, not dropped: "this batch is here and holds nothing sellable" is what a stock
         // enquiry should show, and a missing row reads as a missing batch.
@@ -178,12 +185,13 @@ public sealed class SnapshotCompositionTests
 
     // ---------------------------------------------------------------
 
-    private static StockQuantityDto Stock(string itemCode, decimal inStock, decimal committed) => new()
+    private static StockQuantityDto Stock(string itemCode, decimal inStock, decimal committed, decimal ordered = 0) => new()
     {
         ItemCode = itemCode,
         ItemName = itemCode,
         InStock = inStock,
-        Committed = committed
+        Committed = committed,
+        Ordered = ordered
     };
 
     private static BatchNumber Batch(string itemCode, string batchNum, decimal quantity, string expiry) => new()

@@ -6,8 +6,8 @@ namespace ShopInventory.Common.Stock;
 /// <param name="ItemCode">The item the row is for.</param>
 /// <param name="ItemDescription">Its name, as SAP gave it.</param>
 /// <param name="BatchNumber">The batch, or null for an item SAP does not manage by batch.</param>
-/// <param name="OriginalQuantity">What the morning read said, before commitments were taken off.</param>
-/// <param name="AvailableQuantity">What may actually be promised: the row's share of issuable stock.</param>
+/// <param name="OriginalQuantity">What the morning read said for the row: the batch quantity, or In Stock.</param>
+/// <param name="AvailableQuantity">What may actually be promised: the row's share of SAP's In Stock.</param>
 /// <param name="ExpiryDate">For FEFO ordering.</param>
 public sealed record ComposedSnapshotRow(
     string ItemCode,
@@ -29,15 +29,16 @@ public sealed record ComposedSnapshot(
 /// <remarks>
 /// <para><b>Why two reads.</b> The snapshot used to be built from batch rows alone, which left two
 /// holes. An item SAP does not manage by batch has no batch row at all, so it got no snapshot row,
-/// summed to zero, and could never be sold from a till — silently, for as long as it existed. And a
-/// batch quantity is gross: it counts stock already committed to other documents, so the snapshot
-/// started every morning more optimistic than the live figure the web invoice path was checking
-/// against. The two ledgers disagreed from the moment they were created.</para>
+/// summed to zero, and could never be sold from a till — silently, for as long as it existed. And
+/// batch quantities and the warehouse's In Stock come from different tables and can disagree.</para>
 ///
-/// <para><b>How commitments come off a batch-managed item.</b> SAP commits at item level and holds
-/// batches separately, so there is no per-batch commitment to subtract. They come off the
-/// earliest-expiring batches first, which is the same order the stock will actually be issued in —
-/// so what is left is the batches a later sale would really be given.</para>
+/// <para><b>Only In Stock counts.</b> The sellable figure is SAP's In Stock
+/// (<see cref="StockQuantityDto.Issuable"/>). Committed and Ordered are left alone: committed stock
+/// is still on the shelf, and ordered stock has not arrived.</para>
+///
+/// <para><b>When the batches hold more than In Stock.</b> The excess comes off the earliest-expiring
+/// batches first, which is the order stock is issued in — so what is left is the batches a later
+/// sale would really be given.</para>
 ///
 /// <para>Pure, and separate from the fetch handler, because these are the rules worth testing and
 /// SAP is not.</para>
@@ -127,11 +128,9 @@ public static class SnapshotComposer
                 + $"{batchTotal:N4}. The snapshot follows the batches.");
         }
 
-        // Commitments come off the FRONT of the FEFO queue, not the back. SAP issues
-        // earliest-expiring first, so an existing document will be given the soonest batches — they
-        // are precisely what a new sale cannot have. Filling availability from the front instead
-        // gets this exactly backwards and hands a new sale the stock already promised elsewhere.
-        var committed = Math.Max(0m, batchTotal - Math.Min(issuable, batchTotal));
+        // Batches holding more than In Stock: the excess comes off the FRONT of the FEFO queue, the
+        // batches SAP issues first and so the ones already gone.
+        var excess = Math.Max(0m, batchTotal - Math.Min(issuable, batchTotal));
 
         foreach (var (batch, expiry) in ordered)
         {
@@ -141,13 +140,13 @@ public static class SnapshotComposer
                 continue;
             }
 
-            var spokenFor = Math.Min(quantity, committed);
-            committed -= spokenFor;
+            var spokenFor = Math.Min(quantity, excess);
+            excess -= spokenFor;
             var available = quantity - spokenFor;
 
             if (available <= 0)
             {
-                // Fully spoken for. The row is still written: it says the batch is here and holds
+                // Nothing left of it. The row is still written: it says the batch is here and holds
                 // nothing sellable, which is what a stock enquiry should show.
                 yield return new ComposedSnapshotRow(
                     itemCode, stock.ItemName ?? batch.ItemName, batch.BatchNum, quantity, 0m, expiry);

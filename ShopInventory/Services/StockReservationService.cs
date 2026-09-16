@@ -1265,7 +1265,7 @@ public class StockReservationService : IStockReservationService
                     WarehouseCode = line.WarehouseCode,
                     RequestedQuantity = inventoryQuantity,
                     AvailableQuantity = availableQty,
-                    Message = $"Insufficient stock for '{line.ItemCode}' in '{line.WarehouseCode}'. Requested: {inventoryQuantity:N2}, Available: {availableQty:N2} (On hand less committed: {issuableQty:N2}, Reserved: {reservedQty:N2})",
+                    Message = $"Insufficient stock for '{line.ItemCode}' in '{line.WarehouseCode}'. Requested: {inventoryQuantity:N2}, Available: {availableQty:N2} (In stock: {issuableQty:N2}, Reserved: {reservedQty:N2})",
                     SuggestedAction = $"Reduce quantity to {availableQty:N2} or choose a different warehouse"
                 });
             }
@@ -1356,7 +1356,7 @@ public class StockReservationService : IStockReservationService
                     WarehouseCode = firstLine.WarehouseCode,
                     RequestedQuantity = requestedQuantity,
                     AvailableQuantity = availableQty,
-                    Message = $"Combined requested stock for '{firstLine.ItemCode}' in '{firstLine.WarehouseCode}' across lines {lineNumbers} is {requestedQuantity:N2}, available {availableQty:N2} (On hand less committed: {issuableQty:N2}, Reserved: {reservedQty:N2})",
+                    Message = $"Combined requested stock for '{firstLine.ItemCode}' in '{firstLine.WarehouseCode}' across lines {lineNumbers} is {requestedQuantity:N2}, available {availableQty:N2} (In stock: {issuableQty:N2}, Reserved: {reservedQty:N2})",
                     SuggestedAction = $"Reduce combined quantity to {availableQty:N2} or choose a different warehouse"
                 });
             }
