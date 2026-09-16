@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -242,6 +243,127 @@ public sealed class StockLedgerTests
     }
 
     // ---------------------------------------------------------------
+    // A queued invoice: the hold has to last until SAP is told
+    // ---------------------------------------------------------------
+    //
+    // A desktop invoice queued at 09:00 reserves its stock for an hour. It is fiscalised within
+    // minutes — the goods leave the shop and the receipt is lodged with ZIMRA — and SAP hears nothing
+    // until the 16:45 consolidation. The hold used to lapse at 10:00, so for most of the trading day
+    // the same units were back on the ledger and still on SAP's shelf, free to be sold a second time
+    // at a till. Nothing caught it: the hourly reconciliation only asks SAP about rows whose quantity
+    // has moved, and a reservation moves no row.
+
+    [Fact]
+    public async Task A_fiscalised_queued_invoice_holds_its_stock_past_the_hour()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(
+            context, quantity: 8, status: ReservationStatus.Pending,
+            expiresAt: DateTime.UtcNow.AddMinutes(-1));
+        await AddQueueEntry(context, reservation, InvoiceQueueStatus.Fiscalized);
+        var ledger = Ledger(context);
+
+        Assert.Equal(2m, (await ledger.ReadAsync(Item, Warehouse)).Available);
+
+        var outcome = await ledger.TryCommitAsync([Line(5)], "till sale");
+        Assert.False(outcome.Committed);
+        Assert.Contains(outcome.Shortfalls, s => s.Contains("8 of it reserved"));
+    }
+
+    [Fact]
+    public async Task An_expired_reservation_with_no_queue_entry_still_stops_holding()
+    {
+        // The boundary. ExpiresAt still means what it says for a reservation nothing is working
+        // towards — a rep holding stock for a customer who walked out. Only the queue outranks it.
+        await using var context = await LedgerWith(units: 10);
+        await AddReservation(
+            context, quantity: 8, status: ReservationStatus.Pending,
+            expiresAt: DateTime.UtcNow.AddMinutes(-1));
+
+        Assert.Equal(10m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+    }
+
+    [Fact]
+    public async Task A_cancelled_queue_entry_stops_holding_stock()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        await AddQueueEntry(context, reservation, InvoiceQueueStatus.Cancelled);
+
+        // There is no sale to account for, so nothing is owed and the units go back.
+        Assert.Equal(10m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+    }
+
+    [Fact]
+    public async Task The_expiry_job_leaves_a_reservation_whose_invoice_is_still_in_flight_alone()
+    {
+        // The interaction that would undo all of the above. Every reader tests the reservation's own
+        // status, so a cleanup pass that marked this one Expired would drop the hold whatever the
+        // ledger's predicate says.
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(
+            context, quantity: 8, status: ReservationStatus.Pending,
+            expiresAt: DateTime.UtcNow.AddMinutes(-1));
+        await AddQueueEntry(context, reservation, InvoiceQueueStatus.Fiscalized);
+
+        Assert.Equal(0, await Reservations(context).ExpireReservationsAsync());
+
+        Assert.Equal(ReservationStatus.Pending, (await Reload(context, reservation)).Status);
+        Assert.Equal(2m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+    }
+
+    [Fact]
+    public async Task The_expiry_job_expires_a_reservation_whose_invoice_has_been_consolidated()
+    {
+        // And the other side of it: once SAP has the units the hold is over, so the row is tidied up
+        // on the next pass exactly as it always was.
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(
+            context, quantity: 8, status: ReservationStatus.Pending,
+            expiresAt: DateTime.UtcNow.AddMinutes(-1));
+        await AddQueueEntry(context, reservation, InvoiceQueueStatus.Completed);
+
+        Assert.Equal(1, await Reservations(context).ExpireReservationsAsync());
+        Assert.Equal(ReservationStatus.Expired, (await Reload(context, reservation)).Status);
+    }
+
+    [Fact]
+    public async Task Consolidation_turns_the_hold_into_a_decrement_in_one_step()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        var queued = await AddQueueEntry(context, reservation, InvoiceQueueStatus.Fiscalized);
+
+        // Held, not yet taken: the snapshot row is untouched, which is also why the hourly
+        // reconciliation cannot see this sale.
+        Assert.Equal(10m, await OnSnapshot(context));
+        Assert.Equal(2m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+
+        await Queue(context).MarkAsConsolidatedAsync([queued.Id], "74555", 5140);
+
+        // Taken, no longer held. The reading does not move across the handover — that is the whole
+        // point of putting both halves in one call — but what is behind it does.
+        Assert.Equal(2m, await OnSnapshot(context));
+        Assert.Equal(2m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+        Assert.Equal(InvoiceQueueStatus.Completed, (await Reload(context, queued)).Status);
+    }
+
+    [Fact]
+    public async Task Consolidating_the_same_entry_twice_takes_its_units_once()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        var queued = await AddQueueEntry(context, reservation, InvoiceQueueStatus.Fiscalized);
+
+        await Queue(context).MarkAsConsolidatedAsync([queued.Id], "74555", 5140);
+        await Queue(context).MarkAsConsolidatedAsync([queued.Id], "74555", 5140);
+
+        // A second pass over an entry that is already Completed must not draw the rows down again;
+        // those units would be lost to the ledger for the rest of the day.
+        Assert.Equal(2m, await OnSnapshot(context));
+    }
+
+    // ---------------------------------------------------------------
     // Settled documents, which cannot be refused
     // ---------------------------------------------------------------
 
@@ -303,6 +425,14 @@ public sealed class StockLedgerTests
         var reservations = Source("Services", "StockReservationService.cs");
         Assert.Contains("_stockLedger.TakeSettledAsync", reservations);
         Assert.Contains("await CommitConfirmedReservationToLedgerAsync(reservation,", reservations);
+
+        // A queued desktop invoice makes the same handover at the end of the day, in the one call
+        // that says it has reached SAP. Marking the entries Completed ends the reservation's hold, so
+        // a version of this that only marked them would hand the units back to the ledger while SAP
+        // was issuing them.
+        var queue = Source("Services", "InvoiceQueueService.cs");
+        Assert.Contains("_stockLedger.TakeSettledAsync", queue);
+        Assert.Contains("await RecordConsolidatedUnitsLeavingAsync(entries,", queue);
 
         // A van sale takes stock off the van. It cannot be refused — the goods left hours ago and
         // the receipt is with ZIMRA — so it settles rather than commits, and a shortfall is recorded
@@ -371,6 +501,60 @@ public sealed class StockLedgerTests
         await context.SaveChangesAsync();
         return reservation;
     }
+
+    /// <summary>A queue entry standing behind a reservation, as the desktop path creates them.</summary>
+    private static async Task<InvoiceQueueEntity> AddQueueEntry(
+        ApplicationDbContext context,
+        StockReservationEntity reservation,
+        InvoiceQueueStatus status)
+    {
+        var entry = new InvoiceQueueEntity
+        {
+            ReservationId = reservation.ReservationId,
+            ExternalReference = reservation.ExternalReferenceId,
+            SourceSystem = "DESKTOP_APP",
+            CustomerCode = reservation.CardCode,
+            WarehouseCode = Warehouse,
+            Status = status,
+            InvoicePayload = "{}"
+        };
+
+        context.InvoiceQueue.Add(entry);
+        await context.SaveChangesAsync();
+        return entry;
+    }
+
+    /// <summary>What the snapshot rows themselves hold, before any reservation is netted off.</summary>
+    private static Task<decimal> OnSnapshot(ApplicationDbContext context) =>
+        context.DailyStockSnapshotItems
+            .Where(row => row.ItemCode == Item && row.WarehouseCode == Warehouse)
+            .SumAsync(row => row.AvailableQuantity);
+
+    private static async Task<TEntity> Reload<TEntity>(ApplicationDbContext context, TEntity entity)
+        where TEntity : class
+    {
+        await context.Entry(entity).ReloadAsync();
+        return entity;
+    }
+
+    private static InvoiceQueueService Queue(ApplicationDbContext context) =>
+        new(context, Ledger(context), NullLogger<InvoiceQueueService>.Instance);
+
+    /// <summary>
+    /// The reservation service with stand-ins for everything outside the database. Expiry reads and
+    /// writes the reservation tables and touches nothing else, so anything it did reach would fail
+    /// the test rather than be quietly answered.
+    /// </summary>
+    private static StockReservationService Reservations(ApplicationDbContext context) =>
+        new(
+            context,
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            StubProxy.Unused<IBatchInventoryValidationService>(),
+            StubProxy.Unused<IInventoryLockService>(),
+            Ledger(context),
+            StubProxy.Unused<IInvoiceFiscalizationQueue>(),
+            StubProxy.Unused<INotificationService>(),
+            NullLogger<StockReservationService>.Instance);
 
     private static StockLedgerLine Line(decimal quantity) => new(Item, Warehouse, quantity);
 

@@ -98,8 +98,14 @@ public interface IInvoiceQueueService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Mark fiscalized invoices as completed after consolidation posts to SAP
+    /// Marks fiscalized invoices completed after consolidation posts them to SAP, and takes the units
+    /// their reservations were holding off the stock ledger.
     /// </summary>
+    /// <remarks>
+    /// The two halves belong in one call because between them the units are counted either twice or
+    /// not at all. Until this runs the queued sale is on the ledger only as a reservation hold; after
+    /// it, only as a decrement. See <see cref="ShopInventory.Common.Stock.ReservationHolds"/>.
+    /// </remarks>
     Task MarkAsConsolidatedAsync(
         IEnumerable<int> queueIds,
         string sapDocEntry,
@@ -110,13 +116,16 @@ public interface IInvoiceQueueService
 public class InvoiceQueueService : IInvoiceQueueService
 {
     private readonly ApplicationDbContext _context;
+    private readonly IStockLedger _stockLedger;
     private readonly ILogger<InvoiceQueueService> _logger;
 
     public InvoiceQueueService(
         ApplicationDbContext context,
+        IStockLedger stockLedger,
         ILogger<InvoiceQueueService> logger)
     {
         _context = context;
+        _stockLedger = stockLedger;
         _logger = logger;
     }
 
@@ -376,15 +385,23 @@ public class InvoiceQueueService : IInvoiceQueueService
             .ToListAsync(cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task MarkAsConsolidatedAsync(
         IEnumerable<int> queueIds,
         string sapDocEntry,
         int sapDocNum,
         CancellationToken cancellationToken = default)
     {
+        // Entries already Completed are passed over rather than re-marked. Their units came off the
+        // ledger the first time round, and taking them again would lose them for the rest of the day.
         var entries = await _context.InvoiceQueue
-            .Where(q => queueIds.Contains(q.Id))
+            .Where(q => queueIds.Contains(q.Id) && q.Status != InvoiceQueueStatus.Completed)
             .ToListAsync(cancellationToken);
+
+        if (entries.Count == 0)
+        {
+            return;
+        }
 
         foreach (var entry in entries)
         {
@@ -394,7 +411,69 @@ public class InvoiceQueueService : IInvoiceQueueService
             entry.ProcessedAt = DateTime.UtcNow;
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await RecordConsolidatedUnitsLeavingAsync(entries, sapDocNum, cancellationToken);
+    }
+
+    /// <summary>
+    /// Takes the units these entries' reservations were holding off the stock ledger, and saves that
+    /// together with the statuses set above.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why here and not in the handler.</b> This is the one place that says a queued sale has
+    /// reached SAP, and it is the moment the hold has to become a decrement. Until it runs the units
+    /// are accounted for by the reservation hold alone — the snapshot row is untouched, which is also
+    /// why <c>StockLedgerDivergenceJob</c> cannot see the sale: it only asks SAP about rows whose
+    /// quantity has moved. Marking the entries Completed ends that hold, so if nothing took the units
+    /// here they would simply reappear on the ledger while SAP had just issued them.</para>
+    ///
+    /// <para><b>One save, both halves.</b> The queue entries above are tracked on the same scoped
+    /// context the ledger writes through, so the ledger's <c>SaveChangesAsync</c> commits the status
+    /// changes and the drawn-down snapshot rows together. Neither can land without the other, which is
+    /// what "counted exactly once" needs; a failure here leaves the entries Fiscalized and the hold
+    /// standing, and the next consolidation run retries both.</para>
+    ///
+    /// <para><b>Settled rather than committed.</b> The consolidated invoice is in SAP by the time this
+    /// is called, so the ledger cannot refuse it. A shortfall is logged — it says the ledger and the
+    /// shelf had already drifted — and is not a reason to stop.</para>
+    /// </remarks>
+    private async Task RecordConsolidatedUnitsLeavingAsync(
+        List<InvoiceQueueEntity> entries,
+        int sapDocNum,
+        CancellationToken cancellationToken)
+    {
+        var reservationIds = entries
+            .Select(entry => entry.ReservationId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .ToList();
+
+        var taken = reservationIds.Count == 0
+            ? []
+            : await _context.StockReservationLines
+                .Where(line => reservationIds.Contains(line.Reservation.ReservationId)
+                            && line.ItemCode != string.Empty
+                            && line.WarehouseCode != string.Empty)
+                .Select(line => new StockLedgerLine(line.ItemCode, line.WarehouseCode, line.ReservedQuantity))
+                .ToListAsync(cancellationToken);
+
+        if (taken.Count == 0)
+        {
+            // Nothing reserved — a queue entry whose reservation was never created, or was cleared.
+            // The statuses still have to be written.
+            await _context.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        var shortfalls = await _stockLedger.TakeSettledAsync(
+            taken, $"queued invoices consolidated as invoice {sapDocNum}", cancellationToken);
+
+        foreach (var shortfall in shortfalls)
+        {
+            _logger.LogWarning(
+                "Consolidated invoice {DocNum} took {Taken} of {ItemCode} from {WarehouseCode}, but the "
+                + "stock ledger held only {Held}",
+                sapDocNum, shortfall.Taken, shortfall.ItemCode, shortfall.WarehouseCode, shortfall.Held);
+        }
     }
 
     public async Task UpdateQueueEntryAsync(
