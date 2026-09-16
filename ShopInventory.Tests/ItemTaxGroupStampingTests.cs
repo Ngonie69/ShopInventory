@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
+using ShopInventory.Features.Sync.Commands.SyncItemTaxGroups;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -46,8 +47,8 @@ public sealed class ItemTaxGroupStampingTests : IDisposable
     private static Dictionary<string, string> Master(params (string Item, string Group)[] rows) =>
         rows.ToDictionary(r => r.Item, r => r.Group, StringComparer.OrdinalIgnoreCase);
 
-    private Task<SapItemTaxGroupWarmJob.WarmOutcome> WarmAsync(Dictionary<string, string> master) =>
-        SapItemTaxGroupWarmJob.ApplyAsync(
+    private Task<SyncItemTaxGroupsHandler.ApplyOutcome> WarmAsync(Dictionary<string, string> master) =>
+        SyncItemTaxGroupsHandler.ApplyAsync(
             _context, master, DateTime.UtcNow, NullLogger.Instance, CancellationToken.None);
 
     // ---- what a line is charged -------------------------------------------------------------
@@ -128,7 +129,8 @@ public sealed class ItemTaxGroupStampingTests : IDisposable
 
         var outcome = await WarmAsync(Master(("CHE011", "O0")));
 
-        Assert.Equal(1, outcome.Changed);
+        // Named, not just counted: this is what the Settings sync shows the admin who made the change.
+        Assert.Equal(new ItemTaxGroupChange("CHE011", "O01", "O0"), Assert.Single(outcome.Changed));
         Assert.Equal(0, outcome.Added);
 
         var row = _context.SapItemTaxGroups.Single();
@@ -156,7 +158,7 @@ public sealed class ItemTaxGroupStampingTests : IDisposable
         var outcome = await WarmAsync(Master(("CHE011", "O0")));
 
         Assert.Equal(0, outcome.Added);
-        Assert.Equal(0, outcome.Changed);
+        Assert.Empty(outcome.Changed);
         Assert.Single(_context.SapItemTaxGroups);
     }
 }

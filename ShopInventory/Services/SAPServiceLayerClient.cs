@@ -3587,17 +3587,28 @@ ORDER BY T0.""ItemCode""";
         return item;
     }
 
+    private const string ItemVatGroupsCacheKey = "sap:item-vat-groups";
+
     /// <inheritdoc />
     public async Task<Dictionary<string, string>> GetItemVatGroupsAsync(
         CancellationToken cancellationToken = default)
     {
-        const string cacheKey = "sap:item-vat-groups";
-
-        if (_memoryCache.TryGetValue(cacheKey, out Dictionary<string, string>? cached) && cached is not null)
+        if (_memoryCache.TryGetValue(ItemVatGroupsCacheKey, out Dictionary<string, string>? cached) && cached is not null)
         {
             return cached;
         }
 
+        return await ReadItemVatGroupsAsync(throwOnFailedPage: false, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<Dictionary<string, string>> RefreshItemVatGroupsAsync(CancellationToken cancellationToken = default)
+        => ReadItemVatGroupsAsync(throwOnFailedPage: true, cancellationToken);
+
+    private async Task<Dictionary<string, string>> ReadItemVatGroupsAsync(
+        bool throwOnFailedPage,
+        CancellationToken cancellationToken)
+    {
         var vatGroupsByCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         const int pageSize = 200;
         var skip = 0;
@@ -3634,6 +3645,12 @@ ORDER BY T0.""ItemCode""";
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (throwOnFailedPage)
+                {
+                    throw new InvalidOperationException(
+                        $"SAP refused item VAT groups at row {skip}: {(int)response.StatusCode} {response.StatusCode} - {errorContent}");
+                }
+
                 _logger.LogWarning(
                     "Failed to read item VAT groups from SAP: {StatusCode} - {Error}",
                     response.StatusCode,
@@ -3668,7 +3685,7 @@ ORDER BY T0.""ItemCode""";
 
         // Item VAT groups change about as often as the price book, and a stale entry is caught by the
         // handset's own gate, so this is cached hard rather than re-read per lease.
-        _memoryCache.Set(cacheKey, vatGroupsByCode, TimeSpan.FromHours(6));
+        _memoryCache.Set(ItemVatGroupsCacheKey, vatGroupsByCode, TimeSpan.FromHours(6));
 
         return vatGroupsByCode;
     }

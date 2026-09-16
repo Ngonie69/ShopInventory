@@ -56,6 +56,12 @@ public class PriceListDto
     public bool IsActive { get; set; }
     public decimal? Factor { get; set; }
     public string? RoundingMethod { get; set; }
+
+    /// <summary>
+    /// When the price catalogue last read this list from SAP, in UTC. Null for a list read live from
+    /// SAP rather than from the catalogue.
+    /// </summary>
+    public DateTime? LastSyncedAt { get; set; }
 }
 
 /// <summary>
