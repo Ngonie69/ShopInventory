@@ -152,15 +152,14 @@ public class DailyStockSettings
     /// 22 units against 21. Checking SAP first refuses that sale at the counter instead.
     ///
     /// <para>
-    /// Defaults to on. Turning it off reopens that gap, and is only for a day SAP cannot be read at all
-    /// and the shops must trade regardless — with it on, an unreadable SAP refuses every sale of a
-    /// batch-managed item.
+    /// Defaults to on. An unreadable or slow SAP does not refuse a sale: it is sold unchecked and logged
+    /// (see <see cref="CounterSapCheckSeconds"/>). Only SAP answering that it holds too little refuses.
     /// </para>
     /// </remarks>
     public bool CheckSapStockAtCounter { get; set; } = true;
 
     /// <summary>
-    /// How long a till sale waits for SAP's stock before it is refused as unreadable.
+    /// How long a till sale waits for SAP's stock before it is sold without the check.
     /// </summary>
     /// <remarks>
     /// Kept well inside the 30-second inventory lock the sale holds: the lock is what stops two tills

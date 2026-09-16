@@ -107,11 +107,8 @@ public sealed class CounterSapStockCheckTests : IDisposable
         _sapBatches.Add(("B1", 21m));
 
         var short_ = await CheckAsync(Line(Cheese, 22m));
-        _batchRead = _ => Task.FromException<List<BatchNumber>>(new HttpRequestException("SAP is down"));
-        var unreadable = await CheckAsync(Line(Cheese, 1m));
 
         Assert.Equal(ErrorType.Validation, short_.FirstError.Type);
-        Assert.Equal(ErrorType.Validation, unreadable.FirstError.Type);
     }
 
     [Fact]
@@ -177,35 +174,68 @@ public sealed class CounterSapStockCheckTests : IDisposable
         Assert.False(result.IsError);
     }
 
+    /// <summary>
+    /// Only SAP saying it holds too little refuses a sale. For its first day an unreadable SAP refused
+    /// too, and shops turned customers away with "SAP did not answer within 15 seconds" while SAP held
+    /// the stock.
+    /// </summary>
     [Fact]
-    public async Task A_failed_SAP_read_refuses_the_sale()
+    public async Task A_failed_SAP_read_sells_unchecked()
     {
         _batchRead = _ => Task.FromException<List<BatchNumber>>(new HttpRequestException("SAP is down"));
 
         var result = await CheckAsync(Line(Cheese, 1m));
 
-        Assert.True(result.IsError);
-        Assert.Equal("DesktopSales.SapStockUnreadable", result.FirstError.Code);
-        Assert.Contains("nothing was sold", result.FirstError.Description);
+        Assert.False(result.IsError);
+        Assert.True(_batchReads > 0);
     }
 
     [Fact]
-    public async Task An_item_SAP_cannot_describe_refuses_the_sale()
+    public async Task A_failed_non_batch_read_sells_unchecked()
+    {
+        _stockRead = _ => Task.FromException<List<StockQuantityDto>>(new HttpRequestException("SAP is down"));
+
+        var result = await CheckAsync(Line(Container, 1m));
+
+        Assert.False(result.IsError);
+        Assert.True(_stockReads > 0);
+    }
+
+    [Fact]
+    public async Task An_item_SAP_cannot_describe_sells_unchecked()
     {
         _itemReadFailure = new HttpRequestException("SAP is down");
 
         var result = await CheckAsync(Line(Cheese, 1m));
 
+        Assert.False(result.IsError);
+    }
+
+    /// <summary>
+    /// A line SAP could not be read for does not hide one SAP answered for: the short line still refuses,
+    /// and the reason names only it.
+    /// </summary>
+    [Fact]
+    public async Task A_short_line_still_refuses_beside_an_unreadable_one()
+    {
+        _sapContainerStock = 100m;
+        _batchRead = _ => Task.FromException<List<BatchNumber>>(new HttpRequestException("SAP is down"));
+        await SeedSaleAsync(Container, 100m, DesktopSaleConsolidationStatus.Pending);
+
+        var result = await CheckAsync(Line(Cheese, 1m), Line(Container, 1m));
+
         Assert.True(result.IsError);
-        Assert.Equal("DesktopSales.SapStockUnreadable", result.FirstError.Code);
+        Assert.Equal("DesktopSales.SapStockShort", result.FirstError.Code);
+        Assert.Contains("CON020", result.FirstError.Description);
+        Assert.DoesNotContain("ICA004", result.FirstError.Description);
     }
 
     /// <summary>
     /// The SQLQueries stock reads are known to hang for minutes. A cashier cannot wait for that, and the
-    /// sale holds inventory locks while it waits.
+    /// sale holds inventory locks while it waits, so the sale goes ahead unchecked once the budget is spent.
     /// </summary>
     [Fact]
-    public async Task A_read_that_does_not_answer_in_time_refuses_the_sale()
+    public async Task A_read_that_does_not_answer_in_time_sells_unchecked()
     {
         _settings.CounterSapCheckSeconds = 1;
         _batchRead = async token =>
@@ -217,9 +247,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
         var started = DateTime.UtcNow;
         var result = await CheckAsync(Line(Cheese, 1m));
 
-        Assert.True(result.IsError);
-        Assert.Equal("DesktopSales.SapStockUnreadable", result.FirstError.Code);
-        Assert.Contains("did not answer within 1 seconds", result.FirstError.Description);
+        Assert.False(result.IsError);
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
     }
 
@@ -457,15 +485,13 @@ public sealed class CounterSapStockCheckTests : IDisposable
     [Theory]
     [InlineData("DesktopSales.StockLedgerRefused")]
     [InlineData("DesktopSales.SapStockShort")]
-    [InlineData("DesktopSales.SapStockUnreadable")]
     public void Every_stock_refusal_answers_400_with_its_reason(string code)
     {
         const string reason = "ICA004 in KEFSHOP: 22 requested, 21 left";
         var error = code switch
         {
             "DesktopSales.StockLedgerRefused" => ShopInventory.Common.Errors.Errors.DesktopSales.StockLedgerRefused(reason),
-            "DesktopSales.SapStockShort" => ShopInventory.Common.Errors.Errors.DesktopSales.SapStockShort(reason),
-            _ => ShopInventory.Common.Errors.Errors.DesktopSales.SapStockUnreadable(reason)
+            _ => ShopInventory.Common.Errors.Errors.DesktopSales.SapStockShort(reason)
         };
 
         var controller = new RefusingController
@@ -491,18 +517,20 @@ public sealed class CounterSapStockCheckTests : IDisposable
         public Microsoft.AspNetCore.Mvc.IActionResult Refuse(List<Error> errors) => Problem(errors);
     }
 
+    /// <summary>
+    /// SAP unreadable, ledger willing: the sale is taken, and the ledger still gates it.
+    /// </summary>
     [Fact]
-    public async Task The_handler_refuses_when_SAP_cannot_be_read()
+    public async Task The_handler_sells_when_SAP_cannot_be_read()
     {
         await SeedLedgerAsync(Cheese, 30m);
         _batchRead = _ => Task.FromException<List<BatchNumber>>(new HttpRequestException("SAP is down"));
 
         var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
 
-        Assert.True(result.IsError);
-        Assert.Equal("DesktopSales.SapStockUnreadable", result.FirstError.Code);
-        Assert.Equal(0, await _context.DesktopSales.CountAsync());
-        Assert.Equal(30m, await LedgerAsync(Cheese));
+        Assert.False(result.IsError);
+        Assert.Equal(1, await _context.DesktopSales.CountAsync());
+        Assert.Equal(29m, await LedgerAsync(Cheese));
     }
 
     // ---------------------------------------------------------------
