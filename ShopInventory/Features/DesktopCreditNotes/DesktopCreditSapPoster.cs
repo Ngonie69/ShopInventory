@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
@@ -420,7 +420,11 @@ public sealed class DesktopCreditSapPoster(
 
         try
         {
-            await stockLedger.ReleaseAsync(returned, $"credit note {note.Number}", CancellationToken.None);
+            await stockLedger.ReleaseAsync(
+                returned,
+                $"credit note {note.Number}",
+                $"desktop-credit:{note.Number}",
+                CancellationToken.None);
 
             note.UnitsReturnedToLedger = true;
             await db.SaveChangesAsync(CancellationToken.None);

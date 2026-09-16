@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Stock;
 using ShopInventory.Common.Validation;
@@ -747,7 +747,11 @@ public class StockReservationService : IStockReservationService
 
         try
         {
-            await _stockLedger.TakeSettledAsync(taken, $"reservation confirmed as invoice {docNum}", cancellationToken);
+            await _stockLedger.TakeSettledAsync(
+                taken,
+                $"reservation confirmed as invoice {docNum}",
+                $"reservation-invoice:{docNum}",
+                cancellationToken);
         }
         catch (Exception ex)
         {

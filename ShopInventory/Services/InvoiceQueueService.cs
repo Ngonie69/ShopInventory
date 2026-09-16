@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
@@ -465,7 +465,10 @@ public class InvoiceQueueService : IInvoiceQueueService
         }
 
         var shortfalls = await _stockLedger.TakeSettledAsync(
-            taken, $"queued invoices consolidated as invoice {sapDocNum}", cancellationToken);
+            taken,
+            $"queued invoices consolidated as invoice {sapDocNum}",
+            $"consolidated-invoice:{sapDocNum}",
+            cancellationToken);
 
         foreach (var shortfall in shortfalls)
         {
