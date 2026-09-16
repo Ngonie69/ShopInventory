@@ -6,8 +6,9 @@
    by day, and how far their sales have got into SAP. Rendered by Vending.razor inside its `.shop vend`
    root, which owns the edit and remove dialogs — this raises them rather than holding copies.
 
-   Every figure comes from the route-customer sales endpoint, the one /route-customers/{id}/sales reads,
-   for the window VendorSalesDigest.WindowStart names. There is deliberately no outstanding balance: a
+   Every figure comes from the route-customer sales endpoint, the one /vending/vendors/{id}/sales reads,
+   for the window VendorSalesDigest.WindowStart names. The endpoint is shared because the table is; the
+   pages are not, because a vendor has a depot and no route. There is deliberately no outstanding balance: a
    vendor pays at the till, nothing in the database records credit or terms for one, and a settlement
    card with nothing behind it would be a number somebody acts on. The posting card stands in its place,
    because a sale stuck on its way to SAP is the thing here that does need somebody. *@
@@ -379,7 +380,7 @@
 
     private string FullName => string.IsNullOrWhiteSpace(Vendor.Surname) ? Vendor.Name : $"{Vendor.Name} {Vendor.Surname}";
 
-    private string SalesHref => $"/route-customers/{Vendor.Id}/sales";
+    private string SalesHref => $"/vending/vendors/{Vendor.Id}/sales";
 
     private string CashierLine => Cashiers.Count switch
     {

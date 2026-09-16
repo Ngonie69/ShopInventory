@@ -104,6 +104,15 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
 
         var rows = BuildRows(customers, aggregates, lineCounts, openOrderCounts, lifetimeSpans, query.IncludeInactive);
 
+        // The split is applied to the finished rows rather than to each of the six reads above, because
+        // an orphan row — a sale whose customer record is gone — carries only the route it was booked
+        // against, and that is the same thing the scope is decided on. One filter therefore covers both
+        // populations, live and deleted, and cannot drift from the other reads.
+        var vendingDepotCodes = await RouteCustomerScopes.VendingDepotCodesAsync(db, query.Scope, cancellationToken);
+        rows = rows
+            .Where(row => RouteCustomerScopes.Includes(query.Scope, vendingDepotCodes, row.AssignedBusinessPartnerCode))
+            .ToList();
+
         return new RouteCustomerSalesSummaryDto
         {
             From = from,

@@ -33,7 +33,11 @@
    (/api/route-customers/sales-summary). They load after the depots and vendors, so a slow or
    failed report leaves the page usable and says so, rather than holding the list back or
    showing a vendor who sold as one who did not. /vending/vendors/{id} is the same component
-   showing VendingVendorDetail, so the dialogs below serve both views. *@
+   showing VendingVendorDetail, so the dialogs below serve both views.
+
+   Those reads ask for RouteCustomerScope.Vending. A vendor and a van route's shop share one table
+   and the endpoint answers about routes by default, because a vendor is not a route customer: it
+   has a depot, not a route. Every link out of here stays under /vending for the same reason. *@
 
 <div class="shop vend">
 
@@ -323,7 +327,7 @@
                                                 <div class="shop-row-act">
                                                     <button type="button" class="shop-action-btn"
                                                             title="Sales for @VendorName(vendor)" aria-label="Sales for @VendorName(vendor)"
-                                                            @onclick="@(() => Navigation.NavigateTo($"/route-customers/{vendor.Id}/sales"))">
+                                                            @onclick="@(() => Navigation.NavigateTo(VendorSalesHref(vendor)))">
                                                         <i class="bi bi-graph-up"></i>
                                                     </button>
                                                     <button type="button" class="shop-action-btn"
@@ -763,7 +767,8 @@ else if (dialog is not DialogMode.None)
             foreach (var depot in overview.Depots)
             {
                 var summary = await RouteCustomerService.GetSalesSummaryAsync(
-                    depot.BusinessPartnerCode, VendorSalesDigest.MonthStart(today), today, includeInactive: true);
+                    depot.BusinessPartnerCode, VendorSalesDigest.MonthStart(today), today, includeInactive: true,
+                    scope: RouteCustomerScope.Vending);
 
                 foreach (var route in summary.Routes)
                 {
@@ -869,6 +874,12 @@ else if (dialog is not DialogMode.None)
             : VendorSalesDigest.MoneyLabel(depotSales.GetValueOrDefault(code), decimals: 0);
 
     private static string VendorHref(RouteCustomerModel vendor) => $"/vending/vendors/{vendor.Id}";
+
+    /// <summary>
+    /// A vendor's sales stay under /vending. They used to be shown on the route customer sales page,
+    /// which framed the vendor's depot as the route it was booked against — a vendor has no route.
+    /// </summary>
+    private static string VendorSalesHref(RouteCustomerModel vendor) => $"/vending/vendors/{vendor.Id}/sales";
 
     private void OpenVendor(RouteCustomerModel vendor) => Navigation.NavigateTo(VendorHref(vendor));
 

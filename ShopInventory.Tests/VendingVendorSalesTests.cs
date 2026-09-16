@@ -6,7 +6,9 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.RouteCustomers.Queries;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSales;
+using ShopInventory.Features.RouteCustomers;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSummary;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Web.Features.Vending;
 using ShopInventory.Web.Models;
@@ -43,7 +45,29 @@ public sealed class VendingVendorSalesTests : IDisposable
                 .UseSqlite(_connection)
                 .Options);
         _context.Database.EnsureCreated();
+
+        // A depot is not a table: it is a business partner a CartVendor account sells on, which is also
+        // how a read tells a vendor from a van route's shop. Without these two the depots do not exist
+        // and neither does anything under them.
+        Cashier("graniteside.vending", Depot, "KEFGRC");
+        Cashier("bulawayo.vending", OtherDepot, "KEFBYC");
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
     }
+
+    private void Cashier(string username, string depot, string warehouse) =>
+        _context.Users.Add(new User
+        {
+            Id = Guid.NewGuid(),
+            Username = username,
+            Email = $"{username}@example.com",
+            PasswordHash = "x",
+            Role = ApplicationRoles.CartVendor,
+            IsActive = true,
+            AssignedBusinessPartnerCode = depot,
+            AssignedCostCentreCode = "CC",
+            AssignedWarehouseCodes = JsonSerializer.Serialize(new[] { warehouse }),
+        });
 
     public void Dispose()
     {
@@ -326,7 +350,9 @@ public sealed class VendingVendorSalesTests : IDisposable
     private async Task<RouteCustomerSalesSummaryModel> SummaryAsync(string depot, DateTime from, DateTime to)
     {
         var result = await new GetRouteCustomerSalesSummaryHandler(_context).Handle(
-            new GetRouteCustomerSalesSummaryQuery(depot, from, to, null, true),
+            // Vending scope, because that is what the page asks for: a vendor is not a route customer,
+            // and the endpoint answers about the vans' routes unless told otherwise.
+            new GetRouteCustomerSalesSummaryQuery(depot, from, to, null, true, ShopInventory.Features.RouteCustomers.RouteCustomerScope.Vending),
             CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);

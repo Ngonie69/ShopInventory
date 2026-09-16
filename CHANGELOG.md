@@ -157,6 +157,27 @@ otherwise be surprised.
   the newest-stamped node is actually running. The stamp comes from `Update-Production.ps1`, so a
   deploy made any other way leaves a node unstamped and ungated.
 
+- **A vending vendor is no longer a route customer. `/api/route-customers` reads take `scope`.**
+
+  Route customers are the vans' shops — a van drives a round and the shops on it are its customers. A
+  vending vendor sells from a cart out of a depot and is on no round at all: it has a depot, not a
+  route. The two share one table, and every read of it used to answer with both, so the route customer
+  list carried vendors grouped under their depots as if the depot were a route, and the van sales
+  report counted vending takings while its own copy said "van sales only".
+
+  `GET /api/route-customers`, `/sales-summary` and `/product-mix` now take `scope`: `route` (the
+  **default**) is the vans' shops alone, `vending` the depots' vendors alone, `all` both. A vendor is
+  decided the same way the vending overview decides it — a row under a business partner a `CartVendor`
+  account sells on. **A caller that lists route customers without a scope no longer sees vendors**;
+  pass `scope=vending` or `scope=all` to get them back. `scope` narrows and never widens: naming a
+  depot in `assignedBusinessPartnerCode` under `scope=route` answers with nothing. The single-customer
+  reads and every write are unchanged and take no scope, so vending still creates, edits and removes
+  its vendors through this base route. The till's own vendor list
+  (`GET /api/DesktopIntegration/.../vendors`) is unaffected.
+
+  In the Web, a vendor's sales moved from `/route-customers/{id}/sales` to
+  `/vending/vendors/{id}/sales`, under the Depots & vendors crumb; the old page no longer puts a
+  depot in a breadcrumb labelled with a route.
 
 - **Vendors at a vending depot must be coded VMB, VMP or VMM and three digits.**
 

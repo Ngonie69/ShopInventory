@@ -20,5 +20,6 @@ public sealed record GetRouteCustomerSalesSummaryQuery(
     DateTime? From,
     DateTime? To,
     int? DormantDays,
-    bool IncludeInactive
+    bool IncludeInactive,
+    RouteCustomerScope Scope = RouteCustomerScope.Route
 ) : IRequest<ErrorOr<RouteCustomerSalesSummaryDto>>;
