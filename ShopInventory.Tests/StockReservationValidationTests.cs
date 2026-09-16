@@ -83,12 +83,24 @@ public sealed class StockReservationValidationTests : IDisposable
     {
         _sap.Stock[("WH01", "ITEM-A")] = (InStock: 10m, Committed: 4m);
 
-        var (isValid, errors) = await ValidateAsync(Line(1, "ITEM-A", 7m));
+        var (isValid, errors) = await ValidateAsync(Line(1, "ITEM-A", 11m));
 
         Assert.False(isValid);
         var error = Assert.Single(errors);
         Assert.Equal(ReservationErrorCode.InsufficientStock, error.ErrorCode);
-        Assert.Equal(6m, error.AvailableQuantity);
+        Assert.Equal(10m, error.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task Committed_stock_does_not_reduce_what_can_be_reserved()
+    {
+        // Only SAP's In Stock counts; stock committed to open orders is still on the shelf.
+        _sap.Stock[("WH01", "ITEM-A")] = (InStock: 10m, Committed: 4m);
+
+        var (isValid, errors) = await ValidateAsync(Line(1, "ITEM-A", 7m));
+
+        Assert.True(isValid);
+        Assert.Empty(errors);
     }
 
     [Fact]

@@ -193,9 +193,9 @@ public sealed class InvoiceLineValidationParityTests
     [Fact]
     public void Issuable_stock_is_defined_once()
     {
-        // "On hand less committed" decides whether a document may take stock. It was written out in
-        // BatchInventoryValidationService and again in SAPServiceLayerClient; it now lives on the
-        // DTO that carries the two numbers.
+        // Issuable (SAP's In Stock) decides whether a document may take stock. The rule was once
+        // written out in BatchInventoryValidationService and again in SAPServiceLayerClient; it now
+        // lives on the DTO that carries the numbers.
         var pattern = new Regex(@"\.InStock\s*-\s*\w*\.?Committed");
 
         var offenders = SourceFiles()

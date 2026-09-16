@@ -906,7 +906,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 if (requestedQuantity > effectiveAvailable + QuantityTolerance)
                 {
                     var lineNumbers = string.Join(", ", groupLines.Select(line => line.LineNumber));
-                    var held = new List<string> { $"On hand less committed: {issuableQuantity:N4}" };
+                    var held = new List<string> { $"In stock: {issuableQuantity:N4}" };
                     if (reservedQuantity > 0)
                     {
                         held.Add($"Reserved: {reservedQuantity:N4}");
@@ -2018,7 +2018,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             if (inventoryQuantityNeeded > effectiveAvailable)
             {
                 var message = reservedQty > 0
-                    ? $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {effectiveAvailable:N4} (On hand less committed: {issuableQuantity:N4}, Reserved: {reservedQty:N4})"
+                    ? $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {effectiveAvailable:N4} (In stock: {issuableQuantity:N4}, Reserved: {reservedQty:N4})"
                     : $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {issuableQuantity:N4}";
 
                 return (CreateError(
@@ -2173,8 +2173,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             if (_passStockReads.TryGetValue(key, out var stock) && stock.Stock is { } quantities)
             {
-                // Issuable is on hand less committed, so what a document takes is what it commits.
-                quantities.Committed += line.TotalQuantityAllocated;
+                // Issuable is In Stock, so what a document takes comes straight off it.
+                quantities.InStock -= line.TotalQuantityAllocated;
             }
         }
     }

@@ -28,16 +28,20 @@ public class StockQuantityDto
     public string? UoM { get; set; }
 
     /// <summary>
-    /// What can actually be issued from this warehouse now: on hand, less what is already committed
-    /// to other documents.
+    /// What can actually be issued from this warehouse now: SAP's In Stock figure, and nothing else.
     /// </summary>
     /// <remarks>
-    /// Deliberately not <see cref="Available"/>, which SAP computes as on-hand plus on-order and so
-    /// counts stock that has not arrived. This expression was written out twice, once in
-    /// <c>BatchInventoryValidationService</c> and once in <c>SAPServiceLayerClient</c>, which is one
-    /// place too many for the rule that decides whether a document is allowed to take stock.
+    /// <para>Committed and Ordered are deliberately left out. Ordered is stock on a purchase order that
+    /// has not arrived. Committed is stock open sales orders are expected to take, but it is still on
+    /// the shelf and SAP will issue it; taking it off made tills, the reconcile and the posting checks
+    /// all start the day short of what SAP shows as In Stock. Do not use <see cref="Available"/>
+    /// either, which is SAP's In Stock - Committed + Ordered.</para>
+    ///
+    /// <para>Defined once because it decides whether a document is allowed to take stock; the rule
+    /// was once written out separately in <c>BatchInventoryValidationService</c> and
+    /// <c>SAPServiceLayerClient</c>.</para>
     /// </remarks>
-    public decimal Issuable => InStock - Committed;
+    public decimal Issuable => InStock;
 
     // Packaging code fields
     public string? PackagingCode { get; set; }

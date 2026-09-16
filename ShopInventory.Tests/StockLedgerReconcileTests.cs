@@ -849,7 +849,7 @@ public sealed class StockLedgerReconcileTests : IDisposable
                     {
                         ItemCode = itemCode,
                         WarehouseCode = (string)args[0]!,
-                        // Issuable is InStock less Committed, and it is Issuable the job compares.
+                        // Issuable is InStock, and it is Issuable the job compares.
                         InStock = _sapIssuable[itemCode],
                         Committed = 0m
                     })
