@@ -5,7 +5,11 @@ namespace ShopInventory.Web.Features.Vending;
 
 /// <summary>
 /// The figures on a vendor's page, worked out from the sales the route-customer endpoint already returns:
-/// month to date, the last fortnight day by day, the product mix and how far posting has got.
+/// a window's totals, the product mix inside it, the window day by day and how far posting has got.
+///
+/// The window is the caller's. /vending/vendors/{id} lets the reader pick one and hands the whole read
+/// here; /vending/sales still asks month to date, and the <c>…Month</c> and <c>…Since</c> methods are the
+/// same summaries with a clip in front of them, not second implementations.
 ///
 /// Money is never added across currencies here, for the same reason the API never does. A vendor who
 /// took USD and ZWG took no single number, so every figure is read in one currency — the one the vendor
@@ -18,11 +22,24 @@ public static class VendorSalesDigest
 {
     public const int DailyWindowDays = 14;
 
+    /// <summary>
+    /// Days without a sale after which a vendor reads as dormant rather than trading. Mirrors the API's
+    /// <c>RouteCustomerSalesReporting.DefaultDormantDays</c>, which is what the depot list is measured
+    /// against — a vendor must not be dormant on one page and active on the other.
+    /// </summary>
+    public const int DormantDays = 30;
+
     public enum PostingState { Posted, Awaiting, Failed, Excluded }
 
-    public sealed record MonthToDate(
+    /// <summary>
+    /// What one window came to, in the one currency the vendor mostly sells in. The others are counted
+    /// beside it rather than converted into it, so a page can say they were left out.
+    /// </summary>
+    public sealed record Window(
         string? Currency,
         decimal Gross,
+        decimal Vat,
+        decimal Paid,
         int SaleCount,
         int LineCount,
         decimal Units,
@@ -30,12 +47,18 @@ public static class VendorSalesDigest
 
     public sealed record Day(DateTime Date, decimal Gross, int SaleCount);
 
-    public sealed record MixItem(string ItemCode, string Name, decimal Units, string? UoMCode, decimal Value);
+    public sealed record MixItem(string ItemCode, string Name, decimal Units, string? UoMCode, decimal Value, int Lines);
 
     public sealed record Posting(int Posted, int Awaiting, int Failed, int Excluded)
     {
         public int Total => Posted + Awaiting + Failed + Excluded;
     }
+
+    /// <summary>One day of the activity list: its date, the heading over it, and the sales under it.</summary>
+    public sealed record ActivityDay(DateTime Date, string Label, IReadOnlyList<RouteCustomerSaleModel> Sales);
+
+    /// <summary>How a vendor reads at a glance. See <see cref="StandingOf"/> for why this is four states.</summary>
+    public enum Standing { Trading, Dormant, NeverSold, Removed }
 
     /// <summary>The first day of the month <paramref name="today"/> is in.</summary>
     public static DateTime MonthStart(DateTime today) => new(today.Year, today.Month, 1);
@@ -82,21 +105,33 @@ public static class VendorSalesDigest
             .ThenBy(total => total.Currency, StringComparer.Ordinal)
             .ToList();
 
-    public static MonthToDate SummariseMonth(IEnumerable<RouteCustomerSaleModel> sales, DateTime today)
+    /// <summary>
+    /// Everything given, summed. The caller decides the window — the sales endpoint has already clipped
+    /// to one — so nothing here filters by date; <see cref="SummariseMonth"/> is this with a clip in
+    /// front of it.
+    /// </summary>
+    public static Window Summarise(IEnumerable<RouteCustomerSaleModel> sales)
     {
-        var monthStart = MonthStart(today.Date);
-        var inMonth = sales.Where(sale => sale.SoldAt.Date >= monthStart && sale.SoldAt.Date <= today.Date).ToList();
-        var totals = SumByCurrency(inMonth);
+        var all = sales as IReadOnlyCollection<RouteCustomerSaleModel> ?? sales.ToList();
+        var totals = SumByCurrency(all);
         var currency = PrimaryCurrency(totals);
-        var primary = inMonth.Where(sale => SameCurrency(sale.Currency, currency)).ToList();
+        var primary = all.Where(sale => SameCurrency(sale.Currency, currency)).ToList();
 
-        return new MonthToDate(
+        return new Window(
             currency,
             primary.Sum(sale => sale.Total),
+            primary.Sum(sale => sale.VatAmount),
+            primary.Sum(sale => sale.AmountPaid),
             primary.Count,
             primary.Sum(sale => sale.Lines.Count),
             primary.SelectMany(sale => sale.Lines).Sum(line => line.Quantity),
             totals.Where(total => !SameCurrency(total.Currency, currency)).ToList());
+    }
+
+    public static Window SummariseMonth(IEnumerable<RouteCustomerSaleModel> sales, DateTime today)
+    {
+        var monthStart = MonthStart(today.Date);
+        return Summarise(sales.Where(sale => sale.SoldAt.Date >= monthStart && sale.SoldAt.Date <= today.Date));
     }
 
     /// <summary>
@@ -125,10 +160,20 @@ public static class VendorSalesDigest
     public static List<MixItem> ProductMix(IEnumerable<RouteCustomerSaleModel> sales, DateTime today, string? currency, int top)
     {
         var monthStart = MonthStart(today.Date);
+        return ProductMix(
+            sales.Where(sale => sale.SoldAt.Date >= monthStart && sale.SoldAt.Date <= today.Date),
+            currency,
+            top);
+    }
 
-        return sales
+    /// <summary>
+    /// The same breakdown over whatever window the caller has already read, largest value first. Only the
+    /// primary currency's sales count, because the column is one number per item and two currencies are
+    /// not one number.
+    /// </summary>
+    public static List<MixItem> ProductMix(IEnumerable<RouteCustomerSaleModel> sales, string? currency, int top) =>
+        sales
             .Where(sale => SameCurrency(sale.Currency, currency))
-            .Where(sale => sale.SoldAt.Date >= monthStart && sale.SoldAt.Date <= today.Date)
             .SelectMany(sale => sale.Lines)
             .GroupBy(line => line.ItemCode, StringComparer.OrdinalIgnoreCase)
             .Select(group => new MixItem(
@@ -136,12 +181,12 @@ public static class VendorSalesDigest
                 group.Select(line => line.ItemDescription).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? group.Key,
                 group.Sum(line => line.Quantity),
                 group.Select(line => line.UoMCode).FirstOrDefault(uom => !string.IsNullOrWhiteSpace(uom)),
-                group.Sum(line => line.LineTotal)))
+                group.Sum(line => line.LineTotal),
+                group.Count()))
             .OrderByDescending(item => item.Value)
             .ThenBy(item => item.ItemCode, StringComparer.Ordinal)
             .Take(top)
             .ToList();
-    }
 
     /// <summary>
     /// Where a sale has got to in SAP, read from the API's status wording
@@ -259,6 +304,90 @@ public static class VendorSalesDigest
             <= 7 => $"{days} days ago",
             _ => day.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)
         };
+    }
+
+    /// <summary>
+    /// The window's sales as the page lists them: newest day first, and the sales of a day together
+    /// under it.
+    /// </summary>
+    /// <remarks>
+    /// There is no time of day to sort within a day by. A vending sale is a desktop sale and its
+    /// <c>DocDate</c> is a SQL <c>date</c>, so every sale on a day arrives at midnight; the invoice
+    /// number is the only order the day has, and it is the order the till rang them up in.
+    /// </remarks>
+    public static List<ActivityDay> ActivityByDay(IEnumerable<RouteCustomerSaleModel> sales, int maxDays) =>
+        sales
+            .GroupBy(sale => sale.SoldAt.Date)
+            .OrderByDescending(group => group.Key)
+            .Take(maxDays)
+            .Select(group => new ActivityDay(
+                group.Key,
+                group.Key.ToString("ddd dd MMM yyyy", CultureInfo.InvariantCulture),
+                group
+                    .OrderByDescending(sale => sale.SapDocNum ?? 0)
+                    .ThenByDescending(sale => sale.Reference, StringComparer.Ordinal)
+                    .ToList()))
+            .ToList();
+
+    /// <summary>
+    /// What was on a sale, in a line: "Milk 2L x22, Maheu 500ml x18 +3 more". The item's own description
+    /// where it has one, its code where it does not — never a blank, which would read as a sale of
+    /// nothing.
+    /// </summary>
+    public static string ItemSummary(RouteCustomerSaleModel sale, int max)
+    {
+        if (sale.Lines.Count == 0)
+        {
+            return "No lines on this sale";
+        }
+
+        var named = sale.Lines
+            .Take(max)
+            .Select(line => $"{Describe(line)} ×{Quantity(line.Quantity)}");
+
+        var rest = sale.Lines.Count - max;
+        return rest > 0
+            ? $"{string.Join(", ", named)} +{rest} more"
+            : string.Join(", ", named);
+    }
+
+    public static string Describe(RouteCustomerSaleLineModel line) =>
+        string.IsNullOrWhiteSpace(line.ItemDescription) ? line.ItemCode : line.ItemDescription;
+
+    /// <summary>A quantity with cents only when it has them: "64", not "64.00", but "1.5" stays "1.50".</summary>
+    public static string Quantity(decimal units) =>
+        units == decimal.Truncate(units)
+            ? units.ToString("N0", CultureInfo.InvariantCulture)
+            : units.ToString("N2", CultureInfo.InvariantCulture);
+
+    /// <summary>"19 Jun - 16 Sep 2026", with the year said once when both ends share it.</summary>
+    public static string WindowLabel(DateTime from, DateTime to)
+    {
+        var left = from.Year == to.Year
+            ? from.ToString("dd MMM", CultureInfo.InvariantCulture)
+            : from.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+
+        return $"{left} – {to.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)}";
+    }
+
+    /// <summary>
+    /// Where a vendor stands, which is not the same question as whether the record is active. A removed
+    /// vendor is off the till whatever they last sold; an active one who has never sold is not the same
+    /// finding as one who has stopped.
+    /// </summary>
+    public static Standing StandingOf(bool isActive, DateTime? lastSaleAt, DateTime today)
+    {
+        if (!isActive)
+        {
+            return Standing.Removed;
+        }
+
+        if (lastSaleAt is not { } last)
+        {
+            return Standing.NeverSold;
+        }
+
+        return (today.Date - last.Date).TotalDays > DormantDays ? Standing.Dormant : Standing.Trading;
     }
 
     private static bool SameCurrency(string? left, string? right) =>
