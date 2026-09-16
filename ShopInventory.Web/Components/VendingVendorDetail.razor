@@ -1,50 +1,99 @@
 @inject IRouteCustomerService RouteCustomerService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
 @using System.Globalization
 @using ShopInventory.Web.Features.Vending
+@using ShopInventory.Web.Services
 
-@* One vendor on /vending/vendors/{id}: who they are, what they bought this month, the last fortnight day
-   by day, and how far their sales have got into SAP. Rendered by Vending.razor inside its `.shop vend`
+@* One vendor on /vending/vendors/{id}: who they are, what they sold over a window they choose, the
+   window item by item, and every sale day by day. Rendered by Vending.razor inside its `.shop vend`
    root, which owns the edit and remove dialogs — this raises them rather than holding copies.
 
-   Every figure comes from the route-customer sales endpoint, the one /vending/vendors/{id}/sales reads,
-   for the window VendorSalesDigest.WindowStart names. The endpoint is shared because the table is; the
-   pages are not, because a vendor has a depot and no route. There is deliberately no outstanding balance: a
-   vendor pays at the till, nothing in the database records credit or terms for one, and a settlement
-   card with nothing behind it would be a number somebody acts on. The posting card stands in its place,
-   because a sale stuck on its way to SAP is the thing here that does need somebody. *@
+   Built from `Vendor Detail.dc.html`. That design describes a vendor who is issued stock on
+   consignment and hands cash back, with an unremitted balance, a cart and a shrinkage write-off.
+   None of that is recorded anywhere: a vending vendor buys at the depot till, the sale is an
+   invoice, and no table in this system holds an issue, a remittance or a cart. So the design's
+   shape is here in full — the window bar, the four figures, the item table, the day-grouped
+   activity list, the right-hand ledger and the quiet state — and each panel reads what the database
+   actually has. What the design calls cash remitted is the posting gap, because a sale stuck on its
+   way to SAP is the thing here that does need somebody; what it calls the cart is the depot; and
+   there is no settlement figure, because one with nothing behind it is a number somebody acts on.
+
+   Every figure comes from the route-customer sales endpoint, the one /vending/vendors/{id}/sales
+   reads, for the window the bar names. The endpoint is shared because the table is; the pages are
+   not, because a vendor has a depot and no route. *@
 
 <div class="vend-detail">
     <nav class="shop-crumb" aria-label="Breadcrumb">
-        <span>Vending</span>
-        <i class="bi bi-chevron-right"></i>
         <a class="vend-crumb-link" href="/vending">Depots &amp; vendors</a>
         <i class="bi bi-chevron-right"></i>
-        <span class="shop-crumb-here">@Vendor.Code</span>
+        <span>@DepotLabel</span>
+        <i class="bi bi-chevron-right"></i>
+        <span class="shop-crumb-here">@FullName</span>
     </nav>
 
     <div class="vend-hero">
-        <span class="vend-avatar vend-avatar-lg" aria-hidden="true">@VendorSalesDigest.Initials(Vendor.Name, Vendor.Surname)</span>
         <div class="vend-hero-text">
             <div class="vend-hero-line">
-                <h2 class="vend-hero-name">@FullName</h2>
-                <span class="shop-chip @(Vendor.IsActive ? "shop-chip-good" : "shop-chip-neutral")">@(Vendor.IsActive ? "Active" : "Removed")</span>
+                <span class="vend-eyebrow">Vendor</span>
+                <span class="vend-standing @StandingClass">
+                    <span class="vend-standing-dot"></span>@StandingLabel
+                </span>
             </div>
+
+            <h2 class="vend-hero-name">@FullName</h2>
+
             <div class="vend-hero-meta">
                 <span class="vend-mono">@Vendor.Code</span>
-                <span>@DepotName</span>
-                <span>@CashierLine</span>
+                @if (!string.IsNullOrWhiteSpace(Vendor.Phone))
+                {
+                    <span class="vend-mono">@Vendor.Phone</span>
+                }
+                <span>@DepotLabel</span>
             </div>
+
+            <p class="vend-hero-lede">@Lede</p>
         </div>
-        <div class="shop-header-actions">
-            <a class="shop-btn shop-btn-ghost" href="@SalesHref">
-                <i class="bi bi-receipt"></i>All sales
-            </a>
-            <button type="button" class="shop-btn shop-btn-ghost" @onclick="() => OnToggle.InvokeAsync(Vendor)" disabled="@IsSaving">
-                <i class="bi @(Vendor.IsActive ? "bi-person-dash" : "bi-arrow-counterclockwise")"></i>@(Vendor.IsActive ? "Remove" : "Restore")
-            </button>
+
+        <div class="vend-hero-actions">
             <button type="button" class="shop-btn shop-btn-primary" @onclick="() => OnEdit.InvokeAsync(Vendor)" disabled="@IsSaving">
                 <i class="bi bi-pencil"></i>Edit vendor
             </button>
+            <a class="shop-btn shop-btn-ghost" href="@SalesHref">
+                <i class="bi bi-receipt"></i>All sales
+            </a>
+            <button type="button" class="shop-btn shop-btn-ghost" @onclick="ExportAsync" disabled="@(isExporting || detail is null)">
+                <i class="bi @(isExporting ? "bi-hourglass-split" : "bi-file-earmark-spreadsheet")"></i>@(isExporting ? "Exporting…" : "Export")
+            </button>
+            <button type="button" class="shop-btn shop-btn-ghost vend-btn-icon" title="Refresh" aria-label="Refresh"
+                    @onclick="ReloadAsync" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+            <div class="vend-menu-wrap">
+                @* aria-expanded takes a string, not the bool: Blazor reads a bool attribute value as
+                   "render it when true, drop it when false", and a dropped aria-expanded says the
+                   button expands nothing at all rather than saying it is closed. *@
+                <button type="button" class="shop-btn shop-btn-ghost vend-btn-icon" aria-label="More actions"
+                        aria-expanded="@(menuOpen ? "true" : "false")" @onclick="ToggleMenu">
+                    <i class="bi bi-three-dots"></i>
+                </button>
+                @if (menuOpen)
+                {
+                    @* A transparent sheet behind the menu, so a click anywhere else closes it. It is a
+                       button rather than a div because a div with @onclick is not reachable by keyboard
+                       and screen readers announce it as nothing at all. *@
+                    <button type="button" class="vend-menu-scrim" aria-label="Close menu" @onclick="CloseMenu"></button>
+                    <div class="vend-menu">
+                        <button type="button" class="vend-menu-item" @onclick="EditFromMenu" disabled="@IsSaving">
+                            <i class="bi bi-pencil"></i>Edit details
+                        </button>
+                        <button type="button" class="vend-menu-item is-danger" @onclick="ToggleFromMenu" disabled="@IsSaving">
+                            <i class="bi @(Vendor.IsActive ? "bi-person-dash" : "bi-arrow-counterclockwise")"></i>@(Vendor.IsActive ? "Remove vendor" : "Restore vendor")
+                        </button>
+                    </div>
+                }
+            </div>
         </div>
     </div>
 
@@ -57,178 +106,309 @@
         </div>
     }
 
-    <div class="vend-kpis" aria-busy="@isLoading">
+    <div class="vend-window">
+        <div class="vend-window-dates">
+            <div class="vend-field">
+                <label for="vend-from">From</label>
+                <NocturneDateField Id="vend-from" Date="fromDate" Disabled="@isLoading"
+                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: true))"
+                                   AriaLabel="Window starts" />
+            </div>
+            <div class="vend-field">
+                <label for="vend-to">To</label>
+                <NocturneDateField Id="vend-to" Date="toDate" Disabled="@isLoading"
+                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: false))"
+                                   AriaLabel="Window ends" />
+            </div>
+        </div>
+        <div class="shop-seg">
+            @foreach (var range in QuickRanges)
+            {
+                <button type="button" class="shop-seg-btn @(activeRangeDays == range.Days ? "is-on" : null)"
+                        @onclick="() => ApplyRangeAsync(range.Days)" disabled="@isLoading">
+                    @range.Label
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="vend-kpis @(IsQuiet ? "is-quiet" : null)" aria-busy="@(isLoading ? "true" : "false")">
         <div class="vend-kpi">
-            <span class="vend-kpi-label">Sales MTD</span>
-            <span class="vend-kpi-value">@Figure(() => month!.Currency is null ? "—" : VendorSalesDigest.Money(month.Currency, month.Gross))</span>
-            <span class="vend-kpi-note">@Figure(() => MonthNote)</span>
+            <span class="vend-kpi-rule"></span>
+            <span class="vend-kpi-label">Sales value</span>
+            @* The design sets the cents a step down from the figure. Written as two spans with no gap
+               between them rather than one string: Razor turns any whitespace here into a text node,
+               and "USD 1,431 .00" is a different number. *@
+            <span class="vend-kpi-value">@if (ValueFigure is { } figure)
+                                         {@figure<span class="vend-kpi-cents">@ValueCents</span>}
+                                         else
+                                         {<text>—</text>}</span>
+            <span class="vend-kpi-note">@Figure(() => ValueNote)</span>
         </div>
         <div class="vend-kpi">
-            <span class="vend-kpi-label">Invoices MTD</span>
-            <span class="vend-kpi-value">@Figure(() => month!.SaleCount.ToString("N0", CultureInfo.InvariantCulture))</span>
-            <span class="vend-kpi-note">@Figure(() => month!.SaleCount == 0 ? "None this month" : $"{VendorSalesDigest.Money(month.Currency, month.Gross / month.SaleCount)} average")</span>
+            <span class="vend-kpi-rule"></span>
+            <span class="vend-kpi-label">Units sold</span>
+            <span class="vend-kpi-value">@Figure(() => VendorSalesDigest.Quantity(window!.Units))</span>
+            <span class="vend-kpi-note">@Figure(() => UnitsNote)</span>
         </div>
         <div class="vend-kpi">
-            <span class="vend-kpi-label">Units MTD</span>
-            <span class="vend-kpi-value">@Figure(() => Units(month!.Units))</span>
-            <span class="vend-kpi-note">@Figure(() => month!.LineCount == 1 ? "1 line" : $"{month.LineCount:N0} lines")</span>
-        </div>
-        <div class="vend-kpi">
+            <span class="vend-kpi-rule @PostingRuleClass"></span>
             <span class="vend-kpi-label">Not yet in SAP</span>
             <span class="vend-kpi-value @(posting is { Failed: > 0 } ? "is-bad" : null)">@Figure(() => (posting!.Awaiting + posting.Failed).ToString("N0", CultureInfo.InvariantCulture))</span>
-            <span class="vend-kpi-note">@Figure(() => PostingNote)</span>
+            <span class="vend-kpi-note @(posting is { Failed: > 0 } ? "is-bad" : null)">@Figure(() => PostingNote)</span>
         </div>
         <div class="vend-kpi">
-            <span class="vend-kpi-label">Last sale</span>
+            <span class="vend-kpi-rule is-lit"></span>
+            <span class="vend-kpi-label">Last activity</span>
             <span class="vend-kpi-value">@Figure(() => VendorSalesDigest.LastSaleLabel(LastSaleAt, today))</span>
-            <span class="vend-kpi-note">@Figure(() => LastSaleAt is { } last ? last.ToString("ddd dd MMM yyyy", CultureInfo.InvariantCulture) : "No sale on record")</span>
+            <span class="vend-kpi-note is-lit">@Figure(() => LastSaleNote)</span>
         </div>
     </div>
 
     <div class="vend-columns">
         <div class="vend-column">
-            <section class="vend-card">
-                <header class="vend-card-head">
-                    <h3 class="vend-card-title">Daily sales</h3>
-                    <span class="vend-card-sub">@DailySubtitle</span>
-                    @if (days.Count > 0 && days.Any(day => day.SaleCount > 0))
-                    {
-                        <span class="vend-card-aside">avg @VendorSalesDigest.Money(month?.Currency, days.Sum(day => day.Gross) / days.Count)/day</span>
-                    }
-                </header>
-                @if (isLoading)
-                {
-                    <div class="vend-bars is-loading" aria-hidden="true">
-                        @for (var i = 0; i < VendorSalesDigest.DailyWindowDays; i++)
-                        {
-                            <div class="vend-bar"><span class="vend-bar-fill" style="height: 18%"></span><span class="vend-bar-day">&nbsp;</span></div>
-                        }
-                    </div>
-                }
-                else if (detail is not null)
-                {
-                    <div class="vend-bars" role="img" aria-label="@BarsLabel">
-                        @foreach (var day in days)
-                        {
-                            <div class="vend-bar @(day.Date == today ? "is-today" : null)" title="@DayTitle(day)" @key="day.Date">
-                                <span class="vend-bar-fill @(day.SaleCount == 0 ? "is-empty" : null)" style="height: @BarHeight(day)"></span>
-                                <span class="vend-bar-day">@(day.Date.ToString("ddd", CultureInfo.InvariantCulture)[..1])</span>
-                            </div>
-                        }
-                    </div>
-                    @if (!days.Any(day => day.SaleCount > 0))
-                    {
-                        <p class="vend-card-empty">No sales in the last @VendorSalesDigest.DailyWindowDays days.</p>
-                    }
-                    else if (month is { OtherCurrencies.Count: > 0 })
-                    {
-                        <p class="vend-card-foot">@OtherCurrencyNote — not on this chart.</p>
-                    }
-                }
-            </section>
 
             <section class="vend-card">
                 <header class="vend-card-head">
-                    <h3 class="vend-card-title">Product mix</h3>
-                    <span class="vend-card-aside is-mute">Month to date, by value before VAT</span>
+                    <h3 class="vend-card-title">Items sold</h3>
+                    <span class="vend-card-sub">@ItemsCount</span>
+                    <span class="vend-card-aside is-mute">Invoiced off @DepotLabel</span>
                 </header>
+
                 @if (isLoading)
                 {
-                    <div class="vend-mix is-loading" aria-hidden="true">
+                    <div class="vend-skel-rows" aria-hidden="true">
                         @for (var i = 0; i < 4; i++)
                         {
-                            <div class="vend-mix-row"><span class="vend-skel"></span><span class="vend-mix-track"></span></div>
+                            <span class="vend-skel vend-skel-wide"></span>
                         }
                     </div>
                 }
                 else if (mix.Count == 0)
                 {
-                    <p class="vend-card-empty">Nothing bought this month yet.</p>
-                }
-                else
-                {
-                    <div class="vend-mix">
-                        @foreach (var item in mix)
-                        {
-                            <div class="vend-mix-row" @key="item.ItemCode">
-                                <div class="vend-mix-line">
-                                    <span class="vend-mix-name" title="@item.ItemCode">@item.Name</span>
-                                    <span class="vend-mix-units">@Units(item.Units) @(item.UoMCode ?? "units")</span>
-                                    <span class="vend-mix-value">@item.Value.ToString("N2", CultureInfo.InvariantCulture)</span>
-                                </div>
-                                <span class="vend-mix-track"><span class="vend-mix-fill" style="width: @MixWidth(item)"></span></span>
-                            </div>
-                        }
+                    <div class="vend-quiet-row">
+                        <i class="bi bi-list-ul"></i>
+                        <span>Nothing was sold to this vendor between @WindowLabel, so there is nothing to break down.</span>
                     </div>
-                }
-            </section>
-
-            <section class="vend-card vend-card-flush">
-                <header class="vend-card-head">
-                    <h3 class="vend-card-title">Recent invoices</h3>
-                    <a class="vend-card-link" href="@SalesHref">View all sales</a>
-                </header>
-                @if (isLoading)
-                {
-                    <div class="shop-loading vend-card-loading">
-                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-                        <span>Loading sales…</span>
-                    </div>
-                }
-                else if (recent.Count == 0)
-                {
-                    <p class="vend-card-empty vend-card-pad">No invoices since @windowStart.ToString("dd MMM", CultureInfo.InvariantCulture).</p>
                 }
                 else
                 {
                     <div class="vend-table-scroll">
-                        <table class="shop-table vend-invoices">
+                        <table class="shop-table vend-items">
                             <thead>
                                 <tr>
-                                    <th>Invoice</th>
-                                    <th>Date</th>
+                                    <th class="vend-items-name">Item</th>
                                     <th class="vend-num">Lines</th>
-                                    <th class="vend-num">Amount</th>
-                                    <th>Payment</th>
-                                    <th>Status</th>
+                                    <th class="vend-num">Units</th>
+                                    <th class="vend-num">Unit</th>
+                                    <th class="vend-num">Value</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @* No @key: a read-only list gains nothing from one, and the till reference is
-                                   not guaranteed unique across sources — a duplicate key throws and ends the
-                                   circuit. *@
-                                @foreach (var sale in recent)
+                                @foreach (var item in mix)
                                 {
-                                    var state = VendorSalesDigest.PostingOf(sale.Status);
-                                    <tr>
+                                    <tr @key="item.ItemCode">
                                         <td>
-                                            <span class="vend-invoice-no" title="Till reference @sale.Reference">@(sale.SapDocNum is { } docNum ? docNum.ToString(CultureInfo.InvariantCulture) : sale.Reference)</span>
+                                            <div class="vend-items-cell">
+                                                <span>@item.Name</span>
+                                                <span class="vend-mono vend-cell-mute">@item.ItemCode</span>
+                                            </div>
                                         </td>
-                                        <td class="vend-cell-mute">@sale.SoldAt.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)</td>
-                                        <td class="vend-num vend-cell-mute">@sale.Lines.Count</td>
-                                        <td class="vend-num">@VendorSalesDigest.Money(sale.Currency, sale.Total)</td>
-                                        <td class="vend-cell-mute">@(string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "—" : sale.PaymentMethod)</td>
-                                        <td>
-                                            <span class="shop-chip @VendorSalesDigest.StateChip(state)" title="@sale.Status">@VendorSalesDigest.StateLabel(state)</span>
-                                        </td>
+                                        <td class="vend-num vend-cell-mute">@item.Lines</td>
+                                        <td class="vend-num">@VendorSalesDigest.Quantity(item.Units)<span class="vend-cell-mute"> @UnitOf(item)</span></td>
+                                        <td class="vend-num vend-cell-mute">@UnitPrice(item)</td>
+                                        <td class="vend-num">@item.Value.ToString("N2", CultureInfo.InvariantCulture)</td>
                                     </tr>
                                 }
+                                <tr class="vend-items-total">
+                                    <td>@MixTotalLabel</td>
+                                    <td class="vend-num vend-cell-mute">@mix.Sum(item => item.Lines)</td>
+                                    <td class="vend-num vend-cell-mute">@VendorSalesDigest.Quantity(mix.Sum(item => item.Units))</td>
+                                    <td></td>
+                                    <td class="vend-num vend-items-sum">@mix.Sum(item => item.Value).ToString("N2", CultureInfo.InvariantCulture)</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
+                    <p class="vend-card-foot">
+                        Value is the line total, before VAT, so it does not come to the window's
+                        @Split(window!.Gross) gross.
+                    </p>
+                }
+            </section>
+
+            <section class="vend-card">
+                <header class="vend-card-head">
+                    <h3 class="vend-card-title">Activity</h3>
+                    <span class="vend-card-sub">@ActivityCount</span>
+                    <span class="vend-card-aside is-mute">Every sale, newest first</span>
+                </header>
+
+                @if (isLoading)
+                {
+                    <div class="vend-skel-rows" aria-hidden="true">
+                        @for (var i = 0; i < 5; i++)
+                        {
+                            <span class="vend-skel vend-skel-wide"></span>
+                        }
+                    </div>
+                }
+                else if (activity.Count == 0)
+                {
+                    <div class="vend-quiet">
+                        <i class="bi bi-inboxes"></i>
+                        <div class="vend-quiet-head">No vendor activity in this period</div>
+                        <p>@QuietStory</p>
+                        <div class="vend-quiet-actions">
+                            @if (activeRangeDays != WidestRangeDays)
+                            {
+                                <button type="button" class="shop-btn shop-btn-primary" @onclick="() => ApplyRangeAsync(WidestRangeDays)">
+                                    Widen to 12 months
+                                </button>
+                            }
+                            <a class="shop-btn shop-btn-ghost" href="@SalesHref">See every sale</a>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var day in activity)
+                    {
+                        <div class="vend-day" @key="day.Date">
+                            <div class="vend-day-label">@day.Label</div>
+                            @foreach (var sale in day.Sales)
+                            {
+                                var state = VendorSalesDigest.PostingOf(sale.Status);
+                                <div class="vend-event">
+                                    <div class="vend-event-id vend-mono" title="@EventIdTitle(sale)">@EventId(sale)</div>
+                                    <div class="vend-event-text">
+                                        <div class="vend-event-line">
+                                            @if (state == VendorSalesDigest.PostingState.Failed)
+                                            {
+                                                <span class="vend-event-mark" aria-hidden="true"></span>
+                                            }
+                                            <span class="vend-event-title">@VendorSalesDigest.ItemSummary(sale, ItemsNamedPerSale)</span>
+                                        </div>
+                                        <div class="vend-event-meta">
+                                            <span class="shop-chip @VendorSalesDigest.StateChip(state)" title="@sale.Status">@VendorSalesDigest.StateLabel(state)</span>
+                                            <span>@PaymentLabel(sale)</span>
+                                        </div>
+                                    </div>
+                                    <div class="vend-event-figure">
+                                        <span class="vend-event-amount">@VendorSalesDigest.Money(sale.Currency, sale.Total)</span>
+                                        <span class="vend-event-unit">@LineLabel(sale)</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (moreDays > 0)
+                    {
+                        <a class="vend-card-more" href="@SalesHref">
+                            @moreDays earlier @(moreDays == 1 ? "day" : "days") in this window — see every sale
+                        </a>
+                    }
                 }
             </section>
         </div>
 
         <div class="vend-column">
             <section class="vend-card">
-                <header class="vend-card-head">
-                    <h3 class="vend-card-title">Vendor details</h3>
-                </header>
+                <h3 class="vend-card-title">Sales &amp; posting</h3>
+
+                @if (isLoading)
+                {
+                    <span class="vend-skel vend-skel-wide"></span>
+                }
+                else if (window is null || posting is null)
+                {
+                    <p class="vend-card-empty">These figures could not be read.</p>
+                }
+                else if (window.SaleCount == 0)
+                {
+                    <div class="vend-ledger">
+                        <div class="vend-ledger-row"><span>Value sold</span><span class="vend-num vend-cell-mute">0.00</span></div>
+                        <div class="vend-ledger-row"><span>Of which VAT</span><span class="vend-num vend-cell-mute">0.00</span></div>
+                        <div class="vend-ledger-rule"></div>
+                        <div class="vend-ledger-foot">
+                            <span class="vend-ledger-foot-label">Not yet in SAP</span>
+                            <span class="shop-chip shop-chip-neutral">Nothing to post</span>
+                        </div>
+                        <p class="vend-ledger-note">No sale was invoiced to this vendor between @WindowLabel.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="vend-ledger">
+                        <div class="vend-ledger-row">
+                            <span>Value sold <span class="vend-cell-mute">· @Plural(window.SaleCount, "invoice")</span></span>
+                            <span class="vend-num">@Split(window.Gross)</span>
+                        </div>
+                        <div class="vend-ledger-row">
+                            <span>Of which VAT</span>
+                            <span class="vend-num">@Split(window.Vat)</span>
+                        </div>
+                        <div class="vend-ledger-row">
+                            <span>Recorded as paid</span>
+                            <span class="vend-num">@Split(window.Paid)</span>
+                        </div>
+                        @if (window.OtherCurrencies.Count > 0)
+                        {
+                            <div class="vend-ledger-row">
+                                <span>In other currencies</span>
+                                <span class="vend-num vend-cell-mute">@OtherCurrencyNote</span>
+                            </div>
+                        }
+                        <div class="vend-ledger-rule"></div>
+                        <div class="vend-ledger-foot">
+                            <span class="vend-ledger-foot-label">Not yet in SAP</span>
+                            @if (posting.Awaiting + posting.Failed == 0)
+                            {
+                                <span class="shop-chip shop-chip-good">All posted</span>
+                            }
+                            else
+                            {
+                                <span class="vend-ledger-figure @(posting.Failed > 0 ? "is-bad" : null)">@(posting.Awaiting + posting.Failed)</span>
+                            }
+                        </div>
+
+                        <ul class="vend-posting">
+                            <li><span class="vend-dot is-good"></span>Posted<strong>@posting.Posted</strong></li>
+                            <li><span class="vend-dot"></span>Awaiting the posting run<strong>@posting.Awaiting</strong></li>
+                            <li class="@(posting.Failed > 0 ? "is-bad" : null)"><span class="vend-dot is-bad"></span>Needs attention<strong>@posting.Failed</strong></li>
+                            @if (posting.Excluded > 0)
+                            {
+                                <li><span class="vend-dot"></span>Excluded from posting<strong>@posting.Excluded</strong></li>
+                            }
+                        </ul>
+
+                        <p class="vend-ledger-note">
+                            A vendor pays the till, so nothing here is owed. This is how far the window's
+                            sales have got into SAP.
+                        </p>
+                        <a class="shop-btn shop-btn-ghost vend-btn-block" href="@SalesHref">
+                            <i class="bi bi-receipt"></i>See every sale
+                        </a>
+                    </div>
+                }
+            </section>
+
+            <section class="vend-card">
+                <div class="vend-card-kicker"><span class="vend-kicker-rule"></span>Depot</div>
+                <div class="vend-depot-title">@DepotLabel</div>
+                <div class="vend-card-sub">@DepotServiceLine</div>
+                <div class="vend-ledger-rule"></div>
+                <div class="vend-card-sub">
+                    Stock leaves @Codes(Depot?.WarehouseCodes) and the sale is invoiced to
+                    <span class="vend-mono">@Vendor.AssignedBusinessPartnerCode</span>, which carries the account.
+                </div>
+            </section>
+
+            <section class="vend-card">
+                <h3 class="vend-card-title">Vendor details</h3>
                 <dl class="vend-facts">
                     <div><dt>Vendor code</dt><dd class="vend-mono">@Vendor.Code</dd></div>
-                    <div><dt>Depot</dt><dd>@DepotName <span class="vend-cell-mute">@Vendor.AssignedBusinessPartnerCode</span></dd></div>
-                    <div><dt>Draws stock from</dt><dd>@Codes(Depot?.WarehouseCodes)</dd></div>
                     <div><dt>Cost centre</dt><dd>@Codes(Depot?.CostCentreCodes)</dd></div>
                     <div><dt>Cashiers</dt><dd>@(Cashiers.Count == 0 ? "None" : string.Join(", ", Cashiers.Select(CashierName)))</dd></div>
                     <div><dt>Phone</dt><dd>@Dash(Vendor.Phone)</dd></div>
@@ -241,49 +421,30 @@
                     <div><dt>On file since</dt><dd>@OnFileSince</dd></div>
                 </dl>
             </section>
-
-            <section class="vend-card">
-                <header class="vend-card-head">
-                    <h3 class="vend-card-title">Posting to SAP</h3>
-                    @if (posting is not null)
-                    {
-                        <span class="shop-chip @PostingChip">@PostingChipLabel</span>
-                    }
-                </header>
-                @if (isLoading)
-                {
-                    <span class="vend-skel vend-skel-wide"></span>
-                }
-                else if (posting is { Total: 0 })
-                {
-                    <p class="vend-card-empty">Nothing to post this month.</p>
-                }
-                else if (posting is not null)
-                {
-                    <div>
-                        <div class="vend-settle-figure">
-                            @posting.Posted<span class="vend-settle-of"> of @posting.Total</span>
-                        </div>
-                        <div class="vend-settle-note">Sales this month posted to SAP</div>
-                    </div>
-                    <ul class="vend-posting">
-                        <li><span class="vend-dot is-good"></span>Posted<strong>@posting.Posted</strong></li>
-                        <li><span class="vend-dot"></span>Awaiting the posting run<strong>@posting.Awaiting</strong></li>
-                        <li class="@(posting.Failed > 0 ? "is-bad" : null)"><span class="vend-dot is-bad"></span>Needs attention<strong>@posting.Failed</strong></li>
-                        @if (posting.Excluded > 0)
-                        {
-                            <li><span class="vend-dot"></span>Excluded from posting<strong>@posting.Excluded</strong></li>
-                        }
-                    </ul>
-                }
-            </section>
         </div>
     </div>
 </div>
 
 @code {
-    private const int RecentCount = 8;
-    private const int MixCount = 6;
+    /// <summary>How many items the breakdown names before the total row starts saying "top N of M".</summary>
+    private const int MixCount = 12;
+
+    /// <summary>How many days the activity list shows before sending the reader to the full sales page.</summary>
+    private const int ActivityDays = 10;
+
+    /// <summary>How many items one activity row names before it says "+N more".</summary>
+    private const int ItemsNamedPerSale = 3;
+
+    private const int DefaultRangeDays = 90;
+    private const int WidestRangeDays = 365;
+
+    private static readonly (int Days, string Label)[] QuickRanges =
+    [
+        (7, "7 days"),
+        (30, "30 days"),
+        (DefaultRangeDays, "90 days"),
+        (WidestRangeDays, "12 months")
+    ];
 
     [Parameter, EditorRequired] public RouteCustomerModel Vendor { get; set; } = default!;
     [Parameter] public string DepotName { get; set; } = string.Empty;
@@ -299,22 +460,38 @@
 
     private int loadedFor;
     private bool isLoading = true;
+    private bool isExporting;
+    private bool menuOpen;
     private string? loadError;
     private DateTime today;
-    private DateTime windowStart;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private int? activeRangeDays = DefaultRangeDays;
 
     private RouteCustomerSalesDetailModel? detail;
-    private VendorSalesDigest.MonthToDate? month;
+    private VendorSalesDigest.Window? window;
     private VendorSalesDigest.Posting? posting;
-    private List<VendorSalesDigest.Day> days = [];
     private List<VendorSalesDigest.MixItem> mix = [];
-    private List<RouteCustomerSaleModel> recent = [];
+    private List<VendorSalesDigest.ActivityDay> activity = [];
+    private int mixTotal;
+    private int moreDays;
 
     protected override async Task OnParametersSetAsync()
     {
         if (Vendor.Id != loadedFor)
         {
             loadedFor = Vendor.Id;
+            menuOpen = false;
+
+            // A new vendor starts on the default window rather than the one the last vendor was left on:
+            // the page is reached from a list, and a window carried over silently would make two vendors
+            // look comparable when they were measured over different periods.
+            today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+            activeRangeDays = DefaultRangeDays;
+            toDate = today;
+            fromDate = today.AddDays(-(DefaultRangeDays - 1));
+
             await LoadAsync();
         }
     }
@@ -324,36 +501,39 @@
     private async Task LoadAsync()
     {
         today = IAuditService.ToCAT(DateTime.UtcNow).Date;
-        windowStart = VendorSalesDigest.WindowStart(today);
         isLoading = true;
         loadError = null;
         detail = null;
-        month = null;
+        window = null;
         posting = null;
-        days = [];
         mix = [];
-        recent = [];
+        activity = [];
+        mixTotal = 0;
+        moreDays = 0;
 
         var requestedFor = Vendor.Id;
         try
         {
-            var read = await RouteCustomerService.GetRouteCustomerSalesAsync(requestedFor, windowStart, today);
+            var read = await RouteCustomerService.GetRouteCustomerSalesAsync(requestedFor, fromDate, toDate);
             if (requestedFor != Vendor.Id)
             {
                 return;
             }
 
             detail = read;
-            month = VendorSalesDigest.SummariseMonth(read.Sales, today);
-            posting = VendorSalesDigest.PostingSince(read.Sales, VendorSalesDigest.MonthStart(today));
-            days = VendorSalesDigest.Daily(read.Sales, today, month.Currency);
-            mix = VendorSalesDigest.ProductMix(read.Sales, today, month.Currency, MixCount);
-            recent = read.Sales
-                .OrderByDescending(sale => sale.SoldAt)
-                .ThenByDescending(sale => sale.SapDocNum ?? 0)
-                .ThenByDescending(sale => sale.Reference, StringComparer.Ordinal)
-                .Take(RecentCount)
-                .ToList();
+            window = VendorSalesDigest.Summarise(read.Sales);
+            posting = VendorSalesDigest.PostingSince(read.Sales, read.From);
+
+            // The item table is the primary currency's alone, so its total row can be one number. The
+            // count behind the cap is the whole set, which is what lets the row say it is a top N.
+            mixTotal = VendorSalesDigest.ProductMix(read.Sales, window.Currency, int.MaxValue).Count;
+            mix = VendorSalesDigest.ProductMix(read.Sales, window.Currency, MixCount);
+
+            // The activity list is every currency's, unlike the figures above: a sale happened whatever
+            // it was rung up in, and each row carries its own currency.
+            var days = VendorSalesDigest.ActivityByDay(read.Sales, int.MaxValue);
+            moreDays = Math.Max(0, days.Count - ActivityDays);
+            activity = days.Take(ActivityDays).ToList();
         }
         catch (InvalidOperationException ex)
         {
@@ -371,94 +551,290 @@
         }
     }
 
-    // A figure is a dash while loading or after a failure, never a zero — "0 invoices" is a claim.
-    private string Figure(Func<string> value) => isLoading || detail is null ? "—" : value();
-
-    private string DailySubtitle => month?.Currency is { } currency
-        ? $"Last {VendorSalesDigest.DailyWindowDays} days · {currency}"
-        : $"Last {VendorSalesDigest.DailyWindowDays} days";
-
-    private string FullName => string.IsNullOrWhiteSpace(Vendor.Surname) ? Vendor.Name : $"{Vendor.Name} {Vendor.Surname}";
-
-    private string SalesHref => $"/vending/vendors/{Vendor.Id}/sales";
-
-    private string CashierLine => Cashiers.Count switch
+    private async Task OnDateChangedAsync(DateTime? value, bool isFrom)
     {
-        0 => "no cashier at this depot",
-        1 => $"cashier {CashierName(Cashiers[0])}",
-        _ => $"{Cashiers.Count} cashiers"
-    };
-
-    private static string CashierName(VendingAccountModel account) =>
-        string.IsNullOrWhiteSpace(account.FullName) ? account.Username : account.FullName;
-
-    private DateTime? LastSaleAt => ListRow?.LastSaleAt ?? detail?.LastSaleAt;
-
-    private string MonthNote
-    {
-        get
+        if (isFrom)
         {
-            var since = $"Since {VendorSalesDigest.MonthStart(today).ToString("dd MMM", CultureInfo.InvariantCulture)}";
-            return month is { OtherCurrencies.Count: > 0 } ? $"{since} · {OtherCurrencyNote} aside" : since;
+            fromDate = value;
+        }
+        else
+        {
+            toDate = value;
+        }
+
+        activeRangeDays = null;
+        await LoadAsync();
+    }
+
+    private async Task ApplyRangeAsync(int days)
+    {
+        toDate = today;
+        fromDate = today.AddDays(-(days - 1));
+        activeRangeDays = days;
+        await LoadAsync();
+    }
+
+    private void ToggleMenu() => menuOpen = !menuOpen;
+
+    private void CloseMenu() => menuOpen = false;
+
+    private async Task EditFromMenu()
+    {
+        menuOpen = false;
+        await OnEdit.InvokeAsync(Vendor);
+    }
+
+    private async Task ToggleFromMenu()
+    {
+        menuOpen = false;
+        await OnToggle.InvokeAsync(Vendor);
+    }
+
+    private async Task ExportAsync()
+    {
+        if (detail is null)
+        {
+            return;
+        }
+
+        isExporting = true;
+        try
+        {
+            var bytes = ExportService.ExportRouteCustomerSalesToExcel(detail, DepotLabel);
+            var fileName = $"Vendor_Sales_{Vendor.Code}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+            Snackbar.Add("Export ready.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
         }
     }
 
-    private string OtherCurrencyNote => month is null
-        ? string.Empty
-        : string.Join(", ", month.OtherCurrencies.Select(total => VendorSalesDigest.Money(total.Currency, total.Gross)));
+    // A figure is a dash while loading or after a failure, never a zero — "0 invoices" is a claim.
+    private string Figure(Func<string> value) => isLoading || detail is null || window is null || posting is null ? "—" : value();
+
+    /// <summary>True once the read has come back with nothing in it, which the figures are greyed for.</summary>
+    private bool IsQuiet => !isLoading && window is { SaleCount: 0 };
+
+    private string FullName => string.IsNullOrWhiteSpace(Vendor.Surname) ? Vendor.Name : $"{Vendor.Name} {Vendor.Surname}";
+
+    private string DepotLabel => string.IsNullOrWhiteSpace(DepotName) ? Vendor.AssignedBusinessPartnerCode : DepotName;
+
+    private string SalesHref => $"/vending/vendors/{Vendor.Id}/sales";
+
+    private DateTime? LastSaleAt => ListRow?.LastSaleAt ?? detail?.LastSaleAt;
+
+    private string WindowLabel => VendorSalesDigest.WindowLabel(
+        fromDate ?? detail?.From ?? today,
+        toDate ?? detail?.To ?? today);
+
+    private VendorSalesDigest.Standing Standing =>
+        VendorSalesDigest.StandingOf(Vendor.IsActive, LastSaleAt, today);
+
+    private string StandingClass => Standing switch
+    {
+        VendorSalesDigest.Standing.Trading => "is-trading",
+        VendorSalesDigest.Standing.Removed => "is-removed",
+        _ => "is-quiet"
+    };
+
+    private string StandingLabel => Standing switch
+    {
+        VendorSalesDigest.Standing.Trading => "Active · selling",
+        VendorSalesDigest.Standing.Removed => "Removed · off the till",
+        VendorSalesDigest.Standing.NeverSold => "Active · never sold to",
+        _ => $"Dormant · {DaysSinceLastSale} days"
+    };
+
+    private int DaysSinceLastSale => LastSaleAt is { } last ? (int)(today.Date - last.Date).TotalDays : 0;
+
+    private string Lede => Standing == VendorSalesDigest.Standing.Removed
+        ? $"Removed from the till, so nothing new can be invoiced to {Vendor.Name}. Everything sold before then is still on record and still counted below."
+        : $"Buys at the {DepotLabel} till and sells on. Every figure here is what that till invoiced to {Vendor.Code}, billed to the depot's own account — the vendor is not on credit and owes nothing.";
+
+    /// <summary>
+    /// The sales figure without its cents, or null while there is nothing to show. Split so the cents
+    /// can be set a step down, which is how the design draws money — and split on the last dot rather
+    /// than by formatting twice, so the two halves cannot disagree about rounding.
+    /// </summary>
+    private string? ValueFigure
+    {
+        get
+        {
+            if (isLoading || detail is null || window is null || posting is null || window.Currency is null)
+            {
+                return null;
+            }
+
+            var money = Split(window.Gross);
+            var dot = money.LastIndexOf('.');
+            return dot < 0 ? money : money[..dot];
+        }
+    }
+
+    private string ValueCents
+    {
+        get
+        {
+            if (window?.Currency is null)
+            {
+                return string.Empty;
+            }
+
+            var money = Split(window.Gross);
+            var dot = money.LastIndexOf('.');
+            return dot < 0 ? string.Empty : money[dot..];
+        }
+    }
+
+    private string ValueNote
+    {
+        get
+        {
+            if (window!.Currency is null)
+            {
+                return $"Nothing sold · {WindowLabel}";
+            }
+
+            var perUnit = window.Units > 0
+                ? $" · avg {VendorSalesDigest.Money(null, window.Gross / window.Units)} per unit"
+                : string.Empty;
+
+            return window.OtherCurrencies.Count > 0
+                ? $"{window.Currency}{perUnit} · {OtherCurrencyNote} aside"
+                : $"{window.Currency}{perUnit}";
+        }
+    }
+
+    private string UnitsNote => window! switch
+    {
+        { SaleCount: 0 } => "Nothing invoiced in this window",
+        var current => $"Across {Plural(current.SaleCount, "invoice")} · {Plural(current.LineCount, "line")}"
+    };
+
+    private string LastSaleNote => LastSaleAt is { } last
+        ? $"{(last.Date < (fromDate ?? today).Date ? "Before this window · " : string.Empty)}{last.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)}"
+        : "No sale on record, ever";
 
     private string PostingNote => posting switch
     {
         null => string.Empty,
-        { Failed: > 0 } => posting.Failed == 1 ? "1 needs attention" : $"{posting.Failed} need attention",
+        { Failed: > 0 } => Plural(posting.Failed, "sale") + " needing attention",
         { Awaiting: > 0 } => "Awaiting the posting run",
-        { Total: 0 } => "No sales this month",
-        _ => "All posted this month"
+        { Total: 0 } => "No sale in this window",
+        _ => "Every sale in this window is posted"
     };
 
-    private string PostingChip => posting switch
+    private string PostingRuleClass => posting switch
     {
-        { Failed: > 0 } => "shop-chip-bad",
-        { Awaiting: > 0 } => "shop-chip-neutral",
-        _ => "shop-chip-good"
+        { Failed: > 0 } => "is-bad",
+        { Awaiting: > 0 } => "is-lit",
+        _ => string.Empty
     };
 
-    private string PostingChipLabel => posting switch
-    {
-        { Failed: > 0 } => "Attention",
-        { Awaiting: > 0 } => "In progress",
-        _ => "Clear"
-    };
+    private string ItemsCount => isLoading || window is null
+        ? string.Empty
+        : mixTotal == 0
+            ? "nothing sold"
+            : $"{Plural(mixTotal, "item")} · {VendorSalesDigest.Quantity(window.Units)} units";
 
-    private string BarHeight(VendorSalesDigest.Day day)
+    private string ActivityCount
     {
-        var peak = days.Count == 0 ? 0m : days.Max(entry => entry.Gross);
-        if (peak <= 0 || day.Gross <= 0)
+        get
         {
-            return "0%";
+            if (isLoading || detail is null)
+            {
+                return string.Empty;
+            }
+
+            return detail.Sales.Count == 0 ? "no sales" : Plural(detail.Sales.Count, "sale");
         }
-
-        var percent = Math.Max(4m, Math.Round(day.Gross / peak * 100m, 1));
-        return $"{percent.ToString(CultureInfo.InvariantCulture)}%";
     }
 
-    private string DayTitle(VendorSalesDigest.Day day)
+    private string MixTotalLabel
     {
-        var date = day.Date.ToString("ddd dd MMM", CultureInfo.InvariantCulture);
-        return day.SaleCount == 0
-            ? $"{date}: no sales"
-            : $"{date}: {VendorSalesDigest.Money(month?.Currency, day.Gross)} across {(day.SaleCount == 1 ? "1 invoice" : $"{day.SaleCount} invoices")}";
+        get
+        {
+            var currency = window?.Currency;
+            var suffix = currency is null ? string.Empty : $" · {currency}";
+            return mixTotal > mix.Count
+                ? $"Top {mix.Count} of {mixTotal} items{suffix}"
+                : $"{Plural(mix.Count, "item")}{suffix}";
+        }
     }
 
-    private string BarsLabel =>
-        $"Daily sales for the last {VendorSalesDigest.DailyWindowDays} days: " +
-        string.Join("; ", days.Where(day => day.SaleCount > 0).Select(DayTitle).DefaultIfEmpty("no sales"));
-
-    private string MixWidth(VendorSalesDigest.MixItem item)
+    private string QuietStory
     {
-        var top = mix.Count == 0 ? 0m : mix.Max(entry => entry.Value);
-        var percent = top <= 0 ? 0m : Math.Round(item.Value / top * 100m, 1);
-        return $"{percent.ToString(CultureInfo.InvariantCulture)}%";
+        get
+        {
+            var everSold = LastSaleAt is { } last
+                ? $"The last sale on record is {last.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)}."
+                : "There is no sale on record for this vendor, ever.";
+
+            return $"No sale was invoiced to {FullName} between {WindowLabel}. {everSold}";
+        }
+    }
+
+    private string OtherCurrencyNote => window is null
+        ? string.Empty
+        : string.Join(", ", window.OtherCurrencies.Select(total => VendorSalesDigest.Money(total.Currency, total.Gross)));
+
+    /// <summary>
+    /// The window's figures are all in one currency, so it is said once on the label rather than on every
+    /// number. This is the bare figure that goes under that label.
+    /// </summary>
+    private string Split(decimal amount) => VendorSalesDigest.Money(window?.Currency, amount);
+
+    private static string UnitOf(VendorSalesDigest.MixItem item) =>
+        string.IsNullOrWhiteSpace(item.UoMCode) ? "ea" : item.UoMCode;
+
+    /// <summary>
+    /// What one of these went for on average across the window. Blank rather than a division by zero when
+    /// an item's quantities cancel out, which a return against a sale of the same item does.
+    /// </summary>
+    private static string UnitPrice(VendorSalesDigest.MixItem item) =>
+        item.Units == 0 ? "—" : (item.Value / item.Units).ToString("N2", CultureInfo.InvariantCulture);
+
+    /// <summary>The SAP invoice number where the sale has one, and the till's own reference until it does.</summary>
+    private static string EventId(RouteCustomerSaleModel sale) =>
+        sale.SapDocNum is { } docNum ? docNum.ToString(CultureInfo.InvariantCulture) : Shorten(sale.Reference);
+
+    private static string EventIdTitle(RouteCustomerSaleModel sale) =>
+        sale.SapDocNum is { } docNum
+            ? $"SAP invoice {docNum} · till reference {sale.Reference}"
+            : $"Till reference {sale.Reference} · not in SAP yet";
+
+    /// <summary>A till reference is a GUID-length string and the rail is one figure wide; the tail identifies it.</summary>
+    private static string Shorten(string reference) =>
+        reference.Length <= 8 ? reference : $"…{reference[^7..]}";
+
+    private static string PaymentLabel(RouteCustomerSaleModel sale) =>
+        string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "Payment not recorded" : sale.PaymentMethod;
+
+    private static string LineLabel(RouteCustomerSaleModel sale) =>
+        $"{VendorSalesDigest.Quantity(sale.Lines.Sum(line => line.Quantity))} units";
+
+    private static string CashierName(VendingAccountModel account) =>
+        string.IsNullOrWhiteSpace(account.FullName) ? account.Username : account.FullName;
+
+    private string DepotServiceLine
+    {
+        get
+        {
+            var cashiers = Cashiers.Count switch
+            {
+                0 => "no cashier assigned",
+                1 => $"served by {CashierName(Cashiers[0])}",
+                _ => $"served by {Cashiers.Count} cashiers"
+            };
+
+            return $"{Vendor.AssignedBusinessPartnerCode} · {cashiers}";
+        }
     }
 
     private string OnFileSince
@@ -470,12 +846,10 @@
         }
     }
 
-    private static string Units(decimal units) =>
-        units == decimal.Truncate(units)
-            ? units.ToString("N0", CultureInfo.InvariantCulture)
-            : units.ToString("N2", CultureInfo.InvariantCulture);
+    private static string Plural(int count, string noun) =>
+        $"{count.ToString("N0", CultureInfo.InvariantCulture)} {noun}{(count == 1 ? string.Empty : "s")}";
 
-    private static string Codes(List<string>? codes) => codes is null || codes.Count == 0 ? "Not set" : string.Join(", ", codes);
+    private static string Codes(List<string>? codes) => codes is null || codes.Count == 0 ? "no warehouse set" : string.Join(", ", codes);
 
     private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 }

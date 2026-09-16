@@ -17,7 +17,7 @@ namespace ShopInventory.Tests;
 
 /// <summary>
 /// The sales figures on /vending: each vendor's month to date and last sale on the list, and the vendor
-/// page's daily chart, product mix, recent invoices and posting counts.
+/// page's window totals, item breakdown, day-grouped activity list and posting counts.
 ///
 /// None of it has an endpoint of its own. The page reads the route-customer reports, which were written
 /// for vans, so the first thing worth proving is that a vending till's sale — invoiced on the depot's
@@ -281,6 +281,166 @@ public sealed class VendingVendorSalesTests : IDisposable
         Assert.Equal("Yesterday", VendorSalesDigest.LastSaleLabel(Today.AddDays(-1), Today));
         Assert.Equal("4 days ago", VendorSalesDigest.LastSaleLabel(Today.AddDays(-4), Today));
         Assert.Equal("01 Sep 2026", VendorSalesDigest.LastSaleLabel(new DateTime(2026, 9, 1), Today));
+    }
+
+    // ── The window the vendor page lets the reader choose ──────────────────
+    //
+    // /vending/vendors/{id} no longer shows the month: it shows a window, 90 days by default, and the
+    // reader can move both ends. The endpoint clips to that window, so the page sums everything that
+    // comes back rather than clipping again — and these prove the sum is the window's, that the tax and
+    // paid splits ride with it, and that a second currency is still counted aside rather than added in.
+
+    [Fact]
+    public async Task The_page_sums_the_window_it_was_given_not_the_month()
+    {
+        var tendai = Vendor("VMP001", Depot);
+        await _context.SaveChangesAsync();
+
+        Vend(tendai, 100m, Today, lines: [("MILK2L", 10, 90m)]);
+        Vend(tendai, 40m, new DateTime(2026, 9, 5), lines: [("MILK2L", 4, 35m)]);
+        Vend(tendai, 60m, new DateTime(2026, 8, 20), lines: [("MAHEU500", 30, 52m)]);
+        Vend(tendai, 900m, Today, currency: "ZWG", lines: [("MILK2L", 5, 800m)]);
+        await _context.SaveChangesAsync();
+
+        var from = Today.AddDays(-89);
+        var read = await DetailThroughTheWebAsync(tendai.Id, from, Today);
+        var window = VendorSalesDigest.Summarise(read.Sales);
+
+        // August is inside 90 days and outside the month: a month-to-date sum would have missed it.
+        Assert.Equal("USD", window.Currency);
+        Assert.Equal(200m, window.Gross);
+        Assert.Equal(3, window.SaleCount);
+        Assert.Equal(44m, window.Units);
+        Assert.Equal(26.00m, window.Vat);
+        Assert.Equal(200m, window.Paid);
+        Assert.Equal("ZWG", Assert.Single(window.OtherCurrencies).Currency);
+
+        // And the same sales clipped back to the month are the month's, so the two agree where they
+        // overlap. Two USD sales to the ZWG one, so USD is still the currency the rest is read in —
+        // the primary is decided by count first and only then by value, and on value alone the single
+        // ZWG 900 would have taken it.
+        var month = VendorSalesDigest.SummariseMonth(read.Sales, Today);
+        Assert.Equal("USD", month.Currency);
+        Assert.Equal(140m, month.Gross);
+        Assert.Equal(2, month.SaleCount);
+    }
+
+    [Fact]
+    public async Task The_item_table_counts_the_lines_behind_each_item_and_can_be_capped()
+    {
+        var tendai = Vendor("VMP001", Depot);
+        await _context.SaveChangesAsync();
+
+        Vend(tendai, 113m, Today, lines: [("MAHEU500", 40, 60m), ("MILK2L", 10, 40m)]);
+        Vend(tendai, 56.50m, Today, lines: [("MILK2L", 12, 50m)]);
+        Vend(tendai, 22.60m, new DateTime(2026, 9, 2), lines: [("CHED250", 2, 20m)]);
+        await _context.SaveChangesAsync();
+
+        var read = await DetailThroughTheWebAsync(tendai.Id, Today.AddDays(-89), Today);
+        var mix = VendorSalesDigest.ProductMix(read.Sales, "USD", top: 10);
+
+        Assert.Equal(["MILK2L", "MAHEU500", "CHED250"], mix.Select(item => item.ItemCode));
+
+        // MILK2L was rung up on two sales, MAHEU500 on one. That count is the table's Lines column, and
+        // it is the only thing there that says how often an item moved rather than how much of it did.
+        Assert.Equal(2, mix[0].Lines);
+        Assert.Equal(22m, mix[0].Units);
+        Assert.Equal(90m, mix[0].Value);
+        Assert.Equal(1, mix[1].Lines);
+
+        // The cap is what lets the total row say "top N of M" honestly: the uncapped count is the M.
+        Assert.Equal(3, VendorSalesDigest.ProductMix(read.Sales, "USD", int.MaxValue).Count);
+        Assert.Equal(2, VendorSalesDigest.ProductMix(read.Sales, "USD", top: 2).Count);
+    }
+
+    [Fact]
+    public async Task The_activity_list_is_newest_day_first_with_that_day_s_sales_under_it()
+    {
+        var tendai = Vendor("VMP001", Depot);
+        await _context.SaveChangesAsync();
+
+        Vend(tendai, 10m, new DateTime(2026, 9, 2), sapDocNum: 5001);
+        Vend(tendai, 20m, Today, sapDocNum: 5010);
+        Vend(tendai, 30m, Today, sapDocNum: 5011);
+        // Another currency on a third day: the list is every sale, unlike the figures above it, because
+        // a sale happened whatever it was rung up in.
+        Vend(tendai, 900m, new DateTime(2026, 9, 9), currency: "ZWG", sapDocNum: 5005);
+        await _context.SaveChangesAsync();
+
+        var read = await DetailThroughTheWebAsync(tendai.Id, Today.AddDays(-89), Today);
+        var days = VendorSalesDigest.ActivityByDay(read.Sales, maxDays: 10);
+
+        Assert.Equal([Today, new DateTime(2026, 9, 9), new DateTime(2026, 9, 2)], days.Select(day => day.Date));
+        Assert.Equal("Mon 14 Sep 2026", days[0].Label);
+
+        // Within a day the invoice number is the only order there is — DocDate is a bare date — and the
+        // list runs newest first throughout, so the highest number comes first.
+        Assert.Equal([5011, 5010], days[0].Sales.Select(sale => sale.SapDocNum));
+        Assert.Equal(900m, Assert.Single(days[1].Sales).Total);
+
+        // The cap keeps the card short and the page says how many days it did not draw.
+        Assert.Equal(2, VendorSalesDigest.ActivityByDay(read.Sales, maxDays: 2).Count);
+    }
+
+    [Fact]
+    public async Task An_activity_row_names_the_first_few_items_and_counts_the_rest()
+    {
+        var tendai = Vendor("VMP001", Depot);
+        await _context.SaveChangesAsync();
+
+        Vend(tendai, 200m, Today, lines:
+        [
+            ("MAHEU500", 40, 60m),
+            ("MILK2L", 10, 40m),
+            ("CHED250", 2, 20m),
+            ("YOG1L", 5, 50m),
+            ("BUT500", 1, 30m)
+        ]);
+        await _context.SaveChangesAsync();
+
+        var read = await DetailThroughTheWebAsync(tendai.Id, Today.AddDays(-89), Today);
+        var sale = Assert.Single(read.Sales);
+
+        // No description is seeded, so each line falls back to its code rather than to a blank, which
+        // would read as a sale of nothing.
+        Assert.Equal("MAHEU500 ×40, MILK2L ×10, CHED250 ×2 +2 more", VendorSalesDigest.ItemSummary(sale, 3));
+        Assert.Equal("MAHEU500 ×40, MILK2L ×10, CHED250 ×2, YOG1L ×5, BUT500 ×1", VendorSalesDigest.ItemSummary(sale, 5));
+    }
+
+    [Fact]
+    public void A_vendor_is_dormant_after_thirty_quiet_days_and_removed_whatever_they_last_sold()
+    {
+        // Thirty is the API's own threshold, so a vendor cannot read as dormant here and active on the
+        // depot list. The boundary belongs to the active side: exactly thirty days is still trading.
+        Assert.Equal(VendorSalesDigest.Standing.Trading, VendorSalesDigest.StandingOf(true, Today, Today));
+        Assert.Equal(
+            VendorSalesDigest.Standing.Trading,
+            VendorSalesDigest.StandingOf(true, Today.AddDays(-VendorSalesDigest.DormantDays), Today));
+        Assert.Equal(
+            VendorSalesDigest.Standing.Dormant,
+            VendorSalesDigest.StandingOf(true, Today.AddDays(-(VendorSalesDigest.DormantDays + 1)), Today));
+
+        // Never sold is not a long gap, and the page says so rather than counting days from nothing.
+        Assert.Equal(VendorSalesDigest.Standing.NeverSold, VendorSalesDigest.StandingOf(true, null, Today));
+
+        // Removed outranks everything: they are off the till today whatever they sold yesterday.
+        Assert.Equal(VendorSalesDigest.Standing.Removed, VendorSalesDigest.StandingOf(false, Today, Today));
+        Assert.Equal(VendorSalesDigest.Standing.Removed, VendorSalesDigest.StandingOf(false, null, Today));
+    }
+
+    [Fact]
+    public void A_window_label_says_the_year_once_when_both_ends_share_it()
+    {
+        Assert.Equal("17 Jun – 14 Sep 2026", VendorSalesDigest.WindowLabel(new DateTime(2026, 6, 17), Today));
+        Assert.Equal("20 Dec 2025 – 14 Sep 2026", VendorSalesDigest.WindowLabel(new DateTime(2025, 12, 20), Today));
+    }
+
+    [Fact]
+    public void A_quantity_keeps_its_cents_only_when_it_has_them()
+    {
+        Assert.Equal("64", VendorSalesDigest.Quantity(64m));
+        Assert.Equal("1,284", VendorSalesDigest.Quantity(1284m));
+        Assert.Equal("1.50", VendorSalesDigest.Quantity(1.5m));
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

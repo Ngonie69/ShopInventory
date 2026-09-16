@@ -175,14 +175,6 @@
     background: rgba(var(--shop-fam-neutral-rgb), .16);
 }
 
-.vend .vend-avatar-lg {
-    width: 44px;
-    height: 44px;
-    font-size: 15px;
-    color: var(--shop-accent-text);
-    background: rgba(var(--shop-accent-rgb), .2);
-}
-
 .vend .vend-person-text {
     display: flex;
     flex-direction: column;
@@ -288,14 +280,36 @@
    posting card on the right.
    ────────────────────────────────────────────────────────────────────────── */
 
+/* ── One vendor ──────────────────────────────────────────────────────────────
+   /vending/vendors/{id}, built from `Vendor Detail.dc.html`: the crumb, the
+   hero, the window bar, four figures, the item table, the day-grouped activity
+   list and the right-hand column.
+
+   The design is drawn at the design system's own density and this page runs it
+   at 0.70x — the ratio nocturne-tokens.css's geometry block already states, and
+   why `--space-6` there is `--shop-s6` here exactly. Spacing therefore converts
+   one for one. Type does not, because the design states its sizes in px rather
+   than tokens: the small steps (11–13px) already match this app's, and the
+   display steps are pulled back to the ceiling every other Nocturne page keeps
+   (the name 44px → 32px, a figure 38px → 27px). A vendor's name three times the
+   size of every other page's title would be the one thing on the screen that
+   did not belong to the app.
+
+   Two more deliberate departures. The design's page-wide radial wash is not
+   here: /vending and /vending/vendors/{id} are one Blazor page inside one
+   `.shop` root, and a ground that changed under one of the two views would read
+   as a different app. And the icons stay Bootstrap rather than the design's
+   Phosphor, for the same reason — the depot list beside this is `bi`.
+   ────────────────────────────────────────────────────────────────────────── */
+
 .vend .vend-detail {
     display: flex;
     flex-direction: column;
-    gap: var(--shop-s6);
+    gap: var(--shop-s8);
 }
 
 .vend .vend-detail > .shop-crumb {
-    margin-bottom: calc(var(--shop-s2) * -1);
+    margin-bottom: calc(var(--shop-s4) * -1);
 }
 
 .vend .vend-crumb-link {
@@ -307,19 +321,21 @@
     color: var(--shop-accent-text);
 }
 
+/* ── Hero ────────────────────────────────────────────────────────────────── */
+
 .vend .vend-hero {
     display: flex;
     align-items: flex-start;
     flex-wrap: wrap;
-    gap: var(--shop-s4);
+    gap: var(--shop-s6);
 }
 
 .vend .vend-hero-text {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: var(--shop-s3);
     min-width: 0;
-    flex: 1 1 260px;
+    flex: 1 1 320px;
 }
 
 .vend .vend-hero-line {
@@ -329,13 +345,57 @@
     gap: var(--shop-s3);
 }
 
+/* The design's outline tag. Not a `.shop-chip`: a chip is filled and carries a
+   status, and this carries what kind of record the page is showing. */
+.vend .vend-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border: 1px solid var(--shop-divider);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-standing {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-standing-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--shop-dot-off);
+}
+
+.vend .vend-standing.is-trading .vend-standing-dot {
+    background: var(--shop-accent);
+}
+
+.vend .vend-standing.is-removed {
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-standing.is-removed .vend-standing-dot {
+    background: var(--shop-fam-bad);
+}
+
 .vend .vend-hero-name {
     margin: 0;
-    font-size: 25px;
+    font-size: 32px;
     font-weight: 500;
-    line-height: 1.12;
-    letter-spacing: -.015em;
+    line-height: 1.08;
+    letter-spacing: -.02em;
     color: var(--shop-ink);
+    overflow-wrap: anywhere;
 }
 
 .vend .vend-hero-meta {
@@ -352,8 +412,108 @@
     color: var(--shop-faint);
 }
 
-.vend .vend-hero .shop-header-actions {
+.vend .vend-hero-lede {
+    margin: 0;
+    max-width: 62ch;
+    font-size: 12.5px;
+    color: var(--shop-mute-3);
+    text-wrap: pretty;
+}
+
+.vend .vend-hero-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--shop-s2);
     margin-left: auto;
+}
+
+.vend .vend-btn-icon {
+    width: 32px;
+    padding: 0;
+    flex: none;
+}
+
+.vend .vend-btn-icon i {
+    font-size: 14px;
+}
+
+.vend .vend-btn-block {
+    width: 100%;
+    margin-top: var(--shop-s2);
+}
+
+/* ── The overflow menu ───────────────────────────────────────────────────────
+   The scrim is a real button so a click outside closes the menu without a
+   document listener, and so the keyboard reaches the same escape. It sits under
+   the menu and over everything else on the page.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-menu-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+.vend .vend-menu-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: default;
+}
+
+.vend .vend-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 41;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 196px;
+    padding: var(--shop-s2);
+    border-radius: var(--shop-r-md);
+    background: var(--shop-surface);
+    box-shadow: var(--shop-shadow-pop);
+}
+
+.vend .vend-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    font-family: "Inter", system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    text-align: left;
+    color: var(--shop-ink-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--shop-r-sm);
+    cursor: pointer;
+}
+
+.vend .vend-menu-item:hover:not(:disabled) {
+    background: var(--shop-hover);
+    color: var(--shop-ink);
+}
+
+.vend .vend-menu-item.is-danger {
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-menu-item.is-danger:hover:not(:disabled) {
+    background: rgba(var(--shop-fam-bad-rgb), .1);
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-menu-item:disabled {
+    opacity: .45;
+    cursor: not-allowed;
 }
 
 .vend .vend-mono {
@@ -365,10 +525,57 @@
     margin-left: auto;
 }
 
+/* ── The window bar ──────────────────────────────────────────────────────────
+   Two dates and the four quick ranges, on the hairline the design rules under
+   them: a gradient that fades at both ends so the rule does not butt into the
+   page's own gutters.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-window {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--shop-s4);
+    padding-bottom: var(--shop-s4);
+    background: linear-gradient(to right,
+            transparent,
+            var(--shop-divider) 48px,
+            var(--shop-divider) calc(100% - 48px),
+            transparent) no-repeat bottom / 100% 1px;
+}
+
+.vend .vend-window-dates {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: var(--shop-s3);
+}
+
+.vend .vend-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 150px;
+}
+
+.vend .vend-field > label {
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+}
+
+/* ── The four figures ────────────────────────────────────────────────────────
+   The design leads each card with a short accent rule. It is not decoration: it
+   is the one place on the card that changes colour, so it carries whether the
+   figure under it is quiet, lit or bad without the figure itself shouting.
+   ────────────────────────────────────────────────────────────────────────── */
+
 .vend .vend-kpis {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: var(--shop-s3);
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: var(--shop-s4);
 }
 
 .vend .vend-kpi,
@@ -382,24 +589,55 @@
 }
 
 .vend .vend-kpi {
-    gap: var(--shop-s1);
-    padding: var(--shop-s4) calc(var(--shop-s4) + 3px);
+    gap: var(--shop-s3);
+    padding: var(--shop-s6) calc(var(--shop-s4) + 3px);
+}
+
+.vend .vend-kpi-rule {
+    width: 14px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--shop-accent);
+}
+
+.vend .vend-kpi-rule.is-bad {
+    background: var(--shop-fam-bad);
+}
+
+/* A window with nothing in it: the marks go grey so the row reads as quiet at a
+   glance rather than as figures worth acting on. A card that stays lit — the
+   last-activity one — keeps its accent, because it is answered even here. */
+.vend .vend-kpis.is-quiet .vend-kpi-rule:not(.is-lit):not(.is-bad) {
+    background: var(--shop-dot-off);
+}
+
+.vend .vend-kpis.is-quiet .vend-kpi-value:not(.is-bad) {
+    color: var(--shop-mute-3);
 }
 
 .vend .vend-kpi-label {
     font-size: 10px;
     letter-spacing: .09em;
     text-transform: uppercase;
-    color: var(--shop-mute-3);
+    color: var(--shop-mute-2);
 }
 
 .vend .vend-kpi-value {
-    font-size: 23px;
+    font-size: 27px;
     font-weight: 500;
-    line-height: 1.15;
+    line-height: 1.05;
+    letter-spacing: -.02em;
     font-variant-numeric: tabular-nums;
     color: var(--shop-ink);
     overflow-wrap: anywhere;
+}
+
+/* Cents a step down from the figure, the way the design sets money. Muted as
+   well as smaller: at this size the pair reads as one number either way, and the
+   eye should land on the dollars. */
+.vend .vend-kpi-cents {
+    font-size: 15px;
+    color: var(--shop-mute-2);
 }
 
 .vend .vend-kpi-value.is-bad {
@@ -408,13 +646,23 @@
 
 .vend .vend-kpi-note {
     font-size: 11.5px;
-    color: var(--shop-mute-2);
+    color: var(--shop-mute-3);
 }
+
+.vend .vend-kpi-note.is-lit {
+    color: var(--shop-accent-text);
+}
+
+.vend .vend-kpi-note.is-bad {
+    color: var(--shop-fam-bad);
+}
+
+/* ── The two columns ─────────────────────────────────────────────────────── */
 
 .vend .vend-columns {
     display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
-    gap: var(--shop-s4);
+    grid-template-columns: minmax(0, 1.6fr) minmax(280px, .85fr);
+    gap: var(--shop-s6);
     align-items: start;
 }
 
@@ -427,18 +675,7 @@
 
 .vend .vend-card {
     gap: var(--shop-s4);
-    padding: var(--shop-s4) calc(var(--shop-s4) + 3px);
-}
-
-.vend .vend-card-flush {
-    gap: var(--shop-s2);
-    padding: var(--shop-s4) 0 0;
-    overflow: hidden;
-}
-
-.vend .vend-card-flush > .vend-card-head,
-.vend .vend-card-pad {
-    padding-inline: calc(var(--shop-s4) + 3px);
+    padding: var(--shop-s6) calc(var(--shop-s4) + 3px);
 }
 
 .vend .vend-card-head {
@@ -458,12 +695,14 @@
 .vend .vend-card-sub {
     font-size: 11.5px;
     color: var(--shop-mute-3);
+    text-wrap: pretty;
 }
 
 .vend .vend-card-aside {
     margin-left: auto;
-    font-size: 11.5px;
-    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
     color: var(--shop-accent-text);
 }
 
@@ -476,31 +715,336 @@
     align-self: center;
 }
 
-.vend .vend-card-link {
-    margin-left: auto;
-    font-size: 12px;
-    color: var(--shop-accent-text);
-    text-decoration: none;
+.vend .vend-card-kicker {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s3);
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--shop-mute-2);
 }
 
-.vend .vend-card-link:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
+.vend .vend-kicker-rule {
+    width: 14px;
+    height: 2px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--shop-accent);
 }
 
 .vend .vend-card-empty,
 .vend .vend-card-foot {
     margin: 0;
-    font-size: 12.5px;
-    color: var(--shop-mute-2);
-}
-
-.vend .vend-card-flush > .vend-card-empty {
-    padding-bottom: var(--shop-s6);
+    font-size: 11.5px;
+    color: var(--shop-mute-3);
+    text-wrap: pretty;
 }
 
 .vend .vend-card-loading {
     padding: var(--shop-s6);
+}
+
+.vend .vend-card-more {
+    padding-top: var(--shop-s3);
+    font-size: 12px;
+    color: var(--shop-accent-text);
+    text-decoration: none;
+    border-top: 1px solid var(--shop-rule);
+}
+
+.vend .vend-card-more:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.vend .vend-skel-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s3);
+}
+
+/* ── Items sold ──────────────────────────────────────────────────────────────
+   The card scrolls sideways rather than wrapping a cell: a quantity broken over
+   two lines reads as two rows. The header does not stick, because the card does
+   not scroll vertically and a sticky header in one only paints over the row
+   above it.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-table-scroll {
+    overflow-x: auto;
+}
+
+.vend .vend-items {
+    min-width: 480px;
+}
+
+.vend .vend-items thead th {
+    position: static;
+}
+
+.vend .vend-items td {
+    white-space: nowrap;
+}
+
+.vend .vend-items-name {
+    width: 42%;
+}
+
+.vend .vend-items-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.vend .vend-items-cell > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vend .vend-items-cell > span:last-child {
+    font-size: 10.5px;
+}
+
+/* The totals row is the table's answer, so it takes a rule above it rather than
+   below, and it does not light up under the cursor. */
+.vend .vend-items tbody tr.vend-items-total td {
+    border-top: 1px solid var(--shop-divider);
+    border-bottom: 0;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-items tbody tr.vend-items-total:hover td {
+    background: transparent;
+}
+
+.vend .vend-items .vend-items-sum {
+    font-weight: 500;
+    color: var(--shop-ink);
+}
+
+/* ── Activity ────────────────────────────────────────────────────────────────
+   A day, then its sales. There is no time of day on a vending sale — DocDate is
+   a SQL `date` — so the design's time rail carries the invoice number instead,
+   which is what identifies the sale and is already tabular.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-day + .vend-day {
+    padding-top: var(--shop-s4);
+}
+
+.vend .vend-day-label {
+    padding-bottom: var(--shop-s2);
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-event {
+    display: grid;
+    grid-template-columns: 62px minmax(0, 1fr) auto;
+    gap: var(--shop-s4);
+    align-items: center;
+    padding: var(--shop-s3) 0;
+    border-bottom: 1px solid var(--shop-rule);
+}
+
+.vend .vend-day:last-child .vend-event:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.vend .vend-event-id {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vend .vend-event-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.vend .vend-event-line {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s3);
+    min-width: 0;
+}
+
+/* The design marks the row that matters with a short accent dash. Here the row
+   that matters is the one that failed, so the mark takes the bad family — an
+   accent mark on a broken sale would read as a good thing. */
+.vend .vend-event-mark {
+    width: 12px;
+    height: 2px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--shop-fam-bad);
+}
+
+.vend .vend-event-title {
+    min-width: 0;
+    font-size: 13.5px;
+    color: var(--shop-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vend .vend-event-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--shop-s2);
+    font-size: 11.5px;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-event-figure {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.vend .vend-event-amount {
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-ink);
+}
+
+.vend .vend-event-unit {
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-mute-3);
+}
+
+/* ── The quiet states ────────────────────────────────────────────────────── */
+
+.vend .vend-quiet {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: var(--shop-s3);
+    padding: var(--shop-s8) var(--shop-s4);
+}
+
+.vend .vend-quiet > i {
+    font-size: 22px;
+    color: var(--shop-dot-off);
+}
+
+.vend .vend-quiet-head {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--shop-ink);
+}
+
+.vend .vend-quiet p {
+    margin: 0;
+    max-width: 48ch;
+    font-size: 12.5px;
+    color: var(--shop-mute-3);
+    text-wrap: pretty;
+}
+
+.vend .vend-quiet-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--shop-s2);
+    padding-top: var(--shop-s2);
+}
+
+.vend .vend-quiet-row {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s4);
+    padding: var(--shop-s6) 0;
+    font-size: 12.5px;
+    color: var(--shop-mute-3);
+    text-wrap: pretty;
+}
+
+.vend .vend-quiet-row > i {
+    font-size: 18px;
+    flex: none;
+    color: var(--shop-dot-off);
+}
+
+/* ── Sales & posting, and the depot beside it ────────────────────────────── */
+
+.vend .vend-ledger {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s3);
+    font-size: 13px;
+}
+
+.vend .vend-ledger-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--shop-s4);
+    color: var(--shop-mute);
+}
+
+.vend .vend-ledger-row > span:last-child {
+    color: var(--shop-ink);
+    white-space: nowrap;
+}
+
+.vend .vend-ledger-rule {
+    height: 1px;
+    margin: var(--shop-s1) 0;
+    background: var(--shop-divider);
+}
+
+.vend .vend-ledger-foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--shop-s4);
+}
+
+.vend .vend-ledger-foot-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--shop-ink);
+}
+
+.vend .vend-ledger-figure {
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-accent-text);
+}
+
+.vend .vend-ledger-figure.is-bad {
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-ledger-note {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--shop-mute-3);
+    text-wrap: pretty;
+}
+
+.vend .vend-depot-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--shop-ink);
 }
 
 /* Fourteen days, today in solid accent, the rest at half strength. A quiet
@@ -609,20 +1153,8 @@
     background: var(--shop-accent);
 }
 
-.vend .vend-table-scroll {
-    overflow-x: auto;
-}
-
-.vend .vend-invoices thead th {
-    position: static;
-}
-
-/* Cells keep their line and the card scrolls sideways instead: a date broken over
-   three lines at phone width reads as three rows. */
-.vend .vend-invoices td {
-    white-space: nowrap;
-}
-
+/* /vending/sales still lists invoices in a table of its own. This is all that
+   the vendor page's old invoice list left behind, and it is read from there. */
 .vend .vend-invoice-no {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -660,25 +1192,6 @@
     text-align: right;
     color: var(--shop-ink);
     overflow-wrap: anywhere;
-}
-
-.vend .vend-settle-figure {
-    font-size: 26px;
-    font-weight: 500;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    color: var(--shop-ink);
-}
-
-.vend .vend-settle-of {
-    font-size: 15px;
-    color: var(--shop-mute-2);
-}
-
-.vend .vend-settle-note {
-    margin-top: 5px;
-    font-size: 11px;
-    color: var(--shop-mute-3);
 }
 
 .vend .vend-posting {
@@ -788,9 +1301,32 @@
 }
 
 @media (max-width: 600px) {
-    .vend .vend-hero .shop-header-actions {
+    .vend .vend-hero-actions {
         width: 100%;
         margin-left: 0;
+    }
+
+    /* The two dates share the row rather than keeping a fixed width: at 132px
+       the field clips its own year to "19.06.202". */
+    .vend .vend-window-dates {
+        width: 100%;
+        flex-wrap: nowrap;
+    }
+
+    .vend .vend-field {
+        flex: 1 1 0;
+        min-width: 0;
+        width: auto;
+    }
+
+    /* The invoice rail folds under the row rather than squeezing the title. */
+    .vend .vend-event {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--shop-s2) var(--shop-s3);
+    }
+
+    .vend .vend-event-id {
+        grid-column: 1 / -1;
     }
 
     .vend .vend-bars {
