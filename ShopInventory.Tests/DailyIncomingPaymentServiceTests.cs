@@ -186,6 +186,35 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         Assert.Single(_sap.Held);
     }
 
+    /// <summary>
+    /// A payment whose SAP login failed was never sent, so it is not held for the grace window the way
+    /// a lost reply is. It used to be: the marker stayed, the payment went Unresolved, and the day's
+    /// settlement waited fifteen minutes over a request SAP never received.
+    /// </summary>
+    [Fact]
+    public async Task A_payment_whose_login_failed_is_not_held_and_posts_on_the_next_run()
+    {
+        await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+        _sap.NextCreate = CreateOutcome.LoginFails;
+
+        var failed = await Run(Cat(Day, 17, 0));
+
+        Assert.Equal(1, failed.Failed);
+        Assert.Equal(0, failed.Unresolved);
+        var pending = await _context.DailyIncomingPayments.AsNoTracking().SingleAsync();
+        Assert.Equal(DailyIncomingPaymentStatus.Pending, pending.Status);
+        Assert.Null(pending.PostIssuedAtUtc);
+        // An outage, not a refusal: the budget is untouched.
+        Assert.Equal(0, pending.Attempts);
+
+        // Ten minutes later, inside the window a lost reply would still be waiting out.
+        var retried = await Run(Cat(Day, 17, 10));
+
+        Assert.Equal(1, retried.Posted);
+        Assert.Equal(2, _sap.CreateCalls);
+        Assert.Single(_sap.Held);
+    }
+
     [Fact]
     public async Task A_refused_payment_keeps_its_invoices_and_is_sent_again()
     {
@@ -395,6 +424,9 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         /// <summary>The request never reaches SAP, and the caller cannot tell.</summary>
         LoseRequest,
 
+        /// <summary>The client could not log in, so the payment was never sent — and the client says so.</summary>
+        LoginFails,
+
         /// <summary>SAP answers with a refusal.</summary>
         Refuse
     }
@@ -443,6 +475,14 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
             if (outcome == CreateOutcome.LoseRequest)
             {
                 throw new TimeoutException("The request timed out.");
+            }
+
+            if (outcome == CreateOutcome.LoginFails)
+            {
+                // Marked the way SAPServiceLayerClient.BeforeSendAsync marks it.
+                var loginFailure = new HttpRequestException("No connection could be made to the Service Layer.");
+                SapFailureClassifier.MarkNotSent(loginFailure);
+                throw loginFailure;
             }
 
             var docNum = _nextDocNum++;

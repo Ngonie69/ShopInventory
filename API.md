@@ -2882,7 +2882,9 @@ sale is not sent again for `DesktopSalePosting:UnresolvedPostGraceMinutes` (van 
 keeps what the post actually failed with through the hold. A post requested inside the window is
 answered `Failed` with a message naming the time the hold ends, and nothing is sent. A failure
 before the invoice leaves — the SAP login, the invoice series lookup, an open circuit — holds
-nothing, and the sale is retried on the next pass.
+nothing, and the sale is retried on the next pass. The same holds for the desktop credit memo and
+the daily incoming payment: a failed login before either is sent leaves no post marker, so the
+payment is not held as unresolved and is retried on the next run.
 
 **A credit is two documents, and ZIMRA comes first.** `POST .../credit-notes` files the fiscal credit
 against the original REVMax receipt and answers as soon as that is settled; the SAP credit memo

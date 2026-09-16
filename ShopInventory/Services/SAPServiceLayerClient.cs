@@ -674,6 +674,48 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Awaits a step a create method takes before its document is sent, and marks a failure of it as
+    /// never sent.
+    /// </summary>
+    /// <remarks>
+    /// Logging in, logging in again after a 401, resolving the invoice series: if one of these fails,
+    /// SAP has not received the document. The posting services record a post marker before calling a
+    /// create method, and without the mark such a failure held the document for the grace window as
+    /// though SAP might have it. See <see cref="SapFailureClassifier.DefinitelyNotCommitted"/>.
+    ///
+    /// <para>
+    /// Only ever around a step inside the method that sends the document, and before that send. A
+    /// login failure elsewhere proves nothing about a document already sent — which is why this is
+    /// not simply done inside <see cref="EnsureAuthenticatedAsync"/>, which also runs for reads made
+    /// after a write.
+    /// </para>
+    /// </remarks>
+    private static async Task BeforeSendAsync(Task step)
+    {
+        try
+        {
+            await step;
+        }
+        catch (Exception ex) when (SapFailureClassifier.MarkNotSent(ex))
+        {
+            throw;
+        }
+    }
+
+    /// <inheritdoc cref="BeforeSendAsync(Task)"/>
+    private static async Task<T> BeforeSendAsync<T>(Task<T> step)
+    {
+        try
+        {
+            return await step;
+        }
+        catch (Exception ex) when (SapFailureClassifier.MarkNotSent(ex))
+        {
+            throw;
+        }
+    }
+
     private async Task LoginAsync(CancellationToken cancellationToken)
     {
         var loginRequest = new LoginRequest
@@ -1253,19 +1295,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CreateInvoiceRequest request,
         CancellationToken cancellationToken = default)
     {
-        // Nothing below the try has been sent yet, and a failure in it is marked so. The posting
-        // services record that a post went out before calling this method, so without the mark a
-        // SAP login that failed would hold a sale for the grace window as though SAP might have
-        // taken an invoice it never received. See SapFailureClassifier.DefinitelyNotCommitted.
-        PreparedInvoicePost prepared;
-        try
-        {
-            prepared = await PrepareInvoicePostAsync(request, cancellationToken);
-        }
-        catch (Exception ex) when (SapFailureClassifier.MarkNotSent(ex))
-        {
-            throw;
-        }
+        // Nothing in the preparation has been sent yet, so a failure there - the login, the series
+        // lookup - is marked as never sent. See BeforeSendAsync.
+        var prepared = await BeforeSendAsync(PrepareInvoicePostAsync(request, cancellationToken));
 
         var currentSession = prepared.Session;
         var json = prepared.Json;
@@ -1288,14 +1320,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             // SAP answered the first attempt with a 401, so nothing was created by it, and a failure
             // to log in again happens before the second attempt is sent.
-            try
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-            }
-            catch (Exception ex) when (SapFailureClassifier.MarkNotSent(ex))
-            {
-                throw;
-            }
+            await BeforeSendAsync(HandleAuthFailureAsync(currentSession, cancellationToken));
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "Invoices");
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -12251,7 +12276,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         CreateIncomingPaymentRequest request,
         CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
         var currentSession = _sessionId;
 
         // Validate the request
@@ -12381,7 +12406,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            await BeforeSendAsync(HandleAuthFailureAsync(currentSession, cancellationToken));
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "IncomingPayments")
             {
@@ -15904,7 +15929,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
     public async Task<SAPCreditNote> CreateCreditNoteAsync(CreateCreditNoteRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
         var currentSession = _sessionId;
 
         _logger.LogInformation("Creating credit note in SAP for customer {CardCode}", request.CardCode);
@@ -16040,7 +16065,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            await BeforeSendAsync(HandleAuthFailureAsync(currentSession, cancellationToken));
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "CreditNotes");
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
