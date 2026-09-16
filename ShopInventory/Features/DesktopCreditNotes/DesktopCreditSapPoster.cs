@@ -1,6 +1,8 @@
 ﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -37,6 +39,7 @@ public sealed class DesktopCreditSapPoster(
     ISAPServiceLayerClient sap,
     IStockLedger stockLedger,
     IAuditService audit,
+    IOptions<DesktopSalePostingSettings> settings,
     ILogger<DesktopCreditSapPoster> logger)
 {
     /// <summary>
@@ -164,13 +167,28 @@ public sealed class DesktopCreditSapPoster(
 
         // A post was issued and its outcome never reached us. SAP may hold the memo; ask before
         // sending anything, and treat an unanswerable question as "it may exist".
-        if (note.SapPostIssuedAtUtc is not null)
+        if (note.SapPostIssuedAtUtc is { } issuedAt)
         {
             var recovered = await TryFindPostedAsync(note);
             if (recovered is not null)
             {
                 MarkPosted(note, recovered);
                 await SaveAndAuditAsync(note, sale, "adopted");
+                return;
+            }
+
+            // SAP shows no memo, but that "no" cannot be trusted yet. SAP can commit a document and
+            // not show it to a lookup for a few minutes — that lag is how five sales were invoiced
+            // twice between 25 August and 8 September 2026 — and a second memo is a second reversal of
+            // one return. So the memo is not sent again until the window the sale posting waits out
+            // has passed too. Nothing is written: the recorded error stays what the post failed with,
+            // and no attempt is spent, because the wait is not the credit's fault.
+            var graceMinutes = settings.Value.UnresolvedPostGraceMinutes;
+            if (UnresolvedPostHold.IsHeld(issuedAt, graceMinutes, DateTime.UtcNow))
+            {
+                logger.LogWarning(
+                    "Credit {CreditNote} is not sent to SAP again yet: {Hold}",
+                    note.Number, UnresolvedPostHold.Describe(issuedAt, graceMinutes));
                 return;
             }
         }

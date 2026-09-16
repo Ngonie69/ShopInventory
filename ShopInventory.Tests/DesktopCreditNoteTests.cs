@@ -172,6 +172,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
         var untouched = new DesktopCreditSapPoster(db, StubProxy.Unused<ISAPServiceLayerClient>(),
             StubProxy.For<IStockLedger>((m, _) => throw new InvalidOperationException($"IStockLedger.{m.Name} was called")),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
             NullLogger<DesktopCreditSapPoster>.Instance);
         var fiscalOnly = new DesktopCreditNoteService(db, gateway, untouched,
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
@@ -234,6 +235,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<IStockLedger>((m, _) => m.Name == nameof(IStockLedger.ReleaseAsync)
                     ? Task.CompletedTask : throw new NotSupportedException(m.Name)),
                 StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
             Revmax, NullLogger<DesktopCreditNoteService>.Instance);
@@ -284,6 +286,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<IStockLedger>((m, args) => m.Name == nameof(IStockLedger.ReleaseAsync)
                     ? ReturnUnits((IReadOnlyList<StockLedgerLine>)args![0]!) : throw new NotSupportedException(m.Name)),
                 StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
             Revmax, NullLogger<DesktopCreditNoteService>.Instance);
@@ -350,6 +353,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<IStockLedger>((m, _) => m.Name == nameof(IStockLedger.ReleaseAsync)
                     ? Task.CompletedTask : throw new NotSupportedException(m.Name)),
                 StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
             Revmax, NullLogger<DesktopCreditNoteService>.Instance);

@@ -2901,7 +2901,7 @@ the fiscal one — `Prepared`, `Submitting`, `Fiscalised`, `Rejected` or `Reconc
 |--------------|---------|
 | `Deferred` | The sale has not posted yet. The memo is raised automatically the moment it does. |
 | `Posted` | SAP holds the credit memo; `sapDocNum` names it. |
-| `Failed` | SAP refused it, or could not be asked. Retried by the sweep; `sapError` says why. |
+| `Failed` | SAP refused it, or could not be asked. Retried by the sweep; `sapError` says why. A post that went out without a clear answer is not sent again until `DesktopSalePosting:UnresolvedPostGraceMinutes` (default 15) has passed, unless SAP shows the memo first. |
 | `NotRequired` | The sale was excluded from posting, so SAP is owed nothing. |
 | `ManualInSap` | The sale reached SAP inside a consolidated invoice, or its credited lines cannot be tied to the invoice's own lines. A person raises it. |
 | `FiscalOnly` | Created with `postToSap: false` against a sale already in SAP. ZIMRA holds the credit; no memo is ever raised and no units go back on the stock ledger. For fiscal corrections, such as a sale filed with ZIMRA twice. |
