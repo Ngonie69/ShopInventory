@@ -17,6 +17,7 @@
 @inject IReportExportService ExportService
 @inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
+@implements IDisposable
 
 <PageTitle>@(IsVanSalesView ? "Van Sales Orders - Shop Inventory" : "Mobile Orders - Shop Inventory")</PageTitle>
 
@@ -858,8 +859,8 @@
         SalesOrderStatus.Approved
     };
     private int ordersLoadVersion;
+    private CancellationTokenSource? podStatusCancellation;
     private const string DeliveredStatusFilterValue = "delivered";
-    private const int PodStatusBatchSize = 100;
 
     private sealed record StatusFilterOption(string Value, string Label);
 
@@ -911,6 +912,13 @@
         Status,
         Total,
         SapDoc
+    }
+
+    public void Dispose()
+    {
+        // Moving the version on retires every background load still running for this page.
+        System.Threading.Interlocked.Increment(ref ordersLoadVersion);
+        podStatusCancellation?.Cancel();
     }
 
     protected override async Task OnInitializedAsync()
@@ -1303,6 +1311,7 @@
     private async Task LoadOrders()
     {
         var loadVersion = System.Threading.Interlocked.Increment(ref ordersLoadVersion);
+        podStatusCancellation?.Cancel();
         isLoading = true;
         errorMessage = null;
 
@@ -1488,28 +1497,47 @@
         if (ordersBySalesOrderDocNum.Count == 0)
             return;
 
+        // Superseded by the next load and ended by leaving the page. Neither used to stop it, so a
+        // visit kept asking SAP long after the user had gone.
+        var cancellation = new CancellationTokenSource();
+        podStatusCancellation?.Cancel();
+        podStatusCancellation = cancellation;
+
         try
         {
-            foreach (var salesOrderDocNumBatch in ordersBySalesOrderDocNum.Keys.Chunk(PodStatusBatchSize))
-            {
-                var response = await PodService.ValidateBulkSalesOrderPodsAsync(salesOrderDocNumBatch);
-                if (loadVersion != ordersLoadVersion)
-                    return;
-
-                foreach (var podStatus in response?.Results ?? Enumerable.Empty<BulkPodValidationResult>())
+            var completed = await SalesOrderPodStatusSweep.RunAsync(
+                ordersBySalesOrderDocNum.Keys,
+                (batch, ct) => PodService.ValidateBulkSalesOrderPodsAsync(batch, ct),
+                async results =>
                 {
-                    if (!podStatus.SalesOrderDocNum.HasValue || !ordersBySalesOrderDocNum.TryGetValue(podStatus.SalesOrderDocNum.Value, out var matchingOrders))
-                        continue;
+                    if (loadVersion != ordersLoadVersion)
+                        return false;
 
-                    foreach (var order in matchingOrders)
+                    foreach (var podStatus in results)
                     {
-                        podStatusByOrderId[order.Id] = podStatus;
-                    }
-                }
+                        if (!podStatus.SalesOrderDocNum.HasValue || !ordersBySalesOrderDocNum.TryGetValue(podStatus.SalesOrderDocNum.Value, out var matchingOrders))
+                            continue;
 
-                if (loadVersion == ordersLoadVersion)
+                        foreach (var order in matchingOrders)
+                        {
+                            podStatusByOrderId[order.Id] = podStatus;
+                        }
+                    }
+
                     await InvokeAsync(StateHasChanged);
+                    return true;
+                },
+                cancellation.Token);
+
+            if (!completed && loadVersion == ordersLoadVersion)
+            {
+                Logger.LogWarning(
+                    "Stopped checking POD delivery status for {Count} mobile sales orders: a batch could not be looked up in SAP.",
+                    ordersBySalesOrderDocNum.Count);
             }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
         }
         catch (Exception ex)
         {

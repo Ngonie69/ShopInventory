@@ -502,7 +502,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 response.Dispose();
             }
-            catch (Exception ex) when (attempt < maxRetries && SapFailureClassifier.IsTransient(ex, cancellationToken))
+            catch (Exception ex) when (
+                attempt < maxRetries
+                && SapFailureClassifier.IsTransient(ex, cancellationToken)
+                && !BreakerOutlastsRemainingRetries(ex, attempt, maxRetries))
             {
                 // One line, not the exception: an attempt that is about to be retried is not yet a
                 // failure, and the stack under a reset connection or an aborted read is HttpClient's
@@ -518,8 +521,31 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     ex.GetBaseException().Message);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
+            await Task.Delay(TransientRetryDelay(attempt), cancellationToken);
         }
+    }
+
+    private static TimeSpan TransientRetryDelay(int attempt) => TimeSpan.FromSeconds(attempt * 2);
+
+    /// <summary>
+    /// True when the breaker will still be open after every retry this call has left, so waiting
+    /// cannot get a request through and only holds the caller.
+    /// </summary>
+    /// <remarks>
+    /// On 2026-09-16 the breaker cycled open for about 30 seconds at a time while SAP's database was
+    /// unreachable, and each short-circuited call still slept 2s and 4s before giving up. The POD
+    /// status check on Mobile Orders paid that 6 seconds per range, 36 requests in a row.
+    /// </remarks>
+    private static bool BreakerOutlastsRemainingRetries(Exception exception, int attempt, int maxRetries)
+    {
+        if (exception is not SapCircuitOpenException { RetryAfter: { } retryAfter })
+            return false;
+
+        var remainingWait = TimeSpan.Zero;
+        for (var pending = attempt; pending < maxRetries; pending++)
+            remainingWait += TransientRetryDelay(pending);
+
+        return retryAfter > remainingWait;
     }
 
     private async Task<HttpResponseMessage> SendPriceListRequestWithBudgetAsync(

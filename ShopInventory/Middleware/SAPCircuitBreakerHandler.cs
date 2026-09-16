@@ -13,7 +13,8 @@ public sealed class SAPCircuitBreakerHandler(
         if (circuitBreakerState.ShouldShortCircuit(out var retryAfter))
         {
             throw new SapCircuitOpenException(
-                $"SAP circuit breaker is open. Retry after {Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))} seconds.");
+                $"SAP circuit breaker is open. Retry after {Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))} seconds.",
+                retryAfter);
         }
 
         try
