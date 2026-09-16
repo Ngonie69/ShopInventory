@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -188,10 +188,8 @@ public sealed class VanOverSaleVisibilityTests
             SnapshotId = snapshot.Id,
             ItemCode = Item,
             WarehouseCode = Van,
-            OriginalQuantity = units,
-            AvailableQuantity = units,
             Version = 1
-        });
+        }.Opened(units));
 
         await context.SaveChangesAsync();
         return context;

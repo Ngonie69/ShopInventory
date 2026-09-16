@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
@@ -173,7 +173,7 @@ public static class UnpostedTillSales
             }
 
             var taken = Math.Min(row.AvailableQuantity, remaining);
-            row.AvailableQuantity -= taken;
+            row.Move(-taken);
             remaining -= taken;
         }
 

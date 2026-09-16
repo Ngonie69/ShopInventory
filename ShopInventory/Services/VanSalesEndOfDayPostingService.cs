@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
@@ -522,7 +522,10 @@ public sealed class VanSalesEndOfDayPostingService(
         try
         {
             var shortfalls = await stockLedger.TakeSettledAsync(
-                taken, $"van sale {sale.ExternalReferenceId} (invoice {docNum})", cancellationToken);
+                taken,
+                $"van sale {sale.ExternalReferenceId} (invoice {docNum})",
+                $"van-sale:{sale.ExternalReferenceId}",
+                cancellationToken);
 
             foreach (var shortfall in shortfalls)
             {

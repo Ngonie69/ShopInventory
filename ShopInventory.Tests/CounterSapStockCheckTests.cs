@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
@@ -770,11 +770,9 @@ public sealed class CounterSapStockCheckTests : IDisposable
             ItemCode = itemCode,
             WarehouseCode = Shop,
             BatchNumber = "B1",
-            OriginalQuantity = quantity,
-            AvailableQuantity = quantity,
             // See SnapshotSqliteContext for why the concurrency token is set by hand here.
             Version = 1
-        });
+        }.Opened(quantity));
 
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();

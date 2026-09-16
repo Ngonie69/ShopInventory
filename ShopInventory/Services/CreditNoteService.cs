@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -95,7 +95,11 @@ public class CreditNoteService : ICreditNoteService
 
         try
         {
-            await _stockLedger.ReleaseAsync(returned, $"credit note {docNum}", cancellationToken);
+            await _stockLedger.ReleaseAsync(
+                returned,
+                $"credit note {docNum}",
+                $"credit-note:{docNum}",
+                cancellationToken);
         }
         catch (Exception ex)
         {

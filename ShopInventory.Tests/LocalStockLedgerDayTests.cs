@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Stock;
@@ -132,10 +132,8 @@ public sealed class LocalStockLedgerDayTests : IDisposable
             ItemCode = itemCode,
             ItemDescription = itemCode,
             WarehouseCode = Warehouse,
-            AvailableQuantity = quantity,
-            OriginalQuantity = quantity,
             Version = 1
-        });
+        }.Opened(quantity));
 
         await _context.SaveChangesAsync();
     }
