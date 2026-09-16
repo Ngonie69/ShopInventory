@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
+using ShopInventory.Common.Stock;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -977,7 +978,8 @@ public class StockReservationService : IStockReservationService
 
         if (query.ActiveOnly)
         {
-            queryable = queryable.Where(r => r.Status == ReservationStatus.Pending && r.ExpiresAt > DateTime.UtcNow);
+            var live = ReservationHolds.LiveAsOf(_dbContext, DateTime.UtcNow);
+            queryable = queryable.Where(r => live.Contains(r.Id));
         }
 
         var totalCount = await queryable.CountAsync(cancellationToken);
@@ -1041,11 +1043,9 @@ public class StockReservationService : IStockReservationService
         var physicalQty = stockItem?.InStock ?? 0;
 
         // Get batch-level reservations
-        var batchReservations = await _dbContext.StockReservationBatches
+        var batchReservations = await ReservationHolds.LiveBatchesAsOf(_dbContext, DateTime.UtcNow)
             .Where(b => b.ItemCode == itemCode
-                && b.WarehouseCode == warehouseCode
-                && b.ReservationLine.Reservation.Status == ReservationStatus.Pending
-                && b.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
+                && b.WarehouseCode == warehouseCode)
             .GroupBy(b => b.BatchNumber)
             .Select(g => new ReservedStockBatchSummaryDto
             {
@@ -1069,11 +1069,8 @@ public class StockReservationService : IStockReservationService
             }
         }
 
-        var activeReservationCount = await _dbContext.StockReservationLines
-            .Where(l => l.ItemCode == itemCode
-                && l.WarehouseCode == warehouseCode
-                && l.Reservation.Status == ReservationStatus.Pending
-                && l.Reservation.ExpiresAt > DateTime.UtcNow)
+        var activeReservationCount = await ReservationHolds.LiveLinesAsOf(_dbContext, DateTime.UtcNow)
+            .Where(l => l.ItemCode == itemCode && l.WarehouseCode == warehouseCode)
             .Select(l => l.ReservationId)
             .Distinct()
             .CountAsync(cancellationToken);
@@ -1151,8 +1148,17 @@ public class StockReservationService : IStockReservationService
     {
         await ReopenAbandonedClaimsAsync(cancellationToken);
 
+        // Past its hour, and nothing still owes it a document. A reservation created by a queued
+        // invoice stays Pending past ExpiresAt for as long as the queue is still working towards one:
+        // its status is what every reader tests, so expiring it here would drop the hold on units
+        // that have already left the shop under a fiscal receipt. See ReservationHolds.
+        var now = DateTime.UtcNow;
+        var live = ReservationHolds.LiveAsOf(_dbContext, now);
+
         var expiredReservations = await _dbContext.StockReservations
-            .Where(r => r.Status == ReservationStatus.Pending && r.ExpiresAt <= DateTime.UtcNow)
+            .Where(r => r.Status == ReservationStatus.Pending
+                     && r.ExpiresAt <= now
+                     && !live.Contains(r.Id))
             .ToListAsync(cancellationToken);
 
         foreach (var reservation in expiredReservations)
@@ -1227,11 +1233,9 @@ public class StockReservationService : IStockReservationService
             aggregateLines.Add((line, inventoryQuantity));
 
             // Get reserved quantity (excluding the current reservation if renewing)
-            var reservedQty = await _dbContext.StockReservationLines
+            var reservedQty = await ReservationHolds.LiveLinesAsOf(_dbContext, DateTime.UtcNow)
                 .Where(l => l.ItemCode == line.ItemCode
                     && l.WarehouseCode == line.WarehouseCode
-                    && l.Reservation.Status == ReservationStatus.Pending
-                    && l.Reservation.ExpiresAt > DateTime.UtcNow
                     && (excludeReservationId == null || l.Reservation.ReservationId != excludeReservationId))
                 .SumAsync(l => l.ReservedQuantity, cancellationToken);
 
@@ -1317,11 +1321,9 @@ public class StockReservationService : IStockReservationService
             if (stockItem == null)
                 continue;
 
-            var reservedQty = await _dbContext.StockReservationLines
+            var reservedQty = await ReservationHolds.LiveLinesAsOf(_dbContext, DateTime.UtcNow)
                 .Where(reservationLine => reservationLine.ItemCode == firstLine.ItemCode
                     && reservationLine.WarehouseCode == firstLine.WarehouseCode
-                    && reservationLine.Reservation.Status == ReservationStatus.Pending
-                    && reservationLine.Reservation.ExpiresAt > DateTime.UtcNow
                     && (excludeReservationId == null || reservationLine.Reservation.ReservationId != excludeReservationId))
                 .SumAsync(reservationLine => reservationLine.ReservedQuantity, cancellationToken);
 

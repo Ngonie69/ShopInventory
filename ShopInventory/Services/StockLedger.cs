@@ -423,7 +423,11 @@ public sealed class StockLedger(
     /// <para>
     /// When a reservation is confirmed it stops being counted here, and the confirm posts an invoice
     /// that commits the units properly — so the hold becomes a decrement in one step rather than
-    /// being counted twice or dropped between the two.
+    /// being counted twice or dropped between the two. A queued desktop invoice makes the same
+    /// handover later and in one step: consolidation marks its queue entry Completed, which ends the
+    /// hold, and takes the units off these rows in the same save. Which reservations are still
+    /// holding is <see cref="ReservationHolds"/>'s to say, so this and the SAP-side reads cannot
+    /// drift apart.
     /// </para>
     /// </remarks>
     private async Task<decimal> HeldByReservationsAsync(
@@ -431,13 +435,8 @@ public sealed class StockLedger(
         string warehouseCode,
         CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
-
-        return await context.StockReservationLines
-            .Where(line => line.ItemCode == itemCode
-                        && line.WarehouseCode == warehouseCode
-                        && line.Reservation.Status == ReservationStatus.Pending
-                        && line.Reservation.ExpiresAt > now)
+        return await ReservationHolds.LiveLinesAsOf(context, DateTime.UtcNow)
+            .Where(line => line.ItemCode == itemCode && line.WarehouseCode == warehouseCode)
             .SumAsync(line => line.ReservedQuantity, cancellationToken);
     }
 

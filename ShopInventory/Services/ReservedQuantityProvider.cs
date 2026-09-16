@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ShopInventory.Common.Stock;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 
@@ -20,10 +21,10 @@ namespace ShopInventory.Services;
 /// </para>
 ///
 /// <para>
-/// A reservation holds stock while it is Pending and unexpired, with one exception: a reservation
-/// behind a queued invoice that end-of-day consolidation has already posted. Consolidation marks the
-/// queue entry Completed and leaves the reservation alone, so it stays Pending for up to its hour
-/// while SAP has already issued the units. Counting it then would take the same units off twice.
+/// Which reservations are still holding is <see cref="ReservationHolds"/>'s to say, and it is the
+/// same answer the stock ledger the tills read gets. The rule is not simply "Pending and unexpired":
+/// a reservation behind a queued invoice is governed by the queue, so it holds past its hour while
+/// the sale is in flight and stops the moment consolidation posts it — see that class for why.
 /// </para>
 /// </remarks>
 public sealed class ReservedQuantityProvider(ApplicationDbContext dbContext) : IReservedQuantityProvider
@@ -34,17 +35,10 @@ public sealed class ReservedQuantityProvider(ApplicationDbContext dbContext) : I
         IReadOnlyCollection<string> disregardedReservationIds,
         CancellationToken cancellationToken = default)
     {
-        var now = DateTime.UtcNow;
-
-        return dbContext.StockReservationLines
+        return ReservationHolds.LiveLinesAsOf(dbContext, DateTime.UtcNow)
             .Where(line => line.ItemCode == itemCode
                 && line.WarehouseCode == warehouseCode
-                && line.Reservation.Status == ReservationStatus.Pending
-                && line.Reservation.ExpiresAt > now
-                && !disregardedReservationIds.Contains(line.Reservation.ReservationId)
-                && !dbContext.InvoiceQueue.Any(queued =>
-                    queued.ReservationId == line.Reservation.ReservationId
-                    && queued.Status == InvoiceQueueStatus.Completed))
+                && !disregardedReservationIds.Contains(line.Reservation.ReservationId))
             .SumAsync(line => line.ReservedQuantity, cancellationToken);
     }
 
@@ -82,18 +76,11 @@ public sealed class ReservedQuantityProvider(ApplicationDbContext dbContext) : I
             return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         }
 
-        var now = DateTime.UtcNow;
-
-        var reservedByBatch = await dbContext.StockReservationBatches
+        var reservedByBatch = await ReservationHolds.LiveBatchesAsOf(dbContext, DateTime.UtcNow)
             .Where(batch => batch.ItemCode == itemCode
                 && batch.WarehouseCode == warehouseCode
                 && normalizedBatchNumbers.Contains(batch.BatchNumber)
-                && batch.ReservationLine.Reservation.Status == ReservationStatus.Pending
-                && batch.ReservationLine.Reservation.ExpiresAt > now
-                && !disregardedReservationIds.Contains(batch.ReservationLine.Reservation.ReservationId)
-                && !dbContext.InvoiceQueue.Any(queued =>
-                    queued.ReservationId == batch.ReservationLine.Reservation.ReservationId
-                    && queued.Status == InvoiceQueueStatus.Completed))
+                && !disregardedReservationIds.Contains(batch.ReservationLine.Reservation.ReservationId))
             .GroupBy(batch => batch.BatchNumber)
             .Select(group => new
             {
