@@ -51,16 +51,6 @@ public static partial class Errors
         public static Error SapStockShort(string detail) =>
             Error.Validation("DesktopSales.SapStockShort", detail);
 
-        /// <summary>
-        /// SAP's stock could not be read, so the sale was refused rather than taken unchecked.
-        /// </summary>
-        /// <remarks>
-        /// A 400 for the same reason as <see cref="SapStockShort"/>: the till must show that nothing was
-        /// sold and why. It is not a claim that the request was malformed.
-        /// </remarks>
-        public static Error SapStockUnreadable(string detail) =>
-            Error.Validation("DesktopSales.SapStockUnreadable", detail);
-
         public static Error FiscalizationFailed(string message) =>
             Error.Failure("DesktopSales.FiscalizationFailed", message);
 
