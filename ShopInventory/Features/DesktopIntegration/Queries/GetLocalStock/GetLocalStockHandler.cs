@@ -24,8 +24,14 @@ public sealed class GetLocalStockHandler(
         // the day it was then asking for. Every till therefore lost its catalogue between 02:00 and
         // 07:00 every morning and was told today's figures were not available yet, while the snapshot
         // it should have been selling from sat in storage under yesterday's date.
+        //
+        // And not always today's: a shop whose snapshot for today is still being fetched is offered
+        // yesterday's finished one, the same rows the ledger is selling from meanwhile, rather than
+        // being told its catalogue is still loading. See StockSnapshotInForce. A day the caller names
+        // is still exactly the day it gets.
         var snapshotDate = query.SnapshotDate?.Date
-            ?? StockLedgerDay.Today(dailyStock.Value.StockFetchTimeCAT);
+            ?? (await StockSnapshotInForce.ResolveAsync(
+                context, query.WarehouseCode, dailyStock.Value, cancellationToken)).Day;
 
         var snapshot = await context.DailyStockSnapshots
             .AsNoTracking()

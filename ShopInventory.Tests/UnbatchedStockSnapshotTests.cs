@@ -573,6 +573,7 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         Options.Create(stock ?? new DailyStockSettings { MonitoredWarehouses = [Warehouse] }),
         listener ?? FakeListener.Disabled(),
         Options.Create(listenerSettings ?? new TransferEventListenerSettings()),
+        new StockFetchGate(),
         NullLogger<FetchDailyStockHandler>.Instance);
 
     /// <summary>
