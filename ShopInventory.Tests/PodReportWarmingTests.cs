@@ -1,11 +1,14 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Quartz;
 using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 using ShopInventory.Services;
@@ -25,10 +28,33 @@ namespace ShopInventory.Tests;
 /// pay — warming follows what was actually asked for, and stops when nobody is asking.
 /// </para>
 /// </remarks>
-public sealed class PodReportWarmingTests
+public sealed class PodReportWarmingTests : IDisposable
 {
     private static readonly TimeSpan Freshness = TimeSpan.FromMinutes(15);
     private static readonly DateTime Now = new(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>The job's production interval, from <c>QuartzConfiguration</c>.</summary>
+    private static readonly TimeSpan JobInterval = TimeSpan.FromMinutes(5);
+
+    private readonly SqliteConnection _connection;
+    private readonly ApplicationDbContext _context;
+
+    public PodReportWarmingTests()
+    {
+        _connection = new SqliteConnection("DataSource=:memory:");
+        _connection.Open();
+        _context = new ApplicationDbContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseSqlite(_connection)
+                .Options);
+        _context.Database.EnsureCreated();
+    }
+
+    public void Dispose()
+    {
+        _context.Dispose();
+        _connection.Dispose();
+    }
 
     private static PodReportWarmKey Shape(int days) =>
         new(new DateTime(2026, 8, 20).AddDays(-days), new DateTime(2026, 8, 20), "global");
@@ -156,6 +182,7 @@ public sealed class PodReportWarmingTests
         Assert.Equal([scopeKey], run.CheckedScopeKeys);
         var query = Assert.Single(run.Sent);
         Assert.Null(query.UserId);
+        Assert.True(query.IsWarmRebuild);
         Assert.NotNull(query.CustomerCodeScope);
         Assert.Equal(["CIS006", "SPA059"], query.CustomerCodeScope.Order(StringComparer.Ordinal));
 
@@ -174,6 +201,7 @@ public sealed class PodReportWarmingTests
         Assert.Equal(["global"], run.CheckedScopeKeys);
         var query = Assert.Single(run.Sent);
         Assert.Null(query.UserId);
+        Assert.True(query.IsWarmRebuild);
         Assert.Null(query.CustomerCodeScope);
         Assert.Equal(Shape(30).FromDate, query.FromDate);
         Assert.Equal(Shape(30).ToDate, query.ToDate);
@@ -267,6 +295,195 @@ public sealed class PodReportWarmingTests
         {
             run.CheckedScopeKeys.Add(scopeKey);
             return Task.FromResult<PodReportCacheSnapshot?>(null);
+        }
+    }
+
+    /// <summary>
+    /// The warm job rebuilds through the same handler a person's request goes through. If that
+    /// rebuild counted as a request, a shape asked for once would be re-recorded on every rebuild and
+    /// never leave the active window: rebuilt against SAP all day and all night, which is the
+    /// fixed-timer warming the warm set exists to avoid.
+    /// </summary>
+    [Fact]
+    public async Task Warming_stops_an_hour_after_the_last_real_request()
+    {
+        var clock = new ManualClock();
+        var warmSet = new PodReportWarmSet(clock);
+        var rig = CreateRig(warmSet);
+
+        await rig.RequestAsync();
+
+        var rebuildsAt = await RunJobEveryIntervalAsync(rig, clock, TimeSpan.FromHours(3));
+
+        Assert.Empty(warmSet.ActiveShapes());
+        Assert.NotEmpty(rebuildsAt);
+        Assert.All(rebuildsAt, at => Assert.True(
+            at <= PodReportWarmSet.ActiveWindow,
+            $"The job rebuilt the report {at} after the only request, outside the {PodReportWarmSet.ActiveWindow} active window."));
+    }
+
+    /// <summary>
+    /// Negative control for the test above: a shape somebody keeps coming back to stays warm, so that
+    /// test cannot pass merely because the job never reaches the handler.
+    /// </summary>
+    [Fact]
+    public async Task A_real_request_keeps_the_shape_warm()
+    {
+        var clock = new ManualClock();
+        var warmSet = new PodReportWarmSet(clock);
+        var rig = CreateRig(warmSet);
+
+        await rig.RequestAsync();
+        var firstRebuildsAt = await RunJobEveryIntervalAsync(rig, clock, TimeSpan.FromMinutes(50));
+
+        await rig.RequestAsync();
+        var secondRebuildsAt = await RunJobEveryIntervalAsync(rig, clock, TimeSpan.FromMinutes(50));
+
+        // 100 minutes after the first request, but only 50 after the second.
+        Assert.Equal([rig.Shape], warmSet.ActiveShapes().Select(shape => shape.Key));
+        Assert.Equal(10, firstRebuildsAt.Count);
+        Assert.Equal(10, secondRebuildsAt.Count);
+    }
+
+    /// <summary>
+    /// The handler on its own: a warm rebuild leaves the shape's last-requested time where the last
+    /// person put it, while a request from a person renews it.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Only_a_real_request_renews_the_shape(bool isWarmRebuild, bool activeAfterTheWindow)
+    {
+        var clock = new ManualClock();
+        var warmSet = new PodReportWarmSet(clock);
+        var rig = CreateRig(warmSet);
+
+        await rig.RequestAsync();
+
+        clock.Advance(TimeSpan.FromMinutes(50));
+        await rig.RebuildAsync(new GetPodUploadStatusQuery(
+            rig.Shape.FromDate,
+            rig.Shape.ToDate,
+            UserId: null,
+            IsWarmRebuild: isWarmRebuild));
+
+        // 70 minutes after the first request, 20 after the second call.
+        clock.Advance(TimeSpan.FromMinutes(20));
+
+        Assert.Equal(activeAfterTheWindow, warmSet.ActiveShapes().Any(shape => shape.Key == rig.Shape));
+    }
+
+    [Fact]
+    public async Task A_warm_rebuild_does_not_start_tracking_a_shape_nobody_asked_for()
+    {
+        var warmSet = new PodReportWarmSet(new ManualClock());
+        var rig = CreateRig(warmSet);
+
+        await rig.RebuildAsync(new GetPodUploadStatusQuery(
+            rig.Shape.FromDate,
+            rig.Shape.ToDate,
+            UserId: null,
+            IsWarmRebuild: true));
+
+        Assert.Empty(warmSet.ActiveShapes());
+    }
+
+    /// <summary>
+    /// Runs the job on its production interval for <paramref name="duration"/>, returning how long
+    /// into the run each rebuild happened.
+    /// </summary>
+    private static async Task<List<TimeSpan>> RunJobEveryIntervalAsync(
+        WarmRig rig,
+        ManualClock clock,
+        TimeSpan duration)
+    {
+        var jobContext = StubProxy.For<IJobExecutionContext>((method, _) =>
+            method.Name == "get_" + nameof(IJobExecutionContext.CancellationToken)
+                ? CancellationToken.None
+                : throw new InvalidOperationException($"IJobExecutionContext.{method.Name} was not expected."));
+        var rebuildsAt = new List<TimeSpan>();
+
+        for (var elapsed = JobInterval; elapsed <= duration; elapsed += JobInterval)
+        {
+            clock.Advance(JobInterval);
+
+            var before = rig.Rebuilds;
+            await rig.Job.Execute(jobContext);
+
+            if (rig.Rebuilds > before)
+            {
+                rebuildsAt.Add(elapsed);
+            }
+        }
+
+        return rebuildsAt;
+    }
+
+    /// <summary>
+    /// The real job, handler and cache store (over SQLite), sharing one warm set. SAP is off and the
+    /// cache stays empty, so the snapshot is always cold and the job reaches the handler on every run
+    /// for as long as the shape is active.
+    /// </summary>
+    private WarmRig CreateRig(PodReportWarmSet warmSet)
+    {
+        var cacheSettings = new PodReportCacheSettings
+        {
+            Enabled = true,
+            FreshnessMinutes = (int)Freshness.TotalMinutes,
+            RetentionDays = 7
+        };
+        var store = new PodReportCacheStore(
+            _context,
+            Options.Create(cacheSettings),
+            NullLogger<PodReportCacheStore>.Instance);
+        var handler = new GetPodUploadStatusHandler(
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            StubProxy.Unused<IDocumentService>(),
+            _context,
+            Options.Create(new SAPSettings { Enabled = false }),
+            Options.Create(new CreditNoteSyncSettings()),
+            store,
+            warmSet,
+            NullLogger<GetPodUploadStatusHandler>.Instance);
+
+        var rig = new WarmRig(handler);
+        var mediator = StubProxy.For<IMediator>((method, args) =>
+            method.Name == nameof(IMediator.Send) && args?[0] is GetPodUploadStatusQuery query
+                ? rig.RebuildAsync(query)
+                : throw new InvalidOperationException($"IMediator.{method.Name} was not expected."));
+
+        var services = new ServiceCollection();
+        services.AddSingleton<IPodReportCacheStore>(store);
+        services.AddSingleton(mediator);
+
+        rig.Job = new PodReportWarmJob(
+            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            warmSet,
+            Options.Create(cacheSettings),
+            NullLogger<PodReportWarmJob>.Instance);
+
+        return rig;
+    }
+
+    private sealed class WarmRig(GetPodUploadStatusHandler handler)
+    {
+        public PodReportWarmKey Shape { get; } =
+            new(new DateTime(2026, 8, 1), new DateTime(2026, 8, 20), "global");
+
+        public PodReportWarmJob Job { get; set; } = null!;
+
+        public int Rebuilds { get; private set; }
+
+        /// <summary>A person opening the report, as the controller sends it.</summary>
+        public Task<ErrorOr<PodUploadStatusReportDto>> RequestAsync() =>
+            handler.Handle(
+                new GetPodUploadStatusQuery(Shape.FromDate, Shape.ToDate, UserId: null),
+                CancellationToken.None);
+
+        public Task<ErrorOr<PodUploadStatusReportDto>> RebuildAsync(GetPodUploadStatusQuery query)
+        {
+            Rebuilds++;
+            return handler.Handle(query, CancellationToken.None);
         }
     }
 

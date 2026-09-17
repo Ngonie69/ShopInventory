@@ -23,9 +23,15 @@ namespace ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 /// here too, because its cache key is a hash of them and a rebuild without them would rebuild the
 /// global report instead.
 /// </param>
+/// <param name="IsWarmRebuild">
+/// Set by <c>PodReportWarmJob</c> only. A warm rebuild reads and saves the cache like any other request,
+/// but nobody asked for the report, so it does not renew the shape in <c>PodReportWarmSet</c>. If it did,
+/// a shape asked for once would be rebuilt against SAP forever.
+/// </param>
 public sealed record GetPodUploadStatusQuery(
     DateTime FromDate,
     DateTime ToDate,
     Guid? UserId,
     bool IncludeCreditNoteActivity = false,
-    IReadOnlyCollection<string>? CustomerCodeScope = null) : IRequest<ErrorOr<PodUploadStatusReportDto>>;
+    IReadOnlyCollection<string>? CustomerCodeScope = null,
+    bool IsWarmRebuild = false) : IRequest<ErrorOr<PodUploadStatusReportDto>>;

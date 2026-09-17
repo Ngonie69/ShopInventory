@@ -155,6 +155,10 @@ public sealed class PodReportWarmJob : IJob
     /// its shops as <see cref="GetPodUploadStatusQuery.CustomerCodeScope"/>, and the key they produce
     /// is checked against the shape's own before anything is sent: a scoped key with no shops, or
     /// shops that hash to a different key, would otherwise rebuild — and save — a different report.
+    /// <para>
+    /// <see cref="GetPodUploadStatusQuery.IsWarmRebuild"/> keeps the rebuild from renewing the shape in
+    /// the warm set, so warming stops an hour after the last person asked for it.
+    /// </para>
     /// </remarks>
     internal static bool TryBuildRebuildQuery(PodReportWarmShape shape, out GetPodUploadStatusQuery query)
     {
@@ -165,7 +169,8 @@ public sealed class PodReportWarmJob : IJob
             UserId: null,
             CustomerCodeScope: key.ScopeKey == GetPodUploadStatusHandler.GlobalCacheScopeKey
                 ? null
-                : shape.CustomerCodes);
+                : shape.CustomerCodes,
+            IsWarmRebuild: true);
 
         if (query.CustomerCodeScope is null)
         {

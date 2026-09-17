@@ -168,8 +168,13 @@ public sealed class PodReportCacheTests : IDisposable
         Assert.Equal(scopeKey, GetPodUploadStatusHandler.BuildCacheScopeKey(false, rebuild.CustomerCodeScope));
     }
 
-    [Fact]
-    public async Task Fresh_snapshot_serves_the_report_without_calling_sap()
+    /// <summary>
+    /// A warm rebuild is not tracked as a request, but it reads the cache exactly as one does.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Fresh_snapshot_serves_the_report_without_calling_sap(bool isWarmRebuild)
     {
         var store = CreateStore();
         var fromDate = new DateTime(2026, 7, 1);
@@ -218,7 +223,7 @@ public sealed class PodReportCacheTests : IDisposable
             NullLogger<GetPodUploadStatusHandler>.Instance);
 
         var result = await handler.Handle(
-            new GetPodUploadStatusQuery(fromDate, toDate, UserId: null),
+            new GetPodUploadStatusQuery(fromDate, toDate, UserId: null, IsWarmRebuild: isWarmRebuild),
             CancellationToken.None);
 
         Assert.False(result.IsError);
