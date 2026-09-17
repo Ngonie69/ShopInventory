@@ -1,10 +1,12 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Sales;
 using ShopInventory.Common.Stock;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
+using ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoices;
 using ShopInventory.Features.Invoices.Events;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Mappings;
@@ -34,6 +36,29 @@ public interface IStockReservationService
     /// </summary>
     Task<ConfirmReservationResponseDto> ConfirmReservationAsync(
         ConfirmReservationRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Posts the reservation behind a fiscalised queued invoice to SAP, however long ago it was made.
+    /// </summary>
+    /// <remarks>
+    /// The same post as <see cref="ConfirmReservationAsync"/>, with one difference: the clock does not
+    /// refuse it. A queued sale has already happened — the goods left and the receipt is with ZIMRA — so
+    /// the reservation's hour says nothing about whether the invoice is owed, and refusing it as expired
+    /// would leave a fiscalised sale with no SAP document for ever. See <c>ReservationHolds</c>, which
+    /// lets the queue outrank the clock for the same reason. Not reachable from the confirm endpoint:
+    /// the override holds only while the reservation's queue entry is <see cref="InvoiceQueueStatus.Fiscalized"/>.
+    ///
+    /// <para>
+    /// <paramref name="baseOrder"/> is the SAP sales order the sale was converted from, already checked as
+    /// one this customer's invoice may be based on. The lines are based on it as far as it has quantity
+    /// open, so SAP closes the order rather than leaving it open beside the invoice; if SAP refuses the
+    /// linked invoice outright it is posted once more without the link.
+    /// </para>
+    /// </remarks>
+    Task<ConfirmReservationResponseDto> ConfirmQueuedReservationAsync(
+        ConfirmReservationRequest request,
+        SAPSalesOrder? baseOrder = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -428,9 +453,23 @@ public class StockReservationService : IStockReservationService
     }
 
     /// <inheritdoc/>
-    public async Task<ConfirmReservationResponseDto> ConfirmReservationAsync(
+    public Task<ConfirmReservationResponseDto> ConfirmReservationAsync(
         ConfirmReservationRequest request,
         CancellationToken cancellationToken = default)
+        => ConfirmAsync(request, forFiscalisedQueueEntry: false, baseOrder: null, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<ConfirmReservationResponseDto> ConfirmQueuedReservationAsync(
+        ConfirmReservationRequest request,
+        SAPSalesOrder? baseOrder = null,
+        CancellationToken cancellationToken = default)
+        => ConfirmAsync(request, forFiscalisedQueueEntry: true, baseOrder, cancellationToken);
+
+    private async Task<ConfirmReservationResponseDto> ConfirmAsync(
+        ConfirmReservationRequest request,
+        bool forFiscalisedQueueEntry,
+        SAPSalesOrder? baseOrder,
+        CancellationToken cancellationToken)
     {
         _logger.LogInformation("Confirming reservation {ReservationId}", request.ReservationId);
 
@@ -474,7 +513,16 @@ public class StockReservationService : IStockReservationService
             };
         }
 
-        if (reservation.Status == ReservationStatus.Expired || reservation.ExpiresAt < DateTime.UtcNow)
+        // Asked of the database rather than taken from the caller's word, so the override can only ever
+        // apply to a sale the queue has actually fiscalised.
+        var owedByFiscalisedSale = forFiscalisedQueueEntry
+            && await _dbContext.InvoiceQueue.AnyAsync(
+                queued => queued.ReservationId == reservation.ReservationId
+                    && queued.Status == InvoiceQueueStatus.Fiscalized,
+                cancellationToken);
+
+        if (!owedByFiscalisedSale
+            && (reservation.Status == ReservationStatus.Expired || reservation.ExpiresAt < DateTime.UtcNow))
         {
             reservation.Status = ReservationStatus.Expired;
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -520,8 +568,14 @@ public class StockReservationService : IStockReservationService
         // Everything after this point — the "is it already in SAP" lookup and the post itself — is the
         // window the guard exists to close. Both requests used to pass that lookup, because neither had
         // posted yet, and both then created an invoice.
+        //
+        // An Expired reservation is claimable only for a fiscalised queued sale. Until the queue outranked
+        // the clock, the cleanup job expired those after an hour like any other, so a sale queued before
+        // that change still owes SAP its invoice from a reservation marked Expired.
         var claimed = await _dbContext.StockReservations
-            .Where(row => row.Id == reservation.Id && row.Status == ReservationStatus.Pending)
+            .Where(row => row.Id == reservation.Id
+                && (row.Status == ReservationStatus.Pending
+                    || (owedByFiscalisedSale && row.Status == ReservationStatus.Expired)))
             .ExecuteUpdateAsync(
                 update => update.SetProperty(row => row.Status, ReservationStatus.Confirming),
                 cancellationToken);
@@ -545,6 +599,13 @@ public class StockReservationService : IStockReservationService
 
         // The tracked entity still says Pending; the database says Confirming. Keep them in step so the
         // success path's own status write is not a no-op against a stale value.
+        //
+        // The snapshot as well as the value. Setting only the value left the tracker believing the row
+        // still held what was read, so handing the claim back after a transient failure — Pending over a
+        // row read as Pending — compared equal and was never saved. The row stayed Confirming, every
+        // retry was refused as "already being posted", and the sale waited out the abandoned-claim
+        // timeout instead of being retried.
+        _dbContext.Entry(reservation).Property(row => row.Status).OriginalValue = ReservationStatus.Confirming;
         reservation.Status = ReservationStatus.Confirming;
 
         var vanSaleOrder = string.IsNullOrWhiteSpace(reservation.ExternalReferenceId)
@@ -626,8 +687,32 @@ public class StockReservationService : IStockReservationService
                 }
             }
 
+            // After the lookup above, so an invoice already in SAP is adopted without touching its lines.
+            var linked = baseOrder is not null
+                && QueuedVanInvoiceLines.BaseOn(invoiceRequest.Lines!, baseOrder);
+
             // Post to SAP
-            var invoice = await _sapClient.CreateInvoiceAsync(invoiceRequest, cancellationToken);
+            Invoice invoice;
+            try
+            {
+                invoice = await _sapClient.CreateInvoiceAsync(invoiceRequest, cancellationToken);
+            }
+            catch (Exception linkedPostFailure) when (
+                linked
+                && SapFailureClassifier.DefinitelyNotCommitted(linkedPostFailure)
+                && ConsolidatedInvoiceLines.Unlink(invoiceRequest.Lines!))
+            {
+                // The same fallback consolidation takes: SAP refused the invoice while it was based on the
+                // order, so nothing was created, and an order edited or closed since it was read must not
+                // cost a fiscalised sale its invoice. A refusal unrelated to the link fails this one too.
+                _logger.LogWarning(
+                    linkedPostFailure,
+                    "SAP refused reservation {ReservationId} while it was based on sales order DocEntry {DocEntry}; posting it again without the link",
+                    reservation.ReservationId,
+                    baseOrder!.DocEntry);
+
+                invoice = await _sapClient.CreateInvoiceAsync(invoiceRequest, cancellationToken);
+            }
 
             // Update reservation status
             reservation.Status = ReservationStatus.Confirmed;

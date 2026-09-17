@@ -130,7 +130,25 @@ public static class ConsolidatedInvoiceLines
         return anyLinked;
     }
 
-    private static IEnumerable<SAPSalesOrderLine> OpenLinesFor(SAPSalesOrder order, string itemCode) =>
+    /// <summary>
+    /// Why an invoice for <paramref name="cardCode"/> cannot be based on <paramref name="order"/>, or null
+    /// if it can.
+    /// </summary>
+    /// <remarks>
+    /// Shared with the per-sale posting of queued van invoices, so the two routes that link an invoice to
+    /// its order agree about which orders may be linked.
+    /// </remarks>
+    public static string? WhyNotBaseable(SAPSalesOrder? order, string cardCode) => order switch
+    {
+        null => "SAP did not return it",
+        _ when !string.Equals(order.CardCode?.Trim(), cardCode.Trim(), StringComparison.OrdinalIgnoreCase)
+            => $"it belongs to {order.CardCode}",
+        _ when string.Equals(order.Cancelled, "tYES", StringComparison.OrdinalIgnoreCase) => "it is cancelled",
+        _ when !string.Equals(order.DocumentStatus, "bost_Open", StringComparison.OrdinalIgnoreCase) => "it is closed",
+        _ => null
+    };
+
+    internal static IEnumerable<SAPSalesOrderLine> OpenLinesFor(SAPSalesOrder order, string itemCode) =>
         (order.DocumentLines ?? [])
             .Where(orderLine =>
                 string.Equals(orderLine.ItemCode?.Trim(), itemCode.Trim(), StringComparison.OrdinalIgnoreCase)
