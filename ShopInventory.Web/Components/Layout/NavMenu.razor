@@ -49,12 +49,6 @@
                                     </span>
                                     <span class="snav-text">Invoices</span>
                                 </NavLink>
-                                <NavLink class="snav-link sub-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-truck" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Van Sales Invoices</span>
-                                </NavLink>
                                 <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
                                     <span class="snav-icon">
                                         <i class="ph ph-plus-circle" aria-hidden="true"></i>
@@ -632,6 +626,25 @@
                            customer relationship rather than the depot ones above: loading a van is
                            a daily job, granting a shop access is not, and the two being adjacent
                            should not make the second look like part of the first. *@
+                        @* What the app created, read from the API's own van sale records rather than from
+                           SAP, so a sale fiscalised and not yet invoiced is on the list. Invoice viewers
+                           only: the API gates both on invoices.view, which these three roles hold. *@
+                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="vanSalesDocumentCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/van-sales/invoices" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-receipt" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Invoices</span>
+                                </NavLink>
+                                <NavLink class="snav-link" href="/van-sales/credit-notes" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-file-minus" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Credit Notes</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         <AuthorizeView Roles="Admin,Manager,Cashier" Context="vanSalesAccountCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/van-sales-customer-accounts" Match="NavLinkMatch.All">

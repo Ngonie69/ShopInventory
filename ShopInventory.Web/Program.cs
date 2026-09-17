@@ -310,6 +310,7 @@ try
     builder.Services.AddScoped<IRouteCustomerService, RouteCustomerService>();
     builder.Services.AddScoped<IVanSalesOrderService, VanSalesOrderService>();
     builder.Services.AddScoped<IVanSalesCustomerAccountService, VanSalesCustomerAccountService>();
+    builder.Services.AddScoped<IVanSalesDocumentService, VanSalesDocumentService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<IPurchaseRequestService, PurchaseRequestService>();
     builder.Services.AddScoped<IPurchaseQuotationService, PurchaseQuotationService>();

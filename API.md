@@ -3278,6 +3278,9 @@ handlers and are not recorded twice.
 | POST | `/api/van-sales/route-stops/reorder` | `users.edit` or `vansales.routes.manage` | Put one weekday's or cycle week's stops in order |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
+| GET | `/api/van-sales/invoices` | `invoices.view` | Invoices the van sales app created, with their ZIMRA and SAP state, newest first |
+| GET | `/api/van-sales/invoices/{reference}` | `invoices.view` | One of those invoices by van order: its lines, receipt and posting history |
+| GET | `/api/van-sales/credit-notes` | `invoices.view` | Credit notes raised against van sales invoices, with the invoice each reverses |
 
 `/api/van-sales/routes` takes **any one** of its three permissions, not all three. It has two
 unrelated callers — the compliance report's filter and the user editor, where assigning a rep to a
