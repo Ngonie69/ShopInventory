@@ -126,10 +126,14 @@ public sealed class GetPodUploadStatusHandler(
                 // Noted whether this hits or misses: the warm job rebuilds what is in active use
                 // before it goes stale, so the next person is not the one who pays for the rebuild.
                 // A scoped key is a hash, so the shops travel with it: the job cannot rebuild a
-                // scoped report from the key alone.
-                warmSet.Record(
-                    new PodReportWarmKey(request.FromDate, request.ToDate, cacheScopeKey),
-                    assignedCustomerCodes);
+                // scoped report from the key alone. The warm job's own rebuild is not a use;
+                // counting it would keep the shape active forever.
+                if (!request.IsWarmRebuild)
+                {
+                    warmSet.Record(
+                        new PodReportWarmKey(request.FromDate, request.ToDate, cacheScopeKey),
+                        assignedCustomerCodes);
+                }
 
                 cachedSnapshot = await reportCache.GetAsync(
                     request.FromDate,

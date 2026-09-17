@@ -48,6 +48,12 @@ public sealed class PodReportWarmSet
     private const int MaxTrackedShapes = 12;
 
     private readonly ConcurrentDictionary<PodReportWarmKey, Entry> _entries = new();
+    private readonly TimeProvider _timeProvider;
+
+    public PodReportWarmSet(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     /// <summary>Notes that somebody asked for this shape.</summary>
     /// <param name="key">The shape asked for.</param>
@@ -59,7 +65,7 @@ public sealed class PodReportWarmSet
     {
         // A copy, so a caller reusing its collection cannot change what a tracked key rebuilds.
         var codes = customerCodes?.ToArray();
-        _entries[key] = new Entry(DateTime.UtcNow, codes);
+        _entries[key] = new Entry(_timeProvider.GetUtcNow().UtcDateTime, codes);
 
         if (_entries.Count <= MaxTrackedShapes)
         {
@@ -79,7 +85,7 @@ public sealed class PodReportWarmSet
     /// <summary>The shapes asked for inside <see cref="ActiveWindow"/>, newest request first.</summary>
     public IReadOnlyList<PodReportWarmShape> ActiveShapes()
     {
-        var cutoff = DateTime.UtcNow - ActiveWindow;
+        var cutoff = _timeProvider.GetUtcNow().UtcDateTime - ActiveWindow;
 
         return _entries
             .Where(entry => entry.Value.LastRequestedUtc >= cutoff)
