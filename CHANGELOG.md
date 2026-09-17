@@ -18,6 +18,25 @@ otherwise be surprised.
 
 ### Added
 
+- **`transfer-listener/status` reports delivery and the ledger; the `transfer-listener` health check
+  goes Unhealthy when transfer lines stop reaching the ledger.**
+
+  On 2026-09-17 TransferEventListener read SAP on time while posting every line to
+  `http://10.10.10.9/api/...` — port 80, where IIS answers 404 — so no transfer since the previous
+  morning had reached local stock, and both the page and `/health/dependencies` said healthy. The
+  status reply now adds `delivery` (lines waiting, the oldest wait, lines given up and rejected, the
+  URL the listener posts to, and its last answer) and `ledger` (stock movements applied today from
+  `StockTransferAdjustments`, the last one applied and per-warehouse document counts — read from this
+  API's database, so present even when the listener is down). Each recent document gains `localStock`
+  (`Applied`, `Waiting` or `NotApplied`) and `appliedAtUtc`. `poll` gains `resumedFromSavedState` and
+  `processedDocuments`. `check-now` adds the listener's `notificationsDelivered`, `notificationsQueued`,
+  `notificationsReplayed`, `notificationsRejected`, `notificationsAbandoned` and `pendingNotifications`.
+  All additive; the delivery figures read zero or null against a listener older than
+  TransferEventListener#11.
+
+  The health check is **Degraded** once a line has waited `PollStalenessWarningMinutes` (20) and
+  **Unhealthy** at `PollStalenessCriticalMinutes` (60), naming the last answer and URL.
+
 - **`GET /api/DesktopIntegration/sales` now takes the whole filter surface, and can count it.**
 
   It filtered on one warehouse, one consolidation status and one channel, sorted on nothing, and

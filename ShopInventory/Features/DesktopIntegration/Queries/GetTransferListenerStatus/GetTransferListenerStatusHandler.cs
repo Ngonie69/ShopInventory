@@ -1,7 +1,10 @@
-﻿using ErrorOr;
+using ErrorOr;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
 
@@ -9,17 +12,26 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerS
 
 public sealed class GetTransferListenerStatusHandler(
     ITransferEventListenerClient listenerClient,
+    ApplicationDbContext context,
     IOptions<DailyStockSettings> dailyStockSettings,
     ILogger<GetTransferListenerStatusHandler> logger
 ) : IRequestHandler<GetTransferListenerStatusQuery, ErrorOr<TransferListenerStatusResult>>
 {
+    public const string Applied = "Applied";
+    public const string Waiting = "Waiting";
+    public const string NotApplied = "NotApplied";
+
     public async Task<ErrorOr<TransferListenerStatusResult>> Handle(
         GetTransferListenerStatusQuery request,
         CancellationToken cancellationToken)
     {
+        // First and regardless of the listener: the ledger is this API's own table, and "nothing has
+        // been applied since yesterday" is worth showing most when the listener cannot be asked why.
+        var ledger = await ReadLedgerAsync(cancellationToken);
+
         if (!listenerClient.IsEnabled)
         {
-            return Disabled(listenerClient.BaseUrl);
+            return Disabled(listenerClient.BaseUrl, ledger);
         }
 
         // Health first and on its own: it is the one call whose failure means the whole page has
@@ -34,7 +46,7 @@ public sealed class GetTransferListenerStatusHandler(
             logger.LogWarning(ex, "TransferEventListener at {BaseUrl} could not be read", listenerClient.BaseUrl);
 
             // Not an error result: "unreachable" is the answer, and the page exists to show it.
-            return Unreachable(listenerClient.BaseUrl, ex.Message);
+            return Unreachable(listenerClient.BaseUrl, ex.Message, ledger);
         }
 
         var stats = await ReadOrDefaultAsync(
@@ -49,8 +61,10 @@ public sealed class GetTransferListenerStatusHandler(
             "monitored warehouses",
             cancellationToken);
 
+        var now = DateTime.UtcNow;
         var poll = health.Poll;
         TransferListenerPollSummary? pollSummary = null;
+        TransferListenerDeliverySummary? delivery = null;
 
         if (poll is not null)
         {
@@ -66,7 +80,22 @@ public sealed class GetTransferListenerStatusHandler(
                 poll.LastError,
                 poll.LastErrorUtc,
                 poll.PollIntervalSeconds,
-                Math.Round((DateTime.UtcNow - reference).TotalMinutes, 1));
+                Math.Round((now - reference).TotalMinutes, 1),
+                poll.ResumedFromSavedState,
+                poll.ProcessedDocuments);
+
+            delivery = new TransferListenerDeliverySummary(
+                poll.PendingNotifications,
+                poll.OldestPendingNotificationUtc,
+                poll.PendingNotifications > 0 && poll.OldestPendingNotificationUtc is { } oldest
+                    ? Math.Round((now - AsUtc(oldest)).TotalMinutes, 1)
+                    : null,
+                poll.AbandonedNotifications,
+                poll.RejectedNotifications,
+                poll.WebhookUrl,
+                poll.LastDeliveredUtc,
+                poll.LastDeliveryError,
+                poll.LastDeliveryErrorUtc);
         }
 
         var watchedSet = watched.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -86,23 +115,37 @@ public sealed class GetTransferListenerStatusHandler(
             .OrderBy(warehouse => warehouse, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var recent = stats.RecentDocuments
+        var recentDocuments = stats.RecentDocuments
             .OrderByDescending(document => document.DetectedAt)
             .Take(Math.Max(request.RecentDocumentCount, 1))
-            .Select(document => new TransferListenerDocumentSummary(
-                document.SapDocNum,
-                document.SapDocDate,
-                document.DetectedAt,
-                document.Direction,
-                document.MonitoredWarehouse,
-                document.SourceWarehouse,
-                document.DestinationWarehouse,
-                document.WebhookSuccess,
-                document.LineCount,
-                document.Lines
-                    .Select(line => new TransferListenerLineSummary(
-                        line.ItemCode, line.ItemDescription, line.Quantity))
-                    .ToList()))
+            .ToList();
+
+        var appliedAt = await ReadAppliedDocumentsAsync(recentDocuments, cancellationToken);
+
+        var recent = recentDocuments
+            .Select(document =>
+            {
+                DateTime? applied = document.SapDocNum is { } docNum && appliedAt.TryGetValue(docNum, out var at)
+                    ? at
+                    : null;
+
+                return new TransferListenerDocumentSummary(
+                    document.SapDocNum,
+                    document.SapDocDate,
+                    document.DetectedAt,
+                    document.Direction,
+                    document.MonitoredWarehouse,
+                    document.SourceWarehouse,
+                    document.DestinationWarehouse,
+                    document.WebhookSuccess,
+                    document.LineCount,
+                    document.Lines
+                        .Select(line => new TransferListenerLineSummary(
+                            line.ItemCode, line.ItemDescription, line.Quantity))
+                        .ToList(),
+                    LocalStockState(document.DetectedAt, applied.HasValue, delivery),
+                    applied);
+            })
             .ToList();
 
         return new TransferListenerStatusResult(
@@ -113,6 +156,8 @@ public sealed class GetTransferListenerStatusHandler(
             Status: health.Status,
             Message: health.Message,
             Poll: pollSummary,
+            Delivery: delivery,
+            Ledger: ledger,
             DocumentsSeen: health.DocumentsSeen,
             LinesSeen: health.LinesSeen,
             InboundDocuments: stats.InboundDocuments,
@@ -123,6 +168,138 @@ public sealed class GetTransferListenerStatusHandler(
             UnwatchedWarehouses: unwatched,
             DocumentsByWarehouse: stats.TransfersByWarehouse,
             RecentDocuments: recent);
+    }
+
+    /// <summary>
+    /// Where a document the listener reports stands against this API's ledger.
+    /// </summary>
+    /// <remarks>
+    /// <para>The listener's own per-document flag is the batch-sync call, which says nothing about the
+    /// ledger, so it cannot be used for this. Applied means the ledger holds an adjustment for the
+    /// document.</para>
+    ///
+    /// <para>Otherwise the document is Waiting when the listener holds undelivered lines at least as
+    /// old as it — the queue is replayed oldest first, so a document detected after the oldest
+    /// waiting line has not been confirmed delivered. With nothing waiting, an unapplied document was
+    /// accepted and moved no stock: typically a warehouse with no snapshot for the day, or one this
+    /// API does not monitor.</para>
+    /// </remarks>
+    internal static string LocalStockState(
+        DateTime detectedAtUtc,
+        bool applied,
+        TransferListenerDeliverySummary? delivery)
+    {
+        if (applied)
+        {
+            return Applied;
+        }
+
+        return delivery is { PendingLines: > 0, OldestPendingUtc: { } oldest }
+               && AsUtc(oldest) <= AsUtc(detectedAtUtc).AddSeconds(1)
+            ? Waiting
+            : NotApplied;
+    }
+
+    private async Task<TransferListenerLedgerSummary> ReadLedgerAsync(CancellationToken cancellationToken)
+    {
+        var today = StockLedgerDay.Today(dailyStockSettings.Value.StockFetchTimeCAT);
+
+        try
+        {
+            var rows = await context.StockTransferAdjustments
+                .AsNoTracking()
+                .Where(adjustment => adjustment.SnapshotDate == today)
+                .Select(adjustment => new
+                {
+                    adjustment.WarehouseCode,
+                    adjustment.TransferDocEntry,
+                    adjustment.TransferDocNum
+                })
+                .ToListAsync(cancellationToken);
+
+            // By Id rather than DetectedAt: the key is indexed and rows are only ever appended.
+            var last = await context.StockTransferAdjustments
+                .AsNoTracking()
+                .OrderByDescending(adjustment => adjustment.Id)
+                .Select(adjustment => new
+                {
+                    adjustment.DetectedAt,
+                    adjustment.TransferDocNum,
+                    adjustment.WarehouseCode
+                })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            var byWarehouse = rows
+                .GroupBy(row => row.WarehouseCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(row => row.TransferDocEntry ?? row.TransferDocNum).Distinct().Count(),
+                    StringComparer.OrdinalIgnoreCase);
+
+            return new TransferListenerLedgerSummary(
+                today,
+                rows.Count,
+                rows.Select(row => row.TransferDocEntry ?? row.TransferDocNum).Distinct().Count(),
+                last is null ? null : AsUtc(last.DetectedAt),
+                last?.TransferDocNum,
+                last?.WarehouseCode,
+                byWarehouse,
+                Available: true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not read the transfer adjustments for {SnapshotDate:yyyy-MM-dd}", today);
+
+            return new TransferListenerLedgerSummary(
+                today, 0, 0, null, null, null, new Dictionary<string, int>(), Available: false);
+        }
+    }
+
+    /// <summary>
+    /// When the ledger first recorded each of the listed documents, keyed by document number.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by number because that is all the listener's summary carries. Bounded to a day before the
+    /// oldest document so the read stays on recent rows however long the table grows.
+    /// </remarks>
+    private async Task<Dictionary<int, DateTime>> ReadAppliedDocumentsAsync(
+        IReadOnlyList<TransferListenerDocumentDto> documents,
+        CancellationToken cancellationToken)
+    {
+        var docNums = documents
+            .Where(document => document.SapDocNum.HasValue)
+            .Select(document => document.SapDocNum!.Value)
+            .Distinct()
+            .ToList();
+
+        if (docNums.Count == 0)
+        {
+            return [];
+        }
+
+        // Kind pinned to UTC: DetectedAt is timestamptz, which Npgsql refuses to compare with an
+        // Unspecified parameter — and the catch below would turn that into every document "not applied".
+        var since = AsUtc(documents.Min(document => document.DetectedAt)).AddDays(-1);
+
+        try
+        {
+            var rows = await context.StockTransferAdjustments
+                .AsNoTracking()
+                .Where(adjustment => adjustment.TransferDocNum.HasValue
+                                     && docNums.Contains(adjustment.TransferDocNum.Value)
+                                     && adjustment.DetectedAt >= since)
+                .Select(adjustment => new { DocNum = adjustment.TransferDocNum!.Value, adjustment.DetectedAt })
+                .ToListAsync(cancellationToken);
+
+            return rows
+                .GroupBy(row => row.DocNum)
+                .ToDictionary(group => group.Key, group => AsUtc(group.Min(row => row.DetectedAt)));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not match the listener's recent documents against the ledger");
+            return [];
+        }
     }
 
     /// <summary>
@@ -151,7 +328,10 @@ public sealed class GetTransferListenerStatusHandler(
         }
     }
 
-    private static TransferListenerStatusResult Disabled(string baseUrl) => new(
+    private static DateTime AsUtc(DateTime value) =>
+        value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static TransferListenerStatusResult Disabled(string baseUrl, TransferListenerLedgerSummary ledger) => new(
         Enabled: false,
         Reachable: false,
         BaseUrl: baseUrl,
@@ -161,6 +341,8 @@ public sealed class GetTransferListenerStatusHandler(
         Status: null,
         Message: null,
         Poll: null,
+        Delivery: null,
+        Ledger: ledger,
         DocumentsSeen: 0,
         LinesSeen: 0,
         InboundDocuments: 0,
@@ -172,7 +354,8 @@ public sealed class GetTransferListenerStatusHandler(
         DocumentsByWarehouse: new Dictionary<string, int>(),
         RecentDocuments: []);
 
-    private static TransferListenerStatusResult Unreachable(string baseUrl, string reason) => new(
+    private static TransferListenerStatusResult Unreachable(
+        string baseUrl, string reason, TransferListenerLedgerSummary ledger) => new(
         Enabled: true,
         Reachable: false,
         BaseUrl: baseUrl,
@@ -180,6 +363,8 @@ public sealed class GetTransferListenerStatusHandler(
         Status: null,
         Message: null,
         Poll: null,
+        Delivery: null,
+        Ledger: ledger,
         DocumentsSeen: 0,
         LinesSeen: 0,
         InboundDocuments: 0,
