@@ -30,6 +30,12 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.UploadVanSalesPo
 /// inside <c>UploadPodCommand</c> reads pages sent moments apart as the same page arriving twice.
 /// </param>
 /// <param name="UserId">The signed-in account, which owns the attachment and is who it is announced for.</param>
+/// <param name="OrderIsSapDocEntry">
+/// Set when <paramref name="Order"/> is already a SAP document entry — what the delivery list hands the
+/// handset — so it is filed against exactly that invoice. Left unset, the id is resolved through
+/// <c>VanSalesPodTarget</c>, which tries it as a platform order or invoice id first; a document entry
+/// that happened to equal one of those would be filed against a different document.
+/// </param>
 public sealed record UploadVanSalesPodFileCommand(
     int Order,
     Stream FileStream,
@@ -38,5 +44,6 @@ public sealed record UploadVanSalesPodFileCommand(
     string? Description,
     string? ExternalReference,
     bool IsAdditionalPage,
-    Guid UserId
+    Guid UserId,
+    bool OrderIsSapDocEntry = false
 ) : IRequest<ErrorOr<DocumentAttachmentDto>>;
