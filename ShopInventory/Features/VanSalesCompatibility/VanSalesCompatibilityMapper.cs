@@ -370,11 +370,16 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
+    /// <remarks>
+    /// <paramref name="deviceInfo"/> is the handset's <c>X-Device-Model</c> header. It is not in the
+    /// payload, and without it every van sales order reads "Device not captured".
+    /// </remarks>
     public static CreateSalesOrderRequest MapSalesOrderRequest(
         VanSalesOrderRequest request,
         VanSalesCustomerResolution customer,
         string warehouseCode,
-        string costCentreCode)
+        string costCentreCode,
+        string? deviceInfo)
     {
         var cardCode = customer.PostingCardCode;
 
@@ -394,6 +399,7 @@ public static partial class VanSalesCompatibilityMapper
             WarehouseCode = warehouseCode,
             Source = SalesOrderSource.Mobile,
             ClientRequestId = string.IsNullOrWhiteSpace(request.VanOrder) ? null : request.VanOrder.Trim(),
+            DeviceInfo = NormalizeDeviceInfo(deviceInfo),
             Latitude = ParseCoordinate(request.Latitude),
             Longitude = ParseCoordinate(request.Longitude),
             Lines = request.Items.Select(item => new CreateSalesOrderLineRequest
@@ -818,6 +824,23 @@ public static partial class VanSalesCompatibilityMapper
             ?? assignedWarehouseCode
             ?? string.Empty;
     }
+
+    /// <summary>
+    /// A header is anything the caller cares to send, so it is trimmed and held to the 200 characters
+    /// <c>SalesOrderEntity.DeviceInfo</c> stores rather than failing the order on the save.
+    /// </summary>
+    private static string? NormalizeDeviceInfo(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length > MaxDeviceInfoLength ? trimmed[..MaxDeviceInfoLength].TrimEnd() : trimmed;
+    }
+
+    private const int MaxDeviceInfoLength = 200;
 
     private static decimal? ParseCoordinate(string? value)
     {

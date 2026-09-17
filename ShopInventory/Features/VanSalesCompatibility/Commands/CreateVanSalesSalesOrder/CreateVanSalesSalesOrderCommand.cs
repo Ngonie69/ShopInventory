@@ -6,4 +6,5 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesSa
 
 public sealed record CreateVanSalesSalesOrderCommand(
     VanSalesOrderRequest Request,
-    Guid UserId) : IRequest<ErrorOr<VanSalesLegacyOrderDto>>;
+    Guid UserId,
+    string? DeviceInfo) : IRequest<ErrorOr<VanSalesLegacyOrderDto>>;

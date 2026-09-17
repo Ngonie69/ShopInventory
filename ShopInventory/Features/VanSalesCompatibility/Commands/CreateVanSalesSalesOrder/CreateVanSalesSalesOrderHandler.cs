@@ -66,7 +66,8 @@ public sealed class CreateVanSalesSalesOrderHandler(
             command.Request,
             customer,
             warehouseCode,
-            costCentreCode);
+            costCentreCode,
+            command.DeviceInfo);
 
         var result = await mediator.Send(
             new CreateSalesOrderCommand(salesOrderRequest, command.UserId),

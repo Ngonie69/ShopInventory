@@ -491,11 +491,16 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
     /// <summary>
     /// Create a sales order
     /// </summary>
+    /// <remarks>
+    /// The handset names itself on the <c>X-Device-Model</c> header of every request rather than in
+    /// the body, so the device the order was captured on is read from there.
+    /// </remarks>
     [HttpPost("sales-order")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.CreateSalesOrders)]
     public async Task<IActionResult> CreateSalesOrder(
         [FromBody] VanSalesOrderRequest request,
+        [FromHeader(Name = "X-Device-Model")] string? deviceModel,
         CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -504,7 +509,7 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             return Unauthorized();
         }
 
-        var result = await mediator.Send(new CreateVanSalesSalesOrderCommand(request, userId.Value), cancellationToken);
+        var result = await mediator.Send(new CreateVanSalesSalesOrderCommand(request, userId.Value, deviceModel), cancellationToken);
         return result.Match(
             value => Ok(new VanSalesEnvelope<VanSalesLegacyOrderDto> { Success = value }),
             errors => Problem(errors));
