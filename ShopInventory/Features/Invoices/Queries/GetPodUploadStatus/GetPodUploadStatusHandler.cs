@@ -125,7 +125,11 @@ public sealed class GetPodUploadStatusHandler(
             {
                 // Noted whether this hits or misses: the warm job rebuilds what is in active use
                 // before it goes stale, so the next person is not the one who pays for the rebuild.
-                warmSet.Record(new PodReportWarmKey(request.FromDate, request.ToDate, cacheScopeKey));
+                // A scoped key is a hash, so the shops travel with it: the job cannot rebuild a
+                // scoped report from the key alone.
+                warmSet.Record(
+                    new PodReportWarmKey(request.FromDate, request.ToDate, cacheScopeKey),
+                    assignedCustomerCodes);
 
                 cachedSnapshot = await reportCache.GetAsync(
                     request.FromDate,
@@ -363,6 +367,9 @@ public sealed class GetPodUploadStatusHandler(
         }
     }
 
+    /// <summary>The cache scope of an unscoped report: every invoice in the range.</summary>
+    internal const string GlobalCacheScopeKey = "global";
+
     internal static string? BuildCacheScopeKey(
         bool includeCreditNoteActivity,
         IReadOnlyCollection<string>? assignedCustomerCodes)
@@ -375,7 +382,7 @@ public sealed class GetPodUploadStatusHandler(
 
         if (assignedCustomerCodes is null)
         {
-            return "global";
+            return GlobalCacheScopeKey;
         }
 
         // Include the effective assignment set in the key. A driver's cached result therefore

@@ -5,6 +5,14 @@ namespace ShopInventory.Common.Caching;
 /// <summary>One POD report shape somebody has recently asked for.</summary>
 public readonly record struct PodReportWarmKey(DateTime FromDate, DateTime ToDate, string ScopeKey);
 
+/// <summary>A tracked shape, with the shops a scoped report was built for.</summary>
+/// <param name="Key">The range and cache scope asked for.</param>
+/// <param name="CustomerCodes">
+/// The shops behind a scoped <see cref="PodReportWarmKey.ScopeKey"/>, which is a one-way hash of them
+/// and cannot be turned back into the list. Null for the global report.
+/// </param>
+public sealed record PodReportWarmShape(PodReportWarmKey Key, IReadOnlyList<string>? CustomerCodes);
+
 /// <summary>
 /// Remembers which POD report shapes are in active use, so they can be rebuilt off the request path
 /// before they go stale.
@@ -39,38 +47,46 @@ public sealed class PodReportWarmSet
     /// </summary>
     private const int MaxTrackedShapes = 12;
 
-    private readonly ConcurrentDictionary<PodReportWarmKey, DateTime> _lastRequestedUtc = new();
+    private readonly ConcurrentDictionary<PodReportWarmKey, Entry> _entries = new();
 
     /// <summary>Notes that somebody asked for this shape.</summary>
-    public void Record(PodReportWarmKey key)
+    /// <param name="key">The shape asked for.</param>
+    /// <param name="customerCodes">
+    /// The shops a scoped report was built for, or null for the global report. Kept because the scope
+    /// key is a hash: without the shops the job cannot rebuild the report the key names.
+    /// </param>
+    public void Record(PodReportWarmKey key, IReadOnlyCollection<string>? customerCodes = null)
     {
-        var now = DateTime.UtcNow;
-        _lastRequestedUtc[key] = now;
+        // A copy, so a caller reusing its collection cannot change what a tracked key rebuilds.
+        var codes = customerCodes?.ToArray();
+        _entries[key] = new Entry(DateTime.UtcNow, codes);
 
-        if (_lastRequestedUtc.Count <= MaxTrackedShapes)
+        if (_entries.Count <= MaxTrackedShapes)
         {
             return;
         }
 
         // Drop the coldest first: an active shape is one somebody is coming back to.
-        foreach (var stale in _lastRequestedUtc
-            .OrderBy(entry => entry.Value)
-            .Take(_lastRequestedUtc.Count - MaxTrackedShapes)
+        foreach (var stale in _entries
+            .OrderBy(entry => entry.Value.LastRequestedUtc)
+            .Take(_entries.Count - MaxTrackedShapes)
             .Select(entry => entry.Key))
         {
-            _lastRequestedUtc.TryRemove(stale, out _);
+            _entries.TryRemove(stale, out _);
         }
     }
 
     /// <summary>The shapes asked for inside <see cref="ActiveWindow"/>, newest request first.</summary>
-    public IReadOnlyList<PodReportWarmKey> ActiveShapes()
+    public IReadOnlyList<PodReportWarmShape> ActiveShapes()
     {
         var cutoff = DateTime.UtcNow - ActiveWindow;
 
-        return _lastRequestedUtc
-            .Where(entry => entry.Value >= cutoff)
-            .OrderByDescending(entry => entry.Value)
-            .Select(entry => entry.Key)
+        return _entries
+            .Where(entry => entry.Value.LastRequestedUtc >= cutoff)
+            .OrderByDescending(entry => entry.Value.LastRequestedUtc)
+            .Select(entry => new PodReportWarmShape(entry.Key, entry.Value.CustomerCodes))
             .ToList();
     }
+
+    private sealed record Entry(DateTime LastRequestedUtc, IReadOnlyList<string>? CustomerCodes);
 }
