@@ -6,7 +6,6 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
-using ShopInventory.Services.Fiscalisation;
 using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.DownloadInvoicePdf;
@@ -56,50 +55,17 @@ public sealed class DownloadInvoicePdfHandler(
             }
         }
 
-        var fiscalQrCode = query.FiscalQrCode;
-        if (string.IsNullOrWhiteSpace(fiscalQrCode))
-        {
-            fiscalQrCode = invoiceDto.FiscalQrCode;
-        }
-
-        if (string.IsNullOrWhiteSpace(fiscalQrCode))
-        {
-            var receipt = await TryLookupFiscalReceiptAsync(invoiceDto.DocNum, cancellationToken);
-            fiscalQrCode = receipt?.QrCode;
-
-            // The invoice prints the verification code, day and device beside the QR, so a
-            // receipt read from the device must fill them too — not just the QR it answered with.
-            if (receipt is { IsFiscalised: true })
-            {
-                invoiceDto.FiscalVerificationCode ??= receipt.VerificationCode;
-                invoiceDto.FiscalDeviceId ??= receipt.DeviceId;
-                invoiceDto.FiscalDay ??= receipt.FiscalDay;
-                invoiceDto.FiscalReceiptGlobalNo ??= receipt.ReceiptGlobalNo;
-            }
-        }
+        var fiscalQrCode = await InvoicePdfFiscalDetail.ResolveAsync(
+            dbContext,
+            fiscalReceiptReader,
+            invoiceDto,
+            query.FiscalQrCode,
+            logger,
+            cancellationToken);
 
         var pdfBytes = await invoicePdfService.GenerateInvoicePdfAsync(invoiceDto, fiscalQrCode);
         var fileName = $"Invoice_{invoiceDto.DocNum}_{DateTime.Now:yyyyMMdd}.pdf";
 
         return new InvoicePdfResult(pdfBytes, fileName);
-
-        async Task<FiscalReceiptSnapshot?> TryLookupFiscalReceiptAsync(int docNum, CancellationToken token)
-        {
-            try
-            {
-                return await fiscalReceiptReader.TryLookupAsync(
-                    docNum,
-                    ReceiptType.FiscalInvoice,
-                    logger,
-                    token);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "Could not load the fiscal receipt for desktop invoice {DocNum} while generating PDF",
-                    docNum);
-                return null;
-            }
-        }
     }
 }
