@@ -1,5 +1,13 @@
+using ErrorOr;
+using MediatR;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Quartz;
 using ShopInventory.Common.Caching;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
@@ -37,7 +45,7 @@ public sealed class PodReportWarmingTests
         var set = new PodReportWarmSet();
         set.Record(Shape(30));
 
-        Assert.Equal([Shape(30)], set.ActiveShapes());
+        Assert.Equal([Shape(30)], set.ActiveShapes().Select(shape => shape.Key));
     }
 
     [Fact]
@@ -92,7 +100,7 @@ public sealed class PodReportWarmingTests
         Assert.True(active.Count <= 12, $"Expected the set to stay bounded; it held {active.Count}.");
 
         // The most recent request survives the trim.
-        Assert.Contains(Shape(40), active);
+        Assert.Contains(Shape(40), active.Select(shape => shape.Key));
     }
 
     [Fact]
@@ -128,6 +136,138 @@ public sealed class PodReportWarmingTests
         var snapshot = Snapshot(refreshedAt: Now.AddMinutes(-1), isFresh: true, creditNoteDataComplete: false);
 
         Assert.False(PodReportWarmJob.IsWarmEnough(snapshot, Freshness, Now));
+    }
+
+    /// <summary>
+    /// A scoped key is a hash of its shops. Rebuilding it without them rebuilt the global report
+    /// instead: the scoped snapshot never warmed, and the global one was rebuilt against SAP on
+    /// every fire for as long as the scoped shape stayed active.
+    /// </summary>
+    [Fact]
+    public async Task A_scoped_shape_is_rebuilt_under_its_own_shops()
+    {
+        string[] shops = ["SPA059", "CIS006"];
+        var scopeKey = GetPodUploadStatusHandler.BuildCacheScopeKey(false, shops)!;
+        var set = new PodReportWarmSet();
+        set.Record(new PodReportWarmKey(new DateTime(2026, 9, 1), new DateTime(2026, 9, 17), scopeKey), shops);
+
+        var run = await RunJobAsync(set);
+
+        Assert.Equal([scopeKey], run.CheckedScopeKeys);
+        var query = Assert.Single(run.Sent);
+        Assert.Null(query.UserId);
+        Assert.NotNull(query.CustomerCodeScope);
+        Assert.Equal(["CIS006", "SPA059"], query.CustomerCodeScope.Order(StringComparer.Ordinal));
+
+        // The snapshot the handler saves is the one the job checked.
+        Assert.Equal(scopeKey, GetPodUploadStatusHandler.BuildCacheScopeKey(false, query.CustomerCodeScope));
+    }
+
+    [Fact]
+    public async Task A_global_shape_is_still_rebuilt_unscoped()
+    {
+        var set = new PodReportWarmSet();
+        set.Record(Shape(30));
+
+        var run = await RunJobAsync(set);
+
+        Assert.Equal(["global"], run.CheckedScopeKeys);
+        var query = Assert.Single(run.Sent);
+        Assert.Null(query.UserId);
+        Assert.Null(query.CustomerCodeScope);
+        Assert.Equal(Shape(30).FromDate, query.FromDate);
+        Assert.Equal(Shape(30).ToDate, query.ToDate);
+    }
+
+    /// <summary>
+    /// The shops cannot be recovered from the hash, so a scoped shape without them is left for a
+    /// person to rebuild. Falling back to an unscoped rebuild is exactly the defect.
+    /// </summary>
+    [Fact]
+    public async Task A_scoped_shape_without_its_shops_is_skipped_not_rebuilt_globally()
+    {
+        var scopeKey = GetPodUploadStatusHandler.BuildCacheScopeKey(false, ["SPA059"])!;
+        var set = new PodReportWarmSet();
+        set.Record(new PodReportWarmKey(new DateTime(2026, 9, 1), new DateTime(2026, 9, 17), scopeKey));
+
+        var run = await RunJobAsync(set);
+
+        Assert.Empty(run.Sent);
+    }
+
+    [Fact]
+    public async Task Shops_that_hash_to_a_different_scope_are_skipped()
+    {
+        var scopeKey = GetPodUploadStatusHandler.BuildCacheScopeKey(false, ["SPA059"])!;
+        var set = new PodReportWarmSet();
+        set.Record(
+            new PodReportWarmKey(new DateTime(2026, 9, 1), new DateTime(2026, 9, 17), scopeKey),
+            ["CIS006"]);
+
+        var run = await RunJobAsync(set);
+
+        Assert.Empty(run.Sent);
+    }
+
+    [Fact]
+    public void The_warm_set_keeps_its_own_copy_of_the_shops()
+    {
+        var shops = new List<string> { "SPA059" };
+        var scopeKey = GetPodUploadStatusHandler.BuildCacheScopeKey(false, shops)!;
+        var set = new PodReportWarmSet();
+        set.Record(new PodReportWarmKey(new DateTime(2026, 9, 1), new DateTime(2026, 9, 17), scopeKey), shops);
+
+        shops.Add("CIS006");
+
+        Assert.Equal(["SPA059"], Assert.Single(set.ActiveShapes()).CustomerCodes!);
+    }
+
+    private sealed record JobRun(List<string> CheckedScopeKeys, List<GetPodUploadStatusQuery> Sent);
+
+    /// <summary>Runs the job against a cache where every snapshot is cold, capturing what it sends.</summary>
+    private static async Task<JobRun> RunJobAsync(PodReportWarmSet set)
+    {
+        var run = new JobRun([], []);
+
+        var cache = StubProxy.For<IPodReportCacheStore>((method, args) => method.Name switch
+        {
+            "get_Enabled" => (object)true,
+            nameof(IPodReportCacheStore.GetAsync) => RecordCheck((string)args![2]!),
+            _ => throw new InvalidOperationException($"IPodReportCacheStore.{method.Name} was not expected.")
+        });
+
+        var mediator = StubProxy.For<IMediator>((method, args) =>
+        {
+            if (method.Name != nameof(IMediator.Send))
+                throw new InvalidOperationException($"Unexpected call to {method.Name}");
+
+            run.Sent.Add((GetPodUploadStatusQuery)args![0]!);
+            return Task.FromResult<ErrorOr<PodUploadStatusReportDto>>(new PodUploadStatusReportDto());
+        });
+
+        var services = new ServiceCollection();
+        services.AddScoped(_ => cache);
+        services.AddScoped(_ => mediator);
+
+        var job = new PodReportWarmJob(
+            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            set,
+            Options.Create(new PodReportCacheSettings { Enabled = true, FreshnessMinutes = 15 }),
+            NullLogger<PodReportWarmJob>.Instance);
+
+        await job.Execute(StubProxy.For<IJobExecutionContext>((method, _) => method.Name switch
+        {
+            "get_CancellationToken" => CancellationToken.None,
+            _ => throw new InvalidOperationException($"Unexpected Quartz call: {method.Name}")
+        }));
+
+        return run;
+
+        Task<PodReportCacheSnapshot?> RecordCheck(string scopeKey)
+        {
+            run.CheckedScopeKeys.Add(scopeKey);
+            return Task.FromResult<PodReportCacheSnapshot?>(null);
+        }
     }
 
     private static PodReportCacheSnapshot Snapshot(
