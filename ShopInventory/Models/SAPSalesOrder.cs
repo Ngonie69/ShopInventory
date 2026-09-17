@@ -129,4 +129,11 @@ public class SAPSalesOrderLine
 
     [JsonPropertyName("LineStatus")]
     public string? LineStatus { get; set; } // bost_Open, bost_Close
+
+    /// <summary>
+    /// What is still to be invoiced on the line, in the line's own unit. <see cref="OpenQuantity"/> is
+    /// not a Service Layer property and never arrives.
+    /// </summary>
+    [JsonPropertyName("RemainingOpenQuantity")]
+    public decimal? RemainingOpenQuantity { get; set; }
 }

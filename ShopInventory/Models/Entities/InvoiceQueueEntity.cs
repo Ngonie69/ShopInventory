@@ -158,6 +158,16 @@ public class InvoiceQueueEntity
     [MaxLength(500)]
     public string? Notes { get; set; }
 
+    /// <summary>
+    /// The local sales order this invoice was converted from, when it was.
+    /// </summary>
+    /// <remarks>
+    /// Read by end-of-day consolidation, which bases the invoice's lines on that order's SAP document
+    /// so SAP records the order as invoiced. A column rather than a field in <see cref="InvoicePayload"/>
+    /// because the payload's type is also a request body, and a caller must not be able to name an order.
+    /// </remarks>
+    public int? SalesOrderId { get; set; }
+
     // Note: Navigation to StockReservationEntity is not used because ReservationId
     // links to the StockReservationEntity.ReservationId (business key), not the PK.
     // Use the ReservationId string field to look up reservations.

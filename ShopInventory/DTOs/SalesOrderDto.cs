@@ -109,6 +109,17 @@ public class CreateSalesOrderRequest
     [MaxLength(200)]
     public string? RouteCustomerName { get; set; }
 
+    /// <summary>
+    /// Approve and post the order to SAP as soon as post-save pricing has run, instead of waiting for
+    /// someone to approve it on the web. Van sales orders only, so the invoice the van later raises
+    /// against the order has a SAP document to link to.
+    ///
+    /// <c>[JsonIgnore]</c> for the same reason as the route customer fields: bound from a request body
+    /// it would let any caller skip approval.
+    /// </summary>
+    [JsonIgnore]
+    public bool AutoPostToSap { get; set; }
+
     public string? CustomerRefNo { get; set; }
     public string? Comments { get; set; }
     public int? SalesPersonCode { get; set; }

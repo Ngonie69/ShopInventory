@@ -126,7 +126,9 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 reservationRequest,
                 reservationResult.Reservation!.ReservationId,
                 command.CreatedBy,
-                cancellationToken);
+                cancellationToken,
+                // So consolidation can base the invoice on the order's SAP document.
+                salesOrderId: order.Id);
 
             if (!queueResult.Success)
             {

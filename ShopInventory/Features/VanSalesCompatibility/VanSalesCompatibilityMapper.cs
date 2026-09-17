@@ -398,6 +398,9 @@ public static partial class VanSalesCompatibilityMapper
             Currency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim(),
             WarehouseCode = warehouseCode,
             Source = SalesOrderSource.Mobile,
+            // Posted to SAP without waiting for web approval, so the invoice the van raises against
+            // this order can be linked to it.
+            AutoPostToSap = true,
             ClientRequestId = string.IsNullOrWhiteSpace(request.VanOrder) ? null : request.VanOrder.Trim(),
             DeviceInfo = NormalizeDeviceInfo(deviceInfo),
             Latitude = ParseCoordinate(request.Latitude),

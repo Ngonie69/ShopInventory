@@ -44,6 +44,18 @@ public class MobileOrderPostProcessingQueueEntity
     public DateTime? PricesResolvedAt { get; set; }
 
     public DateTime? NotificationSentAt { get; set; }
+
+    /// <summary>
+    /// Whether the last stage approves the order and posts it to SAP. Set for van sales orders only;
+    /// merchandiser orders still wait for approval on the web.
+    /// </summary>
+    public bool AutoPostToSap { get; set; }
+
+    /// <summary>
+    /// When the auto-post stage finished — posted, or left Pending on a credit hold for the web to
+    /// approve. Null while a post is still owed.
+    /// </summary>
+    public DateTime? AutoPostedAt { get; set; }
 }
 
 public enum MobileOrderPostProcessingQueueStatus
