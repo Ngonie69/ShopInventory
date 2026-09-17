@@ -36,7 +36,9 @@ public sealed class UploadVanSalesPodFileHandler(
                 "A valid order or invoice reference is required for POD upload.");
         }
 
-        var docEntry = await VanSalesPodTarget.ResolveInvoiceDocEntryAsync(db, command.Order, cancellationToken);
+        var docEntry = command.OrderIsSapDocEntry
+            ? command.Order
+            : await VanSalesPodTarget.ResolveInvoiceDocEntryAsync(db, command.Order, cancellationToken);
         if (!docEntry.HasValue)
         {
             return Error.NotFound(

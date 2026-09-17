@@ -85,7 +85,19 @@ public sealed class GetPodUploadStatusHandler(
             var isDriver = string.Equals(currentUser?.Role, "Driver", StringComparison.OrdinalIgnoreCase);
             HashSet<string>? assignedCustomerCodes = null;
 
-            if (isDriver && currentUser is not null)
+            if (request.CustomerCodeScope is not null)
+            {
+                assignedCustomerCodes = request.CustomerCodeScope
+                    .Where(code => !string.IsNullOrWhiteSpace(code))
+                    .Select(code => code.Trim())
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                if (assignedCustomerCodes.Count == 0)
+                {
+                    return BuildEmptyReport(request);
+                }
+            }
+            else if (isDriver && currentUser is not null)
             {
                 var effectiveCustomerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
                     context,

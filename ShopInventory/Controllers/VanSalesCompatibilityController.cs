@@ -40,6 +40,7 @@ using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscal;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscalLease;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesOrderHistory;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesPodDeliveries;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesSalesOrderHistory;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesTransferRequests;
 using ShopInventory.Models;
@@ -627,13 +628,78 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewInvoices)]
     [MaxRequestBodySize(20 * 1024 * 1024)]
-    public async Task<IActionResult> UploadPodFile(
+    public Task<IActionResult> UploadPodFile(
         int order,
         IFormFile file,
         [FromForm] string? description = null,
         [FromForm] string? externalReference = null,
         [FromForm] bool isAdditionalPage = false,
         CancellationToken cancellationToken = default)
+        => SendPodFileAsync(order, orderIsSapDocEntry: false, file, description, externalReference, isAdditionalPage, cancellationToken);
+
+    /// <summary>
+    /// One page of a delivery note, filed against a SAP invoice by its document entry.
+    /// </summary>
+    /// <remarks>
+    /// What the delivery list (<c>pod/deliveries</c>) hands the handset is a SAP document entry, and
+    /// many of those invoices were never raised on a handset, so there is no platform id to send
+    /// instead. <c>pod/{order}/file</c> beside it would try the number as a platform order or invoice
+    /// id first, and a document entry that happens to equal one would be filed against the wrong
+    /// document. This route takes the number as exactly what it says it is; SAP is still asked for
+    /// the invoice before anything is stored.
+    /// </remarks>
+    [HttpPost("pod/invoice/{docEntry:int}/file")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewInvoices)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
+    public Task<IActionResult> UploadInvoicePodFile(
+        int docEntry,
+        IFormFile file,
+        [FromForm] string? description = null,
+        [FromForm] string? externalReference = null,
+        [FromForm] bool isAdditionalPage = false,
+        CancellationToken cancellationToken = default)
+        => SendPodFileAsync(docEntry, orderIsSapDocEntry: true, file, description, externalReference, isAdditionalPage, cancellationToken);
+
+    /// <summary>
+    /// The invoices on the drivers' shop list, with whether each already has a delivery note
+    /// </summary>
+    /// <remarks>
+    /// The list the van's proof-of-delivery screen offers. The shops are the ones the office chooses
+    /// on the portal's Driver Shop Access page; the invoices and their note status come from the same
+    /// report the portal's POD pages read. Dates are invoice dates, <c>yyyy-MM-dd</c>, both inclusive.
+    /// </remarks>
+    [HttpGet("pod/deliveries")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewInvoices)]
+    public async Task<IActionResult> GetPodDeliveries(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetVanSalesPodDeliveriesQuery(userId.Value, fromDate, toDate),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(new VanSalesEnvelope<VanSalesPodDeliveriesDto> { Success = value }),
+            errors => Problem(errors));
+    }
+
+    private async Task<IActionResult> SendPodFileAsync(
+        int order,
+        bool orderIsSapDocEntry,
+        IFormFile file,
+        string? description,
+        string? externalReference,
+        bool isAdditionalPage,
+        CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
         if (userId is null)
@@ -669,7 +735,8 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
                 description,
                 externalReference,
                 isAdditionalPage,
-                userId.Value),
+                userId.Value,
+                orderIsSapDocEntry),
             cancellationToken);
 
         return result.Match(
