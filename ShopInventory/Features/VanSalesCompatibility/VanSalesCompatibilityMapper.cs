@@ -292,14 +292,11 @@ public static partial class VanSalesCompatibilityMapper
     }
 
     /// <summary>
-    /// Answers the handset, naming the fiscal receipt the sale carries.
+    /// Answers the handset for a sale the server fiscalised before posting.
     /// </summary>
     /// <remarks>
-    /// <paramref name="stampedBy"/> is the sale's own signed receipt, when it had one. The server does
-    /// not fiscalise a stamped sale — see <see cref="MapInvoiceRequest"/> — so there is no platform
-    /// result to report, and reporting nothing would have the handset show its own printed receipt as
-    /// "Not Fiscalised". What it gets back instead is what it sent, which is the truth: that receipt is
-    /// the sale's fiscal record and the server has taken custody of it.
+    /// Always a success: every outcome that reaches here carries a receipt, and a receipt means the sale
+    /// stands. <c>was_queued</c> then says only that SAP has not taken the invoice yet.
     /// </remarks>
     public static VanSalesDirectInvoiceResponse MapFiscalFirstResponse(
         VanSaleFiscalFirstOutcome outcome,
@@ -341,6 +338,16 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
+    /// <summary>
+    /// Answers the handset, naming the fiscal receipt the sale carries.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="stampedBy"/> is the sale's own signed receipt, when it had one. The server does
+    /// not fiscalise a stamped sale — see <see cref="MapInvoiceRequest"/> — so there is no platform
+    /// result to report, and reporting nothing would have the handset show its own printed receipt as
+    /// "Not Fiscalised". What it gets back instead is what it sent, which is the truth: that receipt is
+    /// the sale's fiscal record and the server has taken custody of it.
+    /// </remarks>
     public static VanSalesDirectInvoiceResponse MapInvoiceResponse(
         ConfirmReservationResponseDto response,
         string externalReference,

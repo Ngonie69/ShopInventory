@@ -222,7 +222,7 @@ public sealed class VanSaleFiscalFirstPosterTests : IDisposable
         await BuildPoster().FiscaliseThenPostAsync(Request(reservation.ReservationId), default);
 
         // The receipt: cheese standard-rated and grossed up, milk zero-rated and not.
-        var signedLines = _signed.Single().Lines.OrderBy(l => l.LineNum).ToList();
+        var signedLines = (_signed.Single().Lines ?? []).OrderBy(l => l.LineNum).ToList();
         Assert.Equal(["S1", "O0"], signedLines.Select(l => l.TaxCode));
         Assert.Equal([23.10m, 5.00m], signedLines.Select(l => l.GrossTotal));
 
