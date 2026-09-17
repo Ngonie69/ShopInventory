@@ -23,8 +23,11 @@ namespace ShopInventory.Services;
 /// than a fixed list of presets refreshed on a timer whether or not anyone opened them.
 /// </para>
 /// <para>
-/// Scoped reports are warmed on the same terms as any other. The key carries the scope, so a
-/// driver's snapshot is rebuilt under the assignment set it was built for and never crosses over.
+/// Scoped reports are warmed on the same terms as any other. A scoped key is a hash of the shops it
+/// covers, so the shape carries the shops as well and the rebuild is scoped to exactly them. A
+/// rebuild that would not land on the shape's own key is skipped: until 2026-09-17 every scoped
+/// shape rebuilt the global report instead, so the scoped snapshot never warmed and the global one
+/// was rebuilt against SAP once per cold scoped shape.
 /// </para>
 /// </remarks>
 [DisallowConcurrentExecution]
@@ -77,6 +80,17 @@ public sealed class PodReportWarmJob : IJob
                 break;
             }
 
+            var key = shape.Key;
+            if (!TryBuildRebuildQuery(shape, out var query))
+            {
+                _logger.LogWarning(
+                    "Not warming the POD report for {FromDate:yyyy-MM-dd} to {ToDate:yyyy-MM-dd} under scope {ScopeKey}: its shops do not produce that scope",
+                    key.FromDate,
+                    key.ToDate,
+                    key.ScopeKey);
+                continue;
+            }
+
             using var scope = _scopeFactory.CreateScope();
             var cache = scope.ServiceProvider.GetRequiredService<IPodReportCacheStore>();
 
@@ -85,7 +99,7 @@ public sealed class PodReportWarmJob : IJob
                 return;
             }
 
-            var snapshot = await cache.GetAsync(shape.FromDate, shape.ToDate, shape.ScopeKey, cancellationToken);
+            var snapshot = await cache.GetAsync(key.FromDate, key.ToDate, key.ScopeKey, cancellationToken);
             if (IsWarmEnough(snapshot, TimeSpan.FromMinutes(_cacheSettings.FreshnessMinutes)))
             {
                 continue;
@@ -94,13 +108,7 @@ public sealed class PodReportWarmJob : IJob
             try
             {
                 var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-
-                // UserId null keeps this on the report's own scoping rules rather than a user's:
-                // a null user is not a driver, so the handler resolves the global scope and the
-                // snapshot it saves is the one the global readers will hit.
-                var result = await mediator.Send(
-                    new GetPodUploadStatusQuery(shape.FromDate, shape.ToDate, UserId: null),
-                    cancellationToken);
+                var result = await mediator.Send(query, cancellationToken);
 
                 rebuilt++;
 
@@ -108,8 +116,8 @@ public sealed class PodReportWarmJob : IJob
                 {
                     _logger.LogWarning(
                         "Could not warm the POD report for {FromDate:yyyy-MM-dd} to {ToDate:yyyy-MM-dd}: {Reason}",
-                        shape.FromDate,
-                        shape.ToDate,
+                        key.FromDate,
+                        key.ToDate,
                         string.Join("; ", result.Errors.Select(error => error.Description)));
                 }
             }
@@ -124,8 +132,8 @@ public sealed class PodReportWarmJob : IJob
                 _logger.LogWarning(
                     ex,
                     "Could not warm the POD report for {FromDate:yyyy-MM-dd} to {ToDate:yyyy-MM-dd}",
-                    shape.FromDate,
-                    shape.ToDate);
+                    key.FromDate,
+                    key.ToDate);
             }
         }
 
@@ -136,6 +144,42 @@ public sealed class PodReportWarmJob : IJob
                 rebuilt,
                 shapes.Count);
         }
+    }
+
+    /// <summary>
+    /// The query that rebuilds exactly the snapshot a shape names, or false when there is none.
+    /// </summary>
+    /// <remarks>
+    /// UserId stays null so the handler follows the report's scoping rules rather than a user's. A
+    /// global shape passes no shops, so the handler resolves the global scope. A scoped shape passes
+    /// its shops as <see cref="GetPodUploadStatusQuery.CustomerCodeScope"/>, and the key they produce
+    /// is checked against the shape's own before anything is sent: a scoped key with no shops, or
+    /// shops that hash to a different key, would otherwise rebuild — and save — a different report.
+    /// <para>
+    /// <see cref="GetPodUploadStatusQuery.IsWarmRebuild"/> keeps the rebuild from renewing the shape in
+    /// the warm set, so warming stops an hour after the last person asked for it.
+    /// </para>
+    /// </remarks>
+    internal static bool TryBuildRebuildQuery(PodReportWarmShape shape, out GetPodUploadStatusQuery query)
+    {
+        var key = shape.Key;
+        query = new GetPodUploadStatusQuery(
+            key.FromDate,
+            key.ToDate,
+            UserId: null,
+            CustomerCodeScope: key.ScopeKey == GetPodUploadStatusHandler.GlobalCacheScopeKey
+                ? null
+                : shape.CustomerCodes,
+            IsWarmRebuild: true);
+
+        if (query.CustomerCodeScope is null)
+        {
+            return key.ScopeKey == GetPodUploadStatusHandler.GlobalCacheScopeKey;
+        }
+
+        return GetPodUploadStatusHandler.BuildCacheScopeKey(
+            includeCreditNoteActivity: false,
+            query.CustomerCodeScope) == key.ScopeKey;
     }
 
     /// <summary>

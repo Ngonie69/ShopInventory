@@ -266,9 +266,15 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.Null(response.SapDocNum);
         Assert.Equal("vc-server", response.VerificationCode);
 
+        // Handed over already Fiscalized, carrying its receipt, so PostQueuedVanInvoices posts it and nothing
+        // offers it to the device again.
         var queued = await _context.InvoiceQueue.SingleAsync();
         Assert.Equal("VAN006-INV-20260810-BBB222", queued.ExternalReference);
         Assert.Equal(SaleSourceSystems.VanSales, queued.SourceSystem);
+        Assert.Equal(InvoiceQueueStatus.Fiscalized, queued.Status);
+        Assert.True(queued.FiscalizationSuccess);
+        Assert.Equal("900", queued.FiscalReceiptNumber);
+        Assert.NotNull(queued.ProcessingStartedAt);
         Assert.Equal(response.QueueId, queued.Id);
     }
 
@@ -288,7 +294,12 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.True(result.IsError);
         Assert.Equal("VanSalesCompatibility.FiscalOutcomeUnknown", result.FirstError.Code);
         Assert.Equal(["sign"], _calls);
-        Assert.Single(await _context.InvoiceQueue.ToListAsync());
+
+        // Straight to review, and marked as started: a Retry makes InvoicePostingJob ask the device first.
+        var queued = Assert.Single(await _context.InvoiceQueue.ToListAsync());
+        Assert.Equal(InvoiceQueueStatus.RequiresReview, queued.Status);
+        Assert.NotNull(queued.ProcessingStartedAt);
+        Assert.Null(queued.FiscalReceiptNumber);
     }
 
     /// <summary>
@@ -620,7 +631,6 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             Options.Create(_fiscalisation),
             NullLogger<CreateVanSalesDirectInvoiceHandler>.Instance,
             StubProxy.Unused<IStockReservationService>(),
-            StubProxy.Unused<IInvoiceQueueService>(),
             new VanSaleFiscalFirstPoster(
                 poisoned,
                 StubProxy.Unused<IStockReservationService>(),
@@ -824,8 +834,6 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             Options.Create(_fiscalisation),
             NullLogger<CreateVanSalesDirectInvoiceHandler>.Instance,
             _reservations.Service,
-            new InvoiceQueueService(
-                _context, StubProxy.Unused<IStockLedger>(), NullLogger<InvoiceQueueService>.Instance),
             new VanSaleFiscalFirstPoster(
                 _context,
                 _reservations.Service,

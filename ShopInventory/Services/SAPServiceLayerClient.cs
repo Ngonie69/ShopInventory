@@ -1255,6 +1255,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 UoMCode = line.UoMCode,
                 AccountCode = line.AccountCode,
                 CostingCode = line.CostCentreCode,
+                // Null on every line that is not based on a document, and then left out below.
+                BaseType = line.BaseType,
+                BaseEntry = line.BaseEntry,
+                BaseLine = line.BaseLine,
                 BatchNumbers = line.BatchNumbers?.Select(b => new
                 {
                     BatchNumber = b.BatchNumber,

@@ -609,6 +609,7 @@ public class SalesOrderService : ISalesOrderService
                             SalesOrderId = order.Id,
                             OrderNumber = order.OrderNumber,
                             LineCount = persistedLineCount,
+                            AutoPostToSap = request.AutoPostToSap,
                             MaxRetries = 5,
                             CreatedAt = DateTime.UtcNow
                         });
@@ -795,6 +796,28 @@ public class SalesOrderService : ISalesOrderService
                 await _context.SaveChangesAsync(cancellationToken);
             }
 
+            if (queueEntry.AutoPostToSap && queueEntry.AutoPostedAt == null)
+            {
+                var queueEntryId = queueEntry.Id;
+                try
+                {
+                    await AutoPostMobileOrderAsync(order, cancellationToken);
+                }
+                finally
+                {
+                    // The approval clears the change tracker before it posts, which detaches this
+                    // entry. Reloaded on both paths so the stage stamp below, or the retry bookkeeping
+                    // in the catch, is actually saved.
+                    queueEntry = await _context.MobileOrderPostProcessingQueue
+                        .AsTracking()
+                        .FirstAsync(q => q.Id == queueEntryId, CancellationToken.None);
+                }
+
+                queueEntry.AutoPostedAt = DateTime.UtcNow;
+                queueEntry.LastError = null;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
             queueEntry.Status = MobileOrderPostProcessingQueueStatus.Completed;
             queueEntry.ProcessedAt = DateTime.UtcNow;
             queueEntry.NextRetryAt = null;
@@ -813,6 +836,62 @@ public class SalesOrderService : ISalesOrderService
         catch (Exception ex)
         {
             await MarkMobileOrderPostProcessingFailureAsync(queueEntry, ex, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Approves a freshly priced van sales order and posts it to SAP, through the same path a web
+    /// approval takes — the credit gate, the posting lock and the duplicate guards included.
+    /// </summary>
+    /// <remarks>
+    /// The point is the invoice that follows. A van converts the order into an invoice, and that
+    /// invoice can only be based on the order in SAP if the order is already there.
+    ///
+    /// A credit refusal finishes the stage rather than failing it: the approval has already written
+    /// the refusal onto the order's <c>SyncError</c>, the order stays Pending, and approving it on the
+    /// web once the account is inside its limit is the way forward. Retrying here would only ask SAP
+    /// the same question five times. Any other failure is thrown, so the queue retries it with backoff
+    /// and a persistent one reaches the exception centre.
+    /// </remarks>
+    private async Task AutoPostMobileOrderAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    {
+        if (!order.CreatedByUserId.HasValue)
+        {
+            _logger.LogWarning(
+                "Did not auto-post sales order {OrderNumber} ({OrderId}) to SAP because it records no creator to approve it as; it is left Pending for approval on the web",
+                order.OrderNumber,
+                order.Id);
+            return;
+        }
+
+        if (!CanPostToSap(order.Status))
+        {
+            _logger.LogInformation(
+                "Did not auto-post sales order {OrderNumber} ({OrderId}) to SAP because it is already {Status}",
+                order.OrderNumber,
+                order.Id,
+                order.Status);
+            return;
+        }
+
+        try
+        {
+            var posted = await ApproveCoreAsync(order.Id, order.CreatedByUserId.Value, automatic: true, cancellationToken);
+
+            _logger.LogInformation(
+                "Auto-posted van sales order {OrderNumber} ({OrderId}) to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                posted.OrderNumber,
+                posted.Id,
+                posted.SAPDocEntry,
+                posted.SAPDocNum);
+        }
+        catch (CreditLimitExceededException ex)
+        {
+            _logger.LogWarning(
+                "Did not auto-post sales order {OrderNumber} ({OrderId}) to SAP on credit; it is left Pending for approval on the web: {Reason}",
+                order.OrderNumber,
+                order.Id,
+                ex.Message);
         }
     }
 
@@ -1193,14 +1272,27 @@ public class SalesOrderService : ISalesOrderService
         return true;
     }
 
-    public async Task<SalesOrderDto> ApproveAsync(int id, Guid userId, CancellationToken cancellationToken = default)
+    public Task<SalesOrderDto> ApproveAsync(int id, Guid userId, CancellationToken cancellationToken = default) =>
+        ApproveCoreAsync(id, userId, automatic: false, cancellationToken);
+
+    /// <summary>
+    /// Approves an order and posts it to SAP. <c>automatic</c> is true when the post-save queue is
+    /// approving a van sales order on the rep's behalf: nobody is waiting on the reply, so it takes
+    /// background SAP priority, and the remark it leaves in SAP says the order was posted automatically
+    /// rather than naming the rep as its approver.
+    /// </summary>
+    private async Task<SalesOrderDto> ApproveCoreAsync(
+        int id,
+        Guid userId,
+        bool automatic,
+        CancellationToken cancellationToken)
     {
         // A rep is holding the phone waiting for this. The scope covers pricing, UoM resolution
         // and the post itself, so none of those round-trips queue behind background SAP traffic.
         // SapRequestPriorityMiddleware now marks every HTTP request the same way, which makes this
         // a nested no-op on the only route that currently reaches here — kept so the guarantee
         // belongs to the approval itself rather than to the caller happening to be a request.
-        using var interactive = SapRequestPriority.BeginInteractive();
+        using var interactive = automatic ? null : SapRequestPriority.BeginInteractive();
 
         var order = await _context.SalesOrders
             .AsTracking()
@@ -1283,7 +1375,9 @@ public class SalesOrderService : ISalesOrderService
             : null;
         if (string.IsNullOrEmpty(createdBy)) createdBy = order.CreatedByUser?.Username;
 
-        var approvalRemark = $"Approved by {approverName} on {catTime:dd MMM yyyy HH:mm}. " +
+        var approvalRemark = (automatic
+                ? $"Posted to SAP automatically on {catTime:dd MMM yyyy HH:mm}. "
+                : $"Approved by {approverName} on {catTime:dd MMM yyyy HH:mm}. ") +
             $"Origin: {order.Source} order{(createdBy != null ? $" created by {createdBy}" : "")}.";
 
         var (updatedComments, commentsWereTrimmed) = AppendCommentWithinLimit(order.Comments, approvalRemark);

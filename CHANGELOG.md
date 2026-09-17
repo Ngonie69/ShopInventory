@@ -317,6 +317,31 @@ otherwise be surprised.
 
 ### Fixed
 
+- **A van sale that went through the invoice queue never became a SAP invoice.** That is every sales
+  order a handset converted with `POST /vansales/order/convert-to-invoice`, which is always queued, and
+  every online van sale made while SAP was unavailable. `InvoicePostingJob` fiscalised the entry and
+  left it `Fiscalized`; the end-of-day consolidation posts every other such entry but has refused van
+  sales since 2026-08-19, and nothing else picked them up. The handset had been told the conversion was
+  accepted, the receipt was lodged with ZIMRA, and SAP held nothing.
+
+  The same job now posts them, one invoice per sale, by confirming the reservation each was queued
+  with — so the invoice carries the sale's own `U_Van_saleorder` and appears under **Van Sales
+  Invoices**. It is never fiscalised again, and the invoice list reports it as fiscalised.
+
+  A converted sale is invoiced against its sales order (`BaseType` 17), which is what the order link
+  added the same day was for — that link lived only in the consolidation, which never sees a van sale.
+  The rules are the consolidation's: only what the order still has open is linked, the sale's reserved
+  batches are split with the line, a cancelled, closed or other customer's order is not linked, and an
+  invoice SAP refuses while linked is posted once more without the link. A sale converted before its
+  order reached SAP waits up to an hour for it, then posts unlinked.
+
+  **Operators:** the first run after deploy works through the backlog, five sales per run. Each
+  invoice is dated the day its sale was queued, not the day it posts, so back-dated A/R invoices will
+  appear for dates since 2026-08-19. A sale whose posting period is closed, or whose batches have since
+  been sold, is refused by SAP and lands in **Exception Center** as needing review rather than being
+  retried. Such an entry is already fiscalised; Retry on it now asks the fiscal device before signing,
+  and adopts the receipt it finds.
+
 - **`DailyStock:MonitoredWarehouses` was binding to every warehouse twice**, so the 07:00 stock
   snapshot job walked each monitored warehouse twice and made double the SAP reads it needed —
   against a pool of six concurrent SAP requests where stock reads already hang for minutes.

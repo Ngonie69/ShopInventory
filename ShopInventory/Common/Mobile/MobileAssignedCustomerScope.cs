@@ -25,32 +25,7 @@ public static class MobileAssignedCustomerScope
             return customerCodes;
         }
 
-        var fallbackCandidates = await db.Users
-            .AsNoTracking()
-            .Where(candidate => candidate.Id != user.Id &&
-                (candidate.Role == ApplicationRoles.Driver || candidate.Role == ApplicationRoles.PodOperator) &&
-                candidate.AssignedCustomerCodes != null)
-            .Select(candidate => new
-            {
-                candidate.Id,
-                candidate.Username,
-                candidate.Role,
-                candidate.AssignedCustomerCodes
-            })
-            .ToListAsync(cancellationToken);
-
-        var fallback = fallbackCandidates
-            .Select(candidate => new
-            {
-                candidate.Id,
-                candidate.Username,
-                candidate.Role,
-                Codes = Normalize(Deserialize(candidate.AssignedCustomerCodes))
-            })
-            .Where(candidate => candidate.Codes.Count > 0)
-            .OrderBy(candidate => string.Equals(candidate.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-            .ThenBy(candidate => candidate.Username, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+        var fallback = await DriverShopList.FindAsync(db, user.Id, cancellationToken);
 
         if (fallback is null)
         {
@@ -62,7 +37,7 @@ public static class MobileAssignedCustomerScope
             return customerCodes;
         }
 
-        var serializedCodes = JsonSerializer.Serialize(fallback.Codes);
+        var serializedCodes = JsonSerializer.Serialize(fallback.CustomerCodes);
         await db.Users
             .Where(candidate => candidate.Id == user.Id)
             .ExecuteUpdateAsync(setters => setters
@@ -74,11 +49,11 @@ public static class MobileAssignedCustomerScope
             "Backfilled assigned customer codes for mobile user {UserId} ({Role}) from {SourceUserId} ({SourceRole}) with {Count} customer(s)",
             user.Id,
             user.Role,
-            fallback.Id,
+            fallback.UserId,
             fallback.Role,
-            fallback.Codes.Count);
+            fallback.CustomerCodes.Count);
 
-        return fallback.Codes;
+        return fallback.CustomerCodes;
     }
 
     private static bool UsesBlanketMobileScope(string? role)
@@ -94,24 +69,7 @@ public static class MobileAssignedCustomerScope
         return Normalize(new[] { user.AssignedBusinessPartnerCode ?? string.Empty });
     }
 
-    private static List<string> Deserialize(string? serializedCodes)
-    {
-        if (string.IsNullOrWhiteSpace(serializedCodes))
-        {
-            return new List<string>();
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<string>>(serializedCodes) ?? new List<string>();
-        }
-        catch
-        {
-            return new List<string>();
-        }
-    }
-
-    private static List<string> Normalize(IEnumerable<string>? codes)
+    internal static List<string> Normalize(IEnumerable<string>? codes)
     {
         return (codes ?? Enumerable.Empty<string>())
             .Where(code => !string.IsNullOrWhiteSpace(code))

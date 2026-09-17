@@ -107,8 +107,74 @@ public sealed class PodReportCacheTests : IDisposable
         Assert.False(snapshot.IsFresh);
     }
 
+    /// <summary>
+    /// The warm job can only rebuild a scoped report if the handler hands the warm set the shops
+    /// behind the hashed key — and those shops, sent back as the scope, must read the same snapshot.
+    /// </summary>
     [Fact]
-    public async Task Fresh_snapshot_serves_the_report_without_calling_sap()
+    public async Task A_scoped_read_records_its_shops_for_the_warm_job()
+    {
+        var store = CreateStore();
+        var warmSet = new PodReportWarmSet();
+        var fromDate = new DateTime(2026, 9, 1);
+        var toDate = new DateTime(2026, 9, 17);
+        var scopeKey = GetPodUploadStatusHandler.BuildCacheScopeKey(false, ["SPA059", "CIS006"])!;
+        await store.SaveAsync(
+            fromDate,
+            toDate,
+            scopeKey,
+            new PodUploadStatusReportDto
+            {
+                FromDate = "2026-09-01",
+                ToDate = "2026-09-17",
+                CreditNoteDataComplete = true,
+                Items =
+                [
+                    new PodUploadStatusItemDto
+                    {
+                        DocEntry = 123,
+                        DocNum = 456,
+                        CardCode = "SPA059",
+                        CardName = "Scoped report customer"
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        var documentService = StubProxy.For<IDocumentService>((method, _) =>
+            method.Name == nameof(IDocumentService.GetPodStatusByDocEntriesAsync)
+                ? Task.FromResult(new Dictionary<int, PodStatusInfo>())
+                : throw new InvalidOperationException($"IDocumentService.{method.Name} was not expected."));
+        var handler = new GetPodUploadStatusHandler(
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            documentService,
+            _context,
+            Options.Create(new SAPSettings { Enabled = false }),
+            Options.Create(new CreditNoteSyncSettings()),
+            store,
+            warmSet,
+            NullLogger<GetPodUploadStatusHandler>.Instance);
+
+        var result = await handler.Handle(
+            new GetPodUploadStatusQuery(fromDate, toDate, UserId: null, CustomerCodeScope: ["cis006 ", "SPA059"]),
+            CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal("Scoped report customer", Assert.Single(result.Value.Items).CardName);
+
+        var shape = Assert.Single(warmSet.ActiveShapes());
+        Assert.Equal(new PodReportWarmKey(fromDate, toDate, scopeKey), shape.Key);
+        Assert.True(PodReportWarmJob.TryBuildRebuildQuery(shape, out var rebuild));
+        Assert.Equal(scopeKey, GetPodUploadStatusHandler.BuildCacheScopeKey(false, rebuild.CustomerCodeScope));
+    }
+
+    /// <summary>
+    /// A warm rebuild is not tracked as a request, but it reads the cache exactly as one does.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Fresh_snapshot_serves_the_report_without_calling_sap(bool isWarmRebuild)
     {
         var store = CreateStore();
         var fromDate = new DateTime(2026, 7, 1);
@@ -157,7 +223,7 @@ public sealed class PodReportCacheTests : IDisposable
             NullLogger<GetPodUploadStatusHandler>.Instance);
 
         var result = await handler.Handle(
-            new GetPodUploadStatusQuery(fromDate, toDate, UserId: null),
+            new GetPodUploadStatusQuery(fromDate, toDate, UserId: null, IsWarmRebuild: isWarmRebuild),
             CancellationToken.None);
 
         Assert.False(result.IsError);

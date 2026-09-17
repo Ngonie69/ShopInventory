@@ -37,6 +37,10 @@ public sealed class ConsolidateDailySalesHandler(
     // Allocation must not net a group's own reservations off the stock that group is posting.
     private readonly Dictionary<string, List<string>> _reservationIdsByCardCode = new();
 
+    // The local sales order each queued sale was converted from, for basing its lines on the order.
+    // Keyed by the transient sale itself: its external reference is not guaranteed unique across sources.
+    private readonly Dictionary<DesktopSaleEntity, int> _salesOrderIdBySale = new(ReferenceEqualityComparer.Instance);
+
     /// <summary>Matches the MaxLength on <see cref="SaleConsolidationEntity.LastError"/>.</summary>
     private const int MaxLastErrorLength = 2000;
 
@@ -196,22 +200,9 @@ public sealed class ConsolidateDailySalesHandler(
         context.SaleConsolidations.Add(consolidation);
         await context.SaveChangesAsync(ct);
 
-        // Merge line items across all sales for this BP
-        var mergedLines = sales
-            .SelectMany(s => s.Lines)
-            .GroupBy(l => new { l.ItemCode, l.WarehouseCode, l.UnitPrice, l.TaxCode, l.DiscountPercent, l.CostCentreCode })
-            .Select(g => new CreateInvoiceLineRequest
-            {
-                ItemCode = g.Key.ItemCode,
-                Quantity = g.Sum(l => l.Quantity),
-                UnitPrice = g.Key.UnitPrice,
-                WarehouseCode = g.Key.WarehouseCode,
-                TaxCode = g.Key.TaxCode,
-                DiscountPercent = g.Key.DiscountPercent,
-                CostCentreCode = g.Key.CostCentreCode,
-                AutoAllocateBatches = true
-            })
-            .ToList();
+        // Merge line items across all sales for this BP. Based on no order yet: the orders are read from
+        // SAP after the duplicate guard below, which must not wait on them.
+        var mergedLines = ConsolidatedInvoiceLines.Build(sales, new Dictionary<DesktopSaleEntity, SAPSalesOrder>());
 
         // One consolidated invoice per customer per day, so this identifies the document without
         // depending on anything the post returns. It is what both lookups below search on: the guard
@@ -253,6 +244,14 @@ public sealed class ConsolidateDailySalesHandler(
             {
                 return await AdoptInvoiceFromEarlierRunAsync(
                     consolidation, sales, cardCode, cardName, totalAmount, alreadyInSap);
+            }
+
+            // Sales converted from a sales order are invoiced against it, so SAP closes the order rather
+            // than leaving it open beside an invoice for the same goods.
+            var baseOrders = await ResolveBaseSalesOrdersAsync(cardCode, sales, ct);
+            if (baseOrders.Count > 0)
+            {
+                invoiceRequest.Lines = ConsolidatedInvoiceLines.Build(sales, baseOrders);
             }
 
             // Batch and serial lines only. Every sale consolidated here has already happened — paid
@@ -299,7 +298,27 @@ public sealed class ConsolidateDailySalesHandler(
             ct.ThrowIfCancellationRequested();
             postIssued = true;
 
-            var sapInvoice = await sapClient.CreateInvoiceAsync(invoiceRequest, CancellationToken.None);
+            Invoice sapInvoice;
+            try
+            {
+                sapInvoice = await sapClient.CreateInvoiceAsync(invoiceRequest, CancellationToken.None);
+            }
+            catch (Exception linkedPostFailure) when (
+                SapFailureClassifier.DefinitelyNotCommitted(linkedPostFailure)
+                && ConsolidatedInvoiceLines.Unlink(invoiceRequest.Lines))
+            {
+                // SAP refused an invoice based on sales orders, so nothing was created. The link is the
+                // newer, less proven part of the document (an order edited or closed in SAP since it was
+                // read is enough to break it) and it must not cost the customer their whole day. Posted
+                // once more as it would have been before orders were linked; a refusal that had nothing
+                // to do with the link fails this post the same way and is reported from here.
+                logger.LogWarning(
+                    linkedPostFailure,
+                    "SAP refused the consolidated invoice for {CardCode} while it was based on sales orders; posting it again without the link",
+                    cardCode);
+
+                sapInvoice = await sapClient.CreateInvoiceAsync(invoiceRequest, CancellationToken.None);
+            }
 
             consolidation.Status = ConsolidationStatus.Posted;
             await RecordPostedInvoiceAsync(
@@ -763,6 +782,102 @@ public sealed class ConsolidateDailySalesHandler(
     }
 
     /// <summary>
+    /// Reads back from SAP the sales orders this group's sales were converted from, keeping only those
+    /// an invoice for this customer can be based on.
+    /// </summary>
+    /// <remarks>
+    /// Never throws for an order it cannot use. A link is worth having, but not worth a customer's day:
+    /// an order that was never posted, belongs to another business partner, is closed or cancelled, or
+    /// that SAP will not return right now simply leaves its sale on ordinary lines, as before orders were
+    /// linked at all. Open quantities are read here rather than trusted from the local order, because
+    /// the order may have been invoiced in part from SAP itself.
+    /// </remarks>
+    private async Task<Dictionary<DesktopSaleEntity, SAPSalesOrder>> ResolveBaseSalesOrdersAsync(
+        string cardCode,
+        List<DesktopSaleEntity> sales,
+        CancellationToken ct)
+    {
+        var baseOrders = new Dictionary<DesktopSaleEntity, SAPSalesOrder>(ReferenceEqualityComparer.Instance);
+
+        var salesOrderIds = sales
+            .Where(_salesOrderIdBySale.ContainsKey)
+            .Select(sale => _salesOrderIdBySale[sale])
+            .Distinct()
+            .ToList();
+
+        if (salesOrderIds.Count == 0)
+        {
+            return baseOrders;
+        }
+
+        var docEntriesById = await context.SalesOrders
+            .AsNoTracking()
+            .Where(order => salesOrderIds.Contains(order.Id) && order.SAPDocEntry != null)
+            .Select(order => new { order.Id, order.OrderNumber, DocEntry = order.SAPDocEntry!.Value })
+            .ToDictionaryAsync(order => order.Id, ct);
+
+        var sapOrdersByDocEntry = new Dictionary<int, SAPSalesOrder?>();
+
+        foreach (var sale in sales)
+        {
+            if (!_salesOrderIdBySale.TryGetValue(sale, out var salesOrderId))
+            {
+                continue;
+            }
+
+            if (!docEntriesById.TryGetValue(salesOrderId, out var local))
+            {
+                logger.LogWarning(
+                    "Sale {ExternalReference} was converted from sales order {SalesOrderId}, which is not in SAP; it is invoiced without a link to the order",
+                    sale.ExternalReferenceId,
+                    salesOrderId);
+                continue;
+            }
+
+            if (!sapOrdersByDocEntry.TryGetValue(local.DocEntry, out var sapOrder))
+            {
+                try
+                {
+                    sapOrder = await sapClient.GetSalesOrderByDocEntryAsync(local.DocEntry, ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(
+                        ex,
+                        "Could not read sales order {OrderNumber} (DocEntry {DocEntry}) from SAP; sale {ExternalReference} is invoiced without a link to it",
+                        local.OrderNumber,
+                        local.DocEntry,
+                        sale.ExternalReferenceId);
+                    sapOrder = null;
+                }
+
+                sapOrdersByDocEntry[local.DocEntry] = sapOrder;
+            }
+
+            var unusableBecause = ConsolidatedInvoiceLines.WhyNotBaseable(sapOrder, cardCode);
+
+            if (unusableBecause is not null)
+            {
+                logger.LogWarning(
+                    "Sale {ExternalReference} is invoiced without a link to sales order {OrderNumber} (DocEntry {DocEntry}) because {Reason}",
+                    sale.ExternalReferenceId,
+                    local.OrderNumber,
+                    local.DocEntry,
+                    unusableBecause);
+                continue;
+            }
+
+            baseOrders[sale] = sapOrder!;
+        }
+
+        return baseOrders;
+    }
+
+    /// <summary>
     /// Converts fiscalized queue entries into transient DesktopSaleEntity objects
     /// so they can be consolidated alongside direct desktop sales.
     /// These entities are NOT tracked by EF Core.
@@ -818,6 +933,11 @@ public sealed class ConsolidateDailySalesHandler(
                 };
 
                 sales.Add(sale);
+
+                if (entry.SalesOrderId is int salesOrderId)
+                {
+                    _salesOrderIdBySale[sale] = salesOrderId;
+                }
 
                 // Track queue entry ID for post-consolidation marking
                 if (!_queueIdsByCardCode.TryGetValue(sale.CardCode, out var ids))

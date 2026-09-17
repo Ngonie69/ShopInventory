@@ -142,14 +142,16 @@ Critical invoice path:
 6. Post to SAP, queue downstream work, fiscalise through `IFiscalizationService`, and generate PDFs according to the existing flow.
 
 **Van sales are fiscalised before they are posted, not after.** An unstamped online van sale
-(`POST /api/vansales/order`) and a converted van order (`InvoicePostingJob`, source `KefalosVanSales`) both
-go through `VanSaleFiscalFirstPoster`: reserve the stock, sign under the van order with
-`FiscalizePreSapInvoiceAsync`, then confirm the reservation with `Fiscalize = false`. The receipt lives on a
+(`POST /api/vansales/order`) goes through `VanSaleFiscalFirstPoster`: reserve the stock, sign under the van
+order with `FiscalizePreSapInvoiceAsync`, then confirm the reservation with `Fiscalize = false`. The receipt lives on a
 `DesktopSales` row under `KefalosVanSalesOnline`, which gains the SAP DocNum once posted — that row is how
 `CreditNoteOriginalReceipt` finds the number a credit note must cite. Each line's VAT group comes from the item
 master (`ItemVatGroups`) and is written onto the reservation line, so SAP charges the rate the receipt
-declared. Once signed a sale is never refused: a SAP failure keeps the reservation holding and the invoice
-queue retries the post, never the signature. A sale the handset stamped itself keeps the old route.
+declared. Once signed a sale is never refused: a SAP failure keeps the reservation holding and hands the sale
+to the invoice queue **already `Fiscalized`**, written in one save so `InvoicePostingJob` never sees it
+`Pending` and signs it again; `PostQueuedVanInvoices` posts it. A converted order takes the queue's own route
+— `InvoicePostingJob` signs it, `PostQueuedVanInvoices` posts it against its sales order. A sale the handset
+stamped itself keeps the old route.
 
 Other integrations:
 

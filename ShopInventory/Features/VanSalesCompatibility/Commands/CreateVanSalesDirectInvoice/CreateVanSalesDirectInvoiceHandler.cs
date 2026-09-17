@@ -44,7 +44,6 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     IOptions<FiscalisationSettings> fiscalisationOptions,
     ILogger<CreateVanSalesDirectInvoiceHandler> logger,
     IStockReservationService reservations,
-    IInvoiceQueueService invoiceQueue,
     VanSaleFiscalFirstPoster poster
 ) : IRequestHandler<CreateVanSalesDirectInvoiceCommand, ErrorOr<VanSalesDirectInvoiceResponse>>
 {
@@ -248,14 +247,15 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
 
             case VanSaleFiscalFirstStatus.AwaitingSap:
             {
-                var queued = await QueueForPostingAsync(reservationRequest, reservationId, command.UserId, persist);
+                var queued = await QueueForPostingAsync(
+                    reservationRequest, reservationId, command.UserId, outcome, persist);
                 return VanSalesCompatibilityMapper.MapFiscalFirstResponse(outcome, reference, reservationId, queued);
             }
 
             case VanSaleFiscalFirstStatus.FiscalUnresolved:
-                // Queued so it holds its stock and lands on the review list. The job will not sign it: the
-                // poster refuses to while the row is marked for reconciliation.
-                await QueueForPostingAsync(reservationRequest, reservationId, command.UserId, persist);
+                // Queued straight to review, so it holds its stock and a person sees it. Marked as started, so
+                // a Retry has InvoicePostingJob ask the device for the receipt before it signs anything.
+                await QueueForPostingAsync(reservationRequest, reservationId, command.UserId, outcome, persist);
 
                 return Error.Conflict(
                     "VanSalesCompatibility.FiscalOutcomeUnknown",
@@ -296,33 +296,104 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     }
 
     /// <summary>
-    /// Hands a fiscalised sale SAP has not taken to the invoice queue, which posts it.
+    /// Hands a sale the device has already been asked to sign to the invoice queue — to be posted, or to be
+    /// reviewed.
     /// </summary>
     /// <remarks>
-    /// A failure here is logged and not thrown: the receipt is already in the customer's hand, and the sale
-    /// row carries it with no DocNum, which a resend of the same van order will post.
+    /// <para><b>Written in its final state, in one save.</b> The queue's own enqueue creates an entry as
+    /// Pending, and InvoicePostingJob signs every Pending van entry it finds. Enqueueing and then marking the
+    /// entry would leave a window in which the job signs this sale a second time, and a fiscal receipt cannot
+    /// be withdrawn. So the entry is created here already <see cref="InvoiceQueueStatus.Fiscalized"/> — which
+    /// <c>PostQueuedVanInvoices</c> posts without fiscalising, filling in the receipt row's DocNum — or
+    /// already <see cref="InvoiceQueueStatus.RequiresReview"/> when the device could not say whether it
+    /// signed.</para>
+    ///
+    /// <para><b>Always marked as started.</b> <c>ProcessingStartedAt</c> is what makes InvoicePostingJob ask
+    /// the device for an existing receipt before signing, if a person puts the entry back with Retry.</para>
+    ///
+    /// <para>A failure here is logged and not thrown: the receipt is already in the customer's hand, and the
+    /// sale row carries it with no DocNum, which a resend of the same van order will post.</para>
     /// </remarks>
     private async Task<InvoiceQueueResultDto?> QueueForPostingAsync(
         CreateStockReservationRequest reservationRequest,
         string reservationId,
         Guid userId,
+        VanSaleFiscalFirstOutcome outcome,
         CancellationToken cancellationToken)
     {
-        var queued = await invoiceQueue.EnqueueInvoiceAsync(
-            reservationRequest, reservationId, userId.ToString(), cancellationToken);
+        var reference = reservationRequest.GetExternalReference();
 
-        if (queued.Success || queued.ErrorCode == "ALREADY_QUEUED")
+        try
         {
-            return queued;
+            var existing = await db.InvoiceQueue
+                .AsNoTracking()
+                .FirstOrDefaultAsync(q => q.ExternalReference == reference, cancellationToken);
+
+            if (existing is not null)
+            {
+                // A resend of a sale already handed over. The entry is already on its way.
+                return new InvoiceQueueResultDto
+                {
+                    Success = true,
+                    ReservationId = existing.ReservationId,
+                    QueueId = existing.Id,
+                    ExternalReference = existing.ExternalReference,
+                    Status = existing.Status.ToString()
+                };
+            }
+
+            var signed = outcome.Status == VanSaleFiscalFirstStatus.AwaitingSap;
+            var now = DateTime.UtcNow;
+
+            var entry = new InvoiceQueueEntity
+            {
+                ReservationId = reservationId,
+                ExternalReference = reference,
+                CustomerCode = reservationRequest.CardCode,
+                InvoicePayload = JsonSerializer.Serialize(
+                    reservationRequest,
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
+                Status = signed ? InvoiceQueueStatus.Fiscalized : InvoiceQueueStatus.RequiresReview,
+                SourceSystem = SaleSourceSystems.VanSales,
+                WarehouseCode = reservationRequest.Lines.FirstOrDefault()?.WarehouseCode,
+                TotalAmount = reservationRequest.Lines.Sum(l => l.Quantity * l.UnitPrice),
+                Currency = reservationRequest.Currency ?? "USD",
+                RequiresFiscalization = true,
+                FiscalizationSuccess = signed ? true : null,
+                FiscalDeviceNumber = signed ? outcome.Sale?.FiscalDeviceNumber : null,
+                FiscalReceiptNumber = signed ? outcome.Sale?.FiscalReceiptNumber : null,
+                LastError = outcome.Error is { Length: > 2000 } tooLong ? tooLong[..2000] : outcome.Error,
+                CreatedBy = userId.ToString(),
+                Notes = reservationRequest.Notes,
+                CreatedAt = now,
+                ProcessingStartedAt = now,
+                ProcessedAt = signed ? null : now,
+                MaxRetries = 3
+            };
+
+            db.InvoiceQueue.Add(entry);
+            await db.SaveChangesAsync(cancellationToken);
+
+            return new InvoiceQueueResultDto
+            {
+                Success = true,
+                ReservationId = reservationId,
+                QueueId = entry.Id,
+                ExternalReference = reference,
+                Status = entry.Status.ToString(),
+                EstimatedProcessingTime = signed ? TimeSpan.FromSeconds(30) : null
+            };
         }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Van sale {Reference} was sent to the fiscal device but could not be queued for SAP posting. Its " +
+                "receipt row holds no DocNum; resending the same van order will post it.",
+                reference);
 
-        logger.LogError(
-            "Van sale {Reference} is fiscalised but could not be queued for SAP posting: {Error}. Its receipt row " +
-            "holds no DocNum; resending the same van order will post it.",
-            reservationRequest.ExternalReferenceId,
-            queued.ErrorMessage);
-
-        return null;
+            return null;
+        }
     }
 
     /// <summary>Money the business kept: the tender less the change, never below zero.</summary>
