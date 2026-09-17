@@ -183,6 +183,15 @@ public sealed class StockLedger(
     /// The day whose snapshot is in force now. See <see cref="StockLedgerDay"/> for why this is
     /// neither the UTC date nor the CAT date.
     /// </summary>
+    /// <remarks>
+    /// The day the journal is kept under, and not always the day of the rows being moved. While a
+    /// shop's snapshot for today is still being fetched the ledger moves yesterday's rows (see
+    /// <see cref="StockSnapshotInForce"/>) but journals those movements here, under today. That is
+    /// deliberate, for two reasons. The duplicate check reads this day, so a sale retried after today's
+    /// snapshot lands is still recognised instead of taking its units a second time. And the fetch
+    /// that finishes today's snapshot reads today's journal to take those movements off the new rows,
+    /// which is what stops them coming back onto the shelf.
+    /// </remarks>
     public DateTime CurrentLedgerDay => StockLedgerDay.Today(dailyStock.Value.StockFetchTimeCAT);
 
     public async Task<StockLedgerReading> ReadAsync(
@@ -190,12 +199,12 @@ public sealed class StockLedger(
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
-        if (!await IsTrackedAsync(warehouseCode, cancellationToken))
+        if (await TrackedDayAsync(warehouseCode, cancellationToken) is not { } snapshotDay)
         {
             return new StockLedgerReading(StockLedgerCoverage.NotTracked, 0m);
         }
 
-        var onSnapshot = await RowsFor(itemCode, warehouseCode)
+        var onSnapshot = await RowsFor(itemCode, warehouseCode, snapshotDay)
             .SumAsync(row => row.AvailableQuantity, cancellationToken);
 
         var held = await HeldByReservationsAsync(itemCode, warehouseCode, cancellationToken);
@@ -234,7 +243,7 @@ public sealed class StockLedger(
 
             foreach (var claim in claims)
             {
-                if (!await IsTrackedAsync(claim.WarehouseCode, cancellationToken))
+                if (await TrackedDayAsync(claim.WarehouseCode, cancellationToken) is not { } snapshotDay)
                 {
                     // Passed over, and reported. What it means is the caller's to decide — see
                     // StockLedgerOutcome.UntrackedWarehouses.
@@ -246,7 +255,7 @@ public sealed class StockLedger(
                     continue;
                 }
 
-                var rows = await RowsFor(claim.ItemCode, claim.WarehouseCode)
+                var rows = await RowsFor(claim.ItemCode, claim.WarehouseCode, snapshotDay)
                     .OrderBy(row => row.ExpiryDate)
                     .ToListAsync(cancellationToken);
 
@@ -327,12 +336,12 @@ public sealed class StockLedger(
 
         foreach (var claim in Aggregate(lines))
         {
-            if (!await IsTrackedAsync(claim.WarehouseCode, cancellationToken))
+            if (await TrackedDayAsync(claim.WarehouseCode, cancellationToken) is not { } snapshotDay)
             {
                 continue;
             }
 
-            var rows = await RowsFor(claim.ItemCode, claim.WarehouseCode)
+            var rows = await RowsFor(claim.ItemCode, claim.WarehouseCode, snapshotDay)
                 .OrderBy(row => row.ExpiryDate)
                 .ToListAsync(cancellationToken);
 
@@ -379,12 +388,12 @@ public sealed class StockLedger(
 
         foreach (var claim in claims)
         {
-            if (!await IsTrackedAsync(claim.WarehouseCode, cancellationToken))
+            if (await TrackedDayAsync(claim.WarehouseCode, cancellationToken) is not { } snapshotDay)
             {
                 continue;
             }
 
-            var rows = await RowsFor(claim.ItemCode, claim.WarehouseCode)
+            var rows = await RowsFor(claim.ItemCode, claim.WarehouseCode, snapshotDay)
                 .OrderBy(row => row.ExpiryDate)
                 .ToListAsync(cancellationToken);
 
@@ -581,23 +590,29 @@ public sealed class StockLedger(
             .SumAsync(line => line.ReservedQuantity, cancellationToken);
     }
 
-    private IQueryable<DailyStockSnapshotItemEntity> RowsFor(string itemCode, string warehouseCode)
+    private IQueryable<DailyStockSnapshotItemEntity> RowsFor(string itemCode, string warehouseCode, DateTime snapshotDay)
     {
-        var day = CurrentLedgerDay;
         return context.DailyStockSnapshotItems
-            .Where(row => row.Snapshot.SnapshotDate == day
+            .Where(row => row.Snapshot.SnapshotDate == snapshotDay
                        && row.ItemCode == itemCode
                        && row.WarehouseCode == warehouseCode);
     }
 
-    private async Task<bool> IsTrackedAsync(string warehouseCode, CancellationToken cancellationToken)
+    /// <summary>
+    /// The day of the finished snapshot this warehouse is selling from, or null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// Usually <see cref="CurrentLedgerDay"/>. For a shop whose snapshot for today is still being
+    /// fetched it is yesterday's — see <see cref="StockSnapshotInForce"/>. Resolved per warehouse and
+    /// per call, never cached: a scope that straddles the moment today's snapshot finishes has to move
+    /// today's rows from then on, not the ones it saw first.
+    /// </remarks>
+    private async Task<DateTime?> TrackedDayAsync(string warehouseCode, CancellationToken cancellationToken)
     {
-        var day = CurrentLedgerDay;
-        return await context.DailyStockSnapshots.AnyAsync(
-            snapshot => snapshot.SnapshotDate == day
-                     && snapshot.WarehouseCode == warehouseCode
-                     && snapshot.Status == StockSnapshotStatus.Complete,
-            cancellationToken);
+        var inForce = await StockSnapshotInForce.ResolveAsync(
+            context, warehouseCode, dailyStock.Value, cancellationToken);
+
+        return inForce.IsComplete ? inForce.Day : null;
     }
 
     /// <summary>

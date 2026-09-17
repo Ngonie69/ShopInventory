@@ -20,9 +20,22 @@ public sealed class FetchDailyStockHandler(
     IOptions<DailyStockSettings> settings,
     ITransferEventListenerClient listenerClient,
     IOptions<TransferEventListenerSettings> listenerSettings,
+    StockFetchGate fetchGate,
     ILogger<FetchDailyStockHandler> logger
 ) : IRequestHandler<FetchDailyStockCommand, ErrorOr<FetchDailyStockResult>>
 {
+    /// <summary>
+    /// How far before this fetch's own reads a ledger movement is still taken off the new rows.
+    /// </summary>
+    /// <remarks>
+    /// A till sale moves the ledger and then saves the sale row a moment later, inside the same item
+    /// locks. A sale whose movement lands just before the unposted-sales read but whose row lands just
+    /// after it would otherwise be in neither figure, and its units would come back. Thirty seconds is
+    /// the lock a sale holds, so no sale can span more. Anything in the overlap is taken off twice,
+    /// which refuses a sale rather than allowing one, and the hourly comparison puts it right.
+    /// </remarks>
+    private static readonly TimeSpan MovementOverlap = TimeSpan.FromSeconds(30);
+
     public async Task<ErrorOr<FetchDailyStockResult>> Handle(
         FetchDailyStockCommand command,
         CancellationToken cancellationToken)
@@ -89,6 +102,28 @@ public sealed class FetchDailyStockHandler(
     public async Task<WarehouseSnapshotResult> FetchWarehouseStockAsync(
         DateTime snapshotDate, string warehouseCode, CancellationToken cancellationToken)
     {
+        // One fetch per warehouse at a time. Two at once each add a full set of rows to the same
+        // snapshot and the shop is offered every unit twice. See StockFetchGate.
+        if (!fetchGate.TryEnter(warehouseCode))
+        {
+            logger.LogWarning(
+                "A stock fetch for {Warehouse} is already running; this one did nothing", warehouseCode);
+            return new WarehouseSnapshotResult(warehouseCode, 0, "AlreadyRunning");
+        }
+
+        try
+        {
+            return await FetchWarehouseStockExclusivelyAsync(snapshotDate, warehouseCode, cancellationToken);
+        }
+        finally
+        {
+            fetchGate.Exit(warehouseCode);
+        }
+    }
+
+    private async Task<WarehouseSnapshotResult> FetchWarehouseStockExclusivelyAsync(
+        DateTime snapshotDate, string warehouseCode, CancellationToken cancellationToken)
+    {
         // Check if snapshot already exists for this date/warehouse
         var existing = await context.DailyStockSnapshots
             .AsTracking()
@@ -140,6 +175,7 @@ public sealed class FetchDailyStockHandler(
         {
             // Read before SAP rather than after, for the reason the hourly reconciliation does: a sale
             // that posts between the two reads is otherwise in neither figure and its units come back.
+            var readsStartedAt = DateTime.UtcNow;
             var outstanding = await UnpostedSalesAsync(snapshotDate, warehouseCode, cancellationToken);
 
             logger.LogInformation("Fetching stock from SAP for warehouse {Warehouse}", warehouseCode);
@@ -220,6 +256,12 @@ public sealed class FetchDailyStockHandler(
             snapshotItems.AddRange(unbatched);
 
             NetUnpostedSales(snapshotItems, outstanding, warehouseCode);
+
+            // Last before the save, so as little as possible can move yesterday's rows between this
+            // read and the moment the ledger starts moving these instead.
+            var movedMeanwhile = await MovedWhileFetchingAsync(
+                snapshotDate, warehouseCode, readsStartedAt - MovementOverlap, cancellationToken);
+            NetMovedWhileFetching(snapshotItems, movedMeanwhile, warehouseCode);
 
             context.DailyStockSnapshotItems.AddRange(snapshotItems);
 
@@ -378,6 +420,93 @@ public sealed class FetchDailyStockHandler(
             logger.LogInformation(
                 "Stock snapshot for {Warehouse}: {ItemCode} held back by {Taken} for till sales SAP does not have yet",
                 warehouseCode, item.Key, taken);
+        }
+    }
+
+    /// <summary>
+    /// Units the ledger's own documents took off this warehouse while its snapshot for the day was being
+    /// built, per item.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Where they went.</b> While today's snapshot is unfinished a shop sells from yesterday's
+    /// (see <see cref="StockSnapshotInForce"/>), and the ledger journals those movements under today.
+    /// The ledger never moves an unfinished snapshot, so no document journalled under today before this
+    /// one is Complete can have moved today's rows. Today's document movements from
+    /// <paramref name="since"/> on are therefore what was sold off yesterday's rows during this
+    /// fetch.</para>
+    ///
+    /// <para><b>Why only from <paramref name="since"/>.</b> Anything earlier happened before the
+    /// unposted-sales read, which already holds back what SAP has not had, and SAP's own figure holds
+    /// back what it has. Taking those off again would count them twice.</para>
+    ///
+    /// <para><b>Commit, Settle and Release only.</b> Those are the ledger's own documents. A transfer is
+    /// SAP's, and the SAP read this fetch makes is the figure for it.</para>
+    ///
+    /// <para><b>What it cannot tell.</b> Whether SAP had a document by the time it was read. A sale that
+    /// posts during the read is out of SAP's figure and taken off here as well, so it counts twice until
+    /// the hourly comparison corrects the row. That refuses a sale rather than allowing one. The reverse,
+    /// leaving these out, hands every unit sold during the fetch back to the shelf.</para>
+    ///
+    /// <para>Shops only, as with the unposted sales: a van is never carried over, so it has nothing
+    /// here to take.</para>
+    /// </remarks>
+    private async Task<Dictionary<string, decimal>> MovedWhileFetchingAsync(
+        DateTime snapshotDate,
+        string warehouseCode,
+        DateTime since,
+        CancellationToken cancellationToken)
+    {
+        if (!settings.Value.ReconcileWarehouses.Contains(warehouseCode, StringComparer.OrdinalIgnoreCase))
+        {
+            return [];
+        }
+
+        string[] documentKinds = [StockMovementKinds.Commit, StockMovementKinds.Settle, StockMovementKinds.Release];
+
+        var movements = await context.StockMovements
+            .AsNoTracking()
+            .Where(movement => movement.LedgerDay == snapshotDate
+                            && movement.WarehouseCode == warehouseCode
+                            && movement.OccurredAt >= since
+                            && documentKinds.Contains(movement.Kind))
+            .Select(movement => new { movement.ItemCode, movement.Quantity })
+            .ToListAsync(cancellationToken);
+
+        // Netted per item, so a commit and the release of the same claim cancel out. Only what is left
+        // going out is kept: units that came back would have to be put into a batch no document names.
+        return movements
+            .GroupBy(movement => movement.ItemCode, StringComparer.OrdinalIgnoreCase)
+            .Select(group => (ItemCode: group.Key, Out: -group.Sum(movement => movement.Quantity)))
+            .Where(item => item.Out > 0)
+            .ToDictionary(item => item.ItemCode, item => item.Out, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Takes <see cref="MovedWhileFetchingAsync"/>'s units off the rows about to be written, soonest to
+    /// expire first, as <see cref="NetUnpostedSales"/> does for sales SAP has not had.
+    /// </summary>
+    private void NetMovedWhileFetching(
+        List<DailyStockSnapshotItemEntity> rows,
+        Dictionary<string, decimal> moved,
+        string warehouseCode)
+    {
+        if (moved.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var item in rows.GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!moved.TryGetValue(item.Key, out var units))
+            {
+                continue;
+            }
+
+            var taken = -UnpostedTillSales.DrawDown(item, units);
+
+            logger.LogInformation(
+                "Stock snapshot for {Warehouse}: {ItemCode} held back by {Taken} of {Units} sold from yesterday's snapshot while this one was fetched",
+                warehouseCode, item.Key, taken, units);
         }
     }
 

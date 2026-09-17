@@ -683,6 +683,9 @@ try
     // FetchDailyStockHandler is resolved directly by DailyStockSnapshotJob.
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();
 
+    // A singleton, or it gates nothing: the job and the fetch endpoint each get their own scope.
+    builder.Services.AddSingleton<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.StockFetchGate>();
+
     // End-of-day consolidation logic is a scoped service shared by EndOfDayConsolidationJob and
     // the DesktopIntegrationController "run now" endpoint.
     builder.Services.AddScoped<EndOfDayConsolidationService>();

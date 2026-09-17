@@ -114,7 +114,12 @@ public static class QuartzConfiguration
 
             if (dailyStock.EnableAutoStockFetch)
             {
-                AddCronJob<DailyStockSnapshotJob>(q, "daily-stock-snapshot", BuildDailyCron(dailyStock.StockFetchTimeCAT, "07:00"));
+                AddCronJob<DailyStockSnapshotJob>(q, DailyStockSnapshotJob.JobName, BuildDailyCron(dailyStock.StockFetchTimeCAT, "07:00"));
+
+                // And once shortly after every start, for the fetch a restart interrupted or a downtime
+                // skipped. It fetches only warehouses without a finished snapshot, so on a normal start
+                // it reads the database once and does nothing. See DailyStockSnapshotJob.
+                AddStartupTrigger(services, DailyStockSnapshotJob.JobName, DailyStockSnapshotJob.StartupTriggerName, DailyStockSnapshotJob.StartupDelay);
 
                 // Gated on the same setting: without a morning snapshot there is no ledger to
                 // compare, so the comparison would find nothing to say. Hourly rather than
@@ -411,6 +416,47 @@ public static class QuartzConfiguration
                 .InTimeZone(CatTimeZone)
                 .WithMisfireHandlingInstructionDoNothing()));
     }
+
+    /// <summary>
+    /// A trigger that fires <paramref name="jobName"/> once, <paramref name="delay"/> after this process
+    /// starts.
+    /// </summary>
+    /// <remarks>
+    /// Re-declared on every start, so its start time is always this start's. A future start time rather
+    /// than StartNow: StartNow is already in the past by the time the scheduler starts, which is how a
+    /// FireNow misfire policy comes to fire a trigger twice. Should startup itself run past the start
+    /// time, FireNow still fires it — once, there being no second fire time for a trigger that does not
+    /// repeat.
+    /// </remarks>
+    private static void AddStartupTrigger(
+        IServiceCollection services,
+        string jobName,
+        string triggerName,
+        TimeSpan delay)
+    {
+        // Straight onto QuartzOptions, which is where the container's own AddTrigger records triggers
+        // and what the scheduler is built from. The container configurator's builder type cannot be made
+        // outside it, and going this way lets a test build the very same trigger.
+        services.Configure<QuartzOptions>(options =>
+            options.AddTrigger(trigger => ConfigureStartupTrigger(trigger, jobName, triggerName, delay)));
+    }
+
+    /// <summary>
+    /// The startup trigger's whole definition, apart from the container, so a test can run exactly this
+    /// on a scheduler of its own.
+    /// </summary>
+    internal static TriggerBuilder ConfigureStartupTrigger(
+        TriggerBuilder trigger,
+        string jobName,
+        string triggerName,
+        TimeSpan delay) =>
+        trigger
+            .ForJob(new JobKey(jobName))
+            .WithIdentity(triggerName)
+            .StartAt(DateTimeOffset.UtcNow.Add(delay))
+            .WithSimpleSchedule(schedule => schedule
+                .WithRepeatCount(0)
+                .WithMisfireHandlingInstructionFireNow());
 
     private static string BuildDailyCron(string timeCat, string fallback)
     {
