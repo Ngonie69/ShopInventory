@@ -49,12 +49,6 @@
                                     </span>
                                     <span class="snav-text">Invoices</span>
                                 </NavLink>
-                                <NavLink class="snav-link sub-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-truck" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Van Sales Invoices</span>
-                                </NavLink>
                                 <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
                                     <span class="snav-icon">
                                         <i class="ph ph-plus-circle" aria-hidden="true"></i>
@@ -528,9 +522,9 @@
                used to be listed here, which is how a rep who was meant to see only
                merchandiser check-in/out got the van section in their sidebar.
 
-               Cashier is in the gate for the two route rows alone, which are the
-               van round seen from the customer's side and used to sit under Sales
-               & Billing. Their own roles are unchanged by the move. *@
+               Cashier is in the gate for the route rows and the van documents, which
+               used to sit under Sales & Billing. Their own roles are unchanged by the
+               move. *@
             <AuthorizeView Roles="Admin,Manager,Cashier" Context="vanSalesCtx">
                 <Authorized>
                     <NavSection Title="Van Sales">
@@ -592,6 +586,25 @@
                                         <i class="ph ph-signpost" aria-hidden="true"></i>
                                     </span>
                                     <span class="snav-text">Routes</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        @* The van's own documents. The same pages as /invoices and /credit-notes,
+                           narrowed to the van: the ordinary lists leave these out, so this is the
+                           only place they appear. All, not Prefix, so neither lights the other. *@
+                        <AuthorizeView Roles="Admin,Cashier" Context="vanDocumentsCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-receipt" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Invoices</span>
+                                </NavLink>
+                                <NavLink class="snav-link" href="/van-sales-credit-notes" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-file-minus" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Credit Notes</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>

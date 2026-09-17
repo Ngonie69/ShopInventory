@@ -43,10 +43,11 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
         [FromQuery] bool includeLines = false,
+        [FromQuery] bool? vanSalesOnly = null,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetAllCreditNotesQuery(page, pageSize, status, cardCode, fromDate, toDate, includeLines),
+            new GetAllCreditNotesQuery(page, pageSize, status, cardCode, fromDate, toDate, includeLines, vanSalesOnly),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

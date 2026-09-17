@@ -5,7 +5,7 @@ namespace ShopInventory.Web.Services;
 
 public interface ICreditNoteService
 {
-    Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20, CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false);
+    Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20, CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false, bool? vanSalesOnly = null);
     Task<CreditNoteDto?> GetCreditNoteByIdAsync(int id);
     Task<CreditNoteDto?> GetCreditNoteByNumberAsync(string creditNoteNumber);
     Task<CreditNotesByInvoiceResponse?> GetCreditNotesForInvoiceAsync(int invoiceId);
@@ -38,10 +38,12 @@ public class CreditNoteService : ICreditNoteService
     /// <summary>
     /// The credit-note list. <paramref name="includeLines"/> asks for the document lines too, which
     /// the API can only answer from SAP — only ask when the caller aggregates by item.
+    /// <paramref name="vanSalesOnly"/> null sends no van filter, which is what every caller but the
+    /// credit notes page wants.
     /// </summary>
     public async Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20,
         CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        bool includeLines = false)
+        bool includeLines = false, bool? vanSalesOnly = null)
     {
         try
         {
@@ -57,6 +59,8 @@ public class CreditNoteService : ICreditNoteService
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
             if (includeLines)
                 queryParams.Add("includeLines=true");
+            if (vanSalesOnly.HasValue)
+                queryParams.Add($"vanSalesOnly={vanSalesOnly.Value.ToString().ToLowerInvariant()}");
 
             var url = $"api/creditnote?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<CreditNoteListResponse>(url);

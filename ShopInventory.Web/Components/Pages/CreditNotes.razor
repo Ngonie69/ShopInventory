@@ -1,4 +1,5 @@
 @page "/credit-notes"
+@page "/van-sales-credit-notes"
 @using MediatR
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Features.CreditNotes.Commands.ApproveCreditNote
@@ -15,9 +16,10 @@
 @inject IAuditService AuditService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
-<PageTitle>Credit Notes - Shop Inventory</PageTitle>
+<PageTitle>@(IsVanSalesView ? "Van Sales Credit Notes" : "Credit Notes") - Shop Inventory</PageTitle>
 
 @* The imported Nocturne design is dark; wwwroot/css/credit-notes.css (linked
    from App.razor) carries it and its light counterpart, and follows the app's
@@ -32,9 +34,13 @@
             <div class="cnx-titles">
                 <div class="cnx-titles-row">
                     <i class="ph ph-receipt" aria-hidden="true"></i>
-                    <h1 class="cnx-title">Credit Notes</h1>
+                    <h1 class="cnx-title">@(IsVanSalesView ? "Van Sales Credit Notes" : "Credit Notes")</h1>
                 </div>
-                <p class="cnx-sub">Customer credits and adjustments</p>
+                <p class="cnx-sub">
+                    @(IsVanSalesView
+                        ? "Credit notes raised against van sales invoices"
+                        : "Customer credits and adjustments")
+                </p>
             </div>
             <div class="cnx-head-actions">
                 <span class="cnx-count">@totalCount.ToString("N0") notes</span>
@@ -835,6 +841,30 @@
         _ = LogViewAsync();
     }
 
+    /// <summary>
+    /// /credit-notes and /van-sales-credit-notes are this one component, and Blazor keeps the
+    /// instance when the route moves between them — no OnInitialized, no first render. Without this
+    /// the list loaded for one route would stay on screen under the other route's heading.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedVanSalesView.HasValue && loadedVanSalesView.Value != IsVanSalesView)
+        {
+            selectedCreditNoteDocEntries.Clear();
+            await LoadCreditNotes();
+        }
+    }
+
+    /// <summary>
+    /// The van route shows only credit notes against van invoices, and the ordinary one leaves them
+    /// out, so a credit note appears on exactly one of the two. The API decides which is which.
+    /// </summary>
+    private bool IsVanSalesView => NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
+        .StartsWith("van-sales-credit-notes", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Which route the list on screen was loaded for; null until the first load.</summary>
+    private bool? loadedVanSalesView;
+
     private async Task LogViewAsync()
     {
         try
@@ -853,6 +883,9 @@
         errorMessage = null;
         StateHasChanged();
 
+        var vanSalesView = IsVanSalesView;
+        loadedVanSalesView = vanSalesView;
+
         try
         {
             var result = await Mediator.Send(new GetCreditNotesQuery(
@@ -861,7 +894,8 @@
                 null,
                 null,
                 appliedFromDate,
-                appliedToDate));
+                appliedToDate,
+                VanSalesOnly: vanSalesView));
 
             if (!result.IsError)
             {
