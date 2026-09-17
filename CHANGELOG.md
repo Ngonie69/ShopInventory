@@ -18,6 +18,35 @@ otherwise be surprised.
 
 ### Added
 
+- **Van sales document lists take new filters and return a period summary.**
+
+  `GET /api/van-sales/invoices` takes `channel` (`Online` or `Offline`) and returns `summary`: online
+  and offline counts, totals per currency with `netOnlyCount` (sales whose amount carries no VAT), and
+  what SAP has not invoiced yet, per currency and by van. `GET /api/van-sales/invoices/{reference}`
+  returns `creditNotes`, each with `givesBack` saying whether its amount actually came off the invoice.
+  `GET /api/van-sales/credit-notes` takes `origin` (`SAP` or `Till`) and `includeCancelled` (default
+  `true`) and returns `summary`; each credited invoice gains `amount`, `amountIncludesVat`, `currency`,
+  `soldOn`, `channel` and `warehouseCode`. All additions; an unknown `channel` or `origin` is a `400`.
+
+- **`transfer-listener/status` reports delivery and the ledger; the `transfer-listener` health check
+  goes Unhealthy when transfer lines stop reaching the ledger.**
+
+  On 2026-09-17 TransferEventListener read SAP on time while posting every line to
+  `http://10.10.10.9/api/...` — port 80, where IIS answers 404 — so no transfer since the previous
+  morning had reached local stock, and both the page and `/health/dependencies` said healthy. The
+  status reply now adds `delivery` (lines waiting, the oldest wait, lines given up and rejected, the
+  URL the listener posts to, and its last answer) and `ledger` (stock movements applied today from
+  `StockTransferAdjustments`, the last one applied and per-warehouse document counts — read from this
+  API's database, so present even when the listener is down). Each recent document gains `localStock`
+  (`Applied`, `Waiting` or `NotApplied`) and `appliedAtUtc`. `poll` gains `resumedFromSavedState` and
+  `processedDocuments`. `check-now` adds the listener's `notificationsDelivered`, `notificationsQueued`,
+  `notificationsReplayed`, `notificationsRejected`, `notificationsAbandoned` and `pendingNotifications`.
+  All additive; the delivery figures read zero or null against a listener older than
+  TransferEventListener#11.
+
+  The health check is **Degraded** once a line has waited `PollStalenessWarningMinutes` (20) and
+  **Unhealthy** at `PollStalenessCriticalMinutes` (60), naming the last answer and URL.
+
 - **`GET /api/DesktopIntegration/sales` now takes the whole filter surface, and can count it.**
 
   It filtered on one warehouse, one consolidation status and one channel, sorted on nothing, and
@@ -158,6 +187,12 @@ otherwise be surprised.
   probe gets a `404` and reports `Unhealthy`, so deploy the listener first.
 
 ### Changed
+
+- **A van sales SAP credit memo names the shop, not the van.**
+
+  `GET /api/van-sales/credit-notes` returned a memo's own `CardCode`/`CardName` as its customer, which is
+  the van's posting account shared by every shop on the round. Those rows now carry the route customer
+  of the invoice the memo reverses, falling back to the memo's card when the invoice has none.
 
 - **A card swipe now settles as bank transfer money, against a configured G/L account.**
 
@@ -316,6 +351,23 @@ otherwise be surprised.
   responses could say a receipt existed but never showed it. Invoices already carried theirs.
 
 ### Fixed
+
+- **A till, vending or van sale's invoice PDF printed with no fiscal block at all.** No QR, no
+  verification code, no fiscal day and no device — on a tax invoice whose customer is holding the
+  receipt. It was intermittent by document rather than by day, so it read as the PDF design losing
+  its fiscal block, and the design was rebuilt three times over it.
+
+  The receipt is signed under the sale's own external reference, hours before SAP assigns a DocNum,
+  while both places the PDF looked — the `DesktopFiscalTransactions` projection and the fiscal
+  device read-back — are keyed on the DocNum. Neither could ever answer for a one-invoice-per-sale
+  document, and the PDF drops the block silently when it has nothing to print.
+
+  `GET /api/Invoice/{docEntry}/pdf` and `GET /api/DesktopIntegration/invoices/{docEntry}/pdf` now read the
+  receipt off the sale row when a DocNum lookup finds nothing, so the block prints from the database
+  and no longer depends on the device being reachable. An invoice recorded as fiscalised that still
+  resolves no receipt is logged as a warning naming the document, instead of quietly printing
+  without one. Re-downloading an affected invoice now yields its fiscal block; nothing needs
+  reissuing.
 
 - **A van sale that went through the invoice queue never became a SAP invoice.** That is every sales
   order a handset converted with `POST /vansales/order/convert-to-invoice`, which is always queued, and

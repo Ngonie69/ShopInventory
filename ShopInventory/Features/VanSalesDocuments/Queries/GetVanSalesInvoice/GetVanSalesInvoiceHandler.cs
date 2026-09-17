@@ -1,7 +1,10 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Features.VanSalesReports.Queries;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoice;
 
@@ -69,6 +72,85 @@ public sealed class GetVanSalesInvoiceHandler(ApplicationDbContext db)
             record.FiscalQrCode,
             record.PostingAttempts,
             record.QueueStatus,
-            lines);
+            lines,
+            await LoadCreditsAsync(reference, record.Row.SapDocEntry, cancellationToken));
+    }
+
+    /// <summary>
+    /// The credits against this invoice: SAP memos whose lines name it as their base document, and till credits
+    /// raised against its sale. Found the way the credit notes list finds them, so the two agree.
+    /// </summary>
+    private async Task<List<VanSalesInvoiceCredit>> LoadCreditsAsync(
+        string reference,
+        int? sapDocEntry,
+        CancellationToken cancellationToken)
+    {
+        var credits = new List<VanSalesInvoiceCredit>();
+        var memoEntries = new HashSet<int>();
+
+        if (sapDocEntry is { } docEntry)
+        {
+            var memoLines = await db.SapCreditNoteSnapshots
+                .AsNoTracking()
+                .SelectMany(c => c.Lines)
+                .Where(l => l.BaseType == VanSaleCreditNotes.InvoiceBaseType && l.BaseEntry == docEntry)
+                .Select(l => new { l.CreditNoteDocEntry, l.CreditReason })
+                .ToListAsync(cancellationToken);
+
+            var entries = memoLines.Select(l => l.CreditNoteDocEntry).Distinct().ToList();
+
+            var memos = entries.Count == 0
+                ? []
+                : await db.SapCreditNoteSnapshots
+                    .AsNoTracking()
+                    .Where(c => entries.Contains(c.SapDocEntry))
+                    .Select(c => new { c.SapDocEntry, c.SapDocNum, c.DocDate, c.DocTotal, c.DocCurrency, c.Comments, c.IsCancelled })
+                    .ToListAsync(cancellationToken);
+
+            foreach (var memo in memos)
+            {
+                memoEntries.Add(memo.SapDocEntry);
+
+                credits.Add(new VanSalesInvoiceCredit(
+                    $"sap-{memo.SapDocEntry}",
+                    "SAP",
+                    memo.SapDocNum.ToString(),
+                    memo.DocDate.Date,
+                    memo.DocTotal,
+                    string.IsNullOrWhiteSpace(memo.DocCurrency) ? "USD" : memo.DocCurrency,
+                    memoLines.FirstOrDefault(l => l.CreditNoteDocEntry == memo.SapDocEntry
+                                                  && !string.IsNullOrWhiteSpace(l.CreditReason))?.CreditReason
+                        ?? memo.Comments,
+                    memo.IsCancelled,
+                    GivesBack: !memo.IsCancelled));
+            }
+        }
+
+        var tillCredits = await db.DesktopCreditNotes
+            .AsNoTracking()
+            .Where(c => SaleSourceSystems.VanSaleSources.Contains(c.Sale.SourceSystem!)
+                        && c.Sale.ExternalReferenceId == reference
+                        && c.Status != DesktopCreditStatuses.Rejected)
+            .Select(c => new { c.Id, c.Number, c.CreatedAtUtc, c.Amount, c.Currency, c.Reason, c.Status, c.SapDocEntry })
+            .ToListAsync(cancellationToken);
+
+        foreach (var credit in tillCredits.Where(c => c.SapDocEntry is null || !memoEntries.Contains(c.SapDocEntry.Value)))
+        {
+            credits.Add(new VanSalesInvoiceCredit(
+                $"till-{credit.Id:N}",
+                "Till",
+                credit.Number,
+                VanSalesFacts.TradingDayOf(credit.CreatedAtUtc),
+                credit.Amount,
+                string.IsNullOrWhiteSpace(credit.Currency) ? "USD" : credit.Currency,
+                credit.Reason,
+                IsCancelled: false,
+                GivesBack: credit.Status == DesktopCreditStatuses.Fiscalised));
+        }
+
+        return credits
+            .OrderBy(c => c.Date)
+            .ThenBy(c => c.Number, StringComparer.Ordinal)
+            .ToList();
     }
 }

@@ -1,4 +1,4 @@
-namespace ShopInventory.Web.Models;
+﻿namespace ShopInventory.Web.Models;
 
 /// <summary>
 /// The API's <c>DesktopIntegration/transfer-listener/status</c> reply, mirrored by hand.
@@ -31,6 +31,15 @@ public sealed class TransferListenerStatusModel
     public TransferListenerPollModel? Poll { get; set; }
 
     /// <summary>
+    /// Lines on their way from the listener to the API's ledger. Null when the listener could not be
+    /// read. Reading SAP and delivering fail independently, and the page once showed only the first.
+    /// </summary>
+    public TransferListenerDeliveryModel? Delivery { get; set; }
+
+    /// <summary>What the API's own ledger applied, read from its database even when the listener is down.</summary>
+    public TransferListenerLedgerModel Ledger { get; set; } = new();
+
+    /// <summary>
     /// Counters since the listener process started. A restart zeroes them, so a zero here means
     /// "nothing since the last restart" and never "no transfers happened" — which is why the page
     /// shows the process start beside them.
@@ -45,7 +54,10 @@ public sealed class TransferListenerStatusModel
 
     public int WebhookSuccessCount { get; set; }
 
-    /// <summary>Documents whose webhook never landed. Nothing retries them.</summary>
+    /// <summary>
+    /// Failures of the listener's batch-sync call. Not the ledger's delivery — that is
+    /// <see cref="Delivery"/>. This figure read 0 on the day no transfer reached the ledger.
+    /// </summary>
     public int WebhookFailureCount { get; set; }
 
     public List<string> WatchedWarehouses { get; set; } = [];
@@ -86,6 +98,53 @@ public sealed class TransferListenerPollModel
     public int PollIntervalSeconds { get; set; }
 
     public double MinutesSinceSuccessfulPoll { get; set; }
+
+    public bool ResumedFromSavedState { get; set; }
+
+    public int ProcessedDocuments { get; set; }
+}
+
+public sealed class TransferListenerDeliveryModel
+{
+    /// <summary>Lines retried every cycle until they land or their ledger day ends.</summary>
+    public int PendingLines { get; set; }
+
+    public DateTime? OldestPendingUtc { get; set; }
+
+    public double? MinutesOldestPending { get; set; }
+
+    public int AbandonedLines { get; set; }
+
+    public int RejectedLines { get; set; }
+
+    public string? WebhookUrl { get; set; }
+
+    public DateTime? LastDeliveredUtc { get; set; }
+
+    public string? LastError { get; set; }
+
+    public DateTime? LastErrorUtc { get; set; }
+}
+
+public sealed class TransferListenerLedgerModel
+{
+    public DateTime SnapshotDate { get; set; }
+
+    /// <summary>Adjustment rows for the day. A line between two monitored warehouses writes two.</summary>
+    public int MovementsToday { get; set; }
+
+    public int DocumentsToday { get; set; }
+
+    public DateTime? LastAppliedUtc { get; set; }
+
+    public int? LastAppliedDocNum { get; set; }
+
+    public string? LastAppliedWarehouse { get; set; }
+
+    public Dictionary<string, int> DocumentsTodayByWarehouse { get; set; } = [];
+
+    /// <summary>False when the API could not read its ledger; the figures are then not a finding.</summary>
+    public bool Available { get; set; }
 }
 
 public sealed class TransferListenerDocumentModel
@@ -110,6 +169,11 @@ public sealed class TransferListenerDocumentModel
     public int LineCount { get; set; }
 
     public List<TransferListenerLineModel> Lines { get; set; } = [];
+
+    /// <summary>"Applied", "Waiting" or "NotApplied", judged by the API against its own ledger.</summary>
+    public string? LocalStock { get; set; }
+
+    public DateTime? AppliedAtUtc { get; set; }
 }
 
 public sealed class TransferListenerLineModel
@@ -133,6 +197,19 @@ public sealed class TransferListenerCheckModel
     public bool WebhookTriggered { get; set; }
 
     public bool WebhookSuccess { get; set; }
+
+    public int NotificationsDelivered { get; set; }
+
+    public int NotificationsQueued { get; set; }
+
+    public int NotificationsReplayed { get; set; }
+
+    public int NotificationsRejected { get; set; }
+
+    public int NotificationsAbandoned { get; set; }
+
+    /// <summary>Lines still waiting to reach the ledger after the check.</summary>
+    public int PendingNotifications { get; set; }
 
     public string? Message { get; set; }
 }

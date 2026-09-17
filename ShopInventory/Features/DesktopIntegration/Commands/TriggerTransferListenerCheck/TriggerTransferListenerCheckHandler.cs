@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.Services;
@@ -25,9 +25,9 @@ public sealed class TriggerTransferListenerCheckHandler(
 
             logger.LogInformation(
                 "TransferEventListener check-now: {TotalTransfers} SAP transfer(s), {Detected} monitored line(s), "
-                + "webhook triggered {Triggered} succeeded {Succeeded}",
+                + "{Delivered} delivered to the ledger, {Queued} queued, {Pending} still waiting",
                 result.TotalSapTransfers, result.MonitoredEventsDetected,
-                result.WebhookTriggered, result.WebhookSuccess);
+                result.NotificationsDelivered, result.NotificationsQueued, result.PendingNotifications);
 
             return new TriggerTransferListenerCheckResult(
                 result.CheckedAt,
@@ -35,6 +35,12 @@ public sealed class TriggerTransferListenerCheckHandler(
                 result.MonitoredEventsDetected,
                 result.WebhookTriggered,
                 result.WebhookSuccess,
+                result.NotificationsDelivered,
+                result.NotificationsQueued,
+                result.NotificationsReplayed,
+                result.NotificationsRejected,
+                result.NotificationsAbandoned,
+                result.PendingNotifications,
                 result.Message ?? string.Empty);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)

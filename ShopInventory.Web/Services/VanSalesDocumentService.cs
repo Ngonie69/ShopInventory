@@ -49,7 +49,8 @@ public class VanSalesDocumentService(
             ("state", filter.State),
             ("search", filter.Search),
             ("page", filter.Page.ToString(CultureInfo.InvariantCulture)),
-            ("pageSize", filter.PageSize.ToString(CultureInfo.InvariantCulture)));
+            ("pageSize", filter.PageSize.ToString(CultureInfo.InvariantCulture)),
+            ("channel", filter.Channel));
 
         using var response = await SendAuthenticatedAsync(
             () => httpClient.GetAsync($"{BaseUrl}/invoices{query}", cancellationToken));
@@ -95,7 +96,9 @@ public class VanSalesDocumentService(
             ("state", filter.State),
             ("search", filter.Search),
             ("page", filter.Page.ToString(CultureInfo.InvariantCulture)),
-            ("pageSize", filter.PageSize.ToString(CultureInfo.InvariantCulture)));
+            ("pageSize", filter.PageSize.ToString(CultureInfo.InvariantCulture)),
+            ("origin", filter.Origin),
+            ("includeCancelled", filter.IncludeCancelled ? null : "false"));
 
         using var response = await SendAuthenticatedAsync(
             () => httpClient.GetAsync($"{BaseUrl}/credit-notes{query}", cancellationToken));

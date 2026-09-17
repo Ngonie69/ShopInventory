@@ -42,7 +42,7 @@
     <header class="mox-head">
         <div class="mox-shell">
             <div class="mox-titles">
-                <div class="mox-kicker">Sales &amp; billing</div>
+                <div class="mox-kicker">@(IsVanSalesView ? "Van sales" : "Sales & billing")</div>
                 <h1 class="mox-title">@(IsVanSalesView ? "Van Sales Orders" : "Mobile Orders")</h1>
                 <p class="mox-sub">
                     @(IsVanSalesView

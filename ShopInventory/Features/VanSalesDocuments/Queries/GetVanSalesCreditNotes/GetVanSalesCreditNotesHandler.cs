@@ -44,6 +44,19 @@ public sealed class GetVanSalesCreditNotesHandler(
             return Error.Validation("VanSalesDocuments.UnknownState", $"'{request.State}' is not a state.");
         }
 
+        var origin = request.Origin?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => null,
+            "sap" => "SAP",
+            "till" => "Till",
+            _ => "?"
+        };
+
+        if (origin == "?")
+        {
+            return Error.Validation("VanSalesDocuments.UnknownOrigin", $"'{request.Origin}' is not an origin.");
+        }
+
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, GetVanSalesInvoicesHandler.MaxPageSize);
         var (windowStartUtc, windowEndUtc) = VanSalesFacts.ToUtcWindow(from, to);
@@ -116,9 +129,14 @@ public sealed class GetVanSalesCreditNotesHandler(
                 c.CreatedAtUtc,
                 SaleReference = c.Sale.ExternalReferenceId,
                 SaleDocNum = c.Sale.SapDocNum,
-                c.Sale.CardCode,
+                CardCode = c.Sale.RouteCustomerCode ?? c.Sale.CardCode,
                 CustomerName = c.Sale.RouteCustomerName ?? c.Sale.CardName,
-                SaleCreatedBy = c.Sale.CreatedBy
+                SaleCreatedBy = c.Sale.CreatedBy,
+                SaleAmount = c.Sale.TotalAmount,
+                SaleCurrency = c.Sale.Currency,
+                SaleDocDate = c.Sale.DocDate,
+                SaleSource = c.Sale.SourceSystem,
+                SaleWarehouse = c.Sale.WarehouseCode
             })
             .ToListAsync(cancellationToken);
 
@@ -151,6 +169,15 @@ public sealed class GetVanSalesCreditNotesHandler(
             // the credit that became it carries the receipt.
             var fiscalised = probe.IsFiscalized == true || tillCredit?.Status == DesktopCreditStatuses.Fiscalised;
 
+            var credited = BasesOf(memo.SapDocEntry)
+                .Where(vanInvoices.ContainsKey)
+                .Select(entry => Describe(vanInvoices[entry], repNames))
+                .ToList();
+
+            // The memo's own card is the van's posting account, which every shop on the round shares. The shop
+            // is on the invoice it reverses.
+            var shop = vanInvoices[BasesOf(memo.SapDocEntry).First(vanInvoices.ContainsKey)];
+
             rows.Add(new VanSalesCreditNoteRow(
                 Key: $"sap-{memo.SapDocEntry}",
                 Origin: "SAP",
@@ -158,17 +185,14 @@ public sealed class GetVanSalesCreditNotesHandler(
                 Number: memo.SapDocNum.ToString(),
                 SapDocEntry: memo.SapDocEntry,
                 SapDocNum: memo.SapDocNum,
-                CustomerCode: memo.CardCode,
-                CustomerName: memo.CardName,
+                CustomerCode: shop.CustomerCode ?? memo.CardCode,
+                CustomerName: shop.CustomerName ?? memo.CardName,
                 Amount: memo.DocTotal,
                 VatAmount: memo.VatSum,
                 Currency: string.IsNullOrWhiteSpace(memo.DocCurrency) ? "USD" : memo.DocCurrency,
                 Reason: reasonByMemo.GetValueOrDefault(memo.SapDocEntry) ?? tillCredit?.Reason ?? memo.Comments,
                 IsCancelled: memo.IsCancelled,
-                CreditedInvoices: BasesOf(memo.SapDocEntry)
-                    .Where(vanInvoices.ContainsKey)
-                    .Select(entry => Describe(vanInvoices[entry], repNames))
-                    .ToList(),
+                CreditedInvoices: credited,
                 FiscalReceiptNumber: probe.FiscalReceiptGlobalNo?.ToString() ?? tillCredit?.Number,
                 State: VanSalesDocumentStates.Decide(fiscalised, inSap: true, hasFailure: false),
                 Problem: null));
@@ -208,7 +232,13 @@ public sealed class GetVanSalesCreditNotesHandler(
                         credit.SaleReference,
                         credit.SaleDocNum,
                         credit.CustomerName,
-                        RepName(credit.SaleCreatedBy, repNames))
+                        RepName(credit.SaleCreatedBy, repNames),
+                        credit.SaleAmount,
+                        AmountIncludesVat: true,
+                        string.IsNullOrWhiteSpace(credit.SaleCurrency) ? "USD" : credit.SaleCurrency,
+                        credit.SaleDocDate.Date,
+                        ChannelOf(credit.SaleSource),
+                        credit.SaleWarehouse)
                 ],
                 FiscalReceiptNumber: fiscalised ? credit.Number : null,
                 State: VanSalesDocumentStates.Decide(fiscalised, inSap, failure is not null),
@@ -216,6 +246,10 @@ public sealed class GetVanSalesCreditNotesHandler(
         }
 
         var searched = rows.Where(row => Matches(row, request.Search)).ToList();
+        var ofOrigin = searched.Where(row => origin is null || row.Origin == origin).ToList();
+        var summary = Summarise(searched, ofOrigin);
+
+        searched = ofOrigin.Where(row => request.IncludeCancelled || !row.IsCancelled).ToList();
 
         var counts = new VanSalesCreditNoteCounts(
             searched.Count,
@@ -239,10 +273,67 @@ public sealed class GetVanSalesCreditNotesHandler(
             filtered.Count,
             await creditNoteProjection.IsReadyForReadsAsync(cancellationToken),
             counts,
-            filtered.Skip((page - 1) * pageSize).Take(pageSize).ToList());
+            filtered.Skip((page - 1) * pageSize).Take(pageSize).ToList(),
+            summary);
     }
 
-    private sealed record VanInvoice(string Reference, int? SapDocNum, string? CustomerName, string? CreatedBy);
+    /// <param name="beforeOrigin">The rows the origin counts are taken over.</param>
+    /// <param name="rows">The rows everything else is taken over, cancelled notes still in.</param>
+    internal static VanSalesCreditNoteSummary Summarise(
+        IReadOnlyCollection<VanSalesCreditNoteRow> beforeOrigin,
+        IReadOnlyCollection<VanSalesCreditNoteRow> rows)
+    {
+        var standing = rows.Where(row => !row.IsCancelled).ToList();
+
+        var credited = standing
+            .GroupBy(row => row.Currency)
+            .Select(g => new VanSalesMoneyTotal(
+                g.Key,
+                g.Sum(row => row.Amount),
+                g.Sum(row => row.VatAmount ?? 0m),
+                g.Count(),
+                NetOnlyCount: 0))
+            .OrderByDescending(total => total.Count)
+            .ThenBy(total => total.Currency, StringComparer.Ordinal)
+            .ToList();
+
+        var topCustomers = standing
+            .GroupBy(row => (Name: row.CustomerName ?? row.CustomerCode ?? "Unknown customer", row.Currency))
+            .Select(g => new VanSalesCustomerCredit(
+                g.Select(row => row.CustomerCode).FirstOrDefault(code => code is not null),
+                g.Key.Name,
+                g.Key.Currency,
+                g.Sum(row => row.Amount),
+                g.Count()))
+            .OrderByDescending(customer => customer.Amount)
+            .ThenBy(customer => customer.CustomerName, StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+
+        return new VanSalesCreditNoteSummary(
+            beforeOrigin.Count(row => row.Origin == "SAP"),
+            beforeOrigin.Count(row => row.Origin == "Till"),
+            rows.Count(row => row.IsCancelled),
+            standing.SelectMany(row => row.CreditedInvoices).Select(invoice => invoice.Reference).Distinct().Count(),
+            credited,
+            topCustomers);
+    }
+
+    private static string ChannelOf(string? source) =>
+        source == SaleSourceSystems.VanSales ? "Offline" : "Online";
+
+    private sealed record VanInvoice(
+        string Reference,
+        int? SapDocNum,
+        string? CustomerCode,
+        string? CustomerName,
+        string? CreatedBy,
+        decimal Amount,
+        bool AmountIncludesVat,
+        string Currency,
+        DateTime SoldOn,
+        string Channel,
+        string? WarehouseCode);
 
     /// <summary>The van invoices among these SAP documents, keyed by DocEntry.</summary>
     private async Task<Dictionary<int, VanInvoice>> LoadVanInvoicesAsync(
@@ -266,8 +357,13 @@ public sealed class GetVanSalesCreditNotesHandler(
                 DocEntry = r.SAPDocEntry!.Value,
                 r.ExternalReferenceId,
                 r.SAPDocNum,
+                CustomerCode = r.RouteCustomerCode ?? r.CardCode,
                 CustomerName = r.RouteCustomerName ?? r.CardName,
-                r.CreatedBy
+                r.CreatedBy,
+                r.TotalValue,
+                r.Currency,
+                r.CreatedAt,
+                WarehouseCode = r.Lines.Select(l => l.WarehouseCode).FirstOrDefault()
             })
             .ToListAsync(cancellationToken);
 
@@ -275,7 +371,18 @@ public sealed class GetVanSalesCreditNotesHandler(
         {
             invoices.TryAdd(
                 invoice.DocEntry,
-                new VanInvoice(invoice.ExternalReferenceId, invoice.SAPDocNum, invoice.CustomerName, invoice.CreatedBy));
+                new VanInvoice(
+                    invoice.ExternalReferenceId,
+                    invoice.SAPDocNum,
+                    invoice.CustomerCode,
+                    invoice.CustomerName,
+                    invoice.CreatedBy,
+                    invoice.TotalValue,
+                    AmountIncludesVat: false,
+                    string.IsNullOrWhiteSpace(invoice.Currency) ? "USD" : invoice.Currency,
+                    VanSalesFacts.TradingDayOf(invoice.CreatedAt),
+                    "Online",
+                    invoice.WarehouseCode));
         }
 
         // Offline sales, and the receipt rows of online ones whose reservation no longer carries the entry.
@@ -289,16 +396,42 @@ public sealed class GetVanSalesCreditNotesHandler(
                 DocEntry = s.SapDocEntry!.Value,
                 s.ExternalReferenceId,
                 s.SapDocNum,
+                CustomerCode = s.RouteCustomerCode ?? s.CardCode,
                 CustomerName = s.RouteCustomerName ?? s.CardName,
-                s.CreatedBy
+                s.CreatedBy,
+                s.TotalAmount,
+                s.Currency,
+                s.DocDate,
+                s.SourceSystem,
+                s.WarehouseCode
             })
             .ToListAsync(cancellationToken);
 
         foreach (var sale in sales)
         {
-            invoices.TryAdd(
+            // A receipt row is the signed, tax-inclusive figure. Where the reservation was read first it held
+            // only the net total, so the receipt's total replaces it: a credit is gross, and so must be the
+            // invoice it is set against.
+            if (invoices.TryGetValue(sale.DocEntry, out var known))
+            {
+                invoices[sale.DocEntry] = known with { Amount = sale.TotalAmount, AmountIncludesVat = true };
+                continue;
+            }
+
+            invoices.Add(
                 sale.DocEntry,
-                new VanInvoice(sale.ExternalReferenceId, sale.SapDocNum, sale.CustomerName, sale.CreatedBy));
+                new VanInvoice(
+                    sale.ExternalReferenceId,
+                    sale.SapDocNum,
+                    sale.CustomerCode,
+                    sale.CustomerName,
+                    sale.CreatedBy,
+                    sale.TotalAmount,
+                    AmountIncludesVat: true,
+                    string.IsNullOrWhiteSpace(sale.Currency) ? "USD" : sale.Currency,
+                    sale.DocDate.Date,
+                    ChannelOf(sale.SourceSystem),
+                    sale.WarehouseCode));
         }
 
         return invoices;
@@ -334,7 +467,17 @@ public sealed class GetVanSalesCreditNotesHandler(
     }
 
     private static VanSalesCreditedInvoice Describe(VanInvoice invoice, Dictionary<Guid, string> repNames) =>
-        new(invoice.Reference, invoice.SapDocNum, invoice.CustomerName, RepName(invoice.CreatedBy, repNames));
+        new(
+            invoice.Reference,
+            invoice.SapDocNum,
+            invoice.CustomerName,
+            RepName(invoice.CreatedBy, repNames),
+            invoice.Amount,
+            invoice.AmountIncludesVat,
+            invoice.Currency,
+            invoice.SoldOn,
+            invoice.Channel,
+            invoice.WarehouseCode);
 
     private static string? RepName(string? createdBy, Dictionary<Guid, string> repNames) =>
         VanSalesFacts.TryResolveRep(createdBy, out var id) && repNames.TryGetValue(id, out var name) ? name : null;

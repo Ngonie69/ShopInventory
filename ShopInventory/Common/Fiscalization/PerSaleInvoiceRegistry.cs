@@ -76,6 +76,60 @@ internal static class PerSaleInvoiceRegistry
     }
 
     /// <summary>
+    /// The receipt a per-sale invoice's own sale holds: the QR and the details printed beside it.
+    /// </summary>
+    /// <remarks>
+    /// The fiscal detail on a SAP invoice is otherwise only ever found under its DocNum — the
+    /// projector reads <c>DesktopFiscalTransactions</c> by DocNum, and the device read-back asks the
+    /// device about the same number. For a per-sale invoice neither can answer, for the reason this
+    /// whole class exists: the receipt was signed under the sale's own external reference, hours
+    /// before SAP assigned a DocNum. So the invoice was printed with no QR, no verification code, no
+    /// fiscal day and no device — the entire fiscal block dropped from a tax invoice that does hold a
+    /// receipt, and dropped silently.
+    ///
+    /// The sale row carries all of it already, so this is a local read rather than another question
+    /// to the device, and it cannot come and go with the device's availability.
+    ///
+    /// Only the sale-row marker answers here. A van sale that reached SAP through the invoice queue
+    /// is matched by its reservation, and the queue entry holds a receipt number but not the QR, so
+    /// such an invoice still falls through to the device read-back.
+    /// </remarks>
+    public static async Task<PerSaleFiscalReceipt?> FindReceiptByDocNumAsync(
+        ApplicationDbContext dbContext,
+        int docNum,
+        CancellationToken cancellationToken)
+    {
+        if (docNum <= 0)
+        {
+            return null;
+        }
+
+        var receipt = await dbContext.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.SapDocNum == docNum
+                && sale.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success)
+            .OrderByDescending(sale => sale.Id)
+            .Select(sale => new PerSaleFiscalReceipt(
+                sale.FiscalQRCode,
+                sale.FiscalVerificationCode,
+                sale.FiscalDayNo,
+                sale.FiscalDeviceId,
+                sale.ReceiptGlobalNo))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // A row with neither is nothing to print, and saying so lets the caller carry on to the
+        // device rather than treat the invoice as answered.
+        if (receipt is null
+            || (string.IsNullOrWhiteSpace(receipt.QrCode)
+                && string.IsNullOrWhiteSpace(receipt.VerificationCode)))
+        {
+            return null;
+        }
+
+        return receipt;
+    }
+
+    /// <summary>
     /// Narrows a page of document numbers to those that came from an already-fiscalised sale, in one
     /// query per marker.
     /// </summary>
@@ -154,3 +208,18 @@ internal static class PerSaleInvoiceRegistry
 /// The sale a per-sale invoice records: the reference it was fiscalised under, and its receipt.
 /// </summary>
 internal sealed record PerSaleInvoice(string ExternalReferenceId, string? FiscalReceiptNumber);
+
+/// <summary>
+/// The ZIMRA receipt held against a sale, as the invoice PDF prints it.
+/// </summary>
+/// <remarks>
+/// <paramref name="DeviceId"/> is the numeric ZIMRA device, which the document states as text, and
+/// not <c>FiscalDeviceNumber</c> — that column carries a serial on one path and the device id on
+/// another, so it cannot be printed as either.
+/// </remarks>
+internal sealed record PerSaleFiscalReceipt(
+    string? QrCode,
+    string? VerificationCode,
+    string? FiscalDay,
+    int? DeviceId,
+    int? ReceiptGlobalNo);

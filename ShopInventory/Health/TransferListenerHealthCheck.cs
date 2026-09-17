@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Diagnostics.HealthChecks;
+﻿using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Services;
@@ -79,7 +79,11 @@ public sealed class TransferListenerHealthCheck(
             ["webhookFailures"] = poll.WebhookFailures,
             ["documentsSeen"] = health.DocumentsSeen,
             ["pollIntervalSeconds"] = poll.PollIntervalSeconds,
-            ["lastError"] = poll.LastError ?? string.Empty
+            ["lastError"] = poll.LastError ?? string.Empty,
+            ["pendingNotifications"] = poll.PendingNotifications,
+            ["abandonedNotifications"] = poll.AbandonedNotifications,
+            ["rejectedNotifications"] = poll.RejectedNotifications,
+            ["lastDeliveryError"] = poll.LastDeliveryError ?? string.Empty
         };
 
         var unwatched = await UnwatchedWarehousesAsync(cancellationToken);
@@ -107,6 +111,37 @@ public sealed class TransferListenerHealthCheck(
                 + "are absent from the daily snapshot, so a till will refuse stock the warehouse holds. "
                 + (poll.LastError ?? string.Empty).TrimEnd(),
                 data: data);
+        }
+
+        // Reading SAP worked and delivering to this API did not. On 2026-09-17 the listener posted every
+        // line for a day to a port nothing listened on while this check reported Healthy, because it
+        // only ever asked about the poll. The lines are retried, so a short wait is only late — but
+        // one that has waited past the critical threshold is stock a till is refusing right now.
+        if (poll.PendingNotifications > 0 && poll.OldestPendingNotificationUtc is { } oldestPending)
+        {
+            var waited = DateTime.UtcNow - DateTime.SpecifyKind(oldestPending, DateTimeKind.Utc);
+            var cause = string.IsNullOrWhiteSpace(poll.LastDeliveryError)
+                ? string.Empty
+                : $" Last answer: {poll.LastDeliveryError.Trim()}"
+                  + (string.IsNullOrWhiteSpace(poll.WebhookUrl) ? "." : $" from {poll.WebhookUrl}.");
+
+            if (waited >= critical)
+            {
+                return HealthCheckResult.Unhealthy(
+                    $"{poll.PendingNotifications} transfer line(s) found in SAP have not reached this API's "
+                    + $"stock ledger, the oldest for {waited.TotalMinutes:N0} minute(s). Those movements are "
+                    + "missing from local stock and the tills." + cause,
+                    data: data);
+            }
+
+            if (waited >= warning)
+            {
+                return HealthCheckResult.Degraded(
+                    $"{poll.PendingNotifications} transfer line(s) are waiting to reach this API's stock "
+                    + $"ledger, the oldest for {waited.TotalMinutes:N0} minute(s). They are retried every "
+                    + "cycle." + cause,
+                    data: data);
+            }
         }
 
         // Detection worked and delivery did not, and nothing retries a failed webhook: those documents

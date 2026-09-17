@@ -23,6 +23,48 @@ public class VanSalesDocumentFilter
     public string? Search { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 50;
+
+    /// <summary>Invoices only: <c>Online</c> or <c>Offline</c>, or null for both.</summary>
+    public string? Channel { get; set; }
+
+    /// <summary>Credit notes only: <c>SAP</c> or <c>Till</c>, or null for both.</summary>
+    public string? Origin { get; set; }
+
+    /// <summary>Credit notes only. False leaves cancelled SAP memos out; they are still counted.</summary>
+    public bool IncludeCancelled { get; set; } = true;
+}
+
+/// <summary>A sum of documents in one currency. Mirrors the API's <c>VanSalesMoneyTotal</c>.</summary>
+public class VanSalesMoneyTotalModel
+{
+    public string Currency { get; set; } = "USD";
+    public decimal Amount { get; set; }
+    public decimal Vat { get; set; }
+    public int Count { get; set; }
+
+    /// <summary>How many of <see cref="Count"/> are in <see cref="Amount"/> without their VAT.</summary>
+    public int NetOnlyCount { get; set; }
+}
+
+/// <summary>What a period's van invoices add up to, before the state filter.</summary>
+public class VanSalesInvoiceSummaryModel
+{
+    public int Online { get; set; }
+    public int Offline { get; set; }
+    public List<VanSalesMoneyTotalModel> Totals { get; set; } = [];
+    public int NotInSapCount { get; set; }
+    public List<VanSalesMoneyTotalModel> NotInSap { get; set; } = [];
+    public List<VanSalesVanBacklogModel> NotInSapByVan { get; set; } = [];
+}
+
+/// <summary>What one van has sold that SAP has not invoiced yet, in one currency.</summary>
+public class VanSalesVanBacklogModel
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public string? RepName { get; set; }
+    public string Currency { get; set; } = "USD";
+    public decimal Amount { get; set; }
+    public int Count { get; set; }
 }
 
 public class VanSalesStateCounts
@@ -45,6 +87,7 @@ public class VanSalesInvoicesResponse
     public VanSalesStateCounts Counts { get; set; } = new();
     public List<VanSalesInvoiceRowModel> Rows { get; set; } = [];
     public List<VanSalesRepOptionModel> Reps { get; set; } = [];
+    public VanSalesInvoiceSummaryModel Summary { get; set; } = new();
 }
 
 public class VanSalesInvoiceRowModel
@@ -86,6 +129,27 @@ public class VanSalesInvoiceDetailModel
     public int PostingAttempts { get; set; }
     public string? QueueStatus { get; set; }
     public List<VanSalesInvoiceLineModel> Lines { get; set; } = [];
+    public List<VanSalesInvoiceCreditModel> CreditNotes { get; set; } = [];
+}
+
+/// <summary>A credit note against a van invoice, as the invoice's drawer states it.</summary>
+public class VanSalesInvoiceCreditModel
+{
+    /// <summary>The key the credit notes list gives the same note.</summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary><c>SAP</c> or <c>Till</c>.</summary>
+    public string Origin { get; set; } = string.Empty;
+
+    public string Number { get; set; } = string.Empty;
+    public DateTime Date { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
+    public string? Reason { get; set; }
+    public bool IsCancelled { get; set; }
+
+    /// <summary>Whether the amount has actually been given back, and so comes off the invoice.</summary>
+    public bool GivesBack { get; set; }
 }
 
 public class VanSalesInvoiceLineModel
@@ -111,6 +175,33 @@ public class VanSalesCreditNotesResponse
     public bool SapProjectionCurrent { get; set; } = true;
     public VanSalesStateCounts Counts { get; set; } = new();
     public List<VanSalesCreditNoteRowModel> Rows { get; set; } = [];
+    public VanSalesCreditNoteSummaryModel Summary { get; set; } = new();
+}
+
+/// <summary>What a period's van credit notes add up to.</summary>
+public class VanSalesCreditNoteSummaryModel
+{
+    /// <summary>Before the origin filter.</summary>
+    public int Sap { get; set; }
+
+    /// <summary>Before the origin filter.</summary>
+    public int Till { get; set; }
+
+    /// <summary>Before cancelled notes are left out.</summary>
+    public int Cancelled { get; set; }
+
+    public int InvoicesReversed { get; set; }
+    public List<VanSalesMoneyTotalModel> Credited { get; set; } = [];
+    public List<VanSalesCustomerCreditModel> TopCustomers { get; set; } = [];
+}
+
+public class VanSalesCustomerCreditModel
+{
+    public string? CustomerCode { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string Currency { get; set; } = "USD";
+    public decimal Amount { get; set; }
+    public int Count { get; set; }
 }
 
 public class VanSalesCreditNoteRowModel
@@ -140,4 +231,14 @@ public class VanSalesCreditedInvoiceModel
     public int? SapDocNum { get; set; }
     public string? CustomerName { get; set; }
     public string? RepName { get; set; }
+
+    /// <summary>The invoice total, when known. See <see cref="AmountIncludesVat"/> before setting it against a credit.</summary>
+    public decimal? Amount { get; set; }
+    public bool AmountIncludesVat { get; set; }
+    public string? Currency { get; set; }
+    public DateTime? SoldOn { get; set; }
+
+    /// <summary><c>Online</c> or <c>Offline</c>.</summary>
+    public string? Channel { get; set; }
+    public string? WarehouseCode { get; set; }
 }
