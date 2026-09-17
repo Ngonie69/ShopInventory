@@ -85,6 +85,46 @@ public sealed class TransferListenerHealthCheckTests
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
     }
 
+    /// <summary>
+    /// The state this check reported Healthy for a whole day on 2026-09-17: SAP read every two minutes,
+    /// and every line posted to a port nothing listened on. Recovery would still help — the lines are
+    /// retried — but a till has been refusing that stock for as long as they have waited.
+    /// </summary>
+    [Fact]
+    public async Task Lines_waiting_past_the_critical_threshold_are_unhealthy_and_name_the_answer()
+    {
+        var result = await CheckAsync(FakeListener.Healthy(Poll(
+            pendingNotifications: 106,
+            oldestPending: DateTime.UtcNow.AddHours(-4),
+            lastDeliveryError: "HTTP 404",
+            webhookUrl: "http://10.10.10.9/api/desktopintegration/webhook/transfer-event")));
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("106 transfer line(s)", result.Description);
+        Assert.Contains("HTTP 404 from http://10.10.10.9/api/desktopintegration/webhook/transfer-event", result.Description);
+        Assert.Equal(106, result.Data["pendingNotifications"]);
+    }
+
+    [Fact]
+    public async Task Lines_waiting_past_the_warning_threshold_are_degraded()
+    {
+        var result = await CheckAsync(FakeListener.Healthy(Poll(
+            pendingNotifications: 4, oldestPending: DateTime.UtcNow.AddMinutes(-30))));
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Contains("retried every cycle", result.Description);
+    }
+
+    /// <summary>A line queued this cycle is ordinary; the next one usually delivers it.</summary>
+    [Fact]
+    public async Task A_line_that_has_only_just_queued_is_still_healthy()
+    {
+        var result = await CheckAsync(FakeListener.Healthy(Poll(
+            pendingNotifications: 1, oldestPending: DateTime.UtcNow.AddMinutes(-2))));
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+    }
+
     [Fact]
     public async Task A_poll_loop_that_never_started_is_unhealthy()
     {
@@ -200,8 +240,16 @@ public sealed class TransferListenerHealthCheckTests
         DateTime? processStarted = null,
         int consecutiveFailures = 0,
         int webhookFailures = 0,
-        bool neverPolled = false) => new()
+        bool neverPolled = false,
+        int pendingNotifications = 0,
+        DateTime? oldestPending = null,
+        string? lastDeliveryError = null,
+        string? webhookUrl = null) => new()
         {
+            PendingNotifications = pendingNotifications,
+            OldestPendingNotificationUtc = oldestPending,
+            LastDeliveryError = lastDeliveryError,
+            WebhookUrl = webhookUrl,
             ProcessStartedUtc = processStarted ?? DateTime.UtcNow.AddHours(-2),
             PollingStarted = pollingStarted,
             LastAttemptUtc = DateTime.UtcNow.AddMinutes(-1),

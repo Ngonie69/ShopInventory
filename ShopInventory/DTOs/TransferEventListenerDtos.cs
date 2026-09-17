@@ -56,7 +56,46 @@ public sealed class TransferListenerPollDto
 
     public int PollIntervalSeconds { get; set; }
 
+    /// <summary>
+    /// Failures of the listener's batch-sync call, which is not the call that moves the ledger. The
+    /// ledger's own delivery is <see cref="PendingNotifications"/> and the members after it.
+    /// </summary>
     public int WebhookFailures { get; set; }
+
+    public bool ResumedFromSavedState { get; set; }
+
+    public int ProcessedDocuments { get; set; }
+
+    // ── Delivery to this API's transfer-event webhook ──────────────────────
+    //
+    // Every member below is absent from a listener older than its retry queue, and reads as zero or
+    // null there. None of them may be made non-nullable: see the class remark on the file.
+
+    /// <summary>
+    /// Lines found in SAP that have not reached this API yet and are retried every cycle. On
+    /// 2026-09-17 this stood at 106 while every other figure the page showed was green — the listener
+    /// was posting to a port nothing listened on, and a till was missing every transfer since the
+    /// previous morning.
+    /// </summary>
+    public int PendingNotifications { get; set; }
+
+    public DateTime? OldestPendingNotificationUtc { get; set; }
+
+    /// <summary>Lines the listener stopped retrying because their ledger day ended.</summary>
+    public int AbandonedNotifications { get; set; }
+
+    /// <summary>Lines this API refused as invalid. Not retried.</summary>
+    public int RejectedNotifications { get; set; }
+
+    /// <summary>Where the listener posts lines. Never carries the key.</summary>
+    public string? WebhookUrl { get; set; }
+
+    public DateTime? LastDeliveredUtc { get; set; }
+
+    /// <summary>The answer to the most recent line that did not get through, e.g. "HTTP 404".</summary>
+    public string? LastDeliveryError { get; set; }
+
+    public DateTime? LastDeliveryErrorUtc { get; set; }
 }
 
 /// <summary>
@@ -200,6 +239,21 @@ public sealed class TransferListenerCheckResultDto
     public bool WebhookTriggered { get; set; }
 
     public bool WebhookSuccess { get; set; }
+
+    // What happened to the lines on their way to this API's ledger. "WebhookSuccess" above is the
+    // batch-sync call and says nothing about that. Zero from a listener older than its retry queue.
+
+    public int NotificationsDelivered { get; set; }
+
+    public int NotificationsQueued { get; set; }
+
+    public int NotificationsReplayed { get; set; }
+
+    public int NotificationsRejected { get; set; }
+
+    public int NotificationsAbandoned { get; set; }
+
+    public int PendingNotifications { get; set; }
 
     public string? Message { get; set; }
 }

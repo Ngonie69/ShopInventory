@@ -23,7 +23,20 @@ public sealed record TriggerTransferListenerCheckResult(
     // Lines among those that touched a monitored warehouse and had not been seen before.
     int MonitoredEventsDetected,
 
+    // The listener's batch-sync call, not the ledger's delivery. Kept for compatibility.
     bool WebhookTriggered,
     bool WebhookSuccess,
+
+    // What happened to the lines on their way to this API's ledger during the check. All zero from
+    // a listener older than its retry queue, which reports none of them.
+    int NotificationsDelivered,
+    int NotificationsQueued,
+    int NotificationsReplayed,
+    int NotificationsRejected,
+    int NotificationsAbandoned,
+
+    // Lines still waiting after the check.
+    int PendingNotifications,
+
     string Message
 );

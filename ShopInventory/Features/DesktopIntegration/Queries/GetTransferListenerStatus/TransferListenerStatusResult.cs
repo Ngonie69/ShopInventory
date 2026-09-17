@@ -22,6 +22,12 @@ public sealed record TransferListenerStatusResult(
 
     TransferListenerPollSummary? Poll,
 
+    // Null when the listener could not be read.
+    TransferListenerDeliverySummary? Delivery,
+
+    // Read from this API's database, so present even when the listener is down or switched off.
+    TransferListenerLedgerSummary Ledger,
+
     // Counters since the listener process started; a restart zeroes them.
     int DocumentsSeen,
     int LinesSeen,
@@ -63,7 +69,70 @@ public sealed record TransferListenerPollSummary(
     // Minutes since the last cycle that actually read SAP. Measured from the listener's process
     // start when no cycle has ever succeeded, so a listener that has never worked reads as stale
     // rather than as fresh.
-    double MinutesSinceSuccessfulPoll
+    double MinutesSinceSuccessfulPoll,
+
+    // Whether the listener picked up its poll window, processed set and retry queue from disk when
+    // it started, and how many documents that set holds.
+    bool ResumedFromSavedState,
+    int ProcessedDocuments
+);
+
+/// <summary>
+/// The second hop: lines the listener found, on their way to this API's transfer-event webhook.
+/// </summary>
+/// <remarks>
+/// Reading SAP and delivering to this API fail independently, and only the first used to be on the
+/// page. On 2026-09-17 the listener read SAP every two minutes while posting every line to a port
+/// nothing listened on; the page said "reading SAP normally" and no transfer had reached a till since
+/// the previous morning.
+/// </remarks>
+public sealed record TransferListenerDeliverySummary(
+    // Lines retried every cycle until they land or their ledger day ends.
+    int PendingLines,
+    DateTime? OldestPendingUtc,
+
+    // Minutes the oldest waiting line has waited; null when nothing waits.
+    double? MinutesOldestPending,
+
+    // Given up on when their ledger day ended, since the listener started.
+    int AbandonedLines,
+
+    // Refused by this API as invalid, since the listener started. Never retried.
+    int RejectedLines,
+
+    // Where the listener posts. Null from a listener that does not report it.
+    string? WebhookUrl,
+    DateTime? LastDeliveredUtc,
+    string? LastError,
+    DateTime? LastErrorUtc
+);
+
+/// <summary>
+/// The third hop, read from this API's own ledger rather than taken from the listener.
+/// </summary>
+/// <remarks>
+/// The listener can only say a line was accepted. Whether the stock moved is decided here — a line
+/// for a warehouse with no snapshot today is accepted and changes nothing — so the page asks the
+/// table the transfer handler writes, <c>StockTransferAdjustments</c>.
+/// </remarks>
+public sealed record TransferListenerLedgerSummary(
+    // The snapshot day in force, which rolls at the morning fetch rather than at midnight.
+    DateTime SnapshotDate,
+
+    // Adjustment rows written for that day. A line between two monitored warehouses writes two.
+    int MovementsToday,
+    int DocumentsToday,
+
+    // The newest adjustment on any day, so "nothing today" can say how long it has been.
+    DateTime? LastAppliedUtc,
+    int? LastAppliedDocNum,
+    string? LastAppliedWarehouse,
+
+    // Documents applied today, per warehouse.
+    IReadOnlyDictionary<string, int> DocumentsTodayByWarehouse,
+
+    // False when the ledger could not be read; the figures above are then zero, not a finding.
+    bool Available
 );
 
 public sealed record TransferListenerDocumentSummary(
@@ -76,7 +145,14 @@ public sealed record TransferListenerDocumentSummary(
     string? DestinationWarehouse,
     bool WebhookSuccess,
     int LineCount,
-    IReadOnlyList<TransferListenerLineSummary> Lines
+    IReadOnlyList<TransferListenerLineSummary> Lines,
+
+    // "Applied", "Waiting" or "NotApplied", judged against this API's ledger; see
+    // GetTransferListenerStatusHandler.LocalStockState.
+    string LocalStock,
+
+    // When the ledger first recorded this document, if it has.
+    DateTime? AppliedAtUtc
 );
 
 public sealed record TransferListenerLineSummary(

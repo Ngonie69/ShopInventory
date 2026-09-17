@@ -2810,8 +2810,8 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | POST | `/api/DesktopIntegration/transfer-queue/{externalReference}/retry` | (class) | Retry it |
 | DELETE | `/api/DesktopIntegration/transfer-queue/{externalReference}` | (class) | Drop it |
 | POST | `/api/DesktopIntegration/webhook/transfer-event` | (class) | Take a transfer event from SAP |
-| GET | `/api/DesktopIntegration/transfer-listener/status` | Admin, Manager | Whether the listener is still reading SAP (`recentDocumentCount` 20). Answers 200 with `reachable: false` when it is down |
-| POST | `/api/DesktopIntegration/transfer-listener/check-now` | Admin, Manager | Make the listener poll SAP now rather than wait for its cycle |
+| GET | `/api/DesktopIntegration/transfer-listener/status` | Admin, Manager | Whether transfers are reaching local stock: the listener's SAP poll, its delivery queue, and what this API's ledger applied today (`recentDocumentCount` 20). Answers 200 with `reachable: false` when it is down |
+| POST | `/api/DesktopIntegration/transfer-listener/check-now` | Admin, Manager | Make the listener poll SAP and replay waiting lines now rather than wait for its cycle; reports lines delivered, queued and still waiting |
 
 #### Desktop sales and end of day
 
