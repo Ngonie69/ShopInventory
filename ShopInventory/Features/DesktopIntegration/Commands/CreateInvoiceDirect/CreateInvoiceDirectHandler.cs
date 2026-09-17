@@ -69,6 +69,54 @@ public sealed class CreateInvoiceDirectHandler(
             + $"(DocEntry {value.SAPDocEntry}).";
     }
 
+    /// <summary>
+    /// The reservation an invoice request holds its stock under. Shared with the van sale that fiscalises
+    /// before it posts, so both routes reserve a basket identically.
+    /// </summary>
+    internal static CreateStockReservationRequest ToReservationRequest(
+        CreateDesktopInvoiceRequest request,
+        string externalRef,
+        int durationMinutes) =>
+        new()
+        {
+            ExternalReference = externalRef,
+            ExternalReferenceId = externalRef,
+            SourceSystem = request.SourceSystem ?? "DESKTOP_APP",
+            DocumentType = ReservationDocumentType.Invoice,
+            CardCode = request.CardCode,
+            CardName = request.CardName,
+            // Van sales only, and already validated by the handler that set them. The confirmed
+            // reservation is the sole local record of an online van sale, so if the shop does not
+            // travel this far it is lost.
+            RouteCustomerId = request.RouteCustomerId,
+            RouteCustomerCode = request.RouteCustomerCode,
+            RouteCustomerName = request.RouteCustomerName,
+            Currency = request.DocCurrency,
+            // For the same reason as the route customer above: the confirmed reservation is the
+            // only local record an online van sale leaves, so an untravelled tender is a lost one.
+            PaymentMethod = request.PaymentMethod,
+            ReservationDurationMinutes = durationMinutes,
+            Lines = request.Lines.Select(l => new CreateStockReservationLineRequest
+            {
+                LineNum = l.LineNum,
+                ItemCode = l.ItemCode,
+                ItemDescription = l.ItemDescription,
+                Quantity = l.Quantity,
+                UoMCode = l.UoMCode,
+                WarehouseCode = l.WarehouseCode,
+                UnitPrice = l.UnitPrice ?? 0,
+                TaxCode = l.TaxCode,
+                DiscountPercent = l.DiscountPercent ?? 0,
+                CostCentreCode = l.CostCentreCode,
+                BatchNumbers = l.BatchNumbers?.Select(b => new ReservationBatchRequest
+                {
+                    BatchNumber = b.BatchNumber,
+                    Quantity = b.Quantity
+                }).ToList(),
+                AutoAllocateBatches = l.AutoAllocateBatches
+            }).ToList()
+        };
+
     private async Task<ErrorOr<ConfirmReservationResponseDto>> CreateAsync(
         CreateInvoiceDirectCommand command,
         string externalRef,
@@ -81,45 +129,8 @@ public sealed class CreateInvoiceDirectHandler(
             logger.LogInformation("Desktop app creating direct invoice: {ExternalRef}", externalRef);
 
             // Step 1: Create a reservation
-            var reservationRequest = new CreateStockReservationRequest
-            {
-                ExternalReference = externalRef,
-                ExternalReferenceId = externalRef,
-                SourceSystem = request.SourceSystem ?? "DESKTOP_APP",
-                DocumentType = ReservationDocumentType.Invoice,
-                CardCode = request.CardCode,
-                CardName = request.CardName,
-                // Van sales only, and already validated by the handler that set them. The confirmed
-                // reservation is the sole local record of an online van sale, so if the shop does not
-                // travel this far it is lost.
-                RouteCustomerId = request.RouteCustomerId,
-                RouteCustomerCode = request.RouteCustomerCode,
-                RouteCustomerName = request.RouteCustomerName,
-                Currency = request.DocCurrency,
-                // For the same reason as the route customer above: the confirmed reservation is the
-                // only local record an online van sale leaves, so an untravelled tender is a lost one.
-                PaymentMethod = request.PaymentMethod,
-                ReservationDurationMinutes = sapCircuitBreakerState.IsOpen ? 60 : 5,
-                Lines = request.Lines.Select(l => new CreateStockReservationLineRequest
-                {
-                    LineNum = l.LineNum,
-                    ItemCode = l.ItemCode,
-                    ItemDescription = l.ItemDescription,
-                    Quantity = l.Quantity,
-                    UoMCode = l.UoMCode,
-                    WarehouseCode = l.WarehouseCode,
-                    UnitPrice = l.UnitPrice ?? 0,
-                    TaxCode = l.TaxCode,
-                    DiscountPercent = l.DiscountPercent ?? 0,
-                    CostCentreCode = l.CostCentreCode,
-                    BatchNumbers = l.BatchNumbers?.Select(b => new ReservationBatchRequest
-                    {
-                        BatchNumber = b.BatchNumber,
-                        Quantity = b.Quantity
-                    }).ToList(),
-                    AutoAllocateBatches = l.AutoAllocateBatches
-                }).ToList()
-            };
+            var reservationRequest = ToReservationRequest(
+                request, externalRef, sapCircuitBreakerState.IsOpen ? 60 : 5);
 
             var reservationResult = await reservationService.CreateReservationAsync(
                 reservationRequest, command.CreatedBy, cancellationToken);

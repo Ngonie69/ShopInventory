@@ -292,6 +292,53 @@ public static partial class VanSalesCompatibilityMapper
     }
 
     /// <summary>
+    /// Answers the handset for a sale the server fiscalised before posting.
+    /// </summary>
+    /// <remarks>
+    /// Always a success: every outcome that reaches here carries a receipt, and a receipt means the sale
+    /// stands. <c>was_queued</c> then says only that SAP has not taken the invoice yet.
+    /// </remarks>
+    public static VanSalesDirectInvoiceResponse MapFiscalFirstResponse(
+        VanSaleFiscalFirstOutcome outcome,
+        string externalReference,
+        string reservationId,
+        InvoiceQueueResultDto? queued)
+    {
+        var sale = outcome.Sale;
+        var posted = outcome.Status == VanSaleFiscalFirstStatus.Posted;
+
+        return new VanSalesDirectInvoiceResponse
+        {
+            Success = true,
+            // Worded for the rep. A queued sale is not a failed one: the customer's receipt is real and the
+            // invoice follows without anyone doing anything.
+            Message = posted
+                ? "Fiscalised and invoiced."
+                : "Fiscalised. SAP is not taking invoices right now, so the invoice will be posted automatically.",
+            ExternalReference = externalReference,
+            ReservationId = reservationId,
+            SapDocEntry = outcome.SapDocEntry,
+            SapDocNum = outcome.SapDocNum,
+            WasQueued = !posted,
+            QueueId = queued?.QueueId,
+            QueueStatus = queued?.Status,
+            QueueExternalReference = queued?.ExternalReference,
+            EstimatedProcessingSeconds = queued?.EstimatedProcessingTime is { } wait
+                ? (int)Math.Ceiling(wait.TotalSeconds)
+                : null,
+            StatusUrl = posted
+                ? null
+                : $"/api/DesktopIntegration/queue/by-reservation/{Uri.EscapeDataString(reservationId)}",
+            VerificationCode = sale?.FiscalVerificationCode,
+            QrCode = sale?.FiscalQRCode,
+            FiscalDay = sale?.FiscalDayNo,
+            ReceiptGlobalNo = sale?.FiscalReceiptNumber,
+            DeviceSerial = sale?.FiscalDeviceNumber,
+            Errors = posted || string.IsNullOrWhiteSpace(outcome.Error) ? [] : [outcome.Error]
+        };
+    }
+
+    /// <summary>
     /// Answers the handset, naming the fiscal receipt the sale carries.
     /// </summary>
     /// <remarks>

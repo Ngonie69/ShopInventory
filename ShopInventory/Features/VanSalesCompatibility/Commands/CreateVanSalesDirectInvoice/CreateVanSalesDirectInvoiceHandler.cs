@@ -3,6 +3,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Errors;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
@@ -11,6 +12,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateInvoiceDirect;
 using ShopInventory.Features.ExceptionCenter;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesDirectInvoice;
 
@@ -40,7 +42,9 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     ApplicationDbContext db,
     IMediator mediator,
     IOptions<FiscalisationSettings> fiscalisationOptions,
-    ILogger<CreateVanSalesDirectInvoiceHandler> logger
+    ILogger<CreateVanSalesDirectInvoiceHandler> logger,
+    IStockReservationService reservations,
+    VanSaleFiscalFirstPoster poster
 ) : IRequestHandler<CreateVanSalesDirectInvoiceCommand, ErrorOr<VanSalesDirectInvoiceResponse>>
 {
     public async Task<ErrorOr<VanSalesDirectInvoiceResponse>> Handle(
@@ -116,6 +120,13 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
             warehouseCode,
             costCentreCode);
 
+        // A sale the handset did not stamp is fiscalised here — before SAP, not after. A stamped one already
+        // carries its receipt and keeps the path below, where the server must not sign it a second time.
+        if (!command.Request.ClaimsReceiptSequence())
+        {
+            return await FiscaliseThenPostAsync(command, invoiceRequest, cancellationToken);
+        }
+
         var result = await mediator.Send(
             new CreateInvoiceDirectCommand(invoiceRequest, command.UserId.ToString()),
             cancellationToken);
@@ -138,6 +149,259 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
         return VanSalesCompatibilityMapper.MapInvoiceResponse(
             result.Value, command.Request.VanOrder, command.Request);
     }
+
+    /// <summary>
+    /// An unstamped van sale: reserve the stock, fiscalise, then post — in that order.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The order is the point.</b> The handsets in the fleet sign nothing (the build fiscalises at
+    /// the office), so this server is the only thing that can give the customer a receipt, and a receipt is
+    /// what the rep hands over. It used to be requested after the invoice, in the background and in memory:
+    /// the handset was answered before the device had signed, printed a slip with no verification code, and
+    /// a restart lost the fiscalisation outright. See <see cref="VanSaleFiscalFirstPoster"/> for what keeps
+    /// signing first from producing a receipt the books cannot take.</para>
+    ///
+    /// <para><b>What the rep is told.</b> Until the device signs, the sale can still be refused, and is:
+    /// nothing was issued and nothing was charged, so saying so is the truth. Once it signs, the sale is
+    /// never refused again — a SAP outage is answered with the receipt and <c>was_queued</c>, and the queue
+    /// posts the invoice. A device that cannot say whether it signed is the one answer that is neither: the
+    /// rep is told not to sell the goods again, and the sale waits for a person.</para>
+    ///
+    /// <para>A retry arrives under the same <c>van_order</c> — the handset keeps it for as long as the basket
+    /// is unchanged — and finds its own reservation and receipt row, so the device is asked for an existing
+    /// receipt before anything is signed.</para>
+    /// </remarks>
+    private async Task<ErrorOr<VanSalesDirectInvoiceResponse>> FiscaliseThenPostAsync(
+        CreateVanSalesDirectInvoiceCommand command,
+        CreateDesktopInvoiceRequest invoiceRequest,
+        CancellationToken cancellationToken)
+    {
+        var reference = command.Request.VanOrder?.Trim();
+
+        if (string.IsNullOrEmpty(reference))
+        {
+            // The van order is the receipt's permanent number and the only thing a retry can find it by.
+            return Error.Validation(
+                "VanSalesCompatibility.MissingVanOrder",
+                "This sale carries no van order reference, so it cannot be fiscalised.");
+        }
+
+        var existing = await reservations.GetReservationByExternalReferenceAsync(reference, cancellationToken);
+        string reservationId;
+
+        var reservationRequest = CreateInvoiceDirectHandler.ToReservationRequest(
+            invoiceRequest, reference, (int)VanSaleFiscalFirstPoster.PostingHold.TotalMinutes);
+        reservationRequest.Notes = invoiceRequest.Comments;
+        reservationRequest.RequiresFiscalization = true;
+
+        if (existing is null)
+        {
+            var created = await reservations.CreateReservationAsync(
+                reservationRequest, command.UserId.ToString(), cancellationToken);
+
+            if (!created.Success || created.Reservation is null)
+            {
+                // The stock refusal, when it is one. Before the device, so nothing has been issued.
+                var reasons = created.Errors?.Select(error => error.Message).Where(m => !string.IsNullOrWhiteSpace(m))
+                              ?? [];
+
+                return Errors.DesktopIntegration.ReservationFailed(
+                    string.Join("; ", new[] { created.Message }.Concat(reasons).Where(m => !string.IsNullOrWhiteSpace(m))));
+            }
+
+            reservationId = created.Reservation.ReservationId;
+        }
+        else
+        {
+            reservationId = existing.ReservationId;
+        }
+
+        var outcome = await poster.FiscaliseThenPostAsync(
+            new VanSaleFiscalFirstRequest(
+                reservationId,
+                DocDate: invoiceRequest.DocDate,
+                DocDueDate: invoiceRequest.DocDueDate,
+                NumAtCard: invoiceRequest.NumAtCard,
+                Comments: invoiceRequest.Comments,
+                AmountPaid: SettledAmount(command.Request),
+                MayAlreadyBeFiscalised: existing is not null),
+            cancellationToken);
+
+        // Nothing below may be cancelled by the handset going away: from a signed receipt on, it is the
+        // record of a sale that happened.
+        var persist = CancellationToken.None;
+
+        if (outcome.Sale is not null && fiscalisationOptions.Value.UsesPlatform && outcome.IsFiscalised)
+        {
+            // Where handsets are meant to stamp for themselves, a sale that arrives unstamped is still the
+            // rollout signal the fiscalisation console counts. Under REVMax no handset stamps and there is no
+            // chain for it to be missing from, so the row says there is nothing to ingest.
+            outcome.Sale.ReceiptIngestStatus = DesktopSaleReceiptIngestStatus.Unstamped;
+            await db.SaveChangesAsync(persist);
+        }
+
+        switch (outcome.Status)
+        {
+            case VanSaleFiscalFirstStatus.Posted:
+                return VanSalesCompatibilityMapper.MapFiscalFirstResponse(outcome, reference, reservationId, null);
+
+            case VanSaleFiscalFirstStatus.AwaitingSap:
+            {
+                var queued = await QueueForPostingAsync(
+                    reservationRequest, reservationId, command.UserId, outcome, persist);
+                return VanSalesCompatibilityMapper.MapFiscalFirstResponse(outcome, reference, reservationId, queued);
+            }
+
+            case VanSaleFiscalFirstStatus.FiscalUnresolved:
+                // Queued straight to review, so it holds its stock and a person sees it. Marked as started, so
+                // a Retry has InvoicePostingJob ask the device for the receipt before it signs anything.
+                await QueueForPostingAsync(reservationRequest, reservationId, command.UserId, outcome, persist);
+
+                return Error.Conflict(
+                    "VanSalesCompatibility.FiscalOutcomeUnknown",
+                    "The fiscal device did not confirm whether this sale's receipt was issued. Do not sell these " +
+                    "goods again — the office will check the device and confirm the sale.");
+
+            case VanSaleFiscalFirstStatus.FiscalUnchecked:
+                return Error.Failure(
+                    "VanSalesCompatibility.FiscalDeviceUnavailable",
+                    "The fiscal device could not be reached, so this sale was not completed and nothing was " +
+                    "charged. Submit the same basket again in a moment.");
+
+            case VanSaleFiscalFirstStatus.FiscalFailed:
+                // The reservation is left holding for PostingHold, so resubmitting the same basket finds it.
+                return Error.Failure(
+                    "VanSalesCompatibility.FiscalisationFailed",
+                    $"The sale could not be fiscalised, so it was not completed and nothing was charged: {outcome.Error}");
+
+            default:
+                if (existing is { Status: ReservationStatus.Confirmed, SAPDocNum: not null })
+                {
+                    // Posted before signing moved ahead of it, by an older build of this route, and now resent.
+                    // The invoice exists; answer with it rather than refusing a sale that already happened.
+                    return VanSalesCompatibilityMapper.MapInvoiceResponse(
+                        new ConfirmReservationResponseDto
+                        {
+                            Success = true,
+                            Message = "Invoice already exists for this van order",
+                            ReservationId = existing.ReservationId,
+                            SAPDocEntry = existing.SAPDocEntry,
+                            SAPDocNum = existing.SAPDocNum
+                        },
+                        reference);
+                }
+
+                return Error.Validation("VanSalesCompatibility.SaleNotPostable", outcome.Error ?? "This sale cannot be posted.");
+        }
+    }
+
+    /// <summary>
+    /// Hands a sale the device has already been asked to sign to the invoice queue — to be posted, or to be
+    /// reviewed.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Written in its final state, in one save.</b> The queue's own enqueue creates an entry as
+    /// Pending, and InvoicePostingJob signs every Pending van entry it finds. Enqueueing and then marking the
+    /// entry would leave a window in which the job signs this sale a second time, and a fiscal receipt cannot
+    /// be withdrawn. So the entry is created here already <see cref="InvoiceQueueStatus.Fiscalized"/> — which
+    /// <c>PostQueuedVanInvoices</c> posts without fiscalising, filling in the receipt row's DocNum — or
+    /// already <see cref="InvoiceQueueStatus.RequiresReview"/> when the device could not say whether it
+    /// signed.</para>
+    ///
+    /// <para><b>Always marked as started.</b> <c>ProcessingStartedAt</c> is what makes InvoicePostingJob ask
+    /// the device for an existing receipt before signing, if a person puts the entry back with Retry.</para>
+    ///
+    /// <para>A failure here is logged and not thrown: the receipt is already in the customer's hand, and the
+    /// sale row carries it with no DocNum, which a resend of the same van order will post.</para>
+    /// </remarks>
+    private async Task<InvoiceQueueResultDto?> QueueForPostingAsync(
+        CreateStockReservationRequest reservationRequest,
+        string reservationId,
+        Guid userId,
+        VanSaleFiscalFirstOutcome outcome,
+        CancellationToken cancellationToken)
+    {
+        var reference = reservationRequest.GetExternalReference();
+
+        try
+        {
+            var existing = await db.InvoiceQueue
+                .AsNoTracking()
+                .FirstOrDefaultAsync(q => q.ExternalReference == reference, cancellationToken);
+
+            if (existing is not null)
+            {
+                // A resend of a sale already handed over. The entry is already on its way.
+                return new InvoiceQueueResultDto
+                {
+                    Success = true,
+                    ReservationId = existing.ReservationId,
+                    QueueId = existing.Id,
+                    ExternalReference = existing.ExternalReference,
+                    Status = existing.Status.ToString()
+                };
+            }
+
+            var signed = outcome.Status == VanSaleFiscalFirstStatus.AwaitingSap;
+            var now = DateTime.UtcNow;
+
+            var entry = new InvoiceQueueEntity
+            {
+                ReservationId = reservationId,
+                ExternalReference = reference,
+                CustomerCode = reservationRequest.CardCode,
+                InvoicePayload = JsonSerializer.Serialize(
+                    reservationRequest,
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
+                Status = signed ? InvoiceQueueStatus.Fiscalized : InvoiceQueueStatus.RequiresReview,
+                SourceSystem = SaleSourceSystems.VanSales,
+                WarehouseCode = reservationRequest.Lines.FirstOrDefault()?.WarehouseCode,
+                TotalAmount = reservationRequest.Lines.Sum(l => l.Quantity * l.UnitPrice),
+                Currency = reservationRequest.Currency ?? "USD",
+                RequiresFiscalization = true,
+                FiscalizationSuccess = signed ? true : null,
+                FiscalDeviceNumber = signed ? outcome.Sale?.FiscalDeviceNumber : null,
+                FiscalReceiptNumber = signed ? outcome.Sale?.FiscalReceiptNumber : null,
+                LastError = outcome.Error is { Length: > 2000 } tooLong ? tooLong[..2000] : outcome.Error,
+                CreatedBy = userId.ToString(),
+                Notes = reservationRequest.Notes,
+                CreatedAt = now,
+                ProcessingStartedAt = now,
+                ProcessedAt = signed ? null : now,
+                MaxRetries = 3
+            };
+
+            db.InvoiceQueue.Add(entry);
+            await db.SaveChangesAsync(cancellationToken);
+
+            return new InvoiceQueueResultDto
+            {
+                Success = true,
+                ReservationId = reservationId,
+                QueueId = entry.Id,
+                ExternalReference = reference,
+                Status = entry.Status.ToString(),
+                EstimatedProcessingTime = signed ? TimeSpan.FromSeconds(30) : null
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Van sale {Reference} was sent to the fiscal device but could not be queued for SAP posting. Its " +
+                "receipt row holds no DocNum; resending the same van order will post it.",
+                reference);
+
+            return null;
+        }
+    }
+
+    /// <summary>Money the business kept: the tender less the change, never below zero.</summary>
+    private static decimal SettledAmount(VanSalesOrderRequest request) =>
+        Math.Max(
+            0m,
+            Convert.ToDecimal(request.AmountPaid, System.Globalization.CultureInfo.InvariantCulture)
+            - Convert.ToDecimal(request.Change, System.Globalization.CultureInfo.InvariantCulture));
 
     /// <summary>
     /// Stores the receipt the handset signed, so the drain can hand it to the fiscalisation platform.
