@@ -38,6 +38,8 @@ public class ReportExportWorkbookTests
         { "Profit Overview", s => s.ExportProfitOverviewToExcel(new ProfitOverviewReport { FromDate = From, ToDate = To }) },
         { "Slow Moving", s => s.ExportSlowMovingProductsToExcel(new SlowMovingProductsReport { FromDate = From, ToDate = To }) },
         { "Desktop Sales", s => s.ExportDesktopSalesToExcel([], null, From, To) },
+        { "Van Sales Invoices", s => s.ExportVanSalesInvoicesToExcel([], From, To) },
+        { "Van Sales Credit Notes", s => s.ExportVanSalesCreditNotesToExcel([], From, To) },
         { "Local Stock", s => s.ExportLocalStockToExcel(new LocalStockResultDto { WarehouseCode = "01", SnapshotDate = To }) },
         { "Mobile Orders", s => s.ExportMobileOrdersToExcel([], "Mobile Orders") },
         { "Shops", s => s.ExportShopsToExcel([]) },
@@ -314,6 +316,58 @@ public class ReportExportWorkbookTests
 
         // One per currency, never a single sum across both.
         Assert.Equal(2, totals.Count);
+    }
+
+    /// <summary>
+    /// The van invoice workbook totals each currency on its own row, keeps the amount a number, and says
+    /// which rows carry no VAT — an online sale from before receipts were stored holds only its net figure.
+    /// </summary>
+    [Fact]
+    public void Van_sales_invoices_total_per_currency_and_mark_net_only_rows()
+    {
+        var rows = new List<VanSalesInvoiceRowModel>
+        {
+            new() { Reference = "KVS-1", Channel = "Online", TradingDate = From, Currency = "USD", Amount = 115.50m, VatAmount = 15.50m, AmountIncludesVat = true, State = VanSalesDocumentState.Complete },
+            new() { Reference = "KVS-2", Channel = "Online", TradingDate = From, Currency = "USD", Amount = 100m, AmountIncludesVat = false, State = VanSalesDocumentState.NeedsAttention, Problem = "SAP refused it" },
+            new() { Reference = "KVS-3", Channel = "Offline", TradingDate = To, Currency = "ZWG", Amount = 5000m, AmountIncludesVat = true, State = VanSalesDocumentState.AwaitingSap },
+        };
+
+        using var workbook = Open(_service.ExportVanSalesInvoicesToExcel(rows, From, To, "Online only"));
+        var sheet = workbook.Worksheet("Invoices");
+
+        var header = sheet.CellsUsed().First(c => c.GetString() == "Van Order").Address.RowNumber;
+        var net = sheet.Row(header + 2);
+        Assert.Equal("KVS-2", net.Cell(2).GetString());
+        Assert.Equal(100m, net.Cell(10).GetValue<decimal>());
+        Assert.Equal("No", net.Cell(12).GetString());
+        Assert.Equal("Needs attention", net.Cell(15).GetString());
+
+        var totals = sheet.CellsUsed().Where(c => c.GetString().StartsWith("Total (", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, totals.Count);
+        var usd = totals.Single(c => c.Worksheet.Cell(c.Address.RowNumber, 9).GetString() == "USD");
+        Assert.Equal(215.50m, sheet.Cell(usd.Address.RowNumber, 10).GetValue<decimal>());
+        Assert.Contains(sheet.CellsUsed(), c => c.GetString().Contains("Online only"));
+    }
+
+    /// <summary>A cancelled memo is listed, and is not in the credited total.</summary>
+    [Fact]
+    public void Van_sales_credit_notes_leave_cancelled_memos_out_of_the_total()
+    {
+        var rows = new List<VanSalesCreditNoteRowModel>
+        {
+            new() { Number = "40211", Origin = "SAP", Date = From, Currency = "USD", Amount = 42m, State = VanSalesDocumentState.Complete,
+                    CreditedInvoices = [new() { Reference = "KVS-1", SapDocNum = 86412 }] },
+            new() { Number = "40180", Origin = "SAP", Date = From, Currency = "USD", Amount = 58.20m, IsCancelled = true, State = VanSalesDocumentState.NotFiscalised },
+        };
+
+        using var workbook = Open(_service.ExportVanSalesCreditNotesToExcel(rows, From, To));
+        var sheet = workbook.Worksheet("Credit Notes");
+
+        Assert.Contains(sheet.CellsUsed(), c => c.GetString() == "40180");
+        Assert.Contains(sheet.CellsUsed(), c => c.GetString() == "86412");
+        var total = sheet.CellsUsed().Single(c => c.GetString().StartsWith("Total (", StringComparison.Ordinal));
+        Assert.Equal("Total (1)", total.GetString());
+        Assert.Equal(42m, sheet.Cell(total.Address.RowNumber, 10).GetValue<decimal>());
     }
 
     [Fact]

@@ -23,7 +23,8 @@ public sealed record GetVanSalesInvoicesQuery(
     string? State = null,
     string? Search = null,
     int Page = 1,
-    int PageSize = 50
+    int PageSize = 50,
+    string? Channel = null
 ) : IRequest<ErrorOr<VanSalesInvoicesResult>>;
 
 public sealed record VanSalesInvoicesResult(
@@ -34,7 +35,40 @@ public sealed record VanSalesInvoicesResult(
     int TotalCount,
     VanSalesInvoiceCounts Counts,
     List<VanSalesInvoiceRow> Rows,
-    List<VanSalesRepOption> Reps);
+    List<VanSalesRepOption> Reps,
+    VanSalesInvoiceSummary Summary);
+
+/// <summary>
+/// What the period's invoices add up to, over the same rows as <see cref="VanSalesInvoiceCounts"/>: after rep,
+/// search and channel, before the state filter.
+/// </summary>
+/// <remarks>
+/// <para><c>Online</c>, <c>Offline</c>: counted before the channel filter, so each says what choosing that
+/// channel would show.</para>
+/// <para><c>Totals</c>: one per currency. Money in two currencies is never summed into one figure.</para>
+/// <para><c>NotInSap</c>, <c>NotInSapByVan</c>: invoices with no SAP number yet — sold, and not yet in the
+/// back office — by currency, and the vans carrying most of that value.</para>
+/// </remarks>
+public sealed record VanSalesInvoiceSummary(
+    int Online,
+    int Offline,
+    List<VanSalesMoneyTotal> Totals,
+    int NotInSapCount,
+    List<VanSalesMoneyTotal> NotInSap,
+    List<VanSalesVanBacklog> NotInSapByVan);
+
+/// <summary>A sum of documents in one currency.</summary>
+/// <remarks>
+/// <para><c>Vat</c>: the VAT the documents carry where it is known. An online sale from before receipts were
+/// stored carries none.</para>
+/// <para><c>NetOnlyCount</c>: how many of <c>Count</c> are in <c>Amount</c> without their VAT — see
+/// <see cref="VanSalesInvoiceRow.AmountIncludesVat"/>. Zero means <c>Amount</c> is gross throughout.</para>
+/// </remarks>
+public sealed record VanSalesMoneyTotal(string Currency, decimal Amount, decimal Vat, int Count, int NetOnlyCount);
+
+/// <summary>What one van has sold that SAP has not invoiced yet, in one currency.</summary>
+/// <remarks><para><c>RepName</c>: the rep, when every one of those sales was made by the same one.</para></remarks>
+public sealed record VanSalesVanBacklog(string WarehouseCode, string? RepName, string Currency, decimal Amount, int Count);
 
 /// <summary>How many of the period's invoices are in each state, before the state filter is applied.</summary>
 public sealed record VanSalesInvoiceCounts(

@@ -33,6 +33,7 @@ public class VanSalesDocumentsController(IMediator mediator) : ApiControllerBase
     /// <param name="search">Van order, customer, rep, receipt number or SAP number.</param>
     /// <param name="page">1-based.</param>
     /// <param name="pageSize">At most 200.</param>
+    /// <param name="channel">Online or Offline, or both.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("invoices")]
     [RequirePermission(Permission.ViewInvoices)]
@@ -46,6 +47,7 @@ public class VanSalesDocumentsController(IMediator mediator) : ApiControllerBase
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
+        [FromQuery] string? channel = null,
         CancellationToken cancellationToken = default)
     {
         var today = AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -58,7 +60,8 @@ public class VanSalesDocumentsController(IMediator mediator) : ApiControllerBase
                 string.IsNullOrWhiteSpace(state) ? null : state,
                 search,
                 page,
-                pageSize),
+                pageSize,
+                string.IsNullOrWhiteSpace(channel) ? null : channel),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
@@ -76,6 +79,15 @@ public class VanSalesDocumentsController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>Credit notes raised against invoices the app created, newest first.</summary>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to thirty days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="state">One of Complete, AwaitingSap, NotFiscalised, InProgress, NeedsAttention.</param>
+    /// <param name="search">Number, customer, van order, SAP number or rep.</param>
+    /// <param name="page">1-based.</param>
+    /// <param name="pageSize">At most 200.</param>
+    /// <param name="origin">SAP or Till, or both.</param>
+    /// <param name="includeCancelled">False leaves cancelled SAP memos out. They are counted either way.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("credit-notes")]
     [RequirePermission(Permission.ViewInvoices)]
     [ProducesResponseType(typeof(VanSalesCreditNotesResult), StatusCodes.Status200OK)]
@@ -87,6 +99,8 @@ public class VanSalesDocumentsController(IMediator mediator) : ApiControllerBase
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
+        [FromQuery] string? origin = null,
+        [FromQuery] bool includeCancelled = true,
         CancellationToken cancellationToken = default)
     {
         var today = AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -98,7 +112,9 @@ public class VanSalesDocumentsController(IMediator mediator) : ApiControllerBase
                 string.IsNullOrWhiteSpace(state) ? null : state,
                 search,
                 page,
-                pageSize),
+                pageSize,
+                string.IsNullOrWhiteSpace(origin) ? null : origin,
+                includeCancelled),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

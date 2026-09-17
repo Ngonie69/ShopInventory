@@ -215,6 +215,104 @@ public sealed class VanSalesDocumentsTests : IDisposable
         Assert.Equal("VanSalesDocuments.InvoiceNotFound", result.FirstError.Code);
     }
 
+    [Fact]
+    public async Task The_channel_filter_narrows_the_list_and_its_counts_but_not_the_channel_counts()
+    {
+        AddReservation("VAN-ON", ReservationStatus.Confirmed, docEntry: 11, docNum: 911);
+        AddReceiptRow("VAN-ON", signed: true, docNum: 911);
+        AddOfflineSale("VAN-OFF-1", SaleSourceSystems.VanSales, docNum: null);
+        AddOfflineSale("VAN-OFF-2", SaleSourceSystems.VanSales, docNum: null);
+
+        var result = await ListInvoicesAsync(channel: "offline");
+
+        Assert.All(result.Rows, row => Assert.Equal("Offline", row.Channel));
+        Assert.Equal(2, result.TotalCount);
+        Assert.Equal(2, result.Counts.All);
+        Assert.Equal(1, result.Summary.Online);
+        Assert.Equal(2, result.Summary.Offline);
+    }
+
+    [Fact]
+    public async Task An_unknown_channel_is_refused()
+    {
+        await _context.SaveChangesAsync();
+
+        var result = await new GetVanSalesInvoicesHandler(_context).Handle(
+            new GetVanSalesInvoicesQuery(Day, Day, Channel: "Carrier pigeon"), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("VanSalesDocuments.UnknownChannel", result.FirstError.Code);
+    }
+
+    /// <summary>
+    /// The summary cards: money is summed per currency and never across two, a net-only figure is counted
+    /// rather than passed off as gross, and what SAP has not invoiced is split by van.
+    /// </summary>
+    [Fact]
+    public async Task The_summary_sums_by_currency_and_splits_what_SAP_has_not_invoiced_by_van()
+    {
+        AddReservation("VAN-NET", ReservationStatus.Confirmed, docEntry: 21, docNum: 921);
+        AddReservation("VAN-GROSS", ReservationStatus.Pending);
+        AddReceiptRow("VAN-GROSS", signed: true);
+        var zig = AddOfflineSale("VAN-ZIG", SaleSourceSystems.VanSales, docNum: null);
+        zig.Currency = "ZWG";
+        zig.WarehouseCode = "VAN009";
+
+        var summary = (await ListInvoicesAsync()).Summary;
+
+        var usd = Assert.Single(summary.Totals, t => t.Currency == "USD");
+        Assert.Equal(215.50m, usd.Amount);
+        Assert.Equal(15.50m, usd.Vat);
+        Assert.Equal(2, usd.Count);
+        Assert.Equal(1, usd.NetOnlyCount);
+        Assert.Equal(50m, Assert.Single(summary.Totals, t => t.Currency == "ZWG").Amount);
+
+        Assert.Equal(2, summary.NotInSapCount);
+        var van8 = Assert.Single(summary.NotInSapByVan, v => v.WarehouseCode == "VAN008");
+        Assert.Equal(115.50m, van8.Amount);
+        Assert.Equal("USD", van8.Currency);
+        Assert.Equal("Tendai Moyo", van8.RepName);
+        Assert.Equal("ZWG", Assert.Single(summary.NotInSapByVan, v => v.WarehouseCode == "VAN009").Currency);
+    }
+
+    [Fact]
+    public async Task The_detail_lists_the_credits_against_the_invoice_and_which_gave_money_back()
+    {
+        var sale = AddOfflineSale("VAN-CRD", SaleSourceSystems.VanSales, docNum: 9950, docEntry: 950);
+        AddCreditMemo(docEntry: 70, docNum: 3070, baseEntry: 950);
+        AddCreditMemo(docEntry: 71, docNum: 3071, baseEntry: 950, isCancelled: true);
+        AddCreditMemo(docEntry: 72, docNum: 3072, baseEntry: 951);
+
+        _context.DesktopCreditNotes.Add(new DesktopCreditNoteEntity
+        {
+            Id = Guid.NewGuid(),
+            Sale = sale,
+            Number = "CR-VAN-CRD-1",
+            OriginalFiscalNumber = "VAN-CRD",
+            Reason = "Wrong price",
+            Currency = "USD",
+            Amount = 5m,
+            Status = DesktopCreditStatuses.Submitting,
+            SapStatus = DesktopCreditSapStatuses.Deferred,
+            CreatedAtUtc = DuringDayUtc
+        });
+        await _context.SaveChangesAsync();
+
+        var result = await new GetVanSalesInvoiceHandler(_context)
+            .Handle(new GetVanSalesInvoiceQuery("VAN-CRD"), CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        var credits = result.Value.CreditNotes.ToDictionary(c => c.Number);
+
+        Assert.Equal(3, credits.Count);
+        Assert.True(credits["3070"].GivesBack);
+        Assert.Equal("Damaged", credits["3070"].Reason);
+        Assert.True(credits["3071"].IsCancelled);
+        Assert.False(credits["3071"].GivesBack);
+        Assert.Equal("Till", credits["CR-VAN-CRD-1"].Origin);
+        Assert.False(credits["CR-VAN-CRD-1"].GivesBack);
+    }
+
     // --- Credit notes ---
 
     [Fact]
@@ -233,6 +331,64 @@ public sealed class VanSalesDocumentsTests : IDisposable
         Assert.Equal("Tendai Moyo", credited.RepName);
         Assert.Equal(VanSalesDocumentStates.NotFiscalised, row.State);
         Assert.True(result.SapProjectionCurrent);
+    }
+
+    /// <summary>
+    /// A memo's own card is the van's posting account, shared by every shop on the round, so the shop is
+    /// taken from the invoice. And the invoice's total is the receipt's gross figure, not the reservation's
+    /// net one, because it is set against a gross credit.
+    /// </summary>
+    [Fact]
+    public async Task A_SAP_memo_names_the_shop_and_the_gross_total_of_the_invoice_it_reverses()
+    {
+        AddReservation("VAN-SHOP", ReservationStatus.Confirmed, docEntry: 810, docNum: 9810);
+        AddReceiptRow("VAN-SHOP", signed: true, docNum: 9810, docEntry: 810);
+        AddCreditMemo(docEntry: 52, docNum: 3052, baseEntry: 810);
+
+        var row = Assert.Single((await ListCreditNotesAsync()).Rows);
+
+        Assert.Equal("Mbare Corner Shop", row.CustomerName);
+        Assert.Equal("RC-17", row.CustomerCode);
+        var invoice = Assert.Single(row.CreditedInvoices);
+        Assert.Equal(115.50m, invoice.Amount);
+        Assert.True(invoice.AmountIncludesVat);
+        Assert.Equal("Online", invoice.Channel);
+        Assert.Equal("VAN008", invoice.WarehouseCode);
+        Assert.Equal(Day, invoice.SoldOn);
+    }
+
+    [Fact]
+    public async Task Origin_and_cancelled_filters_narrow_the_list_and_the_summary_counts_what_they_hide()
+    {
+        AddReservation("VAN-O1", ReservationStatus.Confirmed, docEntry: 820, docNum: 9820);
+        AddCreditMemo(docEntry: 53, docNum: 3053, baseEntry: 820);
+        AddCreditMemo(docEntry: 54, docNum: 3054, baseEntry: 820, isCancelled: true);
+
+        var sale = AddOfflineSale("VAN-O2", SaleSourceSystems.VanSales, docNum: null);
+        _context.DesktopCreditNotes.Add(new DesktopCreditNoteEntity
+        {
+            Id = Guid.NewGuid(),
+            Sale = sale,
+            Number = "CR-VAN-O2-1",
+            OriginalFiscalNumber = "VAN-O2",
+            Reason = "Damaged",
+            Currency = "USD",
+            Amount = 7m,
+            Status = DesktopCreditStatuses.Fiscalised,
+            SapStatus = DesktopCreditSapStatuses.Deferred,
+            CreatedAtUtc = DuringDayUtc
+        });
+
+        var result = await ListCreditNotesAsync(origin: "sap", includeCancelled: false);
+
+        Assert.Equal("3053", Assert.Single(result.Rows).Number);
+        Assert.Equal(1, result.Counts.All);
+        Assert.Equal(2, result.Summary.Sap);
+        Assert.Equal(1, result.Summary.Till);
+        Assert.Equal(1, result.Summary.Cancelled);
+        Assert.Equal(20m, Assert.Single(result.Summary.Credited).Amount);
+        Assert.Equal(1, result.Summary.InvoicesReversed);
+        Assert.Equal("Mbare Corner Shop", Assert.Single(result.Summary.TopCustomers).CustomerName);
     }
 
     [Fact]
@@ -280,18 +436,18 @@ public sealed class VanSalesDocumentsTests : IDisposable
 
     // --- Helpers ---
 
-    private async Task<VanSalesInvoicesResult> ListInvoicesAsync(string? state = null)
+    private async Task<VanSalesInvoicesResult> ListInvoicesAsync(string? state = null, string? channel = null)
     {
         await _context.SaveChangesAsync();
 
         var result = await new GetVanSalesInvoicesHandler(_context).Handle(
-            new GetVanSalesInvoicesQuery(Day, Day, State: state), CancellationToken.None);
+            new GetVanSalesInvoicesQuery(Day, Day, State: state, Channel: channel), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;
     }
 
-    private async Task<VanSalesCreditNotesResult> ListCreditNotesAsync()
+    private async Task<VanSalesCreditNotesResult> ListCreditNotesAsync(string? origin = null, bool includeCancelled = true)
     {
         await _context.SaveChangesAsync();
 
@@ -302,7 +458,8 @@ public sealed class VanSalesDocumentsTests : IDisposable
         });
 
         var result = await new GetVanSalesCreditNotesHandler(_context, projection).Handle(
-            new GetVanSalesCreditNotesQuery(Day, Day), CancellationToken.None);
+            new GetVanSalesCreditNotesQuery(Day, Day, Origin: origin, IncludeCancelled: includeCancelled),
+            CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;
@@ -345,7 +502,12 @@ public sealed class VanSalesDocumentsTests : IDisposable
         return reservation;
     }
 
-    private void AddReceiptRow(string reference, bool signed, int? docNum = null, string? postingError = null)
+    private void AddReceiptRow(
+        string reference,
+        bool signed,
+        int? docNum = null,
+        string? postingError = null,
+        int? docEntry = null)
     {
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
@@ -363,6 +525,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
             FiscalVerificationCode = signed ? $"vc-{reference}" : null,
             FiscalQRCode = signed ? $"qr-{reference}" : null,
             SapDocNum = docNum,
+            SapDocEntry = docEntry,
             LastPostingError = postingError,
             PostingAttempts = postingError is null ? 0 : 3,
             CreatedAt = DuringDayUtc
@@ -402,7 +565,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
         return sale;
     }
 
-    private void AddCreditMemo(int docEntry, int docNum, int? baseEntry)
+    private void AddCreditMemo(int docEntry, int docNum, int? baseEntry, bool isCancelled = false)
     {
         _context.SapCreditNoteSnapshots.Add(new SapCreditNoteSnapshotEntity
         {
@@ -414,6 +577,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
             DocCurrency = "USD",
             DocTotal = 20m,
             VatSum = 2.68m,
+            IsCancelled = isCancelled,
             LastSeenInSapAtUtc = DuringDayUtc,
             SyncedAtUtc = DuringDayUtc,
             Lines =

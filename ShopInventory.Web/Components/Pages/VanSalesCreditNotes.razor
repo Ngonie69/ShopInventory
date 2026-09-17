@@ -7,211 +7,537 @@
 
 <PageTitle>Van Sales Credit Notes - Shop Inventory</PageTitle>
 
-@* Wears van-sales-documents.css, as Van Sales → Invoices does. The handset raises no credit notes, so
-   this lists the ones raised at the office against invoices the app created — see the API's
-   GetVanSalesCreditNotesQuery for how they are found. *@
+@* Wears van-sales-documents.css, as Van Sales → Invoices does, and was built from the same design canvas
+   (CreditNotes.dc.html and CreditNoteDrawer.dc.html). The handset raises no credit notes, so this lists the
+   ones raised at the office against invoices the app created — see the API's GetVanSalesCreditNotesQuery
+   for how they are found.
+
+   The design drew a "Credit memo PDF" button in the drawer. Nothing in the portal or the API renders a
+   credit memo as a PDF, so it is not drawn: a button that could only fail is worse than none. *@
 
 <div class="vsd">
-    <div class="vsd-body">
 
-        <div class="vsd-hero">
-            <div class="vsd-hero-text">
-                <div class="vsd-kicker">Van sales</div>
-                <h1>Credit Notes</h1>
-                <p>
-                    Credit notes raised against invoices the van sales app created — in SAP, or at the till
-                    against a sale made without signal — with the invoice each one reverses.
-                </p>
+    <div class="vsd-hero">
+        <div class="vsd-hero-text">
+            <div class="vsd-kicker-row">
+                <span class="vsd-kicker">Van sales</span>
+                <span class="vsd-kicker-rule"></span>
+                <span class="vsd-kicker-note">Raised at the office or the till</span>
             </div>
-            <div class="vsd-hero-meta">
-                <div class="vsd-fig">
-                    <span class="vsd-fig-num">@view.Counts.All</span>
-                    <span class="vsd-fig-label">In period</span>
-                </div>
-                <div class="vsd-fig">
-                    <span class="vsd-fig-num">@view.Counts.NeedsAttention</span>
-                    <span class="vsd-fig-label">Need attention</span>
-                </div>
-                <a class="vsd-btn vsd-btn-quiet" href="/van-sales/invoices">
+            <h1>Credit Notes</h1>
+            <p>
+                Credit notes that reverse invoices the van sales app created, with the invoice each one reverses.
+                The handset raises none of its own.
+            </p>
+        </div>
+
+        <div class="vsd-hero-side">
+            <div class="vsd-read">
+                <div class="vsd-read-now">@(readAt is { } at ? $"Read {at:HH:mm:ss}" : "Not read yet")</div>
+                <div>@VanSalesDocumentDisplay.Range(fromDate ?? DateTime.Today, toDate ?? DateTime.Today)</div>
+            </div>
+            <div class="vsd-hero-actions">
+                <a class="vsd-btn vsd-btn-ghost" href="/van-sales/invoices">
                     <i class="ph ph-receipt" aria-hidden="true"></i>
                     <span>Invoices</span>
                 </a>
+                <button type="button" class="vsd-btn vsd-btn-ghost" @onclick="ExportAsync"
+                        disabled="@(isExporting || isLoading || view.TotalCount == 0)">
+                    @if (isExporting)
+                    {
+                        <span class="vsd-spin"></span>
+                        <span>Exporting&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-file-xls" aria-hidden="true"></i>
+                        <span>Export</span>
+                    }
+                </button>
+                <button type="button" class="vsd-icon-btn vsd-icon-btn-edged" title="Refresh" aria-label="Refresh"
+                        @onclick="LoadAsync" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="vsd-spin"></span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    }
+                </button>
             </div>
         </div>
+    </div>
 
-        <section class="vsd-panel">
-            <div class="vsd-panel-head">
-                <h2><i class="ph ph-file-minus" aria-hidden="true"></i>Credit notes</h2>
-                <span class="vsd-count">@view.TotalCount</span>
+    <div class="vsd-rule-fade"></div>
 
-                <div class="vsd-tools">
-                    <div class="vsd-search">
-                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                        <input class="vsd-input vsd-input-search" type="search"
-                               placeholder="Number, shop, van order or rep"
-                               aria-label="Search credit notes"
-                               @bind="searchTerm" @bind:event="oninput" @onkeydown="SearchKeyAsync" />
-                    </div>
-
-                    <NocturneDateField Class="vsd-input-date" @bind-Date="fromDate" AriaLabel="From" />
-                    <NocturneDateField Class="vsd-input-date" @bind-Date="toDate" AriaLabel="To" />
-
-                    <button type="button" class="vsd-btn vsd-btn-primary" @onclick="ApplyAsync" disabled="@isLoading">
-                        <span>Apply</span>
-                    </button>
-                    <button type="button" class="vsd-btn vsd-btn-icon" title="Refresh" aria-label="Refresh"
-                            @onclick="LoadAsync" disabled="@isLoading">
-                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-                    </button>
-                </div>
+    <div class="vsd-summary">
+        <section class="vsd-card">
+            <div class="vsd-card-head">
+                <span class="vsd-card-label">@PeriodLabel</span>
+                <span class="vsd-card-tally"><b>@view.Counts.All.ToString("N0")</b> credit note@(view.Counts.All == 1 ? "" : "s")</span>
             </div>
 
-            <div class="vsd-panel-head">
-                <div class="vsd-seg" role="group" aria-label="Which credit notes to show">
-                    @foreach (var option in VanSalesDocumentDisplay.Filters)
+            <div class="vsd-strip">
+                @if (view.Counts.All > 0)
+                {
+                    @foreach (var state in VanSalesDocumentDisplay.Lanes)
                     {
-                        <button type="button"
-                                class="vsd-seg-opt @(stateFilter == option.State ? "is-on" : null)"
-                                aria-pressed="@(stateFilter == option.State ? "true" : "false")"
-                                @onclick="() => SetStateAsync(option.State)">
-                            @option.Label<span class="vsd-seg-count">@VanSalesDocumentDisplay.Count(view.Counts, option.State)</span>
-                        </button>
+                        var count = VanSalesDocumentDisplay.Count(view.Counts, state);
+                        if (count > 0)
+                        {
+                            <div class="vsd-strip-seg @VanSalesDocumentDisplay.Family(state)"
+                                 style="width:@VanSalesDocumentDisplay.Width(count, view.Counts.All)"></div>
+                        }
+                    }
+                }
+            </div>
+
+            <div class="vsd-lanes" role="group" aria-label="Show credit notes in one state">
+                @foreach (var state in VanSalesDocumentDisplay.Lanes)
+                {
+                    var on = stateFilter == state;
+                    <button type="button" class="vsd-lane @VanSalesDocumentDisplay.Family(state) @(on ? "is-on" : null)"
+                            aria-pressed="@(on ? "true" : "false")" @onclick="() => ToggleStateAsync(state)">
+                        <span class="vsd-lane-num">@VanSalesDocumentDisplay.Count(view.Counts, state).ToString("N0")</span>
+                        <span class="vsd-lane-name"><span class="vsd-dot"></span>@VanSalesDocumentDisplay.Label(state)</span>
+                    </button>
+                }
+            </div>
+
+            <div class="vsd-aside vsd-aside-ruled">
+                <span>SAP memos <b>@view.Summary.Sap.ToString("N0")</b></span>
+                <span>Till credits <b>@view.Summary.Till.ToString("N0")</b></span>
+                <span>Cancelled <b>@view.Summary.Cancelled.ToString("N0")</b></span>
+            </div>
+        </section>
+
+        <section class="vsd-card">
+            <div class="vsd-card-head vsd-card-head-start">
+                <i class="ph ph-arrow-u-up-left" aria-hidden="true"></i>
+                <span class="vsd-card-label">Credited back</span>
+            </div>
+
+            <div class="vsd-value"><b>@VanSalesDocumentDisplay.Totals(view.Summary.Credited)</b></div>
+            <div class="vsd-aside">
+                <span>
+                    against @view.Summary.InvoicesReversed.ToString("N0") van invoice@(view.Summary.InvoicesReversed == 1 ? "" : "s")@(view.Summary.Cancelled > 0 ? " · cancelled notes left out" : "")
+                </span>
+            </div>
+
+            @if (view.Summary.TopCustomers.Count > 0)
+            {
+                <div class="vsd-split"></div>
+                <div class="vsd-breakdown">
+                    <div class="vsd-card-label">Most credited shops</div>
+                    @foreach (var customer in view.Summary.TopCustomers)
+                    {
+                        <div class="vsd-break-row">
+                            <span class="vsd-break-name" title="@($"{customer.Count:N0} credit note(s)")">@customer.CustomerName</span>
+                            <span class="vsd-break-track">
+                                <span class="vsd-break-fill" style="width:@VanSalesDocumentDisplay.Width(customer.Amount, TopCustomerMax)"></span>
+                            </span>
+                            <span class="vsd-break-val">@VanSalesDocumentDisplay.Money(customer.Currency, customer.Amount)</span>
+                        </div>
                     }
                 </div>
+            }
+        </section>
+    </div>
+
+    @if (!isLoading && !view.SapProjectionCurrent)
+    {
+        <div class="vsd-msg vsd-fam-warn" role="status">
+            <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
+            <div class="vsd-msg-body">
+                SAP credit memos come from a local copy that is behind right now, so one raised in SAP recently
+                may not be listed yet.
+            </div>
+        </div>
+    }
+
+    <section class="vsd-fbar" aria-label="Filters">
+        <div class="vsd-search">
+            <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+            <input class="vsd-input vsd-input-search" type="search"
+                   placeholder="Number, shop, van order or rep"
+                   aria-label="Search credit notes"
+                   @bind="searchTerm" @bind:after="ApplyAsync" />
+        </div>
+
+        <div class="vsd-seg" role="group" aria-label="Period">
+            @foreach (var option in PeriodOptions)
+            {
+                <button type="button" class="vsd-seg-opt @(period == option.Value ? "is-on" : null)"
+                        aria-pressed="@(period == option.Value ? "true" : "false")"
+                        @onclick="() => SetPeriodAsync(option.Value)">@option.Label</button>
+            }
+        </div>
+
+        @if (period == PeriodCustom)
+        {
+            <div class="vsd-dates">
+                <NocturneDateField Class="vsd-input-date" Date="fromDate" DateChanged="OnFromChangedAsync" AriaLabel="From" />
+                <span class="vsd-dates-to" aria-hidden="true">&rarr;</span>
+                <NocturneDateField Class="vsd-input-date" Date="toDate" DateChanged="OnToChangedAsync" AriaLabel="To" />
+            </div>
+        }
+
+        <div class="vsd-seg" role="group" aria-label="Raised in">
+            @foreach (var option in OriginOptions)
+            {
+                <button type="button" class="vsd-seg-opt @(originFilter == option.Value ? "is-on" : null)"
+                        aria-pressed="@(originFilter == option.Value ? "true" : "false")"
+                        @onclick="() => SetOriginAsync(option.Value)">
+                    @option.Label
+                    @if (option.Count is { } count)
+                    {
+                        <span class="vsd-seg-count">@count</span>
+                    }
+                </button>
+            }
+        </div>
+
+        <label class="vsd-check">
+            <input type="checkbox" checked="@showCancelled" @onchange="ToggleCancelledAsync" />
+            <span>Show cancelled</span>
+            <span class="vsd-seg-count">@view.Summary.Cancelled</span>
+        </label>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(loadError))
+    {
+        <div class="vsd-msg vsd-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="vsd-msg-body">@loadError</div>
+        </div>
+    }
+
+    <div class="vsd-listbar">
+        <div class="vsd-listbar-count">
+            <span class="vsd-shown">@view.TotalCount.ToString("N0") credit note@(view.TotalCount == 1 ? "" : "s")</span>
+            @if (stateFilter is not null)
+            {
+                <button type="button" class="vsd-pill" @onclick="ClearStateAsync"
+                        aria-label="@($"Stop showing only {VanSalesDocumentDisplay.Label(stateFilter)}")">
+                    <span>@VanSalesDocumentDisplay.Label(stateFilter)</span>
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+        <span class="vsd-listbar-note">Newest first</span>
+    </div>
+
+    <div class="vsd-list">
+        @if (isLoading && view.Rows.Count == 0)
+        {
+            <div class="vsd-empty">
+                <span class="vsd-spin vsd-spin-lg"></span>
+                <p>Loading van sales credit notes&hellip;</p>
+            </div>
+        }
+        else if (view.Rows.Count == 0)
+        {
+            <div class="vsd-empty">
+                <i class="ph ph-file-minus" aria-hidden="true"></i>
+                <p>
+                    @if (view.Counts.All == 0 && stateFilter is null)
+                    {
+                        <text>No credit note was raised against a van sales invoice in this view.</text>
+                    }
+                    else
+                    {
+                        <text>No credit note in this view is in that state.</text>
+                    }
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="vsd-grid vsd-grid-credits @(isLoading ? "is-busy" : null)">
+                <div class="vsd-thead">
+                    <div>Credit note</div>
+                    <div>Customer · reason</div>
+                    <div>Reverses</div>
+                    <div class="vsd-r">Amount</div>
+                    <div>Fiscal receipt</div>
+                    <div>State</div>
+                    <div><span class="visually-hidden">Open</span></div>
+                </div>
+
+                @foreach (var row in view.Rows)
+                {
+                    var fiscal = FiscalMark(row);
+                    var first = row.CreditedInvoices.FirstOrDefault();
+                    <div class="vsd-row @(row.IsCancelled ? "is-off" : null) @(row.Key == openKey ? "is-open" : null)"
+                         role="button" tabindex="0" aria-label="@($"Credit note {row.Number}")"
+                         @onclick="() => OpenNote(row.Key)"
+                         @onkeydown="e => RowKeyAsync(e, row.Key)">
+                        <div class="vsd-cell vsd-cell-main">
+                            <span class="vsd-ref">@row.Number</span>
+                            <span class="vsd-sub">@row.Date.ToString("dd MMM", System.Globalization.CultureInfo.InvariantCulture) · @OriginWords(row)@(row.IsCancelled ? " · cancelled" : "")</span>
+                        </div>
+                        <div class="vsd-cell" data-label="Customer">
+                            <span class="vsd-strong">@(row.CustomerName ?? row.CustomerCode ?? "—")</span>
+                            @if (!string.IsNullOrWhiteSpace(row.Reason))
+                            {
+                                <span class="vsd-sub vsd-clip" title="@row.Reason">@row.Reason</span>
+                            }
+                        </div>
+                        <div class="vsd-cell" data-label="Reverses">
+                            @if (first is not null)
+                            {
+                                <span class="vsd-code">@first.Reference</span>
+                                <span class="vsd-sub">
+                                    @(row.CreditedInvoices.Count > 1 ? $"+{row.CreditedInvoices.Count - 1} more" : first.SapDocNum is { } docNum ? $"SAP #{docNum}" : "Not in SAP")@(first.RepName is null ? "" : $" · {first.RepName}")
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="vsd-none">&mdash;</span>
+                            }
+                        </div>
+                        <div class="vsd-cell vsd-r" data-label="Amount">
+                            <span class="vsd-num">&minus; @VanSalesDocumentDisplay.Amount(row.Amount)</span>
+                            <span class="vsd-sub">@row.Currency</span>
+                        </div>
+                        <div class="vsd-cell" data-label="Fiscal receipt">
+                            <span class="vsd-mark @fiscal.Family"><span class="vsd-dot"></span>@fiscal.Text</span>
+                        </div>
+                        <div class="vsd-cell vsd-cell-state" data-label="State">
+                            <span class="vsd-badge @VanSalesDocumentDisplay.Family(row.State)">@VanSalesDocumentDisplay.Label(row.State)</span>
+                            @if (!string.IsNullOrWhiteSpace(row.Problem))
+                            {
+                                <span class="vsd-problem" title="@row.Problem">@row.Problem</span>
+                            }
+                        </div>
+                        <div class="vsd-cell vsd-cell-chev">
+                            <i class="ph ph-arrow-right vsd-chev" aria-hidden="true"></i>
+                        </div>
+                    </div>
+                }
             </div>
 
-            @if (!isLoading && !view.SapProjectionCurrent)
-            {
-                <div class="vsd-note" role="status">
-                    <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
-                    <div>
-                        SAP credit memos are read from a local copy that is not up to date right now, so one raised
-                        in SAP recently may not be listed yet.
+            <div class="vsd-foot">
+                <span>@PageSummary</span>
+                @if (PageCount > 1)
+                {
+                    <div class="vsd-pages">
+                        <button type="button" class="vsd-step" disabled="@(isLoading || page <= 1)"
+                                @onclick="() => GoToPageAsync(page - 1)">
+                            <i class="ph ph-caret-left" aria-hidden="true"></i>Previous
+                        </button>
+                        <span class="vsd-page-now">@(page) of @PageCount</span>
+                        <button type="button" class="vsd-step" disabled="@(isLoading || page >= PageCount)"
+                                @onclick="() => GoToPageAsync(page + 1)">
+                            Next<i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (Open is { } note)
+{
+    var index = OpenIndex;
+    var noteFiscal = FiscalMark(note);
+    var noteSap = SapMark(note);
+
+    <div class="vsd-overlay" @onclick="CloseNote">
+        <aside class="vsd-drawer" role="dialog" aria-modal="true" aria-label="@($"Credit note {note.Number}")"
+               tabindex="-1" @onkeydown="DrawerKey" @onclick:stopPropagation="true">
+
+            <div class="vsd-dhead">
+                <div class="vsd-dhead-top">
+                    <div class="vsd-dhead-id">
+                        <span class="vsd-kicker">Credit note · @OriginWords(note)</span>
+                        <span class="vsd-dhead-no">@note.Number</span>
+                        <span class="vsd-dhead-sub">
+                            @(note.Origin == "Till" ? "Raised at the till" : "Raised in SAP") · @note.Date.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)
+                        </span>
+                    </div>
+
+                    <div class="vsd-dnav">
+                        <button type="button" class="vsd-icon-btn" title="Previous credit note" aria-label="Previous credit note"
+                                disabled="@(index < 0 || view.Rows.Count < 2)" @onclick="() => Step(-1)">
+                            <i class="ph ph-caret-up" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="vsd-icon-btn" title="Next credit note" aria-label="Next credit note"
+                                disabled="@(index < 0 || view.Rows.Count < 2)" @onclick="() => Step(1)">
+                            <i class="ph ph-caret-down" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="vsd-icon-btn" title="Close" aria-label="Close" @onclick="CloseNote">
+                            <i class="ph ph-x" aria-hidden="true"></i>
+                        </button>
                     </div>
                 </div>
-            }
 
-            @if (!string.IsNullOrWhiteSpace(loadError))
-            {
-                <div class="vsd-msg" role="alert">
-                    <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                    <div>@loadError</div>
+                <div class="vsd-dtags">
+                    <span class="vsd-badge @VanSalesDocumentDisplay.Family(note.State)">@VanSalesDocumentDisplay.Label(note.State)</span>
+                    <span class="vsd-mark @noteFiscal.Family"><span class="vsd-dot"></span>ZIMRA · @(string.IsNullOrWhiteSpace(note.FiscalReceiptNumber) ? noteFiscal.Text.ToLowerInvariant() : "signed")</span>
+                    <span class="vsd-mark @noteSap.Family"><span class="vsd-dot"></span>SAP · @noteSap.Text</span>
                 </div>
-            }
+            </div>
 
-            @if (isLoading)
-            {
-                <div class="vsd-empty"><p>Loading&hellip;</p></div>
-            }
-            else if (view.Rows.Count == 0)
-            {
-                <div class="vsd-empty">
-                    <p>
-                        @if (view.Counts.All == 0)
-                        {
-                            <text>No credit note was raised against a van sales invoice in this period.</text>
-                        }
-                        else
-                        {
-                            <text>No credit note in this period matches that filter.</text>
-                        }
-                    </p>
+            <div class="vsd-dbody">
+                <div class="vsd-headline">
+                    <b>&minus; @VanSalesDocumentDisplay.Money(note.Currency, note.Amount)</b>
+                    <span>@(note.VatAmount is { } vat ? $"incl. VAT {VanSalesDocumentDisplay.Amount(vat)} · " : "")@(note.IsCancelled ? "cancelled, nothing given back" : "given back")</span>
                 </div>
-            }
-            else
-            {
-                <div class="vsd-scroll">
-                    <div class="vsd-grid vsd-grid-credits">
-                        <div class="vsd-thead">
-                            <div>Credit note</div>
-                            <div>Customer</div>
-                            <div>Reverses</div>
-                            <div class="vsd-cell-amount">Amount</div>
-                            <div>Receipt</div>
-                            <div>State</div>
+
+                @if (note.IsCancelled)
+                {
+                    <div class="vsd-msg vsd-fam-neutral" role="status">
+                        <i class="ph ph-prohibit" aria-hidden="true"></i>
+                        <div class="vsd-msg-body">
+                            <strong>This credit memo was cancelled in SAP.</strong>
+                            <div>It is listed so it can be found, but it gave nothing back and is not in the credited total.</div>
                         </div>
+                    </div>
+                }
 
-                        @foreach (var row in view.Rows)
+                @if (!string.IsNullOrWhiteSpace(note.Problem))
+                {
+                    <div class="vsd-msg vsd-fam-bad" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="vsd-msg-body">
+                            <strong>This credit note needs attention.</strong>
+                            <div class="vsd-said">@note.Problem</div>
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(note.Reason))
+                {
+                    <div class="vsd-reason">
+                        <div class="vsd-def-k">Reason</div>
+                        <div class="vsd-reason-text">@note.Reason</div>
+                    </div>
+                }
+
+                <div class="vsd-defs">
+                    <div>
+                        <div class="vsd-def-k">Customer</div>
+                        <div class="vsd-def-v">@(note.CustomerName ?? note.CustomerCode ?? "—")</div>
+                        @if (note.CustomerName is not null && note.CustomerCode is not null)
                         {
-                            <div class="vsd-row @(row.IsCancelled ? "vsd-row-off" : null)">
-                                <div class="vsd-cell vsd-cell-main">
-                                    <span class="vsd-strong">@row.Number</span>
-                                    <span class="vsd-weak">
-                                        @row.Date.ToString("dd MMM yyyy") &middot; @(row.Origin == "Till" ? "Till credit" : "SAP")
-                                        @if (row.IsCancelled)
-                                        {
-                                            <text> &middot; cancelled</text>
-                                        }
-                                    </span>
-                                </div>
+                            <div class="vsd-sub">@note.CustomerCode</div>
+                        }
+                    </div>
+                    <div>
+                        <div class="vsd-def-k">Raised in</div>
+                        <div class="vsd-def-v">@(note.Origin == "Till" ? "Till" : "SAP")</div>
+                        <div class="vsd-sub">@(note.Origin == "Till" ? "against a sale made without signal" : "a credit memo against the invoice")</div>
+                    </div>
+                    <div>
+                        <div class="vsd-def-k">SAP credit memo</div>
+                        <div class="vsd-def-v @(note.SapDocNum is null ? "is-none" : null)">@(note.SapDocNum is { } memo ? $"#{memo}" : "Not in SAP yet")</div>
+                    </div>
+                    <div>
+                        <div class="vsd-def-k">Fiscal receipt</div>
+                        <div class="vsd-def-v @(string.IsNullOrWhiteSpace(note.FiscalReceiptNumber) ? "is-none" : null)">@(note.FiscalReceiptNumber ?? "None found")</div>
+                    </div>
+                </div>
 
-                                <div class="vsd-cell vsd-cell-sub">
-                                    <span class="vsd-rl">Customer</span>
-                                    <span class="vsd-strong">@(row.CustomerName ?? row.CustomerCode ?? "—")</span>
-                                    @if (!string.IsNullOrWhiteSpace(row.Reason))
-                                    {
-                                        <span class="vsd-weak" title="@row.Reason">@row.Reason</span>
-                                    }
-                                </div>
+                @if (note.CreditedInvoices.Count > 0)
+                {
+                    <div class="vsd-block">
+                        <div class="vsd-def-k">Reverses · @note.CreditedInvoices.Count invoice@(note.CreditedInvoices.Count == 1 ? "" : "s")</div>
 
-                                <div class="vsd-cell vsd-cell-sub">
-                                    <span class="vsd-rl">Reverses</span>
-                                    @foreach (var invoice in row.CreditedInvoices)
-                                    {
-                                        <span class="vsd-strong">@invoice.Reference</span>
-                                        <span class="vsd-weak">
-                                            @(invoice.SapDocNum is { } docNum ? $"SAP {docNum}" : "Not in SAP")
-                                            @if (!string.IsNullOrWhiteSpace(invoice.RepName))
+                        @foreach (var invoice in note.CreditedInvoices)
+                        {
+                            // Set against the credit only when the two are the same kind of money: one invoice,
+                            // its gross total, in the credit's currency. A net-only total or a memo spread over
+                            // several invoices would give a "kept" figure that is not true.
+                            var comparable = note.CreditedInvoices.Count == 1
+                                             && invoice.Amount is > 0
+                                             && invoice.AmountIncludesVat
+                                             && invoice.Currency == note.Currency;
+                            var kept = comparable ? invoice.Amount!.Value - (note.IsCancelled ? 0m : note.Amount) : 0m;
+
+                            <div class="vsd-reverses">
+                                <div class="vsd-reverses-top">
+                                    <div class="vsd-reverses-id">
+                                        <span class="vsd-code vsd-strong">@invoice.Reference</span>
+                                        <span class="vsd-sub">
+                                            @(string.Join(" · ", new[]
                                             {
-                                                <text> &middot; @invoice.RepName</text>
-                                            }
+                                                invoice.SoldOn is { } soldOn ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Sold {soldOn:dd MMM yyyy}") : null,
+                                                invoice.Channel?.ToLowerInvariant(),
+                                                invoice.RepName,
+                                                invoice.WarehouseCode
+                                            }.Where(part => !string.IsNullOrWhiteSpace(part))))
                                         </span>
-                                    }
+                                    </div>
+                                    <a class="vsd-verify" href="@InvoiceLink(invoice)">
+                                        Open invoice<i class="ph ph-arrow-right" aria-hidden="true"></i>
+                                    </a>
                                 </div>
 
-                                <div class="vsd-cell vsd-cell-sub vsd-cell-amount">
-                                    <span class="vsd-rl">Amount</span>
-                                    <span class="vsd-num">@VanSalesDocumentDisplay.Money(row.Currency, row.Amount)</span>
-                                </div>
+                                @if (comparable)
+                                {
+                                    <div class="vsd-reverses-figs">
+                                        <div>
+                                            <span class="vsd-sub">Invoice</span>
+                                            <span class="vsd-num">@VanSalesDocumentDisplay.Money(invoice.Currency!, invoice.Amount!.Value)</span>
+                                        </div>
+                                        <div>
+                                            <span class="vsd-sub">This credit</span>
+                                            <span class="vsd-num">&minus; @VanSalesDocumentDisplay.Amount(note.IsCancelled ? 0m : note.Amount)</span>
+                                        </div>
+                                        <div>
+                                            <span class="vsd-sub">Kept</span>
+                                            <span class="vsd-num vsd-strong">@VanSalesDocumentDisplay.Money(invoice.Currency!, kept)</span>
+                                        </div>
+                                    </div>
+                                    <div class="vsd-share">
+                                        <span class="vsd-share-kept" style="width:@VanSalesDocumentDisplay.Width(Math.Max(kept, 0m), invoice.Amount!.Value)"></span>
+                                        <span class="vsd-share-credit" style="width:@VanSalesDocumentDisplay.Width(note.IsCancelled ? 0m : note.Amount, invoice.Amount!.Value)"></span>
+                                    </div>
+                                    <span class="vsd-sub">
+                                        @((note.IsCancelled ? 0m : note.Amount / invoice.Amount!.Value).ToString("P0")) of the sale credited@(invoice.SapDocNum is { } invoiceDocNum ? $" · SAP invoice #{invoiceDocNum}" : "")
+                                    </span>
+                                }
+                                else if (invoice.Amount is { } total && invoice.Currency is { } currency)
+                                {
+                                    <span class="vsd-sub">
+                                        Invoice total @VanSalesDocumentDisplay.Money(currency, total)@(invoice.AmountIncludesVat ? "" : " excl. VAT")@(invoice.SapDocNum is { } invoiceDocNum ? $" · SAP invoice #{invoiceDocNum}" : "")
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
 
-                                <div class="vsd-cell vsd-cell-sub">
-                                    <span class="vsd-rl">Receipt</span>
-                                    @if (!string.IsNullOrWhiteSpace(row.FiscalReceiptNumber))
-                                    {
-                                        <span class="vsd-num">@row.FiscalReceiptNumber</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="vsd-none">&mdash;</span>
-                                    }
-                                </div>
-
-                                <div class="vsd-cell vsd-cell-state">
-                                    <span class="vsd-badge @VanSalesDocumentDisplay.Family(row.State)">@VanSalesDocumentDisplay.Label(row.State)</span>
-                                    @if (!string.IsNullOrWhiteSpace(row.Problem))
-                                    {
-                                        <span class="vsd-problem" title="@row.Problem">@row.Problem</span>
-                                    }
+                <div class="vsd-block">
+                    <div class="vsd-def-k">Trail</div>
+                    <div class="vsd-trail">
+                        @foreach (var step in Trail(note))
+                        {
+                            <div class="vsd-trail-step @step.Family">
+                                <div class="vsd-trail-rail"><span class="vsd-trail-mark @(step.IsCurrent ? "is-now" : null)"></span></div>
+                                <div class="vsd-trail-body">
+                                    <div class="vsd-trail-label">@step.Label</div>
+                                    <div class="vsd-trail-meta">@step.Meta</div>
                                 </div>
                             </div>
                         }
                     </div>
                 </div>
+            </div>
 
-                <div class="vsd-pager">
-                    <span>@PageSummary</span>
-                    <div class="vsd-pager-buttons">
-                        <button type="button" class="vsd-btn vsd-btn-quiet vsd-btn-sm"
-                                disabled="@(isLoading || page <= 1)" @onclick="() => GoToPageAsync(page - 1)">
-                            Previous
-                        </button>
-                        <button type="button" class="vsd-btn vsd-btn-quiet vsd-btn-sm"
-                                disabled="@(isLoading || page >= PageCount)" @onclick="() => GoToPageAsync(page + 1)">
-                            Next
-                        </button>
-                    </div>
-                </div>
-            }
-        </section>
+            <div class="vsd-dfoot">
+                <button type="button" class="vsd-btn vsd-btn-ghost" @onclick="CloseNote">Close</button>
+                @if (note.CreditedInvoices.FirstOrDefault() is { } reversed)
+                {
+                    <a class="vsd-btn vsd-btn-primary" href="@InvoiceLink(reversed)">
+                        <i class="ph ph-receipt" aria-hidden="true"></i>
+                        <span>Open invoice</span>
+                    </a>
+                }
+            </div>
+        </aside>
     </div>
-</div>
+}

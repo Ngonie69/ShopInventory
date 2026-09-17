@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoices;
 
 namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesCreditNotes;
 
@@ -22,7 +23,9 @@ public sealed record GetVanSalesCreditNotesQuery(
     string? State = null,
     string? Search = null,
     int Page = 1,
-    int PageSize = 50
+    int PageSize = 50,
+    string? Origin = null,
+    bool IncludeCancelled = true
 ) : IRequest<ErrorOr<VanSalesCreditNotesResult>>;
 
 /// <remarks>
@@ -37,7 +40,33 @@ public sealed record VanSalesCreditNotesResult(
     int TotalCount,
     bool SapProjectionCurrent,
     VanSalesCreditNoteCounts Counts,
-    List<VanSalesCreditNoteRow> Rows);
+    List<VanSalesCreditNoteRow> Rows,
+    VanSalesCreditNoteSummary Summary);
+
+/// <summary>What the period's credit notes add up to.</summary>
+/// <remarks>
+/// <para><c>Sap</c>, <c>Till</c>: counted after the search and before the origin filter, so each says what
+/// choosing that origin would show.</para>
+/// <para><c>Cancelled</c>: counted after the origin filter and before cancelled notes are left out, so the
+/// page can say how many it is hiding.</para>
+/// <para><c>Credited</c>, <c>InvoicesReversed</c>, <c>TopCustomers</c>: over the same rows, cancelled notes
+/// left out — a cancelled memo gave nothing back.</para>
+/// </remarks>
+public sealed record VanSalesCreditNoteSummary(
+    int Sap,
+    int Till,
+    int Cancelled,
+    int InvoicesReversed,
+    List<VanSalesMoneyTotal> Credited,
+    List<VanSalesCustomerCredit> TopCustomers);
+
+/// <summary>What one shop has been credited, in one currency.</summary>
+public sealed record VanSalesCustomerCredit(
+    string? CustomerCode,
+    string CustomerName,
+    string Currency,
+    decimal Amount,
+    int Count);
 
 public sealed record VanSalesCreditNoteCounts(
     int All,
@@ -73,8 +102,20 @@ public sealed record VanSalesCreditNoteRow(
     string? Problem);
 
 /// <summary>The van invoice a credit note reverses.</summary>
+/// <remarks>
+/// <para><c>Amount</c>: the invoice total, when it is known. <c>AmountIncludesVat</c> says whether it carries
+/// the tax — an online sale with no receipt row holds only the net figure its reservation carried, which cannot
+/// be set against a credit's gross total.</para>
+/// <para><c>Channel</c>: <c>Online</c> or <c>Offline</c>, as the invoices list says it.</para>
+/// </remarks>
 public sealed record VanSalesCreditedInvoice(
     string Reference,
     int? SapDocNum,
     string? CustomerName,
-    string? RepName);
+    string? RepName,
+    decimal? Amount = null,
+    bool AmountIncludesVat = false,
+    string? Currency = null,
+    DateTime? SoldOn = null,
+    string? Channel = null,
+    string? WarehouseCode = null);
