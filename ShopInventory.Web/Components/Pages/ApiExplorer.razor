@@ -1024,6 +1024,7 @@ new("GET", "/api/vansales/day/current", "The open trading day"),
 new("GET", "/api/vansales/fiscal", "Fiscal device details for the handset"),
 new("GET", "/api/vansales/fiscal/lease", "Issue this handset's fiscal lease (returned bare, not enveloped)"),
 new("GET", "/api/vansales/inventory/request", "The caller's transfer requests"),
+new("GET", "/api/vansales/pod/deliveries", "Get POD deliveries"),
 new("GET", "/api/vansales/stock/position", "Get stock position"),
 new("POST", "/api/vansales/attendance", "Check in or out"),
 new("POST", "/api/vansales/auth/login", "Sign a handset in (anonymous, rate-limited)"),
@@ -1043,6 +1044,7 @@ new("POST", "/api/vansales/order/history", "Search invoices (a POST because the 
 new("POST", "/api/vansales/order/with-batches", "The same action as /order, on a second route"),
 new("POST", "/api/vansales/pod", "Upload proof of delivery"),
 new("POST", "/api/vansales/pod/{order}/file", "Upload POD file"),
+new("POST", "/api/vansales/pod/invoice/{docEntry}/file", "Upload invoice POD file"),
 new("POST", "/api/vansales/sales", "Take custody of offline, already-ZIMRA-stamped sales"),
 new("POST", "/api/vansales/sales-order", "Create a sales order"),
 new("POST", "/api/vansales/sales-order/history", "Search sales orders (a POST because the filter is a body)"),
@@ -1451,6 +1453,7 @@ new("POST", "/api/DesktopIntegration/transfer-requests/{docEntry}/convert", "Con
 new("POST", "/api/DesktopIntegration/transfers", "Create transfer direct"),
 new("POST", "/api/DesktopIntegration/transfers/queued", "Create queued transfer"),
 new("POST", "/api/DesktopIntegration/transfers/validate", "Validate transfer"),
+new("POST", "/api/DesktopIntegration/vendors", "Create vendor"),
 new("POST", "/api/DesktopIntegration/webhook/transfer-event", "Transfer event webhook")
 }
 },
@@ -1684,6 +1687,21 @@ new("GET", "/api/van-sales-customer/orders/{orderId}", "Get order"),
 new("GET", "/api/van-sales-customer/orders/by-client-request/{clientRequestId}", "Get by client request ID"),
 new("POST", "/api/van-sales-customer/orders", "Submit"),
 new("POST", "/api/van-sales-customer/orders/{orderId}/cancel", "Cancel")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Reporting",
+BasePath = "/api/van-sales",
+Description = "Departure compliance, the call ledger, the selling routes and the areas each one works, for the /van-sales pages. Needs vansales.attendance.view; the routes and route-stops lists also answer to users.view or users.create_merchandiser_accounts, and editing either needs users.edit.",
+Icon = Icons.Material.Filled.Assessment,
+Color = Color.Primary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/van-sales/credit-notes", "Get credit notes"),
+new("GET", "/api/van-sales/invoices", "Get invoices"),
+new("GET", "/api/van-sales/invoices/{reference}", "Get invoice")
 }
 },
 new ApiModule
