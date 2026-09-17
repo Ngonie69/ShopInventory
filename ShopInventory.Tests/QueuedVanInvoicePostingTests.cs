@@ -270,6 +270,50 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
         Assert.Equal(ReservationStatus.Failed, (await ReservationAsync(reservationId)).Status);
     }
 
+    /// <summary>
+    /// What Retry is for. The refusal left the reservation Failed; once whatever SAP objected to is put
+    /// right, the sale is still owed its invoice, and a Failed reservation must not read as "already being
+    /// posted" and send it straight back to review.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_sale_put_back_after_the_cause_is_fixed_is_posted()
+    {
+        var reservationId = await SeedQueuedSaleAsync();
+        _post = _ => throw new SapRequestRejectedException(
+            "CreateInvoice", HttpStatusCode.BadRequest, "Account currency 805650 not the same as document currency");
+        await RunAsync();
+        Assert.Equal(ReservationStatus.Failed, (await ReservationAsync(reservationId)).Status);
+
+        // Retry resets the entry, and InvoicePostingJob adopts the existing receipt back to Fiscalized.
+        _post = _ => Task.FromResult(new Invoice { DocEntry = DocEntry, DocNum = DocNum, CardCode = CardCode });
+        var entry = await _context.InvoiceQueue.AsTracking().SingleAsync();
+        entry.Status = InvoiceQueueStatus.Fiscalized;
+        entry.NextRetryAt = null;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await RunAsync();
+
+        Assert.Equal(1, result.Posted);
+        Assert.Single(_posted);
+        Assert.Equal(ReservationStatus.Confirmed, (await ReservationAsync(reservationId)).Status);
+        Assert.Equal(InvoiceQueueStatus.Completed, (await QueueEntryAsync()).Status);
+    }
+
+    [Fact]
+    public async Task A_failed_reservation_is_not_claimable_without_a_fiscalised_entry_behind_it()
+    {
+        var reservationId = await SeedQueuedSaleAsync(
+            queueStatus: InvoiceQueueStatus.RequiresReview,
+            reservationStatus: ReservationStatus.Failed);
+
+        var confirmed = await ReservationService().ConfirmQueuedReservationAsync(
+            new ConfirmReservationRequest { ReservationId = reservationId });
+
+        Assert.False(confirmed.Success);
+        Assert.Empty(_posted);
+    }
+
     [Fact]
     public async Task Nothing_is_attempted_while_the_SAP_circuit_is_open()
     {

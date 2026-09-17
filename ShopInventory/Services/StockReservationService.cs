@@ -572,10 +572,16 @@ public class StockReservationService : IStockReservationService
         // An Expired reservation is claimable only for a fiscalised queued sale. Until the queue outranked
         // the clock, the cleanup job expired those after an hour like any other, so a sale queued before
         // that change still owes SAP its invoice from a reservation marked Expired.
+        //
+        // Failed likewise. A SAP refusal marks the reservation Failed and sends the entry to review, and the
+        // only way back is a person pressing Retry once the cause is fixed. The receipt is already with ZIMRA,
+        // so the sale is still owed its invoice; refusing the claim sent it straight back to review as
+        // "already being posted", and Retry could never work. VanSaleFiscalFirstPoster reopens it the same way.
         var claimed = await _dbContext.StockReservations
             .Where(row => row.Id == reservation.Id
                 && (row.Status == ReservationStatus.Pending
-                    || (owedByFiscalisedSale && row.Status == ReservationStatus.Expired)))
+                    || (owedByFiscalisedSale
+                        && (row.Status == ReservationStatus.Expired || row.Status == ReservationStatus.Failed))))
             .ExecuteUpdateAsync(
                 update => update.SetProperty(row => row.Status, ReservationStatus.Confirming),
                 cancellationToken);
