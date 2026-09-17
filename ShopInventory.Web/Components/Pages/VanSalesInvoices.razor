@@ -1,0 +1,332 @@
+@page "/van-sales/invoices"
+@page "/van-sales-invoices"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.VanSalesDocuments
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Van Sales Invoices - Shop Inventory</PageTitle>
+
+@* Nocturne, from wwwroot/css/van-sales-documents.css under the `vsd` prefix — generated, see
+   scripts/make-van-sales-documents-css.py. /van-sales-invoices is kept as a second route because it is
+   where the old list lived and people have it bookmarked; that list read SAP and showed anything with a
+   van order field set, which is not the same set as this. *@
+
+<div class="vsd">
+    <div class="vsd-body">
+
+        <div class="vsd-hero">
+            <div class="vsd-hero-text">
+                <div class="vsd-kicker">Van sales</div>
+                <h1>Invoices</h1>
+                <p>
+                    Every invoice the van sales app created — sold online, sold without signal and uploaded,
+                    or converted from an order — with whether ZIMRA has its receipt and SAP has the invoice.
+                </p>
+            </div>
+            <div class="vsd-hero-meta">
+                <div class="vsd-fig">
+                    <span class="vsd-fig-num">@view.Counts.All</span>
+                    <span class="vsd-fig-label">In period</span>
+                </div>
+                <div class="vsd-fig">
+                    <span class="vsd-fig-num">@view.Counts.NeedsAttention</span>
+                    <span class="vsd-fig-label">Need attention</span>
+                </div>
+                <a class="vsd-btn vsd-btn-quiet" href="/van-sales/credit-notes">
+                    <i class="ph ph-file-minus" aria-hidden="true"></i>
+                    <span>Credit notes</span>
+                </a>
+            </div>
+        </div>
+
+        <section class="vsd-panel">
+            <div class="vsd-panel-head">
+                <h2><i class="ph ph-receipt" aria-hidden="true"></i>Invoices</h2>
+                <span class="vsd-count">@view.TotalCount</span>
+
+                <div class="vsd-tools">
+                    <div class="vsd-search">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <input class="vsd-input vsd-input-search" type="search"
+                               placeholder="Van order, shop, rep, receipt or SAP number"
+                               aria-label="Search invoices"
+                               @bind="searchTerm" @bind:event="oninput" @onkeydown="SearchKeyAsync" />
+                    </div>
+
+                    <NocturneDateField Class="vsd-input-date" @bind-Date="fromDate" AriaLabel="From" />
+                    <NocturneDateField Class="vsd-input-date" @bind-Date="toDate" AriaLabel="To" />
+
+                    <NocturneSelect Class="nsel-block" TValue="Guid?" Options="RepOptions"
+                                    @bind-Value="repFilter" OnChanged="ApplyAsync"
+                                    Placeholder="All reps" Caption="Filter by rep" AriaLabel="Filter by rep" />
+
+                    <button type="button" class="vsd-btn vsd-btn-primary" @onclick="ApplyAsync" disabled="@isLoading">
+                        <span>Apply</span>
+                    </button>
+                    <button type="button" class="vsd-btn vsd-btn-icon" title="Refresh" aria-label="Refresh"
+                            @onclick="LoadAsync" disabled="@isLoading">
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="vsd-panel-head">
+                <div class="vsd-seg" role="group" aria-label="Which invoices to show">
+                    @foreach (var option in VanSalesDocumentDisplay.Filters)
+                    {
+                        <button type="button"
+                                class="vsd-seg-opt @(stateFilter == option.State ? "is-on" : null)"
+                                aria-pressed="@(stateFilter == option.State ? "true" : "false")"
+                                @onclick="() => SetStateAsync(option.State)">
+                            @option.Label<span class="vsd-seg-count">@VanSalesDocumentDisplay.Count(view.Counts, option.State)</span>
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="vsd-msg" role="alert">
+                    <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                    <div>@loadError</div>
+                </div>
+            }
+
+            @if (isLoading)
+            {
+                <div class="vsd-empty"><p>Loading&hellip;</p></div>
+            }
+            else if (view.Rows.Count == 0)
+            {
+                <div class="vsd-empty">
+                    <p>
+                        @if (view.Counts.All == 0)
+                        {
+                            <text>The van sales app created no invoices in this period.</text>
+                        }
+                        else
+                        {
+                            <text>No invoice in this period matches that filter.</text>
+                        }
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="vsd-scroll">
+                    <div class="vsd-grid vsd-grid-invoices">
+                        <div class="vsd-thead">
+                            <div>Invoice</div>
+                            <div>Customer</div>
+                            <div>Rep</div>
+                            <div class="vsd-cell-amount">Amount</div>
+                            <div>SAP no.</div>
+                            <div>Receipt</div>
+                            <div>State</div>
+                        </div>
+
+                        @foreach (var row in view.Rows)
+                        {
+                            <div class="vsd-row vsd-row-button" role="button" tabindex="0"
+                                 @onclick="() => OpenAsync(row.Reference)"
+                                 @onkeydown="e => RowKeyAsync(e, row.Reference)">
+                                <div class="vsd-cell vsd-cell-main">
+                                    <span class="vsd-strong">@row.Reference</span>
+                                    <span class="vsd-weak">@row.TradingDate.ToString("dd MMM yyyy") &middot; @row.Channel</span>
+                                </div>
+
+                                <div class="vsd-cell vsd-cell-sub">
+                                    <span class="vsd-rl">Customer</span>
+                                    <span class="vsd-strong">@(row.CustomerName ?? row.CustomerCode ?? "—")</span>
+                                </div>
+
+                                <div class="vsd-cell vsd-cell-sub">
+                                    <span class="vsd-rl">Rep</span>
+                                    <span class="vsd-weak">@(row.RepName ?? "—")</span>
+                                </div>
+
+                                <div class="vsd-cell vsd-cell-sub vsd-cell-amount">
+                                    <span class="vsd-rl">Amount</span>
+                                    <span class="vsd-num">@VanSalesDocumentDisplay.Money(row.Currency, row.Amount)</span>
+                                    @if (!row.AmountIncludesVat)
+                                    {
+                                        <span class="vsd-net">excl. VAT</span>
+                                    }
+                                </div>
+
+                                <div class="vsd-cell vsd-cell-sub">
+                                    <span class="vsd-rl">SAP no.</span>
+                                    @if (row.SapDocNum is { } docNum)
+                                    {
+                                        <span class="vsd-num">@docNum</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="vsd-none">&mdash;</span>
+                                    }
+                                </div>
+
+                                <div class="vsd-cell vsd-cell-sub">
+                                    <span class="vsd-rl">Receipt</span>
+                                    @if (!string.IsNullOrWhiteSpace(row.FiscalReceiptNumber))
+                                    {
+                                        <span class="vsd-num">@row.FiscalReceiptNumber</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="vsd-none">&mdash;</span>
+                                    }
+                                </div>
+
+                                <div class="vsd-cell vsd-cell-state">
+                                    <span class="vsd-badge @VanSalesDocumentDisplay.Family(row.State)">@VanSalesDocumentDisplay.Label(row.State)</span>
+                                    @if (!string.IsNullOrWhiteSpace(row.Problem))
+                                    {
+                                        <span class="vsd-problem" title="@row.Problem">@row.Problem</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="vsd-pager">
+                    <span>@PageSummary</span>
+                    <div class="vsd-pager-buttons">
+                        <button type="button" class="vsd-btn vsd-btn-quiet vsd-btn-sm"
+                                disabled="@(isLoading || page <= 1)" @onclick="() => GoToPageAsync(page - 1)">
+                            Previous
+                        </button>
+                        <button type="button" class="vsd-btn vsd-btn-quiet vsd-btn-sm"
+                                disabled="@(isLoading || page >= PageCount)" @onclick="() => GoToPageAsync(page + 1)">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@if (detailReference is not null)
+{
+    <div class="vsd-overlay vsd-overlay-side" @onclick="CloseDetail">
+        <div class="vsd-drawer" role="dialog" aria-modal="true" aria-label="Invoice @detailReference"
+             @onclick:stopPropagation="true">
+            <div class="vsd-dialog-head">
+                <h2>Invoice @detailReference</h2>
+                <button type="button" class="vsd-btn vsd-btn-icon vsd-dialog-x" aria-label="Close" @onclick="CloseDetail">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="vsd-dialog-body">
+                @if (isDetailLoading)
+                {
+                    <p>Loading&hellip;</p>
+                }
+                else if (!string.IsNullOrWhiteSpace(detailError))
+                {
+                    <div class="vsd-msg" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div>@detailError</div>
+                    </div>
+                }
+                else if (detail is not null)
+                {
+                    var invoice = detail.Invoice;
+
+                    <div>
+                        <span class="vsd-badge @VanSalesDocumentDisplay.Family(invoice.State)">@VanSalesDocumentDisplay.Label(invoice.State)</span>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(invoice.Problem))
+                    {
+                        <div class="vsd-msg" role="status">
+                            <i class="ph ph-warning" aria-hidden="true"></i>
+                            <div>@invoice.Problem</div>
+                        </div>
+                    }
+
+                    <dl class="vsd-kv">
+                        <dt>Van order</dt><dd>@invoice.Reference</dd>
+                        <dt>Sold</dt><dd>@invoice.TradingDate.ToString("dd MMM yyyy") &middot; @invoice.Channel</dd>
+                        <dt>Customer</dt><dd>@(invoice.CustomerName ?? "—") @(invoice.CustomerCode is null ? null : $"({invoice.CustomerCode})")</dd>
+                        <dt>Rep</dt><dd>@(invoice.RepName ?? "—")</dd>
+                        <dt>Van</dt><dd>@(invoice.WarehouseCode ?? "—")</dd>
+                        <dt>Payment</dt><dd>@(invoice.PaymentMethod ?? "Not recorded")</dd>
+                        <dt>Amount</dt>
+                        <dd>
+                            @VanSalesDocumentDisplay.Money(invoice.Currency, invoice.Amount)
+                            @(invoice.AmountIncludesVat ? "incl. VAT" : "excl. VAT")
+                        </dd>
+                        @if (invoice.VatAmount is { } vat)
+                        {
+                            <dt>VAT</dt><dd>@VanSalesDocumentDisplay.Money(invoice.Currency, vat)</dd>
+                        }
+                    </dl>
+
+                    <h3 class="vsd-section-title">SAP</h3>
+                    <dl class="vsd-kv">
+                        <dt>Invoice no.</dt><dd>@(invoice.SapDocNum?.ToString() ?? "Not in SAP yet")</dd>
+                        <dt>Posting attempts</dt><dd>@detail.PostingAttempts</dd>
+                        @if (!string.IsNullOrWhiteSpace(detail.QueueStatus))
+                        {
+                            <dt>Queue</dt><dd>@detail.QueueStatus</dd>
+                        }
+                    </dl>
+
+                    <h3 class="vsd-section-title">ZIMRA</h3>
+                    <dl class="vsd-kv">
+                        <dt>Receipt no.</dt><dd>@(invoice.FiscalReceiptNumber ?? "None found")</dd>
+                        <dt>Verification code</dt><dd>@(invoice.FiscalVerificationCode ?? "—")</dd>
+                        <dt>Fiscal day</dt><dd>@(invoice.FiscalDay ?? "—")</dd>
+                        <dt>Device</dt><dd>@(invoice.FiscalDeviceSerial ?? "—")</dd>
+                        @if (!string.IsNullOrWhiteSpace(detail.FiscalQrCode))
+                        {
+                            <dt>QR</dt><dd class="vsd-qr">@detail.FiscalQrCode</dd>
+                        }
+                    </dl>
+
+                    <h3 class="vsd-section-title">Lines</h3>
+                    <table class="vsd-lines">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th class="vsd-r">Qty</th>
+                                <th class="vsd-r">Price</th>
+                                <th>Tax</th>
+                                <th class="vsd-r">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in detail.Lines)
+                            {
+                                <tr>
+                                    <td>@(line.ItemDescription ?? line.ItemCode)<br /><span class="vsd-weak">@line.ItemCode</span></td>
+                                    <td class="vsd-r">@line.Quantity.ToString("0.###") @line.UoMCode</td>
+                                    <td class="vsd-r">@line.UnitPrice.ToString("N2")</td>
+                                    <td>@(line.TaxCode ?? "—")</td>
+                                    <td class="vsd-r">@line.LineTotal.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+
+            <div class="vsd-dialog-foot">
+                @if (detail?.Invoice.SapDocEntry is not null)
+                {
+                    <button type="button" class="vsd-btn vsd-btn-quiet" @onclick="DownloadPdfAsync" disabled="@isDownloading">
+                        <i class="ph ph-download-simple" aria-hidden="true"></i>
+                        <span>@(isDownloading ? "Downloading…" : "SAP invoice PDF")</span>
+                    </button>
+                }
+                <button type="button" class="vsd-btn vsd-btn-primary" @onclick="CloseDetail">Close</button>
+            </div>
+        </div>
+    </div>
+}
