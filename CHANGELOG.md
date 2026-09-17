@@ -352,6 +352,23 @@ otherwise be surprised.
 
 ### Fixed
 
+- **A till, vending or van sale's invoice PDF printed with no fiscal block at all.** No QR, no
+  verification code, no fiscal day and no device — on a tax invoice whose customer is holding the
+  receipt. It was intermittent by document rather than by day, so it read as the PDF design losing
+  its fiscal block, and the design was rebuilt three times over it.
+
+  The receipt is signed under the sale's own external reference, hours before SAP assigns a DocNum,
+  while both places the PDF looked — the `DesktopFiscalTransactions` projection and the fiscal
+  device read-back — are keyed on the DocNum. Neither could ever answer for a one-invoice-per-sale
+  document, and the PDF drops the block silently when it has nothing to print.
+
+  `GET /api/Invoice/{docEntry}/pdf` and `GET /api/DesktopIntegration/invoices/{docEntry}/pdf` now read the
+  receipt off the sale row when a DocNum lookup finds nothing, so the block prints from the database
+  and no longer depends on the device being reachable. An invoice recorded as fiscalised that still
+  resolves no receipt is logged as a warning naming the document, instead of quietly printing
+  without one. Re-downloading an affected invoice now yields its fiscal block; nothing needs
+  reissuing.
+
 - **A van sale that went through the invoice queue never became a SAP invoice.** That is every sales
   order a handset converted with `POST /vansales/order/convert-to-invoice`, which is always queued, and
   every online van sale made while SAP was unavailable. `InvoicePostingJob` fiscalised the entry and
