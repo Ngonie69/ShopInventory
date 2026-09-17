@@ -589,25 +589,6 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        @* The van's own documents. The same pages as /invoices and /credit-notes,
-                           narrowed to the van: the ordinary lists leave these out, so this is the
-                           only place they appear. All, not Prefix, so neither lights the other. *@
-                        <AuthorizeView Roles="Admin,Cashier" Context="vanDocumentsCtx">
-                            <Authorized>
-                                <NavLink class="snav-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-receipt" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Invoices</span>
-                                </NavLink>
-                                <NavLink class="snav-link" href="/van-sales-credit-notes" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-file-minus" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Credit Notes</span>
-                                </NavLink>
-                            </Authorized>
-                        </AuthorizeView>
                         <AuthorizeView Roles="Admin,Cashier" Context="routeCustomerCtx">
                             <Authorized>
                                 @* Prefix, not All, so the link stays lit on a customer's own
