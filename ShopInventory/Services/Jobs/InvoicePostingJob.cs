@@ -10,10 +10,19 @@ namespace ShopInventory.Services;
 
 /// <summary>
 /// Quartz job that processes queued invoices — fiscalizes them and stores locally.
-/// Invoices are NOT posted to SAP individually; they are accumulated and posted as a
+/// Desktop invoices are NOT posted to SAP individually; they are accumulated and posted as a
 /// single consolidated invoice per customer at end-of-day via ConsolidateDailySales.
 /// Cadence, clustering and misfire handling are owned by Quartz (see QuartzConfiguration).
 /// </summary>
+/// <remarks>
+/// <b>Van sales are the exception: they are fiscalised and posted here, one invoice per sale.</b>
+/// Consolidation deliberately refuses them (see <c>InvoiceQueueService.GetFiscalizedInvoicesAsync</c>),
+/// yet this job used to stop at <see cref="InvoiceQueueStatus.Fiscalized"/> for them all the same — so a
+/// converted van order was signed, handed to the customer, and never invoiced. They now go through
+/// <see cref="VanSaleFiscalFirstPoster"/>, which signs first and posts second. Entries already stranded at
+/// Fiscalized are picked up again by the same route, and the device is asked for the receipt they already
+/// hold before anything is sent, so none is signed twice.
+/// </remarks>
 [DisallowConcurrentExecution]
 public sealed class InvoicePostingJob : IJob
 {
@@ -39,6 +48,7 @@ public sealed class InvoicePostingJob : IJob
         using var scope = _serviceProvider.CreateScope();
         var queueService = scope.ServiceProvider.GetRequiredService<IInvoiceQueueService>();
         var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
+        var vanSalePoster = scope.ServiceProvider.GetRequiredService<VanSaleFiscalFirstPoster>();
         var vatRate = scope.ServiceProvider
             .GetRequiredService<IOptions<TaxSettings>>().Value.VatRate;
 
@@ -65,6 +75,7 @@ public sealed class InvoicePostingJob : IJob
                 queueEntry,
                 queueService,
                 fiscalizationService,
+                vanSalePoster,
                 vatRate,
                 stoppingToken);
         }
@@ -74,6 +85,7 @@ public sealed class InvoicePostingJob : IJob
         InvoiceQueueEntity queueEntry,
         IInvoiceQueueService queueService,
         IFiscalizationService? fiscalizationService,
+        VanSaleFiscalFirstPoster vanSalePoster,
         decimal vatRate,
         CancellationToken stoppingToken)
     {
@@ -83,6 +95,12 @@ public sealed class InvoicePostingJob : IJob
         {
             // Mark as processing
             await queueService.MarkAsProcessingAsync(queueEntry.Id, stoppingToken);
+
+            if (string.Equals(queueEntry.SourceSystem, SaleSourceSystems.VanSales, StringComparison.Ordinal))
+            {
+                await ProcessVanSaleAsync(queueEntry, queueService, vanSalePoster, stoppingToken);
+                return;
+            }
 
             _logger.LogInformation(
                 "Fiscalizing invoice: ExternalRef={ExternalReference}, QueueId={QueueId}, Attempt={Attempt}",
@@ -217,6 +235,83 @@ public sealed class InvoicePostingJob : IJob
                     queueEntry.ExternalReference, nextRetry);
             }
         }
+    }
+
+    /// <summary>
+    /// Fiscalises a queued van sale and posts it to SAP as its own invoice.
+    /// </summary>
+    /// <remarks>
+    /// Always told the sale may already be signed. Every van entry that reached Fiscalized before this path
+    /// existed holds a receipt with no row to say so, and the lookup that answers it costs one device call
+    /// on a background job with nobody waiting.
+    /// </remarks>
+    private async Task ProcessVanSaleAsync(
+        InvoiceQueueEntity queueEntry,
+        IInvoiceQueueService queueService,
+        VanSaleFiscalFirstPoster poster,
+        CancellationToken stoppingToken)
+    {
+        var payload = JsonSerializer.Deserialize<CreateStockReservationRequest>(
+            queueEntry.InvoicePayload,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        // The day the sale was made, not the day the job reached it. The receipt was dated then, and an
+        // entry stranded for weeks must not be invoiced into a later period than its receipt.
+        var saleDay = AuditService.ToCAT(queueEntry.CreatedAt).ToString("yyyy-MM-dd");
+
+        var outcome = await poster.FiscaliseThenPostAsync(
+            new VanSaleFiscalFirstRequest(
+                queueEntry.ReservationId,
+                DocDate: saleDay,
+                DocDueDate: saleDay,
+                Comments: payload?.Notes,
+                MayAlreadyBeFiscalised: true),
+            stoppingToken);
+
+        var sale = outcome.Sale;
+
+        if (outcome.Status == VanSaleFiscalFirstStatus.Posted)
+        {
+            await queueService.UpdateQueueEntryAsync(
+                queueEntry.Id,
+                InvoiceQueueStatus.Completed,
+                outcome.SapDocEntry?.ToString(),
+                outcome.SapDocNum,
+                null,
+                sale?.FiscalDeviceNumber,
+                sale?.FiscalReceiptNumber,
+                CancellationToken.None);
+
+            _logger.LogInformation(
+                "Van sale fiscalised and invoiced: ExternalRef={ExternalReference}, Receipt={Receipt}, DocNum={DocNum}",
+                queueEntry.ExternalReference, sale?.FiscalReceiptNumber, outcome.SapDocNum);
+            return;
+        }
+
+        // Unresolved and unpostable wait for a person. The rest are retried while retries remain, and a
+        // sale that is already signed retries only its post, never its receipt.
+        var needsPerson = outcome.Status is VanSaleFiscalFirstStatus.FiscalUnresolved
+                              or VanSaleFiscalFirstStatus.NotPostable
+                          || queueEntry.RetryCount >= queueEntry.MaxRetries - 1;
+
+        var status = needsPerson ? InvoiceQueueStatus.RequiresReview : InvoiceQueueStatus.Failed;
+        var error = outcome.IsFiscalised
+            ? $"Fiscalised (receipt {sale?.FiscalReceiptNumber}) but not yet invoiced: {outcome.Error}"
+            : outcome.Error ?? outcome.Status.ToString();
+
+        await queueService.UpdateQueueEntryAsync(
+            queueEntry.Id,
+            status,
+            null,
+            null,
+            error,
+            outcome.IsFiscalised ? sale?.FiscalDeviceNumber : null,
+            outcome.IsFiscalised ? sale?.FiscalReceiptNumber : null,
+            CancellationToken.None);
+
+        _logger.LogWarning(
+            "Van sale {ExternalReference} stopped at {Outcome} and is now {Status}: {Error}",
+            queueEntry.ExternalReference, outcome.Status, status, error);
     }
 
     /// <summary>

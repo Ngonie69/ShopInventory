@@ -704,6 +704,7 @@ try
     // Signing a till or vending sale, and the sweep that signs the ones left for later. Shared so the
     // inline path and the background path cannot drift on how a result is recorded.
     builder.Services.AddScoped<DesktopSaleFiscaliser>();
+    builder.Services.AddScoped<VanSaleFiscalFirstPoster>();
     builder.Services.AddScoped<DesktopSaleFiscalisationSweep>();
 
     // Hands the fiscalisation platform the receipts vans signed for themselves offline, which is the only

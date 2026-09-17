@@ -12,6 +12,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.CreateInvoiceDirect;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Features.ExceptionCenter;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ConvertVanSalesSalesOrderToInvoice;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesDirectInvoice;
@@ -64,6 +65,12 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly RecordingMediator _mediator;
+
+    /// <summary>What reached the server's fiscal device and SAP on the unstamped path, in order.</summary>
+    private readonly List<string> _calls = [];
+
+    private readonly FiscalStub _fiscal;
+    private readonly ReservationStub _reservations;
     private readonly FiscalisationSettings _fiscalisation = new()
     {
         // A handset stamps against a device key the platform holds, and RequireStampedVanSales is
@@ -85,6 +92,8 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         _context = new ApplicationDbContext(options);
         _context.Database.EnsureCreated();
         _mediator = new RecordingMediator(_context);
+        _fiscal = new FiscalStub(_calls);
+        _reservations = new ReservationStub(_context, _calls);
 
         _context.Users.Add(new User
         {
@@ -195,16 +204,107 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     }
 
     /// <summary>
-    /// The one case where the server still fiscalises. A handset too old to stamp owns no device and holds
-    /// no chain, so there is nothing to fork — and switching fiscalisation off for it would leave the sale
-    /// with no fiscal record at all, which is worse than one on the wrong device.
+    /// The one case where the server still fiscalises — and it now does so <b>before</b> SAP. A handset that
+    /// did not stamp owns no chain, so there is nothing to fork; and the customer's receipt has to exist
+    /// before the invoice does, or the rep hands over a slip with no verification code on it.
     /// </summary>
     [Fact]
-    public async Task The_server_still_fiscalises_a_sale_no_handset_stamped()
+    public async Task The_server_fiscalises_an_unstamped_sale_before_posting_it()
     {
-        await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
+        var response = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
 
-        Assert.True(_mediator.LastInvoiceRequest.Fiscalize);
+        Assert.Equal(["sign", "post"], _calls);
+
+        // Not through the post-then-fiscalise route at all.
+        Assert.Empty(_mediator.Sent);
+
+        Assert.True(response.Success);
+        Assert.False(response.WasQueued);
+        Assert.Equal(ReservationStub.DocNum, response.SapDocNum);
+        Assert.Equal("vc-server", response.VerificationCode);
+        Assert.Equal("qr-server", response.QrCode);
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(SaleSourceSystems.VanSalesOnline, sale.SourceSystem);
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+        Assert.Equal(ReservationStub.DocNum, sale.SapDocNum);
+    }
+
+    /// <summary>
+    /// Stock is the refusal that must come first. SAP would refuse to take the van negative after the
+    /// device had already signed, and the customer would hold a receipt for goods the books say never left.
+    /// </summary>
+    [Fact]
+    public async Task An_unstamped_sale_the_van_cannot_supply_is_refused_before_the_device_is_asked()
+    {
+        _reservations.RefuseStock = true;
+
+        var result = await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped("VAN006-INV-20260810-BBB222"), VanUser),
+            CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains("Insufficient stock", result.FirstError.Description);
+        Assert.Empty(_calls);
+        Assert.Empty(await _context.DesktopSales.ToListAsync());
+    }
+
+    /// <summary>
+    /// Once signed, the sale stands. SAP being down is answered with the receipt so the rep can print it,
+    /// and the invoice goes on the queue that posts it.
+    /// </summary>
+    [Fact]
+    public async Task A_SAP_outage_after_signing_answers_with_the_receipt_and_queues_the_invoice()
+    {
+        _reservations.SapDown = true;
+
+        var response = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
+
+        Assert.Equal(["sign", "post"], _calls);
+        Assert.True(response.Success);
+        Assert.True(response.WasQueued);
+        Assert.Null(response.SapDocNum);
+        Assert.Equal("vc-server", response.VerificationCode);
+
+        var queued = await _context.InvoiceQueue.SingleAsync();
+        Assert.Equal("VAN006-INV-20260810-BBB222", queued.ExternalReference);
+        Assert.Equal(SaleSourceSystems.VanSales, queued.SourceSystem);
+        Assert.Equal(response.QueueId, queued.Id);
+    }
+
+    /// <summary>
+    /// The one answer that is neither yes nor no. The rep must not sell the goods again, and the sale is
+    /// queued so it keeps its stock and reaches the review list.
+    /// </summary>
+    [Fact]
+    public async Task A_device_that_cannot_confirm_the_receipt_leaves_the_sale_for_a_person()
+    {
+        _fiscal.Unresolved = true;
+
+        var result = await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped("VAN006-INV-20260810-BBB222"), VanUser),
+            CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("VanSalesCompatibility.FiscalOutcomeUnknown", result.FirstError.Code);
+        Assert.Equal(["sign"], _calls);
+        Assert.Single(await _context.InvoiceQueue.ToListAsync());
+    }
+
+    /// <summary>
+    /// A handset that lost the reply sends the same basket under the same van order. It must get the same
+    /// receipt back, not a second one.
+    /// </summary>
+    [Fact]
+    public async Task A_resent_unstamped_sale_is_not_signed_twice()
+    {
+        var first = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
+        var second = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
+
+        Assert.Equal(1, _calls.Count(call => call == "sign"));
+        Assert.Equal(first.VerificationCode, second.VerificationCode);
+        Assert.Equal(first.SapDocNum, second.SapDocNum);
+        Assert.Single(await _context.DesktopSales.ToListAsync());
     }
 
     // --- The double count this design exists to avoid ---
@@ -355,8 +455,8 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         var unstamped = await _context.DesktopSales.SingleAsync();
         Assert.Equal(SaleSourceSystems.VanSalesOnline, unstamped.SourceSystem);
         Assert.Equal(DesktopSaleReceiptIngestStatus.Unstamped, unstamped.ReceiptIngestStatus);
-        Assert.Equal(DesktopSaleFiscalizationStatus.Failed, unstamped.FiscalizationStatus);
-        Assert.NotNull(unstamped.FiscalError);
+        // Fiscalised by the server before it posted, so it has a receipt — just not one on a handset's chain.
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, unstamped.FiscalizationStatus);
         Assert.Null(unstamped.FiscalDeviceId);
 
         // A real receipt on a real device, waiting behind it in the same table.
@@ -518,7 +618,15 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             poisoned,
             new RecordingMediator(poisoned),
             Options.Create(_fiscalisation),
-            NullLogger<CreateVanSalesDirectInvoiceHandler>.Instance)
+            NullLogger<CreateVanSalesDirectInvoiceHandler>.Instance,
+            StubProxy.Unused<IStockReservationService>(),
+            StubProxy.Unused<IInvoiceQueueService>(),
+            new VanSaleFiscalFirstPoster(
+                poisoned,
+                StubProxy.Unused<IStockReservationService>(),
+                BuildFiscaliser(),
+                Options.Create(new TaxSettings()),
+                NullLogger<VanSaleFiscalFirstPoster>.Instance))
             .Handle(
                 new CreateVanSalesDirectInvoiceCommand(
                     Stamped("VAN006-INV-20260810-AAA111", globalNo: 501, counter: 4), VanUser),
@@ -714,7 +822,182 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             _context,
             _mediator,
             Options.Create(_fiscalisation),
-            NullLogger<CreateVanSalesDirectInvoiceHandler>.Instance);
+            NullLogger<CreateVanSalesDirectInvoiceHandler>.Instance,
+            _reservations.Service,
+            new InvoiceQueueService(
+                _context, StubProxy.Unused<IStockLedger>(), NullLogger<InvoiceQueueService>.Instance),
+            new VanSaleFiscalFirstPoster(
+                _context,
+                _reservations.Service,
+                BuildFiscaliser(),
+                Options.Create(new TaxSettings()),
+                NullLogger<VanSaleFiscalFirstPoster>.Instance));
+
+    private DesktopSaleFiscaliser BuildFiscaliser() =>
+        new(
+            _fiscal.Service,
+            StubProxy.For<INotificationService>((_, _) => Task.FromResult(0)),
+            Options.Create(new TaxSettings()),
+            NullLogger<DesktopSaleFiscaliser>.Instance);
+
+    /// <summary>
+    /// The server's fiscal device for the unstamped path. A receipt signed once is remembered, so a resend
+    /// asking for it finds it — which is what the device does.
+    /// </summary>
+    private sealed class FiscalStub(List<string> calls)
+    {
+        private FiscalizationResult? _issued;
+
+        public bool Unresolved { get; set; }
+
+        public IFiscalizationService Service => StubProxy.For<IFiscalizationService>((method, _) => method.Name switch
+        {
+            nameof(IFiscalizationService.FindPreSapReceiptAsync) => (object)Task.FromResult(_issued),
+            nameof(IFiscalizationService.FiscalizePreSapInvoiceAsync) => Task.FromResult(Sign()),
+            _ => throw new InvalidOperationException($"IFiscalizationService.{method.Name} was not expected.")
+        });
+
+        private FiscalizationResult Sign()
+        {
+            calls.Add("sign");
+
+            if (Unresolved)
+            {
+                return new FiscalizationResult
+                {
+                    Success = false,
+                    RequiresReconciliation = true,
+                    Message = "The device did not answer"
+                };
+            }
+
+            return _issued = new FiscalizationResult
+            {
+                Success = true,
+                ReceiptGlobalNo = "900",
+                DeviceSerial = "REVMAX-1",
+                VerificationCode = "vc-server",
+                QRCode = "qr-server",
+                FiscalDayNo = "44"
+            };
+        }
+    }
+
+    /// <summary>
+    /// The reservation service, over the test's own database: it reserves by writing the row, and confirms by
+    /// posting to a SAP that can be switched off or refuse the stock.
+    /// </summary>
+    private sealed class ReservationStub(ApplicationDbContext context, List<string> calls)
+    {
+        public const int DocEntry = 6100;
+        public const int DocNum = 7100;
+
+        public bool RefuseStock { get; set; }
+
+        public bool SapDown { get; set; }
+
+        public IStockReservationService Service => StubProxy.For<IStockReservationService>((method, args) => method.Name switch
+        {
+            nameof(IStockReservationService.GetReservationByExternalReferenceAsync) =>
+                (object)Task.FromResult(Find((string)args![0]!)),
+            nameof(IStockReservationService.CreateReservationAsync) =>
+                Task.FromResult(Create((CreateStockReservationRequest)args![0]!)),
+            nameof(IStockReservationService.ConfirmReservationAsync) =>
+                Task.FromResult(Confirm((ConfirmReservationRequest)args![0]!)),
+            _ => throw new InvalidOperationException($"IStockReservationService.{method.Name} was not expected.")
+        });
+
+        private StockReservationDto? Find(string reference) =>
+            context.StockReservations.AsNoTracking()
+                .Where(r => r.ExternalReferenceId == reference)
+                .Select(r => new StockReservationDto
+                {
+                    ReservationId = r.ReservationId,
+                    Status = r.Status,
+                    SAPDocEntry = r.SAPDocEntry,
+                    SAPDocNum = r.SAPDocNum
+                })
+                .FirstOrDefault();
+
+        private StockReservationResponseDto Create(CreateStockReservationRequest request)
+        {
+            if (RefuseStock)
+            {
+                return new StockReservationResponseDto
+                {
+                    Success = false,
+                    Message = "Stock validation failed",
+                    Errors = [new StockReservationErrorDto { Message = "Insufficient stock for CHE011 in VAN006" }]
+                };
+            }
+
+            var reservation = new StockReservationEntity
+            {
+                ExternalReferenceId = request.ExternalReferenceId!,
+                SourceSystem = request.SourceSystem!,
+                CardCode = request.CardCode,
+                CardName = request.CardName,
+                Currency = request.Currency,
+                PaymentMethod = request.PaymentMethod,
+                Status = ReservationStatus.Pending,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(request.ReservationDurationMinutes),
+                Lines = request.Lines.Select(line => new StockReservationLineEntity
+                {
+                    LineNum = line.LineNum,
+                    ItemCode = line.ItemCode,
+                    ItemDescription = line.ItemDescription,
+                    OriginalQuantity = line.Quantity,
+                    ReservedQuantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    LineTotal = line.UnitPrice * line.Quantity,
+                    WarehouseCode = line.WarehouseCode
+                }).ToList()
+            };
+
+            context.StockReservations.Add(reservation);
+            context.SaveChanges();
+
+            return new StockReservationResponseDto
+            {
+                Success = true,
+                Reservation = new StockReservationDto { ReservationId = reservation.ReservationId, Status = reservation.Status }
+            };
+        }
+
+        private ConfirmReservationResponseDto Confirm(ConfirmReservationRequest request)
+        {
+            calls.Add("post");
+
+            var reservation = context.StockReservations.Single(r => r.ReservationId == request.ReservationId);
+
+            if (reservation.Status == ReservationStatus.Confirmed)
+            {
+                return new ConfirmReservationResponseDto
+                {
+                    Success = true,
+                    SAPDocEntry = reservation.SAPDocEntry,
+                    SAPDocNum = reservation.SAPDocNum
+                };
+            }
+
+            if (SapDown)
+            {
+                return new ConfirmReservationResponseDto
+                {
+                    Success = false,
+                    Message = "Failed to post reservation to SAP",
+                    Errors = ["SAP Service Layer is unavailable"]
+                };
+            }
+
+            reservation.Status = ReservationStatus.Confirmed;
+            reservation.SAPDocEntry = DocEntry;
+            reservation.SAPDocNum = DocNum;
+            context.SaveChanges();
+
+            return new ConfirmReservationResponseDto { Success = true, SAPDocEntry = DocEntry, SAPDocNum = DocNum };
+        }
+    }
 
     private async Task<VanSalesDirectInvoiceResponse> SellAsync(VanSalesOrderRequest request)
     {

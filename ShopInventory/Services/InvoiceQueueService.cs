@@ -331,8 +331,12 @@ public class InvoiceQueueService : IInvoiceQueueService
         // Get pending invoices and failed ones that are ready for retry
         var now = DateTime.UtcNow;
 
+        // And van sales left at Fiscalized. Consolidation never takes them, so for a van sale Fiscalized is
+        // not a resting state: it is a receipt with no invoice behind it, which InvoicePostingJob now posts.
         var entries = await _context.InvoiceQueue
             .Where(q => q.Status == InvoiceQueueStatus.Pending ||
+                       (q.Status == InvoiceQueueStatus.Fiscalized &&
+                        q.SourceSystem == SaleSourceSystems.VanSales) ||
                        (q.Status == InvoiceQueueStatus.Failed &&
                         q.RetryCount < q.MaxRetries &&
                         (q.NextRetryAt == null || q.NextRetryAt <= now)))

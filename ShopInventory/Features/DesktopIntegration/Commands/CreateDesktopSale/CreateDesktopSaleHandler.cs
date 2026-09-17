@@ -456,67 +456,12 @@ public sealed class CreateDesktopSaleHandler(
     }
 
     /// <summary>
-    /// The VAT group each of these items is sold under, from the local copy of the item master.
+    /// The VAT group each of these items is sold under. See <see cref="ItemVatGroups"/>.
     /// </summary>
-    /// <remarks>
-    /// The local copy and never SAP directly. Reading the item master costs a paged sweep of every
-    /// valid item against a concurrency limit shared with everything else the process does, and a
-    /// customer at a counter is the worst person to charge for it — <see cref="SapItemTaxGroupWarmJob"/>
-    /// pays it nightly instead.
-    ///
-    /// <para>
-    /// Empty on any failure, and empty is safe: a line with no answer keeps whatever the request
-    /// said, which is what every line had before this existed. A sale is never refused over a tax
-    /// lookup — the customer is at the counter and the basket is already rung up.
-    /// </para>
-    /// </remarks>
-    private async Task<Dictionary<string, string>> ResolveVatGroupsAsync(
+    private Task<Dictionary<string, string>> ResolveVatGroupsAsync(
         IEnumerable<string?> itemCodes,
-        CancellationToken ct)
-    {
-        var codes = itemCodes
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Select(code => code!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (codes.Count == 0)
-        {
-            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        try
-        {
-            var rows = await context.SapItemTaxGroups
-                .AsNoTracking()
-                .Where(row => codes.Contains(row.ItemCode))
-                .ToListAsync(ct);
-
-            var resolved = rows
-                .GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First().VatGroup, StringComparer.OrdinalIgnoreCase);
-
-            // Named, not counted. An item with no VAT group is sold at the standard rate, so this is
-            // the line that says which customer was overcharged and on what - and the first sign
-            // that the nightly warm has not run or that an item is newer than its last pass.
-            var missing = codes.Where(code => !resolved.ContainsKey(code)).ToList();
-            if (missing.Count > 0)
-            {
-                logger.LogWarning(
-                    "No VAT group stored for {Count} item(s) on this sale: {Items}. They are taxed at "
-                    + "the standard rate, which is wrong for anything zero-rated or exempt.",
-                    missing.Count, string.Join(", ", missing));
-            }
-
-            return resolved;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(
-                ex, "Could not read item VAT groups; this sale is taxed at the standard rate throughout.");
-            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
-    }
+        CancellationToken ct) =>
+        ItemVatGroups.ResolveAsync(context, itemCodes, logger, ct);
 
     /// <summary>
     /// The tax code one line is charged and declared under.
@@ -529,13 +474,7 @@ public sealed class CreateDesktopSaleHandler(
     internal static string? TaxCodeFor(
         CreateDesktopSaleLineRequest line,
         IReadOnlyDictionary<string, string> vatGroups)
-    {
-        var itemCode = line.ItemCode?.Trim();
-
-        return !string.IsNullOrEmpty(itemCode) && vatGroups.TryGetValue(itemCode, out var vatGroup)
-            ? vatGroup
-            : line.TaxCode;
-    }
+        => ItemVatGroups.TaxCodeFor(line.ItemCode, line.TaxCode, vatGroups);
 
     private async Task<ErrorOr<DesktopSaleResponseDto>> ValidateDeductAndCreateSaleAsync(
         CreateDesktopSaleRequest req,
