@@ -10,4 +10,8 @@ public sealed record GetCreditNotesQuery(
     CreditNoteStatus? Status,
     string? CardCode,
     DateTime? FromDate,
-    DateTime? ToDate) : IRequest<ErrorOr<CreditNoteListResponse>>;
+    DateTime? ToDate,
+
+    // True: only credit notes against van invoices (/van-sales-credit-notes). False: none of them
+    // (/credit-notes). Null: no van filter. The API decides which is which.
+    bool? VanSalesOnly = null) : IRequest<ErrorOr<CreditNoteListResponse>>;

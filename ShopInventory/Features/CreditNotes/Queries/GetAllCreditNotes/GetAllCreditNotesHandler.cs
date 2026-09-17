@@ -18,7 +18,7 @@ public sealed class GetAllCreditNotesHandler(
     {
         var result = await creditNoteService.GetAllAsync(
             request.Page, request.PageSize, request.Status, request.CardCode,
-            request.FromDate, request.ToDate, request.IncludeLines, cancellationToken);
+            request.FromDate, request.ToDate, request.IncludeLines, request.VanSalesOnly, cancellationToken);
 
         await FiscalDocumentStatusProjector.EnrichCreditNotesAsync(dbContext, result.CreditNotes, cancellationToken);
 

@@ -23,7 +23,8 @@ public sealed class GetCreditNotesHandler(
                 request.Status,
                 request.CardCode,
                 request.FromDate,
-                request.ToDate);
+                request.ToDate,
+                vanSalesOnly: request.VanSalesOnly);
 
             if (response is null)
             {

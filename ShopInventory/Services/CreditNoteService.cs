@@ -180,7 +180,7 @@ public class CreditNoteService : ICreditNoteService
 
     public async Task<CreditNoteListResponseDto> GetAllAsync(int page, int pageSize, CreditNoteStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false,
-        CancellationToken cancellationToken = default)
+        bool? vanSalesOnly = null, CancellationToken cancellationToken = default)
     {
         // The local projection answers this list in one Postgres query. SAP is the fallback, for
         // when the projection is switched off, still backfilling, or stale — and for a caller that
@@ -189,7 +189,7 @@ public class CreditNoteService : ICreditNoteService
         {
             try
             {
-                return await GetAllFromProjectionAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
+                return await GetAllFromProjectionAsync(page, pageSize, status, cardCode, fromDate, toDate, vanSalesOnly, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -234,6 +234,14 @@ public class CreditNoteService : ICreditNoteService
                 totalCount = sapCreditNotes.Count;
             }
 
+            // Every SAP read above carries DocumentLines, so the van question is answered from the
+            // lines' base invoices against this database — before the count, so the two agree.
+            if (vanSalesOnly.HasValue)
+            {
+                sapCreditNotes = await FilterSapCreditNotesByVanSalesAsync(sapCreditNotes, vanSalesOnly.Value, cancellationToken);
+                totalCount = sapCreditNotes.Count;
+            }
+
             return new CreditNoteListResponseDto
             {
                 Page = page,
@@ -246,8 +254,25 @@ public class CreditNoteService : ICreditNoteService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to fetch credit notes from SAP, falling back to local DB");
-            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
+            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, vanSalesOnly, cancellationToken);
         }
+    }
+
+    private async Task<List<SAPCreditNote>> FilterSapCreditNotesByVanSalesAsync(
+        List<SAPCreditNote> creditNotes, bool vanSalesOnly, CancellationToken cancellationToken)
+    {
+        var baseInvoices = VanSaleCreditNotes.BaseInvoiceDocEntries(creditNotes);
+
+        var vanInvoices = baseInvoices.Count == 0
+            ? new HashSet<int>()
+            : (await VanSaleCreditNotes.VanInvoiceDocEntries(_context)
+                .Where(docEntry => baseInvoices.Contains(docEntry))
+                .ToListAsync(cancellationToken))
+                .ToHashSet();
+
+        return creditNotes
+            .Where(note => VanSaleCreditNotes.IsVanCreditNote(note, vanInvoices) == vanSalesOnly)
+            .ToList();
     }
 
     private async Task<bool> IsProjectionReadableAsync(CancellationToken cancellationToken)
@@ -277,11 +302,14 @@ public class CreditNoteService : ICreditNoteService
     /// replaces pulled every document's nested DocumentLines to render a table of headers.
     /// </remarks>
     private async Task<CreditNoteListResponseDto> GetAllFromProjectionAsync(int page, int pageSize, CreditNoteStatus? status,
-        string? cardCode, DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken)
+        string? cardCode, DateTime? fromDate, DateTime? toDate, bool? vanSalesOnly, CancellationToken cancellationToken)
     {
         var (rangeFrom, rangeTo) = ResolveProjectionDateRange(cardCode, fromDate, toDate);
 
-        var query = _context.SapCreditNoteSnapshots.AsNoTracking();
+        // In SQL, ahead of the in-memory status filter that the count is taken after.
+        var query = _context.SapCreditNoteSnapshots
+            .AsNoTracking()
+            .WhereVanSales(_context, vanSalesOnly);
 
         if (!string.IsNullOrEmpty(cardCode))
             query = query.Where(snapshot => snapshot.CardCode == cardCode);
@@ -404,14 +432,16 @@ public class CreditNoteService : ICreditNoteService
         bool IsCancelled);
 
     private async Task<CreditNoteListResponseDto> GetAllFromLocalAsync(int page, int pageSize, CreditNoteStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null,
+        CancellationToken cancellationToken = default)
     {
         var fromDateUtc = NormalizeUtcDateStart(fromDate);
         var toDateExclusiveUtc = NormalizeUtcDateExclusiveEnd(toDate);
 
+        // Applied before CountAsync, so the total and the page agree.
         var query = _context.CreditNotes
             .AsNoTracking()
-            .AsQueryable();
+            .WhereVanSales(_context, vanSalesOnly);
 
         if (status.HasValue)
             query = query.Where(c => c.Status == status.Value);

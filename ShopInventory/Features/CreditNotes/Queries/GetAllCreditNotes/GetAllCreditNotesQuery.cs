@@ -14,5 +14,9 @@ public sealed record GetAllCreditNotesQuery(
     DateTime? ToDate,
 
     // Off by default; see ICreditNoteService.GetAllAsync. Only item-level callers need it.
-    bool IncludeLines = false
-) : IRequest<ErrorOr<CreditNoteListResponseDto>>;
+    bool IncludeLines = false,
+
+    // True: only credit notes against van invoices. False: none of them. Null: no van filter.
+    // The rule is VanSaleCreditNotes'.
+    bool? VanSalesOnly = null
+): IRequest<ErrorOr<CreditNoteListResponseDto>>;

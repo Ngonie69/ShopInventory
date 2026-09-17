@@ -65,10 +65,12 @@ public interface ICreditNoteService
     /// <summary>
     /// The credit-note list. <paramref name="includeLines"/> asks for the document lines as well;
     /// the local projection stores no line quantities, so asking for them reads SAP.
+    /// <paramref name="vanSalesOnly"/> true keeps only credit notes against van invoices, false
+    /// excludes them, and null applies no van filter — see <c>VanSaleCreditNotes</c>.
     /// </summary>
     Task<CreditNoteListResponseDto> GetAllAsync(int page, int pageSize, CreditNoteStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false,
-        CancellationToken cancellationToken = default);
+        bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
     Task<CreditNoteDto> CreateAsync(CreateCreditNoteRequest request, Guid userId, CancellationToken cancellationToken = default);
     /// <summary>
     /// Raises a credit note against an invoice SAP holds.
