@@ -52,6 +52,18 @@ public interface IReportExportService
 
     byte[] ExportVanStockToExcel(VanStockReportResponse report);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
+
+    /// <summary>
+    /// The invoices the van sales app created, as Van Sales → Invoices lists them. <c>filters</c> says what
+    /// narrowed the list beyond the period, or is null.
+    /// </summary>
+    byte[] ExportVanSalesInvoicesToExcel(IReadOnlyList<VanSalesInvoiceRowModel> rows, DateTime fromDate, DateTime toDate, string? filters = null);
+
+    /// <summary>
+    /// The credit notes against van sales invoices, as Van Sales → Credit Notes lists them. <c>filters</c> says
+    /// what narrowed the list beyond the period, or is null.
+    /// </summary>
+    byte[] ExportVanSalesCreditNotesToExcel(IReadOnlyList<VanSalesCreditNoteRowModel> rows, DateTime fromDate, DateTime toDate, string? filters = null);
     byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report);
     byte[] ExportManagementSalesReportToExcel(ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementSalesReportResult report, IReadOnlyDictionary<int, string>? itemGroupNames = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
@@ -9031,6 +9043,170 @@ public partial class ReportExportService : IReportExportService
         FinalizeSheet(ws, cols, headerRow, landscape: true);
         return WorkbookToBytes(workbook);
     }
+
+    // ─── Van Sales Documents Export ──────────────────────────────
+
+    public byte[] ExportVanSalesInvoicesToExcel(
+        IReadOnlyList<VanSalesInvoiceRowModel> rows,
+        DateTime fromDate,
+        DateTime toDate,
+        string? filters = null)
+    {
+        using var workbook = NewWorkbook("Van Sales Invoices");
+        var ws = AddSheet(workbook, "Invoices");
+        const int cols = 16;
+
+        var row = WriteReportHeader(ws, "Van Sales Invoices", cols, subtitle: VanSalesExportPeriod(fromDate, toDate, filters));
+
+        // Amount and VAT sit beside "Includes VAT" rather than being restated: an online sale from before
+        // receipts were stored carries only its net figure, and the column is what says which rows those are.
+        var headers = new[]
+        {
+            "Trading Day", "Van Order", "Channel", "Customer", "Customer Code", "Rep", "Van", "Payment",
+            "Currency", "Amount", "VAT", "Includes VAT", "Fiscal Receipt", "SAP Invoice", "State", "Problem"
+        };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var invoice in rows.OrderBy(r => r.TradingDate).ThenBy(r => r.CreatedAtUtc))
+        {
+            ws.Cell(row, 1).Value = invoice.TradingDate;
+            ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(row, 2).Value = invoice.Reference;
+            ws.Cell(row, 3).Value = invoice.Channel;
+            ws.Cell(row, 4).Value = invoice.CustomerName ?? "";
+            ws.Cell(row, 5).Value = invoice.CustomerCode ?? "";
+            ws.Cell(row, 6).Value = invoice.RepName ?? "";
+            ws.Cell(row, 7).Value = invoice.WarehouseCode ?? "";
+            ws.Cell(row, 8).Value = string.IsNullOrWhiteSpace(invoice.PaymentMethod) ? "Not recorded" : invoice.PaymentMethod.Trim();
+            ws.Cell(row, 9).Value = invoice.Currency;
+            ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 10).Value = invoice.Amount;
+            ws.Cell(row, 10).Style.NumberFormat.Format = FormatMoney;
+            if (invoice.VatAmount is { } vat)
+            {
+                ws.Cell(row, 11).Value = vat;
+                ws.Cell(row, 11).Style.NumberFormat.Format = FormatMoney;
+            }
+            ws.Cell(row, 12).Value = invoice.AmountIncludesVat ? "Yes" : "No";
+            ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 13).Value = invoice.FiscalReceiptNumber ?? "";
+            if (invoice.SapDocNum is { } docNum)
+            {
+                ws.Cell(row, 14).Value = docNum;
+            }
+            ws.Cell(row, 15).Value = Features.VanSalesDocuments.VanSalesDocumentDisplay.Label(invoice.State);
+            ws.Cell(row, 16).Value = invoice.Problem ?? "";
+            row++;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "The van sales app created no invoices that match.");
+
+        row = WriteCurrencyTotals(
+            ws,
+            row,
+            cols,
+            currencyColumn: 9,
+            labelColumn: 8,
+            rows.GroupBy(invoice => string.IsNullOrWhiteSpace(invoice.Currency) ? "-" : invoice.Currency.Trim()),
+            (sheet, totalRow, group) =>
+            {
+                sheet.Cell(totalRow, 10).Value = group.Sum(invoice => invoice.Amount);
+                sheet.Cell(totalRow, 11).Value = group.Sum(invoice => invoice.VatAmount ?? 0m);
+                sheet.Range(totalRow, 10, totalRow, 11).Style.NumberFormat.Format = FormatMoney;
+            });
+
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
+        return WorkbookToBytes(workbook);
+    }
+
+    public byte[] ExportVanSalesCreditNotesToExcel(
+        IReadOnlyList<VanSalesCreditNoteRowModel> rows,
+        DateTime fromDate,
+        DateTime toDate,
+        string? filters = null)
+    {
+        using var workbook = NewWorkbook("Van Sales Credit Notes");
+        var ws = AddSheet(workbook, "Credit Notes");
+        const int cols = 14;
+
+        var row = WriteReportHeader(ws, "Van Sales Credit Notes", cols, subtitle: VanSalesExportPeriod(fromDate, toDate, filters));
+
+        var headers = new[]
+        {
+            "Date", "Number", "Raised In", "Customer", "Customer Code", "Reason", "Reverses", "SAP Invoice",
+            "Currency", "Amount", "Fiscal Receipt", "Cancelled", "State", "Problem"
+        };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var note in rows.OrderBy(r => r.Date).ThenBy(r => r.Number, StringComparer.Ordinal))
+        {
+            ws.Cell(row, 1).Value = note.Date;
+            ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(row, 2).Value = note.Number;
+            ws.Cell(row, 3).Value = note.Origin == "Till" ? "Till" : "SAP";
+            ws.Cell(row, 4).Value = note.CustomerName ?? "";
+            ws.Cell(row, 5).Value = note.CustomerCode ?? "";
+            ws.Cell(row, 6).Value = note.Reason ?? "";
+            ws.Cell(row, 7).Value = string.Join(", ", note.CreditedInvoices.Select(invoice => invoice.Reference));
+            ws.Cell(row, 8).Value = string.Join(", ", note.CreditedInvoices
+                .Where(invoice => invoice.SapDocNum is not null)
+                .Select(invoice => invoice.SapDocNum!.Value.ToString(CultureInfo.InvariantCulture)));
+            ws.Cell(row, 9).Value = note.Currency;
+            ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 10).Value = note.Amount;
+            ws.Cell(row, 10).Style.NumberFormat.Format = FormatMoney;
+            ws.Cell(row, 11).Value = note.FiscalReceiptNumber ?? "";
+            ws.Cell(row, 12).Value = note.IsCancelled ? "Yes" : "No";
+            ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 13).Value = Features.VanSalesDocuments.VanSalesDocumentDisplay.Label(note.State);
+            ws.Cell(row, 14).Value = note.Problem ?? "";
+            row++;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No credit note against a van sales invoice matches.");
+
+        // A cancelled memo gave nothing back, so it is listed but not totalled.
+        row = WriteCurrencyTotals(
+            ws,
+            row,
+            cols,
+            currencyColumn: 9,
+            labelColumn: 8,
+            rows.Where(note => !note.IsCancelled)
+                .GroupBy(note => string.IsNullOrWhiteSpace(note.Currency) ? "-" : note.Currency.Trim()),
+            (sheet, totalRow, group) =>
+            {
+                sheet.Cell(totalRow, 10).Value = group.Sum(note => note.Amount);
+                sheet.Cell(totalRow, 10).Style.NumberFormat.Format = FormatMoney;
+            });
+
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// The period and the filters on one line. <see cref="WriteReportHeader"/> prints the subtitle only when it is
+    /// given no dates, so a filtered export passing both would lose the line that says it was filtered.
+    /// </summary>
+    private static string VanSalesExportPeriod(DateTime fromDate, DateTime toDate, string? filters) =>
+        string.Create(CultureInfo.InvariantCulture, $"Period: {fromDate:dd MMM yyyy} – {toDate:dd MMM yyyy}")
+        + (string.IsNullOrWhiteSpace(filters) ? "" : $"     |     {filters}");
 
     // ─── Desktop Sales Analysis Export ───────────────────────────
 

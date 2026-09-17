@@ -18,6 +18,16 @@ otherwise be surprised.
 
 ### Added
 
+- **Van sales document lists take new filters and return a period summary.**
+
+  `GET /api/van-sales/invoices` takes `channel` (`Online` or `Offline`) and returns `summary`: online
+  and offline counts, totals per currency with `netOnlyCount` (sales whose amount carries no VAT), and
+  what SAP has not invoiced yet, per currency and by van. `GET /api/van-sales/invoices/{reference}`
+  returns `creditNotes`, each with `givesBack` saying whether its amount actually came off the invoice.
+  `GET /api/van-sales/credit-notes` takes `origin` (`SAP` or `Till`) and `includeCancelled` (default
+  `true`) and returns `summary`; each credited invoice gains `amount`, `amountIncludesVat`, `currency`,
+  `soldOn`, `channel` and `warehouseCode`. All additions; an unknown `channel` or `origin` is a `400`.
+
 - **`transfer-listener/status` reports delivery and the ledger; the `transfer-listener` health check
   goes Unhealthy when transfer lines stop reaching the ledger.**
 
@@ -177,6 +187,12 @@ otherwise be surprised.
   probe gets a `404` and reports `Unhealthy`, so deploy the listener first.
 
 ### Changed
+
+- **A van sales SAP credit memo names the shop, not the van.**
+
+  `GET /api/van-sales/credit-notes` returned a memo's own `CardCode`/`CardName` as its customer, which is
+  the van's posting account shared by every shop on the round. Those rows now carry the route customer
+  of the invoice the memo reverses, falling back to the memo's card when the invoice has none.
 
 - **A card swipe now settles as bank transfer money, against a configured G/L account.**
 
