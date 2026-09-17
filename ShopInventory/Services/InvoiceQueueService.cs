@@ -15,11 +15,16 @@ public interface IInvoiceQueueService
     /// <summary>
     /// Enqueue an invoice for batch posting to SAP
     /// </summary>
+    /// <remarks>
+    /// <c>salesOrderId</c> is the local sales order the invoice was converted from, so consolidation can
+    /// base the invoice on it.
+    /// </remarks>
     Task<InvoiceQueueResultDto> EnqueueInvoiceAsync(
         CreateStockReservationRequest request,
         string reservationId,
         string? createdBy = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        int? salesOrderId = null);
 
     /// <summary>
     /// Get the status of a queued invoice by external reference
@@ -133,7 +138,8 @@ public class InvoiceQueueService : IInvoiceQueueService
         CreateStockReservationRequest request,
         string reservationId,
         string? createdBy = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? salesOrderId = null)
     {
         try
         {
@@ -175,6 +181,7 @@ public class InvoiceQueueService : IInvoiceQueueService
                 Priority = request.Priority ?? 0,
                 CreatedBy = createdBy,
                 Notes = request.Notes,
+                SalesOrderId = salesOrderId,
                 CreatedAt = DateTime.UtcNow,
                 MaxRetries = 3
             };

@@ -3745,7 +3745,7 @@ of that dialect matter before you call anything here:
 | GET | `/api/vansales/customer/{code}/history` | `customers.view` | What that one shop has bought and still has on order (`from`, `to`). The same detail the office's route customer report reads |
 | GET | `/api/vansales/customer/general-trade` | `customers.view` | Every customer the office has classified as General Trade (`OCRD.U_Channel`), company-wide. The only customer read here that is not scoped to the caller's route, so the handler admits `Admin` and `StockController` only. Carries `customers.view` rather than `invoices.view` because a stock controller holds the first and not the second |
 | GET | `/api/vansales/customer/{code}/invoices` | `customers.view` | Every invoice SAP holds against one customer, whoever raised it (`from`, `to`, `page`, `pageSize`). Distinct from `{code}/history` above, which answers for a shop on the caller's own route out of this platform's tables; this reads SAP and is not route-scoped. Same two roles |
-| POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order |
+| POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order. Posted to SAP by the post-save queue once priced, without waiting for approval on the web; an order over its credit limit stays Pending for web approval |
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
 | GET | `/api/vansales/fiscal` | `invoices.view` | Fiscal device details for the handset |
@@ -3756,7 +3756,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/order` | `invoices.create` | Direct invoice. `202` when queued rather than posted |
 | POST | `/api/vansales/order/with-batches` | `invoices.create` | The same action as `/order` — one more route on it, not a second endpoint |
 | POST | `/api/vansales/sales` | `invoices.create` | Take custody of offline, already-ZIMRA-stamped sales |
-| POST | `/api/vansales/order/convert-to-invoice` | `invoices.create` | Always `202` |
+| POST | `/api/vansales/order/convert-to-invoice` | `invoices.create` | Always `202`. The end-of-day consolidated invoice is based on the order in SAP (`BaseType` 17) up to each line's open quantity; the rest, or an order SAP will not invoice against, goes on ordinary lines |
 | POST | `/api/vansales/stock/position` | `inventory.transfer` | What the van is carrying, as its own handset counts it. Becomes that van's stock snapshot for the trading day — the first count of a day is the one kept |
 | GET | `/api/vansales/stock/position` | `inventory.transfer` | What the van is carrying now: the morning count, plus loads transferred in since, less every sale received today. For a handset that has lost its own ledger. `counted: false` means the position is unknown, not that the van is empty |
 | POST | `/api/vansales/inventory/request` | `inventory.transfer` | Ask the depot for stock. `201` |

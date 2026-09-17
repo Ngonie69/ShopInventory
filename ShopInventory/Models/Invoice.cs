@@ -327,6 +327,26 @@ public class CreateInvoiceLineRequest
     /// Defaults to true. Set to false to require explicit batch allocation.
     /// </summary>
     public bool AutoAllocateBatches { get; set; } = true;
+
+    /// <summary>
+    /// The SAP document this line is based on: 17 for a sales order. Set with <see cref="BaseEntry"/>
+    /// and <see cref="BaseLine"/>, SAP records the order line as invoiced and closes it once nothing is
+    /// left open.
+    /// </summary>
+    /// <remarks>
+    /// <c>[JsonIgnore]</c>, as are the other two: set in-process by consolidation from an order it has
+    /// read back from SAP, not accepted from a request body.
+    /// </remarks>
+    [JsonIgnore]
+    public int? BaseType { get; set; }
+
+    /// <summary>The base document's DocEntry.</summary>
+    [JsonIgnore]
+    public int? BaseEntry { get; set; }
+
+    /// <summary>The base document's LineNum.</summary>
+    [JsonIgnore]
+    public int? BaseLine { get; set; }
 }
 
 /// <summary>
