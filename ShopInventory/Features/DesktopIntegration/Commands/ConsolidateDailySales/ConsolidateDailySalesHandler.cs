@@ -858,15 +858,7 @@ public sealed class ConsolidateDailySalesHandler(
                 sapOrdersByDocEntry[local.DocEntry] = sapOrder;
             }
 
-            var unusableBecause = sapOrder switch
-            {
-                null => "SAP did not return it",
-                _ when !string.Equals(sapOrder.CardCode?.Trim(), cardCode.Trim(), StringComparison.OrdinalIgnoreCase)
-                    => $"it belongs to {sapOrder.CardCode}",
-                _ when string.Equals(sapOrder.Cancelled, "tYES", StringComparison.OrdinalIgnoreCase) => "it is cancelled",
-                _ when !string.Equals(sapOrder.DocumentStatus, "bost_Open", StringComparison.OrdinalIgnoreCase) => "it is closed",
-                _ => null
-            };
+            var unusableBecause = ConsolidatedInvoiceLines.WhyNotBaseable(sapOrder, cardCode);
 
             if (unusableBecause is not null)
             {

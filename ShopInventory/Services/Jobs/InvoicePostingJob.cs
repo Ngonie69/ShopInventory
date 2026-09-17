@@ -1,17 +1,21 @@
 using System.Text.Json;
+using MediatR;
 using Microsoft.Extensions.Options;
 using Quartz;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoices;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
 
 /// <summary>
 /// Quartz job that processes queued invoices — fiscalizes them and stores locally.
-/// Invoices are NOT posted to SAP individually; they are accumulated and posted as a
+/// Most invoices are NOT posted to SAP individually; they are accumulated and posted as a
 /// single consolidated invoice per customer at end-of-day via ConsolidateDailySales.
+/// Van sales are the exception: consolidation refuses them, so each run also posts the
+/// fiscalised ones one-to-one through PostQueuedVanInvoices.
 /// Cadence, clustering and misfire handling are owned by Quartz (see QuartzConfiguration).
 /// </summary>
 [DisallowConcurrentExecution]
@@ -32,6 +36,38 @@ public sealed class InvoicePostingJob : IJob
     public async Task Execute(IJobExecutionContext context)
     {
         await ProcessQueueAsync(context.CancellationToken);
+        await PostFiscalisedVanSalesAsync(context.CancellationToken);
+    }
+
+    /// <summary>
+    /// Posts the van sales this job has fiscalised, after the fiscalising pass so a sale can go from
+    /// queued to invoiced in one run.
+    /// </summary>
+    /// <remarks>
+    /// Its own scope and its own catch: a failure here must not stop the queue fiscalising, and a
+    /// failure there must not strand sales that are already waiting for SAP.
+    /// </remarks>
+    private async Task PostFiscalisedVanSalesAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var sender = scope.ServiceProvider.GetRequiredService<ISender>();
+
+            var result = await sender.Send(
+                new PostQueuedVanInvoicesCommand(_batchSize),
+                stoppingToken);
+
+            if (result.IsError)
+            {
+                _logger.LogWarning(
+                    "Posting fiscalised van sales was refused: {Error}", result.FirstError.Description);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "Posting fiscalised van sales to SAP failed");
+        }
     }
 
     private async Task ProcessQueueAsync(CancellationToken stoppingToken)
@@ -79,6 +115,13 @@ public sealed class InvoicePostingJob : IJob
     {
         var startTime = DateTime.UtcNow;
 
+        // Read before this attempt marks the entry, which sets ProcessingStartedAt. An entry that has
+        // been started before may already have lodged its receipt — the reply was lost, or it went to
+        // review after fiscalising and was put back by Retry. A fiscalised van sale that SAP refused goes
+        // to review exactly that way, so resubmitting blind would sign the sale a second time.
+        var mayAlreadyBeFiscalised = queueEntry.ProcessingStartedAt.HasValue
+            || queueEntry.FiscalizationSuccess == true;
+
         try
         {
             // Mark as processing
@@ -112,13 +155,25 @@ public sealed class InvoicePostingJob : IJob
                     throw new InvalidOperationException("Fiscalization is required but the fiscalization service is not available");
                 }
 
-                var invoiceDto = BuildInvoiceDtoFromPayload(queueEntry, request, vatRate);
+                // Throws when the device cannot be asked, which lands in the catch below as a retryable
+                // failure: not knowing is not a licence to sign.
+                var alreadyFiled = mayAlreadyBeFiscalised
+                    ? await fiscalizationService.FindPreSapReceiptAsync(
+                        queueEntry.ExternalReference, stoppingToken)
+                    : null;
+
+                if (alreadyFiled is not null)
+                {
+                    _logger.LogInformation(
+                        "Invoice {ExternalReference} already holds receipt {Receipt}; adopted rather than fiscalised again",
+                        queueEntry.ExternalReference, alreadyFiled.ReceiptGlobalNo);
+                }
 
                 // Pre-SAP: this invoice does not exist in SAP yet, so it is fiscalised from a full
                 // payload under its external reference. That reference is the receipt's permanent
                 // fiscal identity and must stay byte-identical across every retry of this entry.
-                var fiscalResult = await fiscalizationService.FiscalizePreSapInvoiceAsync(
-                    invoiceDto,
+                var fiscalResult = alreadyFiled ?? await fiscalizationService.FiscalizePreSapInvoiceAsync(
+                    BuildInvoiceDtoFromPayload(queueEntry, request, vatRate),
                     queueEntry.ExternalReference,
                     customerDetails: null,
                     paymentType: TenderTypes.ToMoneyType(request.PaymentMethod),
