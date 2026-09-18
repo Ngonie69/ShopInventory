@@ -107,6 +107,40 @@ public class SapCircuitBreakerTimeoutTests
     }
 
     [Fact]
+    public async Task A_batch_read_SAP_never_answers_records_exactly_one_failure()
+    {
+        // The per-item batch read runs its SQL under the stock budget too, through the raw SQL path
+        // rather than SendStockRequestWithBudgetAsync, so it has to mark its requests itself.
+        var harness = new Harness(BatchListHangs);
+
+        var read = harness.Client.GetBatchNumbersForItemInWarehouseAsync("CHE011", "KEFBYC");
+        await harness.Sap.WaitForHangAsync(read);
+        harness.Clock.Advance(Harness.StockBudget);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => read);
+        var snapshot = harness.Breaker.GetSnapshot();
+        Assert.Equal(1, snapshot.ConsecutiveFailures);
+        Assert.Contains("deadline", snapshot.LastFailure);
+        Assert.Equal(1, harness.Sap.HungRequests);
+    }
+
+    [Fact]
+    public async Task A_caller_giving_up_on_a_batch_read_records_nothing()
+    {
+        var harness = new Harness(BatchListHangs);
+        using var caller = new CancellationTokenSource();
+
+        var read = harness.Client.GetBatchNumbersForItemInWarehouseAsync("CHE011", "KEFBYC", caller.Token);
+        await harness.Sap.WaitForHangAsync(read);
+        caller.Cancel();
+
+        var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read);
+        Assert.IsNotType<TimeoutException>(ex);
+        Assert.Equal(1, harness.Sap.CancelledRequests);
+        Assert.Equal(0, harness.Breaker.GetSnapshot().ConsecutiveFailures);
+    }
+
+    [Fact]
     public async Task The_price_list_budget_running_out_records_nothing()
     {
         // Both price-list reads — the PriceLists entity set and the SQL fallback over OPLN — run
@@ -157,6 +191,10 @@ public class SapCircuitBreakerTimeoutTests
             () => harness.Client.GetStockQuantitiesInWarehouseAsync("CORMACH"));
         Assert.Equal(5, harness.Sap.HungRequests);
     }
+
+    private static bool BatchListHangs(string path) =>
+        path.Contains(SAPServiceLayerClient.ItemBatchesQueryCode, StringComparison.Ordinal)
+        && path.EndsWith("/List", StringComparison.Ordinal);
 
     private static SapCircuitBreakerState NewBreaker() =>
         new(Options.Create(new SAPSettings { CircuitFailureThreshold = 5, CircuitBreakDurationSeconds = 30 }));
