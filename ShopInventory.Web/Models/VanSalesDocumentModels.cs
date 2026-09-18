@@ -114,6 +114,15 @@ public class VanSalesInvoiceRowModel
     public string? FiscalDeviceSerial { get; set; }
     public string State { get; set; } = string.Empty;
     public string? Problem { get; set; }
+
+    /// <summary><c>INV10427</c>, as Desktop Sales shows the same sale. Null for an old online sale with no sale row.</summary>
+    public string? SaleNumber { get; set; }
+
+    /// <summary>What the invoice is called on screen: its sale number, or its reference when it has none.</summary>
+    public string Number => string.IsNullOrWhiteSpace(SaleNumber) ? Reference : SaleNumber;
+
+    /// <summary>Whether the reference needs showing beside the number, because the number is not the reference.</summary>
+    public bool HasSaleNumber => !string.IsNullOrWhiteSpace(SaleNumber);
 }
 
 public class VanSalesRepOptionModel

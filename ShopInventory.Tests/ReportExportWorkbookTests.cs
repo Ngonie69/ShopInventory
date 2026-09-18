@@ -328,7 +328,7 @@ public class ReportExportWorkbookTests
         var rows = new List<VanSalesInvoiceRowModel>
         {
             new() { Reference = "KVS-1", Channel = "Online", TradingDate = From, Currency = "USD", Amount = 115.50m, VatAmount = 15.50m, AmountIncludesVat = true, State = VanSalesDocumentState.Complete },
-            new() { Reference = "KVS-2", Channel = "Online", TradingDate = From, Currency = "USD", Amount = 100m, AmountIncludesVat = false, State = VanSalesDocumentState.NeedsAttention, Problem = "SAP refused it" },
+            new() { Reference = "KVS-2", SaleNumber = "INV102", Channel = "Online", TradingDate = From, Currency = "USD", Amount = 100m, AmountIncludesVat = false, State = VanSalesDocumentState.NeedsAttention, Problem = "SAP refused it" },
             new() { Reference = "KVS-3", Channel = "Offline", TradingDate = To, Currency = "ZWG", Amount = 5000m, AmountIncludesVat = true, State = VanSalesDocumentState.AwaitingSap },
         };
 
@@ -336,16 +336,20 @@ public class ReportExportWorkbookTests
         var sheet = workbook.Worksheet("Invoices");
 
         var header = sheet.CellsUsed().First(c => c.GetString() == "Van Order").Address.RowNumber;
+        Assert.Equal("Invoice No.", sheet.Cell(header, 2).GetString());
+        // KVS-1 has no sale number: an old online sale, so the cell is blank rather than a repeat of the reference.
+        Assert.Equal("", sheet.Row(header + 1).Cell(2).GetString());
         var net = sheet.Row(header + 2);
-        Assert.Equal("KVS-2", net.Cell(2).GetString());
-        Assert.Equal(100m, net.Cell(10).GetValue<decimal>());
-        Assert.Equal("No", net.Cell(12).GetString());
-        Assert.Equal("Needs attention", net.Cell(15).GetString());
+        Assert.Equal("INV102", net.Cell(2).GetString());
+        Assert.Equal("KVS-2", net.Cell(3).GetString());
+        Assert.Equal(100m, net.Cell(11).GetValue<decimal>());
+        Assert.Equal("No", net.Cell(13).GetString());
+        Assert.Equal("Needs attention", net.Cell(16).GetString());
 
         var totals = sheet.CellsUsed().Where(c => c.GetString().StartsWith("Total (", StringComparison.Ordinal)).ToList();
         Assert.Equal(2, totals.Count);
-        var usd = totals.Single(c => c.Worksheet.Cell(c.Address.RowNumber, 9).GetString() == "USD");
-        Assert.Equal(215.50m, sheet.Cell(usd.Address.RowNumber, 10).GetValue<decimal>());
+        var usd = totals.Single(c => c.Worksheet.Cell(c.Address.RowNumber, 10).GetString() == "USD");
+        Assert.Equal(215.50m, sheet.Cell(usd.Address.RowNumber, 11).GetValue<decimal>());
         Assert.Contains(sheet.CellsUsed(), c => c.GetString().Contains("Online only"));
     }
 

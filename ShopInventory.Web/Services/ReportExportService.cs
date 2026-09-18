@@ -9054,7 +9054,7 @@ public partial class ReportExportService : IReportExportService
     {
         using var workbook = NewWorkbook("Van Sales Invoices");
         var ws = AddSheet(workbook, "Invoices");
-        const int cols = 16;
+        const int cols = 17;
 
         var row = WriteReportHeader(ws, "Van Sales Invoices", cols, subtitle: VanSalesExportPeriod(fromDate, toDate, filters));
 
@@ -9062,7 +9062,7 @@ public partial class ReportExportService : IReportExportService
         // receipts were stored carries only its net figure, and the column is what says which rows those are.
         var headers = new[]
         {
-            "Trading Day", "Van Order", "Channel", "Customer", "Customer Code", "Rep", "Van", "Payment",
+            "Trading Day", "Invoice No.", "Van Order", "Channel", "Customer", "Customer Code", "Rep", "Van", "Payment",
             "Currency", "Amount", "VAT", "Includes VAT", "Fiscal Receipt", "SAP Invoice", "State", "Problem"
         };
         for (int i = 0; i < headers.Length; i++)
@@ -9078,31 +9078,33 @@ public partial class ReportExportService : IReportExportService
         {
             ws.Cell(row, 1).Value = invoice.TradingDate;
             ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
-            ws.Cell(row, 2).Value = invoice.Reference;
-            ws.Cell(row, 3).Value = invoice.Channel;
-            ws.Cell(row, 4).Value = invoice.CustomerName ?? "";
-            ws.Cell(row, 5).Value = invoice.CustomerCode ?? "";
-            ws.Cell(row, 6).Value = invoice.RepName ?? "";
-            ws.Cell(row, 7).Value = invoice.WarehouseCode ?? "";
-            ws.Cell(row, 8).Value = string.IsNullOrWhiteSpace(invoice.PaymentMethod) ? "Not recorded" : invoice.PaymentMethod.Trim();
-            ws.Cell(row, 9).Value = invoice.Currency;
-            ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 10).Value = invoice.Amount;
-            ws.Cell(row, 10).Style.NumberFormat.Format = FormatMoney;
+            // The number the page leads with, blank for an old online sale that has none; the reference beside it.
+            ws.Cell(row, 2).Value = invoice.SaleNumber ?? "";
+            ws.Cell(row, 3).Value = invoice.Reference;
+            ws.Cell(row, 4).Value = invoice.Channel;
+            ws.Cell(row, 5).Value = invoice.CustomerName ?? "";
+            ws.Cell(row, 6).Value = invoice.CustomerCode ?? "";
+            ws.Cell(row, 7).Value = invoice.RepName ?? "";
+            ws.Cell(row, 8).Value = invoice.WarehouseCode ?? "";
+            ws.Cell(row, 9).Value = string.IsNullOrWhiteSpace(invoice.PaymentMethod) ? "Not recorded" : invoice.PaymentMethod.Trim();
+            ws.Cell(row, 10).Value = invoice.Currency;
+            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 11).Value = invoice.Amount;
+            ws.Cell(row, 11).Style.NumberFormat.Format = FormatMoney;
             if (invoice.VatAmount is { } vat)
             {
-                ws.Cell(row, 11).Value = vat;
-                ws.Cell(row, 11).Style.NumberFormat.Format = FormatMoney;
+                ws.Cell(row, 12).Value = vat;
+                ws.Cell(row, 12).Style.NumberFormat.Format = FormatMoney;
             }
-            ws.Cell(row, 12).Value = invoice.AmountIncludesVat ? "Yes" : "No";
-            ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 13).Value = invoice.FiscalReceiptNumber ?? "";
+            ws.Cell(row, 13).Value = invoice.AmountIncludesVat ? "Yes" : "No";
+            ws.Cell(row, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 14).Value = invoice.FiscalReceiptNumber ?? "";
             if (invoice.SapDocNum is { } docNum)
             {
-                ws.Cell(row, 14).Value = docNum;
+                ws.Cell(row, 15).Value = docNum;
             }
-            ws.Cell(row, 15).Value = Features.VanSalesDocuments.VanSalesDocumentDisplay.Label(invoice.State);
-            ws.Cell(row, 16).Value = invoice.Problem ?? "";
+            ws.Cell(row, 16).Value = Features.VanSalesDocuments.VanSalesDocumentDisplay.Label(invoice.State);
+            ws.Cell(row, 17).Value = invoice.Problem ?? "";
             row++;
         }
 
@@ -9112,14 +9114,14 @@ public partial class ReportExportService : IReportExportService
             ws,
             row,
             cols,
-            currencyColumn: 9,
-            labelColumn: 8,
+            currencyColumn: 10,
+            labelColumn: 9,
             rows.GroupBy(invoice => string.IsNullOrWhiteSpace(invoice.Currency) ? "-" : invoice.Currency.Trim()),
             (sheet, totalRow, group) =>
             {
-                sheet.Cell(totalRow, 10).Value = group.Sum(invoice => invoice.Amount);
-                sheet.Cell(totalRow, 11).Value = group.Sum(invoice => invoice.VatAmount ?? 0m);
-                sheet.Range(totalRow, 10, totalRow, 11).Style.NumberFormat.Format = FormatMoney;
+                sheet.Cell(totalRow, 11).Value = group.Sum(invoice => invoice.Amount);
+                sheet.Cell(totalRow, 12).Value = group.Sum(invoice => invoice.VatAmount ?? 0m);
+                sheet.Range(totalRow, 11, totalRow, 12).Style.NumberFormat.Format = FormatMoney;
             });
 
         WriteFooter(ws, row - 1, cols);

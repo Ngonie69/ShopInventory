@@ -87,6 +87,7 @@ internal static class VanSalesInvoiceReader
                 .Where(s => s.SourceSystem == SaleSourceSystems.VanSalesOnline
                             && references.Contains(s.ExternalReferenceId))
                 .Select(s => new ReceiptRow(
+                    s.Id,
                     s.ExternalReferenceId,
                     s.FiscalizationStatus,
                     s.FiscalizationRequiresReconciliation,
@@ -224,7 +225,8 @@ internal static class VanSalesInvoiceReader
                 FiscalDay: signed ? receipt!.FiscalDayNo : null,
                 FiscalDeviceSerial: signed ? receipt!.FiscalDeviceNumber : null,
                 State: VanSalesDocumentStates.Decide(signed || queueSigned, sapDocNum is not null, failure is not null),
-                Problem: failure);
+                Problem: failure,
+                SaleNumber: receipt is null ? null : DesktopSaleNumber.Format(receipt.Id));
 
             records.Add(new VanSalesInvoiceRecord(
                 row,
@@ -280,7 +282,8 @@ internal static class VanSalesInvoiceReader
                 FiscalDay: s.FiscalDayNo,
                 FiscalDeviceSerial: s.FiscalDeviceNumber,
                 State: VanSalesDocumentStates.Decide(signed, s.SapDocNum is not null, failure is not null),
-                Problem: failure);
+                Problem: failure,
+                SaleNumber: DesktopSaleNumber.Format(s.Id));
 
             records.Add(new VanSalesInvoiceRecord(
                 row, null, s.Id, s.FiscalQRCode, s.PostingAttempts, QueueStatus: null));
@@ -357,6 +360,7 @@ internal static class VanSalesInvoiceReader
         int.TryParse(value, out var parsed) ? parsed : null;
 
     private sealed record ReceiptRow(
+        int Id,
         string Reference,
         DesktopSaleFiscalizationStatus FiscalizationStatus,
         bool RequiresReconciliation,
