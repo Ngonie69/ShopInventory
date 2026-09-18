@@ -103,6 +103,17 @@ public class IdempotencyMiddleware
             // quotations before posting and among SAP DocEntries after, so a retry is answered with
             // the quotation rather than raising another.
             "POST /api/quotation",
+            // The purchase documents and transfer requests claim their key through IdempotentCreate
+            // and complete with the document they created. None of them reaches SAP carrying a
+            // reference that could be looked up afterwards, so the stored response is the only way a
+            // retry that lost its reply learns the document exists — replaying a bare message here
+            // would hand back a success status with nothing in it.
+            "POST /api/purchaseorder",
+            "POST /api/purchaseinvoice",
+            "POST /api/purchasequotation",
+            "POST /api/goodsreceiptpurchaseorder",
+            "POST /api/purchaserequest",
+            "POST /api/inventorytransfer/request",
             // PostDesktopSalesToSapHandler posts a named set of sales, each under its own claim in
             // IDesktopSalePostGuard, and answers with a row per sale saying whether it was posted,
             // was already in SAP, or was left alone. A batch can outlive the caller's timeout while

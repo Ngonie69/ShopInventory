@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Validation;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -18,6 +19,7 @@ namespace ShopInventory.Features.InventoryTransfers.Commands.CreateTransferReque
 public sealed class CreateTransferRequestHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     IInventoryTransferApprovalService approvalService,
     INotificationService notificationService,
@@ -25,7 +27,22 @@ public sealed class CreateTransferRequestHandler(
     ILogger<CreateTransferRequestHandler> logger
 ) : IRequestHandler<CreateTransferRequestCommand, ErrorOr<TransferRequestCreatedResponseDto>>
 {
-    public async Task<ErrorOr<TransferRequestCreatedResponseDto>> Handle(
+    public Task<ErrorOr<TransferRequestCreatedResponseDto>> Handle(
+        CreateTransferRequestCommand command,
+        CancellationToken cancellationToken)
+        => IdempotentCreate.RunAsync(
+            idempotencyRequestStore,
+            logger,
+            "transferrequests.create",
+            "transfer request creation",
+            command.Request.ClientRequestId,
+            command.Request,
+            token => CreateAsync(command, token),
+            cancellationToken);
+
+    // Keeps its own commit point (postCommitted below); IdempotentCreate keeps the claim for exactly
+    // the errors that say the post may have landed — SapPostUncertain carries the mark.
+    private async Task<ErrorOr<TransferRequestCreatedResponseDto>> CreateAsync(
         CreateTransferRequestCommand command,
         CancellationToken cancellationToken)
     {
@@ -192,6 +209,20 @@ public sealed class CreateTransferRequestHandler(
             logger.LogError(
                 ex,
                 "Transfer request post to SAP was aborted after it began; the document may exist in SAP");
+            return Errors.InventoryTransfer.SapPostUncertain;
+        }
+        catch (SapRequestRejectedException rejected)
+        {
+            // SAP answered, and the answer was no: nothing exists, and the claim is given back.
+            logger.LogWarning(rejected, "SAP refused the transfer request");
+            return Errors.InventoryTransfer.CreationFailed(rejected.SapMessage);
+        }
+        catch (Exception ex) when (postCommitted && !SapFailureClassifier.DefinitelyNotCommitted(ex))
+        {
+            // Past the commit point a dropped connection, an unreadable reply or a failure writing
+            // the approval row all leave the document possibly in SAP. Reporting any of them as a
+            // plain failure invited the retry that raises a second transfer request.
+            logger.LogError(ex, "Transfer request post failed after it began; the document may exist in SAP");
             return Errors.InventoryTransfer.SapPostUncertain;
         }
         catch (HttpRequestException ex)

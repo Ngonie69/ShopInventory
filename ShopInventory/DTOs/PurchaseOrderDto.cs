@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.ComponentModel.DataAnnotations;
 using ShopInventory.Models.Entities;
 
@@ -72,6 +73,14 @@ public class PurchaseOrderLineDto
 /// </summary>
 public class CreatePurchaseOrderRequest
 {
+    /// <summary>
+    /// The idempotency key: arrives in the <c>Idempotency-Key</c> header, and the controller copies it
+    /// here. Never bound from the body or written back out, because some of these requests are
+    /// serialized as they stand into the SAP payload, and SAP refuses a property it does not know.
+    /// </summary>
+    [JsonIgnore]
+    public string? ClientRequestId { get; set; }
+
     public DateTime? DeliveryDate { get; set; }
 
     [Required(ErrorMessage = "Supplier code is required")]

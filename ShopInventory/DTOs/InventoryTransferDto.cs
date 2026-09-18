@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 namespace ShopInventory.DTOs;
 
 /// <summary>
@@ -136,6 +137,14 @@ public class InventoryTransferRequestLineDto
 /// </summary>
 public class CreateTransferRequestDto
 {
+    /// <summary>
+    /// The idempotency key: arrives in the <c>Idempotency-Key</c> header, and the controller copies it
+    /// here. Never bound from the body or written back out, because some of these requests are
+    /// serialized as they stand into the SAP payload, and SAP refuses a property it does not know.
+    /// </summary>
+    [JsonIgnore]
+    public string? ClientRequestId { get; set; }
+
     /// <summary>
     /// Source warehouse code (can be overridden per line)
     /// </summary>

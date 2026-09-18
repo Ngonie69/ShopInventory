@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.ComponentModel.DataAnnotations;
 
 namespace ShopInventory.DTOs;
@@ -40,6 +41,14 @@ public class PurchaseQuotationLineDto
 
 public class CreatePurchaseQuotationRequest
 {
+    /// <summary>
+    /// The idempotency key: arrives in the <c>Idempotency-Key</c> header, and the controller copies it
+    /// here. Never bound from the body or written back out, because some of these requests are
+    /// serialized as they stand into the SAP payload, and SAP refuses a property it does not know.
+    /// </summary>
+    [JsonIgnore]
+    public string? ClientRequestId { get; set; }
+
     [Required(ErrorMessage = "Supplier code is required")]
     public string CardCode { get; set; } = null!;
 
