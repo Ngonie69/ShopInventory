@@ -930,7 +930,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
         using var http = new HttpClient(new BodyHandler(TillReceiptJson));
         var client = new RevmaxClient(http, options, NullLogger<RevmaxClient>.Instance);
         var gateway = new RevmaxDesktopCreditGateway(client, new RevmaxFiscalizationService(client, options,
-            Options.Create(new TaxSettings()), selection, NullLogger<RevmaxFiscalizationService>.Instance), options, selection, NoExternalCredits);
+            Options.Create(new TaxSettings()), selection, NullLogger<RevmaxFiscalizationService>.Instance), options, selection, NoExternalCredits, NoFiscalDays);
 
         var source = await gateway.ReadOriginalAsync(sale, default);
 
@@ -992,7 +992,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
     }
 
     private static RevmaxDesktopCreditGateway RealGateway(InvoiceResponse original,
-        IDesktopCreditExternalCredits? externalCredits = null)
+        IDesktopCreditExternalCredits? externalCredits = null, IDesktopCreditFiscalDays? fiscalDays = null)
     {
         var client = StubProxy.For<IRevmaxClient>((m, _) => m.Name == "GetInvoiceAsync"
             ? Task.FromResult<InvoiceResponse?>(original) : throw new InvalidOperationException("Unexpected device write"));
@@ -1000,8 +1000,12 @@ public sealed class DesktopCreditNoteTests : IDisposable
         var selection = Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Revmax });
         var device = new RevmaxFiscalizationService(client, settings, Options.Create(new TaxSettings()), selection,
             NullLogger<RevmaxFiscalizationService>.Instance);
-        return new RevmaxDesktopCreditGateway(client, device, settings, selection, externalCredits ?? NoExternalCredits);
+        return new RevmaxDesktopCreditGateway(client, device, settings, selection, externalCredits ?? NoExternalCredits,
+            fiscalDays ?? NoFiscalDays);
     }
+
+    private static readonly IDesktopCreditFiscalDays NoFiscalDays =
+        StubProxy.For<IDesktopCreditFiscalDays>((_, _) => Task.FromResult<int?>(null));
 
     private static readonly IDesktopCreditExternalCredits NoExternalCredits =
         StubProxy.For<IDesktopCreditExternalCredits>((_, _) => Task.FromResult(DesktopCreditExternalHistory.None));

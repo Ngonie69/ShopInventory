@@ -15,7 +15,7 @@ namespace ShopInventory.Features.DesktopCreditNotes;
 /// </summary>
 public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFiscalizationService fiscal,
     IOptions<RevmaxSettings> settings, IOptions<FiscalisationSettings> selection,
-    IDesktopCreditExternalCredits externalCredits) : IDesktopCreditFiscalGateway
+    IDesktopCreditExternalCredits externalCredits, IDesktopCreditFiscalDays fiscalDays) : IDesktopCreditFiscalGateway
 {
     private void RequireEnabled()
     {
@@ -38,10 +38,15 @@ public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFisca
         // GetInvoice.FiscalDay is not the receipt's day. Use the day recorded when this sale was filed,
         // and prove that its sequence is the one REVMax returned before using it as the fiscal link.
         var global = data.ReceiptGlobalNo;
-        if (!int.TryParse(sale.FiscalDayNo, out var day) || day <= 0 || global <= 0 || global > int.MaxValue ||
+        if (global <= 0 || global > int.MaxValue ||
             (!string.IsNullOrWhiteSpace(sale.FiscalReceiptNumber) &&
              (!long.TryParse(sale.FiscalReceiptNumber, out var recordedGlobal) || recordedGlobal != global)))
-            throw new InvalidOperationException("The original sale's recorded fiscal day or receipt number is missing or does not match REVMax. Reconcile the original receipt first.");
+            throw new InvalidOperationException($"The original sale's recorded receipt number ({sale.FiscalReceiptNumber ?? "none"}) does not match REVMax's receipt {global}. Reconcile the original receipt first.");
+        // Filing leaves the day blank when the device could not vouch for it then; a receipt of the same
+        // day can still prove it. See DesktopCreditFiscalDays.
+        if (!int.TryParse(sale.FiscalDayNo, out var day) || day <= 0)
+            day = await fiscalDays.ResolveAsync(sale, global, data.ReceiptCounter, ct)
+                ?? throw new InvalidOperationException($"The fiscal day receipt {global} went into was not recorded when it was filed, and no receipt of that day with a recorded day could be found to prove it. Record the day on the original sale first.");
         // A credit needs a quantity, a value and the tax the line was sold under; receiptLineNo and
         // receiptLineType are the device's own bookkeeping and it does not have to echo either. Absent
         // or repeated numbers only cost the line its identity, which its position gives back, so they
