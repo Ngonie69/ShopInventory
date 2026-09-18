@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -43,6 +44,7 @@ public sealed class PostQueuedVanInvoicesHandler(
     IStockReservationService reservationService,
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState sapCircuitBreakerState,
+    DesktopCreditSapPoster creditPoster,
     ILogger<PostQueuedVanInvoicesHandler> logger
 ) : IRequestHandler<PostQueuedVanInvoicesCommand, ErrorOr<PostQueuedVanInvoicesResult>>
 {
@@ -287,6 +289,27 @@ public sealed class PostQueuedVanInvoicesHandler(
         logger.LogInformation(
             "Queued van sale {ExternalReference} posted to SAP as DocNum {DocNum} (queue entry {QueueId})",
             entry.ExternalReference, sapDocNum, entry.Id);
+
+        // A sale sits on this queue precisely because it was fiscalised and SAP would not take its
+        // invoice, which is the longest that window is ever open — so it is the likeliest place for a
+        // return to have been credited against a receipt with no invoice behind it. The memo was
+        // deferred for want of an invoice; there is one now. Advisory: the invoice exists, and letting
+        // this throw would leave the entry incomplete and offer SAP a second invoice for one receipt.
+        if (receiptRow is not null)
+        {
+            try
+            {
+                await creditPoster.SettleForSaleAsync(receiptRow.Id, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(
+                    ex,
+                    "Queued van sale {ExternalReference} posted as invoice {DocNum}, but the fiscal "
+                    + "credits against it could not be raised in SAP.",
+                    entry.ExternalReference, sapDocNum);
+            }
+        }
     }
 
     private async Task<Outcome> DeferAsync(InvoiceQueueEntity entry, string reason)

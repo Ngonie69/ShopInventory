@@ -267,21 +267,26 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     /// </remarks>
     private void RequireCreditableHere(DesktopSaleEntity sale)
     {
-        // An online van sale's row is not a sale; it is the carrier for a receipt. The invoice reached
-        // SAP inside the request that made it, and was fiscalised from that invoice by
-        // InvoiceFiscalizationBackgroundService — so its receipt is filed under the SAP DocNum, not
-        // under this sale's reference, which is the only number this dialog knows how to ask for.
+        // Whoever holds the receipt is the only one who can credit it, and on a van sale that is not
+        // settled by the source system. An online van row is a receipt carrier either way, but there
+        // are two ways it got its receipt:
         //
-        // The classic credit-note path does know: CreditNoteOriginalReceipt.ResolveAsync resolves the
-        // receipt from the DocNum, and falls back to the DocNum itself for exactly this row, because
-        // PerSaleInvoiceRegistry filters on a Success fiscalisation and an online van row is not one.
-        if (string.Equals(sale.SourceSystem, SaleSourceSystems.VanSalesOnline, StringComparison.Ordinal))
+        //  • This server signed it, before the invoice went anywhere — VanSaleFiscalFirstPoster calls
+        //    FiscalizePreSapInvoiceAsync under the reservation's own reference, the same call the till
+        //    uses. REVMax then holds the receipt under BuildPreSapInvoiceNo(reference), which is
+        //    exactly the number the gateway below asks for, so this is creditable here and a sale
+        //    whose invoice SAP has not taken is creditable here too — that is the whole point of
+        //    signing first.
+        //  • A handset signed it, off its own device's chain, and the row carries the signature so it
+        //    can be handed to the platform. A device has one chain with one writer, so nothing here
+        //    can sign a credit onto it; ReceiptIngestStatus is what says so, and it says so per row
+        //    rather than per provider — a row signed under the platform outlives the switch back.
+        if (sale.ReceiptIngestStatus != DesktopSaleReceiptIngestStatus.NotApplicable)
         {
             throw new InvalidOperationException(
-                "This sale reached SAP through its reservation and was fiscalised from the SAP invoice, "
-                + $"so its receipt is held under invoice {sale.SapDocNum?.ToString() ?? "number"} rather than "
-                + "under the sale's reference. Raise the credit note against the SAP invoice instead, from "
-                + "Credit notes.");
+                "This sale's receipt was signed on the handset's own fiscal device, so the credit has to "
+                + "be filed on that device's chain and nothing on this server can write to it. Credit it "
+                + "on the handset.");
         }
 
         // No platform credit gateway exists — Program.cs registers only the REVMax one. Under the

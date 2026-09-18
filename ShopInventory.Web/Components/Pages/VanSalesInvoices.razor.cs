@@ -93,6 +93,9 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
     private string? detailError;
     private bool isDownloading;
 
+    /// <summary>The invoice the credit dialog is open over, which is what opens and shuts it.</summary>
+    private VanSalesInvoiceRowModel? creditInvoice;
+
     private static DateTime Today => IAuditService.ToCAT(DateTime.UtcNow).Date;
 
     private int PageCount => Math.Max(1, (int)Math.Ceiling(view.TotalCount / (double)PageSize));
@@ -365,6 +368,50 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
         detail = null;
         detailError = null;
         isDetailLoading = false;
+    }
+
+    // ── The credit dialog ───────────────────────────────────────────────
+    //
+    // Only what opening and closing it needs. The receipt, the line selection, the reasons, the two
+    // submit actions and chasing a stalled credit all belong to DesktopCreditNoteDialog, which reads
+    // them from the API itself.
+
+    /// <summary>
+    /// Opens the credit dialog over the invoice the drawer is showing.
+    /// </summary>
+    /// <remarks>
+    /// The drawer is closed rather than left behind it: the dialog takes its place, as on
+    /// /desktop-sales, and two stacked overlays would trap the keyboard between them.
+    /// </remarks>
+    private void OpenCredit()
+    {
+        if (detail is null)
+        {
+            return;
+        }
+
+        creditInvoice = detail.Invoice;
+        detail = null;
+        detailReference = null;
+    }
+
+    /// <summary>
+    /// Closes the dialog back to the invoice it was opened from, re-read.
+    /// </summary>
+    /// <remarks>
+    /// Re-read rather than restored, because a credit just raised has to show in the drawer's own
+    /// credit-notes block and come off its net — both of which were read before the dialog existed. The
+    /// list behind it is left alone: a credit changes no column on it.
+    /// </remarks>
+    private async Task CloseCredit()
+    {
+        var reference = creditInvoice?.Reference;
+        creditInvoice = null;
+
+        if (!string.IsNullOrWhiteSpace(reference))
+        {
+            await OpenAsync(reference);
+        }
     }
 
     private async Task DownloadPdfAsync()
