@@ -15,6 +15,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject ILocalStorageService LocalStorage
 @rendermode InteractiveServer
 
 <PageTitle>Create Sales Order - Shop Inventory</PageTitle>
@@ -67,6 +68,9 @@
                 </div>
             </div>
         </div>
+
+        <DraftRestoredNotice Message="@draftNotice" Disabled="@isCreating"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
 
         @if (isLoadingMasterData)
         {
@@ -408,7 +412,8 @@
                                 <span>Create order</span>
                             }
                         </button>
-                        <a href="/sales-orders" class="sfm-btn sfm-btn-wide sfm-gap-sm">Cancel</a>
+                        <button type="button" class="sfm-btn sfm-btn-wide sfm-gap-sm" @onclick="CancelAsync"
+                                disabled="@isCreating">Cancel</button>
                     </div>
 
                     <div class="sfm-card sfm-panel">
@@ -464,10 +469,17 @@
     // the item's tax code; the form previously sent no rate at all, so a web order was stored
     // and credit-checked at its pre-tax subtotal.
     private const decimal DefaultVatPercent = 15.5m;
-    // Stable idempotency key for this order-entry session. Generated once and reused across
-    // retries so a lost-response retry (or proxy/double-click resubmit) is deduplicated by the
-    // server instead of creating a second order that auto-posts a duplicate SAP document.
-    private readonly string clientRequestId = Guid.NewGuid().ToString();
+    // The order's idempotency key lives on the request (ClientRequestId), so the saved draft
+    // carries it. Minted on the first submit and reused across retries — and across a reload that
+    // restores the draft — so a lost-response retry (or proxy/double-click resubmit) is
+    // deduplicated by the server instead of creating a second order that auto-posts a duplicate
+    // SAP document.
+
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the order. See FormDraft.
+    private const string DraftForm = "sales-order";
+    private FormDraftStore<CreateSalesOrderRequest>? draftStore;
+    private string? draftNotice;
 
     // Business Partner autocomplete state
     private List<BusinessPartnerDto> allBusinessPartners = new();
@@ -539,6 +551,97 @@
     {
         await LoadMasterDataForCreate();
         await ApplyDefaultWarehouse();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var store = new FormDraftStore<CreateSalesOrderRequest>(LocalStorage, Logger, DraftForm, authState.User);
+        ApplyDraft(await store.RestoreAsync());
+        store.Accept(newOrder);
+        draftStore = store;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (draftStore is not null)
+        {
+            await draftStore.SaveAsync(newOrder, IsDraftEmpty(newOrder));
+        }
+    }
+
+    private static bool IsDraftEmpty(CreateSalesOrderRequest order)
+        => string.IsNullOrWhiteSpace(order.CardCode)
+            && order.Lines.Count == 0
+            && string.IsNullOrWhiteSpace(order.CustomerRefNo)
+            && string.IsNullOrWhiteSpace(order.Comments)
+            && order.DeliveryDate is null;
+
+    private void ApplyDraft(FormDraft.Restored<CreateSalesOrderRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        draft.Lines ??= new List<CreateSalesOrderLineRequest>();
+        draft.WarehouseCode ??= newOrder.WarehouseCode;
+        newOrder = draft;
+
+        lineStates.Clear();
+        for (var i = 0; i < newOrder.Lines.Count; i++)
+        {
+            GetLineState(i).SearchTerm = newOrder.Lines[i].ItemCode;
+        }
+
+        // Lines keep the prices they were entered at; the customer's price list still loads for
+        // lines added next.
+        var bp = string.IsNullOrWhiteSpace(newOrder.CardCode)
+            ? null
+            : allBusinessPartners.FirstOrDefault(p => string.Equals(p.CardCode, newOrder.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (bp is not null)
+        {
+            selectedBusinessPartner = bp;
+            bpSearchTerm = bp.DisplayName;
+            _ = LoadBusinessPartnerPricesAsync(bp);
+        }
+        else if (!string.IsNullOrWhiteSpace(newOrder.CardCode))
+        {
+            // The customer is not in the cached list: put the code back in the search box to be
+            // picked again, rather than submit to a customer nobody can see.
+            bpSearchTerm = newOrder.CardCode;
+            newOrder.CardCode = string.Empty;
+            newOrder.CardName = null;
+        }
+
+        draftNotice = FormDraft.RestoredNotice("sales order", newOrder.Lines.Count, restored.SavedAt);
+        Logger.LogInformation("Restored a sales order draft with {LineCount} lines for {CardCode}", newOrder.Lines.Count, draft.CardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        var warehouse = newOrder.WarehouseCode;
+        ClearSelectedBP();
+        newOrder = new CreateSalesOrderRequest { Currency = string.Empty, WarehouseCode = warehouse };
+        lineStates.Clear();
+        lineValidationErrors.Clear();
+        createValidationErrors.Clear();
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the order, so its draft goes too. Back and the nav keep it.
+        await ClearDraftAsync();
+        NavigationManager.NavigateTo("/sales-orders");
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
+        }
     }
 
     private async Task ApplyDefaultWarehouse()
@@ -980,11 +1083,12 @@ state.FilteredProducts.Count;
         isCreating = true;
         try
         {
-            newOrder.ClientRequestId = clientRequestId;
+            newOrder.ClientRequestId ??= Guid.NewGuid().ToString();
             var result = await SalesOrderService.CreateSalesOrderAsync(newOrder);
             if (result != null)
             {
                 Snackbar.Add($"Sales order {result.OrderNumber} created successfully!", Severity.Success);
+                await ClearDraftAsync();
                 await AuditService.LogAsync(AuditActions.CreateSalesOrder, "SalesOrder", result.OrderNumber);
                 NavigationManager.NavigateTo("/sales-orders");
             }

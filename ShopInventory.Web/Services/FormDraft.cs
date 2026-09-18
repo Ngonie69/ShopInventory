@@ -201,6 +201,28 @@ public sealed class FormDraftStore<TState> where TState : class
         }
     }
 
+    /// <summary>
+    /// Removes the draft now. For a form that navigates away once it has submitted, where there is
+    /// no later render to notice the empty form.
+    /// </summary>
+    public async Task ClearAsync()
+    {
+        if (_key is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _storage.RemoveItemAsync(_key);
+            _lastFingerprint = null;
+        }
+        catch (Exception ex) when (IsStorageFailure(ex))
+        {
+            _logger.LogWarning(ex, "Could not clear the form draft {Key}", _key);
+        }
+    }
+
     private static bool IsStorageFailure(Exception ex)
         => ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException;
 }
