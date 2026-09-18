@@ -4764,6 +4764,12 @@ ORDER BY T0."DistNumber"
     /// cancellation still surfaces as an <see cref="OperationCanceledException"/>.
     ///
     /// <para>
+    /// Its expiry also counts as a circuit-breaker failure, as the stock budget's does: every page
+    /// request carries the budget as its breaker deadline, and the budget can only cut short the
+    /// attempt in flight, so one expiry is one failure.
+    /// </para>
+    ///
+    /// <para>
     /// The query object is provisioned before the clock starts. The code is fixed, so this is a
     /// memoised no-op after the first call in a process and a cheap GET after the first on a server;
     /// only the very first ever is the slow POST, and cutting that off part-way would leave SAP
@@ -4781,15 +4787,24 @@ ORDER BY T0."DistNumber"
         await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
 
         var timeoutSeconds = Math.Clamp(_settings.StockSqlRequestTimeoutSeconds, 5, 300);
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+        // Kept apart from the caller's token, as in SendStockRequestWithBudgetAsync, so the breaker
+        // can read it as the budget alone.
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds), _timeProvider);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
 
         try
         {
-            return await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, parameters, timeoutSource.Token);
+            return await ExecuteRawSqlQueryAsync(
+                queryCode,
+                queryName,
+                sqlText,
+                parameters,
+                timeoutSource.Token,
+                breakerDeadline: budget.Token);
         }
         catch (OperationCanceledException ex) when (
-            !cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
+            !cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {
             throw new TimeoutException(
                 $"SAP stock read exceeded its {timeoutSeconds}-second budget ({operation}).",
@@ -8368,7 +8383,8 @@ ORDER BY T1."WhsCode", T1."ItemCode"
         string sqlText,
         IReadOnlyDictionary<string, string>? parameters,
         CancellationToken cancellationToken,
-        int? maxRows = null)
+        int? maxRows = null,
+        CancellationToken? breakerDeadline = null)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
@@ -8388,6 +8404,11 @@ ORDER BY T1."WhsCode", T1."ItemCode"
                 request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                if (breakerDeadline is { } deadline)
+                {
+                    SapRequestMarks.SetBreakerDeadline(request, deadline);
+                }
+
                 return request;
             }
 
