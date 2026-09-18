@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Features.GoodsReceiptPurchaseOrders;
@@ -10,17 +11,39 @@ namespace ShopInventory.Features.GoodsReceiptPurchaseOrders.Commands.CreateGoods
 
 public sealed class CreateGoodsReceiptPurchaseOrderHandler(
     ISAPServiceLayerClient sapClient,
+    IIdempotencyRequestStore idempotencyRequestStore,
     INotificationService notificationService,
     ILogger<CreateGoodsReceiptPurchaseOrderHandler> logger
 ) : IRequestHandler<CreateGoodsReceiptPurchaseOrderCommand, ErrorOr<GoodsReceiptPurchaseOrderDto>>
 {
-    public async Task<ErrorOr<GoodsReceiptPurchaseOrderDto>> Handle(
+    public Task<ErrorOr<GoodsReceiptPurchaseOrderDto>> Handle(
+        CreateGoodsReceiptPurchaseOrderCommand command,
+        CancellationToken cancellationToken)
+        => IdempotentCreate.RunAsync(
+            idempotencyRequestStore,
+            logger,
+            "goodsreceiptpurchaseorders.create",
+            "goods receipt PO creation",
+            command.Request.ClientRequestId,
+            command.Request,
+            token => CreateAsync(command, token),
+            cancellationToken);
+
+    private async Task<ErrorOr<GoodsReceiptPurchaseOrderDto>> CreateAsync(
         CreateGoodsReceiptPurchaseOrderCommand command,
         CancellationToken cancellationToken)
     {
+        // The last safe abort. From here the post and everything after it run on
+        // CancellationToken.None: a caller who closes the tab mid-post must not abort a
+        // document SAP may already be committing.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Errors.GoodsReceiptPurchaseOrder.CreationFailed("The request was cancelled before anything was sent to SAP");
+        }
+
         try
         {
-            var goodsReceipt = await sapClient.CreateGoodsReceiptPurchaseOrderAsync(command.Request, cancellationToken);
+            var goodsReceipt = await sapClient.CreateGoodsReceiptPurchaseOrderAsync(command.Request, CancellationToken.None);
             var goodsReceiptDto = GoodsReceiptPurchaseOrderMappings.MapFromSap(goodsReceipt);
 
             try
@@ -46,7 +69,7 @@ public sealed class CreateGoodsReceiptPurchaseOrderHandler(
                             ["docCurrency"] = goodsReceiptDto.DocCurrency ?? string.Empty,
                             ["docTotal"] = goodsReceiptDto.DocTotal.ToString("N2")
                         }),
-                    cancellationToken);
+                    CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -55,10 +78,23 @@ public sealed class CreateGoodsReceiptPurchaseOrderHandler(
 
             return goodsReceiptDto;
         }
+        catch (SapRequestRejectedException rejected)
+        {
+            // SAP answered, and the answer was no: nothing exists, so the claim is given back and
+            // the caller can correct the document and send it again under the same key.
+            logger.LogWarning(rejected, "SAP refused the goods receipt PO");
+            return Errors.GoodsReceiptPurchaseOrder.CreationFailed(rejected.SapMessage);
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating goods receipt PO for supplier {CardCode}", command.Request.CardCode);
-            return Errors.GoodsReceiptPurchaseOrder.CreationFailed(ex.Message);
+
+            // Only a failure that proves nothing was sent may be reported as a plain failure. A
+            // timeout or a reply that never arrived leaves the goods receipt PO possibly in SAP, and
+            // this document carries nothing SAP could be asked about afterwards.
+            return SapFailureClassifier.DefinitelyNotCommitted(ex)
+                ? Errors.GoodsReceiptPurchaseOrder.CreationFailed(ex.Message)
+                : Errors.Idempotency.OutcomeUnknown("goods receipt PO");
         }
     }
 

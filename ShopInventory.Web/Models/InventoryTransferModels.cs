@@ -282,6 +282,12 @@ public class InventoryTransferRequestLineDto
 /// </summary>
 public class CreateTransferRequestDto
 {
+    /// <summary>
+    /// Idempotency key for this entry, sent as the <c>Idempotency-Key</c> header (the API ignores it in
+    /// the body). Kept on the request so the page's saved draft carries it. See IdempotentPost.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
+
     public string? FromWarehouse { get; set; }
     public string? ToWarehouse { get; set; }
     public string? DocDate { get; set; }

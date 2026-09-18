@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Features.PurchaseQuotations;
@@ -10,17 +11,39 @@ namespace ShopInventory.Features.PurchaseQuotations.Commands.CreatePurchaseQuota
 
 public sealed class CreatePurchaseQuotationHandler(
     ISAPServiceLayerClient sapClient,
+    IIdempotencyRequestStore idempotencyRequestStore,
     INotificationService notificationService,
     ILogger<CreatePurchaseQuotationHandler> logger
 ) : IRequestHandler<CreatePurchaseQuotationCommand, ErrorOr<PurchaseQuotationDto>>
 {
-    public async Task<ErrorOr<PurchaseQuotationDto>> Handle(
+    public Task<ErrorOr<PurchaseQuotationDto>> Handle(
+        CreatePurchaseQuotationCommand command,
+        CancellationToken cancellationToken)
+        => IdempotentCreate.RunAsync(
+            idempotencyRequestStore,
+            logger,
+            "purchasequotations.create",
+            "purchase quotation creation",
+            command.Request.ClientRequestId,
+            command.Request,
+            token => CreateAsync(command, token),
+            cancellationToken);
+
+    private async Task<ErrorOr<PurchaseQuotationDto>> CreateAsync(
         CreatePurchaseQuotationCommand command,
         CancellationToken cancellationToken)
     {
+        // The last safe abort. From here the post and everything after it run on
+        // CancellationToken.None: a caller who closes the tab mid-post must not abort a
+        // document SAP may already be committing.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Errors.PurchaseQuotation.CreationFailed("The request was cancelled before anything was sent to SAP");
+        }
+
         try
         {
-            var purchaseQuotation = await sapClient.CreatePurchaseQuotationAsync(command.Request, cancellationToken);
+            var purchaseQuotation = await sapClient.CreatePurchaseQuotationAsync(command.Request, CancellationToken.None);
             var purchaseQuotationDto = PurchaseQuotationMappings.MapFromSap(purchaseQuotation);
 
             try
@@ -46,7 +69,7 @@ public sealed class CreatePurchaseQuotationHandler(
                             ["docCurrency"] = purchaseQuotationDto.DocCurrency ?? string.Empty,
                             ["docTotal"] = purchaseQuotationDto.DocTotal.ToString("N2")
                         }),
-                    cancellationToken);
+                    CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -55,10 +78,23 @@ public sealed class CreatePurchaseQuotationHandler(
 
             return purchaseQuotationDto;
         }
+        catch (SapRequestRejectedException rejected)
+        {
+            // SAP answered, and the answer was no: nothing exists, so the claim is given back and
+            // the caller can correct the document and send it again under the same key.
+            logger.LogWarning(rejected, "SAP refused the purchase quotation");
+            return Errors.PurchaseQuotation.CreationFailed(rejected.SapMessage);
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating purchase quotation for supplier {CardCode}", command.Request.CardCode);
-            return Errors.PurchaseQuotation.CreationFailed(ex.Message);
+
+            // Only a failure that proves nothing was sent may be reported as a plain failure. A
+            // timeout or a reply that never arrived leaves the purchase quotation possibly in SAP, and
+            // this document carries nothing SAP could be asked about afterwards.
+            return SapFailureClassifier.DefinitelyNotCommitted(ex)
+                ? Errors.PurchaseQuotation.CreationFailed(ex.Message)
+                : Errors.Idempotency.OutcomeUnknown("purchase quotation");
         }
     }
 

@@ -41,7 +41,9 @@ public static partial class Errors
         public static Error SapPostUncertain =>
             Error.Failure(
                 "InventoryTransfer.SapPostUncertain",
-                "The transfer request was sent to SAP but the reply was lost. Check SAP for the document before creating it again.");
+                "The transfer request was sent to SAP but the reply was lost. Check SAP for the document before creating it again.",
+                // Keeps an idempotency claim standing: see Errors.Idempotency.OutcomeUnknownKey.
+                new Dictionary<string, object> { [Idempotency.OutcomeUnknownKey] = true });
 
         public static Error SapConnectionError(string message) =>
             Error.Failure("InventoryTransfer.SapConnectionError", $"Unable to connect to SAP Service Layer. {message}");

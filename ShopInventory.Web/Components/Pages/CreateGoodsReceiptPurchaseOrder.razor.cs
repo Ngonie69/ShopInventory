@@ -456,6 +456,10 @@ public partial class CreateGoodsReceiptPurchaseOrder
             return;
 
         isSubmitting = true;
+
+        // Minted before the post so the draft saved on the render during it carries the key: a
+        // reload mid-submit then resubmits under the same key and the API replays the document.
+        goodsReceipt.ClientRequestId = IdempotentPost.EnsureKey(goodsReceipt.ClientRequestId);
         errorMessage = null;
         successMessage = null;
 

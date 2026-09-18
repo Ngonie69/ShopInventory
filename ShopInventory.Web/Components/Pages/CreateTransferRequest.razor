@@ -495,6 +495,10 @@
     private FormDraftStore<TransferRequestDraft>? draftStore;
     private string? draftNotice;
 
+    // Idempotency key for this entry: minted on the first submit, kept in the draft, and cleared with
+    // the form, so every retry of the same request sends the same key. See IdempotentPost.
+    private string? clientRequestId;
+
     /// <summary>
     /// Validation is shown from the first submit attempt onwards, never before: the form opens
     /// empty, and a panel headed "please fix the following" on an untouched form is noise. After
@@ -604,6 +608,7 @@
         DocDate = docDate,
         DueDate = dueDate,
         Comments = comments,
+        ClientRequestId = clientRequestId,
         Lines = lines
             .Where(l => !string.IsNullOrWhiteSpace(l.ItemCode) || !string.IsNullOrWhiteSpace(l.QuantityText))
             .Select(l => new TransferRequestDraft.Line
@@ -627,6 +632,7 @@
         docDate = draft.DocDate ?? docDate;
         dueDate = draft.DueDate;
         comments = draft.Comments;
+        clientRequestId = draft.ClientRequestId;
 
         // A warehouse no longer in the list stays unchosen, and the operator picks again.
         selectedFromWarehouse = FindWarehouse(draft.FromWarehouse);
@@ -674,6 +680,7 @@
         public DateTime? DocDate { get; set; }
         public DateTime? DueDate { get; set; }
         public string? Comments { get; set; }
+        public string? ClientRequestId { get; set; }
         public List<Line>? Lines { get; set; } = new();
 
         [System.Text.Json.Serialization.JsonIgnore]
@@ -969,6 +976,9 @@
 
         isSubmitting = true;
 
+        // Minted before the post so the draft saved on the render during it carries the key.
+        clientRequestId = IdempotentPost.EnsureKey(clientRequestId);
+
         try
         {
             var request = new CreateTransferRequestDto
@@ -980,6 +990,7 @@
                 Comments = comments,
                 RequesterName = requesterName,
                 RequesterEmail = requesterEmail,
+                ClientRequestId = clientRequestId,
                 Lines = CompletedLines
                     .Select(l => new CreateTransferRequestLineDto
                     {
@@ -1032,6 +1043,7 @@
         docDate = DateTime.Today;
         dueDate = null;
         comments = null;
+        clientRequestId = null;
         hasAttemptedSubmit = false;
         lines = new List<TransferLineItem> { new TransferLineItem() };
     }

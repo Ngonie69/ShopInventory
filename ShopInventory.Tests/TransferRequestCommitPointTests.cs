@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -146,6 +147,9 @@ public sealed class TransferRequestCommitPointTests : IDisposable
         new(
             _context,
             BuildSapClient(),
+            // These requests carry no idempotency key, so the store must never be reached.
+            StubProxy.For<IIdempotencyRequestStore>((method, _) =>
+                throw new InvalidOperationException($"A keyless request reached the idempotency store ({method.Name})")),
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
             BuildApprovalService(),
             StubProxy.For<INotificationService>((_, _) =>

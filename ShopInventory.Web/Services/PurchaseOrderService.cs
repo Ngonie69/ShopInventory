@@ -182,7 +182,10 @@ public class PurchaseOrderService : IPurchaseOrderService
             _logger.LogInformation("Creating purchase order for supplier {CardCode} with {LineCount} lines",
                 request.CardCode, request.Lines?.Count ?? 0);
 
-            var response = await _httpClient.PostAsJsonAsync("api/purchaseorder", request);
+            // The same key for every retry of this entry, so the API replays what it created
+            // rather than creating it twice. See IdempotentPost.
+            request.ClientRequestId = IdempotentPost.EnsureKey(request.ClientRequestId);
+            var response = await IdempotentPost.PostAsJsonAsync(_httpClient, "api/purchaseorder", request, request.ClientRequestId);
             var content = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)

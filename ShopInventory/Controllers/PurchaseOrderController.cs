@@ -102,6 +102,12 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
     [RequirePermission(Permission.CreatePurchaseOrders)]
     public async Task<IActionResult> Create([FromBody] CreatePurchaseOrderRequest request, CancellationToken cancellationToken)
     {
+        // The idempotency key travels in the header, and the handler claims it: a retry under the same
+        // key is answered with the document rather than creating another. See IdempotentCreate.
+        request.ClientRequestId = Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey)
+            ? idempotencyKey.FirstOrDefault()
+            : null;
+
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         Guid? userId = Guid.TryParse(userIdClaim, out var uid) ? uid : null;
 

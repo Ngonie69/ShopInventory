@@ -89,7 +89,10 @@ public class PurchaseInvoiceService(HttpClient httpClient, ILogger<PurchaseInvoi
                 request.CardCode,
                 request.Lines.Count);
 
-            var response = await httpClient.PostAsJsonAsync("api/purchaseinvoice", request, cancellationToken);
+            // The same key for every retry of this entry, so the API replays what it created
+            // rather than creating it twice. See IdempotentPost.
+            request.ClientRequestId = IdempotentPost.EnsureKey(request.ClientRequestId);
+            var response = await IdempotentPost.PostAsJsonAsync(httpClient, "api/purchaseinvoice", request, request.ClientRequestId, cancellationToken);
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (response.IsSuccessStatusCode)

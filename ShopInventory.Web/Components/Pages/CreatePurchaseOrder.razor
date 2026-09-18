@@ -902,6 +902,10 @@ new CreatePurchaseOrderLineRequest()
         if (!ValidateForm()) return;
 
         isSubmitting = true;
+
+        // Minted before the post so the draft saved on the render during it carries the key: a
+        // reload mid-submit then resubmits under the same key and the API replays the document.
+        purchaseOrder.ClientRequestId = IdempotentPost.EnsureKey(purchaseOrder.ClientRequestId);
         errorMessage = null;
         successMessage = null;
 

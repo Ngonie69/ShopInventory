@@ -175,6 +175,12 @@ public class PurchaseOrderLineDto
 /// </summary>
 public class CreatePurchaseOrderRequest
 {
+    /// <summary>
+    /// Idempotency key for this entry, sent as the <c>Idempotency-Key</c> header (the API ignores it in
+    /// the body). Kept on the request so the page's saved draft carries it. See IdempotentPost.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
+
     public DateTime? DeliveryDate { get; set; }
     public string CardCode { get; set; } = null!;
     public string? CardName { get; set; }

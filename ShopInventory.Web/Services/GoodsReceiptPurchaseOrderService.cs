@@ -84,7 +84,10 @@ public class GoodsReceiptPurchaseOrderService(HttpClient httpClient, ILogger<Goo
     {
         try
         {
-            var response = await httpClient.PostAsJsonAsync("api/goodsreceiptpurchaseorder", request, cancellationToken);
+            // The same key for every retry of this entry, so the API replays what it created
+            // rather than creating it twice. See IdempotentPost.
+            request.ClientRequestId = IdempotentPost.EnsureKey(request.ClientRequestId);
+            var response = await IdempotentPost.PostAsJsonAsync(httpClient, "api/goodsreceiptpurchaseorder", request, request.ClientRequestId, cancellationToken);
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (response.IsSuccessStatusCode)

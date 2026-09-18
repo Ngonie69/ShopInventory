@@ -196,6 +196,14 @@ public class IdempotencyMiddlewareTests
     [InlineData("/api/incomingpayment")]
     [InlineData("/api/inventorytransfer")]
     [InlineData("/api/quotation")]
+    // The purchase documents and transfer requests, through IdempotentCreate: none carries a
+    // reference into SAP, so the stored document is the only answer a retry can get.
+    [InlineData("/api/purchaseorder")]
+    [InlineData("/api/purchaseinvoice")]
+    [InlineData("/api/purchasequotation")]
+    [InlineData("/api/goodsreceiptpurchaseorder")]
+    [InlineData("/api/purchaserequest")]
+    [InlineData("/api/inventorytransfer/request")]
     // Posting a held sale to SAP, singly and in a batch. Both claim each sale in
     // IDesktopSalePostGuard before anything reaches SAP, and answer with the invoice — or, for the
     // batch, with a row per sale saying what became of it. A batch can outlive the caller's timeout
@@ -315,14 +323,15 @@ public class IdempotencyMiddlewareTests
     }
 
     // Defaults to an endpoint this middleware still guards, so the tests above describe its own
-    // behaviour rather than some endpoint's ownership. /api/salesorder, /api/invoice and both credit
-    // note create routes are not ones: those handlers persist their own key and replay the real
+    // behaviour rather than some endpoint's ownership. /api/salesorder, /api/invoice, both credit
+    // note create routes and — since their handlers began claiming keys — /api/purchaseorder and the
+    // other purchase documents are not ones: those handlers persist their own key and replay the real
     // document, so this middleware stands aside for them.
     //
     // Choosing a handler-owned path here does not fail the tests, it hangs them: the concurrent test
     // holds the first request open until the duplicate has been refused, and a pass-through duplicate
     // waits on a release that never comes.
-    private static DefaultHttpContext CreateContext(string? key, string path = "/api/purchaseorder")
+    private static DefaultHttpContext CreateContext(string? key, string path = "/api/payment")
     {
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Post;

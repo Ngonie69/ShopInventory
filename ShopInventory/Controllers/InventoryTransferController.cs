@@ -249,6 +249,12 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> CreateTransferRequest(
         [FromBody] CreateTransferRequestDto request, CancellationToken cancellationToken)
     {
+        // The idempotency key travels in the header, and the handler claims it: a retry under the same
+        // key is answered with the document rather than creating another. See IdempotentCreate.
+        request.ClientRequestId = Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey)
+            ? idempotencyKey.FirstOrDefault()
+            : null;
+
         var userId = UserClaimReader.GetUserId(User);
         if (userId is null)
             return Unauthorized();

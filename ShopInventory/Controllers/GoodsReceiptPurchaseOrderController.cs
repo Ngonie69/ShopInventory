@@ -53,6 +53,12 @@ public class GoodsReceiptPurchaseOrderController(IMediator mediator) : ApiContro
     [ProducesResponseType(typeof(GoodsReceiptPurchaseOrderDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreateGoodsReceiptPurchaseOrderRequest request, CancellationToken cancellationToken = default)
     {
+        // The idempotency key travels in the header, and the handler claims it: a retry under the same
+        // key is answered with the document rather than creating another. See IdempotentCreate.
+        request.ClientRequestId = Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey)
+            ? idempotencyKey.FirstOrDefault()
+            : null;
+
         var result = await mediator.Send(new CreateGoodsReceiptPurchaseOrderCommand(request), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetByDocEntry), new { docEntry = value.DocEntry }, value),

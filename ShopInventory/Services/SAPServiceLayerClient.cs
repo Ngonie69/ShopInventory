@@ -1856,7 +1856,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         ValidatePurchaseInvoiceRequest(request);
 
-        await EnsureAuthenticatedAsync(cancellationToken);
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
 
         var currentSession = _sessionId;
         var payload = new
@@ -1899,7 +1899,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            await BeforeSendAsync(HandleAuthFailureAsync(currentSession, cancellationToken));
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseInvoices")
             {
@@ -1914,7 +1914,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to create purchase invoice: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create purchase invoice: {response.StatusCode} - {errorContent}");
+            // SAP's own error envelope means SAP answered, and the answer was no: nothing was
+            // created. Without it (a 502 from the balancer, an HTML page) the post may have
+            // committed, so it stays a bare Exception — see SapFailureClassifier.DefinitelyNotCommitted.
+            var sapError = ExtractSAPErrorMessage(errorContent);
+            throw sapError is not null
+                ? new SapRequestRejectedException("create the purchase invoice", response.StatusCode, sapError)
+                : new Exception($"Failed to create purchase invoice: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -11837,7 +11843,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         CreateTransferRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
         var currentSession = _sessionId;
 
         // Validate the request
@@ -11925,7 +11931,13 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             _logger.LogError("Failed to create inventory transfer request. Status: {StatusCode}, Response: {Response}",
                 response.StatusCode, responseContent);
 
-            throw new Exception($"Failed to create inventory transfer request: {response.StatusCode} - {responseContent}");
+            // SAP's own error envelope means SAP answered, and the answer was no: nothing was
+            // created. Without it (a 502 from the balancer, an HTML page) the post may have
+            // committed, so it stays a bare Exception — see SapFailureClassifier.DefinitelyNotCommitted.
+            var sapError = ExtractSAPErrorMessage(responseContent);
+            throw sapError is not null
+                ? new SapRequestRejectedException("create the inventory transfer request", response.StatusCode, sapError)
+                : new Exception($"Failed to create inventory transfer request: {response.StatusCode} - {responseContent}");
         }
 
         var createdRequest = JsonSerializer.Deserialize<InventoryTransferRequest>(responseContent);
@@ -13420,7 +13432,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
     public async Task<SAPPurchaseRequest> CreatePurchaseRequestAsync(CreatePurchaseRequestRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
         var currentSession = _sessionId;
 
         var payload = JsonSerializer.Serialize(request);
@@ -13434,7 +13446,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            await BeforeSendAsync(HandleAuthFailureAsync(currentSession, cancellationToken));
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseRequests")
             {
@@ -13448,7 +13460,13 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to create purchase request: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create purchase request: {response.StatusCode} - {errorContent}");
+            // SAP's own error envelope means SAP answered, and the answer was no: nothing was
+            // created. Without it (a 502 from the balancer, an HTML page) the post may have
+            // committed, so it stays a bare Exception — see SapFailureClassifier.DefinitelyNotCommitted.
+            var sapError = ExtractSAPErrorMessage(errorContent);
+            throw sapError is not null
+                ? new SapRequestRejectedException("create the purchase request", response.StatusCode, sapError)
+                : new Exception($"Failed to create purchase request: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13665,7 +13683,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
     public async Task<SAPPurchaseQuotation> CreatePurchaseQuotationAsync(CreatePurchaseQuotationRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
         var currentSession = _sessionId;
 
         var payload = JsonSerializer.Serialize(request);
@@ -13679,7 +13697,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            await BeforeSendAsync(HandleAuthFailureAsync(currentSession, cancellationToken));
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseQuotations")
             {
@@ -13693,7 +13711,13 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to create purchase quotation: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create purchase quotation: {response.StatusCode} - {errorContent}");
+            // SAP's own error envelope means SAP answered, and the answer was no: nothing was
+            // created. Without it (a 502 from the balancer, an HTML page) the post may have
+            // committed, so it stays a bare Exception — see SapFailureClassifier.DefinitelyNotCommitted.
+            var sapError = ExtractSAPErrorMessage(errorContent);
+            throw sapError is not null
+                ? new SapRequestRejectedException("create the purchase quotation", response.StatusCode, sapError)
+                : new Exception($"Failed to create purchase quotation: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13910,7 +13934,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
     public async Task<SAPGoodsReceiptPurchaseOrder> CreateGoodsReceiptPurchaseOrderAsync(CreateGoodsReceiptPurchaseOrderRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
         var currentSession = _sessionId;
 
         var payload = JsonSerializer.Serialize(request);
@@ -13924,7 +13948,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            await BeforeSendAsync(HandleAuthFailureAsync(currentSession, cancellationToken));
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseDeliveryNotes")
             {
@@ -13938,7 +13962,13 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to create goods receipt PO: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create goods receipt PO: {response.StatusCode} - {errorContent}");
+            // SAP's own error envelope means SAP answered, and the answer was no: nothing was
+            // created. Without it (a 502 from the balancer, an HTML page) the post may have
+            // committed, so it stays a bare Exception — see SapFailureClassifier.DefinitelyNotCommitted.
+            var sapError = ExtractSAPErrorMessage(errorContent);
+            throw sapError is not null
+                ? new SapRequestRejectedException("create the goods receipt PO", response.StatusCode, sapError)
+                : new Exception($"Failed to create goods receipt PO: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);

@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Models;
@@ -11,12 +12,29 @@ namespace ShopInventory.Features.PurchaseOrders.Commands.CreatePurchaseOrder;
 
 public sealed class CreatePurchaseOrderHandler(
     IPurchaseOrderService purchaseOrderService,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     INotificationService notificationService,
     ILogger<CreatePurchaseOrderHandler> logger
 ) : IRequestHandler<CreatePurchaseOrderCommand, ErrorOr<PurchaseOrderDto>>
 {
-    public async Task<ErrorOr<PurchaseOrderDto>> Handle(
+    // A purchase order is saved here as a draft and reaches SAP only later, through its own posting
+    // path. So a failure below is a failed database write, which proves nothing was saved: every
+    // failure gives the claim back, and only a saved order is replayed.
+    public Task<ErrorOr<PurchaseOrderDto>> Handle(
+        CreatePurchaseOrderCommand command,
+        CancellationToken cancellationToken)
+        => IdempotentCreate.RunAsync(
+            idempotencyRequestStore,
+            logger,
+            "purchaseorders.create",
+            "purchase order creation",
+            command.Request.ClientRequestId,
+            command.Request,
+            token => CreateAsync(command, token),
+            cancellationToken);
+
+    private async Task<ErrorOr<PurchaseOrderDto>> CreateAsync(
         CreatePurchaseOrderCommand command,
         CancellationToken cancellationToken)
     {

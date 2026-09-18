@@ -359,10 +359,12 @@ public class InventoryTransferService : IInventoryTransferService
     /// whose key would need to survive a retry, and a second click reaches the handler to be judged on
     /// the transfer's actual state.
     /// </remarks>
-    private Task<HttpResponseMessage> SendWriteAsync(HttpMethod method, string url, HttpContent? content)
+    private Task<HttpResponseMessage> SendWriteAsync(
+        HttpMethod method, string url, HttpContent? content, string? idempotencyKey = null)
     {
         var request = new HttpRequestMessage(method, url) { Content = content };
-        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
+        // A create passes the key of the entry it belongs to; single-shot actions get a fresh one.
+        request.Headers.Add("Idempotency-Key", idempotencyKey ?? Guid.NewGuid().ToString("N"));
         return _httpClient.SendAsync(request);
     }
 
@@ -589,7 +591,11 @@ public class InventoryTransferService : IInventoryTransferService
             _logger.LogInformation("Creating transfer request from {FromWarehouse} to {ToWarehouse} with {LineCount} lines",
                 request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
-            var response = await SendWriteAsync(HttpMethod.Post, "api/inventorytransfer/request", JsonContent.Create(request));
+            // One key per entry, kept on the request (and so in the page's draft), so a retry is
+            // answered with the transfer request already created. See IdempotentPost.
+            request.ClientRequestId = IdempotentPost.EnsureKey(request.ClientRequestId);
+            var response = await SendWriteAsync(
+                HttpMethod.Post, "api/inventorytransfer/request", JsonContent.Create(request), request.ClientRequestId);
 
             _logger.LogInformation("Transfer request API response: {StatusCode}", response.StatusCode);
 
