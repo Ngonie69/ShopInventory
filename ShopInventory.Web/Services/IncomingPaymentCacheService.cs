@@ -99,7 +99,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
             // Trigger background sync if cache is stale
             if (isCacheStale)
             {
-                _ = Task.Run(async () =>
+                _ = SapBackgroundPriority.Run(async () =>
                 {
                     await _backgroundSyncSemaphore.WaitAsync();
                     try
@@ -129,7 +129,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
                 catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache payments"); }
 
                 // Start full background sync (consistent pageSize avoids gaps from the initial fetch)
-                _ = Task.Run(async () =>
+                _ = SapBackgroundPriority.Run(async () =>
                 {
                     await _backgroundSyncSemaphore.WaitAsync();
                     try

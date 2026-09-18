@@ -102,7 +102,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
             // Trigger background sync if cache is stale
             if (isCacheStale)
             {
-                _ = Task.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+                _ = SapBackgroundPriority.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
             }
 
             return response;
@@ -119,7 +119,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
             catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache transfers for warehouse {WarehouseCode}", warehouseCode); }
 
             // Start background sync for remaining items
-            _ = Task.Run(async () => await SyncRemainingTransfersInBackgroundAsync(warehouseCode, apiResponse.HasMore));
+            _ = SapBackgroundPriority.Run(async () => await SyncRemainingTransfersInBackgroundAsync(warehouseCode, apiResponse.HasMore));
 
             return apiResponse;
         }
@@ -163,7 +163,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
 
             if (isCacheStale)
             {
-                _ = Task.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+                _ = SapBackgroundPriority.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
             }
 
             return new InventoryTransferDateResponse
@@ -191,7 +191,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
                 try { await SaveTransfersToCacheAsync(apiResponse.Transfers); }
                 catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache transfers for warehouse {WarehouseCode}", warehouseCode); }
                 // Trigger full background sync
-                _ = Task.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+                _ = SapBackgroundPriority.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
             }
 
             return apiResponse ?? new InventoryTransferDateResponse

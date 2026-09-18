@@ -393,7 +393,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 if (products.Count > 0 && !forceRefresh)
                 {
                     // We have data - sync in background without blocking
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
@@ -435,7 +435,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     // No data in database - trigger background sync (non-blocking)
                     // This prevents page from hanging on slow API calls
                     _logger.LogInformation("No products in database, triggering background sync...");
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
@@ -771,7 +771,7 @@ public class MasterDataCacheService : IMasterDataCacheService
 
                     _logger.LogDebug("Prices: Starting background sync (have existing data)");
                     // We have data - sync in background without blocking
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
@@ -1009,7 +1009,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             return;
         }
 
-        _ = Task.Run(async () =>
+        _ = SapBackgroundPriority.Run(async () =>
         {
             try
             {
@@ -1337,7 +1337,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 if (warehouses.Count > 0 && !forceRefresh)
                 {
                     // We have data - sync in background without blocking
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
@@ -1378,7 +1378,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     // No data in database - trigger sync in background (non-blocking)
                     // User will see empty list initially, but sync will populate data
                     _logger.LogInformation("No warehouses in database, triggering background sync...");
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
@@ -1760,7 +1760,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             {
                 // Always sync in background - never block the UI
                 _logger.LogInformation("G/L accounts need sync, triggering background sync...");
-                _ = Task.Run(async () =>
+                _ = SapBackgroundPriority.Run(async () =>
                 {
                     await _backgroundSyncSemaphore.WaitAsync();
                     try
@@ -2060,7 +2060,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 {
                     // Sync in background - don't block the UI
                     _logger.LogInformation("Cost centres need refresh, triggering background sync...");
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
