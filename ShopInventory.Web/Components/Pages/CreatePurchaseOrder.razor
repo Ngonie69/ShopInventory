@@ -9,6 +9,8 @@
 @inject ILogger<CreatePurchaseOrder> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILocalStorageService LocalStorage
 @rendermode InteractiveServer
 
 <PageTitle>Create Purchase Order - Shop Inventory</PageTitle>
@@ -98,6 +100,9 @@
                 <div class="pfm-alert-bd">@successMessage</div>
             </div>
         }
+
+        <DraftRestoredNotice Prefix="pfm" Message="@draftNotice" Disabled="@isSubmitting"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
 
         <div class="pfm-grid">
             <div class="pfm-main">
@@ -447,7 +452,7 @@
                             }
                         </button>
                         <button type="button" class="pfm-btn pfm-btn-wide" style="margin-top:8px"
-                                @onclick="GoBack" disabled="@isSubmitting">
+                                @onclick="CancelAsync" disabled="@isSubmitting">
                             Cancel
                         </button>
                     </div>
@@ -521,13 +526,111 @@ new CreatePurchaseOrderLineRequest()
     private bool isLoadingLookups = true;
     private bool _hasInitialized = false;
 
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the order. See FormDraft. The delivery date rides on the
+    // request's own DeliveryDate.
+    private const string DraftForm = "purchase-order";
+    private FormDraftStore<CreatePurchaseOrderRequest>? draftStore;
+    private string? draftNotice;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && draftStore is not null)
+        {
+            purchaseOrder.DeliveryDate = deliveryDate;
+            await draftStore.SaveAsync(purchaseOrder, IsDraftEmpty(purchaseOrder));
+        }
+
         if (firstRender && !_hasInitialized)
         {
             _hasInitialized = true;
             await LoadLookupsAsync();
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var store = new FormDraftStore<CreatePurchaseOrderRequest>(LocalStorage, Logger, DraftForm, authState.User);
+            ApplyDraft(await store.RestoreAsync());
+            purchaseOrder.DeliveryDate = deliveryDate;
+            store.Accept(purchaseOrder);
+            draftStore = store;
+
             StateHasChanged();
+        }
+    }
+
+    // The form opens with one blank line, which is not something to bring back.
+    private static bool IsDraftEmpty(CreatePurchaseOrderRequest order)
+        => string.IsNullOrWhiteSpace(order.CardCode)
+            && order.Lines.All(l => string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity == 0)
+            && string.IsNullOrWhiteSpace(order.SupplierRefNo)
+            && string.IsNullOrWhiteSpace(order.Comments)
+            && order.DeliveryDate is null;
+
+    private void ApplyDraft(FormDraft.Restored<CreatePurchaseOrderRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        draft.Lines ??= new List<CreatePurchaseOrderLineRequest>();
+        if (draft.Lines.Count == 0)
+        {
+            draft.Lines.Add(new CreatePurchaseOrderLineRequest());
+        }
+
+        purchaseOrder = draft;
+        deliveryDate = draft.DeliveryDate;
+
+        var supplier = string.IsNullOrWhiteSpace(purchaseOrder.CardCode)
+            ? null
+            : allBusinessPartners.FirstOrDefault(p => string.Equals(p.CardCode, purchaseOrder.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (supplier is not null)
+        {
+            selectedBusinessPartner = supplier;
+        }
+        else if (!string.IsNullOrWhiteSpace(purchaseOrder.CardCode))
+        {
+            // The supplier is not in the cached list: put the code back in the search box to be
+            // picked again, rather than submit to a supplier nobody can see.
+            supplierTerm = purchaseOrder.CardCode;
+            purchaseOrder.CardCode = string.Empty;
+            purchaseOrder.CardName = null;
+        }
+
+        var lineCount = purchaseOrder.Lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
+        draftNotice = FormDraft.RestoredNotice("purchase order", lineCount, restored.SavedAt);
+        Logger.LogInformation("Restored a purchase order draft with {LineCount} lines for {CardCode}", lineCount, draft.CardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        selectedBusinessPartner = null;
+        supplierTerm = string.Empty;
+        purchaseOrder = new CreatePurchaseOrderRequest
+        {
+            Currency = "USD",
+            Lines = new List<CreatePurchaseOrderLineRequest> { new() }
+        };
+        deliveryDate = null;
+        validationErrors.Clear();
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the order, so its draft goes too. The nav keeps it.
+        await ClearDraftAsync();
+        GoBack();
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
         }
     }
 
@@ -824,6 +927,7 @@ new CreatePurchaseOrderLineRequest()
                 }
 
                 successMessage = $"Purchase order {result.OrderNumber} created successfully!";
+                await ClearDraftAsync();
                 Logger.LogInformation("Created purchase order {OrderNumber}", result.OrderNumber);
                 await AuditService.LogAsync(AuditActions.CreatePurchaseOrder, "PurchaseOrder", result.OrderNumber);
 

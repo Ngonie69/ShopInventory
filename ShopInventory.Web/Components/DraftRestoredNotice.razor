@@ -1,20 +1,37 @@
 @* Tells the operator a create form put back entries it had lost with the circuit, and offers to
    throw them away. The markup is the form family's own alert, named by Prefix: sfm for the sales
    forms, pfm for purchasing, tfm for transfers. Each family scopes its palette to its root class,
-   so the notice has to use the classes of the page it sits in. See FormDraft. *@
+   so the notice has to use the classes of the page it sits in. See FormDraft.
+
+   Icons are drawn inline rather than from the Phosphor font, which comes from a CDN: a font that
+   has not arrived draws an empty box, and the dismiss button's glyph is its whole label. *@
 
 @if (!string.IsNullOrEmpty(Message))
 {
     <div class="@(Prefix)-alert is-ok" role="status">
-        <i class="ph-fill ph-clock-counter-clockwise"></i>
+        <svg class="draft-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+            <path d="M3 4v5h5"></path>
+            <path d="M12 7.5V12l3 2"></path>
+        </svg>
         <div class="@(Prefix)-alert-bd">
             @Message
             <button type="button" class="@(Prefix)-btn draft-discard" @onclick="OnDiscard" disabled="@Disabled">
-                <i class="ph ph-trash"></i>Discard and start again
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 7h16"></path>
+                    <path d="M9 7V4h6v3"></path>
+                    <path d="M6 7l1 13h10l1-13"></path>
+                </svg>
+                Discard and start again
             </button>
         </div>
         <button type="button" class="@(Prefix)-alert-x" @onclick="OnDismiss" aria-label="Dismiss">
-            <i class="ph ph-x"></i>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18"></path>
+            </svg>
         </button>
     </div>
 }
