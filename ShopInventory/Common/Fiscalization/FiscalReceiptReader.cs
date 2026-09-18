@@ -108,19 +108,11 @@ internal sealed class RevmaxFiscalReceiptReader : IFiscalReceiptReader
             return null;
         }
 
-        if (!response.Success)
+        if (!response.Success || !IsOurReceipt(response, docNum, receiptType, logger))
         {
-            // REVMax answered "Invoice not Found" — a real, usable "not fiscalised".
-            return new FiscalReceiptSnapshot(
-                IsFiscalised: false,
-                ReceiptGlobalNo: null,
-                QrCode: null,
-                VerificationCode: null,
-                DeviceSerialNumber: null,
-                DeviceId: null,
-                FiscalDay: null,
-                TimestampUtc: DateTime.UtcNow,
-                RawResponseJson: Serialize(response));
+            // REVMax answered "Invoice not Found", or found a receipt that is not ours to claim —
+            // either way our device holds nothing for this document, a real, usable "not fiscalised".
+            return NotFiscalised(response);
         }
 
         var data = response.Data;
@@ -138,6 +130,72 @@ internal sealed class RevmaxFiscalReceiptReader : IFiscalReceiptReader
             TimestampUtc: ParseReceiptDate(data?.ReceiptDate),
             RawResponseJson: Serialize(response));
     }
+
+    /// <summary>
+    /// Whether the receipt REVMax answered with is our device's, and the kind that was asked about.
+    /// </summary>
+    /// <remarks>
+    /// The read-back half of <c>RevmaxFiscalizationService.IsOurReceipt</c>, and it has to ask the
+    /// same question: <c>GetInvoice</c> is not scoped to our device. The box serves several, answers a
+    /// number with whichever device's receipt carries it, and reports one serial for all of them, so
+    /// <c>DeviceID</c> is the only discriminator. The filing path checked it; this path did not, so the
+    /// status backfill and the invoice PDF could adopt another device's receipt as ours. The case that
+    /// surfaced it: invoice 776179 (SPA059 USD, 2026-09-17) read "Fiscalised" on receipt 8406 — far
+    /// outside our device's ~220000 sequence — with no QR and no verification code, so its PDF printed
+    /// no fiscal block.
+    ///
+    /// Answering "not fiscalised" here matches what the filing path does with the same receipt: it
+    /// ignores it and files, and the device's own per-device duplicate check still catches a genuine
+    /// repeat.
+    /// </remarks>
+    private bool IsOurReceipt(
+        InvoiceResponse response,
+        int docNum,
+        ReceiptType receiptType,
+        ILogger logger)
+    {
+        var ourDeviceId = _settings.DefaultRefDeviceId.ToString(CultureInfo.InvariantCulture);
+
+        if (!string.Equals(response.DeviceID?.Trim(), ourDeviceId, StringComparison.Ordinal))
+        {
+            logger.LogWarning(
+                "REVMax holds a receipt numbered {DocNum}, but it belongs to device {OwningDeviceId}, "
+                    + "not ours ({OurDeviceId}). Reading {ReceiptType} {DocNum} as not fiscalised.",
+                docNum,
+                response.DeviceID ?? "(none)",
+                ourDeviceId,
+                receiptType,
+                docNum);
+            return false;
+        }
+
+        var heldType = response.Data?.ReceiptType;
+
+        if (!string.Equals(heldType, receiptType.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(
+                "REVMax holds receipt {DocNum} on our device, but it is a {HeldType} where a "
+                    + "{ReceiptType} was asked about. Reading it as not fiscalised.",
+                docNum,
+                heldType ?? "(none)",
+                receiptType);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static FiscalReceiptSnapshot NotFiscalised(InvoiceResponse response)
+        => new(
+            IsFiscalised: false,
+            ReceiptGlobalNo: null,
+            QrCode: null,
+            VerificationCode: null,
+            DeviceSerialNumber: null,
+            DeviceId: null,
+            FiscalDay: null,
+            TimestampUtc: DateTime.UtcNow,
+            RawResponseJson: Serialize(response));
 
     /// <summary>
     /// The receipt's own timestamp, falling back to now when it cannot be read.
