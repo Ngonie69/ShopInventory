@@ -703,6 +703,7 @@ try
     // Settles those invoices, and the older desktop app's consolidated ones, with one incoming payment
     // per business partner per day.
     builder.Services.AddScoped<DailyIncomingPaymentService>();
+    builder.Services.AddScoped<DailyIncomingPaymentSwitch>();
 
     // Signing a till or vending sale, and the sweep that signs the ones left for later. Shared so the
     // inline path and the background path cannot drift on how a result is recorded.
