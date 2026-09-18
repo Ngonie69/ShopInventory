@@ -557,6 +557,9 @@ public static partial class VanSalesCompatibilityMapper
             Fiscalized = isFiscalized ? 1 : 0,
             Verification = fiscalTransaction?.VerificationCode ?? string.Empty,
             QrCode = fiscalTransaction?.QRCode ?? string.Empty,
+            FiscalDay = fiscalTransaction?.FiscalDay ?? string.Empty,
+            DeviceSerial = fiscalTransaction?.DeviceSerialNumber ?? string.Empty,
+            ReceiptGlobalNo = fiscalTransaction?.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
             Status = isFiscalized ? 2 : 0,
             Timestamps = new VanSalesLegacyTimestampsDto
             {

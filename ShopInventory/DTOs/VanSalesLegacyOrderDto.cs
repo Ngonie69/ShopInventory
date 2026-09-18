@@ -80,6 +80,26 @@ public class VanSalesLegacyOrderDto
     [JsonPropertyName("qrcode")]
     public string QrCode { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The fiscal day this invoice was signed in, off the same fiscal record as
+    /// <see cref="Verification"/>. Empty for anything not fiscalised.
+    /// </summary>
+    /// <remarks>
+    /// The handset prints it under the QR on a reprint. It used to ask <c>GET /vansales/fiscal</c> instead,
+    /// which answers with the most recent fiscal transaction on the server, whichever invoice that was,
+    /// so a reprint could only ever have carried another document's day.
+    /// </remarks>
+    [JsonPropertyName("fiscal_day")]
+    public string FiscalDay { get; set; } = string.Empty;
+
+    /// <summary>The serial of the fiscal device that signed this invoice.</summary>
+    [JsonPropertyName("device_serial")]
+    public string DeviceSerial { get; set; } = string.Empty;
+
+    /// <summary>The receipt's global number on that device, or empty.</summary>
+    [JsonPropertyName("receipt_global_no")]
+    public string ReceiptGlobalNo { get; set; } = string.Empty;
+
     [JsonPropertyName("status")]
     public int Status { get; set; }
 
