@@ -12,6 +12,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoices;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Models;
@@ -451,6 +452,64 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
     }
 
     /// <summary>
+    /// A credit taken against a queued sale is raised in SAP as soon as the queue posts its invoice.
+    /// </summary>
+    /// <remarks>
+    /// A sale is on this queue precisely because it was fiscalised and SAP would not take its invoice,
+    /// which is the longest that window is ever open — so it is the likeliest place for a return to
+    /// have been credited against a receipt with no invoice behind it. The memo was deferred for want
+    /// of an invoice; the moment the queue produces one it is owed.
+    /// </remarks>
+    [Fact]
+    public async Task A_credit_deferred_against_a_queued_sale_is_raised_once_the_queue_posts_it()
+    {
+        await SeedQueuedSaleAsync(requiresFiscalization: false);
+
+        var receipt = new DesktopSaleEntity
+        {
+            ExternalReferenceId = VanOrder,
+            SourceSystem = SaleSourceSystems.VanSalesOnline,
+            CardCode = CardCode,
+            DocDate = QueuedAtUtc.Date,
+            WarehouseCode = "VAN07",
+            Currency = "USD",
+            TotalAmount = 60m,
+            AmountPaid = 60m,
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
+            FiscalReceiptNumber = "H-311",
+
+            // Consolidated from birth, so no posting route claims a document that is the
+            // reservation's to produce. It names no consolidation, and its invoice is still owed.
+            ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated,
+            CreatedAt = QueuedAtUtc,
+            Lines =
+            [
+                new DesktopSaleLineEntity
+                {
+                    LineNum = 0, ItemCode = "CHE011", ItemDescription = "Cheddar 1kg",
+                    Quantity = 2, UnitPrice = 30m, LineTotal = 60m, WarehouseCode = "VAN07"
+                }
+            ]
+        };
+
+        _context.DesktopSales.Add(receipt);
+        await _context.SaveChangesAsync();
+
+        var note = await DesktopCreditPosters.GivenCreditAsync(_context, receipt);
+        _context.ChangeTracker.Clear();
+
+        var sap = new RecordingSap();
+        await RunAsync(creditPoster: DesktopCreditPosters.Recording(_context, sap));
+
+        // Based on the invoice the queue has just posted, which is what lets SAP take the batches
+        // from the document being credited.
+        Assert.Equal(DocEntry, Assert.Single(sap.Created).OriginalInvoiceDocEntry);
+
+        var settled = await _context.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == note.Id);
+        Assert.Equal(DesktopCreditSapStatuses.Posted, settled.SapStatus);
+    }
+
+    /// <summary>
     /// A fiscalised sale SAP refused goes to review, and Retry on the review list puts it back to Pending.
     /// The job then fiscalises it again — so it has to ask the device first, or the sale is signed twice.
     /// </summary>
@@ -621,13 +680,16 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
         ]
     };
 
-    private async Task<PostQueuedVanInvoicesResult> RunAsync(SapCircuitBreakerState? breaker = null)
+    private async Task<PostQueuedVanInvoicesResult> RunAsync(
+        SapCircuitBreakerState? breaker = null,
+        DesktopCreditSapPoster? creditPoster = null)
     {
         var handler = new PostQueuedVanInvoicesHandler(
             _context,
             ReservationService(),
             Sap(),
             breaker ?? new SapCircuitBreakerState(Options.Create(new SAPSettings())),
+            creditPoster ?? DesktopCreditPosters.Idle(_context),
             NullLogger<PostQueuedVanInvoicesHandler>.Instance);
 
         var result = await handler.Handle(new PostQueuedVanInvoicesCommand(5), CancellationToken.None);

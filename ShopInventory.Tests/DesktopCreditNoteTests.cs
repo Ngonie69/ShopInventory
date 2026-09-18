@@ -51,6 +51,45 @@ public sealed class DesktopCreditNoteTests : IDisposable
         Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Revmax });
 
     /// <summary>
+    /// An online van sale this server signed is creditable here, in SAP or not.
+    /// </summary>
+    /// <remarks>
+    /// The row is a receipt carrier rather than a sale, which is why it used to be refused by source
+    /// system. Since <c>VanSaleFiscalFirstPoster</c> the receipt is signed before the invoice goes
+    /// anywhere, under the reservation's own reference — so REVMax holds it under exactly the number
+    /// the gateway asks for, and a sale SAP has refused is the case that most needs crediting: the
+    /// customer has a receipt and their goods back, and nothing else can reverse it.
+    /// </remarks>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(2342939, 772109)]
+    public async Task An_online_van_sale_this_server_signed_is_prepared_whether_or_not_SAP_took_it(
+        int? docEntry, int? docNum)
+    {
+        db.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "VAN-ONLINE-1", CardCode = "C1", WarehouseCode = "W1", Currency = "USD",
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success, TotalAmount = 100m,
+            SapDocEntry = docEntry, SapDocNum = docNum,
+            SourceSystem = SaleSourceSystems.VanSalesOnline,
+
+            // What the fiscal-first poster writes: signed by the server's device, so there is no
+            // handset receipt to hand on and nothing else owns the chain it went onto.
+            ReceiptIngestStatus = DesktopSaleReceiptIngestStatus.NotApplicable
+        });
+        await db.SaveChangesAsync();
+
+        var form = await service.PrepareAsync(caller, "VAN-ONLINE-1", default);
+
+        Assert.Equal(1, gateway.Reads);
+
+        // The form carries the sale's SAP state rather than guessing at it, which is what decides
+        // whether the dialog can offer to post the memo now or has to defer it to the sweep.
+        Assert.Equal(docEntry is not null, form.SaleInSap);
+        Assert.Equal(docNum, form.SaleSapDocNum);
+    }
+
+    /// <summary>
     /// The two sales this dialog cannot credit, refused by name before anything is prepared.
     /// </summary>
     /// <remarks>
@@ -59,25 +98,26 @@ public sealed class DesktopCreditNoteTests : IDisposable
     /// help at all to the person holding the goods.
     /// </remarks>
     [Fact]
-    public async Task An_online_van_sale_is_refused_and_points_at_the_SAP_invoice()
+    public async Task A_handset_signed_receipt_is_refused_and_points_at_the_handset()
     {
-        // This row is a receipt carrier, not a sale. Its invoice reached SAP inside the request that
-        // made it and was fiscalised from that invoice, so the receipt is filed under the SAP DocNum
-        // and not under the reference this dialog knows how to ask for.
+        // Signed off the handset's own device chain and held for the platform. A device has one chain
+        // with one writer, so nothing on this server can put a credit onto it — and the row says so
+        // itself, which is why this is not a test on the source system: the same source is creditable
+        // here when this server did the signing.
         db.DesktopSales.Add(new DesktopSaleEntity
         {
-            ExternalReferenceId = "VAN-ONLINE-1", CardCode = "C1", WarehouseCode = "W1", Currency = "USD",
+            ExternalReferenceId = "VAN-ONLINE-2", CardCode = "C1", WarehouseCode = "W1", Currency = "USD",
             FiscalizationStatus = DesktopSaleFiscalizationStatus.Success, TotalAmount = 100m,
             SapDocNum = 772109, SapDocEntry = 2342939,
-            SourceSystem = SaleSourceSystems.VanSalesOnline
+            SourceSystem = SaleSourceSystems.VanSalesOnline,
+            ReceiptIngestStatus = DesktopSaleReceiptIngestStatus.Pending
         });
         await db.SaveChangesAsync();
 
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.PrepareAsync(caller, "VAN-ONLINE-1", default));
+            () => service.PrepareAsync(caller, "VAN-ONLINE-2", default));
 
-        Assert.Contains("772109", refusal.Message);
-        Assert.Contains("Credit notes", refusal.Message);
+        Assert.Contains("handset", refusal.Message);
 
         // Refused before the gateway was troubled at all.
         Assert.Equal(0, gateway.Reads);

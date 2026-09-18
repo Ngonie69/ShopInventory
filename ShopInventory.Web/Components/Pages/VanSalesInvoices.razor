@@ -623,6 +623,18 @@
                     <span class="vsd-dfoot-why">No SAP invoice to download yet</span>
                 }
                 <button type="button" class="vsd-btn vsd-btn-ghost" @onclick="CloseDetail">Close</button>
+                @* Offered on any invoice ZIMRA holds a receipt for, whether or not SAP took it — which is
+                   the case that most needs it. A van sale is signed before SAP is asked, so a sale SAP
+                   refused has a customer holding a receipt and, once they bring the goods back, nothing
+                   else that can reverse it. The credit is filed with ZIMRA now and its SAP memo follows
+                   when the invoice posts; the dialog says which of the two it is doing. *@
+                @if (detail is not null && !string.IsNullOrWhiteSpace(detail.Invoice.FiscalReceiptNumber))
+                {
+                    <button type="button" class="vsd-btn vsd-btn-primary" @onclick="OpenCredit">
+                        <i class="ph ph-arrow-u-up-left" aria-hidden="true"></i>
+                        <span>Credit notes</span>
+                    </button>
+                }
                 @if (detail?.Invoice.SapDocEntry is not null)
                 {
                     <button type="button" class="vsd-btn vsd-btn-primary" @onclick="DownloadPdfAsync" disabled="@isDownloading">
@@ -642,3 +654,11 @@
         </aside>
     </div>
 }
+
+@* The same dialog /desktop-sales and /vending raise a credit from, which owns all of its own state
+   and talks to the API itself — see DesktopCreditNoteDialog. It is addressed by the van order, which
+   is what the receipt was signed under and what the API looks the sale up by. *@
+<DesktopCreditNoteDialog Reference="@creditInvoice?.Reference"
+                         SaleNumber="@creditInvoice?.Reference"
+                         Currency="@creditInvoice?.Currency"
+                         OnClosed="CloseCredit" />

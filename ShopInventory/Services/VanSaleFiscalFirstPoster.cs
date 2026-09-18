@@ -5,6 +5,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
@@ -48,6 +49,7 @@ public sealed class VanSaleFiscalFirstPoster(
     ApplicationDbContext db,
     IStockReservationService reservations,
     DesktopSaleFiscaliser fiscaliser,
+    DesktopCreditSapPoster creditPoster,
     IOptions<TaxSettings> tax,
     ILogger<VanSaleFiscalFirstPoster> logger)
 {
@@ -254,6 +256,8 @@ public sealed class VanSaleFiscalFirstPoster(
             sale.LastPostingError = null;
             await db.SaveChangesAsync(persist);
 
+            await RaiseDeferredCreditsAsync(sale);
+
             return new VanSaleFiscalFirstOutcome(
                 VanSaleFiscalFirstStatus.Posted,
                 sale,
@@ -276,6 +280,41 @@ public sealed class VanSaleFiscalFirstPoster(
             transient: SapFailureClassifier.ContainsAvailabilitySignal(error)
                        || (confirmed.Errors ?? []).Any(SapFailureClassifier.ContainsAvailabilitySignal)
                        || string.Equals(reservation.Status, ReservationStatus.Confirming, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Raises the SAP credit memos for fiscal credits taken against this sale before it posted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A van sale is signed before SAP is asked, so there is a window — minutes when SAP refuses and
+    /// hours when it is down — in which the receipt exists and the invoice does not. A return handed
+    /// back in that window is credited with ZIMRA and its memo deferred, because there is no invoice
+    /// to raise one against yet; this is the hook that raises it the moment there is. The same hook
+    /// <c>VanSalesEndOfDayPostingService</c> has for the offline route, and
+    /// <c>PostQueuedVanInvoicesHandler</c> for a sale the queue posts later.
+    /// </para>
+    /// <para>
+    /// Advisory, and never allowed to fail the post. The invoice is in SAP by the time this runs, and
+    /// the caller reads a failure as "not posted" — which would put a second invoice in SAP for one
+    /// ZIMRA receipt. A credit left owing stays on its own row for <c>DesktopCreditSapSweep</c>.
+    /// </para>
+    /// </remarks>
+    private async Task RaiseDeferredCreditsAsync(DesktopSaleEntity sale)
+    {
+        try
+        {
+            await creditPoster.SettleForSaleAsync(sale.Id, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Van sale {Reference} posted as invoice {DocNum}, but the fiscal credits against it "
+                + "could not be raised in SAP.",
+                sale.ExternalReferenceId,
+                sale.SapDocNum);
+        }
     }
 
     private async Task<VanSaleFiscalFirstOutcome> AwaitSapAsync(

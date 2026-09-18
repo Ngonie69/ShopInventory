@@ -152,7 +152,14 @@ public sealed class DesktopCreditSapPoster(
         { ConsolidationStatus: DesktopSaleConsolidationStatus.Excluded } =>
             DesktopCreditSapStatuses.NotRequired,
 
-        { ConsolidationStatus: DesktopSaleConsolidationStatus.Consolidated } =>
+        // Inside an end-of-day invoice that stands for many sales. No line of it is this sale's, so
+        // there is nothing a memo could be based on and a person has to raise it — which is why the
+        // consolidation's own id is the test and not the status beside it. A van sale's receipt row is
+        // marked Consolidated the moment it is written, to keep every posting route off a document that
+        // is its reservation's to produce; it carries no consolidation, and its invoice is still owed.
+        // Reading the status alone wrote off every credit taken in that window as manual work nobody
+        // was told about, and the sweep never looked at one again.
+        { ConsolidationStatus: DesktopSaleConsolidationStatus.Consolidated, ConsolidationId: not null } =>
             DesktopCreditSapStatuses.ManualInSap,
 
         _ => DesktopCreditSapStatuses.Deferred
