@@ -51,11 +51,30 @@ public static class SqlItemCodePrefixCover
                 continue;
             }
 
-            var trimmed = itemCode.Trim().ToUpperInvariant();
-            prefixes.Add(trimmed.Length <= prefixLength ? trimmed : trimmed[..prefixLength]);
+            prefixes.Add(PrefixOf(itemCode, prefixLength));
         }
 
         return prefixes.ToList();
+    }
+
+    /// <summary>
+    /// The one bucket <paramref name="itemCode"/> belongs to — the prefix <see cref="Cover"/>
+    /// contributes for it. Trimmed and upper-cased; a code shorter than
+    /// <paramref name="prefixLength"/> is its own bucket.
+    /// </summary>
+    /// <remarks>
+    /// Needed alongside <see cref="IsInBucket"/> because buckets can overlap: a short code such as
+    /// <c>AB</c> is its own bucket, and <c>AB%</c> also matches <c>ABC001</c> from the <c>ABC</c>
+    /// bucket. A caller merging several buckets keeps each row only from the bucket this names, so
+    /// no row comes back twice.
+    /// </remarks>
+    public static string PrefixOf(string itemCode, int prefixLength = DefaultPrefixLength)
+    {
+        ArgumentNullException.ThrowIfNull(itemCode);
+        ArgumentOutOfRangeException.ThrowIfLessThan(prefixLength, 1);
+
+        var trimmed = itemCode.Trim().ToUpperInvariant();
+        return trimmed.Length <= prefixLength ? trimmed : trimmed[..prefixLength];
     }
 
     /// <summary>

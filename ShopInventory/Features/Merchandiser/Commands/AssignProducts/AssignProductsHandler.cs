@@ -82,25 +82,16 @@ public sealed class AssignProductsHandler(
         Dictionary<string, string?> categories = new();
         try
         {
-            var inClause = string.Join(",", itemCodes.Select(c => $"'{c.Replace("'", "''")}'"));
-            var sqlText = $@"
-                SELECT T0.""ItemCode"", T0.""U_ItemGroup"" AS ""Category"",
-                       T0.""CodeBars"" AS ""BarCode"", T0.""SalUnitMsr"" AS ""UoM"",
-                       T0.""ItemName""
-                FROM OITM T0
-                WHERE T0.""ItemCode"" IN ({inClause})";
-
-            var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                "MerchAssignDetails", "Merchandiser Product Assignment Details", sqlText, cancellationToken);
+            var rows = await MerchandiserItemSql.GetItemDetailsAsync(sapClient, itemCodes, cancellationToken);
 
             return rows.ToDictionary(
                 r => r.GetValueOrDefault("ItemCode")?.ToString() ?? "",
                 r => new ProductDetailInfo
                 {
                     ItemName = r.GetValueOrDefault("ItemName")?.ToString(),
-                    BarCode = r.GetValueOrDefault("BarCode")?.ToString(),
-                    UoM = r.GetValueOrDefault("UoM")?.ToString(),
-                    Category = r.GetValueOrDefault("Category")?.ToString()
+                    BarCode = r.GetValueOrDefault("CodeBars")?.ToString(),
+                    UoM = r.GetValueOrDefault("SalUnitMsr")?.ToString(),
+                    Category = r.GetValueOrDefault("U_ItemGroup")?.ToString()
                 });
         }
         catch (Exception ex)

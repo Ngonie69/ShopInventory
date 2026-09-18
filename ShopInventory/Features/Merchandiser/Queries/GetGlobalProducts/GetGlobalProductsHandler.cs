@@ -28,9 +28,8 @@ public sealed class GetGlobalProductsHandler(
         {
             try
             {
-                var inClause = string.Join(",", missingData.Select(c => $"'{c.Replace("'", "''")}'"));
-                var sqlText = $@"SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_ItemGroup"", T0.""SalUnitMsr"" FROM OITM T0 WHERE T0.""ItemCode"" IN ({inClause}) ORDER BY T0.""ItemCode""";
-                var rows = await sapClient.ExecuteRawSqlQueryAsync("MerchBackfill", "Backfill Item Names/Categories", sqlText, cancellationToken);
+                var rows = MerchandiserItemSql.OrderByItemCode(
+                    await MerchandiserItemSql.GetItemDetailsAsync(sapClient, missingData, cancellationToken));
 
                 var detailMap = rows
                     .Where(r => r.GetValueOrDefault("ItemCode") != null)

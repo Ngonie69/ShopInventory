@@ -32,42 +32,31 @@ public sealed class BackfillProductDetailsHandler(
 
         logger.LogInformation("Backfilling denormalized fields for {Count} distinct item codes", itemCodes.Count);
 
-        // Fetch details from SAP in batches
+        // Fetch details from SAP. This used to run in batches of 200 codes interpolated into an IN
+        // list, which rewrote the stored statement on every batch; the prefix buckets bound the
+        // work per call instead (see MerchandiserItemSql). A failure now loses the whole fetch
+        // rather than one batch of it; the rows it would have filled are left for the next run.
         var allDetails = new Dictionary<string, ProductDetail>();
-        const int batchSize = 200;
-
-        for (int i = 0; i < itemCodes.Count; i += batchSize)
+        try
         {
-            var batch = itemCodes.Skip(i).Take(batchSize).ToList();
-            try
+            var rows = await MerchandiserItemSql.GetItemDetailsAsync(sapClient, itemCodes, cancellationToken);
+
+            foreach (var row in rows)
             {
-                var inClause = string.Join(",", batch.Select(c => $"'{c.Replace("'", "''")}'"));
-                var sqlText = $@"
-                    SELECT T0.""ItemCode"", T0.""ItemName"", T0.""CodeBars"",
-                           T0.""SalUnitMsr"", T0.""U_ItemGroup""
-                    FROM OITM T0
-                    WHERE T0.""ItemCode"" IN ({inClause})";
-
-                var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                    "MerchBackfill", "Merchandiser Product Backfill", sqlText, cancellationToken);
-
-                foreach (var row in rows)
+                var code = row.GetValueOrDefault("ItemCode")?.ToString();
+                if (!string.IsNullOrEmpty(code))
                 {
-                    var code = row.GetValueOrDefault("ItemCode")?.ToString();
-                    if (!string.IsNullOrEmpty(code))
-                    {
-                        allDetails[code] = new ProductDetail(
-                            row.GetValueOrDefault("ItemName")?.ToString(),
-                            row.GetValueOrDefault("CodeBars")?.ToString(),
-                            row.GetValueOrDefault("SalUnitMsr")?.ToString(),
-                            row.GetValueOrDefault("U_ItemGroup")?.ToString());
-                    }
+                    allDetails[code] = new ProductDetail(
+                        row.GetValueOrDefault("ItemName")?.ToString(),
+                        row.GetValueOrDefault("CodeBars")?.ToString(),
+                        row.GetValueOrDefault("SalUnitMsr")?.ToString(),
+                        row.GetValueOrDefault("U_ItemGroup")?.ToString());
                 }
             }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to fetch SAP details for batch starting at index {Index}", i);
-            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to fetch SAP details for {Count} item codes", itemCodes.Count);
         }
 
         // Update all matching rows
