@@ -340,20 +340,6 @@ new("POST", "/api/IncomingPayment/{docEntry}/attachment", "Upload attachment")
 },
 new ApiModule
 {
-Name = "Daily Incoming Payment Settings",
-BasePath = "/api/daily-incoming-payment-settings",
-Description = "Turn the daily incoming payment for desktop sales on or off.",
-Icon = Icons.Material.Filled.AttachMoney,
-Color = Color.Warning,
-Methods = new[] { "GET", "PUT" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/daily-incoming-payment-settings", "Get setting"),
-new("PUT", "/api/daily-incoming-payment-settings", "Update setting")
-}
-},
-new ApiModule
-{
 Name = "Invoices",
 BasePath = "/api/Invoice",
 Description = "Create, retrieve, and manage sales invoices with SAP integration and batch validation.",
@@ -1387,7 +1373,7 @@ BasePath = "/api/DesktopIntegration",
 Description = "65 endpoints under /api/DesktopIntegration.",
 Icon = Icons.Material.Filled.Dns,
 Color = Color.Secondary,
-Methods = new[] { "DELETE", "GET", "POST" },
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/DesktopIntegration/credit-notes/by-docnum/{docNum}", "Get credit note by doc num"),
@@ -1414,6 +1400,9 @@ new("GET", "/api/DesktopIntegration/sales", "Get desktop sales"),
 new("GET", "/api/DesktopIntegration/sales/analysis", "Get desktop sales analysis"),
 new("GET", "/api/DesktopIntegration/sales/management-report", "Get management sales report"),
 new("GET", "/api/DesktopIntegration/sales/management-report/item", "Get management item analysis"),
+new("GET", "/api/DesktopIntegration/sales/review", "Get desktop sales review"),
+new("GET", "/api/DesktopIntegration/sales/review/pdf", "Get desktop sales review PDF"),
+new("GET", "/api/DesktopIntegration/sales/review/schedule", "Get desktop sales review schedule"),
 new("GET", "/api/DesktopIntegration/stock/{warehouseCode}", "Get available stock bulk"),
 new("GET", "/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}", "Get available stock"),
 new("GET", "/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}/batches", "Get available batches"),
@@ -1455,6 +1444,8 @@ new("POST", "/api/DesktopIntegration/sales-orders/convert-to-invoice", "Convert 
 new("POST", "/api/DesktopIntegration/sales/{externalReference}/fiscalise", "Retry desktop sale fiscalisation"),
 new("POST", "/api/DesktopIntegration/sales/{externalReference}/post", "Post desktop sale to SAP"),
 new("POST", "/api/DesktopIntegration/sales/post-batch", "Post desktop sales to SAP"),
+new("POST", "/api/DesktopIntegration/sales/review/email", "Send desktop sales review email"),
+new("PUT", "/api/DesktopIntegration/sales/review/schedule", "Update desktop sales review schedule"),
 new("POST", "/api/DesktopIntegration/stock/{warehouseCode}/refresh", "Refresh warehouse stock from SAP"),
 new("POST", "/api/DesktopIntegration/stock/fetch-daily", "Fetch daily stock"),
 new("POST", "/api/DesktopIntegration/stock/validate", "Validate stock availability"),
@@ -1606,6 +1597,20 @@ Name = "Other",
 Icon = Icons.Material.Filled.Api,
 Modules = new List<ApiModule>
 {
+new ApiModule
+{
+Name = "Daily Incoming Payment Settings",
+BasePath = "/api/daily-incoming-payment-settings",
+Description = "Turn the daily incoming payment for desktop sales on or off.",
+Icon = Icons.Material.Filled.AttachMoney,
+Color = Color.Warning,
+Methods = new[] { "GET", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/daily-incoming-payment-settings", "Get setting"),
+new("PUT", "/api/daily-incoming-payment-settings", "Update setting")
+}
+},
 new ApiModule
 {
 Name = "Fiscalisation Console",

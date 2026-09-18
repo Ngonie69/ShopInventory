@@ -140,7 +140,7 @@
             }
         </div>
 
-        @if (Section is not { } section)
+        @if (Section is not { } sales)
         {
             <div class="ops-empty">
                 <i class="ph ph-receipt" aria-hidden="true"></i>
@@ -150,7 +150,7 @@
         }
         else
         {
-            var h = section.Headline;
+            var h = sales.Headline;
 
             <div class="ops-sbd-body @(isLoading ? "is-busy" : "")">
 
@@ -241,18 +241,18 @@
                             <i class="ph ph-calendar" aria-hidden="true"></i>
                             <span class="ops-ds-card-label" id="dsr-days-title">Trading days</span>
                             <div class="ops-sbd-legend ops-sbd-head-end" aria-hidden="true">
-                                @foreach (var method in section.ByPaymentMethod.Where(m => m.TotalAmount > 0))
+                                @foreach (var method in sales.ByPaymentMethod.Where(m => m.TotalAmount > 0))
                                 {
                                     <span class="ops-sbd-legend-key"><span class="ops-dsa-swatch @TenderClass(method.PaymentMethod)"></span>@TenderLabel(method.PaymentMethod)</span>
                                 }
                             </div>
                         </div>
-                        @{ var bestDay = section.ByDay.Count == 0 ? 0m : section.ByDay.Max(d => d.TotalAmount); }
+                        @{ var bestDay = sales.ByDay.Count == 0 ? 0m : sales.ByDay.Max(d => d.TotalAmount); }
                         <div class="ops-scroll">
                             <table class="ops-table ops-sbd-table">
                                 <thead><tr><th>Day</th><th class="ops-num">Sales</th><th class="ops-num">Takings</th><th class="ops-sbd-split-head">Split</th></tr></thead>
                                 <tbody>
-                                    @foreach (var day in section.ByDay)
+                                    @foreach (var day in sales.ByDay)
                                     {
                                         <tr>
                                             <td class="ops-dsr-nowrap">@DayLabel(day.Date)</td>
@@ -279,9 +279,9 @@
                     @* ── Hours ────────────────────────────────────────────────────── *@
                     <section class="ops-ds-card" aria-labelledby="dsr-hours-title">
                         @{
-                            var hours = Hours(section);
-                            var busiest = section.ByHour.Count == 0 ? 0 : section.ByHour.Max(x => x.SalesCount);
-                            var settles = section.ByHour.Any(x => x.SettlementSalesCount > 0);
+                            var hours = Hours(sales);
+                            var busiest = sales.ByHour.Count == 0 ? 0 : sales.ByHour.Max(x => x.SalesCount);
+                            var settles = sales.ByHour.Any(x => x.SettlementSalesCount > 0);
                         }
                         <div class="ops-ds-card-head">
                             <i class="ph ph-clock" aria-hidden="true"></i>
@@ -298,7 +298,7 @@
                         <div class="ops-dsr-hours" role="img" aria-label="Sales per hour of the counter day">
                             @foreach (var hour in hours)
                             {
-                                var row = section.ByHour.FirstOrDefault(x => x.Hour == hour);
+                                var row = sales.ByHour.FirstOrDefault(x => x.Hour == hour);
                                 var counter = (row?.SalesCount ?? 0) - (row?.SettlementSalesCount ?? 0);
                                 var settle = row?.SettlementSalesCount ?? 0;
                                 <div class="ops-dsr-hour" title="@($"{hour:00}:00 · {Plural(counter, "counter sale")}{(settle > 0 ? $" · {Plural(settle, "settlement")}" : "")} · {Money(row?.TotalAmount ?? 0)}")">
@@ -326,7 +326,7 @@
                         <span class="ops-ds-card-label" id="dsr-shops-title">Shops and depots</span>
                         <span class="ops-sbd-hint">compare on takings per trading day</span>
                     </div>
-                    @{ var bestShop = section.ByShop.Count == 0 ? 0m : section.ByShop.Max(s => s.PerTradingDay); }
+                    @{ var bestShop = sales.ByShop.Count == 0 ? 0m : sales.ByShop.Max(s => s.PerTradingDay); }
                     <div class="ops-scroll">
                         <table class="ops-table ops-sbd-table">
                             <thead>
@@ -342,7 +342,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var shop in section.ByShop)
+                                @foreach (var shop in sales.ByShop)
                                 {
                                     <tr>
                                         <td>
@@ -373,9 +373,9 @@
                         </table>
                     </div>
 
-                    @if (section.ShopHours.Count > 0 && section.ByShop.Count > 1)
+                    @if (sales.ShopHours.Count > 0 && sales.ByShop.Count > 1)
                     {
-                        var gridHours = Hours(section);
+                        var gridHours = Hours(sales);
                         <div class="ops-dsr-grid-wrap ops-scroll">
                             <div class="ops-dsr-grid" style="grid-template-columns: minmax(9rem, 1.4fr) repeat(@gridHours.Count, minmax(2.1rem, 1fr));"
                                  role="table" aria-label="Sales per hour at each shop">
@@ -384,9 +384,9 @@
                                 {
                                     <div class="ops-dsr-grid-hour" role="columnheader">@hour.ToString("00")</div>
                                 }
-                                @foreach (var shop in section.ByShop)
+                                @foreach (var shop in sales.ByShop)
                                 {
-                                    var cells = section.ShopHours.Where(c => string.Equals(c.WarehouseCode, shop.WarehouseCode, StringComparison.OrdinalIgnoreCase)).ToList();
+                                    var cells = sales.ShopHours.Where(c => string.Equals(c.WarehouseCode, shop.WarehouseCode, StringComparison.OrdinalIgnoreCase)).ToList();
                                     var peak = cells.Count == 0 ? 0 : cells.Max(c => c.SalesCount);
                                     <div class="ops-dsr-grid-shop" role="rowheader">@shop.Label</div>
                                     @foreach (var hour in gridHours)
@@ -409,20 +409,20 @@
                     <div class="ops-ds-card-head">
                         <i class="ph ph-package" aria-hidden="true"></i>
                         <span class="ops-ds-card-label" id="dsr-items-title">Best sellers</span>
-                        @if (section.TopItems.Count > 0)
+                        @if (sales.TopItems.Count > 0)
                         {
                             <span class="ops-sbd-head-end ops-sbd-hint">
-                                top @section.TopItems.Count of @section.ItemCount.ToString("N0") items make @Pct(section.TopItems[^1].CumulativeSharePercent) of line value
+                                top @sales.TopItems.Count of @sales.ItemCount.ToString("N0") items make @Pct(sales.TopItems[^1].CumulativeSharePercent) of line value
                             </span>
                         }
                     </div>
-                    @if (section.TopItems.Count == 0)
+                    @if (sales.TopItems.Count == 0)
                     {
                         <p class="ops-dsa-none">No lines were recorded on these sales.</p>
                     }
                     else
                     {
-                        var topNet = section.TopItems.Max(i => i.NetAmount);
+                        var topNet = sales.TopItems.Max(i => i.NetAmount);
                         <div class="ops-scroll">
                             <table class="ops-table ops-sbd-table">
                                 <thead>
@@ -440,7 +440,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var item in section.TopItems)
+                                    @foreach (var item in sales.TopItems)
                                     {
                                         <tr>
                                             <td>
@@ -472,10 +472,10 @@
                     }
                 </section>
 
-                @if (section.PriceSpreads.Count > 0 || section.LargeSales.Count > 0)
+                @if (sales.PriceSpreads.Count > 0 || sales.LargeSales.Count > 0)
                 {
                     <div class="ops-sbd-pair">
-                        @if (section.PriceSpreads.Count > 0)
+                        @if (sales.PriceSpreads.Count > 0)
                         {
                             <section class="ops-ds-card" aria-labelledby="dsr-prices-title">
                                 <div class="ops-ds-card-head">
@@ -487,7 +487,7 @@
                                     <table class="ops-table ops-sbd-table">
                                         <thead><tr><th>Item</th><th>Lowest</th><th>Highest</th><th class="ops-num">Spread</th><th class="ops-num">At the higher price</th></tr></thead>
                                         <tbody>
-                                            @foreach (var spread in section.PriceSpreads)
+                                            @foreach (var spread in sales.PriceSpreads)
                                             {
                                                 <tr>
                                                     <td><div class="ops-code">@spread.ItemCode</div><div class="ops-sub">@spread.ItemDescription</div></td>
@@ -503,7 +503,7 @@
                             </section>
                         }
 
-                        @if (section.LargeSales.Count > 0)
+                        @if (sales.LargeSales.Count > 0)
                         {
                             <section class="ops-ds-card" aria-labelledby="dsr-large-title">
                                 <div class="ops-ds-card-head">
@@ -515,7 +515,7 @@
                                     <table class="ops-table ops-sbd-table">
                                         <thead><tr><th>Day</th><th>Shop</th><th>Customer</th><th class="ops-num">Units</th><th class="ops-num">Total</th><th class="ops-num">× avg</th></tr></thead>
                                         <tbody>
-                                            @foreach (var sale in section.LargeSales)
+                                            @foreach (var sale in sales.LargeSales)
                                             {
                                                 <tr>
                                                     <td>@DayLabel(sale.DocDate)</td>
