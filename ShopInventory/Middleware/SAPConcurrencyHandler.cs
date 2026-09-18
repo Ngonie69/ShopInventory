@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
+using ShopInventory.Services;
 
 namespace ShopInventory.Middleware;
 
@@ -72,6 +73,10 @@ public sealed class SAPConcurrencyHandler : DelegatingHandler
         }
 
         var waitDuration = Stopwatch.GetElapsedTime(waitStarted);
+
+        // From here a timeout is SAP not answering rather than this queue being full, which is
+        // what the circuit breaker needs to know before it counts one.
+        SapRequestMarks.MarkReachedSap(request);
 
         if (waitDuration >= TimeSpan.FromSeconds(2))
         {
