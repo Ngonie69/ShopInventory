@@ -6,6 +6,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -119,7 +120,8 @@ public sealed class VanSaleFiscalFirstPosterTests : IDisposable
     private VanSaleFiscalFirstPoster BuildPoster(
         Func<FiscalizationResult>? sign = null,
         Func<ConfirmReservationRequest, ConfirmReservationResponseDto>? confirm = null,
-        Func<FiscalizationResult?>? existingReceipt = null)
+        Func<FiscalizationResult?>? existingReceipt = null,
+        DesktopCreditSapPoster? creditPoster = null)
     {
         var fiscalisation = StubProxy.For<IFiscalizationService>((method, args) => method.Name switch
         {
@@ -156,6 +158,7 @@ public sealed class VanSaleFiscalFirstPosterTests : IDisposable
             _context,
             reservations,
             fiscaliser,
+            creditPoster ?? DesktopCreditPosters.Idle(_context),
             Options.Create(_tax),
             NullLogger<VanSaleFiscalFirstPoster>.Instance);
     }
@@ -190,6 +193,61 @@ public sealed class VanSaleFiscalFirstPosterTests : IDisposable
 
     private StockReservationEntity StoredReservation() =>
         _context.StockReservations.AsNoTracking().Include(r => r.Lines).Single(r => r.ExternalReferenceId == Reference);
+
+    /// <summary>
+    /// A credit taken while SAP would not take the invoice is raised the moment it does.
+    /// </summary>
+    /// <remarks>
+    /// This window is what signing first costs: between the receipt and the invoice the sale exists at
+    /// ZIMRA and nowhere else, so a return handed back in it can only be credited fiscally — there is
+    /// no invoice for a memo to be based on. It is not a rare corner either, because a refused sale
+    /// spends the window on the posting queue. Without this hook the memo waited for
+    /// <c>DesktopCreditSapSweep</c> to notice, which is the fallback and not the path.
+    /// </remarks>
+    [Fact]
+    public async Task A_credit_taken_while_SAP_refused_is_raised_when_the_invoice_posts()
+    {
+        var reservation = SeedReservation();
+        var attempts = 0;
+
+        // SAP refuses the first time and takes it on the retry, which is what the queue lives for.
+        ConfirmReservationResponseDto Refusing(ConfirmReservationRequest _) =>
+            attempts++ == 0
+                ? new ConfirmReservationResponseDto { Success = false, Message = "SAP said no." }
+                : Posted();
+
+        var sap = new RecordingSap();
+        var credits = DesktopCreditPosters.Recording(_context, sap);
+
+        var refused = await BuildPoster(confirm: Refusing, creditPoster: credits)
+            .FiscaliseThenPostAsync(Request(reservation.ReservationId), default);
+
+        Assert.Equal(VanSaleFiscalFirstStatus.AwaitingSap, refused.Status);
+
+        // The receipt stands and the invoice does not exist. This is the state the drawer shows as
+        // "ZIMRA signed, SAP refused", and the only thing that can reverse the sale is a credit.
+        var signed = StoredSale();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, signed.FiscalizationStatus);
+        Assert.Null(signed.SapDocEntry);
+
+        // The customer brings the cheese back before the invoice has posted.
+        var note = await DesktopCreditPosters.GivenCreditAsync(_context, signed);
+        Assert.Empty(sap.Created);
+
+        var posted = await BuildPoster(confirm: Refusing, creditPoster: credits)
+            .FiscaliseThenPostAsync(Request(reservation.ReservationId, mayAlreadyBeFiscalised: true), default);
+
+        Assert.Equal(VanSaleFiscalFirstStatus.Posted, posted.Status);
+
+        // Signed once, posted twice: the retry must not ask the device again.
+        Assert.Equal(["sign", "post", "post"], _calls);
+
+        // And the memo is based on the invoice that has just appeared.
+        Assert.Equal(9001, Assert.Single(sap.Created).OriginalInvoiceDocEntry);
+
+        var settled = await _context.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == note.Id);
+        Assert.Equal(DesktopCreditSapStatuses.Posted, settled.SapStatus);
+    }
 
     [Fact]
     public async Task The_device_signs_before_SAP_is_asked_and_both_are_recorded()

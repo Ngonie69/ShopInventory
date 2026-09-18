@@ -94,15 +94,16 @@ public sealed class DesktopCreditNoteDialogRenderTests
     [Fact]
     public async Task A_refusal_from_the_API_is_shown_rather_than_thrown()
     {
-        // What a van sale posted through its reservation gets, and what the platform provider gets.
-        // The dialog has to put the refusal in front of the operator, not disappear on it.
+        // What a receipt the handset signed for itself gets, and what the platform provider gets. The
+        // dialog has to put the refusal in front of the operator, not disappear on it.
         var html = await RenderAsync(form: null,
-            prepareError: "This sale reached SAP through its reservation, so raise the credit note against "
-                + "the SAP invoice instead, from Credit notes.");
+            prepareError: "This sale's receipt was signed on the handset's own fiscal device, so the "
+                + "credit has to be filed on that device's chain. Credit it on the handset.");
 
-        Assert.Contains("raise the credit note against the SAP invoice instead", html);
+        Assert.Contains("signed on the handset", html);
         Assert.Contains("ops-dcn-alert", html);
     }
+
 
     // ---------------------------------------------------------------
 

@@ -635,6 +635,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                 poisoned,
                 StubProxy.Unused<IStockReservationService>(),
                 BuildFiscaliser(),
+                DesktopCreditPosters.Idle(poisoned),
                 Options.Create(new TaxSettings()),
                 NullLogger<VanSaleFiscalFirstPoster>.Instance))
             .Handle(
@@ -838,6 +839,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                 _context,
                 _reservations.Service,
                 BuildFiscaliser(),
+                DesktopCreditPosters.Idle(_context),
                 Options.Create(new TaxSettings()),
                 NullLogger<VanSaleFiscalFirstPoster>.Instance));
 

@@ -70,6 +70,45 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
 
     // ── The unposted sale: wait, then raise ──────────────────────────────
 
+    /// <summary>
+    /// A van sale's receipt row is marked Consolidated before SAP has anything, and a credit against it
+    /// is still owed a memo.
+    /// </summary>
+    /// <remarks>
+    /// Consolidated on that row means "no posting route owns this document" — the reservation posts the
+    /// invoice — and not "SAP has it inside a consolidated invoice". Read as the latter, every credit
+    /// taken between the receipt and the invoice was written off as ManualInSap: nobody was told to
+    /// raise it, and the sweep never looked at it again, so ZIMRA and SAP disagreed about the return
+    /// permanently. The consolidation's own id is what distinguishes the two, and this row has none.
+    /// </remarks>
+    [Fact]
+    public async Task A_credit_against_a_van_receipt_row_waits_for_the_invoice_rather_than_a_person()
+    {
+        var sale = await GivenSaleAsync();
+        sale.SourceSystem = SaleSourceSystems.VanSalesOnline;
+        sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
+        sale.ConsolidationId = null;
+        await _context.SaveChangesAsync();
+
+        var note = await GivenCreditAsync(sale);
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Empty(_sap.Created);
+        Assert.Equal(DesktopCreditSapStatuses.Deferred, (await Reload(note.Id)).SapStatus);
+
+        // The queue gets the invoice in, and the memo follows.
+        sale.SapDocEntry = 4242;
+        sale.SapDocNum = 772109;
+        await _context.SaveChangesAsync();
+
+        await Poster().SettleForSaleAsync(sale.Id, CancellationToken.None);
+
+        Assert.Equal(4242, Assert.Single(_sap.Created).OriginalInvoiceDocEntry);
+        Assert.Equal(DesktopCreditSapStatuses.Posted, (await Reload(note.Id)).SapStatus);
+    }
+
+
     [Fact]
     public async Task A_credit_against_a_sale_that_has_not_posted_waits_for_it()
     {
@@ -310,8 +349,13 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         // A consolidated invoice stands for many sales, so there is no invoice of its own to credit,
         // and a standalone memo would have to choose batches with nothing to take them from. ZIMRA
         // already holds the credit, which is the half nothing else can do.
+        //
+        // Seeded with the consolidation itself, as ConsolidateDailySalesHandler writes it: the id is
+        // what says this sale is inside somebody else's invoice. The status alone does not — a van
+        // sale's receipt row carries it from birth, with its own invoice still owed.
         var sale = await GivenSaleAsync();
         sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
+        sale.ConsolidationId = await GivenConsolidationAsync(sale);
         await _context.SaveChangesAsync();
         var note = await GivenCreditAsync(sale);
 
@@ -426,108 +470,31 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         return sale;
     }
 
-    /// <remarks>
-    /// Built through the real <see cref="DesktopCreditPlan"/>, serialised exactly as the fiscal service
-    /// stores it — the poster reads that JSON back, so a hand-rolled shape would test nothing.
-    /// </remarks>
-    private async Task<DesktopCreditNoteEntity> GivenCreditAsync(
+    /// <summary>The end-of-day invoice a till sale is folded into.</summary>
+    private async Task<int> GivenConsolidationAsync(DesktopSaleEntity sale)
+    {
+        var consolidation = new SaleConsolidationEntity
+        {
+            CardCode = sale.CardCode,
+            ConsolidationDate = sale.DocDate,
+            SaleCount = 4,
+            TotalAmount = 400m,
+            Status = ConsolidationStatus.Posted,
+            SapDocEntry = 91000,
+            SapDocNum = 773000
+        };
+
+        _context.SaleConsolidations.Add(consolidation);
+        await _context.SaveChangesAsync();
+        return consolidation.Id;
+    }
+
+    private Task<DesktopCreditNoteEntity> GivenCreditAsync(
         DesktopSaleEntity sale,
         string status = DesktopCreditStatuses.Fiscalised,
         int creditedLineNum = 0,
         decimal quantity = 2m,
-        string? receiptLineName = null)
-    {
-        var saleLine = sale.Lines.FirstOrDefault(line => line.LineNum == creditedLineNum);
-
-        var source = new DesktopCreditSource(
-            sale.ExternalReferenceId, sale.Currency, sale.TotalAmount, 22862, 525, 216877, null,
-            [
-                new DesktopCreditLine(
-                    creditedLineNum,
-                    receiptLineName ?? saleLine?.ItemDescription ?? "Unknown",
-                    saleLine?.Quantity ?? quantity,
-                    10m, 7, 15.5m, "O01", null)
-            ]);
-
-        var plan = new DesktopCreditPlan(
-            source,
-            [new DesktopCreditQuantity(creditedLineNum, quantity)],
-            new SubmitReceiptApiRequest { InvoiceNo = "DCN-test", ReceiptType = ReceiptType.CreditNote },
-            quantity * 10m);
-
-        var note = new DesktopCreditNoteEntity
-        {
-            Id = Guid.NewGuid(),
-            SaleId = sale.Id,
-            RequestKey = Guid.NewGuid().ToString("N"),
-            RequestHash = "hash",
-            Number = $"DCN-{Guid.NewGuid():N}",
-            OriginalFiscalNumber = sale.ExternalReferenceId,
-            Reason = "Customer return",
-            Currency = sale.Currency,
-            Amount = plan.Amount,
-            Status = status,
-            PlanJson = JsonSerializer.Serialize(plan, DesktopCreditNoteService.Json),
-            CreatedAtUtc = DateTime.UtcNow,
-            CreatedBy = Guid.NewGuid()
-        };
-
-        _context.DesktopCreditNotes.Add(note);
-        await _context.SaveChangesAsync();
-        _context.Entry(note).State = EntityState.Detached;
-        return note;
-    }
-
-    private sealed class RecordingSap
-    {
-        private int _nextDocNum = 88001;
-
-        public List<CreateCreditNoteRequest> Created { get; } = [];
-
-        public Dictionary<string, SAPCreditNote> ExistingByReference { get; } =
-            new(StringComparer.OrdinalIgnoreCase);
-
-        public ISAPServiceLayerClient Client => StubProxy.For<ISAPServiceLayerClient>((method, args) =>
-            method.Name switch
-            {
-                // Cast to object so the switch's natural type is not taken from the arm below, which
-                // answers a non-nullable Task — this lookup's contract is that it may answer null.
-                nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) =>
-                    (object)Task.FromResult(
-                        ExistingByReference.TryGetValue((string)args![0]!, out var found) ? found : null),
-
-                nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) =>
-                    Create((CreateCreditNoteRequest)args![0]!),
-
-                _ => throw new InvalidOperationException(
-                    $"ISAPServiceLayerClient.{method.Name} was not expected on this path.")
-            });
-
-        private Task<SAPCreditNote> Create(CreateCreditNoteRequest request)
-        {
-            Created.Add(request);
-            var docNum = _nextDocNum++;
-            return Task.FromResult(new SAPCreditNote
-            {
-                DocEntry = docNum, DocNum = docNum, CardCode = request.CardCode, NumAtCard = request.SapReference
-            });
-        }
-    }
-
-    private sealed class RecordingLedger
-    {
-        public List<StockLedgerLine> Released { get; } = [];
-
-        public IStockLedger Ledger => StubProxy.For<IStockLedger>((method, args) => method.Name switch
-        {
-            nameof(IStockLedger.ReleaseAsync) => Record((IReadOnlyList<StockLedgerLine>)args![0]!),
-            _ => throw new InvalidOperationException($"IStockLedger.{method.Name} was not expected.")
-        });
-
-        private Task Record(IReadOnlyList<StockLedgerLine> lines)
-        {
-            Released.AddRange(lines);
-            return Task.CompletedTask;
-        }
-    }
+        string? receiptLineName = null) =>
+        DesktopCreditPosters.GivenCreditAsync(
+            _context, sale, status, creditedLineNum, quantity, receiptLineName);
 }
