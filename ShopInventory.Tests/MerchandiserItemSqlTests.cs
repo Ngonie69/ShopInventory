@@ -164,13 +164,12 @@ public sealed class MerchandiserItemSqlTests : IDisposable
 
         // Every statement in MerchandiserItemSql was exercised...
         Assert.Equal(
-            new[] { MerchandiserItemSql.ItemDetailsCode, MerchandiserItemSql.ProductsListOneCode, MerchandiserItemSql.ProductsForCustomerCode }.Order(StringComparer.Ordinal),
+            new[] { MerchandiserItemSql.ItemDetailsCode, MerchandiserItemSql.ItemPricesCode }.Order(StringComparer.Ordinal),
             textsByCode.Keys.Order(StringComparer.Ordinal));
 
         // ...each code saw exactly one text, and that text is the declared one.
         Assert.Equal(MerchandiserItemSql.ItemDetailsSql, Assert.Single(textsByCode[MerchandiserItemSql.ItemDetailsCode]));
-        Assert.Equal(MerchandiserItemSql.ProductsListOneSql, Assert.Single(textsByCode[MerchandiserItemSql.ProductsListOneCode]));
-        Assert.Equal(MerchandiserItemSql.ProductsForCustomerSql, Assert.Single(textsByCode[MerchandiserItemSql.ProductsForCustomerCode]));
+        Assert.Equal(MerchandiserItemSql.ItemPricesSql, Assert.Single(textsByCode[MerchandiserItemSql.ItemPricesCode]));
 
         // No two codes hold the same text either, so no statement is stored twice.
         Assert.Equal(textsByCode.Count, textsByCode.Values.Select(texts => texts[0]).Distinct().Count());
@@ -184,7 +183,10 @@ public sealed class MerchandiserItemSqlTests : IDisposable
 
             Assert.Contains("LIKE :prefix", sql, StringComparison.Ordinal);
             Assert.DoesNotContain(" IN ", sql, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("FROM OITM T0", sql, StringComparison.Ordinal);
+
+            // One table per statement: the OITM/ITM1/OCRD join under a bound prefix took 46–93s
+            // per item family on SAP, against about a second for each table alone.
+            Assert.DoesNotContain("JOIN", sql, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -205,11 +207,12 @@ public sealed class MerchandiserItemSqlTests : IDisposable
         Assert.Equal("BC042", products.Value[1].BarCode);
         Assert.Equal("Cheese", products.Value[1].Category);
 
-        Assert.All(catalogue.Calls, call =>
-        {
-            Assert.Equal(MerchandiserItemSql.ProductsForCustomerCode, call.Code);
-            Assert.Equal("C001", call.Parameters[MerchandiserItemSql.CardCodeParameter]);
-        });
+        // C001's own list (21), read from its business partner record rather than joined.
+        Assert.Equal(["C001"], catalogue.PartnerLookups);
+        Assert.All(
+            catalogue.Calls.Where(call => call.Code == MerchandiserItemSql.ItemPricesCode),
+            call => Assert.Equal("21", call.Parameters[MerchandiserItemSql.PriceListParameter]));
+        Assert.All(catalogue.Calls, call => Assert.False(call.Parameters.ContainsKey("cardCode")));
     }
 
     [Fact]
@@ -218,12 +221,43 @@ public sealed class MerchandiserItemSqlTests : IDisposable
         SeedProducts(["CHE011"]);
         var catalogue = FullCatalogue();
 
-        await CustomerProducts(catalogue).Handle(
+        var products = await CustomerProducts(catalogue).Handle(
             new GetCustomerProductsQuery(Merchandiser, "", Search: null, Category: null), CancellationToken.None);
 
-        var call = Assert.Single(catalogue.Calls);
-        Assert.Equal(MerchandiserItemSql.ProductsListOneCode, call.Code);
-        Assert.False(call.Parameters.ContainsKey(MerchandiserItemSql.CardCodeParameter));
+        Assert.Empty(catalogue.PartnerLookups);
+        var priceCall = Assert.Single(catalogue.Calls, call => call.Code == MerchandiserItemSql.ItemPricesCode);
+        Assert.Equal("1", priceCall.Parameters[MerchandiserItemSql.PriceListParameter]);
+        Assert.Equal(1m, Assert.Single(products.Value).Price);
+    }
+
+    [Theory]
+    [InlineData("NOPE")]        // SAP has no such customer
+    [InlineData("NOLIST")]      // the customer names no price list
+    public async Task A_customer_without_a_price_list_falls_back_to_list_one(string cardCode)
+    {
+        SeedProducts(["CHE011"]);
+        var catalogue = FullCatalogue();
+
+        await CustomerProducts(catalogue).Handle(
+            new GetCustomerProductsQuery(Merchandiser, cardCode, Search: null, Category: null), CancellationToken.None);
+
+        Assert.Equal([cardCode], catalogue.PartnerLookups);
+        var priceCall = Assert.Single(catalogue.Calls, call => call.Code == MerchandiserItemSql.ItemPricesCode);
+        Assert.Equal("1", priceCall.Parameters[MerchandiserItemSql.PriceListParameter]);
+    }
+
+    [Fact]
+    public async Task An_item_missing_from_the_price_list_gets_no_price_as_the_left_join_gave()
+    {
+        SeedProducts(["CHE011", "BUT015"]);
+        var catalogue = FullCatalogue();
+
+        var products = await CustomerProducts(catalogue).Handle(
+            new GetCustomerProductsQuery(Merchandiser, "C001", Search: null, Category: null), CancellationToken.None);
+
+        // BUT015 has no row in list 21; the handlers read a missing price as 0, as before.
+        Assert.Equal(0m, products.Value.Single(product => product.ItemCode == "BUT015").Price);
+        Assert.Equal(5m, products.Value.Single(product => product.ItemCode == "CHE011").Price);
     }
 
     [Fact]
@@ -256,7 +290,10 @@ public sealed class MerchandiserItemSqlTests : IDisposable
         Assert.Equal(["NRI049", "CHE042", "CHE011", "PIC003"], all.Value.Select(product => product.ItemCode));
         Assert.Equal(["CHE042", "CHE011"], searched.Value.Select(product => product.ItemCode));
         Assert.Equal(1m, all.Value[1].Price);
-        Assert.All(catalogue.Calls, call => Assert.Equal(MerchandiserItemSql.ProductsListOneCode, call.Code));
+        Assert.Empty(catalogue.PartnerLookups);
+        Assert.All(
+            catalogue.Calls.Where(call => call.Code == MerchandiserItemSql.ItemPricesCode),
+            call => Assert.Equal("1", call.Parameters[MerchandiserItemSql.PriceListParameter]));
     }
 
     [Fact]
@@ -389,7 +426,9 @@ public sealed class MerchandiserItemSqlTests : IDisposable
     /// <summary>
     /// Answers the parameterised path the way SAP would for these statements: every item whose code
     /// starts with the bound prefix (LIKE is case-sensitive on HANA), columns shaped per statement.
-    /// Price list 1 prices everything at 1; a customer price list at the item's own price.
+    /// Price list 1 prices everything at 1; customer list 21 (C001's) prices at the item's own price
+    /// and has no row for BUT015. Business partners: C001 names list 21, NOLIST names none, and any
+    /// other code does not exist.
     /// </summary>
     private sealed class FakeCatalogue(params CatalogueItem[] items)
     {
@@ -397,9 +436,23 @@ public sealed class MerchandiserItemSqlTests : IDisposable
 
         public ConcurrentQueue<string> UnexpectedCalls { get; } = new();
 
+        public ConcurrentQueue<string> PartnerLookups { get; } = new();
+
         public ISAPServiceLayerClient Client() =>
             StubProxy.For<ISAPServiceLayerClient>((method, args) =>
             {
+                if (method.Name == nameof(ISAPServiceLayerClient.GetBusinessPartnerByCodeAsync))
+                {
+                    var cardCode = (string)args![0]!;
+                    PartnerLookups.Enqueue(cardCode);
+                    return Task.FromResult<BusinessPartnerDto?>(cardCode switch
+                    {
+                        "C001" => new BusinessPartnerDto { CardCode = cardCode, PriceListNum = 21 },
+                        "NOLIST" => new BusinessPartnerDto { CardCode = cardCode, PriceListNum = null },
+                        _ => null
+                    });
+                }
+
                 if (method.Name != nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync))
                 {
                     UnexpectedCalls.Enqueue(method.Name);
@@ -412,15 +465,17 @@ public sealed class MerchandiserItemSqlTests : IDisposable
                 Calls.Enqueue(new SqlCall(code, sql, parameters));
 
                 var prefix = parameters["prefix"].TrimEnd('%');
+                var priceList = parameters.GetValueOrDefault(MerchandiserItemSql.PriceListParameter);
                 var rows = items
                     .Where(item => item.Code.StartsWith(prefix, StringComparison.Ordinal))
-                    .Select(item => Row(code, item, parameters.ContainsKey("cardCode")))
+                    .Where(item => code != MerchandiserItemSql.ItemPricesCode || priceList == "1" || item.Code != "BUT015")
+                    .Select(item => Row(code, item, priceList))
                     .ToList();
 
                 return Task.FromResult(rows);
             });
 
-        private static Dictionary<string, object?> Row(string code, CatalogueItem item, bool customerPriced)
+        private static Dictionary<string, object?> Row(string code, CatalogueItem item, string? priceList)
         {
             var barCode = "BC" + (item.Code.Length > 3 ? item.Code[3..] : item.Code);
 
@@ -431,17 +486,13 @@ public sealed class MerchandiserItemSqlTests : IDisposable
                     ["ItemName"] = item.Name,
                     ["CodeBars"] = barCode,
                     ["SalUnitMsr"] = "EA",
+                    ["InvntryUom"] = "EA",
                     ["U_ItemGroup"] = item.Category
                 }
                 : new Dictionary<string, object?>
                 {
                     ["ItemCode"] = item.Code,
-                    ["ItemName"] = item.Name,
-                    ["BarCode"] = barCode,
-                    ["UoM"] = "EA",
-                    ["InventoryUOM"] = "EA",
-                    ["Category"] = item.Category,
-                    ["Price"] = customerPriced ? item.CustomerPrice : 1m
+                    ["Price"] = priceList == "1" ? 1m : item.CustomerPrice
                 };
         }
     }
