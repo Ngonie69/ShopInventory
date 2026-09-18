@@ -99,6 +99,17 @@ explicit opt-out, `[SapBackgroundWork]`, applied to:
 Getting the annotation wrong by omitting a small endpoint costs nothing; omitting a heavy one costs
 approval latency, which is why the heavy ones are named explicitly rather than inferred.
 
+Some endpoints serve both kinds of traffic. The Web's cache services (`InventoryTransferCacheService`,
+`WarehouseStockCacheService`, `IncomingPaymentCacheService`, `MasterDataCacheService`) walk `/paged`
+endpoints page after page from fire-and-forget sweeps, and the same endpoints answer the first page
+a person is waiting on — so they cannot be annotated either way. A caller declares a single request
+background with the header `X-Sap-Priority: background`. It can only lower priority: any other
+value is ignored and it never lifts a `[SapBackgroundWork]` endpoint, so it needs no authorisation.
+On the Web side the sweeps start through `SapBackgroundPriority.Run` instead of `Task.Run`, and
+`SapBackgroundPriorityHandler` on the `ShopInventoryApi` and `ShopInventoryApiLongRunning` clients
+adds the header to every request made inside that scope. Syncs a person starts and awaits (the
+Settings sync buttons, a stock refresh) stay interactive.
+
 **One trap worth knowing about:** the priority is an `AsyncLocal`, so it flows into work *started*
 inside a request and never awaited by it. `FetchDailyStock` returns 202 and continues in a
 `Task.Run`; without care, a whole-warehouse stock fetch would have inherited the reservation from

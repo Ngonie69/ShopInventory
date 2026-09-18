@@ -38,6 +38,58 @@ public class SapRequestPriorityMiddlewareTests
         Assert.False(observed);
     }
 
+    [Theory]
+    [InlineData("background")]
+    [InlineData("Background")]
+    [InlineData(" BACKGROUND ")]
+    public async Task Caller_declaring_background_is_not_interactive(string headerValue)
+    {
+        // The Web's cache sweeps walk /paged endpoints that also serve the first page a person
+        // waits on, so they say what they are per request.
+        var observed = await ObservePriorityAsync(
+            endpointMetadata: new object(),
+            priorityHeader: headerValue);
+
+        Assert.False(observed);
+    }
+
+    [Theory]
+    [InlineData("interactive")]
+    [InlineData("high")]
+    [InlineData("")]
+    [InlineData("background-ish")]
+    public async Task Any_other_header_value_is_ignored(string headerValue)
+    {
+        var observed = await ObservePriorityAsync(
+            endpointMetadata: new object(),
+            priorityHeader: headerValue);
+
+        Assert.True(observed);
+    }
+
+    [Theory]
+    [InlineData("interactive")]
+    [InlineData("high")]
+    [InlineData("background")]
+    public async Task Header_never_raises_an_endpoint_marked_background(string headerValue)
+    {
+        // Lowering your own priority needs no authorisation because it harms nobody; raising it
+        // would let any caller take the reservation, so there is no value that does.
+        var observed = await ObservePriorityAsync(
+            endpointMetadata: new SapBackgroundWorkAttribute(),
+            priorityHeader: headerValue);
+
+        Assert.False(observed);
+    }
+
+    [Fact]
+    public void Web_sends_the_header_the_api_reads()
+    {
+        // The two projects share no code, so each keeps its own copy of the contract.
+        Assert.Equal(SapRequestPriorityMiddleware.HeaderName, ShopInventory.Web.Services.SapBackgroundPriority.HeaderName);
+        Assert.Equal(SapRequestPriorityMiddleware.BackgroundValue, ShopInventory.Web.Services.SapBackgroundPriority.BackgroundValue);
+    }
+
     [Fact]
     public async Task Scope_is_released_when_the_endpoint_throws()
     {
@@ -99,7 +151,7 @@ public class SapRequestPriorityMiddlewareTests
         Assert.False(SapRequestPriority.IsInteractive);
     }
 
-    private static async Task<bool> ObservePriorityAsync(object? endpointMetadata)
+    private static async Task<bool> ObservePriorityAsync(object? endpointMetadata, string? priorityHeader = null)
     {
         var observed = false;
         var middleware = new SapRequestPriorityMiddleware(_ =>
@@ -108,7 +160,13 @@ public class SapRequestPriorityMiddlewareTests
             return Task.CompletedTask;
         });
 
-        await middleware.InvokeAsync(CreateContext(endpointMetadata));
+        var context = CreateContext(endpointMetadata);
+        if (priorityHeader is not null)
+        {
+            context.Request.Headers[SapRequestPriorityMiddleware.HeaderName] = priorityHeader;
+        }
+
+        await middleware.InvokeAsync(context);
         return observed;
     }
 

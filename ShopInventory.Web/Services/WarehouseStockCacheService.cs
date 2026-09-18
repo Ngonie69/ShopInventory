@@ -172,7 +172,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 // Trigger background sync if cache is stale
                 if (isCacheStale)
                 {
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
@@ -219,7 +219,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 await SaveStockToCacheAsync(warehouseCode, apiResponse.Items);
 
                 // Start background sync for remaining items
-                _ = Task.Run(async () =>
+                _ = SapBackgroundPriority.Run(async () =>
                 {
                     await _backgroundSyncSemaphore.WaitAsync();
                     try
@@ -292,7 +292,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 // Trigger background sync if cache is stale
                 if (isCacheStale)
                 {
-                    _ = Task.Run(async () =>
+                    _ = SapBackgroundPriority.Run(async () =>
                     {
                         await _backgroundSyncSemaphore.WaitAsync();
                         try
@@ -333,7 +333,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 await SaveStockToCacheAsync(warehouseCode, firstPage.Items);
 
                 // Start background sync for remaining items
-                _ = Task.Run(async () =>
+                _ = SapBackgroundPriority.Run(async () =>
                 {
                     await _backgroundSyncSemaphore.WaitAsync();
                     try

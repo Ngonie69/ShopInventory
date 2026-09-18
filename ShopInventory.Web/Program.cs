@@ -187,7 +187,10 @@ try
         {
             client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
-    });
+    })
+    // Cache sweeps started with SapBackgroundPriority.Run tell the API they are background work,
+    // so they cannot take the SAP slots it keeps for people. Other requests pass untouched.
+    .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler());
 
     builder.Services.AddHttpClient("ShopInventoryApiLongRunning", client =>
     {
@@ -197,7 +200,8 @@ try
         {
             client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
-    });
+    })
+    .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler());
 
     builder.Services.AddHttpClient("ShopInventoryApiUser", client =>
     {

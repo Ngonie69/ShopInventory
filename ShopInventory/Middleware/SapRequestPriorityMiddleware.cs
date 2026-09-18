@@ -13,12 +13,28 @@ namespace ShopInventory.Middleware;
 ///
 /// Interactive is the default because that is what an inbound HTTP request almost always is.
 /// Endpoints that behave like jobs opt out with <see cref="SapBackgroundWorkAttribute"/>.
+///
+/// A caller can also opt a single request out with <see cref="HeaderName"/>:
+/// <see cref="BackgroundValue"/>. That is for endpoints that serve both kinds of traffic — the
+/// Web's cache services walk <c>/paged</c> endpoints page by page in fire-and-forget sweeps, and
+/// the same endpoints answer the first page a person is waiting on, so the endpoint cannot be
+/// annotated either way. The header can only lower priority: any other value is ignored, and it
+/// never lifts an endpoint marked <see cref="SapBackgroundWorkAttribute"/>. Lowering your own
+/// priority harms nobody else, which is why it needs no authorisation.
 /// </remarks>
 public sealed class SapRequestPriorityMiddleware(RequestDelegate next)
 {
+    /// <summary>The request header a caller sets to declare its request background work.</summary>
+    /// <remarks>ShopInventory.Web keeps its own copy in <c>SapBackgroundPriority</c>; a test pins the two together.</remarks>
+    public const string HeaderName = "X-Sap-Priority";
+
+    /// <summary>The only <see cref="HeaderName"/> value honoured. There is no value that raises priority.</summary>
+    public const string BackgroundValue = "background";
+
     public async Task InvokeAsync(HttpContext context)
     {
-        if (context.GetEndpoint()?.Metadata.GetMetadata<SapBackgroundWorkAttribute>() is not null)
+        if (context.GetEndpoint()?.Metadata.GetMetadata<SapBackgroundWorkAttribute>() is not null
+            || CallerDeclaredBackground(context.Request))
         {
             await next(context);
             return;
@@ -27,6 +43,10 @@ public sealed class SapRequestPriorityMiddleware(RequestDelegate next)
         using var interactive = SapRequestPriority.BeginInteractive();
         await next(context);
     }
+
+    private static bool CallerDeclaredBackground(HttpRequest request) =>
+        request.Headers.TryGetValue(HeaderName, out var values)
+        && values.Any(value => string.Equals(value?.Trim(), BackgroundValue, StringComparison.OrdinalIgnoreCase));
 }
 
 public static class SapRequestPriorityMiddlewareExtensions
