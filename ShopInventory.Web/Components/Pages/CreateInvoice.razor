@@ -1,5 +1,6 @@
 @page "/invoices/create"
 @using System.Security.Claims
+@using Blazored.LocalStorage
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
 @using ShopInventory.Web.Data
@@ -18,6 +19,7 @@
 @inject ILogger<CreateInvoice> Logger
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
+@inject ILocalStorageService LocalStorage
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -86,6 +88,22 @@
         </div>
 
         <!-- ── Alerts ─────────────────────────────────────────────────── -->
+        @if (!string.IsNullOrEmpty(draftNotice))
+        {
+            <div class="sfm-alert is-ok">
+                <i class="ph-fill ph-clock-counter-clockwise"></i>
+                <div class="sfm-alert-bd">
+                    @draftNotice
+                    <button type="button" class="sfm-btn sfm-gap-sm" @onclick="DiscardRestoredDraft"
+                            disabled="@isSubmitting">
+                        <i class="ph ph-trash"></i>Discard and start again
+                    </button>
+                </div>
+                <button type="button" class="sfm-alert-x" @onclick="() => draftNotice = null" aria-label="Dismiss">
+                    <i class="ph ph-x"></i>
+                </button>
+            </div>
+        }
         @if (!string.IsNullOrEmpty(successMessage))
         {
             <div class="sfm-alert is-ok">
@@ -657,8 +675,20 @@
 
     private bool _hasInitialized = false;
 
+    // Draft persistence: the form is written to the browser after each change so a reload — the
+    // reconnect modal's only way back once the circuit is gone — does not lose the basket. See InvoiceDraft.
+    private string? draftStorageKey;
+    private string? lastDraftFingerprint;
+    private bool isTrackingDraft;
+    private string? draftNotice;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && isTrackingDraft)
+        {
+            await SaveDraftAsync();
+        }
+
         if (firstRender && !_hasInitialized)
         {
             _hasInitialized = true;
@@ -703,8 +733,131 @@
                 AppSettings.DefaultWarehouse);
             }
 
+            // After the defaults, so a restored draft's own warehouse and cost centre win over them.
+            draftStorageKey = InvoiceDraft.StorageKey(
+                operatorUser?.Identity?.IsAuthenticated == true ? operatorUser.Identity.Name : null);
+            await RestoreDraftAsync();
+            isTrackingDraft = draftStorageKey is not null;
+
             StateHasChanged();
         }
+    }
+
+    private InvoiceDraft CurrentDraft() => new()
+    {
+        Invoice = invoice,
+        WarehouseCode = warehouseCode,
+        DefaultCostCentre = defaultCostCentre,
+        NotifyCustomerByEmail = notifyCustomerByEmail
+    };
+
+    private async Task SaveDraftAsync()
+    {
+        if (draftStorageKey is null)
+        {
+            return;
+        }
+
+        var draft = CurrentDraft();
+        var fingerprint = draft.Fingerprint();
+        if (fingerprint == lastDraftFingerprint)
+        {
+            return;
+        }
+
+        try
+        {
+            if (InvoiceDraft.IsEmpty(invoice))
+            {
+                await LocalStorage.RemoveItemAsync(draftStorageKey);
+            }
+            else
+            {
+                draft.SavedAt = DateTimeOffset.UtcNow;
+                await LocalStorage.SetItemAsStringAsync(draftStorageKey, draft.Serialize());
+            }
+
+            lastDraftFingerprint = fingerprint;
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException)
+        {
+            // The circuit is going away or storage is refused. The fingerprint is not recorded, so the
+            // next render tries again.
+            Logger.LogDebug(ex, "Could not save the invoice draft");
+        }
+    }
+
+    private async Task RestoreDraftAsync()
+    {
+        if (draftStorageKey is null)
+        {
+            return;
+        }
+
+        InvoiceDraft? draft;
+        try
+        {
+            draft = InvoiceDraft.TryRestore(await LocalStorage.GetItemAsStringAsync(draftStorageKey), DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException)
+        {
+            Logger.LogWarning(ex, "Could not read the invoice draft");
+            return;
+        }
+
+        if (draft is null)
+        {
+            // Nothing to bring back: record the empty form as saved, so an untouched page never
+            // clears a draft another tab is still writing.
+            lastDraftFingerprint = CurrentDraft().Fingerprint();
+            return;
+        }
+
+        invoice = draft.Invoice;
+        warehouseCode = draft.WarehouseCode ?? warehouseCode;
+        defaultCostCentre = draft.DefaultCostCentre;
+        notifyCustomerByEmail = draft.NotifyCustomerByEmail;
+
+        lineStates.Clear();
+        for (var i = 0; i < invoice.Lines.Count; i++)
+        {
+            GetLineState(i).SearchTerm = invoice.Lines[i].ItemCode;
+        }
+
+        // The lines keep the prices they were entered at — re-pricing them here would overwrite a
+        // price the cashier typed. The customer's price list is still loaded, for lines added next.
+        var bp = string.IsNullOrWhiteSpace(invoice.CardCode)
+            ? null
+            : allBusinessPartners.FirstOrDefault(p => string.Equals(p.CardCode, invoice.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (bp is not null)
+        {
+            var requestVersion = BeginBusinessPartnerPricingRequest();
+            selectedBusinessPartner = bp;
+            customerSearch = bp.DisplayName;
+            customerPriceListNum = bp.PriceListNum;
+            _ = LoadBusinessPartnerPricesAsync(bp, requestVersion, businessPartnerPricingCts?.Token ?? CancellationToken.None);
+        }
+        else if (!string.IsNullOrWhiteSpace(invoice.CardCode))
+        {
+            // The customer list did not load, or no longer holds this code: leave the code in the
+            // search box for the cashier to pick again rather than post to a customer nobody can see.
+            customerSearch = invoice.CardCode;
+            invoice.CardCode = string.Empty;
+        }
+
+        lastDraftFingerprint = CurrentDraft().Fingerprint();
+
+        var lineCount = invoice.Lines.Count;
+        var savedAt = draft.SavedAt.ToLocalTime();
+        draftNotice = $"Restored the invoice you were entering ({lineCount} line{(lineCount == 1 ? "" : "s")}, "
+            + $"last changed {savedAt:HH:mm}). Check it before you create it.";
+        Logger.LogInformation("Restored an invoice draft with {LineCount} lines for {CardCode}", lineCount, draft.Invoice.CardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        ClearForm();
     }
 
     private async Task LoadAllMasterDataAsync()
@@ -1713,6 +1866,14 @@ customerPricing.Count, priceListNum);
 
         isSubmitting = true;
 
+        // Minted here rather than in the service so the draft saved on the render during the post
+        // already carries it: a reload mid-submit then resubmits under the same key, and the API
+        // replays the invoice instead of posting it twice.
+        if (string.IsNullOrWhiteSpace(invoice.ClientRequestId))
+        {
+            invoice.ClientRequestId = Guid.NewGuid().ToString("N");
+        }
+
         try
         {
             // Log the invoice request for debugging
@@ -2052,6 +2213,8 @@ customerPricing.Count, priceListNum);
 
     private void ClearForm()
     {
+        // The next render sees an empty form and removes the stored draft.
+        draftNotice = null;
         invoice = new CreateInvoiceRequest
         {
             DocCurrency = AppSettings.DefaultCurrency,
