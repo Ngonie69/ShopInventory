@@ -1,0 +1,29 @@
+@* Tells the operator a create form put back entries it had lost with the circuit, and offers to
+   throw them away. The markup is the sales-forms alert (wwwroot/css/sales-forms.css), which every
+   create form's sheet can show. See FormDraft. *@
+
+@if (!string.IsNullOrEmpty(Message))
+{
+    <div class="sfm-alert is-ok" role="status">
+        <i class="ph-fill ph-clock-counter-clockwise"></i>
+        <div class="sfm-alert-bd">
+            @Message
+            <button type="button" class="sfm-btn sfm-gap-sm" @onclick="OnDiscard" disabled="@Disabled">
+                <i class="ph ph-trash"></i>Discard and start again
+            </button>
+        </div>
+        <button type="button" class="sfm-alert-x" @onclick="OnDismiss" aria-label="Dismiss">
+            <i class="ph ph-x"></i>
+        </button>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Message { get; set; }
+
+    [Parameter] public EventCallback OnDiscard { get; set; }
+
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+}
