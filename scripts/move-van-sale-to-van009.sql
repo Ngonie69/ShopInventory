@@ -3,7 +3,9 @@
 -- all day. Touches only this one sale. Run AFTER the Retry fix is deployed, then press Retry on the
 -- sale in the Exception Center.
 --
---   psql -h localhost -U postgres -d ShopInventory -P pager=off -f move-van-sale-to-van009.sql
+-- Run it through Move-VanSaleToVan009.ps1 beside it, which takes the connection from the API's
+-- web.config. Passing -v dryrun=1 to psql (the wrapper's -DryRun) prints the same before/after and
+-- rolls back.
 --
 -- Prints the rows before and after, and rolls back unless every update hit exactly one row.
 
@@ -46,4 +48,10 @@ SELECT 'queue entry', "CustomerCode", "Status"::text FROM "InvoiceQueue" WHERE "
 SELECT position('"cardCode":"VAN009"' in "InvoicePayload") > 0 AS payload_moved
 FROM "InvoiceQueue" WHERE "ExternalReference" = :ref;
 
+\if :{?dryrun}
+ROLLBACK;
+\echo '== Dry run: rolled back, nothing was changed =='
+\else
 COMMIT;
+\echo '== Committed =='
+\endif
