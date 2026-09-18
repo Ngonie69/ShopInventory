@@ -1,5 +1,7 @@
+using Blazored.LocalStorage;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.PurchaseInvoices.Commands.CreatePurchaseInvoice;
@@ -15,6 +17,14 @@ public partial class CreatePurchaseInvoice
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private NavigationManager NavigationManager { get; set; } = default!;
     [Inject] private ILogger<CreatePurchaseInvoice> Logger { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+    [Inject] private ILocalStorageService LocalStorage { get; set; } = default!;
+
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the invoice. See FormDraft.
+    private const string DraftForm = "purchase-invoice";
+    private FormDraftStore<CreatePurchaseInvoiceRequest>? draftStore;
+    private string? draftNotice;
 
     private readonly Dictionary<string, string> validationErrors = new();
     private readonly Dictionary<int, LineState> lineStates = new();
@@ -56,6 +66,94 @@ public partial class CreatePurchaseInvoice
     protected override async Task OnInitializedAsync()
     {
         await LoadLookupsAsync();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var store = new FormDraftStore<CreatePurchaseInvoiceRequest>(LocalStorage, Logger, DraftForm, authState.User);
+        ApplyDraft(await store.RestoreAsync());
+        store.Accept(purchaseInvoice);
+        draftStore = store;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (draftStore is not null)
+        {
+            await draftStore.SaveAsync(purchaseInvoice, IsDraftEmpty(purchaseInvoice));
+        }
+    }
+
+    // The form opens with one blank line, which is not something to bring back.
+    private static bool IsDraftEmpty(CreatePurchaseInvoiceRequest invoice)
+        => string.IsNullOrWhiteSpace(invoice.CardCode)
+            && invoice.Lines.All(l => string.IsNullOrWhiteSpace(l.ItemCode))
+            && string.IsNullOrWhiteSpace(invoice.NumAtCard)
+            && string.IsNullOrWhiteSpace(invoice.Comments);
+
+    private void ApplyDraft(FormDraft.Restored<CreatePurchaseInvoiceRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        draft.Lines ??= new List<CreatePurchaseInvoiceLineRequest>();
+        if (draft.Lines.Count == 0)
+        {
+            draft.Lines.Add(new CreatePurchaseInvoiceLineRequest { Quantity = 1 });
+        }
+
+        purchaseInvoice = draft;
+        lineStates.Clear();
+        for (var i = 0; i < purchaseInvoice.Lines.Count; i++)
+        {
+            GetLineState(i).SearchTerm = purchaseInvoice.Lines[i].ItemCode ?? string.Empty;
+        }
+
+        var supplier = string.IsNullOrWhiteSpace(purchaseInvoice.CardCode)
+            ? null
+            : suppliers.FirstOrDefault(s => string.Equals(s.CardCode, purchaseInvoice.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (supplier is not null)
+        {
+            selectedSupplier = supplier;
+            supplierSearchTerm = supplier.DisplayName;
+        }
+        else
+        {
+            // A code typed by hand is how a supplier outside the list is entered, so it stays.
+            supplierSearchTerm = purchaseInvoice.CardCode;
+        }
+
+        var lineCount = purchaseInvoice.Lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
+        draftNotice = FormDraft.RestoredNotice("purchase invoice", lineCount, restored.SavedAt);
+        Logger.LogInformation("Restored a purchase invoice draft with {LineCount} lines for {CardCode}", lineCount, draft.CardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        selectedSupplier = null;
+        supplierSearchTerm = string.Empty;
+        purchaseInvoice = CreateDefaultRequest();
+        lineStates.Clear();
+        validationErrors.Clear();
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the invoice, so its draft goes too. The nav keeps it.
+        await ClearDraftAsync();
+        GoBack();
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
+        }
     }
 
     private static CreatePurchaseInvoiceRequest CreateDefaultRequest() => new()
@@ -594,6 +692,7 @@ public partial class CreatePurchaseInvoice
             }
 
             successMessage = $"Purchase invoice #{createdInvoice.DocNum} created successfully.";
+            await ClearDraftAsync();
 
             await AuditService.LogAsync(
                 AuditActions.CreatePurchaseInvoice,
