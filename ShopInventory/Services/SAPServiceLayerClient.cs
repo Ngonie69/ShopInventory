@@ -4708,9 +4708,19 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
     /// which minted a permanent SQLQueries object — a 30–43s POST against the oversized OUQR — the
     /// first time each pair was read. The objects already minted that way stay behind; SQLQueries
     /// DELETE does not work on this server.
+    ///
+    /// <para>
+    /// The column list is corrected, not only bound. The statement it replaces selected
+    /// <c>T0."IntrSerial"</c>, which OSRN does not have: SAP refused the create with error 703
+    /// ("Column '"IntrSerial"' from table 'OSRN' not exist", KEFALOS_TEST_3, 2026-09-18), so every
+    /// serial read failed and the catch below answered it as "no serials". The internal serial
+    /// number is <c>DistNumber</c> — what <c>SerialNumberDetails.SerialNumber</c> maps to, and what
+    /// posting already falls back to — and <c>SystemSerialNumber</c> on a document line is
+    /// <c>SysNumber</c> (<c>SerialNumberDetails.SystemNumber</c>), not the row id <c>AbsEntry</c>.
+    /// </para>
     /// </remarks>
     internal const string ItemSerialsSql = """
-SELECT T0."ItemCode", T0."DistNumber", T1."Quantity", T1."WhsCode", T0."AbsEntry" as "SystemNumber", T0."IntrSerial" as "InternalSerialNumber", T0."MnfSerial" as "ManufacturerSerialNumber"
+SELECT T0."ItemCode", T0."DistNumber", T1."Quantity", T1."WhsCode", T0."SysNumber" as "SystemNumber", T0."DistNumber" as "InternalSerialNumber", T0."MnfSerial" as "ManufacturerSerialNumber"
 FROM OSRN T0 INNER JOIN OSRQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
 WHERE T0."ItemCode" = :itemCode AND T1."WhsCode" = :whsCode AND T1."Quantity" > 0
 ORDER BY T0."DistNumber"
@@ -11034,7 +11044,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
         foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
         {
             var sqlText = $@"SELECT T0.""ItemCode"", T0.""DistNumber"", T1.""Quantity"", T1.""WhsCode"",
-T0.""AbsEntry"" as ""SystemNumber"", T0.""IntrSerial"" as ""InternalSerialNumber"",
+T0.""SysNumber"" as ""SystemNumber"", T0.""DistNumber"" as ""InternalSerialNumber"",
 T0.""MnfSerial"" as ""ManufacturerSerialNumber""
 FROM OSRN T0 INNER JOIN OSRQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
 WHERE T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
