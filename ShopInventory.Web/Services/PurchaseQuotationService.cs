@@ -84,7 +84,10 @@ public class PurchaseQuotationService(HttpClient httpClient, ILogger<PurchaseQuo
     {
         try
         {
-            var response = await httpClient.PostAsJsonAsync("api/purchasequotation", request, cancellationToken);
+            // The same key for every retry of this entry, so the API replays what it created
+            // rather than creating it twice. See IdempotentPost.
+            request.ClientRequestId = IdempotentPost.EnsureKey(request.ClientRequestId);
+            var response = await IdempotentPost.PostAsJsonAsync(httpClient, "api/purchasequotation", request, request.ClientRequestId, cancellationToken);
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (response.IsSuccessStatusCode)

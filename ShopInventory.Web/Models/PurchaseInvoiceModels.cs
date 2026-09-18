@@ -103,6 +103,12 @@ public class PurchaseInvoiceListResponse
 
 public class CreatePurchaseInvoiceRequest
 {
+    /// <summary>
+    /// Idempotency key for this entry, sent as the <c>Idempotency-Key</c> header (the API ignores it in
+    /// the body). Kept on the request so the page's saved draft carries it. See IdempotentPost.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
+
     [JsonPropertyName("cardCode")]
     public string CardCode { get; set; } = string.Empty;
 

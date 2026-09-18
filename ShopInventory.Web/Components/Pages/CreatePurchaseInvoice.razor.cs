@@ -667,6 +667,10 @@ public partial class CreatePurchaseInvoice
             : purchaseInvoice.DocCurrency.Trim().ToUpperInvariant();
 
         isSubmitting = true;
+
+        // Minted before the post so the draft saved on the render during it carries the key: a
+        // reload mid-submit then resubmits under the same key and the API replays the document.
+        purchaseInvoice.ClientRequestId = IdempotentPost.EnsureKey(purchaseInvoice.ClientRequestId);
         errorMessage = null;
         successMessage = null;
 

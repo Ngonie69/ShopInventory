@@ -365,6 +365,10 @@ public partial class CreatePurchaseQuotation
             return;
 
         isSubmitting = true;
+
+        // Minted before the post so the draft saved on the render during it carries the key: a
+        // reload mid-submit then resubmits under the same key and the API replays the document.
+        purchaseQuotation.ClientRequestId = IdempotentPost.EnsureKey(purchaseQuotation.ClientRequestId);
         errorMessage = null;
         successMessage = null;
 
