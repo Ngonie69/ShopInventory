@@ -39,10 +39,21 @@ public sealed class DesktopSalesAnalysisExportTests
         Assert.Equal(0.214m, sheet.Cell(ecocash, 6).GetValue<decimal>());
 
         // A wallet sale with no reference is the one number here somebody has to chase.
-        Assert.Equal(1, sheet.Cell(ecocash, 9).GetValue<int>());
+        Assert.Equal(1, sheet.Cell(ecocash, 8).GetValue<int>());
 
         // Not stated for cash, where every sale lacks a reference and the count would only alarm.
-        Assert.True(sheet.Cell(RowWhere(sheet, column: 2, "Cash"), 9).IsEmpty());
+        Assert.True(sheet.Cell(RowWhere(sheet, column: 2, "Cash"), 8).IsEmpty());
+    }
+
+    [Fact]
+    public void The_change_handed_back_is_not_reported()
+    {
+        using var workbook = Export(Report());
+        var sheet = workbook.Worksheet("Payment Methods");
+
+        // The report carries change (18.30 on cash), so its absence here is the export's choice.
+        Assert.DoesNotContain(sheet.CellsUsed(), cell => cell.GetString().Contains("Change", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(sheet.CellsUsed(), cell => cell.GetString() == "18.30" || (cell.DataType == XLDataType.Number && cell.GetValue<decimal>() == 18.30m));
     }
 
     [Fact]

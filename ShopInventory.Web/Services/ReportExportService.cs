@@ -9483,7 +9483,7 @@ public partial class ReportExportService : IReportExportService
     /// </remarks>
     private static void WriteDesktopAnalysisPaymentMethods(XLWorkbook workbook, DesktopAnalysisContext context)
     {
-        const int lastCol = 9;
+        const int lastCol = 8;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("Payment Methods");
         PodApplyDefaults(ws);
@@ -9491,7 +9491,7 @@ public partial class ReportExportService : IReportExportService
         string[] headers =
         [
             "Currency", "Payment Method", "Sales", "Share of Sales", "Takings", "Share of Takings",
-            "Average Sale", "Change Given", "Without Reference"
+            "Average Sale", "Without Reference"
         ];
 
         var row = PodTitleBar(ws, $"DESKTOP SALES BY PAYMENT METHOD - {context.Period}", lastCol, context.GeneratedAt);
@@ -9499,8 +9499,7 @@ public partial class ReportExportService : IReportExportService
             ("Sales", report.Currencies.Sum(section => section.SalesCount), PodNavy),
             ("Takings", DesktopAnalysisPerCurrency(report.Currencies, section => section.TotalAmount.ToString("N2")), PodNavy),
             ("Before VAT", DesktopAnalysisPerCurrency(report.Currencies, section => section.NetAmount.ToString("N2")), PodTextMuted),
-            ("VAT", DesktopAnalysisPerCurrency(report.Currencies, section => section.VatAmount.ToString("N2")), PodTextMuted),
-            ("Change Given", DesktopAnalysisPerCurrency(report.Currencies, section => section.ChangeGiven.ToString("N2")), PodTextMuted));
+            ("VAT", DesktopAnalysisPerCurrency(report.Currencies, section => section.VatAmount.ToString("N2")), PodTextMuted));
 
         if (report.Currencies.Count == 0)
         {
@@ -9530,13 +9529,12 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisTotalCell(ws.Cell(row, 5), method.TotalAmount, isStripe);
                 DesktopAnalysisShareCell(ws.Cell(row, 6), method.ShareOfValuePercent);
                 DesktopAnalysisMoneyCell(ws.Cell(row, 7), method.AverageSale);
-                DesktopAnalysisMoneyCell(ws.Cell(row, 8), method.ChangeGiven);
 
                 if (DesktopAnalysisIsWallet(method.PaymentMethod))
                 {
                     // Green when every wallet sale carries its reference, amber when one has to be chased.
-                    ws.Cell(row, 9).Value = method.WithoutReferenceCount;
-                    StylePodStatusCell(ws.Cell(row, 9), method.WithoutReferenceCount == 0, isStripe);
+                    ws.Cell(row, 8).Value = method.WithoutReferenceCount;
+                    StylePodStatusCell(ws.Cell(row, 8), method.WithoutReferenceCount == 0, isStripe);
                 }
 
                 row++;
@@ -9553,21 +9551,20 @@ public partial class ReportExportService : IReportExportService
             DesktopAnalysisSummaryNumber(ws.Cell(row, 5), section.TotalAmount, FormatMoney);
             DesktopAnalysisSummaryNumber(ws.Cell(row, 6), 1, FormatPercent);
             DesktopAnalysisSummaryNumber(ws.Cell(row, 7), section.AverageSale, FormatMoney);
-            DesktopAnalysisSummaryNumber(ws.Cell(row, 8), section.ChangeGiven, FormatMoney);
 
             var wallets = section.ByPaymentMethod.Where(method => DesktopAnalysisIsWallet(method.PaymentMethod)).ToList();
             if (wallets.Count > 0)
             {
-                ws.Cell(row, 9).Value = wallets.Sum(method => method.WithoutReferenceCount);
-                ws.Cell(row, 9).Style.NumberFormat.Format = FormatCount;
-                ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 8).Value = wallets.Sum(method => method.WithoutReferenceCount);
+                ws.Cell(row, 8).Style.NumberFormat.Format = FormatCount;
+                ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
 
             row += 2;
         }
 
         DesktopAnalysisFinish(ws, row, lastCol, context, headerRow: 0, freezeCol: 0, lastDataRow: 0,
-            12, 22, 11, 13, 16, 14, 14, 14, 15);
+            12, 22, 11, 13, 16, 14, 14, 15);
     }
 
     /// <remarks>

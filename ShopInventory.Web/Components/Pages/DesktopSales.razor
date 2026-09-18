@@ -221,11 +221,13 @@
                    three amounts side by side, and Net beside VAT that adds up
                    to something else would be read as an arithmetic error.
                    `TotalSalesAmount` is subtotal + VAT — see
-                   CreateDesktopSaleHandler — so the subtraction is exact. *@
+                   CreateDesktopSaleHandler — so the subtraction is exact.
+                   What customers handed over is not stated: it includes the
+                   change, and read beside Takings it looks like a mismatch. *@
                 <div class="ops-ds-aside ops-ds-aside-ruled">
                     <span>Net <b>@Money(report.TotalSalesAmount - report.TotalVatAmount)</b></span>
                     <span>VAT <b>@Money(report.TotalVatAmount)</b></span>
-                    <span>Paid <b>@Money(report.TotalAmountPaid)</b></span>
+                    <span>Takings <b>@Money(report.TotalSalesAmount)</b></span>
                 </div>
             </div>
 
