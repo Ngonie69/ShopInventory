@@ -147,7 +147,11 @@ order with `FiscalizePreSapInvoiceAsync`, then confirm the reservation with `Fis
 `DesktopSales` row under `KefalosVanSalesOnline`, which gains the SAP DocNum once posted — that row is how
 `CreditNoteOriginalReceipt` finds the number a credit note must cite. Each line's VAT group comes from the item
 master (`ItemVatGroups`) and is written onto the reservation line, so SAP charges the rate the receipt
-declared. Once signed a sale is never refused: a SAP failure keeps the reservation holding and hands the sale
+declared — **but only because `CreateInvoiceAsync` sends it as the line's `VatGroup`.** SAP on this company
+does not read a line's `TaxCode`; a group sent only there loses to the customer card's own, and every van
+card carries `O8` (15.5% ZiG, tax account `805650` locked to ZiG), so every USD van sale was refused with
+-1250000090 after its receipt was signed. The group is pinned on local-currency (USD) invoices only: the item
+master's groups are the USD ones, and a ZiG customer's card is right for a ZiG document. Once signed a sale is never refused: a SAP failure keeps the reservation holding and hands the sale
 to the invoice queue **already `Fiscalized`**, written in one save so `InvoicePostingJob` never sees it
 `Pending` and signs it again; `PostQueuedVanInvoices` posts it. A converted order takes the queue's own route
 — `InvoicePostingJob` signs it, `PostQueuedVanInvoices` posts it against its sales order. A sale the handset

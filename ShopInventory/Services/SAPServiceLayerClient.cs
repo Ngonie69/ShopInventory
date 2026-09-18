@@ -1251,6 +1251,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 UnitPrice = line.UnitPrice,
                 WarehouseCode = line.WarehouseCode,
                 TaxCode = line.TaxCode,
+                // Where the line's tax actually lives on this company: SAP does not read TaxCode, so a
+                // group sent only there loses to the customer card's own. Every van card carries O8,
+                // 15.5% ZiG, whose tax account is locked to ZiG, and a USD van sale was refused with
+                // -1250000090 after its receipt had been signed. Local-currency (USD) documents only:
+                // the item master's groups are the USD ones, and a ZiG customer's card is right for a
+                // ZiG document.
+                VatGroup = docCurrency is null ? line.TaxCode : null,
                 DiscountPercent = line.DiscountPercent,
                 UoMCode = line.UoMCode,
                 AccountCode = line.AccountCode,
