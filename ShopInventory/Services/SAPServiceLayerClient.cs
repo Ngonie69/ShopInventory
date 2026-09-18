@@ -4024,77 +4024,24 @@ ORDER BY T0.""ItemCode""";
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
 
-        var queryCode = $"ITEM_BATCHES_{itemCode.Replace("-", "_").ToUpperInvariant()}_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
-
-
-        // SQL query to get batch numbers for a specific item in a warehouse
-        var safeItem = SanitizeSqlValue(itemCode);
-        var safeWarehouse = SanitizeSqlValue(warehouseCode);
-        var sqlText = $"SELECT T0.\"ItemCode\", T0.\"DistNumber\" as \"BatchNum\", T1.\"Quantity\", T1.\"WhsCode\", " +
-                      $"T0.\"ExpDate\", T0.\"MnfDate\", T0.\"InDate\", T0.\"Notes\" " +
-                      $"FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.\"AbsEntry\" = T1.\"MdAbsEntry\" " +
-                      $"WHERE T0.\"ItemCode\" = '{safeItem}' AND T1.\"WhsCode\" = '{safeWarehouse}' AND T1.\"Quantity\" > 0 " +
-                      $"ORDER BY T0.\"DistNumber\"";
+        // Argument checks only: both values are bound rather than written into the SQL. Kept ahead
+        // of the try, where a blank or suspicious code has always surfaced as an ArgumentException.
+        _ = SanitizeSqlValue(itemCode);
+        _ = SanitizeSqlValue(warehouseCode);
 
         try
         {
-            // Create the SQL query
-            await EnsureSqlQueryAsync(queryCode, $"Batches for {itemCode} in {warehouseCode}", sqlText, cancellationToken);
-
-            // Execute the query
-            var url = $"SQLQueries('{queryCode}')/List";
-
-            HttpRequestMessage CreateRequest()
-            {
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                return request;
-            }
-
-            var response = await SendSapRequestWithTransientRetryAsync(
-                _httpClient,
-                CreateRequest,
-                HttpCompletionOption.ResponseContentRead,
+            // SAP's "no matching records" answer comes back from here as an empty list.
+            var rows = await ExecuteStockSqlQueryWithBudgetAsync(
+                ItemBatchesQueryCode,
+                "Batches for an item in a warehouse",
+                ItemBatchesSql,
+                BuildItemWarehouseParameters(itemCode, warehouseCode),
                 $"read batch numbers for {itemCode} in warehouse {warehouseCode}",
                 cancellationToken);
 
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-                response.Dispose();
-
-                response = await SendSapRequestWithTransientRetryAsync(
-                    _httpClient,
-                    CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
-                    $"read batch numbers for {itemCode} in warehouse {warehouseCode} after SAP re-authentication",
-                    cancellationToken);
-            }
-
-            using var responseOwner = response;
-
-            // Handle 404 as no results found (empty batch list)
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                _logger.LogInformation("No batch numbers found for item {ItemCode} in warehouse {Warehouse}", itemCode, warehouseCode);
-                return new List<BatchNumber>();
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("SQL query for batch numbers failed: {StatusCode} - {Error}",
-                    response.StatusCode, errorContent);
-                throw new InvalidOperationException(
-                    $"Could not read the batches of {itemCode} in warehouse {warehouseCode}: " +
-                    $"{response.StatusCode} - {ExtractSAPErrorMessage(errorContent) ?? errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            return ParseBatchNumbersFromSqlResult(content, warehouseCode);
+            return MapBatchNumberRows(rows, warehouseCode);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -4102,6 +4049,13 @@ ORDER BY T0.""ItemCode""";
         }
         catch (InvalidOperationException)
         {
+            throw;
+        }
+        catch (TimeoutException)
+        {
+            // The read ran out its budget. Left as itself rather than wrapped, like every other
+            // stock read's budget, so SapFailureClassifier and the callers can tell "SAP did not
+            // answer in time" from "SAP answered with an error".
             throw;
         }
         catch (Exception ex)
@@ -4115,6 +4069,51 @@ ORDER BY T0.""ItemCode""";
                 $"Could not read the batches of {itemCode} in warehouse {warehouseCode}.", ex);
         }
     }
+
+    internal const string ItemBatchesQueryCode = "ITEM_BATCHES_V1";
+
+    /// <summary>
+    /// The batches of one item in one warehouse, with both bound as parameters.
+    /// </summary>
+    /// <remarks>
+    /// Same statement as the one it replaces, with the two literals turned into
+    /// <c>:itemCode</c> and <c>:whsCode</c>. Three things were wrong with that one. Its code was
+    /// <c>ITEM_BATCHES_{item}_{whs}</c>, so the first read of each pair minted a permanent SQLQueries
+    /// object — a 30–43s POST against the oversized OUQR, on an invoice's validation path. It had no
+    /// budget, so a hung read held one of the process's SAP slots for the five-minute client timeout.
+    /// And it asked for one page with no <c>Prefer: odata.maxpagesize</c>, so SAP's default of 20
+    /// rows cut an item with more batches than that short without saying so.
+    /// The parameterised SQL path pages until SAP stops sending a nextLink.
+    /// The per-pair objects already minted stay behind; SQLQueries DELETE does not work here.
+    /// </remarks>
+    internal const string ItemBatchesSql = """
+SELECT T0."ItemCode", T0."DistNumber" as "BatchNum", T1."Quantity", T1."WhsCode", T0."ExpDate", T0."MnfDate", T0."InDate", T0."Notes"
+FROM OBTN T0 INNER JOIN OBTQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
+WHERE T0."ItemCode" = :itemCode AND T1."WhsCode" = :whsCode AND T1."Quantity" > 0
+ORDER BY T0."DistNumber"
+""";
+
+    /// <summary>
+    /// Maps batch rows field for field as <see cref="ParseBatchNumbersFromSqlResult"/> maps JSON:
+    /// <c>InStock</c> ahead of <c>Quantity</c>, dates left as the strings SAP sent, and the
+    /// warehouse taken from the caller rather than the row.
+    /// </summary>
+    internal static List<BatchNumber> MapBatchNumberRows(
+        IEnumerable<IReadOnlyDictionary<string, object?>> rows,
+        string warehouseCode) =>
+        rows.Select(row => new BatchNumber
+        {
+            ItemCode = RowString(row, "ItemCode"),
+            ItemName = RowString(row, "ItemName"),
+            BatchNum = RowString(row, "BatchNum"),
+            Quantity = row.TryGetValue("InStock", out var inStock) ? RowDecimal(inStock)
+                     : row.TryGetValue("Quantity", out var quantity) ? RowDecimal(quantity) : 0,
+            Warehouse = warehouseCode,
+            ExpiryDate = RowString(row, "ExpDate"),
+            ManufacturingDate = RowString(row, "MnfDate"),
+            AdmissionDate = RowString(row, "InDate"),
+            Notes = RowString(row, "Notes")
+        }).ToList();
 
     /// <summary>
     /// The batches backing <paramref name="itemCodes"/> in one warehouse.
@@ -4191,7 +4190,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             .ToList();
     }
 
-    private List<BatchNumber> ParseBatchNumbersFromSqlResult(string jsonContent, string warehouseCode)
+    internal List<BatchNumber> ParseBatchNumbersFromSqlResult(string jsonContent, string warehouseCode)
     {
         var batches = new List<BatchNumber>();
         try
@@ -4635,81 +4634,33 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
     /// Gets available serial numbers for an item in a specific warehouse.
     /// Uses SQL query via SAP Service Layer to query OSRN/OSRQ tables.
     /// </summary>
+    /// <remarks>
+    /// Any failure — including the read running out its budget — is logged and answered as an empty
+    /// list, as it always has been. See <see cref="ItemSerialsSql"/> for the query itself.
+    /// </remarks>
     public async Task<List<SerialNumber>> GetSerialNumbersForItemInWarehouseAsync(
         string itemCode,
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
 
-        var queryCode = $"ITEM_SERIALS_{itemCode.Replace("-", "_").ToUpperInvariant()}_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
-
-
-        // SQL query to get serial numbers for a specific item in a warehouse
-        var safeItem = SanitizeSqlValue(itemCode);
-        var safeWarehouse = SanitizeSqlValue(warehouseCode);
-        var sqlText = $"SELECT T0.\"ItemCode\", T0.\"DistNumber\", T1.\"Quantity\", T1.\"WhsCode\", " +
-                      $"T0.\"AbsEntry\" as \"SystemNumber\", T0.\"IntrSerial\" as \"InternalSerialNumber\", " +
-                      $"T0.\"MnfSerial\" as \"ManufacturerSerialNumber\" " +
-                      $"FROM OSRN T0 INNER JOIN OSRQ T1 ON T0.\"AbsEntry\" = T1.\"MdAbsEntry\" " +
-                      $"WHERE T0.\"ItemCode\" = '{safeItem}' AND T1.\"WhsCode\" = '{safeWarehouse}' AND T1.\"Quantity\" > 0 " +
-                      $"ORDER BY T0.\"DistNumber\"";
+        // Argument checks only: both values are bound rather than written into the SQL. Kept ahead
+        // of the try, where a blank or suspicious code has always surfaced as an ArgumentException.
+        _ = SanitizeSqlValue(itemCode);
+        _ = SanitizeSqlValue(warehouseCode);
 
         try
         {
-            // Create the SQL query
-            await EnsureSqlQueryAsync(queryCode, $"Serials for {itemCode} in {warehouseCode}", sqlText, cancellationToken);
-
-            // Execute the query
-            var url = $"SQLQueries('{queryCode}')/List";
-
-            HttpRequestMessage CreateRequest()
-            {
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                return request;
-            }
-
-            var response = await SendSapRequestWithTransientRetryAsync(
-                _httpClient,
-                CreateRequest,
-                HttpCompletionOption.ResponseContentRead,
+            var rows = await ExecuteStockSqlQueryWithBudgetAsync(
+                ItemSerialsQueryCode,
+                "Serials for an item in a warehouse",
+                ItemSerialsSql,
+                BuildItemWarehouseParameters(itemCode, warehouseCode),
                 $"read serial numbers for {itemCode} in warehouse {warehouseCode}",
                 cancellationToken);
 
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-                response.Dispose();
-
-                response = await SendSapRequestWithTransientRetryAsync(
-                    _httpClient,
-                    CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
-                    $"read serial numbers for {itemCode} in warehouse {warehouseCode} after SAP re-authentication",
-                    cancellationToken);
-            }
-
-            using var responseOwner = response;
-
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                _logger.LogInformation("No serial numbers found for item {ItemCode} in warehouse {Warehouse}", itemCode, warehouseCode);
-                return new List<SerialNumber>();
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("SQL query for serial numbers failed: {StatusCode} - {Error}",
-                    response.StatusCode, errorContent);
-                return new List<SerialNumber>();
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            return ParseSerialNumbersFromSqlResult(content, warehouseCode);
+            return MapSerialNumberRows(rows, warehouseCode);
         }
         catch (Exception ex)
         {
@@ -4718,35 +4669,104 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         }
     }
 
-    private List<SerialNumber> ParseSerialNumbersFromSqlResult(string jsonContent, string warehouseCode)
+    internal const string ItemSerialsQueryCode = "ITEM_SERIALS_V1";
+
+    /// <summary>
+    /// The serial numbers of one item in one warehouse, with both bound as parameters.
+    /// </summary>
+    /// <remarks>
+    /// Same statement as the one it replaces, with the two literals turned into
+    /// <c>:itemCode</c> and <c>:whsCode</c>. The code used to be <c>ITEM_SERIALS_{item}_{whs}</c>,
+    /// which minted a permanent SQLQueries object — a 30–43s POST against the oversized OUQR — the
+    /// first time each pair was read. The objects already minted that way stay behind; SQLQueries
+    /// DELETE does not work on this server.
+    /// </remarks>
+    internal const string ItemSerialsSql = """
+SELECT T0."ItemCode", T0."DistNumber", T1."Quantity", T1."WhsCode", T0."AbsEntry" as "SystemNumber", T0."IntrSerial" as "InternalSerialNumber", T0."MnfSerial" as "ManufacturerSerialNumber"
+FROM OSRN T0 INNER JOIN OSRQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
+WHERE T0."ItemCode" = :itemCode AND T1."WhsCode" = :whsCode AND T1."Quantity" > 0
+ORDER BY T0."DistNumber"
+""";
+
+    /// <summary>
+    /// Maps <see cref="ItemSerialsSql"/> rows, field for field as the JSON parser this replaced did.
+    /// The warehouse comes from the caller, not the row.
+    /// </summary>
+    internal static List<SerialNumber> MapSerialNumberRows(
+        IEnumerable<IReadOnlyDictionary<string, object?>> rows,
+        string warehouseCode) =>
+        rows.Select(row => new SerialNumber
+        {
+            ItemCode = RowString(row, "ItemCode"),
+            DistNumber = RowString(row, "DistNumber"),
+            Quantity = row.TryGetValue("Quantity", out var quantity) ? RowDecimal(quantity) : 0,
+            WhsCode = warehouseCode,
+            SystemNumber = row.TryGetValue("SystemNumber", out var systemNumber)
+                ? Convert.ToInt32(systemNumber, CultureInfo.InvariantCulture)
+                : 0,
+            InternalSerialNumber = RowString(row, "InternalSerialNumber"),
+            ManufacturerSerialNumber = RowString(row, "ManufacturerSerialNumber")
+        }).ToList();
+
+    private static Dictionary<string, string> BuildItemWarehouseParameters(string itemCode, string warehouseCode) =>
+        new()
+        {
+            ["itemCode"] = itemCode,
+            ["whsCode"] = warehouseCode
+        };
+
+    private static string? RowString(IReadOnlyDictionary<string, object?> row, string column) =>
+        row.TryGetValue(column, out var value) ? value as string : null;
+
+    /// <summary>
+    /// A numeric column from the parameterised SQL path, which answers a whole number as
+    /// <see cref="long"/> and anything else as <see cref="decimal"/>. A null reads as zero.
+    /// </summary>
+    private static decimal RowDecimal(object? value) =>
+        Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Runs a parameterised stock read under <see cref="SAPSettings.StockSqlRequestTimeoutSeconds"/>,
+    /// raising a <see cref="TimeoutException"/> when that budget — and only that budget — runs out.
+    /// </summary>
+    /// <remarks>
+    /// The same deadline <see cref="SendStockRequestWithBudgetAsync"/> puts on a single request,
+    /// here over every page, retry and re-authentication of one read, so a hung read gives its SAP
+    /// slot back in a minute rather than holding it for the five-minute client timeout. Caller
+    /// cancellation still surfaces as an <see cref="OperationCanceledException"/>.
+    ///
+    /// <para>
+    /// The query object is provisioned before the clock starts. The code is fixed, so this is a
+    /// memoised no-op after the first call in a process and a cheap GET after the first on a server;
+    /// only the very first ever is the slow POST, and cutting that off part-way would leave SAP
+    /// committing an object the next caller then tries to create again.
+    /// </para>
+    /// </remarks>
+    private async Task<List<Dictionary<string, object?>>> ExecuteStockSqlQueryWithBudgetAsync(
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        string operation,
+        CancellationToken cancellationToken)
     {
-        var serials = new List<SerialNumber>();
+        await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+
+        var timeoutSeconds = Math.Clamp(_settings.StockSqlRequestTimeoutSeconds, 5, 300);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
         try
         {
-            using var doc = JsonDocument.Parse(jsonContent);
-            if (doc.RootElement.TryGetProperty("value", out var valueArray))
-            {
-                foreach (var item in valueArray.EnumerateArray())
-                {
-                    var serial = new SerialNumber
-                    {
-                        ItemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null,
-                        DistNumber = item.TryGetProperty("DistNumber", out var dn) ? dn.GetString() : null,
-                        Quantity = item.TryGetProperty("Quantity", out var qty) ? qty.GetDecimal() : 0,
-                        WhsCode = warehouseCode,
-                        SystemNumber = item.TryGetProperty("SystemNumber", out var sn) ? sn.GetInt32() : 0,
-                        InternalSerialNumber = item.TryGetProperty("InternalSerialNumber", out var isn) ? isn.GetString() : null,
-                        ManufacturerSerialNumber = item.TryGetProperty("ManufacturerSerialNumber", out var msn) ? msn.GetString() : null
-                    };
-                    serials.Add(serial);
-                }
-            }
+            return await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, parameters, timeoutSource.Token);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException ex) when (
+            !cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "Failed to parse SQL result for serial numbers");
+            throw new TimeoutException(
+                $"SAP stock read exceeded its {timeoutSeconds}-second budget ({operation}).",
+                ex);
         }
-        return serials;
     }
 
     #endregion

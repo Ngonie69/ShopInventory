@@ -63,6 +63,13 @@ public sealed class GetProductBatchesHandler(
             logger.LogError(ex, "Timeout connecting to SAP Service Layer");
             return Errors.Product.SapTimeout;
         }
+        catch (TimeoutException ex)
+        {
+            // The batch read's own budget ran out: SAP took the request and did not answer in time.
+            logger.LogError(ex, "Timed out reading batches for {ItemCode} in warehouse {Warehouse}",
+                request.ItemCode, request.WarehouseCode);
+            return Errors.Product.SapTimeout;
+        }
         catch (InvalidOperationException ex)
         {
             // The batch read has no fallback, so a failure is answered as a failure. Reporting it
