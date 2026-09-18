@@ -1,6 +1,5 @@
 @page "/invoices/create"
 @using System.Security.Claims
-@using Blazored.LocalStorage
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
 @using ShopInventory.Web.Data
@@ -88,22 +87,8 @@
         </div>
 
         <!-- ── Alerts ─────────────────────────────────────────────────── -->
-        @if (!string.IsNullOrEmpty(draftNotice))
-        {
-            <div class="sfm-alert is-ok">
-                <i class="ph-fill ph-clock-counter-clockwise"></i>
-                <div class="sfm-alert-bd">
-                    @draftNotice
-                    <button type="button" class="sfm-btn sfm-gap-sm" @onclick="DiscardRestoredDraft"
-                            disabled="@isSubmitting">
-                        <i class="ph ph-trash"></i>Discard and start again
-                    </button>
-                </div>
-                <button type="button" class="sfm-alert-x" @onclick="() => draftNotice = null" aria-label="Dismiss">
-                    <i class="ph ph-x"></i>
-                </button>
-            </div>
-        }
+        <DraftRestoredNotice Message="@draftNotice" Disabled="@isSubmitting"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
         @if (!string.IsNullOrEmpty(successMessage))
         {
             <div class="sfm-alert is-ok">
@@ -677,16 +662,14 @@
 
     // Draft persistence: the form is written to the browser after each change so a reload — the
     // reconnect modal's only way back once the circuit is gone — does not lose the basket. See InvoiceDraft.
-    private string? draftStorageKey;
-    private string? lastDraftFingerprint;
-    private bool isTrackingDraft;
+    private FormDraftStore<InvoiceDraft>? draftStore;
     private string? draftNotice;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender && isTrackingDraft)
+        if (!firstRender && draftStore is not null)
         {
-            await SaveDraftAsync();
+            await draftStore.SaveAsync(CurrentDraft(), InvoiceDraft.IsEmpty(invoice));
         }
 
         if (firstRender && !_hasInitialized)
@@ -734,10 +717,10 @@
             }
 
             // After the defaults, so a restored draft's own warehouse and cost centre win over them.
-            draftStorageKey = InvoiceDraft.StorageKey(
-                operatorUser?.Identity?.IsAuthenticated == true ? operatorUser.Identity.Name : null);
-            await RestoreDraftAsync();
-            isTrackingDraft = draftStorageKey is not null;
+            var store = new FormDraftStore<InvoiceDraft>(LocalStorage, Logger, InvoiceDraft.Form, operatorUser);
+            ApplyDraft(await store.RestoreAsync());
+            store.Accept(CurrentDraft());
+            draftStore = store;
 
             StateHasChanged();
         }
@@ -751,68 +734,16 @@
         NotifyCustomerByEmail = notifyCustomerByEmail
     };
 
-    private async Task SaveDraftAsync()
+    private void ApplyDraft(FormDraft.Restored<InvoiceDraft>? restored)
     {
-        if (draftStorageKey is null)
+        if (restored is null || InvoiceDraft.IsEmpty(restored.State.Invoice))
         {
             return;
         }
 
-        var draft = CurrentDraft();
-        var fingerprint = draft.Fingerprint();
-        if (fingerprint == lastDraftFingerprint)
-        {
-            return;
-        }
-
-        try
-        {
-            if (InvoiceDraft.IsEmpty(invoice))
-            {
-                await LocalStorage.RemoveItemAsync(draftStorageKey);
-            }
-            else
-            {
-                draft.SavedAt = DateTimeOffset.UtcNow;
-                await LocalStorage.SetItemAsStringAsync(draftStorageKey, draft.Serialize());
-            }
-
-            lastDraftFingerprint = fingerprint;
-        }
-        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException)
-        {
-            // The circuit is going away or storage is refused. The fingerprint is not recorded, so the
-            // next render tries again.
-            Logger.LogDebug(ex, "Could not save the invoice draft");
-        }
-    }
-
-    private async Task RestoreDraftAsync()
-    {
-        if (draftStorageKey is null)
-        {
-            return;
-        }
-
-        InvoiceDraft? draft;
-        try
-        {
-            draft = InvoiceDraft.TryRestore(await LocalStorage.GetItemAsStringAsync(draftStorageKey), DateTimeOffset.UtcNow);
-        }
-        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException)
-        {
-            Logger.LogWarning(ex, "Could not read the invoice draft");
-            return;
-        }
-
-        if (draft is null)
-        {
-            // Nothing to bring back: record the empty form as saved, so an untouched page never
-            // clears a draft another tab is still writing.
-            lastDraftFingerprint = CurrentDraft().Fingerprint();
-            return;
-        }
-
+        var draft = restored.State;
+        var draftCardCode = draft.Invoice.CardCode;
+        draft.Invoice.Lines ??= new List<CreateInvoiceLineRequest>();
         invoice = draft.Invoice;
         warehouseCode = draft.WarehouseCode ?? warehouseCode;
         defaultCostCentre = draft.DefaultCostCentre;
@@ -845,13 +776,8 @@
             invoice.CardCode = string.Empty;
         }
 
-        lastDraftFingerprint = CurrentDraft().Fingerprint();
-
-        var lineCount = invoice.Lines.Count;
-        var savedAt = draft.SavedAt.ToLocalTime();
-        draftNotice = $"Restored the invoice you were entering ({lineCount} line{(lineCount == 1 ? "" : "s")}, "
-            + $"last changed {savedAt:HH:mm}). Check it before you create it.";
-        Logger.LogInformation("Restored an invoice draft with {LineCount} lines for {CardCode}", lineCount, draft.Invoice.CardCode);
+        draftNotice = FormDraft.RestoredNotice("invoice", invoice.Lines.Count, restored.SavedAt);
+        Logger.LogInformation("Restored an invoice draft with {LineCount} lines for {CardCode}", invoice.Lines.Count, draftCardCode);
     }
 
     private void DiscardRestoredDraft()

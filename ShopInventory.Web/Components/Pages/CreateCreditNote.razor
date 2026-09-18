@@ -11,6 +11,8 @@
 @inject ISnackbar Snackbar
 @inject ILogger<CreateCreditNote> Logger
 @inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILocalStorageService LocalStorage
 @rendermode InteractiveServer
 
 <PageTitle>Create Credit Note - Shop Inventory</PageTitle>
@@ -57,6 +59,9 @@
                 </div>
             </div>
         </div>
+
+        <DraftRestoredNotice Message="@draftNotice" Disabled="@isCreating"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
 
         @if (!isMasterDataLoaded)
         {
@@ -372,7 +377,8 @@
                                 <span>Create credit note</span>
                             }
                         </button>
-                        <a href="/credit-notes" class="sfm-btn sfm-btn-wide sfm-gap-sm">Cancel</a>
+                        <button type="button" class="sfm-btn sfm-btn-wide sfm-gap-sm" @onclick="CancelAsync"
+                                disabled="@isCreating">Cancel</button>
                     </div>
 
                     <div class="sfm-card sfm-panel">
@@ -435,6 +441,12 @@
 
     private Dictionary<int, CnLineState> cnLineStates = new();
 
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the credit note. See FormDraft.
+    private const string DraftForm = "credit-note";
+    private FormDraftStore<CreateCreditNoteRequest>? draftStore;
+    private string? draftNotice;
+
     private class CnLineState
     {
         public string SearchTerm { get; set; } = string.Empty;
@@ -481,6 +493,94 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadMasterDataAsync();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var store = new FormDraftStore<CreateCreditNoteRequest>(LocalStorage, Logger, DraftForm, authState.User);
+        ApplyDraft(await store.RestoreAsync());
+        store.Accept(newCreditNote);
+        draftStore = store;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (draftStore is not null)
+        {
+            await draftStore.SaveAsync(newCreditNote, IsDraftEmpty(newCreditNote));
+        }
+    }
+
+    private static bool IsDraftEmpty(CreateCreditNoteRequest note)
+        => string.IsNullOrWhiteSpace(note.CardCode)
+            && note.Lines.Count == 0
+            && string.IsNullOrWhiteSpace(note.Reason)
+            && string.IsNullOrWhiteSpace(note.Comments);
+
+    private void ApplyDraft(FormDraft.Restored<CreateCreditNoteRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        var draftCardCode = draft.CardCode;
+        draft.Lines ??= new List<CreateCreditNoteLineRequest>();
+        newCreditNote = draft;
+
+        cnLineStates.Clear();
+        for (var i = 0; i < newCreditNote.Lines.Count; i++)
+        {
+            GetCnLineState(i).SearchTerm = newCreditNote.Lines[i].ItemCode ?? string.Empty;
+        }
+
+        // Lines keep the prices they were entered at; the customer's price list still loads for
+        // lines added next.
+        var bp = string.IsNullOrWhiteSpace(newCreditNote.CardCode)
+            ? null
+            : allBusinessPartners.FirstOrDefault(p => string.Equals(p.CardCode, newCreditNote.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (bp is not null)
+        {
+            selectedBusinessPartner = bp;
+            bpSearchTerm = bp.DisplayName;
+            _ = LoadBusinessPartnerPricesAsync(bp);
+        }
+        else if (!string.IsNullOrWhiteSpace(newCreditNote.CardCode))
+        {
+            // The customer is not in the cached list: put the code back in the search box to be
+            // picked again, rather than submit to a customer nobody can see.
+            bpSearchTerm = newCreditNote.CardCode;
+            newCreditNote.CardCode = string.Empty;
+            newCreditNote.CardName = null;
+        }
+
+        draftNotice = FormDraft.RestoredNotice("credit note", newCreditNote.Lines.Count, restored.SavedAt);
+        Logger.LogInformation("Restored a credit note draft with {LineCount} lines for {CardCode}", newCreditNote.Lines.Count, draftCardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        ClearSelectedBP();
+        newCreditNote = new CreateCreditNoteRequest();
+        cnLineStates.Clear();
+        showLineItemsError = false;
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the credit note, so its draft goes too. Back and the nav keep it.
+        await ClearDraftAsync();
+        NavigationManager.NavigateTo("/credit-notes");
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
+        }
     }
 
     private async Task LoadMasterDataAsync()
@@ -764,12 +864,18 @@
 
         showLineItemsError = false;
         isCreating = true;
+
+        // Minted before the post so the draft saved on the render during it carries the key: a
+        // reload mid-submit then resubmits under the same key and the API replays the credit note.
+        newCreditNote.ClientRequestId ??= Guid.NewGuid().ToString("N");
+
         try
         {
             var result = await CreditNoteService.CreateCreditNoteAsync(newCreditNote);
             if (result != null)
             {
                 Snackbar.Add($"Credit note {result.CreditNoteNumber} created successfully!", Severity.Success);
+                await ClearDraftAsync();
                 await AuditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", result.CreditNoteNumber);
                 NavigationManager.NavigateTo("/credit-notes");
             }

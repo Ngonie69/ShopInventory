@@ -1,5 +1,7 @@
+using Blazored.LocalStorage;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.PurchaseQuotations.Commands.CreatePurchaseQuotation;
 using ShopInventory.Web.Models;
@@ -14,6 +16,14 @@ public partial class CreatePurchaseQuotation
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private NavigationManager NavigationManager { get; set; } = default!;
     [Inject] private ILogger<CreatePurchaseQuotation> Logger { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+    [Inject] private ILocalStorageService LocalStorage { get; set; } = default!;
+
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the quotation. See FormDraft.
+    private const string DraftForm = "purchase-quotation";
+    private FormDraftStore<CreatePurchaseQuotationRequest>? draftStore;
+    private string? draftNotice;
 
     private readonly Dictionary<string, string> validationErrors = new();
     private CreatePurchaseQuotationRequest purchaseQuotation = CreateDefaultRequest();
@@ -44,12 +54,92 @@ public partial class CreatePurchaseQuotation
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && draftStore is not null)
+        {
+            await draftStore.SaveAsync(purchaseQuotation, IsDraftEmpty(purchaseQuotation));
+        }
+
         if (!firstRender || hasInitialized)
             return;
 
         hasInitialized = true;
         await LoadLookupsAsync();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var store = new FormDraftStore<CreatePurchaseQuotationRequest>(LocalStorage, Logger, DraftForm, authState.User);
+        ApplyDraft(await store.RestoreAsync());
+        store.Accept(purchaseQuotation);
+        draftStore = store;
+
         StateHasChanged();
+    }
+
+    // The form opens with one blank line, which is not something to bring back.
+    private static bool IsDraftEmpty(CreatePurchaseQuotationRequest quotation)
+        => string.IsNullOrWhiteSpace(quotation.CardCode)
+            && quotation.Lines.All(l => string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity == 0)
+            && string.IsNullOrWhiteSpace(quotation.NumAtCard)
+            && string.IsNullOrWhiteSpace(quotation.Comments);
+
+    private void ApplyDraft(FormDraft.Restored<CreatePurchaseQuotationRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        draft.Lines ??= new List<CreatePurchaseQuotationLineRequest>();
+        if (draft.Lines.Count == 0)
+        {
+            draft.Lines.Add(new CreatePurchaseQuotationLineRequest());
+        }
+
+        purchaseQuotation = draft;
+
+        var supplier = string.IsNullOrWhiteSpace(purchaseQuotation.CardCode)
+            ? null
+            : suppliers.FirstOrDefault(s => string.Equals(s.CardCode, purchaseQuotation.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (supplier is not null)
+        {
+            selectedSupplier = supplier;
+            supplierSearchTerm = supplier.DisplayName;
+        }
+        else
+        {
+            // A code typed by hand is how a supplier outside the list is entered, so it stays.
+            supplierSearchTerm = purchaseQuotation.CardCode;
+        }
+
+        var lineCount = purchaseQuotation.Lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
+        draftNotice = FormDraft.RestoredNotice("purchase quotation", lineCount, restored.SavedAt);
+        Logger.LogInformation("Restored a purchase quotation draft with {LineCount} lines for {CardCode}", lineCount, draft.CardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        selectedSupplier = null;
+        supplierSearchTerm = string.Empty;
+        purchaseQuotation = CreateDefaultRequest();
+        validationErrors.Clear();
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the quotation, so its draft goes too. The nav keeps it.
+        await ClearDraftAsync();
+        GoBack();
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
+        }
     }
 
     private static CreatePurchaseQuotationRequest CreateDefaultRequest() => new()
@@ -300,6 +390,7 @@ public partial class CreatePurchaseQuotation
             }
 
             successMessage = $"Purchase quotation #{createdQuotation.DocNum} created successfully.";
+            await ClearDraftAsync();
 
             await AuditService.LogAsync(
                 AuditActions.CreatePurchaseQuotation,

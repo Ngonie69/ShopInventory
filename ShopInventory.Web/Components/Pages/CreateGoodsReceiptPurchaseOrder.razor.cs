@@ -1,5 +1,7 @@
+using Blazored.LocalStorage;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.WebUtilities;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.GoodsReceiptPurchaseOrders.Commands.CreateGoodsReceiptPurchaseOrder;
@@ -16,6 +18,25 @@ public partial class CreateGoodsReceiptPurchaseOrder
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private NavigationManager NavigationManager { get; set; } = default!;
     [Inject] private ILogger<CreateGoodsReceiptPurchaseOrder> Logger { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+    [Inject] private ILocalStorageService LocalStorage { get; set; } = default!;
+
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the receipt. See FormDraft.
+    private const string DraftForm = "goods-receipt-po";
+    private FormDraftStore<CreateGoodsReceiptPurchaseOrderRequest>? draftStore;
+    private string? draftNotice;
+
+    // A receipt started from a purchase order (?purchaseOrderDocEntry=) keeps its own draft, so it
+    // never restores over a different order's prefill.
+    private string DraftFormKey()
+    {
+        var query = QueryHelpers.ParseQuery(NavigationManager.ToAbsoluteUri(NavigationManager.Uri).Query);
+        return query.TryGetValue("purchaseOrderDocEntry", out var docEntry)
+            && int.TryParse(docEntry.ToString(), out var entry) && entry > 0
+                ? $"{DraftForm}-po-{entry}"
+                : DraftForm;
+    }
 
     private readonly Dictionary<string, string> validationErrors = new();
     private CreateGoodsReceiptPurchaseOrderRequest goodsReceipt = CreateDefaultRequest();
@@ -46,13 +67,93 @@ public partial class CreateGoodsReceiptPurchaseOrder
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && draftStore is not null)
+        {
+            await draftStore.SaveAsync(goodsReceipt, IsDraftEmpty(goodsReceipt));
+        }
+
         if (!firstRender || hasInitialized)
             return;
 
         hasInitialized = true;
         await LoadLookupsAsync();
         await PrefillFromPurchaseOrderAsync();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var store = new FormDraftStore<CreateGoodsReceiptPurchaseOrderRequest>(LocalStorage, Logger, DraftFormKey(), authState.User);
+        ApplyDraft(await store.RestoreAsync());
+        store.Accept(goodsReceipt);
+        draftStore = store;
+
         StateHasChanged();
+    }
+
+    // The form opens with one blank line, which is not something to bring back.
+    private static bool IsDraftEmpty(CreateGoodsReceiptPurchaseOrderRequest receipt)
+        => string.IsNullOrWhiteSpace(receipt.CardCode)
+            && receipt.Lines.All(l => string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity == 0)
+            && string.IsNullOrWhiteSpace(receipt.NumAtCard)
+            && string.IsNullOrWhiteSpace(receipt.Comments);
+
+    private void ApplyDraft(FormDraft.Restored<CreateGoodsReceiptPurchaseOrderRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        draft.Lines ??= new List<CreateGoodsReceiptPurchaseOrderLineRequest>();
+        if (draft.Lines.Count == 0)
+        {
+            draft.Lines.Add(new CreateGoodsReceiptPurchaseOrderLineRequest());
+        }
+
+        goodsReceipt = draft;
+
+        var supplier = string.IsNullOrWhiteSpace(goodsReceipt.CardCode)
+            ? null
+            : suppliers.FirstOrDefault(s => string.Equals(s.CardCode, goodsReceipt.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (supplier is not null)
+        {
+            selectedSupplier = supplier;
+            supplierSearchTerm = supplier.DisplayName;
+        }
+        else
+        {
+            // A code typed by hand is how a supplier outside the list is entered, so it stays.
+            supplierSearchTerm = goodsReceipt.CardCode;
+        }
+
+        var lineCount = goodsReceipt.Lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
+        draftNotice = FormDraft.RestoredNotice("goods receipt", lineCount, restored.SavedAt);
+        Logger.LogInformation("Restored a goods receipt draft with {LineCount} lines for {CardCode}", lineCount, draft.CardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        selectedSupplier = null;
+        supplierSearchTerm = string.Empty;
+        goodsReceipt = CreateDefaultRequest();
+        validationErrors.Clear();
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the receipt, so its draft goes too. The nav keeps it.
+        await ClearDraftAsync();
+        GoBack();
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
+        }
     }
 
     private static CreateGoodsReceiptPurchaseOrderRequest CreateDefaultRequest() => new()
@@ -380,6 +481,7 @@ public partial class CreateGoodsReceiptPurchaseOrder
             }
 
             successMessage = $"Goods receipt PO #{createdGoodsReceipt.DocNum} created successfully.";
+            await ClearDraftAsync();
 
             await AuditService.LogAsync(
                 AuditActions.CreateGoodsReceiptPurchaseOrder,

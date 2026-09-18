@@ -9,6 +9,7 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateTransferRequest> Logger
 @inject AuthenticationStateProvider AuthStateProvider
+@inject ILocalStorageService LocalStorage
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -74,6 +75,8 @@
         </div>
 
         <!-- ── Alerts ─────────────────────────────────────────────────── -->
+        <DraftRestoredNotice Prefix="tfm" Message="@draftNotice" Disabled="@isSubmitting"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
         @if (!string.IsNullOrEmpty(successMessage))
         {
             <div class="tfm-alert is-ok" role="status">
@@ -485,6 +488,13 @@
     /// </summary>
     private StockRefreshBatcher? stockRefresh;
 
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the request. See FormDraft. A created request clears the
+    // form, and the next render sees it empty and removes the draft.
+    private const string DraftForm = "transfer-request";
+    private FormDraftStore<TransferRequestDraft>? draftStore;
+    private string? draftNotice;
+
     /// <summary>
     /// Validation is shown from the first submit attempt onwards, never before: the form opens
     /// empty, and a panel headed "please fix the following" on an untouched form is noise. After
@@ -566,11 +576,119 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && draftStore is not null)
+        {
+            var draft = CurrentDraft();
+            await draftStore.SaveAsync(draft, draft.IsEmpty);
+        }
+
         if (firstRender && !_hasLoadedData)
         {
             _hasLoadedData = true;
             await LoadInitialDataAsync();
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var store = new FormDraftStore<TransferRequestDraft>(LocalStorage, Logger, DraftForm, authState.User);
+            ApplyDraft(await store.RestoreAsync());
+            store.Accept(CurrentDraft());
+            draftStore = store;
+
             StateHasChanged();
+        }
+    }
+
+    private TransferRequestDraft CurrentDraft() => new()
+    {
+        FromWarehouse = selectedFromWarehouse?.WarehouseCode,
+        ToWarehouse = selectedToWarehouse?.WarehouseCode,
+        DocDate = docDate,
+        DueDate = dueDate,
+        Comments = comments,
+        Lines = lines
+            .Where(l => !string.IsNullOrWhiteSpace(l.ItemCode) || !string.IsNullOrWhiteSpace(l.QuantityText))
+            .Select(l => new TransferRequestDraft.Line
+            {
+                ItemCode = l.ItemCode,
+                Quantity = l.Quantity,
+                QuantityText = l.QuantityText,
+                UoMCode = l.UoMCode
+            })
+            .ToList()
+    };
+
+    private void ApplyDraft(FormDraft.Restored<TransferRequestDraft>? restored)
+    {
+        if (restored is null || restored.State.IsEmpty)
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        docDate = draft.DocDate ?? docDate;
+        dueDate = draft.DueDate;
+        comments = draft.Comments;
+
+        // A warehouse no longer in the list stays unchosen, and the operator picks again.
+        selectedFromWarehouse = FindWarehouse(draft.FromWarehouse);
+        selectedToWarehouse = FindWarehouse(draft.ToWarehouse);
+
+        lines = (draft.Lines ?? new()).Select(saved =>
+        {
+            var product = string.IsNullOrWhiteSpace(saved.ItemCode)
+                ? null
+                : cachedProducts.FirstOrDefault(p => string.Equals(p.ItemCode, saved.ItemCode, StringComparison.OrdinalIgnoreCase));
+            return new TransferLineItem
+            {
+                SelectedProduct = product,
+                ItemCode = saved.ItemCode,
+                Quantity = saved.Quantity,
+                QuantityText = saved.QuantityText,
+                UoMCode = saved.UoMCode ?? (string.IsNullOrWhiteSpace(product?.UoM) ? null : product!.UoM.Trim())
+            };
+        }).ToList();
+        if (lines.Count == 0)
+        {
+            lines.Add(new TransferLineItem());
+        }
+
+        // Stock figures belong to the moment they were read, so they are asked for again.
+        QueueStockRefreshForAllLines();
+
+        var lineCount = lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
+        draftNotice = FormDraft.RestoredNotice("transfer request", lineCount, restored.SavedAt);
+        Logger.LogInformation("Restored a transfer request draft with {LineCount} lines from {From} to {To}",
+            lineCount, draft.FromWarehouse, draft.ToWarehouse);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        ClearForm();
+    }
+
+    /// <summary>What Create Transfer Request keeps of a half-entered request. See FormDraft.</summary>
+    public sealed class TransferRequestDraft
+    {
+        public string? FromWarehouse { get; set; }
+        public string? ToWarehouse { get; set; }
+        public DateTime? DocDate { get; set; }
+        public DateTime? DueDate { get; set; }
+        public string? Comments { get; set; }
+        public List<Line>? Lines { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsEmpty =>
+            string.IsNullOrWhiteSpace(FromWarehouse)
+            && string.IsNullOrWhiteSpace(ToWarehouse)
+            && (Lines is null || Lines.Count == 0)
+            && string.IsNullOrWhiteSpace(Comments);
+
+        public sealed class Line
+        {
+            public string? ItemCode { get; set; }
+            public decimal Quantity { get; set; }
+            public string? QuantityText { get; set; }
+            public string? UoMCode { get; set; }
         }
     }
 

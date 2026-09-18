@@ -82,6 +82,9 @@
             </div>
         }
 
+        <DraftRestoredNotice Prefix="pfm" Message="@draftNotice" Disabled="@isSubmitting"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
+
         @if (isLoadingLookups)
         {
             <section class="pfm-card" style="margin-top:22px">
@@ -455,7 +458,8 @@
                                     <span>Post A/P invoice</span>
                                 }
                             </button>
-                            <a class="pfm-btn pfm-btn-wide" style="margin-top:8px" href="/purchase-invoices">Cancel</a>
+                            <button type="button" class="pfm-btn pfm-btn-wide" style="margin-top:8px"
+                                    @onclick="CancelAsync" disabled="@isSubmitting">Cancel</button>
                         </div>
                     </section>
 

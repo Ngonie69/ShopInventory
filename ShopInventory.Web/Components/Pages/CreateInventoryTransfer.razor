@@ -11,6 +11,7 @@
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
+@inject ILocalStorageService LocalStorage
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -103,6 +104,8 @@
         </div>
 
         <!-- ── Alerts ─────────────────────────────────────────────────── -->
+        <DraftRestoredNotice Prefix="tfm" Message="@draftNotice" Disabled="@isSubmitting"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
         @if (!string.IsNullOrEmpty(successMessage))
         {
             <div class="tfm-alert is-ok" role="status">
@@ -514,7 +517,14 @@
 
     // Stable idempotency key for this transfer entry; reused across retries so a lost-response
     // retry is deduplicated. The page navigates away on success, so each new transfer gets a fresh key.
-    private readonly string clientRequestId = Guid.NewGuid().ToString("N");
+    // Saved with the draft, so a resubmit after a reload mid-post is deduplicated too.
+    private string clientRequestId = Guid.NewGuid().ToString("N");
+
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the transfer. See FormDraft.
+    private const string DraftForm = "inventory-transfer";
+    private FormDraftStore<TransferDraft>? draftStore;
+    private string? draftNotice;
 
     private List<WarehouseDto> cachedWarehouses = new();
     private List<ProductDto> cachedProducts = new();
@@ -670,11 +680,137 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && draftStore is not null)
+        {
+            var draft = CurrentDraft();
+            await draftStore.SaveAsync(draft, draft.IsEmpty);
+        }
+
         if (firstRender && !_hasLoadedData)
         {
             _hasLoadedData = true;
             await LoadInitialDataAsync();
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var store = new FormDraftStore<TransferDraft>(LocalStorage, Logger, DraftForm, authState.User);
+            await ApplyDraftAsync(await store.RestoreAsync());
+            store.Accept(CurrentDraft());
+            draftStore = store;
+
             StateHasChanged();
+        }
+    }
+
+    private TransferDraft CurrentDraft() => new()
+    {
+        FromWarehouse = selectedFromWarehouse?.WarehouseCode,
+        ToWarehouse = selectedToWarehouse?.WarehouseCode,
+        DocDate = docDate,
+        DueDate = dueDate,
+        Comments = comments,
+        Reason = transferReason,
+        ClientRequestId = clientRequestId,
+        Lines = lines
+            .Where(l => !string.IsNullOrWhiteSpace(l.ItemCode) || !string.IsNullOrWhiteSpace(l.QuantityText))
+            .Select(l => new TransferDraft.Line
+            {
+                ItemCode = l.ItemCode,
+                Quantity = l.Quantity,
+                QuantityText = l.QuantityText,
+                UoMCode = l.UoMCode
+            })
+            .ToList()
+    };
+
+    private async Task ApplyDraftAsync(FormDraft.Restored<TransferDraft>? restored)
+    {
+        if (restored is null || restored.State.IsEmpty)
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        docDate = draft.DocDate ?? docDate;
+        dueDate = draft.DueDate;
+        comments = draft.Comments;
+        transferReason = draft.Reason;
+        if (!string.IsNullOrWhiteSpace(draft.ClientRequestId))
+        {
+            clientRequestId = draft.ClientRequestId;
+        }
+
+        // A warehouse no longer in the list stays unchosen, and the operator picks again.
+        selectedFromWarehouse = FindWarehouse(draft.FromWarehouse) ?? selectedFromWarehouse;
+        selectedToWarehouse = FindWarehouse(draft.ToWarehouse);
+
+        lines = (draft.Lines ?? new()).Select(saved =>
+        {
+            var product = string.IsNullOrWhiteSpace(saved.ItemCode)
+                ? null
+                : cachedProducts.FirstOrDefault(p => string.Equals(p.ItemCode, saved.ItemCode, StringComparison.OrdinalIgnoreCase));
+            return new TransferLineItem
+            {
+                SelectedProduct = product,
+                ItemCode = saved.ItemCode,
+                Quantity = saved.Quantity,
+                QuantityText = saved.QuantityText,
+                UoMCode = saved.UoMCode ?? (string.IsNullOrWhiteSpace(product?.UoM) ? null : product!.UoM.Trim())
+            };
+        }).ToList();
+        if (lines.Count == 0)
+        {
+            lines.Add(new TransferLineItem());
+        }
+
+        // Stock figures belong to the moment they were read, so they are read again.
+        if (selectedFromWarehouse is not null)
+        {
+            await LoadStockForSourceAsync();
+            foreach (var line in lines.Where(l => l.SelectedProduct is not null))
+            {
+                ApplyStockFromCache(line);
+            }
+        }
+
+        var lineCount = lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
+        draftNotice = FormDraft.RestoredNotice("transfer", lineCount, restored.SavedAt);
+        Logger.LogInformation("Restored an inventory transfer draft with {LineCount} lines from {From} to {To}",
+            lineCount, draft.FromWarehouse, draft.ToWarehouse);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        ClearForm();
+        clientRequestId = Guid.NewGuid().ToString("N");
+    }
+
+    /// <summary>What Create Inventory Transfer keeps of a half-entered transfer. See FormDraft.</summary>
+    public sealed class TransferDraft
+    {
+        public string? FromWarehouse { get; set; }
+        public string? ToWarehouse { get; set; }
+        public DateTime? DocDate { get; set; }
+        public DateTime? DueDate { get; set; }
+        public string? Comments { get; set; }
+        public string? Reason { get; set; }
+        public string? ClientRequestId { get; set; }
+        public List<Line>? Lines { get; set; } = new();
+
+        // The source warehouse alone is not an entry: a stock controller's is chosen for them.
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsEmpty =>
+            string.IsNullOrWhiteSpace(ToWarehouse)
+            && (Lines is null || Lines.Count == 0)
+            && string.IsNullOrWhiteSpace(Comments)
+            && string.IsNullOrWhiteSpace(Reason);
+
+        public sealed class Line
+        {
+            public string? ItemCode { get; set; }
+            public decimal Quantity { get; set; }
+            public string? QuantityText { get; set; }
+            public string? UoMCode { get; set; }
         }
     }
 
@@ -1094,6 +1230,13 @@
                     successMessage = $"Transfer #{transfer?.DocNum} created successfully! Redirecting…";
                     Logger.LogInformation("Inventory transfer created: DocNum={DocNum}, DocEntry={DocEntry}",
                         transfer?.DocNum, transfer?.DocEntry);
+                }
+
+                if (draftStore is not null)
+                {
+                    var store = draftStore;
+                    draftStore = null;
+                    await store.ClearAsync();
                 }
 
                 await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer",

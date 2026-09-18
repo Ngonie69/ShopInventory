@@ -11,6 +11,8 @@
 @inject ILogger<CreateIncomingPayment> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILocalStorageService LocalStorage
 @rendermode InteractiveServer
 
 <PageTitle>Create Incoming Payment - Shop Inventory</PageTitle>
@@ -64,6 +66,8 @@
         </div>
 
         <!-- ── Alerts ─────────────────────────────────────────────────── -->
+        <DraftRestoredNotice Message="@draftNotice" Disabled="@isSubmitting"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
         @if (!string.IsNullOrEmpty(successMessage))
         {
             <div class="sfm-alert is-ok">
@@ -532,6 +536,17 @@
 #pragma warning restore CS0414
     private CancellationTokenSource? _searchCts;
 
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the payment. See FormDraft. The attachment cannot come back
+    // (a browser file handle does not survive a reload), and the card fields are left out of
+    // browser storage on purpose.
+    private const string DraftForm = "incoming-payment";
+    private FormDraftStore<PaymentDraft>? draftStore;
+    private string? draftNotice;
+    private Task? settingsLoad;
+    // The restored customer, waiting for the customer list that loads in the background.
+    private string? pendingDraftCardCode;
+
     // Payment fields
     private DateTime? docDate = DateTime.Today;
     private string? remarks;
@@ -646,9 +661,158 @@ new()
     protected override void OnInitialized()
     {
         // Load payment settings (G/L account + default method)
-        _ = LoadPaymentSettings();
+        settingsLoad = LoadPaymentSettings();
         // Load cached business partners in the background (non-blocking)
         _ = LoadBusinessPartnersInBackground();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // After the settings, so the restored method and accounts win over the defaults.
+            if (settingsLoad is not null)
+            {
+                await settingsLoad;
+            }
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var store = new FormDraftStore<PaymentDraft>(LocalStorage, Logger, DraftForm, authState.User);
+            ApplyDraft(await store.RestoreAsync());
+            store.Accept(CurrentDraft());
+            draftStore = store;
+
+            if (draftNotice is not null)
+            {
+                StateHasChanged();
+            }
+
+            return;
+        }
+
+        if (draftStore is not null)
+        {
+            var draft = CurrentDraft();
+            await draftStore.SaveAsync(draft, draft.IsEmpty);
+        }
+    }
+
+    private PaymentDraft CurrentDraft() => new()
+    {
+        // While the restored customer waits for the list, keep saving it rather than the bare code.
+        CardCode = selectedBusinessPartner?.CardCode ?? pendingDraftCardCode,
+        SearchTerm = selectedBusinessPartner is null && pendingDraftCardCode is null ? bpSearchTerm : null,
+        DocDate = docDate,
+        Remarks = remarks,
+        PaymentMethod = activePaymentMethod,
+        CashSum = cashSum,
+        CashAccount = cashAccount,
+        TransferSum = transferSum,
+        TransferReference = transferReference,
+        TransferDate = transferDate,
+        TransferAccount = transferAccount,
+        CheckSum = checkSum,
+        CheckNumber = checkNumber,
+        CheckDueDate = checkDueDate,
+        CheckBankCode = checkBankCode,
+        CheckBranch = checkBranch,
+        CheckAccountNum = checkAccountNum,
+        CreditSum = creditSum,
+        CreditVoucherNum = creditVoucherNum,
+        ClientRequestId = clientRequestId,
+        Lines = invoiceLines.Select(l => new PaymentDraft.Line
+        {
+            DocEntry = l.DocEntry,
+            SumApplied = l.SumApplied,
+            InvoiceType = l.InvoiceType
+        }).ToList()
+    };
+
+    private void ApplyDraft(FormDraft.Restored<PaymentDraft>? restored)
+    {
+        if (restored is null || restored.State.IsEmpty)
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        docDate = draft.DocDate ?? docDate;
+        remarks = draft.Remarks;
+        if (!string.IsNullOrWhiteSpace(draft.PaymentMethod) && AllPaymentMethods.ContainsKey(draft.PaymentMethod))
+        {
+            activePaymentMethod = draft.PaymentMethod;
+        }
+
+        cashSum = draft.CashSum;
+        cashAccount = draft.CashAccount ?? cashAccount;
+        transferSum = draft.TransferSum;
+        transferReference = draft.TransferReference;
+        transferDate = draft.TransferDate;
+        transferAccount = draft.TransferAccount ?? transferAccount;
+        checkSum = draft.CheckSum;
+        checkNumber = draft.CheckNumber;
+        checkDueDate = draft.CheckDueDate;
+        checkBankCode = draft.CheckBankCode;
+        checkBranch = draft.CheckBranch;
+        checkAccountNum = draft.CheckAccountNum;
+        creditSum = draft.CreditSum;
+        creditVoucherNum = draft.CreditVoucherNum;
+        if (!string.IsNullOrWhiteSpace(draft.ClientRequestId))
+        {
+            clientRequestId = draft.ClientRequestId;
+        }
+
+        invoiceLines = (draft.Lines ?? new()).Select(l => new InvoiceLineModel
+        {
+            DocEntry = l.DocEntry,
+            SumApplied = l.SumApplied,
+            InvoiceType = string.IsNullOrWhiteSpace(l.InvoiceType) ? "it_Invoice" : l.InvoiceType
+        }).ToList();
+
+        if (!string.IsNullOrWhiteSpace(draft.CardCode))
+        {
+            pendingDraftCardCode = draft.CardCode;
+            bpSearchTerm = draft.CardCode;
+            ReselectDraftCustomer();
+        }
+        else
+        {
+            bpSearchTerm = draft.SearchTerm ?? string.Empty;
+        }
+
+        draftNotice = FormDraft.RestoredNotice("payment", invoiceLines.Count, restored.SavedAt)
+            + " Attach the proof of payment again.";
+        Logger.LogInformation("Restored an incoming payment draft for {CardCode}, total {Total}", draft.CardCode, TotalPayment);
+    }
+
+    /// <summary>
+    /// Selects the restored customer once the customer list has it. The list loads in the
+    /// background, so this runs from the restore and again when the load finishes.
+    /// </summary>
+    private void ReselectDraftCustomer()
+    {
+        if (pendingDraftCardCode is null || allBusinessPartners.Count == 0)
+        {
+            return;
+        }
+
+        var bp = allBusinessPartners.FirstOrDefault(p =>
+            string.Equals(p.CardCode, pendingDraftCardCode, StringComparison.OrdinalIgnoreCase));
+        if (bp is not null)
+        {
+            SelectBusinessPartner(bp);
+        }
+
+        // Not found: the code stays typed in the box, which is how a customer outside the list is
+        // entered anyway.
+        pendingDraftCardCode = null;
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        pendingDraftCardCode = null;
+        ClearForm();
     }
 
     private async Task LoadPaymentSettings()
@@ -731,6 +895,7 @@ new()
         finally
         {
             isBpLoading = false;
+            ReselectDraftCustomer();
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -1063,6 +1228,49 @@ VoucherNum = creditVoucherNum
         if (bytes < 1024) return $"{bytes} B";
         if (bytes < 1024 * 1024) return $"{bytes / 1024.0:N1} KB";
         return $"{bytes / (1024.0 * 1024.0):N1} MB";
+    }
+
+    /// <summary>What Create Incoming Payment keeps of a half-entered payment. See FormDraft.</summary>
+    public sealed class PaymentDraft
+    {
+        public string? CardCode { get; set; }
+        public string? SearchTerm { get; set; }
+        public DateTime? DocDate { get; set; }
+        public string? Remarks { get; set; }
+        public string? PaymentMethod { get; set; }
+        public decimal CashSum { get; set; }
+        public string? CashAccount { get; set; }
+        public decimal TransferSum { get; set; }
+        public string? TransferReference { get; set; }
+        public DateTime? TransferDate { get; set; }
+        public string? TransferAccount { get; set; }
+        public decimal CheckSum { get; set; }
+        public int CheckNumber { get; set; }
+        public DateTime? CheckDueDate { get; set; }
+        public string? CheckBankCode { get; set; }
+        public string? CheckBranch { get; set; }
+        public string? CheckAccountNum { get; set; }
+        public decimal CreditSum { get; set; }
+        public string? CreditVoucherNum { get; set; }
+        public string? ClientRequestId { get; set; }
+        public List<Line>? Lines { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsEmpty =>
+            string.IsNullOrWhiteSpace(CardCode)
+            && string.IsNullOrWhiteSpace(SearchTerm)
+            && CashSum == 0 && TransferSum == 0 && CheckSum == 0 && CreditSum == 0
+            && (Lines is null || Lines.Count == 0)
+            && string.IsNullOrWhiteSpace(Remarks)
+            && string.IsNullOrWhiteSpace(TransferReference)
+            && CheckNumber == 0;
+
+        public sealed class Line
+        {
+            public int DocEntry { get; set; }
+            public decimal SumApplied { get; set; }
+            public string? InvoiceType { get; set; }
+        }
     }
 
     private class InvoiceLineModel

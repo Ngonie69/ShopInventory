@@ -1,5 +1,7 @@
+using Blazored.LocalStorage;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.PurchaseRequests.Commands.CreatePurchaseRequest;
 using ShopInventory.Web.Models;
@@ -14,6 +16,14 @@ public partial class CreatePurchaseRequest
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private NavigationManager NavigationManager { get; set; } = default!;
     [Inject] private ILogger<CreatePurchaseRequest> Logger { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+    [Inject] private ILocalStorageService LocalStorage { get; set; } = default!;
+
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the request. See FormDraft.
+    private const string DraftForm = "purchase-request";
+    private FormDraftStore<CreatePurchaseRequestRequest>? draftStore;
+    private string? draftNotice;
 
     private readonly Dictionary<string, string> validationErrors = new();
     private CreatePurchaseRequestRequest purchaseRequest = CreateDefaultRequest();
@@ -29,12 +39,75 @@ public partial class CreatePurchaseRequest
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && draftStore is not null)
+        {
+            await draftStore.SaveAsync(purchaseRequest, IsDraftEmpty(purchaseRequest));
+        }
+
         if (!firstRender || hasInitialized)
             return;
 
         hasInitialized = true;
         await LoadLookupsAsync();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var store = new FormDraftStore<CreatePurchaseRequestRequest>(LocalStorage, Logger, DraftForm, authState.User);
+        ApplyDraft(await store.RestoreAsync());
+        store.Accept(purchaseRequest);
+        draftStore = store;
+
         StateHasChanged();
+    }
+
+    // The form opens with one blank line, which is not something to bring back.
+    private static bool IsDraftEmpty(CreatePurchaseRequestRequest request)
+        => request.Lines.All(l => string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity == 0)
+            && string.IsNullOrWhiteSpace(request.Comments)
+            && request.Requester is null;
+
+    private void ApplyDraft(FormDraft.Restored<CreatePurchaseRequestRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        draft.Lines ??= new List<CreatePurchaseRequestLineRequest>();
+        if (draft.Lines.Count == 0)
+        {
+            draft.Lines.Add(new CreatePurchaseRequestLineRequest { RequiredDate = draft.RequriedDate });
+        }
+
+        purchaseRequest = draft;
+
+        var lineCount = purchaseRequest.Lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
+        draftNotice = FormDraft.RestoredNotice("purchase request", lineCount, restored.SavedAt);
+        Logger.LogInformation("Restored a purchase request draft with {LineCount} lines", lineCount);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        purchaseRequest = CreateDefaultRequest();
+        validationErrors.Clear();
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the request, so its draft goes too. The nav keeps it.
+        await ClearDraftAsync();
+        GoBack();
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
+        }
     }
 
     private static CreatePurchaseRequestRequest CreateDefaultRequest() => new()
@@ -196,6 +269,7 @@ public partial class CreatePurchaseRequest
             }
 
             successMessage = $"Purchase request #{createdRequest.DocNum} created successfully.";
+            await ClearDraftAsync();
 
             await AuditService.LogAsync(
                 AuditActions.CreatePurchaseRequest,
