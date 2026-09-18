@@ -742,6 +742,7 @@
         }
 
         var draft = restored.State;
+        var draftCardCode = draft.Invoice.CardCode;
         draft.Invoice.Lines ??= new List<CreateInvoiceLineRequest>();
         invoice = draft.Invoice;
         warehouseCode = draft.WarehouseCode ?? warehouseCode;
@@ -776,7 +777,7 @@
         }
 
         draftNotice = FormDraft.RestoredNotice("invoice", invoice.Lines.Count, restored.SavedAt);
-        Logger.LogInformation("Restored an invoice draft with {LineCount} lines for {CardCode}", invoice.Lines.Count, draft.Invoice.CardCode);
+        Logger.LogInformation("Restored an invoice draft with {LineCount} lines for {CardCode}", invoice.Lines.Count, draftCardCode);
     }
 
     private void DiscardRestoredDraft()

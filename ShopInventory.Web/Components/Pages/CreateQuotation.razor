@@ -572,6 +572,7 @@
         }
 
         var draft = restored.State;
+        var draftCardCode = draft.CardCode;
         draft.Lines ??= new List<CreateQuotationLineRequest>();
         newQuotation = draft;
         validUntilDate = draft.ValidUntil ?? validUntilDate;
@@ -603,7 +604,7 @@
         }
 
         draftNotice = FormDraft.RestoredNotice("quotation", newQuotation.Lines.Count, restored.SavedAt);
-        Logger.LogInformation("Restored a quotation draft with {LineCount} lines for {CardCode}", newQuotation.Lines.Count, draft.CardCode);
+        Logger.LogInformation("Restored a quotation draft with {LineCount} lines for {CardCode}", newQuotation.Lines.Count, draftCardCode);
     }
 
     private void DiscardRestoredDraft()

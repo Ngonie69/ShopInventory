@@ -582,6 +582,7 @@
         }
 
         var draft = restored.State;
+        var draftCardCode = draft.CardCode;
         draft.Lines ??= new List<CreateSalesOrderLineRequest>();
         draft.WarehouseCode ??= newOrder.WarehouseCode;
         newOrder = draft;
@@ -613,7 +614,7 @@
         }
 
         draftNotice = FormDraft.RestoredNotice("sales order", newOrder.Lines.Count, restored.SavedAt);
-        Logger.LogInformation("Restored a sales order draft with {LineCount} lines for {CardCode}", newOrder.Lines.Count, draft.CardCode);
+        Logger.LogInformation("Restored a sales order draft with {LineCount} lines for {CardCode}", newOrder.Lines.Count, draftCardCode);
     }
 
     private void DiscardRestoredDraft()

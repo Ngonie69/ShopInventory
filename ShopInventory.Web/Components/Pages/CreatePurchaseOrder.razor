@@ -573,6 +573,7 @@ new CreatePurchaseOrderLineRequest()
         }
 
         var draft = restored.State;
+        var draftCardCode = draft.CardCode;
         draft.Lines ??= new List<CreatePurchaseOrderLineRequest>();
         if (draft.Lines.Count == 0)
         {
@@ -600,7 +601,7 @@ new CreatePurchaseOrderLineRequest()
 
         var lineCount = purchaseOrder.Lines.Count(l => !string.IsNullOrWhiteSpace(l.ItemCode));
         draftNotice = FormDraft.RestoredNotice("purchase order", lineCount, restored.SavedAt);
-        Logger.LogInformation("Restored a purchase order draft with {LineCount} lines for {CardCode}", lineCount, draft.CardCode);
+        Logger.LogInformation("Restored a purchase order draft with {LineCount} lines for {CardCode}", lineCount, draftCardCode);
     }
 
     private void DiscardRestoredDraft()

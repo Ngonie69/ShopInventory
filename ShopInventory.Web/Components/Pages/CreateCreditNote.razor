@@ -523,6 +523,7 @@
         }
 
         var draft = restored.State;
+        var draftCardCode = draft.CardCode;
         draft.Lines ??= new List<CreateCreditNoteLineRequest>();
         newCreditNote = draft;
 
@@ -553,7 +554,7 @@
         }
 
         draftNotice = FormDraft.RestoredNotice("credit note", newCreditNote.Lines.Count, restored.SavedAt);
-        Logger.LogInformation("Restored a credit note draft with {LineCount} lines for {CardCode}", newCreditNote.Lines.Count, draft.CardCode);
+        Logger.LogInformation("Restored a credit note draft with {LineCount} lines for {CardCode}", newCreditNote.Lines.Count, draftCardCode);
     }
 
     private void DiscardRestoredDraft()
