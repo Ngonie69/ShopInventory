@@ -243,11 +243,6 @@
                             <div class="ops-sbd-fig-num">@Money(sales.AverageSale)</div>
                             <div class="ops-sbd-fig-sub">@sales.QuantitySold.ToString("#,##0.##") units · @Plural(sales.DistinctItems, "item")</div>
                         </div>
-                        <div class="ops-sbd-kpi">
-                            <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Change given</div>
-                            <div class="ops-sbd-fig-num">@Money(sales.ChangeGiven)</div>
-                            <div class="ops-sbd-fig-sub">from @Money(sales.AmountPaid) handed over</div>
-                        </div>
                     </div>
                 </section>
 
@@ -440,11 +435,6 @@
                                     <span class="ops-sbd-method-share">@Pct(row.ShareOfValuePercent)</span>
                                 </button>
                             }
-                        </div>
-
-                        <div class="ops-sbd-paid-foot">
-                            <span>Change given @Money(payments.ChangeGiven)</span>
-                            <span>from @Money(payments.AmountPaid) handed over</span>
                         </div>
                     </section>
 

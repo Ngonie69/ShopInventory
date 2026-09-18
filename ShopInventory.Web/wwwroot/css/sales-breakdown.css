@@ -718,17 +718,6 @@
     color: var(--ops-fam-warn);
 }
 
-.ops-sbd .ops-sbd-paid-foot {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--ops-s4);
-    flex-wrap: wrap;
-    padding-top: var(--ops-s1);
-    font-size: 12px;
-    color: var(--ops-mute-2);
-    font-variant-numeric: tabular-nums;
-}
-
 /* ── Tables ────────────────────────────────────────────────────────────── */
 /* Inside a card the card is the gutter, so the first and last cells lose the
    page-edge padding operations.css gives a table sitting on the ground. */
