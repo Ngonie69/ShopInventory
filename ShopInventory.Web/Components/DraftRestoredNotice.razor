@@ -1,18 +1,19 @@
 @* Tells the operator a create form put back entries it had lost with the circuit, and offers to
-   throw them away. The markup is the sales-forms alert (wwwroot/css/sales-forms.css), which every
-   create form's sheet can show. See FormDraft. *@
+   throw them away. The markup is the form family's own alert, named by Prefix: sfm for the sales
+   forms, pfm for purchasing, tfm for transfers. Each family scopes its palette to its root class,
+   so the notice has to use the classes of the page it sits in. See FormDraft. *@
 
 @if (!string.IsNullOrEmpty(Message))
 {
-    <div class="sfm-alert is-ok" role="status">
+    <div class="@(Prefix)-alert is-ok" role="status">
         <i class="ph-fill ph-clock-counter-clockwise"></i>
-        <div class="sfm-alert-bd">
+        <div class="@(Prefix)-alert-bd">
             @Message
-            <button type="button" class="sfm-btn sfm-gap-sm" @onclick="OnDiscard" disabled="@Disabled">
+            <button type="button" class="@(Prefix)-btn draft-discard" @onclick="OnDiscard" disabled="@Disabled">
                 <i class="ph ph-trash"></i>Discard and start again
             </button>
         </div>
-        <button type="button" class="sfm-alert-x" @onclick="OnDismiss" aria-label="Dismiss">
+        <button type="button" class="@(Prefix)-alert-x" @onclick="OnDismiss" aria-label="Dismiss">
             <i class="ph ph-x"></i>
         </button>
     </div>
@@ -26,4 +27,7 @@
     [Parameter] public EventCallback OnDismiss { get; set; }
 
     [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>The form family's class prefix: "sfm", "pfm" or "tfm".</summary>
+    [Parameter] public string Prefix { get; set; } = "sfm";
 }

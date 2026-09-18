@@ -1,0 +1,6 @@
+/* The families' spacing helpers differ (pfm has none), so the gap between the sentence and the
+   button is the component's own. */
+.draft-discard {
+    margin-left: 10px;
+    vertical-align: middle;
+}

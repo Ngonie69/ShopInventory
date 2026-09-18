@@ -14,6 +14,8 @@
 @inject ILogger<CreateQuotation> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILocalStorageService LocalStorage
 @rendermode InteractiveServer
 
 <PageTitle>Create Quotation - Shop Inventory</PageTitle>
@@ -67,6 +69,9 @@
                 </div>
             </div>
         </div>
+
+        <DraftRestoredNotice Message="@draftNotice" Disabled="@isCreating"
+                             OnDiscard="DiscardRestoredDraft" OnDismiss="() => draftNotice = null" />
 
         @if (isLoadingMasterData)
         {
@@ -411,7 +416,8 @@
                                 <span>Create quotation</span>
                             }
                         </button>
-                        <a href="/quotations" class="sfm-btn sfm-btn-wide sfm-gap-sm">Cancel</a>
+                        <button type="button" class="sfm-btn sfm-btn-wide sfm-gap-sm" @onclick="CancelAsync"
+                                disabled="@isCreating">Cancel</button>
                     </div>
 
                     <div class="sfm-card sfm-panel">
@@ -473,6 +479,13 @@
     private bool showBPDropdown = false;
 
     private Dictionary<int, LineState> lineStates = new();
+
+    // Draft persistence: the form is written to the browser after each change, so a reload after
+    // the circuit is lost does not lose the quotation. See FormDraft. The valid-until date rides on
+    // the request's own ValidUntil.
+    private const string DraftForm = "quotation";
+    private FormDraftStore<CreateQuotationRequest>? draftStore;
+    private string? draftNotice;
     private Dictionary<string, string> createValidationErrors = new();
     private Dictionary<int, Dictionary<string, string>> lineValidationErrors = new();
 
@@ -525,6 +538,103 @@
     {
         validUntilDate = DateTime.UtcNow.AddDays(30);
         await LoadMasterData();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var store = new FormDraftStore<CreateQuotationRequest>(LocalStorage, Logger, DraftForm, authState.User);
+        ApplyDraft(await store.RestoreAsync());
+        newQuotation.ValidUntil = validUntilDate;
+        store.Accept(newQuotation);
+        draftStore = store;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (draftStore is not null)
+        {
+            newQuotation.ValidUntil = validUntilDate;
+            await draftStore.SaveAsync(newQuotation, IsDraftEmpty(newQuotation));
+        }
+    }
+
+    private static bool IsDraftEmpty(CreateQuotationRequest quotation)
+        => string.IsNullOrWhiteSpace(quotation.CardCode)
+            && quotation.Lines.Count == 0
+            && string.IsNullOrWhiteSpace(quotation.CustomerRefNo)
+            && string.IsNullOrWhiteSpace(quotation.ContactPerson)
+            && string.IsNullOrWhiteSpace(quotation.Comments)
+            && string.IsNullOrWhiteSpace(quotation.TermsAndConditions);
+
+    private void ApplyDraft(FormDraft.Restored<CreateQuotationRequest>? restored)
+    {
+        if (restored is null || IsDraftEmpty(restored.State))
+        {
+            return;
+        }
+
+        var draft = restored.State;
+        draft.Lines ??= new List<CreateQuotationLineRequest>();
+        newQuotation = draft;
+        validUntilDate = draft.ValidUntil ?? validUntilDate;
+
+        lineStates.Clear();
+        for (var i = 0; i < newQuotation.Lines.Count; i++)
+        {
+            GetLineState(i).SearchTerm = newQuotation.Lines[i].ItemCode ?? string.Empty;
+        }
+
+        // Lines keep the prices they were entered at; the customer's price list still loads for
+        // lines added next.
+        var bp = string.IsNullOrWhiteSpace(newQuotation.CardCode)
+            ? null
+            : allBusinessPartners.FirstOrDefault(p => string.Equals(p.CardCode, newQuotation.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (bp is not null)
+        {
+            selectedBusinessPartner = bp;
+            bpSearchTerm = $"{bp.CardCode} - {bp.CardName}";
+            _ = LoadBusinessPartnerPricesAsync(bp);
+        }
+        else if (!string.IsNullOrWhiteSpace(newQuotation.CardCode))
+        {
+            // The customer is not in the list: put the code back in the search box to be picked
+            // again, rather than submit to a customer nobody can see.
+            bpSearchTerm = newQuotation.CardCode;
+            newQuotation.CardCode = string.Empty;
+            newQuotation.CardName = null;
+        }
+
+        draftNotice = FormDraft.RestoredNotice("quotation", newQuotation.Lines.Count, restored.SavedAt);
+        Logger.LogInformation("Restored a quotation draft with {LineCount} lines for {CardCode}", newQuotation.Lines.Count, draft.CardCode);
+    }
+
+    private void DiscardRestoredDraft()
+    {
+        draftNotice = null;
+        selectedBusinessPartner = null;
+        bpSearchTerm = null;
+        customerPricing.Clear();
+        customerPriceListNum = null;
+        newQuotation = new CreateQuotationRequest { Currency = string.Empty };
+        validUntilDate = DateTime.UtcNow.AddDays(30);
+        lineStates.Clear();
+        lineValidationErrors.Clear();
+        createValidationErrors.Clear();
+    }
+
+    private async Task CancelAsync()
+    {
+        // Cancel abandons the quotation, so its draft goes too. Back and the nav keep it.
+        await ClearDraftAsync();
+        NavigationManager.NavigateTo("/quotations");
+    }
+
+    private async Task ClearDraftAsync()
+    {
+        if (draftStore is not null)
+        {
+            var store = draftStore;
+            draftStore = null;
+            await store.ClearAsync();
+        }
     }
 
     private async Task LoadMasterData()
@@ -1013,11 +1123,16 @@
         try
         {
             newQuotation.ValidUntil = validUntilDate;
+
+            // Minted before the post so the draft saved on the render during it carries the key:
+            // a reload mid-submit then resubmits under the same key and the API replays it.
+            newQuotation.ClientRequestId ??= Guid.NewGuid().ToString("N");
             var created = await QuotationService.CreateQuotationAsync(newQuotation);
 
             if (created != null)
             {
                 Snackbar.Add($"Quotation {created.QuotationNumber} created successfully!", Severity.Success);
+                await ClearDraftAsync();
                 await AuditService.LogAsync(AuditActions.CreateQuotation, "Quotation", created.QuotationNumber);
                 NavigationManager.NavigateTo("/quotations");
             }
