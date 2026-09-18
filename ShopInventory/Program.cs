@@ -723,7 +723,8 @@ try
 
     // DelegatingHandler that limits concurrent requests to SAP Service Layer.
     // Prevents Task.WhenAll in validation/reports from flooding SAP with 10+ simultaneous requests.
-    builder.Services.AddTransient<SAPCircuitBreakerHandler>();
+    // SAPCircuitBreakerHandler is built per client below rather than registered: each one is told its
+    // client's timeout, which is how it tells a timeout from a caller that stopped waiting.
     builder.Services.AddTransient<SAPConcurrencyHandler>();
     builder.Services.AddTransient<SAPRequestLoggingHandler>();
     // The sync-history rows are written off the SAP request path: the handler only enqueues, and
@@ -744,7 +745,9 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromMinutes(sapSettings.LongRunningRequestTimeoutMinutes);
     })
-    .AddHttpMessageHandler<SAPCircuitBreakerHandler>()
+    .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
+        serviceProvider,
+        TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.LongRunningRequestTimeoutMinutes)))
     .AddHttpMessageHandler<SAPConcurrencyHandler>()
     .AddHttpMessageHandler<SAPRequestLoggingHandler>()
     .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
@@ -798,7 +801,9 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromMinutes(sapSettings.RequestTimeoutMinutes);
     })
-    .AddHttpMessageHandler<SAPCircuitBreakerHandler>()
+    .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
+        serviceProvider,
+        TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.RequestTimeoutMinutes)))
     .AddHttpMessageHandler<SAPConcurrencyHandler>()
     .AddHttpMessageHandler<SAPRequestLoggingHandler>()
     .ConfigurePrimaryHttpMessageHandler(serviceProvider =>

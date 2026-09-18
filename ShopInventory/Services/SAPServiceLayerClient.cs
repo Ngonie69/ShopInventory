@@ -33,6 +33,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     /// <summary>Which UDFs carry the mobile invoice number and the sale's own reference.</summary>
     private readonly Configuration.FiscalisationUdfSettings _fiscalisationUdf;
+    private readonly TimeProvider _timeProvider;
 
     // Session state is static so all transient instances share a single SAP session
     // instead of each injected instance creating its own login.
@@ -172,7 +173,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         ISapItemUomMappingStore itemUomMappingStore,
         // Optional so the many tests that build this client directly are unaffected, and because the
         // default is dormant: with no UDF named, nothing is written and behaviour is exactly as before.
-        IOptions<FiscalisationSettings>? fiscalisationSettings = null)
+        IOptions<FiscalisationSettings>? fiscalisationSettings = null,
+        // Runs the per-call SAP budgets, so a test can expire one without waiting it out.
+        TimeProvider? timeProvider = null)
     {
         _httpClient = httpClient;
         _httpClientFactory = httpClientFactory;
@@ -186,6 +189,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             InvoiceNumberField = string.Empty
         };
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -556,9 +560,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         var timeoutSeconds = Math.Clamp(_settings.PriceListSqlRequestTimeoutSeconds, 10, 300);
         var maxAttempts = Math.Clamp(_settings.PriceListSqlMaxAttempts, 1, 3);
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds), _timeProvider);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
 
+        // Unlike the stock budget, this one is deliberately not handed to the circuit breaker
+        // (no SapRequestMarks.SetBreakerDeadline). It is tight on purpose and has its own way out —
+        // PriceListSqlFailuresBeforeFallback moves the sync to the Items API — so its expiring means
+        // "the SQL path is slow today", not "SAP is down". Counting it would let one slow catalogue
+        // sync open the breaker and refuse every posting for the break duration.
         try
         {
             return await SendSapRequestWithTransientRetryAsync(
@@ -570,7 +579,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 maxAttempts);
         }
         catch (OperationCanceledException ex) when (
-            !cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
+            !cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {
             throw new TimeoutException(
                 $"SAP price-list request exceeded its {timeoutSeconds}-second performance budget.",
@@ -589,6 +598,15 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// interactive pool with them. The failure is raised as a <see cref="TimeoutException"/>, which
     /// <c>SapFailureClassifier</c> already reads as transient, so callers fall back rather than
     /// reporting a shortage.
+    ///
+    /// <para>
+    /// The budget running out also counts as a circuit-breaker failure: a stock read that SAP took
+    /// and did not answer is the outage the breaker exists for. The deadline rides on each request
+    /// and the breaker handler counts it, because only the handler knows whether the attempt it cut
+    /// short had reached SAP, and only it has already counted the attempt if it failed some other
+    /// way. The retries share this one budget, and it can only cut short the attempt in flight, so
+    /// one expiry is one failure.
+    /// </para>
     /// </remarks>
     private async Task<HttpResponseMessage> SendStockRequestWithBudgetAsync(
         Func<HttpRequestMessage> requestFactory,
@@ -596,20 +614,30 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken)
     {
         var timeoutSeconds = Math.Clamp(_settings.StockSqlRequestTimeoutSeconds, 5, 300);
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+        // Kept apart from the caller's token so the breaker can read it as the budget alone: a
+        // caller that gives up must not look like SAP failing to answer.
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds), _timeProvider);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
+
+        HttpRequestMessage CreateRequest()
+        {
+            var request = requestFactory();
+            SapRequestMarks.SetBreakerDeadline(request, budget.Token);
+            return request;
+        }
 
         try
         {
             return await SendSapRequestWithTransientRetryAsync(
                 _httpClient,
-                requestFactory,
+                CreateRequest,
                 HttpCompletionOption.ResponseContentRead,
                 operation,
                 timeoutSource.Token);
         }
         catch (OperationCanceledException ex) when (
-            !cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
+            !cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {
             throw new TimeoutException(
                 $"SAP stock read exceeded its {timeoutSeconds}-second budget ({operation}).",
