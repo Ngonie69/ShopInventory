@@ -18,6 +18,9 @@
 @inject IMobileVersionPolicySettingsService MobileVersionPolicySettingsService
 @inject IPodReportEmailService PodEmailService
 @inject IPodReportEmailScheduleService PodReportEmailScheduleService
+@inject MediatR.IMediator Mediator
+@using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesReview
+@using ShopInventory.Web.Features.Reports.Commands.DesktopSalesReviewEmail
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
@@ -1326,6 +1329,110 @@
                             </div>
                         }
                     </section>
+
+                    @* The desktop sales business review: the same review /reports/desktop-sales/review shows,
+                       mailed with its PDF. The schedule lives in the API (SystemConfigs), so it is read and
+                       saved through it, and the admin who saves it is the account the review is read as. *@
+                    <section class="stg-card">
+                        <div class="stg-section-head">
+                            <span class="stg-section-icon"><i class="ph ph-lightbulb"></i></span>
+                            <div class="stg-section-text">
+                                <h2>Desktop Sales Review</h2>
+                                <p>The business review of till and vending takings — findings in the email, the full review attached as a PDF.</p>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(reviewMessage))
+                        {
+                            <div class="stg-alert @(reviewMessageSuccess ? "stg-alert-success" : "stg-alert-error")">
+                                <i class="ph @(reviewMessageSuccess ? "ph-check-circle" : "ph-warning-circle")"></i>
+                                <span>@reviewMessage</span>
+                                <button type="button" class="stg-alert-close" @onclick="() => reviewMessage = null"><i class="ph ph-x"></i></button>
+                            </div>
+                        }
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Weekly Review</span></div>
+                                <span class="stg-row-desc">Every <strong>Monday at 07:00</strong>, for the Monday-to-Sunday week just ended.</span>
+                                @if (reviewSchedule?.LastWeeklyPeriodEnd is DateTime lastWeek)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last sent for the week ending @lastWeek.ToString("dd MMM yyyy")</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                <label class="stg-switch">
+                                    <input type="checkbox" checked="@reviewWeekly" disabled="@(reviewSchedule is null)"
+                                           @onchange="e => reviewWeekly = e.Value is true" />
+                                    <span class="stg-switch-track"></span>
+                                    <span class="stg-switch-text">@(reviewWeekly ? "On" : "Off")</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Monthly Review</span></div>
+                                <span class="stg-row-desc">On the <strong>1st at 07:00</strong>, for the calendar month just ended.</span>
+                                @if (reviewSchedule?.LastMonthlyPeriodEnd is DateTime lastMonth)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last sent for @lastMonth.ToString("MMMM yyyy")</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                <label class="stg-switch">
+                                    <input type="checkbox" checked="@reviewMonthly" disabled="@(reviewSchedule is null)"
+                                           @onchange="e => reviewMonthly = e.Value is true" />
+                                    <span class="stg-switch-track"></span>
+                                    <span class="stg-switch-text">@(reviewMonthly ? "On" : "Off")</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><label for="stg-review-recipients">Recipients</label></div>
+                                <span class="stg-row-desc">Email addresses, separated by commas. Each gets their own copy.</span>
+                                @if (reviewSchedule is null)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-warning"></i>Couldn't read the schedule from the API</span>
+                                }
+                                else if (reviewSchedule.SendAsUserName is string owner)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-user"></i>Read as @owner, who saved it last. Saving makes it you.</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                <input id="stg-review-recipients" class="stg-input" placeholder="owner@company.co.zw, accounts@company.co.zw"
+                                       @bind="reviewRecipients" disabled="@(reviewSchedule is null)" />
+                            </div>
+                        </div>
+
+                        <div class="stg-sched-actions">
+                            <button type="button" class="stg-btn stg-btn-primary stg-btn-sm" @onclick="SaveSalesReviewScheduleAsync"
+                                    disabled="@(reviewSchedule is null || savingReview)">
+                                <i class="ph ph-floppy-disk"></i><span>Save schedule</span>
+                            </button>
+                            <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="() => SendSalesReviewNowAsync(ReviewCadenceWeekly)"
+                                    disabled="@(sendingReview || string.IsNullOrWhiteSpace(reviewRecipients))">
+                                @if (sendingReview)
+                                {
+                                    <span class="stg-spin"></span><span>Sending…</span>
+                                }
+                                else
+                                {
+                                    <i class="ph ph-paper-plane-tilt"></i><span>Send last week now</span>
+                                }
+                            </button>
+                            <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="() => SendSalesReviewNowAsync(ReviewCadenceMonthly)"
+                                    disabled="@(sendingReview || string.IsNullOrWhiteSpace(reviewRecipients))">
+                                <i class="ph ph-paper-plane-tilt"></i><span>Send last month now</span>
+                            </button>
+                            <a class="stg-btn stg-btn-secondary stg-btn-sm" href="/reports/desktop-sales/review" style="margin-left:auto">
+                                <i class="ph ph-arrow-square-out"></i><span>Open the review</span>
+                            </a>
+                        </div>
+                    </section>
                 }
 
                 @* ── Data Sync ───────────────────────────────────────── *@
@@ -1950,8 +2057,106 @@
         await LoadSAPSettings();
         await LoadFiscalisationSettings();
         await LoadMobileVersionPolicySettings();
+        await LoadSalesReviewScheduleAsync();
         await LogAudit(AuditActions.ViewSettings);
     }
+
+    // ── Desktop sales review email ───────────────────────────────────────
+
+    private const string ReviewCadenceWeekly = "weekly";
+    private const string ReviewCadenceMonthly = "monthly";
+
+    private DesktopSalesReviewSchedule? reviewSchedule;
+    private bool reviewWeekly;
+    private bool reviewMonthly;
+    private string reviewRecipients = "";
+    private bool savingReview;
+    private bool sendingReview;
+    private string? reviewMessage;
+    private bool reviewMessageSuccess;
+
+    private List<string> ReviewRecipientList =>
+        reviewRecipients.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private async Task LoadSalesReviewScheduleAsync()
+    {
+        var result = await Mediator.Send(new GetDesktopSalesReviewScheduleQuery());
+        if (result.IsError)
+        {
+            reviewSchedule = null;
+            return;
+        }
+
+        ApplyReviewSchedule(result.Value);
+    }
+
+    private void ApplyReviewSchedule(DesktopSalesReviewSchedule schedule)
+    {
+        reviewSchedule = schedule;
+        reviewWeekly = schedule.WeeklyEnabled;
+        reviewMonthly = schedule.MonthlyEnabled;
+        reviewRecipients = string.Join(", ", schedule.Recipients);
+    }
+
+    private async Task SaveSalesReviewScheduleAsync()
+    {
+        savingReview = true;
+        reviewMessage = null;
+        try
+        {
+            var result = await Mediator.Send(new UpdateDesktopSalesReviewScheduleCommand(reviewWeekly, reviewMonthly, ReviewRecipientList));
+            if (result.IsError)
+            {
+                ShowReviewMessage(result.FirstError.Description, false);
+                return;
+            }
+
+            ApplyReviewSchedule(result.Value);
+            ShowReviewMessage(
+                reviewWeekly || reviewMonthly
+                    ? $"Saved. The review goes to {Plural(result.Value.Recipients.Count, "recipient")}"
+                        + $"{(reviewWeekly ? " every Monday" : "")}{(reviewWeekly && reviewMonthly ? " and" : "")}{(reviewMonthly ? " on the 1st" : "")} at 07:00."
+                    : "Saved. The review email is off; it can still be sent from here.",
+                true);
+        }
+        finally
+        {
+            savingReview = false;
+        }
+    }
+
+    private async Task SendSalesReviewNowAsync(string cadence)
+    {
+        sendingReview = true;
+        reviewMessage = null;
+        try
+        {
+            var result = await Mediator.Send(new SendDesktopSalesReviewEmailCommand(cadence, null, null, ReviewRecipientList));
+            if (result.IsError)
+            {
+                ShowReviewMessage(result.FirstError.Description, false);
+                return;
+            }
+
+            var sent = result.Value;
+            ShowReviewMessage(
+                $"Sent the review for {sent.FromDate:dd MMM} – {sent.ToDate:dd MMM yyyy} to {string.Join(", ", sent.SentTo)}"
+                    + (sent.Failed.Count == 0 ? "." : $". Not delivered to {string.Join(", ", sent.Failed)}."),
+                sent.Failed.Count == 0);
+        }
+        finally
+        {
+            sendingReview = false;
+        }
+    }
+
+    private void ShowReviewMessage(string message, bool success)
+    {
+        reviewMessage = message;
+        reviewMessageSuccess = success;
+    }
+
+    private static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 
     private async Task LoadCurrentUser()
     {

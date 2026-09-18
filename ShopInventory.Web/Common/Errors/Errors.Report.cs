@@ -20,5 +20,8 @@ public static partial class Errors
 
         public static Error LoadManagementSalesReportFailed(string message) =>
             Error.Failure("Report.LoadManagementSalesReportFailed", message);
+
+        public static Error DesktopSalesReviewFailed(string message) =>
+            Error.Failure("Report.DesktopSalesReviewFailed", message);
     }
 }

@@ -1,0 +1,280 @@
+/* ==========================================================================
+   Sales review — Nocturne
+
+   /reports/desktop-sales/review. The page wears `ops ops-ds ops-dsa ops-sbd`
+   from operations.css and sales-breakdown.css for its head, cards, tables,
+   swatches and split bars, and this sheet adds only `ops-dsr`: the findings
+   list, the hour columns that stack vending settlements on counter sales, the
+   shop-by-hour grid, the Pareto class chips and the posting health strip.
+
+   Colours are tokens only, so there is no dark-theme block: every value
+   resolves against whichever scheme nocturne-tokens.css has in force.
+   Severity uses the status families (bad, warn, info) and always sits beside
+   its word — Act, Check, Note — never colour alone. Every rule is two classes
+   deep (`.ops-dsr .ops-dsr-x`), and the sheet loads after sales-breakdown.css.
+   ========================================================================== */
+
+/* ── Headline ──────────────────────────────────────────────────────────── */
+/* Four figures beside the takings rather than the breakdown's three, so they
+   sit two by two instead of wrapping one onto a row of its own. */
+
+.ops-dsr .ops-sbd-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ops-dsr .ops-dsr-nowrap {
+    white-space: nowrap;
+}
+
+/* ── Findings ──────────────────────────────────────────────────────────── */
+
+.ops-dsr .ops-dsr-findings {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--ops-s2);
+}
+
+.ops-dsr .ops-dsr-finding {
+    --dsr-sev: var(--ops-fam-info);
+    --dsr-sev-rgb: var(--ops-fam-info-rgb);
+    display: grid;
+    grid-template-columns: 5.5rem 1fr;
+    gap: var(--ops-s3);
+    padding: var(--ops-s3) var(--ops-s4);
+    border: 1px solid var(--ops-divider);
+    border-left: 3px solid var(--dsr-sev);
+    border-radius: var(--ops-r-md);
+    background: var(--ops-surface);
+}
+
+.ops-dsr .ops-dsr-finding.is-action {
+    --dsr-sev: var(--ops-fam-bad);
+    --dsr-sev-rgb: var(--ops-fam-bad-rgb);
+    background: rgba(var(--dsr-sev-rgb), .06);
+}
+
+.ops-dsr .ops-dsr-finding.is-review {
+    --dsr-sev: var(--ops-fam-warn);
+    --dsr-sev-rgb: var(--ops-fam-warn-rgb);
+}
+
+.ops-dsr .ops-dsr-sev {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    align-self: start;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--dsr-sev);
+}
+
+.ops-dsr .ops-dsr-sev i {
+    font-size: 15px;
+}
+
+.ops-dsr .ops-dsr-finding-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ops-ink);
+    text-wrap: balance;
+}
+
+.ops-dsr .ops-dsr-finding-body p {
+    margin: 3px 0 0;
+    max-width: 92ch;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ops-ink-2);
+}
+
+@media (max-width: 640px) {
+    .ops-dsr .ops-dsr-finding {
+        grid-template-columns: 1fr;
+        gap: var(--ops-s1);
+    }
+}
+
+/* ── Hours ─────────────────────────────────────────────────────────────── */
+/* One column per hour; counter sales in the accent, vending settlements
+   stacked on top in the series pink the legend names. */
+
+.ops-dsr .ops-dsr-hours {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    height: 180px;
+    padding-top: var(--ops-s3);
+}
+
+.ops-dsr .ops-dsr-hour {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 4px;
+}
+
+.ops-dsr .ops-dsr-hour-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+}
+
+.ops-dsr .ops-dsr-hour-counter,
+.ops-dsr .ops-dsr-hour-settle,
+.ops-dsr .ops-dsr-key {
+    display: block;
+    min-height: 2px;
+    border-radius: 3px 3px 0 0;
+}
+
+.ops-dsr .ops-dsr-hour-counter,
+.ops-dsr .ops-dsr-key.is-counter {
+    background: var(--ops-accent);
+}
+
+.ops-dsr .ops-dsr-hour-settle,
+.ops-dsr .ops-dsr-key.is-settle {
+    background: var(--dsa-t5, var(--ops-fam-warn));
+}
+
+.ops-dsr .ops-dsr-hour-stack > span + span {
+    border-radius: 0;
+}
+
+.ops-dsr .ops-dsr-key {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 6px;
+    display: inline-block;
+    vertical-align: -1px;
+}
+
+.ops-dsr .ops-dsr-hour-label {
+    font-size: 10.5px;
+    text-align: center;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Shop by hour ──────────────────────────────────────────────────────── */
+/* Each cell's weight is its share of that shop's own busiest hour, so a
+   small shop's rush shows as clearly as the factory's. */
+
+.ops-dsr .ops-dsr-grid-wrap {
+    margin-top: var(--ops-s4);
+    padding-top: var(--ops-s4);
+    border-top: 1px solid var(--ops-divider);
+}
+
+.ops-dsr .ops-dsr-grid {
+    display: grid;
+    gap: 3px;
+    min-width: 36rem;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-dsr .ops-dsr-grid-corner,
+.ops-dsr .ops-dsr-grid-hour {
+    color: var(--ops-mute-3);
+    font-size: 10.5px;
+    padding-bottom: 2px;
+}
+
+.ops-dsr .ops-dsr-grid-hour {
+    text-align: center;
+}
+
+.ops-dsr .ops-dsr-grid-shop {
+    align-self: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ops-ink-2);
+}
+
+.ops-dsr .ops-dsr-grid-cell {
+    display: grid;
+    place-items: center;
+    height: 26px;
+    border-radius: var(--ops-r-sm);
+    color: var(--ops-ink);
+    background: rgba(var(--ops-accent-rgb), calc(var(--dsr-heat, 0) * .85));
+}
+
+.ops-dsr .ops-dsr-grid-cell.is-empty {
+    background: var(--ops-wash);
+}
+
+/* ── Chips and health ──────────────────────────────────────────────────── */
+
+.ops-dsr .ops-dsr-tag {
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .12);
+}
+
+.ops-dsr .ops-dsr-class {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--ops-divider);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--ops-ink-2);
+}
+
+.ops-dsr .ops-dsr-class.is-a {
+    color: var(--ops-accent-text);
+    border-color: rgba(var(--ops-accent-rgb), .45);
+}
+
+.ops-dsr .ops-dsr-health {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--ops-s2);
+    margin: 0;
+}
+
+.ops-dsr .ops-dsr-health-item {
+    padding: var(--ops-s2) var(--ops-s3);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+}
+
+.ops-dsr .ops-dsr-health-item dt {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ops-mute-3);
+}
+
+.ops-dsr .ops-dsr-health-item dd {
+    margin: 2px 0 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ops-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-dsr .ops-dsr-health-item.is-bad {
+    border-color: rgba(var(--ops-fam-bad-rgb), .5);
+    background: rgba(var(--ops-fam-bad-rgb), .06);
+}
+
+.ops-dsr .ops-dsr-health-item.is-bad dd {
+    color: var(--ops-fam-bad);
+}
