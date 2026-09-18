@@ -14,6 +14,7 @@
 @inject IJSRuntime JS
 @inject ISAPSettingsService SAPSettingsService
 @inject IFiscalisationSettingsService FiscalisationSettingsService
+@inject IDailyIncomingPaymentSettingsService DailyIncomingPaymentSettingsService
 @inject IMobileVersionPolicySettingsService MobileVersionPolicySettingsService
 @inject IPodReportEmailService PodEmailService
 @inject IPodReportEmailScheduleService PodReportEmailScheduleService
@@ -602,6 +603,50 @@
                             <div class="stg-section-text">
                                 <h2>Payments</h2>
                                 <p>Posting account, method and the customers cashiers may take payment from.</p>
+                            </div>
+                        </div>
+
+                        <!-- Daily incoming payment for desktop sales -->
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Daily Incoming Payment for Desktop Sales</span></div>
+                                <span class="stg-row-desc">
+                                    On: at 17:00 each customer gets <strong>one incoming payment</strong> settling that day's till,
+                                    vending and consolidated invoices. Off: desktop sales post <strong>invoices only</strong> and
+                                    they stay open in SAP. Takes effect on the next run, no restart needed. Van sales are never paid here.
+                                </span>
+                                @if (dailyPaymentSettings is null)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-warning"></i>Couldn't read the current setting from the API</span>
+                                }
+                                else if (dailyPaymentSettings.UpdatedAtUtc is DateTime changedAt)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last changed @changedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                                }
+                                else
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-gear"></i>Using the server default</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                @if (confirmingDailyPaymentOn)
+                                {
+                                    <span class="stg-sched-confirm">Pay invoices from the last 7 days?</span>
+                                    <button type="button" class="stg-btn stg-btn-primary stg-btn-sm" disabled="@savingDailyPayment"
+                                            @onclick="() => SetDailyPaymentAsync(true)">Turn on</button>
+                                    <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" disabled="@savingDailyPayment"
+                                            @onclick="() => confirmingDailyPaymentOn = false">Cancel</button>
+                                }
+                                else
+                                {
+                                    <label class="stg-switch" @key="dailyPaymentToggleKey">
+                                        <input type="checkbox" checked="@(dailyPaymentSettings?.Enabled == true)"
+                                               disabled="@(dailyPaymentSettings is null || savingDailyPayment)"
+                                               @onchange="OnDailyPaymentToggled" />
+                                        <span class="stg-switch-track"></span>
+                                        <span class="stg-switch-text">@(dailyPaymentSettings?.Enabled == true ? "On" : "Off")</span>
+                                    </label>
+                                }
                             </div>
                         </div>
 
@@ -1675,6 +1720,13 @@
 
     // Payment settings fields
     private string paymentGLAccount = "";
+    private DailyIncomingPaymentSettings? dailyPaymentSettings;
+    private bool confirmingDailyPaymentOn;
+    private bool savingDailyPayment;
+
+    // Blazor leaves a clicked checkbox as the user left it when the bound value did not change, so a
+    // refused save would show Off while the setting is still On. A new key rebuilds it from the setting.
+    private int dailyPaymentToggleKey;
     private string defaultPaymentMethod = "cash";
     private List<CachedGLAccount> cachedGLAccounts = new();
     private bool glOpen;
@@ -3024,10 +3076,54 @@
 
             var methodSetting = await SettingsService.GetValueAsync(SettingKeys.DefaultPaymentMethod);
             defaultPaymentMethod = methodSetting ?? "cash";
+
+            dailyPaymentSettings = await DailyIncomingPaymentSettingsService.GetAsync();
         }
         catch (Exception ex)
         {
             errorMessage = $"Failed to load payment settings data: {ex.Message}";
+        }
+    }
+
+    private async Task OnDailyPaymentToggled(ChangeEventArgs e)
+    {
+        if (e.Value is true)
+        {
+            // Turning on settles a backlog in SAP, so it takes a second click. The checkbox is
+            // re-rendered from dailyPaymentSettings, which has not changed, so it springs back to off.
+            confirmingDailyPaymentOn = true;
+            return;
+        }
+
+        await SetDailyPaymentAsync(false);
+    }
+
+    private async Task SetDailyPaymentAsync(bool enabled)
+    {
+        savingDailyPayment = true;
+        successMessage = null;
+        errorMessage = null;
+
+        try
+        {
+            var result = await DailyIncomingPaymentSettingsService.SetEnabledAsync(enabled);
+            if (result.Success && result.Settings is not null)
+            {
+                dailyPaymentSettings = result.Settings;
+                successMessage = enabled
+                    ? "Daily incoming payments are on. The next run at or after 17:00 pays each customer's open desktop invoices."
+                    : "Daily incoming payments are off. Desktop sales now post invoices only.";
+            }
+            else
+            {
+                errorMessage = result.Error ?? "We couldn't change the daily incoming payment setting.";
+            }
+        }
+        finally
+        {
+            confirmingDailyPaymentOn = false;
+            savingDailyPayment = false;
+            dailyPaymentToggleKey++;
         }
     }
 

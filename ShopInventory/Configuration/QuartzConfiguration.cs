@@ -246,9 +246,10 @@ public static class QuartzConfiguration
                 }
 
                 // One incoming payment per business partner per day, settling every till, vending and
-                // consolidated invoice posted before the cut-off. Registered with SAP and no flag of its
-                // own, for the reason given above: nothing else settles these invoices any more, so an
-                // off switch would leave every one of them open.
+                // consolidated invoice posted before the cut-off. Nothing else settles these invoices.
+                // Registered whether or not payments are on: the on/off switch is a SystemConfigs row an
+                // admin flips from Web -> Settings, and the job reads it at the start of every run, so a
+                // change takes effect without a restart. Off, it posts nothing and invoices stay open.
                 AddCronJob<DailyIncomingPaymentJob>(
                     q, "daily-incoming-payment", BuildDailyCron(desktopSalePosting.DailyPaymentTimeCAT, "17:00"));
 

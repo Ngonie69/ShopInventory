@@ -19,10 +19,19 @@ public sealed class DailyIncomingPaymentJob(
     public async Task Execute(IJobExecutionContext context)
     {
         using var scope = serviceProvider.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<DailyIncomingPaymentService>();
 
         try
         {
+            // Read every run, not at startup: an admin switches this from Web -> Settings and expects
+            // the next run to honour it.
+            var paymentSwitch = scope.ServiceProvider.GetRequiredService<DailyIncomingPaymentSwitch>();
+            if (!(await paymentSwitch.GetAsync(context.CancellationToken)).Enabled)
+            {
+                logger.LogInformation("Daily incoming payments are switched off; posting nothing.");
+                return;
+            }
+
+            var service = scope.ServiceProvider.GetRequiredService<DailyIncomingPaymentService>();
             var result = await service.RunAsync(DateTime.UtcNow, context.CancellationToken);
 
             if (result.Failed > 0 || result.Unresolved > 0)

@@ -1562,6 +1562,21 @@ customer's payments and match on the invoice yourself.
 }
 ```
 
+**Daily incoming payment for desktop sales**
+
+**Base route:** `/api/daily-incoming-payment-settings`
+**Auth:** Bearer + Admin role
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/daily-incoming-payment-settings` | Whether desktop sales get their 17:00 daily incoming payment, or post invoices only |
+| PUT | `/api/daily-incoming-payment-settings` | Turn it on or off: `{ "enabled": false }` |
+
+Both answer `{ "enabled": false, "updatedAtUtc": "2026-09-18T10:00:00Z" }`; `updatedAtUtc` is null until
+someone has saved it, while `DesktopSalePosting:DailyPaymentEnabled` (off) still decides. The switch is a
+`SystemConfigs` row the `daily-incoming-payment` job reads on every run, so a change needs no restart.
+Turning it back on pays invoices up to `DailyPaymentLookbackDays` (7) old. Web → Settings → Payments sets it.
+
 ---
 
 ### 16. Payment Gateways
