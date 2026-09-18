@@ -306,6 +306,10 @@ public static class QuartzConfiguration
             {
                 AddCronJob<CreditLimitReviewJob>(q, "credit-limit-review", BuildDailyCron(creditLimit.ReviewTimeCAT, "19:15"));
             }
+
+            // Always declared: whether the weekly and monthly reviews go out is switched in Settings and
+            // read on every run, and with both off the job sends nothing.
+            AddCronJob<DesktopSalesReviewEmailJob>(q, DesktopSalesReviewEmailJob.JobName, "0 0 7 * * ?");
         });
 
         // Before Quartz's own hosted service, so this node knows whether the cluster holds a newer

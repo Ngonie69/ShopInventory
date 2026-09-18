@@ -435,11 +435,20 @@
                            so a stock controller shown this link would open a refusal. *@
                         <AuthorizeView Roles="Admin,Manager,Cashier" Context="desktopSalesReportCtx">
                             <Authorized>
-                                <NavLink class="snav-link sub-link" href="/reports/desktop-sales" Match="NavLinkMatch.Prefix">
+                                @* All, not Prefix: the review below lives under this path. *@
+                                <NavLink class="snav-link sub-link" href="/reports/desktop-sales" Match="NavLinkMatch.All">
                                     <span class="snav-icon">
                                         <i class="ph ph-cash-register" aria-hidden="true"></i>
                                     </span>
                                     <span class="snav-text">Desktop Sales Analysis</span>
+                                </NavLink>
+                                @* The same sales read as a business review, with written findings;
+                                   the API gates it to the same three roles. *@
+                                <NavLink class="snav-link sub-link" href="/reports/desktop-sales/review" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-lightbulb" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Desktop Sales Review</span>
                                 </NavLink>
                                 @* Same three roles as the analysis above, for the same reason: the
                                    API's management-report endpoint reads the same sales. *@

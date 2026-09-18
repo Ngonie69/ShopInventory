@@ -68,6 +68,11 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerStatu
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
+using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReview;
+using ShopInventory.Features.DesktopIntegration.Commands.SendDesktopSalesReviewEmail;
+using ShopInventory.Features.DesktopIntegration.Commands.UpdateDesktopSalesReviewSchedule;
+using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReviewSchedule;
+using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReviewPdf;
 using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
@@ -1279,6 +1284,115 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
         var result = await mediator.Send(
             new GetManagementItemAnalysisQuery(userId.Value, itemCode, fromDate, toDate, warehouseCode, sourceSystem),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The desktop sales business review: the analysis and the management report for one period read
+    /// together, per shop, with the findings they add up to.
+    /// </summary>
+    /// <remarks>
+    /// Scoped and role-gated exactly as the management report, which it reads.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier")]
+    [HttpGet("sales/review")]
+    public async Task<IActionResult> GetDesktopSalesReview(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] string? warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetDesktopSalesReviewQuery(userId.Value, fromDate, toDate, warehouseCode),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The desktop sales business review as a PDF, for printing or sending on.
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager,Cashier")]
+    [HttpGet("sales/review/pdf")]
+    public async Task<IActionResult> GetDesktopSalesReviewPdf(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] string? warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetDesktopSalesReviewPdfQuery(userId.Value, fromDate, toDate, warehouseCode),
+            cancellationToken);
+
+        return result.Match(value => File(value.Content, "application/pdf", value.FileName), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// When the business review is emailed, to whom, and which admin it is read as.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpGet("sales/review/schedule")]
+    public async Task<IActionResult> GetDesktopSalesReviewSchedule(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetDesktopSalesReviewScheduleQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Switches the weekly and monthly review emails on or off and sets who receives them. The admin
+    /// saving becomes the account the scheduled review is read as.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpPut("sales/review/schedule")]
+    public async Task<IActionResult> UpdateDesktopSalesReviewSchedule(
+        [FromBody] UpdateDesktopSalesReviewScheduleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new UpdateDesktopSalesReviewScheduleCommand(
+                userId.Value, User.Identity?.Name, request.WeeklyEnabled, request.MonthlyEnabled, request.Recipients ?? []),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Emails the business review now, read under the sender's own scope — the last complete week or
+    /// month, or a custom period — to the people named, or to the schedule's list.
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpPost("sales/review/email")]
+    public async Task<IActionResult> SendDesktopSalesReviewEmail(
+        [FromBody] SendDesktopSalesReviewEmailRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new SendDesktopSalesReviewEmailCommand(
+                request.Cadence?.Trim().ToLowerInvariant() ?? string.Empty,
+                Scheduled: false,
+                userId.Value,
+                User.Identity?.Name,
+                request.FromDate,
+                request.ToDate,
+                request.Recipients),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

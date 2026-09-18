@@ -1,0 +1,572 @@
+@page "/reports/desktop-sales/review"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesReview
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Desktop Sales Review - Shop Inventory</PageTitle>
+
+@* The business review: what a period's till and vending takings say, written out as findings, then the
+   figures behind them. Built on the Sales Breakdown vocabulary (`ops ops-ds ops-dsa ops-sbd`) for the
+   head, cards, tables, swatches and split bars, so it reads as the analysis page's sibling; only the
+   findings list, the stacked hour bars and the shop-by-hour grid are new, in `ops-dsr`
+   (sales-review.css), on the same tokens. Every word and number comes from the API's review, which is
+   also what the scheduled email sends. *@
+
+<div class="ops ops-ds ops-dsa ops-sbd ops-dsr">
+
+    <div class="ops-sbd-head">
+        <div class="ops-sbd-head-row">
+            <div class="ops-sbd-title">
+                <span class="ops-kicker">Desktop sales · Review</span>
+                <h1>Business review</h1>
+            </div>
+
+            <div class="ops-sbd-controls">
+                <div class="ops-field ops-sbd-shop">
+                    <label class="ops-label" for="dsr-warehouse">Shop</label>
+                    <NocturneSelect Id="dsr-warehouse" Class="nsel-block" Options="WarehouseOptions"
+                                    @bind-Value="warehouse" OnChanged="ReloadScopeAsync"
+                                    Caption="Filter by shop" AriaLabel="Filter by shop" Placeholder="All shops" />
+                </div>
+
+                <div class="ops-field">
+                    <span class="ops-label" id="dsr-period-label">Period</span>
+                    <div class="ops-ds-seg" role="group" aria-labelledby="dsr-period-label">
+                        @foreach (var option in PeriodOptions)
+                        {
+                            <button type="button" class="ops-ds-seg-opt @(period == option.Key ? "is-on" : "")"
+                                    aria-pressed="@(period == option.Key)"
+                                    @onclick="() => SetPeriodAsync(option.Key)">@option.Label</button>
+                        }
+                    </div>
+                </div>
+
+                @if (period == PeriodCustom)
+                {
+                    <div class="ops-sbd-dates">
+                        <div class="ops-field">
+                            <span class="ops-label">From</span>
+                            <NocturneDateField Id="dsr-from" Date="fromDate" DateChanged="OnFromDateChanged" AriaLabel="From date" />
+                        </div>
+                        <div class="ops-field">
+                            <span class="ops-label">To</span>
+                            <NocturneDateField Id="dsr-to" Date="toDate" DateChanged="OnToDateChanged" AriaLabel="To date" />
+                        </div>
+                    </div>
+                }
+
+                @if (review is { Currencies.Count: > 1 })
+                {
+                    <div class="ops-field">
+                        <span class="ops-label" id="dsr-currency-label">Currency</span>
+                        <div class="ops-ds-seg" role="group" aria-labelledby="dsr-currency-label">
+                            @foreach (var option in review.Currencies)
+                            {
+                                <button type="button" class="ops-ds-seg-opt @(Currency == option.Currency ? "is-on" : "")"
+                                        aria-pressed="@(Currency == option.Currency)"
+                                        @onclick="() => currency = option.Currency">@option.Currency</button>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <span class="ops-sbd-vrule" aria-hidden="true"></span>
+
+                <div class="ops-sbd-actions">
+                    <a class="ops-btn ops-btn-ghost" href="/reports/desktop-sales">
+                        <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                        <span>Analysis</span>
+                    </a>
+                    <button type="button" class="ops-btn ops-btn-primary" @onclick="DownloadPdfAsync"
+                            disabled="@(isDownloading || review is null)">
+                        @if (isDownloading)
+                        {
+                            <span class="ops-spin"></span>
+                            <span>Building&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-file-pdf" aria-hidden="true"></i>
+                            <span>PDF</span>
+                        }
+                    </button>
+                    <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
+                            @onclick="RefreshAsync" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="ops-spin"></span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="ops-rule-fade"></div>
+    </div>
+
+    @if (error != null)
+    {
+        <div class="ops-msg ops-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="ops-msg-body">@error</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => error = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
+
+    @if (review is null)
+    {
+        @if (isLoading)
+        {
+            <div class="ops-loading">
+                <span class="ops-spin ops-spin-lg"></span>
+                <p>Reading the period&hellip;</p>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="ops-sbd-scope">
+            <i class="ph ph-funnel" aria-hidden="true"></i>
+            <span>@RangeLabel(review.FromDate, review.ToDate) · @(review.WarehouseCode is null ? "all shops" : ShopLabel(review.WarehouseCode)) · compared with @RangeLabel(review.PreviousFromDate, review.PreviousToDate)</span>
+            @if (isLoading)
+            {
+                <span class="ops-spin" role="status" aria-label="Updating"></span>
+            }
+        </div>
+
+        @if (Section is not { } sales)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-receipt" aria-hidden="true"></i>
+                <h3>No sales in this period</h3>
+                <p>Nothing was rung up at a till or vending counter between these dates. Pick another period.</p>
+            </div>
+        }
+        else
+        {
+            var h = sales.Headline;
+
+            <div class="ops-sbd-body @(isLoading ? "is-busy" : "")">
+
+                @* ── The headline ─────────────────────────────────────────────────── *@
+                <section class="ops-sbd-headline" aria-label="Headline figures">
+                    <div class="ops-sbd-kpi">
+                        <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule is-accent"></span>Takings</div>
+                        <div class="ops-sbd-kpi-num">@Money(h.TotalAmount)</div>
+                        <div class="ops-sbd-kpi-change">
+                            @if (h.TotalChangePercent is { } change)
+                            {
+                                <span class="ops-sbd-delta @(change >= 0 ? "is-up" : "is-down")">
+                                    <i class="ph @(change >= 0 ? "ph-trend-up" : "ph-trend-down")" aria-hidden="true"></i>
+                                    @((change >= 0 ? "+" : "") + change.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))%
+                                </span>
+                                <span>on the previous period (@Money(h.PreviousTotalAmount))</span>
+                            }
+                            else
+                            {
+                                <span>Nothing to compare with in the previous period</span>
+                            }
+                        </div>
+                        <div class="ops-sbd-kpi-sub">
+                            @Plural(h.SalesCount, "sale") over @Plural(h.DaysTraded, "trading day") · @h.QuantitySold.ToString("#,##0.##") units
+                            @if (h.TrafficEffect is { } traffic && h.TicketEffect is { } ticket)
+                            {
+                                <span> · more sales @Signed(traffic), bigger sales @Signed(ticket)</span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="ops-sbd-figures">
+                        <div class="ops-sbd-kpi">
+                            <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Before VAT</div>
+                            <div class="ops-sbd-fig-num">@Money(h.NetAmount)</div>
+                            <div class="ops-sbd-fig-sub">VAT @Money(h.VatAmount) · @Pct(h.EffectiveVatPercent) of net</div>
+                        </div>
+                        <div class="ops-sbd-kpi">
+                            <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Gross margin</div>
+                            <div class="ops-sbd-fig-num">@(h.MarginPercent is { } margin ? Pct(margin) : "—")</div>
+                            <div class="ops-sbd-fig-sub">@(h.GrossProfit is { } profit ? $"{Money(profit)} on {Money(h.CostedNetAmount)} SAP has costed" : review.Margin.Available ? "not posted to SAP yet" : "SAP could not be read")</div>
+                        </div>
+                        <div class="ops-sbd-kpi">
+                            <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
+                            <div class="ops-sbd-fig-num">@Money(h.AverageSale)</div>
+                            <div class="ops-sbd-fig-sub">@Plural(h.DistinctItems, "item") sold</div>
+                        </div>
+                        <div class="ops-sbd-kpi">
+                            <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Accepted short</div>
+                            <div class="ops-sbd-fig-num">@Money(h.ShortTendered)</div>
+                            <div class="ops-sbd-fig-sub">sales taken for less than their total</div>
+                        </div>
+                    </div>
+                </section>
+
+                @* ── What the figures say ─────────────────────────────────────────── *@
+                <section class="ops-ds-card" aria-labelledby="dsr-findings-title">
+                    <div class="ops-ds-card-head">
+                        <i class="ph ph-lightbulb" aria-hidden="true"></i>
+                        <span class="ops-ds-card-label" id="dsr-findings-title">What the figures say</span>
+                        <span class="ops-sbd-head-end ops-sbd-hint">most urgent first</span>
+                    </div>
+                    @if (Findings.Count == 0)
+                    {
+                        <p class="ops-dsa-none">Nothing stood out in this period.</p>
+                    }
+                    else
+                    {
+                        <ol class="ops-dsr-findings">
+                            @foreach (var finding in Findings)
+                            {
+                                <li class="ops-dsr-finding @SeverityClass(finding.Severity)">
+                                    <span class="ops-dsr-sev"><i class="ph @SeverityIcon(finding.Severity)" aria-hidden="true"></i>@SeverityLabel(finding.Severity)</span>
+                                    <div class="ops-dsr-finding-body">
+                                        <div class="ops-dsr-finding-title">@finding.Title</div>
+                                        <p>@finding.Detail</p>
+                                    </div>
+                                </li>
+                            }
+                        </ol>
+                    }
+                </section>
+
+                <div class="ops-sbd-pair">
+                    @* ── Trading days ─────────────────────────────────────────────── *@
+                    <section class="ops-ds-card" aria-labelledby="dsr-days-title">
+                        <div class="ops-ds-card-head">
+                            <i class="ph ph-calendar" aria-hidden="true"></i>
+                            <span class="ops-ds-card-label" id="dsr-days-title">Trading days</span>
+                            <div class="ops-sbd-legend ops-sbd-head-end" aria-hidden="true">
+                                @foreach (var method in sales.ByPaymentMethod.Where(m => m.TotalAmount > 0))
+                                {
+                                    <span class="ops-sbd-legend-key"><span class="ops-dsa-swatch @TenderClass(method.PaymentMethod)"></span>@TenderLabel(method.PaymentMethod)</span>
+                                }
+                            </div>
+                        </div>
+                        @{ var bestDay = sales.ByDay.Count == 0 ? 0m : sales.ByDay.Max(d => d.TotalAmount); }
+                        <div class="ops-scroll">
+                            <table class="ops-table ops-sbd-table">
+                                <thead><tr><th>Day</th><th class="ops-num">Sales</th><th class="ops-num">Takings</th><th class="ops-sbd-split-head">Split</th></tr></thead>
+                                <tbody>
+                                    @foreach (var day in sales.ByDay)
+                                    {
+                                        <tr>
+                                            <td class="ops-dsr-nowrap">@DayLabel(day.Date)</td>
+                                            <td class="ops-num">@day.SalesCount.ToString("N0")</td>
+                                            <td class="ops-num">@Num(day.TotalAmount)</td>
+                                            <td>
+                                                <span class="ops-sbd-track">
+                                                    <span class="ops-sbd-track-fill" style="width:@Percent(day.TotalAmount, bestDay)">
+                                                        @foreach (var part in day.ByPaymentMethod.Where(p => p.TotalAmount > 0))
+                                                        {
+                                                            <span class="ops-dsa-seg @TenderClass(part.PaymentMethod)" style="flex-grow:@Weight(part.TotalAmount)"
+                                                                  title="@($"{TenderLabel(part.PaymentMethod)} · {Money(part.TotalAmount)}")"></span>
+                                                        }
+                                                    </span>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    @* ── Hours ────────────────────────────────────────────────────── *@
+                    <section class="ops-ds-card" aria-labelledby="dsr-hours-title">
+                        @{
+                            var hours = Hours(sales);
+                            var busiest = sales.ByHour.Count == 0 ? 0 : sales.ByHour.Max(x => x.SalesCount);
+                            var settles = sales.ByHour.Any(x => x.SettlementSalesCount > 0);
+                        }
+                        <div class="ops-ds-card-head">
+                            <i class="ph ph-clock" aria-hidden="true"></i>
+                            <span class="ops-ds-card-label" id="dsr-hours-title">Sales by hour</span>
+                            <span class="ops-sbd-hint">counter time (CAT)</span>
+                            @if (settles)
+                            {
+                                <div class="ops-sbd-legend ops-sbd-head-end" aria-hidden="true">
+                                    <span class="ops-sbd-legend-key"><span class="ops-dsr-key is-counter"></span>Counter</span>
+                                    <span class="ops-sbd-legend-key"><span class="ops-dsr-key is-settle"></span>Vending settlement</span>
+                                </div>
+                            }
+                        </div>
+                        <div class="ops-dsr-hours" role="img" aria-label="Sales per hour of the counter day">
+                            @foreach (var hour in hours)
+                            {
+                                var row = sales.ByHour.FirstOrDefault(x => x.Hour == hour);
+                                var counter = (row?.SalesCount ?? 0) - (row?.SettlementSalesCount ?? 0);
+                                var settle = row?.SettlementSalesCount ?? 0;
+                                <div class="ops-dsr-hour" title="@($"{hour:00}:00 · {Plural(counter, "counter sale")}{(settle > 0 ? $" · {Plural(settle, "settlement")}" : "")} · {Money(row?.TotalAmount ?? 0)}")">
+                                    <span class="ops-dsr-hour-stack" style="height:@Percent(counter + settle, busiest)">
+                                        @if (settle > 0)
+                                        {
+                                            <span class="ops-dsr-hour-settle" style="flex-grow:@settle"></span>
+                                        }
+                                        @if (counter > 0)
+                                        {
+                                            <span class="ops-dsr-hour-counter" style="flex-grow:@counter"></span>
+                                        }
+                                    </span>
+                                    <span class="ops-dsr-hour-label">@hour.ToString("00")</span>
+                                </div>
+                            }
+                        </div>
+                    </section>
+                </div>
+
+                @* ── Shops ────────────────────────────────────────────────────────── *@
+                <section class="ops-ds-card" aria-labelledby="dsr-shops-title">
+                    <div class="ops-ds-card-head">
+                        <i class="ph ph-storefront" aria-hidden="true"></i>
+                        <span class="ops-ds-card-label" id="dsr-shops-title">Shops and depots</span>
+                        <span class="ops-sbd-hint">compare on takings per trading day</span>
+                    </div>
+                    @{ var bestShop = sales.ByShop.Count == 0 ? 0m : sales.ByShop.Max(s => s.PerTradingDay); }
+                    <div class="ops-scroll">
+                        <table class="ops-table ops-sbd-table">
+                            <thead>
+                                <tr>
+                                    <th>Shop</th>
+                                    <th class="ops-num">Days</th>
+                                    <th class="ops-num">Sales</th>
+                                    <th class="ops-num">Takings</th>
+                                    <th class="ops-sbd-split-head">Per trading day</th>
+                                    <th class="ops-num">Avg sale</th>
+                                    <th class="ops-num">Card</th>
+                                    <th class="ops-num">Margin</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var shop in sales.ByShop)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="ops-sbd-row-name">@shop.Label</div>
+                                            <div class="ops-sub">
+                                                @shop.Channel · @Plural(shop.OperatorCount, "login")
+                                                @if (shop.StartedInPeriod && shop.FirstSaleDate is { } first)
+                                                {
+                                                    <span class="ops-dsr-tag">from @DayLabel(first)</span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td class="ops-num">@shop.DaysTraded</td>
+                                        <td class="ops-num">@shop.SalesCount.ToString("N0")</td>
+                                        <td class="ops-num">@Num(shop.TotalAmount)<div class="ops-sub">@Pct(shop.ShareOfValuePercent)</div></td>
+                                        <td>
+                                            <div class="ops-sbd-split">
+                                                <span class="ops-sbd-track"><span class="ops-sbd-track-fill is-accent" style="width:@Percent(shop.PerTradingDay, bestShop)"></span></span>
+                                                <span class="ops-sbd-share">@Num(shop.PerTradingDay)</span>
+                                            </div>
+                                        </td>
+                                        <td class="ops-num">@Num(shop.AverageSale)</td>
+                                        <td class="ops-num">@Pct(shop.NonCashPercent)</td>
+                                        <td class="ops-num">@(shop.MarginPercent is { } shopMargin ? Pct(shopMargin) : "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (sales.ShopHours.Count > 0 && sales.ByShop.Count > 1)
+                    {
+                        var gridHours = Hours(sales);
+                        <div class="ops-dsr-grid-wrap ops-scroll">
+                            <div class="ops-dsr-grid" style="grid-template-columns: minmax(9rem, 1.4fr) repeat(@gridHours.Count, minmax(2.1rem, 1fr));"
+                                 role="table" aria-label="Sales per hour at each shop">
+                                <div class="ops-dsr-grid-corner" role="columnheader">Sales per hour</div>
+                                @foreach (var hour in gridHours)
+                                {
+                                    <div class="ops-dsr-grid-hour" role="columnheader">@hour.ToString("00")</div>
+                                }
+                                @foreach (var shop in sales.ByShop)
+                                {
+                                    var cells = sales.ShopHours.Where(c => string.Equals(c.WarehouseCode, shop.WarehouseCode, StringComparison.OrdinalIgnoreCase)).ToList();
+                                    var peak = cells.Count == 0 ? 0 : cells.Max(c => c.SalesCount);
+                                    <div class="ops-dsr-grid-shop" role="rowheader">@shop.Label</div>
+                                    @foreach (var hour in gridHours)
+                                    {
+                                        var cell = cells.FirstOrDefault(c => c.Hour == hour);
+                                        <div class="ops-dsr-grid-cell @(cell is null ? "is-empty" : "")" role="cell"
+                                             style="--dsr-heat:@Heat(cell?.SalesCount ?? 0, peak)"
+                                             title="@(cell is null ? $"{shop.Label} · {hour:00}:00 · no sales" : $"{shop.Label} · {hour:00}:00 · {Plural(cell.SalesCount, "sale")} · {Money(cell.TotalAmount)}")">
+                                            @(cell?.SalesCount.ToString() ?? "")
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                </section>
+
+                @* ── Best sellers ─────────────────────────────────────────────────── *@
+                <section class="ops-ds-card" aria-labelledby="dsr-items-title">
+                    <div class="ops-ds-card-head">
+                        <i class="ph ph-package" aria-hidden="true"></i>
+                        <span class="ops-ds-card-label" id="dsr-items-title">Best sellers</span>
+                        @if (sales.TopItems.Count > 0)
+                        {
+                            <span class="ops-sbd-head-end ops-sbd-hint">
+                                top @sales.TopItems.Count of @sales.ItemCount.ToString("N0") items make @Pct(sales.TopItems[^1].CumulativeSharePercent) of line value
+                            </span>
+                        }
+                    </div>
+                    @if (sales.TopItems.Count == 0)
+                    {
+                        <p class="ops-dsa-none">No lines were recorded on these sales.</p>
+                    }
+                    else
+                    {
+                        var topNet = sales.TopItems.Max(i => i.NetAmount);
+                        <div class="ops-scroll">
+                            <table class="ops-table ops-sbd-table">
+                                <thead>
+                                    <tr>
+                                        <th class="ops-sbd-item-head">Item</th>
+                                        <th class="ops-num">Qty</th>
+                                        <th class="ops-num">Sales</th>
+                                        <th class="ops-num">Per sale</th>
+                                        <th class="ops-num">Unit price</th>
+                                        <th class="ops-num">Before VAT</th>
+                                        <th class="ops-sbd-share-head">Share of line value</th>
+                                        <th class="ops-num">Cumulative</th>
+                                        <th>Class</th>
+                                        <th class="ops-num">Margin</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in sales.TopItems)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="ops-code">@item.ItemCode</div>
+                                                @if (!string.IsNullOrWhiteSpace(item.ItemDescription) && item.ItemDescription != item.ItemCode)
+                                                {
+                                                    <div class="ops-sub">@item.ItemDescription</div>
+                                                }
+                                            </td>
+                                            <td class="ops-num">@item.Quantity.ToString("#,##0.##")</td>
+                                            <td class="ops-num">@item.SalesCount.ToString("N0")</td>
+                                            <td class="ops-num">@item.UnitsPerSale.ToString("0.#")</td>
+                                            <td class="ops-num">@Num(item.AverageUnitPrice)</td>
+                                            <td class="ops-num">@Num(item.NetAmount)</td>
+                                            <td>
+                                                <div class="ops-sbd-split">
+                                                    <span class="ops-sbd-track"><span class="ops-sbd-track-fill is-accent" style="width:@Percent(item.NetAmount, topNet)"></span></span>
+                                                    <span class="ops-sbd-share">@Pct(item.ShareOfNetPercent)</span>
+                                                </div>
+                                            </td>
+                                            <td class="ops-num">@Pct(item.CumulativeSharePercent)</td>
+                                            <td><span class="ops-dsr-class is-@item.AbcClass.ToLowerInvariant()">@item.AbcClass</span></td>
+                                            <td class="ops-num">@(item.MarginPercent is { } itemMargin ? Pct(itemMargin) : "—")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                @if (sales.PriceSpreads.Count > 0 || sales.LargeSales.Count > 0)
+                {
+                    <div class="ops-sbd-pair">
+                        @if (sales.PriceSpreads.Count > 0)
+                        {
+                            <section class="ops-ds-card" aria-labelledby="dsr-prices-title">
+                                <div class="ops-ds-card-head">
+                                    <i class="ph ph-tag" aria-hidden="true"></i>
+                                    <span class="ops-ds-card-label" id="dsr-prices-title">Prices that differ between shops</span>
+                                    <span class="ops-sbd-hint">before VAT, same channel</span>
+                                </div>
+                                <div class="ops-scroll">
+                                    <table class="ops-table ops-sbd-table">
+                                        <thead><tr><th>Item</th><th>Lowest</th><th>Highest</th><th class="ops-num">Spread</th><th class="ops-num">At the higher price</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var spread in sales.PriceSpreads)
+                                            {
+                                                <tr>
+                                                    <td><div class="ops-code">@spread.ItemCode</div><div class="ops-sub">@spread.ItemDescription</div></td>
+                                                    <td>@Num(spread.LowUnitPrice)<div class="ops-sub">@ShopLabel(spread.LowWarehouseCode)</div></td>
+                                                    <td>@Num(spread.HighUnitPrice)<div class="ops-sub">@ShopLabel(spread.HighWarehouseCode)</div></td>
+                                                    <td class="ops-num">@Pct(spread.SpreadPercent)</td>
+                                                    <td class="ops-num">+@Num(spread.UpliftAtHighPrice)</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        }
+
+                        @if (sales.LargeSales.Count > 0)
+                        {
+                            <section class="ops-ds-card" aria-labelledby="dsr-large-title">
+                                <div class="ops-ds-card-head">
+                                    <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                                    <span class="ops-ds-card-label" id="dsr-large-title">Trade-size sales at a counter</span>
+                                    <span class="ops-sbd-hint">five or more times the shop's average</span>
+                                </div>
+                                <div class="ops-scroll">
+                                    <table class="ops-table ops-sbd-table">
+                                        <thead><tr><th>Day</th><th>Shop</th><th>Customer</th><th class="ops-num">Units</th><th class="ops-num">Total</th><th class="ops-num">× avg</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var sale in sales.LargeSales)
+                                            {
+                                                <tr>
+                                                    <td>@DayLabel(sale.DocDate)</td>
+                                                    <td>@ShopLabel(sale.WarehouseCode)<div class="ops-sub">@TenderLabel(sale.PaymentMethod)</div></td>
+                                                    <td>@(sale.CustomerCode ?? "walk-in")</td>
+                                                    <td class="ops-num">@sale.Quantity.ToString("#,##0.##")</td>
+                                                    <td class="ops-num">@Num(sale.TotalAmount)</td>
+                                                    <td class="ops-num">@sale.TimesShopAverage.ToString("0.#")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        }
+                    </div>
+                }
+
+                @* ── Fiscalisation and posting ────────────────────────────────────── *@
+                <section class="ops-ds-card" aria-labelledby="dsr-health-title">
+                    <div class="ops-ds-card-head">
+                        <i class="ph ph-seal-check" aria-hidden="true"></i>
+                        <span class="ops-ds-card-label" id="dsr-health-title">Fiscalisation and SAP posting</span>
+                        <span class="ops-sbd-hint">@Plural(review.Health.SalesCount, "sale") in the period</span>
+                    </div>
+                    <dl class="ops-dsr-health">
+                        @foreach (var (label, bucket, bad) in new[]
+                        {
+                            ("Fiscalised", review.Health.FiscalSucceeded, false),
+                            ("Waiting to fiscalise", review.Health.FiscalPending, false),
+                            ("Fiscalisation failed", review.Health.FiscalFailed, true),
+                            ("Needs reconciliation", review.Health.NeedsReconciliation, true),
+                            ("Posted to SAP", review.Health.Posted, false),
+                            ("Waiting to post", review.Health.PostingWaiting, false),
+                            ("SAP refused", review.Health.PostingFailing, true),
+                            ("Payment failed", review.Health.PaymentFailed, true),
+                        })
+                        {
+                            <div class="ops-dsr-health-item @(bad && bucket.SalesCount > 0 ? "is-bad" : "")">
+                                <dt>@label</dt>
+                                <dd>@bucket.SalesCount.ToString("N0")</dd>
+                            </div>
+                        }
+                    </dl>
+                </section>
+
+                <div class="ops-sbd-foot">
+                    <span>Generated @IAuditService.ToCAT(review.GeneratedAtUtc).ToString("dd MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture) CAT · amounts in @Currency, VAT included unless stated</span>
+                    <span>The same review is emailed weekly and monthly when switched on in Settings. Online van receipts are excluded.</span>
+                </div>
+            </div>
+        }
+    }
+</div>

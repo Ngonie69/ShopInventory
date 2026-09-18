@@ -90,6 +90,10 @@
                 <span class="ops-sbd-vrule" aria-hidden="true"></span>
 
                 <div class="ops-sbd-actions">
+                    <a class="ops-btn ops-btn-ghost" href="/reports/desktop-sales/review">
+                        <i class="ph ph-lightbulb" aria-hidden="true"></i>
+                        <span>Review</span>
+                    </a>
                     @* Only for the roles that may open the list; a manager shown this link would land on
                        a refusal. *@
                     <AuthorizeView Roles="Admin,Cashier" Context="saleListCtx">
