@@ -6,9 +6,6 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// <remarks>
 /// <para><c>TotalAmount</c>: What the sales came to, VAT included.</para>
 /// <para><c>NetAmount</c>: The same, before VAT.</para>
-/// <para><c>AmountPaid</c>: What customers handed over, which exceeds the total by the change
-/// given.</para>
-/// <para><c>ChangeGiven</c>: The sum, over sales, of what was handed back.</para>
 /// <para><c>QuantitySold</c>: Units across every line, whatever the item.</para>
 /// <para><c>DaysTraded</c>: Days in the period with at least one sale.</para>
 /// <para><c>DistinctItems</c>: How many different items sold, of which <paramref name="TopItems"/> is
@@ -22,8 +19,6 @@ public sealed record DesktopSalesCurrencyAnalysis(
     decimal TotalAmount,
     decimal VatAmount,
     decimal NetAmount,
-    decimal AmountPaid,
-    decimal ChangeGiven,
     decimal AverageSale,
     decimal QuantitySold,
     int DaysTraded,

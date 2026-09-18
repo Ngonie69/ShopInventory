@@ -20,8 +20,6 @@ public sealed record DesktopSalesPaymentMethodRow(
     int SalesCount,
     decimal TotalAmount,
     decimal VatAmount,
-    decimal AmountPaid,
-    decimal ChangeGiven,
     decimal AverageSale,
     decimal ShareOfValuePercent,
     decimal ShareOfCountPercent,

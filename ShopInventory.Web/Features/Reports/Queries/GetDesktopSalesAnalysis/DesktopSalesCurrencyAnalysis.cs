@@ -14,9 +14,7 @@ public sealed class DesktopSalesCurrencyAnalysis
 
     public decimal NetAmount { get; set; }
 
-    public decimal AmountPaid { get; set; }
 
-    public decimal ChangeGiven { get; set; }
 
     public decimal AverageSale { get; set; }
 
