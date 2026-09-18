@@ -91,6 +91,10 @@ public sealed record VanSalesInvoiceCounts(
 /// held.</para>
 /// <para><c>State</c>: One of <see cref="VanSalesDocumentStates"/>.</para>
 /// <para><c>Problem</c>: What went wrong, when <paramref name="State"/> is not complete.</para>
+/// <para><c>SaleNumber</c>: The short number the sale is known by in the console, <c>INV10427</c> — the same
+/// number Desktop Sales shows for it, because van sales are rows of the same table. Null for an online sale from
+/// before receipts were stored, which has no sale row to be numbered by; it is known by its reference alone.
+/// See <see cref="Common.Sales.DesktopSaleNumber"/>.</para>
 /// </remarks>
 public sealed record VanSalesInvoiceRow(
     string Reference,
@@ -114,6 +118,7 @@ public sealed record VanSalesInvoiceRow(
     string? FiscalDay,
     string? FiscalDeviceSerial,
     string State,
-    string? Problem);
+    string? Problem,
+    string? SaleNumber = null);
 
 public sealed record VanSalesRepOption(Guid UserId, string Name);

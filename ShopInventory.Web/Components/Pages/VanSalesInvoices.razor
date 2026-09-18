@@ -171,7 +171,7 @@
         <div class="vsd-search">
             <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
             <input class="vsd-input vsd-input-search" type="search"
-                   placeholder="Van order, shop, rep, receipt or SAP no."
+                   placeholder="INV no., van order, shop, rep, receipt or SAP no."
                    aria-label="Search invoices"
                    @bind="searchTerm" @bind:after="ApplyAsync" />
         </div>
@@ -277,11 +277,17 @@
                     var fiscal = FiscalMark(row);
                     var sap = SapMark(row);
                     <div class="vsd-row @(row.Reference == detailReference ? "is-open" : null)" role="button" tabindex="0"
-                         aria-label="@($"Invoice {row.Reference}")"
+                         aria-label="@($"Invoice {row.Number}")"
                          @onclick="() => OpenAsync(row.Reference)"
                          @onkeydown="e => RowKeyAsync(e, row.Reference)">
                         <div class="vsd-cell vsd-cell-main">
-                            <span class="vsd-ref">@row.Reference</span>
+                            @* The short number first, as Desktop Sales shows the same sale; the handset's
+                               reference under it, for fiscal and support work. *@
+                            <span class="vsd-ref">@row.Number</span>
+                            @if (row.HasSaleNumber)
+                            {
+                                <span class="vsd-devref">@row.Reference</span>
+                            }
                             <span class="vsd-sub">@Stamp(row.CreatedAtUtc) · @row.Channel</span>
                         </div>
                         <div class="vsd-cell" data-label="Customer">
@@ -349,14 +355,18 @@
     var index = DetailIndex;
 
     <div class="vsd-overlay" @onclick="CloseDetail">
-        <aside class="vsd-drawer" role="dialog" aria-modal="true" aria-label="@($"Invoice {detailReference}")"
+        <aside class="vsd-drawer" role="dialog" aria-modal="true" aria-label="@($"Invoice {DetailNumber}")"
                tabindex="-1" @onkeydown="DrawerKeyAsync" @onclick:stopPropagation="true">
 
             <div class="vsd-dhead">
                 <div class="vsd-dhead-top">
                     <div class="vsd-dhead-id">
                         <span class="vsd-kicker">Van sales invoice</span>
-                        <span class="vsd-dhead-no">@detailReference</span>
+                        <span class="vsd-dhead-no">@DetailNumber</span>
+                        @if (DetailNumber != detailReference)
+                        {
+                            <span class="vsd-dhead-ref">@detailReference</span>
+                        }
                         @if (detail is not null)
                         {
                             <span class="vsd-dhead-sub">
@@ -659,6 +669,6 @@
    and talks to the API itself — see DesktopCreditNoteDialog. It is addressed by the van order, which
    is what the receipt was signed under and what the API looks the sale up by. *@
 <DesktopCreditNoteDialog Reference="@creditInvoice?.Reference"
-                         SaleNumber="@creditInvoice?.Reference"
+                         SaleNumber="@creditInvoice?.Number"
                          Currency="@creditInvoice?.Currency"
                          OnClosed="CloseCredit" />

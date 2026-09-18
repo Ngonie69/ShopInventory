@@ -122,6 +122,16 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
         ? -1
         : view.Rows.FindIndex(row => row.Reference == detailReference);
 
+    /// <summary>
+    /// What the drawer is headed with: the sale number when the invoice has one, its reference otherwise. The
+    /// detail says it once loaded; the list row says it before then, so the heading does not change under the
+    /// reader as the detail arrives.
+    /// </summary>
+    private string? DetailNumber =>
+        detail?.Invoice is { } loaded && loaded.Reference == detailReference ? loaded.Number
+        : DetailIndex >= 0 ? view.Rows[DetailIndex].Number
+        : detailReference;
+
     private decimal NotInSapMax => view.Summary.NotInSapByVan.Select(van => van.Amount).DefaultIfEmpty(0m).Max();
 
     protected override Task OnInitializedAsync()

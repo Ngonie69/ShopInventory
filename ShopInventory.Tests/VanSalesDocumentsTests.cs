@@ -434,14 +434,67 @@ public sealed class VanSalesDocumentsTests : IDisposable
     public void The_state_rule(bool fiscalised, bool inSap, bool hasFailure, string expected) =>
         Assert.Equal(expected, VanSalesDocumentStates.Decide(fiscalised, inSap, hasFailure));
 
+    // --- Sale numbers ---
+
+    /// <summary>
+    /// Van sales are rows of the Desktop Sales table, so each is called by the number Desktop Sales shows for it —
+    /// INV and the row id — rather than the handset's long reference.
+    /// </summary>
+    [Fact]
+    public async Task Each_invoice_carries_the_sale_number_Desktop_Sales_shows_for_it()
+    {
+        AddReservation("VAN-ON", ReservationStatus.Confirmed, docEntry: 11, docNum: 911);
+        AddReceiptRow("VAN-ON", signed: true, docNum: 911);
+        var offline = AddOfflineSale("VAN-OFF", SaleSourceSystems.VanSales, docNum: null);
+        AddReservation("VAN-OLD", ReservationStatus.Confirmed, docEntry: 12, docNum: 912);
+
+        var rows = (await ListInvoicesAsync()).Rows.ToDictionary(r => r.Reference);
+        var onlineId = _context.DesktopSales.Single(s => s.ExternalReferenceId == "VAN-ON").Id;
+
+        Assert.Equal($"INV{onlineId}", rows["VAN-ON"].SaleNumber);
+        Assert.Equal($"INV{offline.Id}", rows["VAN-OFF"].SaleNumber);
+        // An online sale from before receipts were stored has no sale row, so nothing to be numbered by.
+        Assert.Null(rows["VAN-OLD"].SaleNumber);
+    }
+
+    [Theory]
+    [InlineData("INV{0}")]
+    [InlineData("inv {0}")]
+    [InlineData("#{0}")]
+    public async Task Searching_a_sale_number_finds_that_sale(string pattern)
+    {
+        var wanted = AddOfflineSale("VAN-WANTED", SaleSourceSystems.VanSales, docNum: null);
+        AddOfflineSale("VAN-OTHER", SaleSourceSystems.VanSales, docNum: null);
+        await _context.SaveChangesAsync();
+
+        var result = await ListInvoicesAsync(search: string.Format(pattern, wanted.Id));
+
+        Assert.Equal("VAN-WANTED", Assert.Single(result.Rows).Reference);
+    }
+
+    /// <summary>A number that says it is a sale number does not also match references and SAP numbers.</summary>
+    [Fact]
+    public async Task A_prefixed_sale_number_does_not_match_other_fields_sharing_its_digits()
+    {
+        var sale = AddOfflineSale("VAN-A", SaleSourceSystems.VanSales, docNum: null);
+        await _context.SaveChangesAsync();
+        AddOfflineSale($"VAN-{sale.Id}99", SaleSourceSystems.VanSales, docNum: sale.Id);
+
+        var result = await ListInvoicesAsync(search: $"INV{sale.Id}");
+
+        Assert.Equal("VAN-A", Assert.Single(result.Rows).Reference);
+    }
+
     // --- Helpers ---
 
-    private async Task<VanSalesInvoicesResult> ListInvoicesAsync(string? state = null, string? channel = null)
+    private async Task<VanSalesInvoicesResult> ListInvoicesAsync(
+        string? state = null, string? channel = null, string? search = null)
     {
         await _context.SaveChangesAsync();
 
         var result = await new GetVanSalesInvoicesHandler(_context).Handle(
-            new GetVanSalesInvoicesQuery(Day, Day, State: state, Channel: channel), CancellationToken.None);
+            new GetVanSalesInvoicesQuery(Day, Day, State: state, Search: search, Channel: channel),
+            CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;

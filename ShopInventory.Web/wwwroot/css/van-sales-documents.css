@@ -232,6 +232,14 @@
     color: var(--vsd-ink);
 }
 
+/* The handset's reference under the sale number: kept for fiscal and support work, read by nobody else. */
+.vsd-devref {
+    font-family: var(--vsd-mono);
+    font-size: 11px;
+    color: var(--vsd-mute-3);
+    overflow-wrap: anywhere;
+}
+
 .vsd-r {
     text-align: right;
     justify-content: flex-end;
@@ -1199,6 +1207,14 @@
     font-weight: 600;
     line-height: 1.2;
     color: var(--vsd-ink);
+    overflow-wrap: anywhere;
+}
+
+.vsd-dhead-ref {
+    font-family: var(--vsd-mono);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--vsd-mute-3);
     overflow-wrap: anywhere;
 }
 

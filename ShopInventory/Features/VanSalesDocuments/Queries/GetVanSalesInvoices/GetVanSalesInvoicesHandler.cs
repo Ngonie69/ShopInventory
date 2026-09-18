@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 
 namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoices;
@@ -158,7 +159,20 @@ public sealed class GetVanSalesInvoicesHandler(ApplicationDbContext db)
 
         var term = search.Trim();
 
+        // "INV10427" can only be a sale number, so it matches that sale and nothing else — not every reference,
+        // customer or SAP number that happens to contain the digits. A bare "10427" or "#10427" could be either,
+        // so it is tried as both. The same rule as Desktop Sales.
+        var isSaleNumber = DesktopSaleNumber.TryParse(term, out var wanted)
+                           && DesktopSaleNumber.TryParse(row.SaleNumber, out var id)
+                           && id == wanted;
+
+        if (isSaleNumber || DesktopSaleNumber.NamesSaleNumber(term))
+        {
+            return isSaleNumber;
+        }
+
         return Contains(row.Reference, term)
+               || Contains(row.SaleNumber, term)
                || Contains(row.CustomerName, term)
                || Contains(row.CustomerCode, term)
                || Contains(row.RepName, term)
