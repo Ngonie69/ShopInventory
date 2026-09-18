@@ -51,9 +51,8 @@ public sealed class DesktopSalesAnalysisExportTests
         using var workbook = Export(Report());
         var sheet = workbook.Worksheet("Payment Methods");
 
-        // The report carries change (18.30 on cash), so its absence here is the export's choice.
+        // The analysis no longer carries it; this keeps a hand-added column from coming back.
         Assert.DoesNotContain(sheet.CellsUsed(), cell => cell.GetString().Contains("Change", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(sheet.CellsUsed(), cell => cell.GetString() == "18.30" || (cell.DataType == XLDataType.Number && cell.GetValue<decimal>() == 18.30m));
     }
 
     [Fact]
@@ -179,13 +178,11 @@ public sealed class DesktopSalesAnalysisExportTests
                     TotalAmount = 308.70m,
                     VatAmount = 41.43m,
                     NetAmount = 267.27m,
-                    AmountPaid = 327.00m,
-                    ChangeGiven = 18.30m,
                     AverageSale = 28.06m,
                     DaysTraded = 1,
                     ByPaymentMethod =
                     [
-                        new() { PaymentMethod = "Cash", SalesCount = 5, TotalAmount = 102.55m, ShareOfValuePercent = 33.2m, ChangeGiven = 18.30m },
+                        new() { PaymentMethod = "Cash", SalesCount = 5, TotalAmount = 102.55m, ShareOfValuePercent = 33.2m },
                         new() { PaymentMethod = "Swipe", SalesCount = 3, TotalAmount = 132.15m, ShareOfValuePercent = 42.8m },
                         new() { PaymentMethod = "Ecocash", SalesCount = 2, TotalAmount = 66.00m, ShareOfValuePercent = 21.4m, WithoutReferenceCount = 1 },
                         new() { PaymentMethod = "Not recorded", SalesCount = 1, TotalAmount = 8.00m, ShareOfValuePercent = 2.6m },

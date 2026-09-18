@@ -180,15 +180,16 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     }
 
     [Fact]
-    public async Task Change_is_what_was_handed_back_and_never_negative()
+    public async Task Neither_the_amount_tendered_nor_the_change_is_reported()
     {
-        // F-CASH-1 was paid 20 for a 10 sale. F-NONE recorded no payment at all, which subtracted from the
-        // sums would read as seven dollars of change taken back.
-        var usd = Dollars(await AnalyseAsAdmin());
+        // F-CASH-1 was paid 20 for a 10 sale. What was handed over, and the change, are not takings: stated
+        // beside them they were read as a second, disagreeing total.
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            (await AnalyseAsAdmin()).Value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
 
-        Assert.Equal(10m, Method(usd, TenderTypes.Cash).ChangeGiven);
-        Assert.Equal(0m, Method(usd, TenderTypes.NotRecorded).ChangeGiven);
-        Assert.Equal(10m, usd.ChangeGiven);
+        Assert.DoesNotContain("\"amountPaid\"", json);
+        Assert.DoesNotContain("\"changeGiven\"", json);
+        Assert.Contains("\"totalAmount\"", json);
     }
 
     [Fact]

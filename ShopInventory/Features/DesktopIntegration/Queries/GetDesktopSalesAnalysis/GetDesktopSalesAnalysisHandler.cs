@@ -138,11 +138,6 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     SalesCount = g.Count(),
                     TotalAmount = g.Sum(s => s.TotalAmount),
                     VatAmount = g.Sum(s => s.VatAmount),
-                    AmountPaid = g.Sum(s => s.AmountPaid),
-
-                    // Per sale, not the difference of the sums: a sale nobody recorded a payment for would
-                    // otherwise subtract its whole value from the change the drawer actually gave out.
-                    ChangeGiven = g.Sum(s => s.AmountPaid > s.TotalAmount ? s.AmountPaid - s.TotalAmount : 0m),
                     WithoutReference = g.Count(s => s.PaymentReference == null || s.PaymentReference == ""),
                 })
                 .ToListAsync(cancellationToken))
@@ -156,8 +151,6 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 c.SalesCount,
                 c.TotalAmount,
                 c.VatAmount,
-                c.AmountPaid,
-                c.ChangeGiven,
                 c.WithoutReference))
             .ToList();
 
@@ -267,8 +260,6 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     count,
                     value,
                     paidThisWay.Sum(c => c.VatAmount),
-                    paidThisWay.Sum(c => c.AmountPaid),
-                    paidThisWay.Sum(c => c.ChangeGiven),
                     Average(value, count),
                     Share(value, total),
                     Share(count, salesCount),
@@ -309,8 +300,6 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             total,
             vat,
             total - vat,
-            cells.Sum(c => c.AmountPaid),
-            cells.Sum(c => c.ChangeGiven),
             Average(total, salesCount),
             items.Sum(i => i.Quantity),
             byDay.Count,
@@ -492,8 +481,6 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         int SalesCount,
         decimal TotalAmount,
         decimal VatAmount,
-        decimal AmountPaid,
-        decimal ChangeGiven,
         int WithoutReference);
 
     private sealed record HourCell(string Currency, int Hour, int SalesCount, decimal TotalAmount);
