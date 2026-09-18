@@ -44,30 +44,9 @@ public sealed class GetActiveProductsByUserHandler(
     {
         try
         {
-            var inClause = string.Join(",", itemCodes.Select(c => $"'{c.Replace("'", "''")}'"));
-
-            var priceListJoin = "LEFT JOIN ITM1 T1 ON T0.\"ItemCode\" = T1.\"ItemCode\" AND T1.\"PriceList\" = 1";
-
-            var categoryFilter = "";
-            if (!string.IsNullOrWhiteSpace(category))
-            {
-                var safeCategory = category.Replace("'", "''");
-                categoryFilter = $@" AND T0.""U_ItemGroup"" = '{safeCategory}'";
-            }
-
-            var sqlText = $@"
-                SELECT T0.""ItemCode"", T0.""ItemName"", T0.""CodeBars"" AS ""BarCode"",
-                       T0.""SalUnitMsr"" AS ""UoM"",
-                       T0.""InvntryUom"" AS ""InventoryUOM"",
-                       T0.""U_ItemGroup"" AS ""Category"",
-                       T1.""Price""
-                FROM OITM T0
-                {priceListJoin}
-                WHERE T0.""ItemCode"" IN ({inClause}){categoryFilter}
-                ORDER BY T0.""ItemName""";
-
-            var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                "MerchActiveProducts", "Merchandiser Active Products", sqlText, cancellationToken);
+            // Nothing request-specific in the statement text: see MerchandiserItemSql.
+            var rows = await MerchandiserItemSql.GetPricedProductsAsync(
+                sapClient, itemCodes, cardCode: null, category, cancellationToken);
 
             var filteredRows = FilterRowsBySearch(rows, search);
 

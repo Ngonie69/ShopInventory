@@ -102,15 +102,7 @@ public sealed class AssignProductsGlobalHandler(
 
         try
         {
-            var inClause = string.Join(",", itemCodes.Select(c => $"'{c.Replace("'", "''")}'"));
-            var sqlText = $@"
-                SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_ItemGroup"",
-                       T0.""CodeBars"", T0.""SalUnitMsr""
-                FROM OITM T0
-                WHERE T0.""ItemCode"" IN ({inClause})";
-
-            var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                "MerchAssignGlobalDetails", "Merchandiser Global Assignment Details", sqlText, cancellationToken);
+            var rows = await MerchandiserItemSql.GetItemDetailsAsync(sapClient, itemCodes, cancellationToken);
 
             return rows.ToDictionary(
                 r => r.GetValueOrDefault("ItemCode")?.ToString() ?? "",

@@ -136,14 +136,7 @@ public sealed class GetActiveProductsHandler(
 
         try
         {
-            var inClause = string.Join(",", missingCodes.Select(c => $"'{c.Replace("'", "''")}'"));
-            var sqlText = $@"
-                SELECT T0.""ItemCode"", T0.""U_ItemGroup"" AS ""Category"", T0.""SalUnitMsr"" AS ""UoM""
-                FROM OITM T0
-                WHERE T0.""ItemCode"" IN ({inClause})";
-
-            var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                "MerchActiveBackfill", "Backfill Category/UoM", sqlText, cancellationToken);
+            var rows = await MerchandiserItemSql.GetItemDetailsAsync(sapClient, missingCodes, cancellationToken);
 
             var detailMap = rows
                 .Where(r => r.GetValueOrDefault("ItemCode") != null)
