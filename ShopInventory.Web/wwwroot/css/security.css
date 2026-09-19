@@ -1,51 +1,33 @@
 /* ==========================================================================
    Security — Nocturne
 
-   A derivation, not an import: there is no Security.dc.html in any of the
-   design projects, so this follows the documented fallback the way
-   audit-trail.css and local-stock.css did.
+   Built from the "Security Page Redesign" design canvas (2026-09-19), which
+   replaced the derivation this sheet used to be. The page is now:
 
-   The chrome is audit-trail.css's — sticky header, stated hero, a row of
-   figures, and the same family-token badge for saying what state a thing is in.
-   The body is not: this page is a stack of independent settings cards in two
-   columns rather than one long list, because nothing here is a row of anything.
-   Five separate controls (2FA, passkeys, credentials, password, activity) each
-   own a card, and the narrow column beside them holds the three things that
-   only report — the score, the checklist and the links.
+   - a hero with the account's posture beside it — the score, a four-part bar
+     naming which layers produced it (password, two-factor, backup codes,
+     passkey), and the single next step when there is one;
+   - "Sign-in methods", one list with a row per way in. A row's form (change
+     password, add a passkey) opens in place under it, and backup codes hang
+     off the two-factor row because they only exist while it is on;
+   - "Login details" and "Recent activity" below it, with the day and week
+     counts in the activity heading rather than in a row of figures;
+   - a rail holding the three checks the page can actually verify, the two
+     habits it cannot, and the links out;
+   - an enrolment view that takes the page over while two-factor is being set
+     up, and a backup-codes dialog that will not close until the codes are
+     acknowledged as stored.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
-   them rather than restating them, so a colour is corrected in one place for
-   the whole system. Light is the base and `.dark-theme` the override, both
-   stated there in the order App.razor's pre-paint script stamps the class in.
+   them rather than restating them. Light is the base and `.dark-theme` the
+   override, stated there in the order App.razor's pre-paint script stamps it.
 
-   Rules live here rather than in the inline Razor <style> block this page used
-   to carry, and on this page that mattered more than on most: it has eleven
-   password and code fields, and app.css's global `.dark-theme input` rule at
-   (0,1,1) would repaint every one of them #1e293b. Each control carries a class
-   and each control selector is two classes deep, winning regardless of load
-   order. Headings are pinned to Nocturne's 500 against Bootstrap's global
-   `h1-h6 { font-weight: 600 }`.
+   Each control selector is two classes deep so app.css's global
+   `.dark-theme input` rule at (0,1,1) cannot repaint the fields #1e293b.
 
-   Four departures from the block this replaces:
-
-   - The 135° #667eea→#764ba2 gradient on the header tile and every primary
-     button is gone. It is not a Nocturne colour, and Nocturne outlines its
-     primary action rather than filling it.
-   - The page carried around forty inline `style=` attributes holding hard-coded
-     hexes — #6b7280 for muted text, #10b981/#f59e0b/#ef4444 for the score ring,
-     #667eea for every link and icon. None of them followed the theme, so the
-     side column was light-mode text on a dark ground. They are all tokens now,
-     and the markup carries no colour at all.
-   - Status was said four ways at once (a tinted icon tile, a filled badge, a
-     coloured heading and a coloured dot). It is one badge on the card head,
-     from the same family set as everywhere else.
-   - The three modals painted themselves white and stayed white in dark mode.
-     They are on the page's own ground now, and each carries `.sec` itself,
-     which is what puts the tokens in reach.
-
-   The score ring keeps its three-step hue, because a score *is* a judgement and
-   the three steps are the judgement. They are the family tokens rather than
-   raw hexes, so the ring darkens on paper with everything else.
+   One departure from the rest of Nocturne, taken from the design: the primary
+   button is filled rather than outlined, so the action the posture panel
+   points at reads as the thing to do rather than one option among several.
    ========================================================================== */
 
 .sec {
@@ -71,6 +53,7 @@
     --sec-accent: var(--noct-accent);
     --sec-accent-rgb: var(--noct-accent-rgb);
     --sec-accent-text: var(--noct-accent-text);
+    --sec-on-accent: var(--noct-on-accent);
     --sec-dot-off: var(--noct-dot-off);
     --sec-thumb: var(--noct-thumb);
     --sec-scrim: var(--noct-scrim);
@@ -162,9 +145,9 @@
 }
 
 .sec-head-inner {
-    max-width: 1320px;
+    max-width: 1280px;
     margin: 0 auto;
-    padding: 13px 28px;
+    padding: 13px 40px;
     display: flex;
     align-items: center;
     gap: var(--sec-s6);
@@ -198,18 +181,18 @@
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
-/* Nocturne outlines its primary action rather than filling it. */
+/* Filled primary, per the design; see the header. */
 
 .sec .sec-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
-    height: 32px;
-    padding: var(--sec-s2) calc(var(--sec-s3) * 1.2);
+    height: 36px;
+    padding: 0 14px;
     font-family: 'Inter', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 500;
+    font-size: 13px;
+    font-weight: 600;
     line-height: 1.2;
     color: var(--sec-ink);
     background: transparent;
@@ -231,17 +214,23 @@
 }
 
 .sec .sec-btn-primary {
-    color: var(--sec-accent);
+    color: var(--sec-on-accent);
+    background: var(--sec-accent);
     border-color: var(--sec-accent);
-    letter-spacing: .02em;
 }
 
 .sec .sec-btn-primary:hover:not(:disabled) {
-    background: rgba(var(--sec-accent-rgb), .12);
+    background: var(--sec-accent-text);
+    border-color: var(--sec-accent-text);
 }
 
 .sec .sec-btn-primary:active:not(:disabled) {
-    background: rgba(var(--sec-accent-rgb), .22);
+    filter: brightness(.92);
+}
+
+/* A button tall enough to sit on the baseline of a 40px field beside it. */
+.sec .sec-btn-tall {
+    height: 40px;
 }
 
 .sec .sec-btn-ghost {
@@ -294,212 +283,6 @@
 .sec .sec-icon-btn:hover {
     background: var(--sec-press);
     color: var(--sec-ink);
-}
-
-/* ── Body ──────────────────────────────────────────────────────────────── */
-
-.sec-body {
-    max-width: 1320px;
-    margin: 0 auto;
-    padding: 30px 28px 64px;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s8);
-}
-
-/* ── Hero ──────────────────────────────────────────────────────────────── */
-
-.sec-hero {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 24px;
-    flex-wrap: wrap;
-}
-
-.sec-kicker {
-    font-size: 10.5px;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-    color: var(--sec-accent-text);
-    margin-bottom: 9px;
-}
-
-.sec-hero h1 {
-    margin: 0 0 7px;
-    font-size: 30px;
-    letter-spacing: -.02em;
-    line-height: 1.1;
-}
-
-.sec-hero p {
-    margin: 0;
-    font-size: 13.5px;
-    color: var(--sec-mute-2);
-    max-width: 56ch;
-    text-wrap: pretty;
-}
-
-/* ── The figures ───────────────────────────────────────────────────────── */
-/* Five rather than the sibling sheets' four, because 2FA, backup codes and
-   passkeys are three separate answers to "is this account hard to get into"
-   and collapsing any two of them would hide which one is missing. */
-
-.sec-stats {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: var(--sec-s4);
-}
-
-.sec-stat {
-    padding: var(--sec-s6) 18px;
-    border: 1px solid var(--sec-divider);
-    border-radius: var(--sec-r-lg);
-    background: var(--sec-surface);
-    min-width: 0;
-}
-
-.sec-stat-good {
-    background:
-        linear-gradient(155deg, rgba(var(--sec-fam-good-rgb), .12), transparent 62%),
-        var(--sec-surface);
-}
-
-.sec-stat-alert {
-    background:
-        linear-gradient(155deg, rgba(var(--sec-fam-warn-rgb), .14), transparent 62%),
-        var(--sec-surface);
-}
-
-.sec-stat-head {
-    display: flex;
-    align-items: center;
-    gap: var(--sec-s3);
-    font-size: 10.5px;
-    letter-spacing: .13em;
-    text-transform: uppercase;
-    color: var(--sec-mute-2);
-}
-
-.sec-stat-good .sec-stat-head {
-    color: var(--sec-fam-good);
-}
-
-.sec-stat-alert .sec-stat-head {
-    color: var(--sec-fam-warn);
-}
-
-.sec-stat-rule {
-    width: 12px;
-    height: 1px;
-    flex: none;
-    background: var(--sec-mute-3);
-}
-
-.sec-stat-good .sec-stat-rule {
-    background: var(--sec-fam-good);
-}
-
-.sec-stat-alert .sec-stat-rule {
-    background: var(--sec-fam-warn);
-}
-
-.sec-stat-num {
-    margin-top: var(--sec-s4);
-    font-size: 30px;
-    font-weight: 500;
-    letter-spacing: -.02em;
-    line-height: 1.1;
-    font-variant-numeric: tabular-nums;
-}
-
-.sec-stat-good .sec-stat-num {
-    color: var(--sec-fam-good);
-}
-
-.sec-stat-alert .sec-stat-num {
-    color: var(--sec-fam-warn);
-}
-
-.sec-stat-sub {
-    margin-top: 4px;
-    font-size: 12px;
-    color: var(--sec-mute-2);
-}
-
-/* ── The two columns ───────────────────────────────────────────────────── */
-
-.sec-cols {
-    display: grid;
-    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr);
-    gap: var(--sec-s6);
-    align-items: start;
-}
-
-.sec-col {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s6);
-    min-width: 0;
-}
-
-/* ── A settings card ───────────────────────────────────────────────────── */
-
-.sec-card {
-    border: 1px solid var(--sec-divider);
-    border-radius: var(--sec-r-lg);
-    background: var(--sec-surface);
-    min-width: 0;
-}
-
-/* The setup card is the one thing on the page that is mid-task, so it washes
-   into the ground rather than sitting as another settled panel. */
-.sec-card-setup {
-    background: linear-gradient(to bottom, var(--sec-wash), transparent 240px);
-    border-color: rgba(var(--sec-accent-rgb), .38);
-}
-
-.sec-card-head {
-    display: flex;
-    align-items: center;
-    gap: var(--sec-s4);
-    padding: var(--sec-s6) 18px var(--sec-s4);
-    flex-wrap: wrap;
-}
-
-.sec-card-head h2 {
-    margin: 0;
-    font-size: 15px;
-    letter-spacing: -.01em;
-}
-
-.sec-card-head-aside {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: var(--sec-s3);
-}
-
-.sec-card-body {
-    padding: 0 18px var(--sec-s6);
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s4);
-}
-
-.sec-card-body p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--sec-mute-2);
-    max-width: 68ch;
-    text-wrap: pretty;
-}
-
-.sec-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--sec-s3);
-    flex-wrap: wrap;
 }
 
 /* ── Badges ────────────────────────────────────────────────────────────── */
@@ -583,16 +366,16 @@
 
 .sec .sec-input {
     width: 100%;
-    min-height: 34px;
+    min-height: 40px;
     padding: 8px 12px;
     font-family: 'Inter', system-ui, sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.3;
     color: var(--sec-ink);
     caret-color: var(--sec-accent);
     background: var(--sec-field-bg);
     background-image: none;
-    border: 1px solid transparent;
+    border: 1px solid var(--sec-field-edge);
     border-radius: var(--sec-r-md);
     appearance: none;
     -webkit-appearance: none;
@@ -607,7 +390,7 @@
 }
 
 .sec .sec-input:hover {
-    border-color: var(--sec-field-edge);
+    border-color: var(--sec-field-edge-hi);
 }
 
 .sec .sec-input:focus-visible {
@@ -633,10 +416,9 @@
 }
 
 .sec-label {
-    font-size: 10.5px;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    color: var(--sec-mute-3);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--sec-mute);
 }
 
 .sec-req {
@@ -659,70 +441,6 @@
 .sec-input-group .sec-input {
     flex: 1;
     min-width: 0;
-}
-
-/* The forms are narrow by intent: a username, an email and a password are all
-   short, and a field the width of the card invites the eye to travel further
-   than the content ever goes. */
-.sec-form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s4);
-    max-width: 420px;
-}
-
-/* ── 2FA setup ─────────────────────────────────────────────────────────── */
-
-.sec-steps {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--sec-s8);
-}
-
-.sec-step {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s4);
-    min-width: 0;
-}
-
-.sec-step-head {
-    display: flex;
-    align-items: center;
-    gap: var(--sec-s3);
-    font-size: 13.5px;
-    color: var(--sec-ink-2);
-}
-
-.sec-step-num {
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    flex: none;
-    border-radius: 999px;
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    color: var(--sec-accent-text);
-    background: rgba(var(--sec-accent-rgb), .16);
-}
-
-/* The QR image comes from an external service and is always drawn dark-on-
-   white, so it keeps a white plate under it in both schemes — inverting it
-   would stop it scanning. */
-.sec-qr {
-    display: inline-flex;
-    padding: var(--sec-s4);
-    border-radius: var(--sec-r-md);
-    background: #ffffff;
-    box-shadow: inset 0 0 0 1px var(--sec-divider);
-    align-self: flex-start;
-}
-
-.sec-qr img {
-    display: block;
-    width: 180px;
-    height: 180px;
 }
 
 /* ── Password rules ────────────────────────────────────────────────────── */
@@ -763,258 +481,6 @@
 
 .sec-rule-pass .sec-rule-mark {
     background: currentColor;
-}
-
-/* ── Passkeys ──────────────────────────────────────────────────────────── */
-
-.sec-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s2);
-}
-
-.sec-list-row {
-    display: flex;
-    align-items: center;
-    gap: var(--sec-s4);
-    padding: var(--sec-s3) var(--sec-s4);
-    border: 1px solid var(--sec-divider);
-    border-radius: var(--sec-r-md);
-    min-width: 0;
-}
-
-.sec-list-text {
-    flex: 1;
-    min-width: 0;
-}
-
-.sec-list-name {
-    font-size: 13px;
-    color: var(--sec-ink-2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.sec-list-meta {
-    font-size: 11.5px;
-    color: var(--sec-mute-3);
-    font-variant-numeric: tabular-nums;
-}
-
-.sec-list-mark {
-    flex: none;
-    color: var(--sec-accent);
-}
-
-/* ── Recent activity ───────────────────────────────────────────────────── */
-
-.sec-activity {
-    display: flex;
-    flex-direction: column;
-}
-
-.sec-activity-row {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sec-s4);
-    padding: 9px 0;
-    border-top: 1px solid var(--sec-rule);
-    min-width: 0;
-}
-
-.sec-activity-row:first-child {
-    border-top: 0;
-}
-
-/* An outcome, not a decoration: a failed action is the only reason to read this
-   card, so it is the only thing in it that carries a hue. */
-.sec-dot {
-    width: 7px;
-    height: 7px;
-    flex: none;
-    margin-top: 7px;
-    border-radius: 999px;
-    background: var(--sec-dot-off);
-}
-
-.sec-dot-fail {
-    background: var(--sec-fam-bad);
-}
-
-.sec-activity-text {
-    flex: 1;
-    min-width: 0;
-}
-
-.sec-activity-action {
-    font-size: 13px;
-    color: var(--sec-ink-2);
-}
-
-.sec-activity-meta {
-    font-size: 11.5px;
-    color: var(--sec-mute-3);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.sec-activity-time {
-    flex: none;
-    font-size: 11.5px;
-    color: var(--sec-mute-3);
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-}
-
-/* ── Score ─────────────────────────────────────────────────────────────── */
-
-.sec-score {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--sec-s4);
-    text-align: center;
-}
-
-.sec-score-ring {
-    position: relative;
-    width: 128px;
-    height: 128px;
-}
-
-.sec-score-ring svg {
-    width: 128px;
-    height: 128px;
-    transform: rotate(-90deg);
-}
-
-.sec-score-track {
-    stroke: var(--sec-press);
-}
-
-/* The arc's hue is the judgement, set from a family token by the class the
-   markup puts on the ring. */
-.sec-score-arc {
-    stroke: var(--sec-fam, var(--sec-fam-neutral));
-    transition: stroke-dasharray .4s ease;
-}
-
-.sec-score-face {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}
-
-.sec-score-num {
-    font-size: 30px;
-    font-weight: 500;
-    letter-spacing: -.02em;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    color: var(--sec-fam, var(--sec-ink));
-}
-
-.sec-score-of {
-    font-size: 11px;
-    color: var(--sec-mute-3);
-    font-variant-numeric: tabular-nums;
-}
-
-.sec-score-verdict {
-    font-size: 13px;
-    color: var(--sec-fam, var(--sec-ink-2));
-}
-
-.sec-score-note {
-    margin: 0;
-    font-size: 12.5px;
-    color: var(--sec-mute-2);
-    text-wrap: pretty;
-}
-
-/* ── Checklist ─────────────────────────────────────────────────────────── */
-
-.sec-checks {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s4);
-}
-
-.sec-check {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sec-s3);
-    min-width: 0;
-}
-
-.sec-check-mark {
-    width: 15px;
-    height: 15px;
-    flex: none;
-    margin-top: 3px;
-    border-radius: 999px;
-    border: 1.5px solid var(--sec-dot-off);
-    display: grid;
-    place-items: center;
-    color: transparent;
-}
-
-.sec-check-on .sec-check-mark {
-    border-color: var(--sec-fam-good);
-    color: var(--sec-fam-good);
-}
-
-.sec-check-text {
-    min-width: 0;
-}
-
-.sec-check-title {
-    font-size: 13px;
-    color: var(--sec-ink-2);
-}
-
-.sec-check-sub {
-    font-size: 11.5px;
-    color: var(--sec-mute-3);
-    text-wrap: pretty;
-}
-
-/* ── Quick links ───────────────────────────────────────────────────────── */
-
-.sec-links {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sec-s2);
-}
-
-.sec .sec-link {
-    display: flex;
-    align-items: center;
-    gap: var(--sec-s3);
-    padding: var(--sec-s3) var(--sec-s4);
-    border: 1px solid var(--sec-divider);
-    border-radius: var(--sec-r-md);
-    font-size: 12.5px;
-    color: var(--sec-mute);
-    text-decoration: none;
-    transition: color .14s, border-color .14s, background-color .14s;
-}
-
-.sec .sec-link:hover {
-    color: var(--sec-ink);
-    border-color: var(--sec-field-edge-hi);
-    background: var(--sec-hover);
-}
-
-.sec-link-chevron {
-    margin-left: auto;
-    flex: none;
-    color: var(--sec-faint);
 }
 
 /* ── Modals ────────────────────────────────────────────────────────────── */
@@ -1102,6 +568,8 @@
 /* Backup codes, shown once. Two columns of monospace on a recessed ground so
    they read as a block to be copied rather than as page prose. */
 .sec-codes {
+    margin: 0;
+    list-style: none;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--sec-s3) var(--sec-s6);
@@ -1209,50 +677,1075 @@
     background: transparent;
 }
 
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.sec-body {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 36px 40px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 36px;
+}
+
+/* ── Hero: who is signed in, and the posture beside it ─────────────────── */
+
+.sec-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 480px);
+    gap: 40px;
+    align-items: stretch;
+}
+
+.sec-hero-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.sec-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--sec-accent-text);
+}
+
+.sec .sec-hero h1 {
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    font-size: 44px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.05;
+}
+
+.sec-hero p {
+    margin: 0;
+    max-width: 560px;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--sec-mute);
+    text-wrap: pretty;
+}
+
+.sec-who {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--sec-mute);
+}
+
+.sec-who strong {
+    color: var(--sec-ink);
+    font-weight: 600;
+}
+
+.sec-avatar {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--sec-accent-text);
+    background: rgba(var(--sec-accent-rgb), .18);
+}
+
+/* The score is a judgement, so its number and verdict take the family hue of
+   the step it lands in. The four-part bar underneath says which layers
+   produced it, which is what the old ring could not. */
+.sec-posture {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px;
+    border: 1px solid var(--sec-rule);
+    border-radius: var(--sec-r-lg);
+    background: var(--sec-surface);
+    min-width: 0;
+}
+
+.sec-posture-top {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.sec-score {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.sec-score-num {
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    font-size: 60px;
+    font-weight: 600;
+    line-height: .9;
+    letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums;
+    color: var(--sec-fam, var(--sec-ink));
+}
+
+.sec-score-of {
+    font-size: 14px;
+    color: var(--sec-mute-3);
+}
+
+.sec-posture .sec-badge {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0;
+    padding: 5px 10px;
+}
+
+.sec-layers {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sec-layer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--sec-mute-3);
+}
+
+.sec-layer::before {
+    content: "";
+    height: 6px;
+    border-radius: 3px;
+    background: var(--sec-field-bg);
+    box-shadow: inset 0 0 0 1px var(--sec-rule);
+}
+
+.sec-layer-on {
+    color: var(--sec-ink);
+}
+
+.sec-layer-on::before {
+    background: var(--sec-fam-good);
+    box-shadow: none;
+}
+
+/* Tinted by the family class the step carries: warn when a layer is missing,
+   info when it is only an improvement. */
+.sec-next {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: rgba(var(--sec-fam-rgb, 161, 92, 0), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--sec-fam-rgb, 161, 92, 0), .3);
+}
+
+.sec-next-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.sec-next-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--sec-fam, var(--sec-fam-warn));
+}
+
+.sec-next-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sec-next-sub,
+.sec-posture-note {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--sec-mute);
+}
+
+/* ── Main column and rail ──────────────────────────────────────────────── */
+
+.sec-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 336px;
+    gap: 40px;
+    align-items: start;
+}
+
+.sec-main,
+.sec-rail {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.sec-main {
+    gap: 36px;
+}
+
+.sec-rail {
+    gap: 20px;
+}
+
+.sec-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    scroll-margin-top: calc(var(--kf-topbar-h, 74px) + 64px);
+}
+
+.sec-section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.sec .sec-section-head h2 {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.sec-section-head p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--sec-mute-3);
+}
+
+.sec-section-head p strong {
+    color: var(--sec-ink);
+    font-weight: 600;
+}
+
+.sec .sec-more {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sec-accent-text);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.sec .sec-more:hover {
+    color: var(--sec-ink);
+}
+
+.sec-panel {
+    border: 1px solid var(--sec-rule);
+    border-radius: var(--sec-r-lg);
+    background: var(--sec-surface);
+    min-width: 0;
+}
+
+/* ── Sign-in methods ───────────────────────────────────────────────────── */
+/* One row per way in: a tile, a name with its status badge, one line of what
+   it does, and the single action that matters for it. A row's form opens in
+   place beneath it rather than living in a card of its own. */
+
+.sec-method {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 24px;
+    border-top: 1px solid var(--sec-rule);
+}
+
+.sec-method:first-child {
+    border-top: 0;
+}
+
+.sec-method-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+.sec-tile {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border-radius: 10px;
+    color: var(--sec-fam, var(--sec-mute));
+    background: rgba(var(--sec-fam-rgb, 94, 100, 131), .16);
+}
+
+.sec-method-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.sec-method-name {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.sec-method-name .sec-badge {
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.sec-method-desc {
+    font-size: 13px;
+    color: var(--sec-mute-3);
+    text-wrap: pretty;
+}
+
+.sec-method-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+}
+
+/* Everything that hangs off a row is indented to the text, past the tile. */
+.sec-method-sub {
+    margin-left: 56px;
+    min-width: 0;
+}
+
+.sec-drawer {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+    border-radius: 10px;
+    background: var(--sec-field-bg);
+    box-shadow: inset 0 0 0 1px var(--sec-rule);
+}
+
+.sec-fields-3,
+.sec-fields-2 {
+    display: grid;
+    gap: 14px 16px;
+}
+
+.sec-fields-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sec-fields-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sec-drawer-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+/* Backup codes hang off two-factor: they only exist while it is on. Ten bars,
+   because the API issues ten; the lit ones are the codes still unused. */
+.sec-codes-strip {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px dashed var(--sec-divider);
+}
+
+.sec-codes-off {
+    border-color: var(--sec-rule);
+}
+
+.sec-codes-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.sec-codes-label {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.sec-codes-label span {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--sec-mute-3);
+}
+
+.sec-pips {
+    display: flex;
+    gap: 4px;
+}
+
+.sec-pip {
+    width: 22px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--sec-field-bg);
+    box-shadow: inset 0 0 0 1px var(--sec-rule);
+}
+
+.sec-pip-on {
+    background: var(--sec-fam-good);
+    box-shadow: none;
+}
+
+.sec-codes-low .sec-pip-on {
+    background: var(--sec-fam-warn);
+}
+
+.sec-keys {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--sec-rule);
+    border-radius: 10px;
+}
+
+.sec-key {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--sec-rule);
+    min-width: 0;
+}
+
+.sec-key:first-child {
+    border-top: 0;
+}
+
+.sec-key-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.sec-key-name {
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sec-key-meta {
+    font-size: 12px;
+    color: var(--sec-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.sec-key svg {
+    flex: none;
+    color: var(--sec-accent);
+}
+
+.sec-inline-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.sec-inline-form .sec-field {
+    flex: 1;
+}
+
+/* ── Login details ─────────────────────────────────────────────────────── */
+
+.sec-login {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px;
+}
+
+.sec-login-foot {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    padding-top: 18px;
+    border-top: 1px solid var(--sec-rule);
+}
+
+.sec-login-foot .sec-field {
+    width: 320px;
+    flex: none;
+}
+
+.sec-login-state {
+    flex: 1;
+    padding-bottom: 11px;
+    font-size: 12px;
+    color: var(--sec-faint);
+}
+
+/* ── Recent activity ───────────────────────────────────────────────────── */
+
+.sec-activity {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow: hidden;
+}
+
+.sec-activity-row {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 24px;
+    border-top: 1px solid var(--sec-rule);
+}
+
+.sec-activity-row:first-child {
+    border-top: 0;
+}
+
+.sec-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--sec-fam-good);
+    box-shadow: 0 0 0 4px rgba(var(--sec-fam-good-rgb), .14);
+}
+
+.sec-dot-fail {
+    background: var(--sec-fam-bad);
+    box-shadow: 0 0 0 4px rgba(var(--sec-fam-bad-rgb), .16);
+}
+
+.sec-activity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.sec-activity-action {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sec-activity-fail .sec-activity-action {
+    color: var(--sec-fam-bad);
+}
+
+.sec-activity-meta {
+    font-size: 12px;
+    color: var(--sec-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sec-activity-time {
+    font-size: 12px;
+    color: var(--sec-mute-3);
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Rail: checklist, habits, links ────────────────────────────────────── */
+
+.sec-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 22px;
+}
+
+.sec-checklist-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sec .sec-checklist-head h2 {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.sec-checklist-head span {
+    font-size: 12px;
+    color: var(--sec-mute-3);
+}
+
+.sec-checks {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.sec-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.sec-check-mark {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    margin-top: 1px;
+    border-radius: 6px;
+    border: 1.5px solid var(--sec-divider);
+    color: transparent;
+}
+
+.sec-check-on .sec-check-mark {
+    border-color: var(--sec-accent);
+    background: var(--sec-accent);
+    color: var(--sec-on-accent);
+}
+
+.sec-check-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.sec-check-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sec-check-sub {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--sec-mute-3);
+    text-wrap: pretty;
+}
+
+.sec-habits {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--sec-rule);
+}
+
+.sec-habits-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--sec-faint);
+}
+
+.sec-habits p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--sec-mute-3);
+}
+
+.sec-habits strong {
+    color: var(--sec-mute);
+    font-weight: 600;
+}
+
+.sec-links {
+    padding: 12px 18px;
+}
+
+.sec .sec-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    padding: 0 4px;
+    border-top: 1px solid var(--sec-rule);
+    border-radius: 6px;
+    font-size: 14px;
+    color: var(--sec-ink);
+    text-decoration: none;
+    transition: background-color .14s;
+}
+
+.sec .sec-link:first-child {
+    border-top: 0;
+}
+
+.sec .sec-link:hover {
+    background: var(--sec-hover);
+    color: var(--sec-ink);
+}
+
+.sec-link svg {
+    flex: none;
+    color: var(--sec-faint);
+}
+
+/* ── Two-factor enrolment ──────────────────────────────────────────────── */
+/* Takes the page over while it runs: the hero, the methods and the rail all
+   step aside, because the only thing worth doing is finishing or cancelling. */
+
+.sec-enrol {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    width: 100%;
+    max-width: 1040px;
+    margin: 0 auto;
+}
+
+.sec-enrol-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.sec-enrol-head > div {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.sec .sec-enrol-head h1 {
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    font-size: 36px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.sec-enrol-head p {
+    margin: 0;
+    max-width: 600px;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--sec-mute);
+}
+
+.sec-steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.sec-step {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px;
+    border: 1px solid var(--sec-rule);
+    border-radius: var(--sec-r-lg);
+    background: var(--sec-surface);
+    min-width: 0;
+}
+
+.sec-step-now {
+    border-color: rgba(var(--sec-accent-rgb), .55);
+    box-shadow: 0 0 0 4px rgba(var(--sec-accent-rgb), .1);
+}
+
+.sec-step-later {
+    opacity: .72;
+}
+
+.sec-step-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.sec-step-num {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--sec-mute-3);
+    border: 1.5px solid var(--sec-divider);
+}
+
+.sec-step-now .sec-step-num {
+    color: var(--sec-on-accent);
+    background: var(--sec-accent);
+    border-color: var(--sec-accent);
+}
+
+.sec-step p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--sec-mute-3);
+    text-wrap: pretty;
+}
+
+.sec-step-fill {
+    flex: 1;
+}
+
+/* The QR image comes from an external service and is always drawn dark on
+   white, so it keeps a white plate in both schemes — inverting it would stop
+   it scanning. */
+.sec-qr {
+    align-self: center;
+    padding: 12px;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: inset 0 0 0 1px var(--sec-rule);
+}
+
+.sec-qr img {
+    display: block;
+    width: 160px;
+    height: 160px;
+}
+
+/* The manual key is read off this screen and typed into a phone, so it keeps
+   the monospace face but not the wide tracking a six-digit code gets — at
+   that spacing a 16-character key overruns the step's column. */
+.sec .sec-enrol .sec-input-code {
+    font-size: 14px;
+    letter-spacing: .06em;
+}
+
+/* The one code field on the page that is typed from a phone screen, so it is
+   set large and spaced out like the six digits it holds. */
+.sec .sec-input-otp {
+    height: 56px;
+    font-family: var(--sec-mono);
+    font-size: 26px;
+    letter-spacing: .5em;
+    text-align: center;
+    padding-left: .5em;
+}
+
+.sec-ghosts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.sec-ghosts span {
+    height: 30px;
+    border-radius: 6px;
+    background: var(--sec-field-bg);
+    border: 1px dashed var(--sec-divider);
+}
+
+/* ── Backup codes dialog ───────────────────────────────────────────────── */
+
+.sec-codes li {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.sec-codes li > span:first-child {
+    width: 16px;
+    flex: none;
+    text-align: right;
+    font-size: 11px;
+    color: var(--sec-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.sec-ack {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    font-size: 13px;
+    color: var(--sec-mute);
+    cursor: pointer;
+}
+
+.sec .sec-ack input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    flex: none;
+    accent-color: var(--sec-accent);
+    cursor: pointer;
+}
+
+.sec-modal-foot-split {
+    justify-content: space-between;
+}
+
+.sec-modal-foot-split > div {
+    display: flex;
+    gap: var(--sec-s3);
+}
+
+.sec-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 1100px) {
-    .sec-cols {
+    .sec-hero,
+    .sec-grid {
         grid-template-columns: minmax(0, 1fr);
-    }
-
-    .sec-stats {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .sec-steps {
         grid-template-columns: minmax(0, 1fr);
     }
+
+    .sec-step-later {
+        opacity: 1;
+    }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 760px) {
     .sec-head-inner {
         padding: var(--sec-s3) 18px;
-        flex-wrap: wrap;
-        gap: var(--sec-s3);
     }
 
     .sec-body {
-        padding: var(--sec-s8) 18px 56px;
+        padding: 24px 16px 56px;
+        gap: 28px;
     }
 
-    .sec-hero h1 {
-        font-size: 24px;
+    .sec .sec-hero h1 {
+        font-size: 32px;
     }
 
-    .sec-stats {
+    .sec .sec-enrol-head h1 {
+        font-size: 26px;
+    }
+
+    .sec-enrol-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .sec-score-num {
+        font-size: 48px;
+    }
+
+    .sec-method {
+        padding: 18px 16px;
+    }
+
+    .sec-method-row {
+        flex-wrap: wrap;
+    }
+
+    .sec-method-text {
+        flex-basis: calc(100% - 56px);
+    }
+
+    .sec-method-actions {
+        margin-left: 56px;
+    }
+
+    .sec-method-sub {
+        margin-left: 0;
+    }
+
+    .sec-layers {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+        row-gap: 12px;
     }
 
-    .sec-card-head,
-    .sec-card-body {
-        padding-inline: var(--sec-s6);
+    .sec-codes-strip {
+        flex-wrap: wrap;
+    }
+
+    .sec-codes-text {
+        flex-basis: 100%;
+    }
+
+    .sec-fields-3,
+    .sec-fields-2 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sec-inline-form,
+    .sec-login-foot {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .sec-login-foot .sec-field {
+        width: auto;
+    }
+
+    .sec-login-state {
+        padding-bottom: 0;
+    }
+
+    .sec-login {
+        padding: 18px 16px;
+    }
+
+    .sec-activity-row {
+        padding: 12px 16px;
     }
 
     .sec-modal-head,
     .sec-modal-body,
     .sec-modal-foot {
         padding-inline: var(--sec-s6);
+    }
+
+    .sec-modal-foot-split {
+        flex-wrap: wrap;
     }
 
     .sec-codes {
