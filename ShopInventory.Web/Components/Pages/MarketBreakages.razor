@@ -1,0 +1,492 @@
+@page "/market-breakages"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.MarketBreakageRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>Market Breakages - Shop Inventory</PageTitle>
+
+@* Nocturne, the same page shape as Credit Note Approvals: wwwroot/css/market-breakages.css (linked
+   from App.razor) is generated from that page's sheet and carries both schemes. Icon-only buttons
+   draw their glyph inline so a font that fails to load cannot leave them reading as dead controls. *@
+
+<div class="mbk">
+
+    <header class="mbk-head">
+        <div class="mbk-shell">
+            <div class="mbk-titles">
+                <div class="mbk-titles-row">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    <h1 class="mbk-title">Market Breakages</h1>
+                </div>
+                <p class="mbk-sub">Broken stock vans collected from shops. Count it, then transfer it to returns.</p>
+            </div>
+            <div class="mbk-head-actions">
+                <span class="mbk-count">@totalCount.ToString("N0") reports</span>
+                <button type="button" class="mbk-btn mbk-btn-secondary" @onclick="RefreshAsync" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="mbk-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    }
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+        <div class="mbk-rule"></div>
+    </header>
+
+    <div class="mbk-body">
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="mbk-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="mbk-alert-body">@errorMessage</div>
+                <button type="button" class="mbk-btn mbk-btn-ghost mbk-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+        }
+
+        <section class="mbk-filters">
+            <div class="mbk-field">
+                <label id="mbk-f-status-label">Show</label>
+                <div class="mbk-seg" role="group" aria-labelledby="mbk-f-status-label">
+                    @foreach (var option in StatusOptions)
+                    {
+                        <button type="button" class="mbk-seg-btn @(statusFilter == option.Value ? "is-on" : "")"
+                                aria-pressed="@(statusFilter == option.Value)"
+                                @onclick="() => SetStatusFilterAsync(option.Value)">
+                            @option.Label
+                            @if (CountFor(option.Value) is int count)
+                            {
+                                <span class="mbk-seg-count">@count.ToString("N0")</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="mbk-field" style="width:240px">
+                <label for="mbk-f-search">Search</label>
+                <input id="mbk-f-search" class="mbk-input" type="text" placeholder="Rep, van, shop or item"
+                       value="@searchText" @oninput="OnSearchInputAsync" />
+            </div>
+            @if (!string.IsNullOrWhiteSpace(searchText))
+            {
+                <div class="mbk-filter-actions">
+                    <button type="button" class="mbk-btn mbk-btn-ghost" @onclick="ClearSearchAsync">Clear</button>
+                </div>
+            }
+        </section>
+
+        <section class="mbk-card">
+
+            <div class="mbk-toolbar">
+                <span class="mbk-range">@RangeLabel</span>
+                <span class="mbk-hint">
+                    <i class="ph ph-info" aria-hidden="true"></i>Confirming posts a SAP transfer from the van to returns
+                </span>
+            </div>
+
+            <div class="mbk-tablewrap">
+                <table class="mbk-table">
+                    <thead>
+                        <tr>
+                            <th>Report</th>
+                            <th>Shop</th>
+                            <th>Van</th>
+                            <th>Collected</th>
+                            <th class="mbk-num">Units</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
+                        {
+                            @for (var skeletonRow = 0; skeletonRow < 6; skeletonRow++)
+                            {
+                                <tr>
+                                    @for (var skeletonCell = 0; skeletonCell < 7; skeletonCell++)
+                                    {
+                                        <td><div class="mbk-skel"></div></td>
+                                    }
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            @foreach (var report in reports)
+                            {
+                                <tr @key="report.Id" class="@(detailId == report.Id ? "is-open-row" : null)">
+                                    <td>
+                                        <span class="mbk-cust">
+                                            <button type="button" class="mbk-cust-name" @onclick="() => OpenAsync(report.Id)">
+                                                #@report.Id · @report.ReportedByName
+                                            </button>
+                                            <span class="mbk-cust-code">@LinesText(report.LineCount)</span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="mbk-stack">
+                                            <span>@(report.CardName ?? report.CardCode ?? "—")</span>
+                                            @if (!string.IsNullOrWhiteSpace(report.CardName) && !string.IsNullOrWhiteSpace(report.CardCode))
+                                            {
+                                                <span class="mbk-stack-sub">@report.CardCode</span>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td><span class="mbk-tag">@report.VanWarehouseCode</span></td>
+                                    <td class="mbk-date">
+                                        <span class="mbk-stack">
+                                            <span>@FormatDate(report.CapturedAtUtc)</span>
+                                            <span class="mbk-age">@AgeText(report.CapturedAtUtc)</span>
+                                        </span>
+                                    </td>
+                                    <td class="mbk-num">
+                                        @if (report.TotalConfirmedQuantity is decimal counted && counted != report.TotalReportedQuantity)
+                                        {
+                                            <span class="mbk-qty-pair">
+                                                <span class="mbk-qty-was" title="Reported">@QuantityDisplay.Format(report.TotalReportedQuantity)</span>
+                                                <span class="mbk-qty-diff" title="Counted">@QuantityDisplay.Format(counted)</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            @QuantityDisplay.Format(report.TotalReportedQuantity)
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="mbk-status">
+                                            <span class="mbk-dot @StatusModifier(report.Status)" aria-hidden="true"></span>
+                                            <span class="mbk-status-text @StatusModifier(report.Status)">@MarketBreakageStatus.Describe(report.Status)</span>
+                                        </span>
+                                        @if (report.SapDocNum is int docNum)
+                                        {
+                                            <span class="mbk-stack-sub"> · #@docNum</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="mbk-rowactions">
+                                            <button type="button" class="mbk-btn mbk-btn-ghost mbk-btn-icon-sm"
+                                                    title="Open report" aria-label="Open breakage report @report.Id"
+                                                    @onclick="() => OpenAsync(report.Id)">
+                                                <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                    <path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z" />
+                                                </svg>
+                                            </button>
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (!isLoading && reports.Count == 0)
+            {
+                <div class="mbk-empty">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    <span>@EmptyMessage</span>
+                </div>
+            }
+
+            <div class="mbk-foot">
+                <span class="mbk-foot-range">@RangeLabel</span>
+                <div class="mbk-pager">
+                    <button type="button" class="mbk-btn mbk-btn-secondary mbk-btn-icon" title="Previous page"
+                            aria-label="Previous page" disabled="@(currentPage <= 1 || isLoading)" @onclick="PreviousPageAsync">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z" />
+                        </svg>
+                    </button>
+                    <span class="mbk-page-label">Page @currentPage / @TotalPages</span>
+                    <button type="button" class="mbk-btn mbk-btn-secondary mbk-btn-icon" title="Next page"
+                            aria-label="Next page" disabled="@(currentPage >= TotalPages || isLoading)" @onclick="NextPageAsync">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+@if (detailId is not null)
+{
+    <div class="mbk-overlay">
+        <div class="mbk-scrim" @onclick="CloseDetail"></div>
+        <aside class="mbk-drawer" aria-label="Breakage report details">
+            <div class="mbk-drawer-head">
+                <h2 class="mbk-drawer-title">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    Breakage report #@detailId
+                </h2>
+                <button type="button" class="mbk-btn mbk-btn-ghost mbk-btn-icon" title="Close"
+                        aria-label="Close details" @onclick="CloseDetail">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="mbk-drawer-body">
+                @if (isLoadingDetail)
+                {
+                    <div class="mbk-note">Loading the report…</div>
+                }
+                else if (detail is null)
+                {
+                    <div class="mbk-alert" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="mbk-alert-body">@(detailError ?? "This report could not be loaded.")</div>
+                    </div>
+                }
+                else
+                {
+                    @if (!string.IsNullOrEmpty(detailError))
+                    {
+                        <div class="mbk-alert" role="alert">
+                            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                            <div class="mbk-alert-body">@detailError</div>
+                        </div>
+                    }
+
+                    @if (detail.SapDocNum is int transferNum)
+                    {
+                        <div class="mbk-doc">
+                            <i class="ph ph-check-circle" aria-hidden="true"></i>
+                            <span>
+                                Transfer <strong>#@transferNum</strong> moved the stock from
+                                <strong>@detail.VanWarehouseCode</strong> to <strong>@(detail.ReturnsWarehouseCode ?? "returns")</strong>
+                                @if (detail.TransferredAtUtc is DateTime transferredAt)
+                                {
+                                    <span> on @FormatStamp(transferredAt)</span>
+                                }.
+                            </span>
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(detail.LastError) && MarketBreakageStatus.MayConfirm(detail.Status))
+                    {
+                        <div class="mbk-alert" role="alert">
+                            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                            <div class="mbk-alert-body">
+                                The last transfer attempt failed@(detail.LastAttemptedAtUtc is DateTime tried ? $" ({FormatStamp(tried)})" : ""): @detail.LastError
+                            </div>
+                        </div>
+                    }
+                    else if (detail.Status == MarketBreakageStatus.Transferring)
+                    {
+                        <div class="mbk-blocked">
+                            <i class="ph ph-info" aria-hidden="true"></i>
+                            <div class="mbk-alert-body">
+                                A transfer was started@(detail.LastAttemptedAtUtc is DateTime started ? $" at {FormatStamp(started)}" : "") and has not finished.
+                                If it is still running, wait and refresh. If it was interrupted, check SAP for a transfer from
+                                @detail.VanWarehouseCode before confirming again.
+                            </div>
+                        </div>
+                    }
+
+                    <div class="mbk-grid">
+                        <div>
+                            <div class="mbk-dt">Reported by</div>
+                            <div class="mbk-dd">@detail.ReportedByName</div>
+                        </div>
+                        <div>
+                            <div class="mbk-dt">Van</div>
+                            <div class="mbk-dd">@detail.VanWarehouseCode</div>
+                        </div>
+                        <div>
+                            <div class="mbk-dt">Shop</div>
+                            <div class="mbk-dd">@ShopText(detail)</div>
+                        </div>
+                        <div>
+                            <div class="mbk-dt">Collected</div>
+                            <div class="mbk-dd">@FormatStamp(detail.CapturedAtUtc)</div>
+                        </div>
+                        <div>
+                            <div class="mbk-dt">Status</div>
+                            <div class="mbk-dd">
+                                <span class="mbk-status">
+                                    <span class="mbk-dot @StatusModifier(detail.Status)" aria-hidden="true"></span>
+                                    <span class="mbk-status-text @StatusModifier(detail.Status)">@MarketBreakageStatus.Describe(detail.Status)</span>
+                                </span>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(detail.DecidedByName))
+                        {
+                            <div>
+                                <div class="mbk-dt">@(detail.Status == MarketBreakageStatus.Rejected ? "Rejected by" : "Confirmed by")</div>
+                                <div class="mbk-dd">
+                                    @detail.DecidedByName
+                                    @if (detail.DecidedAtUtc is DateTime decidedAt)
+                                    {
+                                        <span class="mbk-stack-sub"> · @FormatStamp(decidedAt)</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(detail.Remarks))
+                    {
+                        <div class="mbk-note">
+                            <div class="mbk-dt">The rep's note</div>
+                            @detail.Remarks
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(detail.DecisionRemarks))
+                    {
+                        <div class="mbk-note">
+                            <div class="mbk-dt">Office remarks</div>
+                            @detail.DecisionRemarks
+                        </div>
+                    }
+
+                    <div>
+                        <div class="mbk-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Products</div>
+                        <table class="mbk-lines">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Reason</th>
+                                    <th class="mbk-num">Reported</th>
+                                    <th class="mbk-num">Counted</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in detail.Lines)
+                                {
+                                    <tr @key="line.Id">
+                                        <td>
+                                            <span class="mbk-stack">
+                                                <span class="mbk-cust-name">@line.ItemCode</span>
+                                                @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                                                {
+                                                    <span class="mbk-stack-sub">@line.ItemDescription</span>
+                                                }
+                                            </span>
+                                        </td>
+                                        <td>
+                                            @if (!string.IsNullOrWhiteSpace(line.Reason))
+                                            {
+                                                <span class="mbk-reason-chip">@line.Reason</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="mbk-stack-sub">—</span>
+                                            }
+                                        </td>
+                                        <td class="mbk-num">@QuantityDisplay.Format(line.ReportedQuantity)</td>
+                                        <td class="mbk-num">
+                                            @if (CanConfirm)
+                                            {
+                                                <input type="number" min="0" step="any" inputmode="decimal"
+                                                       class="mbk-input mbk-qty-input @(CountDiffers(line) ? "is-changed" : "")"
+                                                       aria-label="Counted quantity of @line.ItemCode"
+                                                       value="@CountText(line.Id)" disabled="@isSubmitting"
+                                                       @onchange="args => SetCount(line.Id, args.Value)" />
+                                            }
+                                            else if (line.ConfirmedQuantity is decimal confirmed)
+                                            {
+                                                <span class="@(confirmed != line.ReportedQuantity ? "mbk-qty-diff" : null)">@QuantityDisplay.Format(confirmed)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="mbk-stack-sub">—</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="mbk-total" style="margin-top:var(--mbk-s4)">
+                            <span class="mbk-total-label">@(CanConfirm ? "To transfer" : "Units")</span>
+                            <span class="mbk-total-value">@QuantityDisplay.Format(CanConfirm ? CountedTotal : ReportTotal(detail))</span>
+                        </div>
+                    </div>
+
+                    @if (CanConfirm || CanReject)
+                    {
+                        <div>
+                            <div class="mbk-sect"><i class="ph ph-gavel" aria-hidden="true"></i>Your decision</div>
+                            <div class="mbk-field">
+                                <label for="mbk-remarks">Remarks</label>
+                                <textarea id="mbk-remarks" class="mbk-input mbk-textarea" maxlength="500"
+                                          placeholder="Optional when confirming, required to reject. The rep sees it."
+                                          @bind="decisionRemarks" disabled="@isSubmitting"></textarea>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="mbk-drawer-foot">
+                <button type="button" class="mbk-btn mbk-btn-secondary" @onclick="CloseDetail" disabled="@isSubmitting">Close</button>
+                @if (CanReject)
+                {
+                    <button type="button" class="mbk-btn mbk-btn-bad" @onclick="RejectAsync" disabled="@isSubmitting">
+                        @if (isSubmitting && submittingAction == "reject")
+                        {
+                            <span class="mbk-spin" aria-hidden="true"></span>
+                        }
+                        <span>Reject</span>
+                    </button>
+                }
+                @if (CanConfirm)
+                {
+                    <button type="button" class="mbk-btn mbk-btn-good" @onclick="OpenConfirmDialog" disabled="@(isSubmitting || CountedTotal <= 0)">
+                        <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+                        <span>@(detail!.Status == MarketBreakageStatus.Pending ? "Confirm & transfer" : "Retry transfer")</span>
+                    </button>
+                }
+            </div>
+        </aside>
+    </div>
+}
+
+@if (showConfirmDialog && detail is not null)
+{
+    <div class="mbk-overlay">
+        <div class="mbk-dialog-wrap" @onclick="CloseConfirmDialog">
+            <div class="mbk-dialog" role="dialog" aria-modal="true" aria-label="Transfer to returns"
+                 @onclick:stopPropagation="true">
+                <h2 class="mbk-dialog-title"><i class="ph ph-arrow-square-out" aria-hidden="true"></i>Transfer to returns</h2>
+                <div class="mbk-dialog-body">
+                    <div class="mbk-confirm">
+                        <div>
+                            <div class="mbk-confirm-copy">
+                                Transfer @QuantityDisplay.Format(CountedTotal) unit(s) across @CountedLineCount product(s)
+                                from @detail.VanWarehouseCode to returns.
+                            </div>
+                            <div class="mbk-confirm-sub">
+                                The stock transfer is posted in SAP and cannot be undone here.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mbk-dialog-actions">
+                    <button type="button" class="mbk-btn mbk-btn-secondary" @onclick="CloseConfirmDialog"
+                            disabled="@isSubmitting">Back</button>
+                    <button type="button" class="mbk-btn mbk-btn-primary" @onclick="ConfirmAsync" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="mbk-spin" aria-hidden="true"></span>
+                        }
+                        <span>Transfer</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}

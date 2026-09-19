@@ -1,0 +1,1222 @@
+/* ==========================================================================
+   Market Breakages — Nocturne
+
+   Broken stock van reps collected back from shops, counted and confirmed into
+   a transfer to returns. Generated from credit-note-approvals.css (prefix
+   renamed, the attachment list, file viewer and approver rail dropped) so the
+   two review queues read as one place; the rules this page adds are at the end.
+
+   As there, the palette is an alias layer over nocturne-tokens.css and flips at
+   the root, so this sheet carries no `.dark-theme` block; `.mbk-overlay`
+   repeats the tokens because the drawer renders outside `.mbk`.
+   ========================================================================== */
+
+.mbk,
+.mbk-overlay {
+    --mbk-bg: var(--noct-bg);
+    --mbk-surface: var(--noct-surface);
+    --mbk-field: var(--noct-surface);
+    --mbk-ink: var(--noct-ink);
+    --mbk-ink-2: var(--noct-ink-2);
+    --mbk-mute: var(--noct-mute);
+    --mbk-mute-2: var(--noct-mute-2);
+    --mbk-mute-3: var(--noct-mute-3);
+    --mbk-faint: var(--noct-faint);
+    --mbk-placeholder: var(--noct-placeholder);
+    --mbk-divider: var(--noct-divider);
+    --mbk-rowline: var(--noct-rule);
+    --mbk-hover: var(--noct-hover);
+    --mbk-press: var(--noct-press);
+    --mbk-field-edge: var(--noct-field-edge);
+    --mbk-field-edge-hi: var(--noct-field-edge-hi);
+    --mbk-accent: var(--noct-accent);
+    --mbk-accent-rgb: var(--noct-accent-rgb);
+    --mbk-accent-text: var(--noct-accent-text);
+    --mbk-tag-bg: var(--noct-avatar-bg);
+    --mbk-tag-ink: var(--noct-ink-2);
+    --mbk-scrim: var(--noct-scrim);
+    --mbk-shadow-sm: 0 0 0 1px var(--noct-rule);
+    --mbk-shadow-lg: var(--noct-shadow-lg);
+
+    /* The four states a request can be in, taken from the system's families so
+       they agree with every other status chip in the app: waiting, cleared,
+       refused, and the settled grey of one already added or cancelled. */
+    --mbk-pending: var(--noct-fam-warn);
+    --mbk-pending-rgb: var(--noct-fam-warn-rgb);
+    --mbk-approved: var(--noct-fam-good);
+    --mbk-approved-rgb: var(--noct-fam-good-rgb);
+    --mbk-rejected: var(--noct-fam-bad);
+    --mbk-rejected-rgb: var(--noct-fam-bad-rgb);
+    --mbk-settled: var(--noct-fam-neutral);
+    --mbk-bad: var(--noct-fam-bad);
+    --mbk-bad-bg: rgba(var(--noct-fam-bad-rgb), .1);
+    --mbk-bad-edge: rgba(var(--noct-fam-bad-rgb), .35);
+    --mbk-warn-bg: var(--noct-warn-bg);
+    --mbk-warn-edge: var(--noct-warn-edge);
+    --mbk-warn-ink: var(--noct-warn-ink);
+
+    --mbk-s1: var(--noct-s1);
+    --mbk-s2: var(--noct-s2);
+    --mbk-s3: var(--noct-s3);
+    --mbk-s4: var(--noct-s4);
+    --mbk-s6: var(--noct-s6);
+    --mbk-s8: var(--noct-s8);
+    --mbk-r-sm: var(--noct-r-sm);
+    --mbk-r-md: var(--noct-r-md);
+    --mbk-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--noct-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.mbk {
+    min-height: 100vh;
+    background: var(--mbk-bg);
+    color: var(--mbk-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.mbk *,
+.mbk-overlay * {
+    box-sizing: border-box;
+}
+
+.mbk :focus-visible,
+.mbk-overlay :focus-visible {
+    outline: 2px solid var(--mbk-accent);
+    outline-offset: 2px;
+}
+
+.mbk ::selection,
+.mbk-overlay ::selection {
+    background: rgba(var(--mbk-accent-rgb), .3);
+}
+
+.mbk-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--mbk-divider) 48px,
+            var(--mbk-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Opaque, not translucent: the compositor skips backdrop-filter often enough
+   (headless, remote sessions, reduced-transparency settings) that a frosted
+   header lets the page's own title read through the one below it. */
+
+.mbk-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--mbk-bg);
+}
+
+.mbk-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--mbk-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--mbk-s8);
+}
+
+.mbk-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.mbk-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s3);
+}
+
+.mbk-titles-row i {
+    font-size: 17px;
+    color: var(--mbk-accent);
+}
+
+.mbk-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--mbk-ink);
+}
+
+.mbk-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--mbk-mute-2);
+}
+
+.mbk-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s4);
+}
+
+.mbk-count {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.mbk-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--mbk-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--mbk-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.mbk .mbk-btn,
+.mbk-overlay .mbk-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--mbk-s2) calc(var(--mbk-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--mbk-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--mbk-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.mbk .mbk-btn:disabled,
+.mbk-overlay .mbk-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.mbk .mbk-btn-primary,
+.mbk-overlay .mbk-btn-primary {
+    color: var(--mbk-accent);
+    border-color: var(--mbk-accent);
+    letter-spacing: .02em;
+}
+
+.mbk .mbk-btn-primary:hover:not(:disabled),
+.mbk-overlay .mbk-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--mbk-accent-rgb), .12);
+}
+
+.mbk .mbk-btn-primary:active:not(:disabled),
+.mbk-overlay .mbk-btn-primary:active:not(:disabled) {
+    background: rgba(var(--mbk-accent-rgb), .22);
+}
+
+.mbk .mbk-btn-secondary,
+.mbk-overlay .mbk-btn-secondary {
+    border-color: var(--mbk-divider);
+}
+
+.mbk .mbk-btn-secondary:hover:not(:disabled),
+.mbk-overlay .mbk-btn-secondary:hover:not(:disabled) {
+    background: var(--mbk-hover);
+}
+
+.mbk .mbk-btn-secondary:active:not(:disabled),
+.mbk-overlay .mbk-btn-secondary:active:not(:disabled) {
+    background: var(--mbk-press);
+}
+
+.mbk .mbk-btn-ghost,
+.mbk-overlay .mbk-btn-ghost {
+    color: var(--mbk-accent);
+    padding-inline: var(--mbk-s1);
+}
+
+.mbk .mbk-btn-ghost:hover:not(:disabled),
+.mbk-overlay .mbk-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--mbk-accent-rgb), .1);
+}
+
+.mbk .mbk-btn-ghost:active:not(:disabled),
+.mbk-overlay .mbk-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--mbk-accent-rgb), .18);
+}
+
+/* The two decisions: outlined in their own state's hue, so approve and reject
+   are told apart before the label is read. */
+.mbk .mbk-btn-good,
+.mbk-overlay .mbk-btn-good {
+    color: var(--mbk-approved);
+    border-color: rgba(var(--mbk-approved-rgb), .5);
+}
+
+.mbk .mbk-btn-good:hover:not(:disabled),
+.mbk-overlay .mbk-btn-good:hover:not(:disabled) {
+    background: rgba(var(--mbk-approved-rgb), .12);
+}
+
+.mbk .mbk-btn-bad,
+.mbk-overlay .mbk-btn-bad {
+    color: var(--mbk-bad);
+    border-color: var(--mbk-bad-edge);
+}
+
+.mbk .mbk-btn-bad:hover:not(:disabled),
+.mbk-overlay .mbk-btn-bad:hover:not(:disabled) {
+    background: var(--mbk-bad-bg);
+}
+
+.mbk .mbk-btn-sm,
+.mbk-overlay .mbk-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.mbk .mbk-btn-icon,
+.mbk-overlay .mbk-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.mbk .mbk-btn-icon-sm,
+.mbk-overlay .mbk-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+.mbk .mbk-btn svg,
+.mbk-overlay .mbk-btn svg {
+    display: block;
+    width: 1em;
+    height: 1em;
+    fill: currentColor;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.mbk-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--mbk-s4);
+    flex-wrap: wrap;
+}
+
+.mbk-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--mbk-mute);
+}
+
+/* The status filter is a segmented control rather than a dropdown: three
+   choices, all of them worth seeing at once, and the count of each is the
+   thing the page is for. */
+.mbk-seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: var(--mbk-r-md);
+    background: var(--mbk-hover);
+}
+
+.mbk .mbk-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--mbk-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--mbk-r-md) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.mbk .mbk-seg-btn:hover:not(.is-on) {
+    color: var(--mbk-ink-2);
+}
+
+.mbk .mbk-seg-btn.is-on {
+    color: var(--mbk-accent-text);
+    background: var(--mbk-surface);
+    box-shadow: var(--mbk-shadow-sm);
+}
+
+.mbk .mbk-input,
+.mbk-overlay .mbk-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--mbk-ink);
+    caret-color: var(--mbk-accent);
+    background: var(--mbk-field);
+    background-image: none;
+    border: 1px solid var(--mbk-field-edge);
+    border-radius: var(--mbk-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.mbk .mbk-input:hover,
+.mbk-overlay .mbk-input:hover {
+    border-color: var(--mbk-field-edge-hi);
+}
+
+.mbk .mbk-input:focus-visible,
+.mbk-overlay .mbk-input:focus-visible {
+    border-color: var(--mbk-accent);
+    outline-offset: 0;
+}
+
+.mbk .mbk-input::placeholder,
+.mbk-overlay .mbk-input::placeholder {
+    color: var(--mbk-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--mbk-placeholder);
+}
+
+.mbk-overlay .mbk-textarea {
+    min-height: 76px;
+    resize: vertical;
+    line-height: 1.5;
+    padding: var(--mbk-s2) 10px;
+}
+
+.mbk-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s2);
+    margin-left: auto;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.mbk-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--mbk-surface);
+    border-radius: var(--mbk-r-md);
+    box-shadow: var(--mbk-shadow-sm);
+    overflow: hidden;
+}
+
+.mbk-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s4);
+    padding: var(--mbk-s4) var(--mbk-s6);
+    min-height: 54px;
+}
+
+.mbk-range {
+    font-size: 13px;
+    color: var(--mbk-mute-2);
+}
+
+.mbk-hint {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--mbk-s2);
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-hint i {
+    font-size: 13px;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.mbk-tablewrap {
+    overflow-x: auto;
+}
+
+.mbk-table {
+    width: 100%;
+    min-width: 1080px;
+    border-collapse: collapse;
+    font-size: 13px;
+    /* Fixed layout is what lets the customer and reason cells clip with an
+       ellipsis; an auto table stretches to fit the longest reason instead. */
+    table-layout: fixed;
+}
+
+.mbk-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--mbk-mute);
+    padding: var(--mbk-s2);
+    white-space: nowrap;
+}
+
+.mbk-table td {
+    padding: var(--mbk-s2);
+    vertical-align: middle;
+}
+
+.mbk-table th:first-child,
+.mbk-table td:first-child {
+    padding-left: var(--mbk-s6);
+}
+
+.mbk-table th:last-child,
+.mbk-table td:last-child {
+    padding-right: var(--mbk-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.mbk-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.mbk-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--mbk-divider) 48px,
+            var(--mbk-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mbk-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--mbk-rowline) 48px,
+            var(--mbk-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mbk-table tbody tr:hover {
+    background:
+        linear-gradient(var(--mbk-hover), var(--mbk-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--mbk-rowline) 48px,
+            var(--mbk-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mbk-table tbody tr.is-open-row,
+.mbk-table tbody tr.is-open-row:hover {
+    background:
+        linear-gradient(rgba(var(--mbk-accent-rgb), .09), rgba(var(--mbk-accent-rgb), .09)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--mbk-rowline) 48px,
+            var(--mbk-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mbk-table tbody tr.is-dim {
+    opacity: .66;
+}
+
+.mbk .mbk-link {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--mbk-accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.mbk .mbk-link:hover {
+    color: var(--mbk-accent-text);
+    text-decoration: underline;
+}
+
+.mbk-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 130px;
+}
+
+/* The customer name doubles as the row's control. The design gives it the body
+   colour rather than the accent, so it reads as text, but it stays a real button
+   so the row can be opened from the keyboard. */
+.mbk .mbk-cust-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--mbk-ink);
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mbk .mbk-cust-name:hover {
+    color: var(--mbk-accent-text);
+    text-decoration: underline;
+}
+
+.mbk-cust-code {
+    /* One line. SAP card codes carry a currency suffix ("FAZ002 USD"), which wrapped
+       and left the rows at ragged heights; the full value stays on the title. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--mbk-ink-2);
+}
+
+.mbk-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 2px 8px;
+    border-radius: calc(var(--mbk-r-md) * .75);
+    white-space: nowrap;
+    background: var(--mbk-tag-bg);
+    color: var(--mbk-tag-ink);
+}
+
+.mbk-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 120px;
+}
+
+.mbk-stack-sub {
+    font-size: 11.5px;
+    color: var(--mbk-mute-3);
+}
+
+/* Status: a dot in the state's hue and the word beside it, the same pairing
+   the credit notes list uses. */
+.mbk-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.mbk-status .mbk-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--mbk-settled);
+}
+
+.mbk-status .mbk-dot.is-pending {
+    background: var(--mbk-pending);
+}
+
+.mbk-status .mbk-dot.is-approved {
+    background: var(--mbk-approved);
+}
+
+.mbk-status .mbk-dot.is-rejected {
+    background: var(--mbk-rejected);
+}
+
+.mbk-status-text {
+    color: var(--mbk-mute);
+}
+
+.mbk-status-text.is-pending {
+    color: var(--mbk-pending);
+}
+
+.mbk-status-text.is-approved {
+    color: var(--mbk-approved);
+}
+
+.mbk-status-text.is-rejected {
+    color: var(--mbk-rejected);
+}
+
+.mbk-rowactions {
+    display: inline-flex;
+    gap: var(--mbk-s1);
+    justify-content: flex-end;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.mbk-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--mbk-s3);
+    padding: 56px var(--mbk-s6);
+    font-size: 13.5px;
+}
+
+.mbk-empty i {
+    font-size: 22px;
+    color: var(--mbk-accent);
+    opacity: .8;
+}
+
+.mbk-skel {
+    height: 11px;
+    border-radius: var(--mbk-r-sm);
+    background: var(--mbk-rowline);
+    animation: mbk-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mbk-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mbk-skel {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.mbk-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s4);
+    padding: var(--mbk-s4) var(--mbk-s6);
+    border-top: 1px solid var(--mbk-divider);
+}
+
+.mbk-foot-range {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.mbk-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s2);
+    margin-left: auto;
+}
+
+.mbk-page-label {
+    font-size: 12px;
+    color: var(--mbk-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Alerts ────────────────────────────────────────────────────────────── */
+
+.mbk-alert,
+.mbk-overlay .mbk-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mbk-s3);
+    padding: var(--mbk-s3) var(--mbk-s4);
+    border-radius: var(--mbk-r-md);
+    background: var(--mbk-bad-bg);
+    border: 1px solid var(--mbk-bad-edge);
+    color: var(--mbk-bad);
+    font-size: 13px;
+}
+
+.mbk-alert-body {
+    flex: 1;
+}
+
+/* Why an action is unavailable — a sentence from SAP's own state, not a
+   failure, so it is the notice colour rather than the danger one. */
+.mbk-blocked {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mbk-s3);
+    padding: var(--mbk-s3) var(--mbk-s4);
+    border-radius: var(--mbk-r-md);
+    background: var(--mbk-warn-bg);
+    border: 1px solid var(--mbk-warn-edge);
+    color: var(--mbk-warn-ink);
+    font-size: 13px;
+}
+
+/* ── Overlays: drawer and dialogs ─────────────────────── */
+
+.mbk-overlay {
+    color: var(--mbk-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.mbk-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--mbk-scrim);
+    z-index: 9998;
+}
+
+.mbk-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(680px, 96vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--mbk-surface);
+    box-shadow: var(--mbk-shadow-lg);
+    font-size: 14px;
+}
+
+.mbk-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s4);
+    padding: var(--mbk-s4) var(--mbk-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--mbk-divider);
+}
+
+.mbk-drawer-title {
+    margin: 0 auto 0 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s3);
+}
+
+.mbk-drawer-title i {
+    color: var(--mbk-accent);
+    font-size: 15px;
+}
+
+.mbk-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--mbk-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--mbk-s6);
+}
+
+.mbk-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--mbk-s2);
+    padding: var(--mbk-s4) var(--mbk-s6);
+    border-top: 1px solid var(--mbk-divider);
+    flex-shrink: 0;
+}
+
+.mbk-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--mbk-s4);
+}
+
+.mbk-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--mbk-mute-3);
+    margin-bottom: 2px;
+}
+
+.mbk-dd {
+    font-size: 13.5px;
+    color: var(--mbk-ink);
+}
+
+.mbk-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--mbk-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s2);
+    margin-bottom: var(--mbk-s3);
+}
+
+.mbk-note {
+    padding: var(--mbk-s3) var(--mbk-s4);
+    border-radius: var(--mbk-r-md);
+    background: var(--mbk-hover);
+    font-size: 13px;
+    color: var(--mbk-ink-2);
+}
+
+.mbk-note .mbk-dt {
+    color: var(--mbk-mute-3);
+}
+
+.mbk-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.mbk-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--mbk-mute);
+    padding: var(--mbk-s2);
+    white-space: nowrap;
+}
+
+.mbk-lines td {
+    padding: var(--mbk-s2);
+    color: var(--mbk-ink-2);
+}
+
+/* A row rule, not a row fill: a bare colour in `background` ignores the 1px
+   size and floods the row. Inside a box these stay solid rather than fading. */
+.mbk-lines thead tr,
+.mbk-lines tbody tr {
+    background: linear-gradient(var(--mbk-rowline), var(--mbk-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.mbk-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--mbk-s4) var(--mbk-s6);
+    border-radius: var(--mbk-r-md);
+    border: 1px solid var(--mbk-accent);
+    background: rgba(var(--mbk-accent-rgb), .08);
+}
+
+.mbk-total-label {
+    font-size: 13px;
+    color: var(--mbk-mute);
+}
+
+.mbk-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--mbk-accent-text);
+}
+
+.mbk-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--mbk-s4);
+    background: var(--mbk-scrim);
+}
+
+.mbk-dialog {
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--mbk-s8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--mbk-s4);
+    padding: var(--mbk-s6);
+    border-radius: var(--mbk-r-lg);
+    background: var(--mbk-surface);
+    box-shadow: var(--mbk-shadow-lg);
+    font-size: 14px;
+}
+
+.mbk-dialog-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s3);
+}
+
+.mbk-dialog-title i {
+    font-size: 17px;
+    color: var(--mbk-accent);
+}
+
+.mbk-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--mbk-s4);
+    overflow-y: auto;
+}
+
+.mbk-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--mbk-s2);
+}
+
+.mbk-confirm {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s4);
+    padding: var(--mbk-s3) var(--mbk-s4);
+    border-radius: var(--mbk-r-md);
+    background: var(--mbk-hover);
+}
+
+.mbk-confirm-copy {
+    font-size: 13.5px;
+}
+
+.mbk-confirm-sub {
+    font-size: 12.5px;
+    color: var(--mbk-mute-2);
+}
+
+.mbk-spin,
+.mbk-overlay .mbk-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: mbk-spin .7s linear infinite;
+}
+
+.mbk-overlay .mbk-spin-lg {
+    width: 22px;
+    height: 22px;
+    border-width: 3px;
+}
+
+@keyframes mbk-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+    .mbk-shell,
+    .mbk-body {
+        padding-left: var(--mbk-s6);
+        padding-right: var(--mbk-s6);
+    }
+
+    .mbk-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--mbk-s4);
+    }
+
+    .mbk-head-actions {
+        justify-content: space-between;
+    }
+
+    .mbk-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .mbk-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ---- The design's column rhythm, reason and age ------------------------- */
+
+.mbk-table th:nth-child(1) { width: 24%; }
+.mbk-table th:nth-child(2) { width: 18%; }
+.mbk-table th:nth-child(3) { width: 108px; }
+.mbk-table th:nth-child(4) { width: 132px; }
+.mbk-table th:nth-child(5) { width: 148px; }
+.mbk-table th:nth-child(6) { width: 136px; }
+.mbk-table th:nth-child(7) { width: 128px; }
+.mbk-table th:nth-child(8) { width: 56px; }
+
+/* Reason for credit. SAP leaves it blank on older memos, so the em dash is a
+   common and correct reading, not a failure to load. */
+.mbk-reason-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--mbk-ink-2);
+}
+
+/* How long the request has waited, under the date it was raised. */
+.mbk-age {
+    font-size: 11px;
+    color: var(--mbk-mute-3);
+}
+
+/* ── Market breakages: what this page adds ─────────────────────────────── */
+
+/* Seven columns, not the approvals queue's eight. Later than the rhythm above,
+   so it wins at the same specificity. */
+.mbk-table {
+    min-width: 900px;
+}
+
+.mbk-table th.mbk-num,
+.mbk-lines th.mbk-num {
+    text-align: right;
+}
+
+/* app.css paints every `.dark-theme table thead th` slate (0,1,3), which beats
+   the sheet's own `.mbk-lines th` and turned the drawer's header row near-black
+   on the drawer's surface. Two classes out-specify it; the header stays a rule
+   under quiet type, as in light. */
+.mbk .mbk-table thead th,
+.mbk-overlay .mbk-lines thead th {
+    background: transparent;
+    color: var(--mbk-mute);
+    border-bottom-color: transparent;
+}
+
+.mbk-table th:nth-child(1) { width: 22%; }
+.mbk-table th:nth-child(2) { width: 22%; }
+.mbk-table th:nth-child(3) { width: 96px; }
+.mbk-table th:nth-child(4) { width: 124px; }
+.mbk-table th:nth-child(5) { width: 110px; }
+.mbk-table th:nth-child(6) { width: 150px; }
+.mbk-table th:nth-child(7) { width: 56px; }
+.mbk-table th:nth-child(8) { width: auto; }
+
+/* A count on each status tab: the number is what the office opens the page for. */
+.mbk .mbk-seg-count {
+    display: inline-block;
+    min-width: 18px;
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 16px;
+    text-align: center;
+    color: var(--mbk-mute);
+    background: var(--mbk-tag-bg);
+    border-radius: 8px;
+}
+
+.mbk .mbk-seg-btn.is-on .mbk-seg-count {
+    color: var(--mbk-accent-text);
+}
+
+/* Reported beside counted: the difference is the office's finding, so it is
+   drawn in the warning hue rather than left for the eye to subtract. */
+.mbk-qty-pair {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.mbk-qty-pair .mbk-qty-was {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+    text-decoration: line-through;
+}
+
+.mbk-qty-diff {
+    color: var(--mbk-warn-ink);
+}
+
+/* The count box inside the drawer's lines table. */
+.mbk-overlay .mbk-input.mbk-qty-input {
+    width: 88px;
+    min-height: 28px;
+    padding: 3px 8px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.mbk-overlay .mbk-input.mbk-qty-input.is-changed {
+    border-color: var(--mbk-warn-edge);
+    background: var(--mbk-warn-bg);
+}
+
+.mbk-reason-chip {
+    display: inline-block;
+    padding: 1px 8px;
+    font-size: 11.5px;
+    line-height: 18px;
+    color: var(--mbk-tag-ink);
+    background: var(--mbk-tag-bg);
+    border-radius: 9px;
+    white-space: nowrap;
+}
+
+/* The transfer a confirmed report became, and the last failure of one that did
+   not: the two facts somebody checking SAP needs first. */
+.mbk-doc {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s2);
+    padding: var(--mbk-s3) var(--mbk-s4);
+    border-radius: var(--mbk-r-md);
+    background: rgba(var(--mbk-approved-rgb), .08);
+    border: 1px solid rgba(var(--mbk-approved-rgb), .3);
+    color: var(--mbk-ink-2);
+}
+
+.mbk-doc i {
+    color: var(--mbk-approved);
+    font-size: 18px;
+}
+
+.mbk-doc strong {
+    color: var(--mbk-ink);
+    font-weight: 600;
+}
+
+@media (max-width: 860px) {
+    .mbk-overlay .mbk-input.mbk-qty-input {
+        width: 72px;
+    }
+}

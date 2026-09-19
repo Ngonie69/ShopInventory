@@ -125,6 +125,11 @@ public static class AuditActions
     public const string DeleteCratePod = "DeleteCratePod";
     public const string CreateCrateGrv = "CreateCrateGrv";
 
+    // Market breakage actions
+    public const string ReportMarketBreakage = "ReportMarketBreakage";
+    public const string ConfirmMarketBreakage = "ConfirmMarketBreakage";
+    public const string RejectMarketBreakage = "RejectMarketBreakage";
+
     // Inventory Transfer actions
     public const string CreateTransfer = "CreateTransfer";
     public const string CreateTransferRequest = "CreateTransferRequest";

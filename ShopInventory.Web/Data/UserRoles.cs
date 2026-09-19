@@ -157,6 +157,14 @@ public static class UserRoles
     /// button would only submit into a 403.
     /// </summary>
     public const string CreditNoteAddRoles = "Admin,Manager";
+
+    /// <summary>
+    /// Who can open /market-breakages: the office that counts the broken stock a van brings back and
+    /// confirms it into a transfer to returns, or rejects it. The API agrees through
+    /// <c>vansales.breakages.confirm</c>; <c>MarketBreakageAccessTests</c> pins the two. Reps report
+    /// from the handset and never see this page.
+    /// </summary>
+    public const string MarketBreakageRoles = "Admin,Manager,StockController,DepotController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 

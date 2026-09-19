@@ -527,8 +527,12 @@
 
                Cashier is in the gate for the route rows and the van documents, which
                used to sit under Sales & Billing. Their own roles are unchanged by the
-               move. *@
-            <AuthorizeView Roles="Admin,Manager,Cashier" Context="vanSalesCtx">
+               move.
+
+               StockController and DepotController are in it for the two depot rows,
+               Customer Orders and Market Breakages. Customer Orders already named them
+               on its own row, but the gate here did not, so a depot user never saw it. *@
+            <AuthorizeView Roles="Admin,Manager,Cashier,StockController,DepotController" Context="vanSalesCtx">
                 <Authorized>
                     <NavSection Title="Van Sales">
                         <AuthorizeView Roles="Admin,Manager" Context="vanRoundCtx">
@@ -631,6 +635,19 @@
                                         <i class="ph ph-shopping-cart" aria-hidden="true"></i>
                                     </span>
                                     <span class="snav-text">Customer Orders</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        @* Broken stock the vans bring back from shops: counted at the depot and
+                           confirmed into a transfer to returns. The API gates it on
+                           vansales.breakages.confirm, which exactly these roles hold. *@
+                        <AuthorizeView Roles="@UserRoles.MarketBreakageRoles" Context="marketBreakageCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/market-breakages" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-package" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Market Breakages</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>

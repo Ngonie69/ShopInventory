@@ -178,6 +178,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<ApprovalDecisionEntity> ApprovalDecisions { get; set; }
   public DbSet<PendingInventoryTransferEntity> PendingInventoryTransfers { get; set; }
   public DbSet<PendingTransferRequestEditEntity> PendingTransferRequestEdits { get; set; }
+  public DbSet<MarketBreakageEntity> MarketBreakages { get; set; }
+  public DbSet<MarketBreakageLineEntity> MarketBreakageLines { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -427,6 +429,26 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.ClientRequestId).HasMaxLength(200);
       entity.Property(e => e.Comments).HasMaxLength(500);
       entity.Property(e => e.LastError).HasMaxLength(2000);
+    });
+
+    // Market breakages: reported from the handset, confirmed at the office into a transfer to returns.
+    modelBuilder.Entity<MarketBreakageEntity>(entity =>
+    {
+      entity.ToTable("MarketBreakages");
+      entity.HasIndex(e => e.ClientRequestId).IsUnique();
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.Breakage)
+            .HasForeignKey(l => l.BreakageId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<MarketBreakageLineEntity>(entity =>
+    {
+      entity.ToTable("MarketBreakageLines", t =>
+      {
+        t.HasCheckConstraint("CK_MarketBreakageLines_ReportedQuantity_Positive", "\"ReportedQuantity\" > 0");
+        t.HasCheckConstraint("CK_MarketBreakageLines_ConfirmedQuantity_NonNegative", "\"ConfirmedQuantity\" IS NULL OR \"ConfirmedQuantity\" >= 0");
+      });
     });
 
     modelBuilder.Entity<PendingTransferRequestEditEntity>(entity =>
