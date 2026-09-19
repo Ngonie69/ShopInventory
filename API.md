@@ -1578,6 +1578,24 @@ someone has saved it, while `DesktopSalePosting:DailyPaymentEnabled` (off) still
 `SystemConfigs` row the `daily-incoming-payment` job reads on every run, so a change needs no restart.
 Turning it back on pays invoices up to `DailyPaymentLookbackDays` (7) old. Web → Settings → Payments sets it.
 
+**Daily incoming payments and their G/L accounts**
+
+**Base route:** `/api/daily-incoming-payments`
+**Auth:** Bearer + Admin, Manager or Cashier role to read; Admin to change a mapping
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/daily-incoming-payments?from=2026-09-14&to=2026-09-20&cardCode=CIS006&status=Posted` | The daily payments for a range of trading days, newest first. `cardCode` and `status` are optional |
+| GET | `/api/daily-incoming-payments/{id}` | One payment with the invoices it settles and the till, van or consolidated sale behind each |
+| GET | `/api/daily-incoming-payments/gl-mappings` | Every partner's cash and electronic G/L accounts, run (`Shops` 17:00 / `Vans` 20:00) and email recipients |
+| PUT | `/api/daily-incoming-payments/gl-mappings/{cardCode}` | Create or replace a partner's mapping: `{ "cashAccount": "700300", "electronicAccount": "701100", "run": "Shops", "notifyEmails": "a@x.com, b@x.com", "isActive": true }`. Both accounts are checked in SAP first |
+
+Cash posts to the cash account; Ecocash, Innbucks and swipe post to the electronic account as transfer
+money. A partner with no active mapping is held (`Pending`, "No active G/L mapping") rather than posted
+to SAP's default account. Every payment's `DAYPAY-yyyyMMdd-CARDCODE` reference is also its SAP
+`CounterReference` and `JournalRemarks`. Once it posts, the mapping's recipients are emailed the totals
+and the invoice list.
+
 ---
 
 ### 16. Payment Gateways

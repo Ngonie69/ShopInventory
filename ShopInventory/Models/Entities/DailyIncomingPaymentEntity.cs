@@ -103,6 +103,20 @@ public class DailyIncomingPaymentEntity
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    /// <summary>The cash G/L account the payment was sent with, from the partner's mapping.</summary>
+    [MaxLength(20)]
+    public string? CashAccount { get; set; }
+
+    /// <summary>The transfer G/L account the payment was sent with, from the partner's mapping.</summary>
+    [MaxLength(20)]
+    public string? TransferAccount { get; set; }
+
+    /// <summary>When the people receiving the cash were emailed. Null until at least one address took it.</summary>
+    public DateTime? EmailSentAtUtc { get; set; }
+
+    [MaxLength(1000)]
+    public string? EmailError { get; set; }
+
     public List<DailyIncomingPaymentLineEntity> Lines { get; set; } = new();
 }
 
@@ -110,14 +124,16 @@ public class DailyIncomingPaymentEntity
 /// One invoice on a daily incoming payment, and what is applied to it by tender.
 /// </summary>
 /// <remarks>
-/// Exactly one of <see cref="DesktopSaleId"/> and <see cref="SaleConsolidationId"/> is set: a till or
-/// vending sale's own invoice, or the older desktop app's consolidated invoice. The amounts are what the
-/// till recorded as paid, reduced to the invoice's open balance when SAP is read just before posting.
+/// Exactly one of <see cref="DesktopSaleId"/>, <see cref="SaleConsolidationId"/> and
+/// <see cref="StockReservationId"/> is set: a till, vending or offline van sale's own invoice, the older
+/// desktop app's consolidated invoice, or an online van sale's invoice. The amounts are what the till
+/// recorded as paid, reduced to the invoice's open balance when SAP is read just before posting.
 /// </remarks>
 [Table("DailyIncomingPaymentLines")]
 [Index(nameof(InvoiceDocEntry))]
 [Index(nameof(DesktopSaleId))]
 [Index(nameof(SaleConsolidationId))]
+[Index(nameof(StockReservationId))]
 public class DailyIncomingPaymentLineEntity
 {
     [Key]
@@ -130,6 +146,18 @@ public class DailyIncomingPaymentLineEntity
     public int? DesktopSaleId { get; set; }
 
     public int? SaleConsolidationId { get; set; }
+
+    /// <summary>An online van sale, whose only local record is its confirmed reservation.</summary>
+    public int? StockReservationId { get; set; }
+
+    /// <summary>
+    /// Pay whatever the invoice still owes when SAP is read, rather than the recorded amount.
+    /// </summary>
+    /// <remarks>
+    /// Set for an online van sale. Its reservation's value is net of VAT because it was summed from
+    /// SAP's net unit price, while the customer paid the gross amount on the invoice.
+    /// </remarks>
+    public bool PayOpenBalance { get; set; }
 
     public int InvoiceDocEntry { get; set; }
 

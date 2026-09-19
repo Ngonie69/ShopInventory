@@ -259,6 +259,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<ClusterNodeEntity> ClusterNodes { get; set; }
   public DbSet<DailyIncomingPaymentLineEntity> DailyIncomingPaymentLines { get; set; }
 
+  public DbSet<IncomingPaymentGlMappingEntity> IncomingPaymentGlMappings { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -2120,6 +2122,15 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .WithOne(l => l.DailyIncomingPayment)
             .HasForeignKey(l => l.DailyIncomingPaymentId)
             .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<IncomingPaymentGlMappingEntity>(entity =>
+    {
+      entity.Property(e => e.Run)
+            .HasConversion<string>()
+            .HasMaxLength(10);
+
+      entity.HasData(IncomingPaymentGlMappingSeed.Rows);
     });
 
     // Stock Transfer Adjustment

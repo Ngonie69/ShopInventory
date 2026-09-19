@@ -450,6 +450,14 @@
                                     </span>
                                     <span class="snav-text">Desktop Sales Review</span>
                                 </NavLink>
+                                @* The day's incoming payment per partner and the invoices it
+                                   settles; the API reads it for the same three roles. *@
+                                <NavLink class="snav-link sub-link" href="/reports/desktop-sales/payments" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-hand-coins" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Daily Incoming Payments</span>
+                                </NavLink>
                                 @* Same three roles as the analysis above, for the same reason: the
                                    API's management-report endpoint reads the same sales. *@
                                 <NavLink class="snav-link sub-link" href="/reports/management-sales" Match="NavLinkMatch.All">

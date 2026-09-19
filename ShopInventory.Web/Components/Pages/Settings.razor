@@ -653,13 +653,16 @@
                             </div>
                         </div>
 
-                        <!-- G/L account -->
+                        <!-- G/L account: the manual payment form's default only. The daily payment
+                             above posts to each partner's own accounts and never reads this. -->
                         <div class="stg-row">
                             <div class="stg-row-info">
-                                <div class="stg-row-label"><span>Incoming Payment G/L Account</span></div>
+                                <div class="stg-row-label"><span>Manual Payment Default G/L Account</span></div>
                                 <span class="stg-row-desc">
-                                    Pick a <strong>cash or bank</strong> account for posting incoming payments — not expense,
-                                    revenue or controlling accounts. Saved as soon as you pick it.
+                                    Pre-fills the account on the <strong>Create Incoming Payment</strong> form. Pick a
+                                    <strong>cash or bank</strong> account. Saved as soon as you pick it. The daily payment does
+                                    not use this: each partner's accounts are set on
+                                    <a href="/reports/desktop-sales/payments">Daily Incoming Payments</a>.
                                 </span>
                                 @if (!string.IsNullOrEmpty(paymentGLAccount))
                                 {

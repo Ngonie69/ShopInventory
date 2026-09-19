@@ -98,6 +98,16 @@ public class DesktopSalePostingSettings
     public string DailyPaymentTimeCAT { get; set; } = "17:00";
 
     /// <summary>
+    /// When (CAT) the vans' daily incoming payments are posted: the partners whose G/L mapping names the
+    /// van run.
+    /// </summary>
+    /// <remarks>
+    /// Later than the shops' because van invoices post at 18:00 with a mop-up at 19:30. At 17:00 they would
+    /// always be paid a day late.
+    /// </remarks>
+    public string VanDailyPaymentTimeCAT { get; set; } = "20:00";
+
+    /// <summary>
     /// How often to come back for a daily payment that did not post, such as when SAP was down at
     /// 17:00. Zero turns the retries off, leaving only the 17:00 run.
     /// </summary>

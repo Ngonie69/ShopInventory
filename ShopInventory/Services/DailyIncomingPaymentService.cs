@@ -9,12 +9,17 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Posts one incoming payment per business partner per day, settling every till, vending and older
+/// Posts one incoming payment per business partner per day, settling every till, vending, van and older
 /// desktop app invoice posted before the cut-off. No invoice gets a payment of its own.
 /// </summary>
 /// <remarks>
 /// <para>
-/// A pass works on the most recent cut-off that has passed. At 17:00 or later that is today's. Before
+/// There are two runs, each with its own cut-off: shops at 17:00 and vans at 20:00, because van invoices
+/// post at 18:00 with a mop-up at 19:30. Which run pays a partner is set on its
+/// <see cref="IncomingPaymentGlMappingEntity"/>. Every pass does both runs.
+/// </para>
+/// <para>
+/// A run works on the most recent cut-off that has passed. At 17:00 or later that is today's. Before
 /// 17:00 it is yesterday's, so a pass the next morning finishes what an outage stopped the evening
 /// before. Invoices posted after the cut-off belong to the next day.
 /// </para>
@@ -24,7 +29,9 @@ namespace ShopInventory.Services;
 /// <item>Asks SAP about payments whose post was sent and never answered.</item>
 /// <item>Hands back the invoices of an earlier day's payment that never reached SAP, so today's picks them up.</item>
 /// <item>Creates the day's payment for each customer that has none yet, claiming its invoices.</item>
-/// <item>Posts the day's payments that have not posted.</item>
+/// <item>Posts the day's payments that have not posted, to the partner's mapped G/L accounts. A partner
+/// with no active mapping is held, never posted to SAP's default account.</item>
+/// <item>Emails the people who receive the cash for each payment that has posted.</item>
 /// </list>
 /// </para>
 /// <para>
@@ -39,10 +46,20 @@ public sealed class DailyIncomingPaymentService(
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState circuitState,
     IOptions<DesktopSalePostingSettings> settings,
-    IOptions<SAPSettings> sapSettings,
+    IEmailService emailService,
     ILogger<DailyIncomingPaymentService> logger)
 {
     private const int MaxErrorLength = 2000;
+
+    /// <summary>
+    /// How long after posting the email is still worth sending. Stops a first deploy, or a long email
+    /// outage, from mailing old days.
+    /// </summary>
+    private static readonly TimeSpan EmailWindow = TimeSpan.FromDays(2);
+
+    /// <summary>The till, vending and van sales that are paid by the day's payment.</summary>
+    private static readonly string[] PaidSources =
+        [.. SaleSourceSystems.PostedByDesktopSaleJob, SaleSourceSystems.VanSales];
 
     /// <summary>The claims that hold an invoice. A released or empty payment holds nothing.</summary>
     private static readonly DailyIncomingPaymentStatus[] ClaimingStatuses =
@@ -66,26 +83,59 @@ public sealed class DailyIncomingPaymentService(
             return result;
         }
 
-        var (paymentDate, cutoffUtc) = PeriodFor(
-            utcNow, ParseTime(settings.Value.DailyPaymentTimeCAT), QuartzConfiguration.CatTimeZone);
-        result.PaymentDate = paymentDate;
+        var mappings = await context.IncomingPaymentGlMappings
+            .AsNoTracking()
+            .ToDictionaryAsync(mapping => mapping.CardCode, StringComparer.OrdinalIgnoreCase, cancellationToken);
+
+        var vanPartners = mappings.Values
+            .Where(mapping => mapping.Run == DailyPaymentRun.Vans)
+            .Select(mapping => mapping.CardCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         await ResolveUnresolvedAsync(utcNow, result, cancellationToken);
-        await ReleaseEarlierDaysAsync(paymentDate, result);
-        await CreatePaymentsAsync(paymentDate, cutoffUtc, result, cancellationToken);
-        await PostDuePaymentsAsync(paymentDate, utcNow, result, cancellationToken);
+
+        foreach (var run in new[] { DailyPaymentRun.Shops, DailyPaymentRun.Vans })
+        {
+            var time = run == DailyPaymentRun.Vans
+                ? ParseTime(settings.Value.VanDailyPaymentTimeCAT, new TimeSpan(20, 0, 0))
+                : ParseTime(settings.Value.DailyPaymentTimeCAT, new TimeSpan(17, 0, 0));
+            var (paymentDate, cutoffUtc) = PeriodFor(utcNow, time, QuartzConfiguration.CatTimeZone);
+            var scope = new RunScope(run, vanPartners);
+
+            if (run == DailyPaymentRun.Shops)
+            {
+                result.PaymentDate = paymentDate;
+            }
+            else
+            {
+                result.VanPaymentDate = paymentDate;
+            }
+
+            await ReleaseEarlierDaysAsync(paymentDate, scope, result);
+            await CreatePaymentsAsync(paymentDate, cutoffUtc, scope, result, cancellationToken);
+            await PostDuePaymentsAsync(paymentDate, scope, mappings, utcNow, result, cancellationToken);
+        }
+
+        await SendEmailsAsync(mappings, utcNow, result, cancellationToken);
 
         if (result.HasWork)
         {
             logger.LogInformation(
-                "Daily incoming payments for {PaymentDate:yyyy-MM-dd}: {Created} created, {Posted} posted, "
-                + "{Adopted} already in SAP, {NothingToPay} with nothing left to pay, {Unresolved} unresolved, "
-                + "{Released} released, {Failed} failed.",
-                paymentDate, result.Created, result.Posted, result.Adopted, result.NothingToPay,
-                result.Unresolved, result.Released, result.Failed);
+                "Daily incoming payments for {PaymentDate:yyyy-MM-dd} (vans {VanPaymentDate:yyyy-MM-dd}): {Created} created, "
+                + "{Posted} posted, {Adopted} already in SAP, {NothingToPay} with nothing left to pay, {Unresolved} unresolved, "
+                + "{Released} released, {Held} held for a G/L mapping, {Failed} failed, {Emailed} emailed.",
+                result.PaymentDate, result.VanPaymentDate, result.Created, result.Posted, result.Adopted, result.NothingToPay,
+                result.Unresolved, result.Released, result.Held, result.Failed, result.Emailed);
         }
 
         return result;
+    }
+
+    /// <summary>Which partners a run pays: a van run pays the van-mapped partners, a shop run every other.</summary>
+    private sealed record RunScope(DailyPaymentRun Run, IReadOnlySet<string> VanPartners)
+    {
+        public bool Includes(string? cardCode) =>
+            (Run == DailyPaymentRun.Vans) == VanPartners.Contains(cardCode ?? string.Empty);
     }
 
     /// <summary>
@@ -110,8 +160,8 @@ public sealed class DailyIncomingPaymentService(
         return (DateTime.SpecifyKind(cutoffLocal.Date, DateTimeKind.Unspecified), cutoffUtc);
     }
 
-    private static TimeSpan ParseTime(string? value) =>
-        TimeSpan.TryParse(value, out var time) ? time : new TimeSpan(17, 0, 0);
+    private static TimeSpan ParseTime(string? value, TimeSpan fallback) =>
+        TimeSpan.TryParse(value, out var time) ? time : fallback;
 
     // ---- 1. Sent, never answered ------------------------------------------------------------------
 
@@ -178,15 +228,21 @@ public sealed class DailyIncomingPaymentService(
 
     // ---- 2. Earlier days that never posted ----------------------------------------------------------
 
-    private async Task ReleaseEarlierDaysAsync(DateTime paymentDate, DailyIncomingPaymentRunResult result)
+    private async Task ReleaseEarlierDaysAsync(
+        DateTime paymentDate,
+        RunScope scope,
+        DailyIncomingPaymentRunResult result)
     {
         // Pending means nothing was sent, or SAP refused what was. Either way SAP holds no payment, so
-        // handing its invoices back cannot put one invoice on two payments.
-        var stale = await context.DailyIncomingPayments
-            .Where(payment => payment.Status == DailyIncomingPaymentStatus.Pending
-                              && payment.PostIssuedAtUtc == null
-                              && payment.PaymentDate < paymentDate)
-            .ToListAsync();
+        // handing its invoices back cannot put one invoice on two payments. Scoped, because the two runs
+        // are on different days between 17:00 and 20:00.
+        var stale = (await context.DailyIncomingPayments
+                .Where(payment => payment.Status == DailyIncomingPaymentStatus.Pending
+                                  && payment.PostIssuedAtUtc == null
+                                  && payment.PaymentDate < paymentDate)
+                .ToListAsync())
+            .Where(payment => scope.Includes(payment.CardCode))
+            .ToList();
 
         foreach (var payment in stale)
         {
@@ -212,11 +268,11 @@ public sealed class DailyIncomingPaymentService(
     private async Task CreatePaymentsAsync(
         DateTime paymentDate,
         DateTime cutoffUtc,
+        RunScope scope,
         DailyIncomingPaymentRunResult result,
         CancellationToken cancellationToken)
     {
         var options = settings.Value;
-        var swipe = SwipeSettlementFromSettings();
         var lookbackStart = paymentDate.AddDays(-Math.Max(1, options.DailyPaymentLookbackDays));
 
         // A customer with any payment for the day is left alone, so a second pass never starts a second
@@ -226,8 +282,9 @@ public sealed class DailyIncomingPaymentService(
             .Select(payment => payment.CardCode)
             .ToListAsync(cancellationToken);
 
-        var sources = SaleSourceSystems.PostedByDesktopSaleJob;
+        var sources = PaidSources;
 
+        // Loaded for both runs and split in memory: a lookback's worth of rows, and the split is by partner.
         var sales = await context.DesktopSales
             .Where(sale => sale.SourceSystem != null
                            && sources.Contains(sale.SourceSystem)
@@ -247,6 +304,7 @@ public sealed class DailyIncomingPaymentService(
                                && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(sale => sale.Id)
             .ToListAsync(cancellationToken);
+        sales = sales.Where(sale => scope.Includes(sale.CardCode)).ToList();
 
         var consolidations = await context.SaleConsolidations
             .Where(consolidation => consolidation.SapDocEntry != null
@@ -262,6 +320,24 @@ public sealed class DailyIncomingPaymentService(
                                         && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(consolidation => consolidation.Id)
             .ToListAsync(cancellationToken);
+        consolidations = consolidations.Where(consolidation => scope.Includes(consolidation.CardCode)).ToList();
+
+        // An online van sale went straight to SAP, and its confirmed reservation is its only local record.
+        var lookbackStartUtc = DateTime.SpecifyKind(lookbackStart, DateTimeKind.Utc).AddHours(-2);
+        var reservations = await context.StockReservations
+            .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
+                                  && reservation.Status == ReservationStatus.Confirmed
+                                  && reservation.SAPDocEntry != null
+                                  && reservation.ConfirmedAt != null
+                                  && reservation.ConfirmedAt < cutoffUtc
+                                  && reservation.CreatedAt >= lookbackStartUtc
+                                  && !alreadyPaid.Contains(reservation.CardCode)
+                                  && !context.DailyIncomingPaymentLines.Any(line =>
+                                      line.StockReservationId == reservation.Id
+                                      && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
+            .OrderBy(reservation => reservation.Id)
+            .ToListAsync(cancellationToken);
+        reservations = reservations.Where(reservation => scope.Includes(reservation.CardCode)).ToList();
 
         var consolidationIds = consolidations.Select(consolidation => consolidation.Id).ToList();
         var linkedSales = consolidationIds.Count == 0
@@ -275,7 +351,7 @@ public sealed class DailyIncomingPaymentService(
         // In memory: SQLite, which the tests run on, cannot compare decimals.
         foreach (var sale in sales.Where(sale => sale.AmountPaid > 0))
         {
-            var split = DailyIncomingPaymentBuilder.SplitSale(sale, swipe);
+            var split = DailyIncomingPaymentBuilder.SplitSale(sale);
             if (!split.IsMapped)
             {
                 sale.PaymentStatus = DesktopSalePaymentStatuses.Unmapped;
@@ -290,8 +366,7 @@ public sealed class DailyIncomingPaymentService(
         {
             var split = DailyIncomingPaymentBuilder.SplitConsolidation(
                 consolidation,
-                linkedSales.Where(sale => sale.ConsolidationId == consolidation.Id).ToList(),
-                swipe);
+                linkedSales.Where(sale => sale.ConsolidationId == consolidation.Id).ToList());
 
             if (!split.IsMapped)
             {
@@ -309,11 +384,33 @@ public sealed class DailyIncomingPaymentService(
                 LineFor(split.Split.Value, consolidation.SapDocEntry!.Value, consolidation.SapDocNum, consolidationId: consolidation.Id)));
         }
 
+        foreach (var reservation in reservations)
+        {
+            var split = DailyIncomingPaymentBuilder.SplitReservation(reservation);
+            if (!split.IsMapped)
+            {
+                // No status column to hold the reason, so it is logged. The line is simply not claimed.
+                logger.LogWarning(
+                    "Online van sale {Reference} ({CardCode}) was left off the daily payment: {Reason}",
+                    reservation.ExternalReferenceId, reservation.CardCode, split.Reason);
+                continue;
+            }
+
+            var line = LineFor(split.Split!.Value, reservation.SAPDocEntry!.Value, reservation.SAPDocNum, reservationId: reservation.Id);
+            line.PayOpenBalance = true;
+            claims.Add((reservation.CardCode, reservation.CardName, line));
+        }
+
         await context.SaveChangesAsync(CancellationToken.None);
 
         foreach (var group in claims.GroupBy(claim => claim.CardCode, StringComparer.OrdinalIgnoreCase))
         {
-            var lines = group.Select(claim => claim.Line).ToList();
+            // One invoice, one line, whichever record it was found through.
+            var lines = group
+                .Select(claim => claim.Line)
+                .GroupBy(line => line.InvoiceDocEntry)
+                .Select(same => same.First())
+                .ToList();
             var payment = new DailyIncomingPaymentEntity
             {
                 CardCode = group.First().CardCode,
@@ -357,11 +454,13 @@ public sealed class DailyIncomingPaymentService(
         int invoiceDocEntry,
         int? invoiceDocNum,
         int? saleId = null,
-        int? consolidationId = null) =>
+        int? consolidationId = null,
+        int? reservationId = null) =>
         new()
         {
             DesktopSaleId = saleId,
             SaleConsolidationId = consolidationId,
+            StockReservationId = reservationId,
             InvoiceDocEntry = invoiceDocEntry,
             InvoiceDocNum = invoiceDocNum,
             CashAmount = split.Cash,
@@ -373,19 +472,23 @@ public sealed class DailyIncomingPaymentService(
 
     private async Task PostDuePaymentsAsync(
         DateTime paymentDate,
+        RunScope scope,
+        IReadOnlyDictionary<string, IncomingPaymentGlMappingEntity> mappings,
         DateTime utcNow,
         DailyIncomingPaymentRunResult result,
         CancellationToken cancellationToken)
     {
         var maxAttempts = settings.Value.MaxPostingAttempts;
 
-        var due = await context.DailyIncomingPayments
-            .Include(payment => payment.Lines)
-            .Where(payment => payment.Status == DailyIncomingPaymentStatus.Pending
-                              && payment.PaymentDate == paymentDate
-                              && payment.Attempts < maxAttempts)
-            .OrderBy(payment => payment.Id)
-            .ToListAsync(cancellationToken);
+        var due = (await context.DailyIncomingPayments
+                .Include(payment => payment.Lines)
+                .Where(payment => payment.Status == DailyIncomingPaymentStatus.Pending
+                                  && payment.PaymentDate == paymentDate
+                                  && payment.Attempts < maxAttempts)
+                .OrderBy(payment => payment.Id)
+                .ToListAsync(cancellationToken))
+            .Where(payment => scope.Includes(payment.CardCode))
+            .ToList();
 
         foreach (var payment in due)
         {
@@ -394,9 +497,20 @@ public sealed class DailyIncomingPaymentService(
                 break;
             }
 
+            if (!mappings.TryGetValue(payment.CardCode, out var mapping) || !mapping.IsActive)
+            {
+                // Held, not counted as an attempt. Posting without accounts would put the money in SAP's
+                // default, the factory's cash. It goes out on the next pass after a mapping is added.
+                payment.LastError = $"No active G/L mapping for {payment.CardCode}. Add one on the Incoming Payments "
+                                    + "page and this payment posts on the next pass.";
+                result.Held++;
+                await context.SaveChangesAsync(CancellationToken.None);
+                continue;
+            }
+
             try
             {
-                await PostOneAsync(payment, utcNow, result, cancellationToken);
+                await PostOneAsync(payment, PaymentAccounts.From(mapping), utcNow, result, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -425,6 +539,7 @@ public sealed class DailyIncomingPaymentService(
 
     private async Task PostOneAsync(
         DailyIncomingPaymentEntity payment,
+        PaymentAccounts accounts,
         DateTime utcNow,
         DailyIncomingPaymentRunResult result,
         CancellationToken cancellationToken)
@@ -469,21 +584,9 @@ public sealed class DailyIncomingPaymentService(
                 + "One payment cannot carry two currencies.");
         }
 
-        var swipe = SwipeSettlementFromSettings();
-
-        if (swipe.AsTransfer && payment.CreditSum > 0m && payment.TransferSum > 0m)
-        {
-            // Both kinds of transferred money on one document, and SAP carries one account for the pair.
-            // The account is left off rather than applied to money it does not belong to; this says so
-            // out loud, because otherwise it is only findable by reconciling the bank by hand.
-            logger.LogWarning(
-                "Daily payment {Reference} settles {Card} of card money and {Wallet} of wallet money together. "
-                + "SAP takes one transfer account per payment, so {Account} is left off and SAP's default "
-                + "applies to both.",
-                payment.Reference, payment.CreditSum, payment.TransferSum, swipe.TransferAccount);
-        }
-
-        var request = DailyIncomingPaymentBuilder.BuildRequest(payment, swipe);
+        var request = DailyIncomingPaymentBuilder.BuildRequest(payment, accounts);
+        payment.CashAccount = request.CashAccount;
+        payment.TransferAccount = request.TransferAccount;
 
         // The last point at which walking away costs nothing.
         cancellationToken.ThrowIfCancellationRequested();
@@ -500,8 +603,10 @@ public sealed class DailyIncomingPaymentService(
             result.Posted++;
 
             logger.LogInformation(
-                "Posted daily payment {Reference} as SAP payment {DocNum}: {Count} invoice(s), cash {Cash}, transfer {Transfer}, card {Card}.",
-                payment.Reference, created.DocNum, payment.Lines.Count, payment.CashSum, payment.TransferSum, payment.CreditSum);
+                "Posted daily payment {Reference} as SAP payment {DocNum}: {Count} invoice(s), cash {Cash} to {CashAccount}, "
+                + "transfer {Transfer} and card {Card} to {TransferAccount}.",
+                payment.Reference, created.DocNum, payment.Lines.Count, payment.CashSum, request.CashAccount,
+                payment.TransferSum, payment.CreditSum, request.TransferAccount);
         }
         catch (Exception ex) when (SapFailureClassifier.DefinitelyNotCommitted(ex))
         {
@@ -565,6 +670,21 @@ public sealed class DailyIncomingPaymentService(
 
             line.InvoiceDocNum = invoice.DocNum;
             var open = Math.Round(invoice.DocTotal - invoice.PaidToDate, 2);
+
+            if (line.PayOpenBalance)
+            {
+                // An online van sale: the invoice decides the amount, in the tender the line was claimed in.
+                if (open <= 0m)
+                {
+                    DropLine(payment, line);
+                    continue;
+                }
+
+                line.CashAmount = line.CashAmount > 0m ? open : 0m;
+                line.TransferAmount = line.CashAmount == 0m && line.TransferAmount > 0m ? open : 0m;
+                line.CreditAmount = line.CashAmount == 0m && line.TransferAmount == 0m ? open : 0m;
+                continue;
+            }
 
             if (open <= 0m)
             {
@@ -703,9 +823,123 @@ public sealed class DailyIncomingPaymentService(
             .FirstOrDefault();
     }
 
-    /// <summary>How a swipe reaches SAP, as configured. See <see cref="SwipeSettlement"/>.</summary>
-    private SwipeSettlement SwipeSettlementFromSettings() =>
-        new(sapSettings.Value.SwipeCreditCardCode, sapSettings.Value.SwipeTransferAccount);
+    // ---- 5. Tell the people holding the cash ----------------------------------------------------------
+
+    /// <summary>
+    /// Emails each posted payment's recipients once. A payment is stamped only after at least one address
+    /// took it, so a mail outage is retried by the next pass for as long as <see cref="EmailWindow"/>.
+    /// </summary>
+    private async Task SendEmailsAsync(
+        IReadOnlyDictionary<string, IncomingPaymentGlMappingEntity> mappings,
+        DateTime utcNow,
+        DailyIncomingPaymentRunResult result,
+        CancellationToken cancellationToken)
+    {
+        var since = utcNow - EmailWindow;
+
+        // Only payments sent with mapped accounts. Anything posted before the mapping existed was never
+        // meant to be announced.
+        var posted = await context.DailyIncomingPayments
+            .Include(payment => payment.Lines)
+            .Where(payment => payment.Status == DailyIncomingPaymentStatus.Posted
+                              && payment.EmailSentAtUtc == null
+                              && payment.PostedAtUtc != null
+                              && payment.PostedAtUtc >= since
+                              && (payment.CashAccount != null || payment.TransferAccount != null))
+            .OrderBy(payment => payment.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (var payment in posted)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            var recipients = mappings.TryGetValue(payment.CardCode, out var mapping)
+                ? IncomingPaymentGlMappingAddresses.Parse(mapping.NotifyEmails)
+                : [];
+
+            if (recipients.Count == 0)
+            {
+                continue;
+            }
+
+            var lines = await EmailLinesAsync(payment, cancellationToken);
+            var subject = DailyIncomingPaymentEmailBody.Subject(payment);
+            var body = DailyIncomingPaymentEmailBody.Render(payment, lines);
+
+            var failed = new List<string>();
+            var sent = 0;
+
+            foreach (var recipient in recipients)
+            {
+                bool delivered;
+                try
+                {
+                    delivered = await emailService.SendEmailAsync(recipient, subject, body, null, null, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Daily payment email for {Reference} to {Recipient} failed.", payment.Reference, recipient);
+                    delivered = false;
+                }
+
+                if (delivered)
+                {
+                    sent++;
+                }
+                else
+                {
+                    failed.Add(recipient);
+                }
+            }
+
+            if (sent > 0)
+            {
+                payment.EmailSentAtUtc = utcNow;
+                result.Emailed++;
+            }
+
+            payment.EmailError = failed.Count == 0
+                ? null
+                : Truncate($"Not delivered to {string.Join(", ", failed)}.", 1000);
+
+            await context.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
+    private async Task<List<DailyPaymentEmailLine>> EmailLinesAsync(
+        DailyIncomingPaymentEntity payment,
+        CancellationToken cancellationToken)
+    {
+        var saleIds = payment.Lines.Where(line => line.DesktopSaleId != null).Select(line => line.DesktopSaleId!.Value).ToList();
+        var consolidationIds = payment.Lines.Where(line => line.SaleConsolidationId != null).Select(line => line.SaleConsolidationId!.Value).ToList();
+        var reservationIds = payment.Lines.Where(line => line.StockReservationId != null).Select(line => line.StockReservationId!.Value).ToList();
+
+        var sales = await context.DesktopSales.AsNoTracking()
+            .Where(sale => saleIds.Contains(sale.Id))
+            .ToDictionaryAsync(sale => sale.Id, sale => sale.ExternalReferenceId, cancellationToken);
+        var consolidations = await context.SaleConsolidations.AsNoTracking()
+            .Where(consolidation => consolidationIds.Contains(consolidation.Id))
+            .ToDictionaryAsync(consolidation => consolidation.Id, consolidation => "Consolidated day " + consolidation.ConsolidationDate.ToString("yyyy-MM-dd"), cancellationToken);
+        var reservations = await context.StockReservations.AsNoTracking()
+            .Where(reservation => reservationIds.Contains(reservation.Id))
+            .ToDictionaryAsync(reservation => reservation.Id, reservation => reservation.ExternalReferenceId, cancellationToken);
+
+        return payment.Lines
+            .OrderBy(line => line.InvoiceDocNum ?? line.InvoiceDocEntry)
+            .Select(line => new DailyPaymentEmailLine(
+                line.InvoiceDocNum,
+                line.InvoiceDocEntry,
+                line.DesktopSaleId is { } saleId ? sales.GetValueOrDefault(saleId)
+                : line.SaleConsolidationId is { } consolidationId ? consolidations.GetValueOrDefault(consolidationId)
+                : line.StockReservationId is { } reservationId ? reservations.GetValueOrDefault(reservationId)
+                : null,
+                line.CashAmount,
+                line.TransferAmount + line.CreditAmount))
+            .ToList();
+    }
 
     private static void RecomputeSums(DailyIncomingPaymentEntity payment)
     {
@@ -714,14 +948,15 @@ public sealed class DailyIncomingPaymentService(
         payment.CreditSum = payment.Lines.Sum(line => line.CreditAmount);
     }
 
-    private static string? Truncate(string? value) =>
-        string.IsNullOrEmpty(value) || value.Length <= MaxErrorLength ? value : value[..MaxErrorLength];
+    private static string? Truncate(string? value, int maxLength = MaxErrorLength) =>
+        string.IsNullOrEmpty(value) || value.Length <= maxLength ? value : value[..maxLength];
 }
 
 /// <summary>What one daily payment pass did.</summary>
 public sealed class DailyIncomingPaymentRunResult
 {
     public DateTime PaymentDate { get; set; }
+    public DateTime VanPaymentDate { get; set; }
     public int Created { get; set; }
     public int Posted { get; set; }
     public int Adopted { get; set; }
@@ -729,8 +964,13 @@ public sealed class DailyIncomingPaymentRunResult
     public int Unresolved { get; set; }
     public int Released { get; set; }
     public int Failed { get; set; }
+
+    /// <summary>Payments not sent because their partner has no active G/L mapping.</summary>
+    public int Held { get; set; }
+
+    public int Emailed { get; set; }
     public List<string> Errors { get; } = [];
 
     public bool HasWork =>
-        Created + Posted + Adopted + NothingToPay + Unresolved + Released + Failed > 0;
+        Created + Posted + Adopted + NothingToPay + Unresolved + Released + Failed + Held + Emailed > 0;
 }

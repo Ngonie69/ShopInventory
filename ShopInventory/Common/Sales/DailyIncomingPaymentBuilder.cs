@@ -37,37 +37,28 @@ public sealed class TenderSplitResult
 }
 
 /// <summary>
-/// How a card swipe reaches SAP: banked as transfer money against a G/L account, or carried on a credit
-/// card line.
+/// The G/L accounts a payment is sent with: one for cash, one for everything else.
 /// </summary>
-/// <remarks>
-/// The transfer account wins when both are set. It is what the money really does — the acquirer pays the
-/// bank — and it needs no credit card record in SAP, which this company database does not have.
-/// </remarks>
-public readonly record struct SwipeSettlement(int? CreditCardCode, string? TransferAccount)
+public readonly record struct PaymentAccounts(string CashAccount, string ElectronicAccount)
 {
-    /// <summary>True when a swipe settles as transfer money against <see cref="TransferAccount"/>.</summary>
-    public bool AsTransfer => !string.IsNullOrWhiteSpace(TransferAccount);
-
-    /// <summary>True when a swipe can be settled at all.</summary>
-    public bool IsConfigured => AsTransfer || CreditCardCode is not null;
-
-    public static SwipeSettlement None => new(null, null);
+    public static PaymentAccounts From(IncomingPaymentGlMappingEntity mapping) =>
+        new(mapping.CashAccount.Trim(), mapping.ElectronicAccount.Trim());
 }
 
 /// <summary>
-/// Turns a day's till, vending and consolidated invoices into the one SAP incoming payment that settles
-/// them for a business partner.
+/// Turns a day's till, vending, van and consolidated invoices into the one SAP incoming payment that
+/// settles them for a business partner.
 /// </summary>
 /// <remarks>
 /// <para>
 /// SAP stores payment means as separate sums on one document, not as a type field. So a payment
 /// covering many sales carries each tender's total in its own sum: cash in CashSum, the wallets in
-/// TransferSum, card swipes in CreditSum with one card line. Before this, the older consolidation put
-/// the whole day under whichever tender was most common, which booked wallet and card money as cash.
+/// TransferSum. Before this, the older consolidation put the whole day under whichever tender was most
+/// common, which booked wallet and card money as cash.
 /// </para>
 /// <para>
-/// GL accounts are left unset, as they always were, so SAP's default account for each means applies.
+/// Every account is named, from the partner's <see cref="IncomingPaymentGlMappingEntity"/>. Left unset,
+/// SAP applies its default, 700300, which is the factory's cash on hand.
 /// </para>
 /// </remarks>
 public static class DailyIncomingPaymentBuilder
@@ -75,9 +66,12 @@ public static class DailyIncomingPaymentBuilder
     /// <summary>The longest Remarks SAP keeps on a payment.</summary>
     private const int MaxRemarksLength = 254;
 
+    /// <summary>The longest JournalRemarks SAP keeps.</summary>
+    private const int MaxJournalRemarksLength = 50;
+
     /// <summary>
     /// The payment's business key. It goes at the start of the SAP Remarks, and a lost reply is
-    /// resolved by looking for it there.
+    /// resolved by looking for it there. It is also the payment's SAP Reference, for audit.
     /// </summary>
     public static string ReferenceFor(DateTime paymentDate, string cardCode) =>
         $"DAYPAY-{paymentDate:yyyyMMdd}-{cardCode.Trim()}";
@@ -86,20 +80,31 @@ public static class DailyIncomingPaymentBuilder
     /// What a till or vending sale paid, by tender.
     /// </summary>
     /// <param name="sale">The sale, whose <c>PaymentMethod</c> decides the payment sum.</param>
-    /// <param name="swipe">
-    /// How a swipe settles. Until one of its two routes is configured a swipe cannot be settled at all:
-    /// SAP needs either an account to bank it into or a card line, and inventing either books real money
-    /// somewhere nobody chose.
-    /// </param>
-    public static TenderSplitResult SplitSale(DesktopSaleEntity sale, SwipeSettlement swipe) =>
-        SplitAmount(sale.PaymentMethod, sale.AmountPaid, swipe);
+    public static TenderSplitResult SplitSale(DesktopSaleEntity sale) =>
+        SplitAmount(sale.PaymentMethod, sale.AmountPaid);
+
+    /// <summary>
+    /// Which tender an online van sale was paid in. The amount is decided later, from the SAP invoice.
+    /// </summary>
+    /// <remarks>
+    /// The amount here only marks the tender. The line pays the invoice's open balance instead (see
+    /// <see cref="DailyIncomingPaymentLineEntity.PayOpenBalance"/>), because the reservation's value is
+    /// net of VAT. A handset built before the payment picker records no tender. That counts as cash,
+    /// which cannot misplace money, because a van's two accounts are the same account.
+    /// </remarks>
+    public static TenderSplitResult SplitReservation(StockReservationEntity reservation)
+    {
+        var amount = Math.Max(reservation.TotalValue, 0.01m);
+        return string.IsNullOrWhiteSpace(reservation.PaymentMethod)
+            ? TenderSplitResult.Mapped(new TenderSplit(amount, 0m, 0m))
+            : SplitAmount(reservation.PaymentMethod, amount);
+    }
 
     /// <summary>
     /// What an older desktop app consolidated invoice was paid, by tender.
     /// </summary>
     /// <param name="consolidation">The consolidation whose invoice is being settled.</param>
     /// <param name="linkedSales">The desktop sales recorded against it.</param>
-    /// <param name="swipe">How a swipe settles.</param>
     /// <remarks>
     /// A consolidation also folds in fiscalised queue entries. Those are never saved as sales, so they
     /// have no rows here. The consolidation always treated each one as paid in full in cash, so what the
@@ -109,14 +114,13 @@ public static class DailyIncomingPaymentBuilder
     /// </remarks>
     public static TenderSplitResult SplitConsolidation(
         SaleConsolidationEntity consolidation,
-        IReadOnlyCollection<DesktopSaleEntity> linkedSales,
-        SwipeSettlement swipe)
+        IReadOnlyCollection<DesktopSaleEntity> linkedSales)
     {
         var split = new TenderSplit(0m, 0m, 0m);
 
         foreach (var sale in linkedSales.Where(sale => sale.AmountPaid > 0))
         {
-            var part = SplitSale(sale, swipe);
+            var part = SplitSale(sale);
             if (!part.IsMapped)
             {
                 return TenderSplitResult.NotMapped($"Sale {sale.ExternalReferenceId}: {part.Reason}");
@@ -167,22 +171,26 @@ public static class DailyIncomingPaymentBuilder
     /// <summary>
     /// Builds the SAP incoming payment for a business partner's day from its claimed lines.
     /// </summary>
+    /// <remarks>
+    /// Card money stays recorded on the lines as card money, so reports can still tell a swipe from a
+    /// wallet. It reaches SAP as transfer money: the acquirer pays the bank, and this company database
+    /// has no credit card records. So wallets and swipes share TransferSum and the partner's electronic
+    /// account, and the payment carries no card line.
+    /// </remarks>
     public static CreateIncomingPaymentRequest BuildRequest(
         DailyIncomingPaymentEntity payment,
-        SwipeSettlement swipe)
+        PaymentAccounts accounts)
     {
+        if (string.IsNullOrWhiteSpace(accounts.CashAccount) || string.IsNullOrWhiteSpace(accounts.ElectronicAccount))
+        {
+            throw new InvalidOperationException(
+                $"Daily payment {payment.Reference} has no G/L account to post to, and SAP would use its default.");
+        }
+
         var lines = payment.Lines.Where(line => line.SumApplied > 0).ToList();
         var cash = lines.Sum(line => line.CashAmount);
-        var transfer = lines.Sum(line => line.TransferAmount);
-        var credit = lines.Sum(line => line.CreditAmount);
+        var transferSum = lines.Sum(line => line.TransferAmount + line.CreditAmount);
         var date = payment.PaymentDate.ToString("yyyy-MM-dd");
-
-        // Card money banked rather than carried on a card account is transfer money to SAP, so it joins
-        // TransferSum and leaves no card line. It is kept apart until here — the lines still record it as
-        // card money — so reports and any later change of route can still tell the two apart.
-        var cardAsTransfer = swipe.AsTransfer ? credit : 0m;
-        var transferSum = transfer + cardAsTransfer;
-        var creditSum = credit - cardAsTransfer;
 
         var request = new CreateIncomingPaymentRequest
         {
@@ -190,10 +198,11 @@ public static class DailyIncomingPaymentBuilder
             DocDate = date,
             Remarks = Truncate(
                 $"{payment.Reference}: daily payment for {lines.Count} invoice(s)", MaxRemarksLength),
+            CounterReference = payment.Reference,
+            JournalRemarks = Truncate(payment.Reference, MaxJournalRemarksLength),
             ClientRequestId = payment.Reference,
             CashSum = cash,
             TransferSum = transferSum,
-            CreditSum = creditSum,
             PaymentInvoices = lines
                 .Select(line => new PaymentInvoiceRequest
                 {
@@ -203,49 +212,23 @@ public static class DailyIncomingPaymentBuilder
                 .ToList()
         };
 
+        if (cash > 0m)
+        {
+            request.CashAccount = accounts.CashAccount;
+        }
+
         if (transferSum > 0m)
         {
             // The individual wallet references stay on the sales. SAP's transfer reference is too short
             // to hold a day's worth of them.
             request.TransferDate = date;
-        }
-
-        if (cardAsTransfer > 0m && transfer <= 0m)
-        {
-            // Named only when every transferred cent is card money. SAP carries one transfer account per
-            // payment, so on a day that also took wallet money the account is left off and SAP's default
-            // applies to the whole sum: better one reconciliation than wallet takings posted into the
-            // card settlement account, which nothing downstream would question.
-            request.TransferAccount = swipe.TransferAccount;
-        }
-
-        if (creditSum > 0m)
-        {
-            if (swipe.CreditCardCode is null)
-            {
-                // SplitSale refuses a swipe with neither route configured, so this is a lost invariant,
-                // not a configuration gap. Posting would book card money with no card line.
-                throw new InvalidOperationException(
-                    $"Daily payment {payment.Reference} carries card money but neither "
-                    + "SAP:SwipeTransferAccount nor SAP:SwipeCreditCardCode is configured.");
-            }
-
-            request.PaymentCreditCards =
-            [
-                new PaymentCreditCardRequest
-                {
-                    CreditCard = swipe.CreditCardCode.Value,
-                    CreditSum = creditSum,
-                    // SAP's voucher number is short. The date identifies the day's settlement slip.
-                    VoucherNum = payment.PaymentDate.ToString("yyyyMMdd")
-                }
-            ];
+            request.TransferAccount = accounts.ElectronicAccount;
         }
 
         return request;
     }
 
-    private static TenderSplitResult SplitAmount(string? paymentMethod, decimal amount, SwipeSettlement swipe)
+    private static TenderSplitResult SplitAmount(string? paymentMethod, decimal amount)
     {
         var paymentSum = TenderTypes.ToPaymentSum(paymentMethod);
 
@@ -257,13 +240,6 @@ public static class DailyIncomingPaymentBuilder
                 string.IsNullOrWhiteSpace(paymentMethod)
                     ? "The sale records no payment method, so it cannot be settled automatically."
                     : $"Payment method '{paymentMethod}' does not map to a SAP payment means.");
-        }
-
-        if (paymentSum == PaymentSum.Credit && !swipe.IsConfigured)
-        {
-            return TenderSplitResult.NotMapped(
-                "A card swipe needs SAP:SwipeTransferAccount (the G/L account card money is banked into), "
-                + "or SAP:SwipeCreditCardCode, configured before it can be settled.");
         }
 
         return TenderSplitResult.Mapped(paymentSum switch
