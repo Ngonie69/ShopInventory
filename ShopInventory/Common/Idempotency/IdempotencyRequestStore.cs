@@ -19,10 +19,18 @@ public sealed class IdempotencyRequestStore(
         ? securitySettings.Value.IdempotencyKeyExpirationMinutes
         : 60;
 
+    public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
+        string scope,
+        string key,
+        object request,
+        CancellationToken cancellationToken)
+        => TryAcquireAsync<TResponse>(scope, key, request, inProgressLease: null, cancellationToken);
+
     public async Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
         string scope,
         string key,
         object request,
+        TimeSpan? inProgressLease,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(scope))
@@ -69,7 +77,9 @@ public sealed class IdempotencyRequestStore(
             RequestHash = requestHash,
             Status = IdempotencyRequestStatus.InProgress,
             CreatedAtUtc = now,
-            ExpiresAtUtc = now.AddMinutes(_expirationMinutes)
+            ExpiresAtUtc = inProgressLease is { } lease && lease > TimeSpan.Zero
+                ? now.Add(lease)
+                : now.AddMinutes(_expirationMinutes)
         };
 
         context.IdempotencyRequests.Add(entity);
@@ -134,6 +144,27 @@ public sealed class IdempotencyRequestStore(
         await context.IdempotencyRequests
             .Where(item => item.Id == requestId && item.Status != IdempotencyRequestStatus.Completed)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public async Task<bool> RenewAsync(
+        long requestId,
+        TimeSpan lease,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        using var serviceScope = scopeFactory.CreateScope();
+        var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        // Keyed on the row's id, so a claim that lapsed and was re-acquired by somebody else is a
+        // different row and is left alone. A lapsed claim still standing is revived: its owner is
+        // plainly alive, and reviving it keeps out a second post that nothing else would stop.
+        var renewed = await context.IdempotencyRequests
+            .Where(item => item.Id == requestId && item.Status == IdempotencyRequestStatus.InProgress)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(item => item.ExpiresAtUtc, now.Add(lease)),
+                cancellationToken);
+
+        return renewed == 1;
     }
 
     public async Task<bool> TryTakeOverAsync(

@@ -1,10 +1,13 @@
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Configuration;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Common.Sales;
 
 public sealed class DesktopSalePostGuard(
     IIdempotencyRequestStore store,
+    IOptions<DesktopSalePostingSettings> settings,
     ILogger<DesktopSalePostGuard> logger) : IDesktopSalePostGuard
 {
     /// <summary>
@@ -27,12 +30,20 @@ public sealed class DesktopSalePostGuard(
     {
         var reference = sale.ExternalReferenceId;
 
+        // Leased rather than held for the whole idempotency expiry. A post that dies with its claim —
+        // an app-pool recycle mid-post — otherwise refused every retry of the sale for an hour. See
+        // DesktopSalePostingSettings.PostClaimLeaseSeconds.
+        TimeSpan? lease = settings.Value.PostClaimLeaseSeconds > 0
+            ? TimeSpan.FromSeconds(settings.Value.PostClaimLeaseSeconds)
+            : null;
+
         var acquired = await store.TryAcquireAsync<DesktopSalePostReceipt>(
             IdempotencyScope,
             reference,
             // Stable across every caller, or the store would read a manual post and a background
             // pass as different requests for the same key and answer the second RequestMismatch.
             new { ExternalReferenceId = reference },
+            lease,
             cancellationToken);
 
         switch (acquired.Outcome)
@@ -51,12 +62,12 @@ public sealed class DesktopSalePostGuard(
             case IdempotencyAcquireOutcome.InProgress:
             case IdempotencyAcquireOutcome.RequestMismatch:
                 logger.LogWarning(
-                    "A SAP post for sale {ExternalReference} is already claimed ({Outcome}); refusing to start a second.",
-                    reference, acquired.Outcome);
+                    "A SAP post for sale {ExternalReference} is already claimed ({Outcome}, claimed {ClaimedAt:u}, lapses {ExpiresAt:u} unless renewed); refusing to start a second.",
+                    reference, acquired.Outcome, acquired.CreatedAtUtc, acquired.ExpiresAtUtc);
                 return DesktopSalePostClaim.ForInFlight(reference);
 
             default:
-                return DesktopSalePostClaim.ForGrant(reference, acquired.RequestId!.Value, store, logger);
+                return DesktopSalePostClaim.ForGrant(reference, acquired.RequestId!.Value, store, logger, lease);
         }
     }
 }

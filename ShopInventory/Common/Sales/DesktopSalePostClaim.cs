@@ -17,7 +17,10 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
     private readonly ILogger? _logger;
     private readonly string _externalReferenceId;
     private readonly long? _requestId;
+    private readonly CancellationTokenSource? _heartbeatStop;
+    private readonly Task? _heartbeat;
     private bool _completed;
+    private bool _heartbeatStopped;
 
     private DesktopSalePostClaim(
         DesktopSalePostClaimOutcome outcome,
@@ -25,7 +28,8 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
         DesktopSalePostReceipt? receipt = null,
         IIdempotencyRequestStore? store = null,
         ILogger? logger = null,
-        long? requestId = null)
+        long? requestId = null,
+        TimeSpan? lease = null)
     {
         Outcome = outcome;
         _externalReferenceId = externalReferenceId;
@@ -33,6 +37,12 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
         _store = store;
         _logger = logger;
         _requestId = requestId;
+
+        if (store is not null && requestId is not null && lease is { } leaseLength && leaseLength > TimeSpan.Zero)
+        {
+            _heartbeatStop = new CancellationTokenSource();
+            _heartbeat = Task.Run(() => RenewWhileHeldAsync(leaseLength, _heartbeatStop.Token));
+        }
     }
 
     public DesktopSalePostClaimOutcome Outcome { get; }
@@ -47,9 +57,10 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
         string externalReferenceId,
         long requestId,
         IIdempotencyRequestStore store,
-        ILogger logger)
+        ILogger logger,
+        TimeSpan? lease = null)
         => new(DesktopSalePostClaimOutcome.Granted, externalReferenceId, store: store, logger: logger,
-            requestId: requestId);
+            requestId: requestId, lease: lease);
 
     internal static DesktopSalePostClaim ForReplay(string externalReferenceId, DesktopSalePostReceipt receipt)
         => new(DesktopSalePostClaimOutcome.AlreadyPosted, externalReferenceId, receipt);
@@ -86,6 +97,10 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
 
         _completed = true;
 
+        // Stopped first: a renewal landing after the completion would find no in-progress row and
+        // report the claim lost when it was in fact finished.
+        await StopRenewingAsync();
+
         // CancellationToken.None: the invoice exists in SAP by now, and a caller that hung up must
         // not be the reason the next attempt is allowed to raise a second one.
         await _store.CompleteAsync(
@@ -96,6 +111,8 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await StopRenewingAsync();
+
         if (_completed || _store is null || _requestId is null)
         {
             return;
@@ -115,5 +132,65 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
                 "Failed to release the SAP post claim for sale {ExternalReference}. It expires on its own.",
                 _externalReferenceId);
         }
+    }
+
+    /// <summary>
+    /// Keeps the claim alive for as long as this object is, so that only a claim whose owner is gone
+    /// lapses.
+    /// </summary>
+    /// <remarks>
+    /// Renews at a quarter of the lease, so three renewals can fail in a row — a database blip, a
+    /// starved thread pool — before a live post loses its claim. A post hung inside SAP keeps renewing,
+    /// deliberately: its invoice may yet commit, and it is the one case where letting a second post in
+    /// would be wrong.
+    /// </remarks>
+    private async Task RenewWhileHeldAsync(TimeSpan lease, CancellationToken stop)
+    {
+        using var timer = new PeriodicTimer(lease / 4);
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stop))
+            {
+                try
+                {
+                    // Never the stop token: a renewal cut off half way is indistinguishable from a
+                    // failed one, and stopping only needs the loop to end, which the timer sees.
+                    if (!await _store!.RenewAsync(_requestId!.Value, lease, CancellationToken.None))
+                    {
+                        _logger?.LogError(
+                            "The SAP post claim for sale {ExternalReference} lapsed while its post was still running; "
+                            + "another post may now be claimed for it.",
+                            _externalReferenceId);
+                        return;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    _logger?.LogWarning(
+                        exception,
+                        "Failed to renew the SAP post claim for sale {ExternalReference}; retrying.",
+                        _externalReferenceId);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task StopRenewingAsync()
+    {
+        if (_heartbeatStop is null || _heartbeatStopped)
+        {
+            return;
+        }
+
+        _heartbeatStopped = true;
+        _heartbeatStop.Cancel();
+
+        // Awaited so a renewal already under way finishes before the claim is completed or released.
+        await _heartbeat!;
+        _heartbeatStop.Dispose();
     }
 }
