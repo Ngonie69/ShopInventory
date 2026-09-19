@@ -28,6 +28,7 @@ internal static class ManagementSalesRollup
         DateTime? toDate,
         string? warehouseCode,
         string? sourceSystem,
+        string? cardCode,
         CancellationToken cancellationToken,
         string? business = null)
     {
@@ -61,6 +62,7 @@ internal static class ManagementSalesRollup
             days,
             readScope.Value.WarehouseCode,
             string.IsNullOrWhiteSpace(sourceSystem) ? null : sourceSystem.Trim(),
+            string.IsNullOrWhiteSpace(cardCode) ? null : cardCode.Trim(),
             SaleBusinesses.IsKnown(business) ? business!.Trim().ToLowerInvariant() : null);
     }
 
@@ -75,8 +77,41 @@ internal static class ManagementSalesRollup
             ? sales.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
             : sales.Where(s => s.SourceSystem == window.SourceSystem);
         sales = sales.InBusiness(window.Business);
-        return window.WarehouseCode is null ? sales : sales.Where(s => s.WarehouseCode == window.WarehouseCode);
+        if (window.WarehouseCode is not null)
+        {
+            sales = sales.Where(s => s.WarehouseCode == window.WarehouseCode);
+        }
+
+        return window.CardCode is null ? sales : sales.Where(s => s.CardCode == window.CardCode);
     }
+
+    /// <summary>
+    /// Every business partner that sold under the caller's scope in either period, whatever the channel
+    /// and partner filters say — the list the page chooses a partner from, so choosing one never empties it.
+    /// </summary>
+    /// <remarks>
+    /// A partner, not a warehouse, is who a sale was made as: one warehouse can serve several partners (a
+    /// depot's own account and the vans that load from it), so a warehouse filter mixes them together.
+    /// </remarks>
+    public static async Task<List<ManagementPartner>> PartnersAsync(
+        ApplicationDbContext db, Window window, CancellationToken cancellationToken) =>
+        (await Sales(db, window with { SourceSystem = null, CardCode = null }, window.PreviousFrom, window.To)
+                .GroupBy(s => new { s.CardCode, s.WarehouseCode })
+                .Select(g => new { g.Key.CardCode, g.Key.WarehouseCode, CardName = g.Max(s => s.CardName) })
+                .ToListAsync(cancellationToken))
+            .Where(p => !string.IsNullOrWhiteSpace(p.CardCode))
+            .GroupBy(p => p.CardCode.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => new ManagementPartner(
+                g.Key,
+                g.Select(p => p.CardName?.Trim()).FirstOrDefault(name => !string.IsNullOrEmpty(name)) ?? g.Key,
+                g.Select(p => p.WarehouseCode?.Trim() ?? string.Empty)
+                    .Where(code => code.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                    .ToList()))
+            .OrderBy(p => p.CardName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => p.CardCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     // ── Names ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -136,6 +171,26 @@ internal static class ManagementSalesRollup
         var codes = partners.Where(code => code.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         return (warehouse, codes.Count == 0 ? null : string.Join(", ", codes));
     }
+
+    /// <summary>
+    /// A business partner by its name, with its code and the warehouses its sales left from as the hint.
+    /// </summary>
+    public static (string Label, string? Hint) PartnerLabel(
+        string cardCode, IReadOnlyDictionary<string, ManagementPartner> partners, IEnumerable<string> warehouses)
+    {
+        if (cardCode.Length == 0)
+        {
+            return (NotRecorded, null);
+        }
+
+        var codes = warehouses.Where(code => code.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase).ToList();
+        var hint = codes.Count == 0 ? cardCode : $"{cardCode} · {string.Join(", ", codes)}";
+        return (partners.TryGetValue(cardCode, out var partner) ? partner.CardName : cardCode, hint);
+    }
+
+    public static Dictionary<string, ManagementPartner> PartnerDirectory(IEnumerable<ManagementPartner> partners) =>
+        partners.ToDictionary(p => p.CardCode, StringComparer.OrdinalIgnoreCase);
 
     public static (string Label, string? Hint) VendorLabel(string key, Labels labels) =>
         int.TryParse(key, NumberStyles.None, CultureInfo.InvariantCulture, out var id)
@@ -213,6 +268,7 @@ internal static class ManagementSalesRollup
                     DocEntry = s.SapDocEntry!.Value,
                     s.Currency,
                     s.WarehouseCode,
+                    s.CardCode,
                     s.SourceSystem,
                     s.CreatedBy,
                     s.CostCentreCode,
@@ -223,20 +279,22 @@ internal static class ManagementSalesRollup
                 s.DocEntry,
                 CurrencyKey(s.Currency),
                 s.WarehouseCode ?? string.Empty,
+                s.CardCode ?? string.Empty,
                 s.SourceSystem ?? string.Empty,
                 s.CreatedBy ?? string.Empty,
                 s.CostCentreCode?.Trim() ?? string.Empty,
                 s.RouteCustomerId))
             .ToList();
 
-        // One invoice for a day of a shop's sales: its lines are by item, so the margin can go on the item
-        // and the shop, and nowhere finer.
+        // One invoice for a day of a shop's sales to one partner (consolidation groups by CardCode): its
+        // lines are by item, so the margin can go on the item, the shop and the partner, and nowhere finer.
         var consolidated = (await sales
                 .Where(s => s.SapDocEntry == null && s.Consolidation != null && s.Consolidation.SapDocEntry != null)
-                .GroupBy(s => new { DocEntry = s.Consolidation!.SapDocEntry!.Value, s.Currency, s.WarehouseCode })
-                .Select(g => new { g.Key.DocEntry, g.Key.Currency, g.Key.WarehouseCode, SalesCount = g.Count() })
+                .GroupBy(s => new { DocEntry = s.Consolidation!.SapDocEntry!.Value, s.Currency, s.WarehouseCode, s.CardCode })
+                .Select(g => new { g.Key.DocEntry, g.Key.Currency, g.Key.WarehouseCode, g.Key.CardCode, SalesCount = g.Count() })
                 .ToListAsync(cancellationToken))
-            .Select(c => new ConsolidatedInvoice(c.DocEntry, CurrencyKey(c.Currency), c.WarehouseCode ?? string.Empty, c.SalesCount))
+            .Select(c => new ConsolidatedInvoice(
+                c.DocEntry, CurrencyKey(c.Currency), c.WarehouseCode ?? string.Empty, c.CardCode ?? string.Empty, c.SalesCount))
             .ToList();
 
         if (direct.Count == 0 && consolidated.Count == 0)
@@ -276,7 +334,7 @@ internal static class ManagementSalesRollup
             + "counted under posting.";
         if (consolidated.Count > 0)
         {
-            detail += " Sales posted as a day's consolidated invoice carry margin by item and shop only.";
+            detail += " Sales posted as a day's consolidated invoice carry margin by item, shop and business partner only.";
         }
 
         return (MarginBook.From(direct, consolidated, lines), new ManagementMarginStatus(true, detail));
@@ -299,6 +357,7 @@ internal static class ManagementSalesRollup
         int Days,
         string? WarehouseCode,
         string? SourceSystem,
+        string? CardCode = null,
         string? Business = null);
 
     public sealed record Labels(
@@ -307,11 +366,11 @@ internal static class ManagementSalesRollup
         Dictionary<int, (string Code, string Name, string BusinessPartnerCode)> Vendors);
 
     public sealed record PostedSale(
-        int DocEntry, string Currency, string WarehouseCode, string SourceSystem, string CreatedBy, string CostCentreCode, int? RouteCustomerId);
+        int DocEntry, string Currency, string WarehouseCode, string CardCode, string SourceSystem, string CreatedBy, string CostCentreCode, int? RouteCustomerId);
 
-    public sealed record ConsolidatedInvoice(int DocEntry, string Currency, string WarehouseCode, int SalesCount);
+    public sealed record ConsolidatedInvoice(int DocEntry, string Currency, string WarehouseCode, string CardCode, int SalesCount);
 
-    public enum Dimension { Total, Channel, Depot, CostCentre, Operator, Vendor, Item }
+    public enum Dimension { Total, Channel, Depot, Partner, CostCentre, Operator, Vendor, Item }
 
     public sealed record MarginFigure(decimal Revenue, decimal GrossProfit)
     {
@@ -352,6 +411,7 @@ internal static class ManagementSalesRollup
                     book.Add(sale.Currency, Dimension.Total, string.Empty, line);
                     book.Add(sale.Currency, Dimension.Item, line.ItemCode, line);
                     book.Add(sale.Currency, Dimension.Depot, sale.WarehouseCode, line);
+                    book.Add(sale.Currency, Dimension.Partner, sale.CardCode, line);
                     book.Add(sale.Currency, Dimension.Channel, sale.SourceSystem, line);
                     book.Add(sale.Currency, Dimension.CostCentre, sale.CostCentreCode, line);
                     book.Add(sale.Currency, Dimension.Operator, sale.CreatedBy, line);
@@ -375,6 +435,7 @@ internal static class ManagementSalesRollup
                     book.Add(invoice.Currency, Dimension.Total, string.Empty, line);
                     book.Add(invoice.Currency, Dimension.Item, line.ItemCode, line);
                     book.Add(invoice.Currency, Dimension.Depot, invoice.WarehouseCode, line);
+                    book.Add(invoice.Currency, Dimension.Partner, invoice.CardCode, line);
                 }
             }
 

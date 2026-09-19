@@ -48,7 +48,7 @@ public sealed class GetManagementItemAnalysisHandler(
         GetManagementItemAnalysisQuery request, CancellationToken cancellationToken)
     {
         var resolved = await WindowAsync(
-            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, cancellationToken);
+            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, request.CardCode, cancellationToken);
         if (resolved.IsError)
         {
             return resolved.Errors;
@@ -68,6 +68,7 @@ public sealed class GetManagementItemAnalysisHandler(
             everyCell.Select(c => c.CreatedBy),
             everyCell.Where(c => c.RouteCustomerId is not null).Select(c => c.RouteCustomerId!.Value),
             cancellationToken);
+        var partners = PartnerDirectory(await PartnersAsync(db, window, cancellationToken));
 
         var description = await Sales(db, window, window.PreviousFrom, window.To)
             .SelectMany(s => s.Lines)
@@ -89,7 +90,8 @@ public sealed class GetManagementItemAnalysisHandler(
                         current.Where(c => c.Currency == currency).ToList(),
                         previous.Where(c => c.Currency == currency).ToList(),
                         margin,
-                        labels)),
+                        labels,
+                        partners)),
                 section => section.Currency)
             .ToList();
 
@@ -103,6 +105,7 @@ public sealed class GetManagementItemAnalysisHandler(
             window.PreviousTo,
             window.WarehouseCode,
             window.SourceSystem,
+            window.CardCode,
             currencies,
             marginStatus);
     }
@@ -144,7 +147,7 @@ public sealed class GetManagementItemAnalysisHandler(
             CurrencyKey(c.Currency),
             c.DocDate.Date,
             c.WarehouseCode ?? string.Empty,
-            c.CardCode ?? string.Empty,
+            c.CardCode?.Trim() ?? string.Empty,
             c.SourceSystem ?? string.Empty,
             c.CreatedBy ?? string.Empty,
             c.RouteCustomerId,
@@ -155,7 +158,13 @@ public sealed class GetManagementItemAnalysisHandler(
         .ToList();
 
     private static ManagementItemCurrencySection Section(
-        string currency, Window window, List<Cell> current, List<Cell> previous, MarginBook margin, Labels labels)
+        string currency,
+        Window window,
+        List<Cell> current,
+        List<Cell> previous,
+        MarginBook margin,
+        Labels labels,
+        Dictionary<string, ManagementPartner> partners)
     {
         var quantity = current.Sum(c => c.Quantity);
         var net = current.Sum(c => c.NetAmount);
@@ -207,6 +216,11 @@ public sealed class GetManagementItemAnalysisHandler(
                     .Where(c => string.Equals(c.WarehouseCode, key, StringComparison.OrdinalIgnoreCase))
                     .Select(c => c.CardCode)),
                 key => margin.For(currency, Dimension.Depot, key)),
+            Breakdown(current, previous, net, c => c.CardCode,
+                key => PartnerLabel(key, partners, everyCell
+                    .Where(c => string.Equals(c.CardCode, key, StringComparison.OrdinalIgnoreCase))
+                    .Select(c => c.WarehouseCode)),
+                key => margin.For(currency, Dimension.Partner, key)),
             Breakdown(
                 current.Where(c => c.RouteCustomerId is not null).ToList(),
                 previous.Where(c => c.RouteCustomerId is not null).ToList(),

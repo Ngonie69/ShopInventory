@@ -57,7 +57,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         GetDesktopSalesReviewQuery request, CancellationToken cancellationToken)
     {
         var resolved = await WindowAsync(
-            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, null, cancellationToken);
+            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, null, null, cancellationToken);
         if (resolved.IsError)
         {
             return resolved.Errors;

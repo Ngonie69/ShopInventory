@@ -13,6 +13,12 @@
    is no dark-theme block here: both resolve against whichever scheme is on.
    ========================================================================== */
 
+/* The business partner filter shows a code and a name, not a warehouse code, so it
+   takes a wider track than the shared 172px or every choice is cut to "VAN-BYO2 Va…". */
+.ops-msr .ops-ds-filters .ops-msr-partner-field {
+    flex-basis: 300px;
+}
+
 /* A change: arrow, signed number and family together, never colour alone.
    The text wears the family ink, which is text-contrast safe in both themes. */
 .ops-msr .ops-msr-change {

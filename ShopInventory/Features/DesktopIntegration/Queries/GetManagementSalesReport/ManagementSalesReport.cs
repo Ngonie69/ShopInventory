@@ -6,6 +6,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesRe
 /// <item><term>Currencies</term><description>One section per currency. Currencies are never added together.</description></item>
 /// <item><term>Health</term><description>Posting and fiscalisation for every sale in the period, whatever its currency.</description></item>
 /// <item><term>Margin</term><description>Whether gross margin could be read from SAP, and why not when it could not.</description></item>
+/// <item><term>Partners</term><description>Every business partner that sold under the caller's scope in either period, ignoring the channel and partner filters — what the page's partner filter chooses from.</description></item>
 /// </list></remarks>
 public sealed record ManagementSalesReport(
     DateTime FromDate,
@@ -14,10 +15,15 @@ public sealed record ManagementSalesReport(
     DateTime PreviousToDate,
     string? WarehouseCode,
     string? SourceSystem,
+    string? CardCode,
     DateTime GeneratedAtUtc,
     List<ManagementCurrencySection> Currencies,
     ManagementSalesHealth Health,
-    ManagementMarginStatus Margin);
+    ManagementMarginStatus Margin,
+    List<ManagementPartner> Partners);
+
+/// <summary>A business partner sales were made as, with the warehouses those sales left from.</summary>
+public sealed record ManagementPartner(string CardCode, string CardName, List<string> Warehouses);
 
 /// <summary>Everything the report says about one currency.</summary>
 /// <remarks><list type="table">
@@ -25,11 +31,13 @@ public sealed record ManagementSalesReport(
 /// <item><term>ByDay</term><description>Each day of the period beside the matching day of the previous one.</description></item>
 /// <item><term>ByChannel</term><description>Shop till, vending, van sales.</description></item>
 /// <item><term>ByDepot</term><description>Each shop or depot, keyed by the warehouse its stock leaves.</description></item>
+/// <item><term>ByPartner</term><description>Each business partner the sales were made as, keyed by CardCode. One warehouse can serve several partners, so this is not ByDepot renamed.</description></item>
 /// <item><term>ByVendor</term><description>Each vendor served. Sales to walk-in customers carry no vendor and are not here.</description></item>
 /// <item><term>LapsedVendors</term><description>Vendors who bought in the previous period and not at all in this one.</description></item>
 /// <item><term>ByItem</term><description>Every item sold, not a top slice — the tail is where a range decision is made.</description></item>
 /// <item><term>ByItemGroup</term><description>The items rolled up by SAP item group. Items the product master does not know are one "ungrouped" row.</description></item>
 /// <item><term>ItemDepotMatrix</term><description>What each item sold at each shop or depot this period, one cell per pair that traded.</description></item>
+/// <item><term>ItemPartnerMatrix</term><description>What each item sold as each business partner this period, one cell per pair that traded.</description></item>
 /// </list></remarks>
 public sealed record ManagementCurrencySection(
     string Currency,
@@ -37,6 +45,7 @@ public sealed record ManagementCurrencySection(
     List<ManagementDayRow> ByDay,
     List<ManagementBreakdownRow> ByChannel,
     List<ManagementBreakdownRow> ByDepot,
+    List<ManagementBreakdownRow> ByPartner,
     List<ManagementBreakdownRow> ByCostCentre,
     List<ManagementBreakdownRow> ByOperator,
     List<ManagementBreakdownRow> ByPaymentMethod,
@@ -44,7 +53,8 @@ public sealed record ManagementCurrencySection(
     List<ManagementLapsedVendorRow> LapsedVendors,
     List<ManagementItemRow> ByItem,
     List<ManagementItemGroupRow> ByItemGroup,
-    List<ManagementItemDepotCell> ItemDepotMatrix);
+    List<ManagementItemDepotCell> ItemDepotMatrix,
+    List<ManagementItemPartnerCell> ItemPartnerMatrix);
 
 /// <summary>One SAP item group's sales, set against the previous period.</summary>
 /// <remarks><list type="table">
@@ -65,6 +75,9 @@ public sealed record ManagementItemGroupRow(
 
 /// <summary>One item at one shop or depot, this period.</summary>
 public sealed record ManagementItemDepotCell(string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount);
+
+/// <summary>One item sold as one business partner, this period.</summary>
+public sealed record ManagementItemPartnerCell(string ItemCode, string CardCode, decimal Quantity, decimal NetAmount);
 
 /// <summary>Headline figures for the period and the one before it.</summary>
 /// <remarks><list type="table">

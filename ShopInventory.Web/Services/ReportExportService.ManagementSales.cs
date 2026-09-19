@@ -37,8 +37,9 @@ public partial class ReportExportService
 
         foreach (var (sheet, title, heading, rows) in new (string, string, string, Func<ManagementCurrencySection, List<ManagementBreakdownRow>>)[]
                  {
+                     ("By Partner", "Sales by Business Partner", "Business Partner", s => s.ByPartner),
                      ("By Channel", "Sales by Channel", "Channel", s => s.ByChannel),
-                     ("By Depot", "Sales by Shop or Depot", "Shop / Depot", s => s.ByDepot),
+                     ("By Warehouse", "Sales by Warehouse", "Warehouse", s => s.ByDepot),
                      ("By Vendor", "Sales by Vendor", "Vendor", s => s.ByVendor),
                      ("By Cost Centre", "Sales by Cost Centre", "Cost Centre", s => s.ByCostCentre),
                      ("By Operator", "Sales by Operator", "Operator", s => s.ByOperator),
@@ -97,9 +98,20 @@ public partial class ReportExportService
                 new("Margin", row => row.MarginPercent / 100m, FormatPercent),
             ]);
 
-        // Long form rather than a pivot: one row per item and warehouse, so it filters and pivots in
-        // Excel without a column per depot that changes with every period's trading.
-        WriteManagementTable(workbook, "Item x Depot", "Item Sales by Shop or Depot", scope, report,
+        // Long form rather than a pivot: one row per item and partner (or warehouse), so it filters and
+        // pivots in Excel without a column per partner that changes with every period's trading.
+        var partnerNames = report.Partners.ToDictionary(p => p.CardCode, p => p.CardName, StringComparer.OrdinalIgnoreCase);
+        WriteManagementTable(workbook, "Item x Partner", "Item Sales by Business Partner", scope, report,
+            section => section.ItemPartnerMatrix,
+            [
+                new("Item Code", cell => cell.ItemCode),
+                new("Partner Code", cell => cell.CardCode),
+                new("Business Partner", cell => partnerNames.GetValueOrDefault(cell.CardCode)),
+                new("Quantity", cell => cell.Quantity, FormatQuantity),
+                new("Value before VAT", cell => cell.NetAmount, FormatMoney),
+            ]);
+
+        WriteManagementTable(workbook, "Item x Warehouse", "Item Sales by Warehouse", scope, report,
             section => section.ItemDepotMatrix,
             [
                 new("Item Code", cell => cell.ItemCode),
@@ -135,7 +147,10 @@ public partial class ReportExportService
 
     private static string ManagementScope(ManagementSalesReportResult report)
     {
-        var where = string.IsNullOrWhiteSpace(report.WarehouseCode) ? "All shops and depots" : $"Warehouse: {report.WarehouseCode}";
+        var partner = report.CardCode is { Length: > 0 } code
+            ? $"Business partner: {report.Partners.FirstOrDefault(p => string.Equals(p.CardCode, code, StringComparison.OrdinalIgnoreCase))?.CardName ?? code} ({code})"
+            : "All business partners";
+        var where = string.IsNullOrWhiteSpace(report.WarehouseCode) ? partner : $"{partner} · warehouse {report.WarehouseCode}";
         var channel = string.IsNullOrWhiteSpace(report.SourceSystem) ? "all channels" : report.SourceSystem;
         return $"{where} · {channel} · compared with {report.PreviousFromDate:dd MMM} – {report.PreviousToDate:dd MMM yyyy}";
     }

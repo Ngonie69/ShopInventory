@@ -11,7 +11,8 @@ public sealed record GetManagementItemAnalysisQuery(
     DateTime? FromDate,
     DateTime? ToDate,
     string? WarehouseCode,
-    string? SourceSystem
+    string? SourceSystem,
+    string? CardCode = null
 ) : IRequest<ErrorOr<ManagementItemAnalysisResult>>;
 
 public sealed class ManagementItemAnalysisResult
@@ -25,6 +26,7 @@ public sealed class ManagementItemAnalysisResult
     public DateTime PreviousToDate { get; set; }
     public string? WarehouseCode { get; set; }
     public string? SourceSystem { get; set; }
+    public string? CardCode { get; set; }
     public List<ManagementItemCurrencySection> Currencies { get; set; } = [];
     public ManagementMarginStatus Margin { get; set; } = new();
 }
@@ -35,6 +37,7 @@ public sealed class ManagementItemCurrencySection
     public ManagementItemSummary Summary { get; set; } = new();
     public List<ManagementItemDayRow> ByDay { get; set; } = [];
     public List<ManagementItemBreakdownRow> ByDepot { get; set; } = [];
+    public List<ManagementItemBreakdownRow> ByPartner { get; set; } = [];
     public List<ManagementItemBreakdownRow> ByVendor { get; set; } = [];
     public List<ManagementItemBreakdownRow> ByChannel { get; set; } = [];
     public List<ManagementItemBreakdownRow> ByOperator { get; set; } = [];

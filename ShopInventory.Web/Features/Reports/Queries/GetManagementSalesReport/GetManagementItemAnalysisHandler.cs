@@ -22,6 +22,7 @@ public sealed class GetManagementItemAnalysisHandler(
                 ("toDate", ManagementReportApi.Date(request.ToDate)),
                 ("warehouseCode", request.WarehouseCode),
                 ("sourceSystem", request.SourceSystem),
+                ("cardCode", request.CardCode),
             ],
             cancellationToken);
 }

@@ -26,7 +26,7 @@
             <h1>Management sales report</h1>
             <p>
                 What the tills, vending depots and vans sold, set against the same number of days just before —
-                by shop and depot, vendor, channel, cost centre, operator and product — with the gross margin SAP
+                by business partner, warehouse, vendor, channel, cost centre, operator and product — with the gross margin SAP
                 booked, and what has not yet reached ZIMRA or SAP.
             </p>
         </div>
@@ -62,11 +62,15 @@
     <div class="ops-rule-fade"></div>
 
     <div class="ops-ds-filters">
-        <div class="ops-field">
-            <label class="ops-label" for="msr-warehouse">Shop / depot</label>
-            <NocturneSelect Id="msr-warehouse" Class="nsel-block" Options="WarehouseOptions"
-                            @bind-Value="warehouse" OnChanged="LoadAsync"
-                            Caption="Filter by shop or depot" AriaLabel="Filter by shop or depot" Placeholder="All shops & depots" />
+        <div class="ops-field ops-msr-partner-field">
+            <label class="ops-label" for="msr-partner">Business partner</label>
+            @* Searchable, and over the partners that traded rather than the warehouses: one warehouse can
+               serve several partners, so a warehouse filter mixed them together. *@
+            <NocturnePicker Id="msr-partner" Class="npick-block" Options="partnerOptions"
+                            @bind-Value="cardCode" OnChanged="LoadAsync" Loading="@(result is null && isLoading)"
+                            Caption="Filter by business partner" AriaLabel="Filter by business partner"
+                            Placeholder="All business partners" SearchPlaceholder="Search partner, code or warehouse…"
+                            EmptyText="No partner sold in this period" />
         </div>
 
         <div class="ops-field">
@@ -148,7 +152,7 @@
             <div class="ops-empty">
                 <i class="ph ph-receipt" aria-hidden="true"></i>
                 <h3>No sales in this period or the one before it</h3>
-                <p>Widen the period, or clear the shop and channel filters.</p>
+                <p>Widen the period, or clear the business partner and channel filters.</p>
             </div>
         }
     }
@@ -489,7 +493,7 @@
             </section>
         }
 
-        @* ── Products: items, item groups, and the item × depot grid ─────────── *@
+        @* ── Products: items, item groups, and the item × partner grid ──────── *@
         <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-items-title">
             <div class="ops-ds-card-head ops-msr-wrap">
                 <i class="ph ph-package" aria-hidden="true"></i>
@@ -616,7 +620,7 @@
                                     <th>Item</th>
                                     @foreach (var column in columns)
                                     {
-                                        <th class="ops-num" title="@column.Warehouse">@column.Label</th>
+                                        <th class="ops-num" title="@column.CardCode">@column.Label</th>
                                     }
                                     <th class="ops-num">Total</th>
                                 </tr>
@@ -624,7 +628,7 @@
                             <tbody>
                                 @foreach (var item in matrixRows)
                                 {
-                                    var values = columns.Select(column => MatrixValue(sales, item.ItemCode, column.Warehouse)).ToList();
+                                    var values = columns.Select(column => MatrixValue(sales, item.ItemCode, column.CardCode)).ToList();
                                     var rowMax = values.Count == 0 ? 0m : values.Max();
                                     <tr class="ops-msr-clickable" tabindex="0" title="Take @item.ItemCode apart"
                                         @onclick="() => OpenItemAsync(item.ItemCode)"
@@ -647,7 +651,7 @@
                         </table>
                     </div>
                     <div class="ops-ds-aside">
-                        <span>@(matrixMeasure == MeasureQuantity ? "Units" : $"{sales.Currency} before VAT") this period. The shading is each item against its own busiest shop or depot.</span>
+                        <span>@(matrixMeasure == MeasureQuantity ? "Units" : $"{sales.Currency} before VAT") this period. The shading is each item against its own busiest business partner.</span>
                         @if (!showAllMatrix && matrixCount > MatrixPageSize)
                         {
                             <button type="button" class="ops-btn ops-btn-ghost" @onclick="() => showAllMatrix = true">Show all @matrixCount</button>
@@ -736,7 +740,7 @@
                         </table>
                     </div>
                     <div class="ops-ds-aside">
-                        <span>Choose an item to take it apart by shop, vendor, channel and day. Avg price is after discount, before VAT; discount is list value less what was charged.</span>
+                        <span>Choose an item to take it apart by business partner, warehouse, vendor, channel and day. Avg price is after discount, before VAT; discount is list value less what was charged.</span>
                         @if (!showAllItems && items.Count > ItemPageSize)
                         {
                             <button type="button" class="ops-btn ops-btn-ghost" @onclick="() => showAllItems = true">Show all @items.Count</button>

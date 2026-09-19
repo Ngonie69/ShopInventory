@@ -1251,6 +1251,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] DateTime? toDate,
         [FromQuery] string? warehouseCode,
         [FromQuery] string? sourceSystem,
+        [FromQuery] string? cardCode,
         CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -1258,7 +1259,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetManagementSalesReportQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem),
+            new GetManagementSalesReportQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem, cardCode),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
@@ -1276,6 +1277,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] DateTime? toDate,
         [FromQuery] string? warehouseCode,
         [FromQuery] string? sourceSystem,
+        [FromQuery] string? cardCode,
         CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -1283,7 +1285,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetManagementItemAnalysisQuery(userId.Value, itemCode, fromDate, toDate, warehouseCode, sourceSystem),
+            new GetManagementItemAnalysisQuery(userId.Value, itemCode, fromDate, toDate, warehouseCode, sourceSystem, cardCode),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

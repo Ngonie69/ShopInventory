@@ -27,6 +27,7 @@ public partial class ManagementSalesReport : IDisposable
     ];
 
     private const string ByChannel = "channel";
+    private const string ByPartner = "partner";
     private const string ByDepot = "depot";
     private const string ByVendor = "vendor";
     private const string ByCostCentre = "costcentre";
@@ -35,7 +36,8 @@ public partial class ManagementSalesReport : IDisposable
 
     private static readonly (string Key, string Label, string Heading)[] BreakdownOptions =
     [
-        (ByDepot, "Shop / depot", "Shop or depot"),
+        (ByPartner, "Business partner", "Business partner"),
+        (ByDepot, "Warehouse", "Warehouse"),
         (ByVendor, "Vendor", "Vendor"),
         (ByChannel, "Channel", "Channel"),
         (ByCostCentre, "Cost centre", "Cost centre"),
@@ -58,12 +60,13 @@ public partial class ManagementSalesReport : IDisposable
     [
         (ItemViewItems, "Items"),
         (ItemViewGroups, "Item groups"),
-        (ItemViewMatrix, "Item × shop / depot")
+        (ItemViewMatrix, "Item × business partner")
     ];
 
     private const string MeasureQuantity = "qty";
     private const string MeasureValue = "value";
 
+    private const string DrillPartner = "partner";
     private const string DrillDepot = "depot";
     private const string DrillVendor = "vendor";
     private const string DrillChannel = "channel";
@@ -71,13 +74,14 @@ public partial class ManagementSalesReport : IDisposable
 
     private static readonly (string Key, string Label)[] DrillOptions =
     [
-        (DrillDepot, "Shop / depot"),
+        (DrillPartner, "Business partner"),
+        (DrillDepot, "Warehouse"),
         (DrillVendor, "Vendor"),
         (DrillChannel, "Channel"),
         (DrillOperator, "Operator")
     ];
 
-    /// <summary>How many item rows the item × depot grid draws before "show all".</summary>
+    /// <summary>How many item rows the item × partner grid draws before "show all".</summary>
     private const int MatrixPageSize = 30;
 
     private static readonly (string Key, string Label)[] ItemOrderOptions =
@@ -110,7 +114,12 @@ public partial class ManagementSalesReport : IDisposable
 
     private ManagementSalesReportResult? result;
     private string? currency;
-    private List<WarehouseDto> warehouses = [];
+
+    /// <summary>
+    /// The partner filter's rows: every partner that sold under the caller's scope in either period, as the
+    /// API lists them. A partner, not a warehouse, because one warehouse can serve several partners.
+    /// </summary>
+    private List<NocturnePickerOption> partnerOptions = [];
     private Dictionary<string, string> partnerNames = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<int, string> itemGroupNames = [];
 
@@ -124,15 +133,15 @@ public partial class ManagementSalesReport : IDisposable
     private ManagementItemAnalysisResult? drill;
     private bool isDrillLoading;
     private string? drillError;
-    private string drillBreakdown = DrillDepot;
+    private string drillBreakdown = DrillPartner;
     private CancellationTokenSource drillCts = new();
 
-    private string warehouse = "";
+    private string? cardCode;
     private string channel = "";
     private string period = PeriodThirtyDays;
     private DateTime? fromDate = DateTime.Today.AddDays(-29);
     private DateTime? toDate = DateTime.Today;
-    private string breakdown = ByDepot;
+    private string breakdown = ByPartner;
     private string itemOrder = ItemsTop;
     private string itemQuery = "";
     private bool showAllItems;
@@ -150,18 +159,10 @@ public partial class ManagementSalesReport : IDisposable
 
     private bool HasSales => result is { Currencies.Count: > 0 };
 
-    private IEnumerable<NocturneSelectOption<string>> WarehouseOptions =>
-        warehouses
-            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
-            .OrderBy(w => w.WarehouseCode, StringComparer.OrdinalIgnoreCase)
-            .Select(w => new NocturneSelectOption<string>(w.WarehouseCode!, w.WarehouseCode!) { Hint = w.WarehouseName })
-            .Prepend(NocturneSelectOption.All("All shops & depots"));
-
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            warehouses = (await MasterDataCache.GetWarehousesAsync())?.Where(w => w.IsActive).ToList() ?? [];
             partnerNames = (await MasterDataCache.GetBusinessPartnersAsync())
                 .Where(partner => !string.IsNullOrWhiteSpace(partner.CardCode) && !string.IsNullOrWhiteSpace(partner.CardName))
                 .GroupBy(partner => partner.CardCode!, StringComparer.OrdinalIgnoreCase)
@@ -173,8 +174,8 @@ public partial class ManagementSalesReport : IDisposable
         }
         catch (Exception ex)
         {
-            // Names and the shop list only; the report itself still loads and shows codes.
-            Logger.LogWarning(ex, "Management sales report could not load warehouses or partner names");
+            // Names only; the report itself still loads and shows codes.
+            Logger.LogWarning(ex, "Management sales report could not load partner or item group names");
         }
 
         await LoadAsync();
@@ -196,8 +197,9 @@ public partial class ManagementSalesReport : IDisposable
                 new GetManagementSalesReportQuery(
                     fromDate,
                     toDate,
-                    string.IsNullOrWhiteSpace(warehouse) ? null : warehouse,
-                    string.IsNullOrWhiteSpace(channel) ? null : channel),
+                    null,
+                    string.IsNullOrWhiteSpace(channel) ? null : channel,
+                    string.IsNullOrWhiteSpace(cardCode) ? null : cardCode),
                 cancellationToken);
 
             if (cancellationToken.IsCancellationRequested || isDisposed)
@@ -209,6 +211,12 @@ public partial class ManagementSalesReport : IDisposable
                 value =>
                 {
                     result = value;
+                    partnerOptions = value.Partners
+                        .Select(partner => new NocturnePickerOption(
+                            partner.CardCode,
+                            partner.CardName,
+                            partner.Warehouses.Count == 0 ? null : string.Join(", ", partner.Warehouses)))
+                        .ToList();
                     showAllItems = false;
                     if (currency is null || value.Currencies.All(section => section.Currency != currency))
                     {
@@ -342,7 +350,8 @@ public partial class ManagementSalesReport : IDisposable
         ByCostCentre => sales.ByCostCentre,
         ByOperator => sales.ByOperator,
         ByPayment => sales.ByPaymentMethod,
-        _ => sales.ByDepot
+        ByDepot => sales.ByDepot,
+        _ => sales.ByPartner
     };
 
     private string BreakdownHeading => BreakdownOptions.First(option => option.Key == breakdown).Heading;
@@ -412,7 +421,9 @@ public partial class ManagementSalesReport : IDisposable
                 return "";
             }
 
-            var where = result.WarehouseCode is { Length: > 0 } code ? code : "all shops & depots";
+            var where = result.CardCode is { Length: > 0 } code
+                ? result.Partners.FirstOrDefault(p => string.Equals(p.CardCode, code, StringComparison.OrdinalIgnoreCase))?.CardName ?? code
+                : "all business partners";
             return $"{result.FromDate:dd MMM} – {result.ToDate:dd MMM yyyy} · {where}";
         }
     }
@@ -458,7 +469,7 @@ public partial class ManagementSalesReport : IDisposable
         _ => ""
     };
 
-    // ── Item groups and the item × depot grid ────────────────────────────
+    // ── Item groups and the item × partner grid ──────────────────────────
 
     private string GroupName(int? code) =>
         code is null ? "Not in the product master"
@@ -479,13 +490,13 @@ public partial class ManagementSalesReport : IDisposable
         groupFilterSet = false;
     }
 
-    /// <summary>The grid's columns: every shop or depot the items sold at, busiest first, named as the breakdown names them.</summary>
-    private List<(string Warehouse, string Label)> MatrixColumns(ManagementCurrencySection sales)
+    /// <summary>The grid's columns: every business partner the items sold as, busiest first, named as the breakdown names them.</summary>
+    private static List<(string CardCode, string Label)> MatrixColumns(ManagementCurrencySection sales)
     {
-        var sold = sales.ItemDepotMatrix.Select(cell => cell.WarehouseCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return sales.ByDepot
+        var sold = sales.ItemPartnerMatrix.Select(cell => cell.CardCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return sales.ByPartner
             .Where(row => sold.Contains(row.Key))
-            .Select(row => (row.Key, DepotName(row.Label, row.Hint).Label))
+            .Select(row => (row.Key, row.Label))
             .ToList();
     }
 
@@ -495,16 +506,16 @@ public partial class ManagementSalesReport : IDisposable
         return showAllMatrix ? rows : rows.Take(MatrixPageSize).ToList();
     }
 
-    private decimal MatrixValue(ManagementCurrencySection sales, string itemCode, string warehouse)
+    private decimal MatrixValue(ManagementCurrencySection sales, string itemCode, string partner)
     {
-        var cell = sales.ItemDepotMatrix.FirstOrDefault(c =>
+        var cell = sales.ItemPartnerMatrix.FirstOrDefault(c =>
             string.Equals(c.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(c.WarehouseCode, warehouse, StringComparison.OrdinalIgnoreCase));
+            && string.Equals(c.CardCode, partner, StringComparison.OrdinalIgnoreCase));
         return cell is null ? 0m : matrixMeasure == MeasureQuantity ? cell.Quantity : cell.NetAmount;
     }
 
     /// <summary>
-    /// A cell's wash: one hue, stronger with magnitude, against the item's own busiest depot — so the
+    /// A cell's wash: one hue, stronger with magnitude, against the item's own busiest partner — so the
     /// grid reads "where does this item sell" row by row, and the figure stays in ink on top.
     /// </summary>
     private static string CellWash(decimal value, decimal rowMax) =>
@@ -535,8 +546,9 @@ public partial class ManagementSalesReport : IDisposable
                     itemCode,
                     result?.FromDate ?? fromDate,
                     result?.ToDate ?? toDate,
-                    string.IsNullOrWhiteSpace(warehouse) ? null : warehouse,
-                    string.IsNullOrWhiteSpace(channel) ? null : channel),
+                    null,
+                    string.IsNullOrWhiteSpace(channel) ? null : channel,
+                    string.IsNullOrWhiteSpace(cardCode) ? null : cardCode),
                 cancellationToken);
 
             if (cancellationToken.IsCancellationRequested || isDisposed)
@@ -582,7 +594,8 @@ public partial class ManagementSalesReport : IDisposable
         DrillVendor => section.ByVendor,
         DrillChannel => section.ByChannel,
         DrillOperator => section.ByOperator,
-        _ => section.ByDepot
+        DrillDepot => section.ByDepot,
+        _ => section.ByPartner
     };
 
     private (string Label, string? Hint) DrillRowName(ManagementItemBreakdownRow row) =>

@@ -13,7 +13,8 @@ public sealed record GetManagementItemAnalysisQuery(
     DateTime? FromDate,
     DateTime? ToDate,
     string? WarehouseCode = null,
-    string? SourceSystem = null
+    string? SourceSystem = null,
+    string? CardCode = null
 ) : IRequest<ErrorOr<ManagementItemAnalysis>>;
 
 public sealed record ManagementItemAnalysis(
@@ -26,12 +27,14 @@ public sealed record ManagementItemAnalysis(
     DateTime PreviousToDate,
     string? WarehouseCode,
     string? SourceSystem,
+    string? CardCode,
     List<ManagementItemCurrencySection> Currencies,
     ManagementMarginStatus Margin);
 
 /// <summary>The item in one currency.</summary>
 /// <remarks><list type="table">
 /// <item><term>ByDepot</term><description>Where it sold: each shop or depot, keyed by warehouse.</description></item>
+/// <item><term>ByPartner</term><description>Who it sold as: each business partner, keyed by CardCode.</description></item>
 /// <item><term>ByVendor</term><description>Which vendors took it.</description></item>
 /// </list></remarks>
 public sealed record ManagementItemCurrencySection(
@@ -39,6 +42,7 @@ public sealed record ManagementItemCurrencySection(
     ManagementItemSummary Summary,
     List<ManagementItemDayRow> ByDay,
     List<ManagementItemBreakdownRow> ByDepot,
+    List<ManagementItemBreakdownRow> ByPartner,
     List<ManagementItemBreakdownRow> ByVendor,
     List<ManagementItemBreakdownRow> ByChannel,
     List<ManagementItemBreakdownRow> ByOperator);
