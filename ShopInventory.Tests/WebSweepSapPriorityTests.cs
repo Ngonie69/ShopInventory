@@ -122,6 +122,83 @@ public sealed class WebSweepSapPriorityTests : IDisposable
         Assert.Equal("background", recorder.PriorityOf(sweepPath));
     }
 
+    /// <summary>
+    /// After a restart the first users start sweeps across every cache service at once. Held here in
+    /// one class with the other handler tests: the allowance is process-wide, and xUnit runs a class's
+    /// tests one at a time, so nothing else takes a slot while these count them.
+    /// </summary>
+    [Fact]
+    public async Task Background_requests_are_held_to_the_process_wide_allowance()
+    {
+        var gate = new GatedHandler();
+        using var clientA = CreateClient(gate);
+        using var clientB = CreateClient(gate);   // separate clients share one allowance
+
+        var sweeps = Enumerable.Range(0, 5)
+            .Select(i => SapBackgroundPriority.Run(() => (i % 2 == 0 ? clientA : clientB).GetAsync($"api/sweep/{i}")))
+            .ToList();
+
+        await gate.WaitForInFlightAsync(SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests);
+        await Task.Delay(100);
+        Assert.Equal(SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests, gate.InFlight);
+
+        gate.ReleaseAll();
+        await Task.WhenAll(sweeps).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(5, gate.Completed);
+        Assert.Equal(SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests, gate.PeakInFlight);
+    }
+
+    [Fact]
+    public async Task A_request_a_person_is_waiting_on_is_never_queued_behind_sweeps()
+    {
+        var gate = new GatedHandler(holdPath: "api/sweep");
+        using var client = CreateClient(gate);
+
+        var sweeps = Enumerable.Range(0, 4)
+            .Select(i => SapBackgroundPriority.Run(() => client.GetAsync($"api/sweep/{i}")))
+            .ToList();
+        await gate.WaitForInFlightAsync(SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests);
+
+        // Both background slots are held; an interactive page load still goes straight through.
+        using var page = await client.GetAsync("api/page").WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+
+        gate.ReleaseAll();
+        await Task.WhenAll(sweeps).WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task A_cancelled_wait_gives_nothing_back_and_takes_no_slot()
+    {
+        var gate = new GatedHandler();
+        using var client = CreateClient(gate);
+
+        var held = Enumerable.Range(0, SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests)
+            .Select(i => SapBackgroundPriority.Run(() => client.GetAsync($"api/sweep/{i}")))
+            .ToList();
+        await gate.WaitForInFlightAsync(SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests);
+
+        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            SapBackgroundPriority.Run(() => client.GetAsync("api/sweep/cancelled", cancel.Token)));
+
+        gate.ReleaseAll();
+        await Task.WhenAll(held).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(gate.Saw("api/sweep/cancelled"));
+
+        // Had the cancelled wait leaked a slot, a fresh pair could not both be held at once.
+        var fresh = new GatedHandler();
+        using var freshClient = CreateClient(fresh);
+        var next = Enumerable.Range(0, SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests)
+            .Select(i => SapBackgroundPriority.Run(() => freshClient.GetAsync($"api/sweep/next{i}")))
+            .ToList();
+        await fresh.WaitForInFlightAsync(SapBackgroundPriorityHandler.MaxConcurrentBackgroundRequests);
+        fresh.ReleaseAll();
+        await Task.WhenAll(next).WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
     private static HttpClient CreateClient(HttpMessageHandler inner) =>
         new(new SapBackgroundPriorityHandler { InnerHandler = inner })
         {
@@ -155,6 +232,71 @@ public sealed class WebSweepSapPriorityTests : IDisposable
                 : null;
 
             return Task.FromResult(respond(request));
+        }
+    }
+
+    /// <summary>
+    /// Holds requests whose path starts with <c>holdPath</c> until released, counting how many are in
+    /// flight at once. Other requests answer immediately.
+    /// </summary>
+    private sealed class GatedHandler(string holdPath = "api/") : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ConcurrentDictionary<string, bool> _seen = new();
+        private int _inFlight;
+        private int _peak;
+        private int _completed;
+
+        public int InFlight => Volatile.Read(ref _inFlight);
+        public int PeakInFlight => Volatile.Read(ref _peak);
+        public int Completed => Volatile.Read(ref _completed);
+
+        public bool Saw(string path) => _seen.ContainsKey(path);
+
+        public void ReleaseAll() => _release.TrySetResult();
+
+        public async Task WaitForInFlightAsync(int count)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (InFlight < count)
+            {
+                if (DateTime.UtcNow > deadline)
+                {
+                    throw new TimeoutException($"Only {InFlight} request(s) reached the handler, expected {count}.");
+                }
+
+                await Task.Delay(10);
+            }
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath.TrimStart('/');
+            _seen[path] = true;
+
+            if (!path.StartsWith(holdPath, StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+
+            var now = Interlocked.Increment(ref _inFlight);
+            int peak;
+            while (now > (peak = Volatile.Read(ref _peak)) && Interlocked.CompareExchange(ref _peak, now, peak) != peak)
+            {
+            }
+
+            try
+            {
+                await _release.Task.WaitAsync(cancellationToken);
+                Interlocked.Increment(ref _completed);
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _inFlight);
+            }
         }
     }
 

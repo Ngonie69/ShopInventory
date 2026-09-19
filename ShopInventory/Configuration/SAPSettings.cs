@@ -5,7 +5,20 @@ public class SAPSettings
     public bool Enabled { get; set; }
     public bool AutoSyncEnabled { get; set; } = true;
     public int SyncIntervalHours { get; set; } = 4;
-    public int InitialDelayMinutes { get; set; }
+
+    /// <summary>
+    /// How long after the API process starts the first price catalog sync runs.
+    /// </summary>
+    /// <remarks>
+    /// Quartz rewrites the trigger on every start, so this is measured from each start, not only the
+    /// first. At 0 a full price sync (every price list plus special prices) ran the moment a new
+    /// node came up, straight into the catch-up that follows a cutover. On 2026-09-18 that burst
+    /// queued SAP requests for up to 42.6s (price sync's SpecialPrices reads the longest of them) and
+    /// ended in a 503 from the Service Layer. Every other startup trigger fires within 10 minutes, and
+    /// prices are served from the local catalogue in the meantime, so 30 minutes costs nothing but
+    /// keeps the sync clear of them. Set 0 to restore syncing at start.
+    /// </remarks>
+    public int InitialDelayMinutes { get; set; } = 30;
     public string ServiceLayerUrl { get; set; } = string.Empty;
     public string CompanyDB { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
