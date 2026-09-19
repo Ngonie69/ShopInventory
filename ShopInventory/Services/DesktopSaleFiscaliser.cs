@@ -89,7 +89,9 @@ public sealed class DesktopSaleFiscaliser(
                 VatSum = sale.VatAmount,
                 DocCurrency = sale.Currency,
                 Comments = sale.Comments,
-                Lines = sale.Lines.Select(l =>
+                // In the order the lines were taken: HH is the position in this list, and a credit
+                // finds its sale line by it. See DesktopSaleLineOrder.
+                Lines = DesktopSaleLineOrder.Receipt(sale.Lines).Select(l =>
                 {
                     // The receipt is submitted TaxInclusive, and the platform reads GrossPrice in
                     // preference to UnitPrice. A sale's UnitPrice is net and carries a separate

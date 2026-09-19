@@ -34,8 +34,8 @@ public static class DesktopSaleInvoiceRequestBuilder
         MobileInvoiceNumber = sale.ExternalReferenceId,
         DocCurrency = sale.Currency,
         Comments = comments,
-        Lines = sale.Lines
-            .OrderBy(l => l.LineNum)
+        // A credit memo's BaseLine is the index in this order — see DesktopSaleLineOrder.
+        Lines = DesktopSaleLineOrder.Invoice(sale.Lines)
             .Select(l => new CreateInvoiceLineRequest
             {
                 ItemCode = l.ItemCode,

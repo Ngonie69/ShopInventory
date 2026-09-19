@@ -223,7 +223,7 @@ public sealed class StockLedgerReconcileTests : IDisposable
         // 30 sold and 10 of them credited back: the ledger holds 120 - 30 + 10.
         await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
         var saleId = await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Pending);
-        await SeedCreditAsync(saleId, lineNo: 0, quantity: 10m, DesktopCreditSapStatuses.Deferred);
+        await SeedCreditAsync(saleId, lineNo: 1, quantity: 10m, DesktopCreditSapStatuses.Deferred);
         _sapIssuable[Item] = 120m;
         _sapBatches.Add(Batch("B1", 120m));
 
@@ -240,7 +240,7 @@ public sealed class StockLedgerReconcileTests : IDisposable
     {
         await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
         var saleId = await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Consolidated);
-        await SeedCreditAsync(saleId, lineNo: 0, quantity: 10m, DesktopCreditSapStatuses.Posted);
+        await SeedCreditAsync(saleId, lineNo: 1, quantity: 10m, DesktopCreditSapStatuses.Posted);
 
         // Something outside moved five, and the item is unbatched so nothing caps a put-back: counting
         // the posted credit again would read 105.

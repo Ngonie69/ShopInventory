@@ -537,6 +537,12 @@ public sealed class CreateDesktopSaleHandler(
         // receipt declared to ZIMRA said the same thing.
         var vatGroups = await ResolveVatGroupsAsync(req.Lines.Select(l => l.ItemCode), ct);
 
+        // The till's own line numbers are kept only when they are a distinct positive set. A till
+        // numbering from zero used to be stored 0,1,2 -> 1,1,2 (a zero became position + 1), and a
+        // repeated LineNum broke every credit against the sale — see DesktopSaleLineOrder.
+        var tillNumbers = req.Lines.Select(l => l.LineNum).ToList();
+        var numberByPosition = tillNumbers.Any(n => n <= 0) || tillNumbers.Distinct().Count() != tillNumbers.Count;
+
         // Calculate totals
         var lines = req.Lines.Select((l, idx) =>
         {
@@ -551,7 +557,7 @@ public sealed class CreateDesktopSaleHandler(
             var lineTotal = Math.Round(l.Quantity * effectivePrice, 2, MidpointRounding.AwayFromZero);
             return new DesktopSaleLineEntity
             {
-                LineNum = l.LineNum > 0 ? l.LineNum : idx + 1,
+                LineNum = numberByPosition ? idx + 1 : l.LineNum,
                 ItemCode = l.ItemCode,
                 ItemDescription = l.ItemDescription,
                 Quantity = l.Quantity,

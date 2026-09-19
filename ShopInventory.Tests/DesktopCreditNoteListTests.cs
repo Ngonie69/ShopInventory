@@ -224,6 +224,37 @@ public sealed class DesktopCreditNoteListTests : IDisposable
         Assert.Empty(_sap.Created);
     }
 
+    [Fact]
+    public async Task A_credit_is_numbered_after_its_sale_and_a_second_one_takes_a_suffix()
+    {
+        var sale = await GivenSaleAsync("INV1753", "KEFGRS", SaleSourceSystems.ShopTill);
+        var first = await GivenCreditAsync(sale, createdAgo: TimeSpan.FromHours(2));
+        var second = await GivenCreditAsync(sale, createdAgo: TimeSpan.FromHours(1));
+
+        var result = await Service().ListAsync(_admin, new DesktopCreditNoteListQuery(), default);
+
+        var numbers = result.Items.ToDictionary(i => i.Id, i => i.CreditNumber);
+        Assert.Equal($"CN{sale.Id}", numbers[first.Id]);
+        Assert.Equal($"CN{sale.Id}-2", numbers[second.Id]);
+
+        // The number is searchable the way it is shown, suffix and all.
+        var found = await Service().ListAsync(_admin, new DesktopCreditNoteListQuery(Search: $"cn{sale.Id}-2"), default);
+        Assert.Equal(2, found.TotalCount);
+    }
+
+    [Fact]
+    public async Task A_row_carries_the_lines_its_credit_returned()
+    {
+        var sale = await GivenSaleAsync("INV1753", "KEFGRS", SaleSourceSystems.ShopTill);
+        await GivenCreditAsync(sale);
+
+        var row = Assert.Single((await Service().ListAsync(_admin, new DesktopCreditNoteListQuery(), default)).Items);
+
+        var line = Assert.Single(row.Lines!);
+        Assert.Equal(("ICS025", "Blueberry", 2m, 10m, 20m),
+            (line.ItemCode, line.Name, line.Quantity, line.UnitPrice, line.LineTotal));
+    }
+
     // ── Fixtures ─────────────────────────────────────────────────────────
 
     private DesktopCreditNoteListService Service() => new(

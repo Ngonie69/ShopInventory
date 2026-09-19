@@ -40,7 +40,7 @@ public sealed record DesktopCreditPlan(DesktopCreditSource Source, List<DesktopC
 public sealed record DesktopCreditNoteResult(Guid Id, string Number, string Status, decimal Amount,
     string Currency, string Reason, string OriginalFiscalNumber, DateTime CreatedAtUtc,
     string? Message, string? QrCode, string? ReceiptGlobalNo, int? SapDocNum,
-    string SapStatus = DesktopCreditSapStatuses.Deferred, string? SapError = null);
+    string SapStatus = DesktopCreditSapStatuses.Deferred, string? SapError = null, string? CreditNumber = null);
 /// <remarks>
 /// <c>SaleInSap</c>: the sale has its own SAP invoice, which decides the action the form offers.
 /// <c>RemainingAmount</c>: what ZIMRA will still accept against the receipt — its total, less every credit

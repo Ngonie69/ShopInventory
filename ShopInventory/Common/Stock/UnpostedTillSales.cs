@@ -103,7 +103,13 @@ public static class UnpostedTillSales
                 note.Number,
                 note.PlanJson,
                 SaleWarehouse = note.Sale.WarehouseCode,
-                Lines = note.Sale.Lines.Select(line => new { line.LineNum, line.ItemCode, line.WarehouseCode }).ToList()
+                Lines = note.Sale.Lines.Select(line => new DesktopSaleLineEntity
+                {
+                    Id = line.Id,
+                    LineNum = line.LineNum,
+                    ItemCode = line.ItemCode,
+                    WarehouseCode = line.WarehouseCode
+                }).ToList()
             })
             .ToListAsync(cancellationToken);
 
@@ -125,13 +131,12 @@ public static class UnpostedTillSales
                 continue;
             }
 
-            var byLineNum = credit.Lines.ToDictionary(line => line.LineNum);
-
             // The same resolution DesktopCreditSapPoster uses when it returned the units, so the two
-            // name the same item and warehouse.
+            // name the same item and warehouse. By position, never LineNum — see DesktopSaleLineOrder.
             foreach (var credited in quantities)
             {
-                if (credited.Quantity <= 0 || !byLineNum.TryGetValue(credited.LineNo, out var line))
+                if (credited.Quantity <= 0
+                    || DesktopSaleLineOrder.ForReceiptLine(credit.Lines, credited.LineNo) is not { } line)
                 {
                     continue;
                 }
