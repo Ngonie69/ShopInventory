@@ -1,0 +1,386 @@
+## Driver
+Deliveries
+    POD Dashboard  /pod-dashboard
+    Product PODs  /pods
+    Product POD Report  /pod-report
+    Crate PODs  /crates/pods
+    Crate Opening Balances  /crates/opening-balances
+    Crate GRVs  /crates/grvs
+Account
+    Security  /security
+
+## PodOperator
+Deliveries
+    POD Dashboard  /pod-dashboard
+    Product PODs  /pods
+    Product POD Report  /pod-report
+    Driver Accounts  /user-management
+    Crate PODs  /crates/pods
+Account
+    Security  /security
+
+## Operator
+Deliveries
+    Product PODs  /pods
+    Crate PODs  /crates/pods
+Account
+    Security  /security
+
+## Merchandiser
+Sales
+    Mobile Orders  /mobile-drafts
+Deliveries
+    Crate PODs  /crates/pods
+    Crate Opening Balances  /crates/opening-balances
+    Crate GRVs  /crates/grvs
+Field Team
+    Timesheets  /timesheets
+    Timesheet Report  /timesheet-report
+Account
+    Security  /security
+
+## SalesRep
+Overview
+    Dashboard  /dashboard
+Sales
+    Sales Orders  /sales-orders
+    Create Sale Order  /sales-orders/create
+    Mobile Orders  /mobile-drafts
+    Quotations  /quotations
+    Create Quotation  /quotations/create
+Deliveries
+    POD Dashboard  /pod-dashboard
+    Product PODs  /pods
+    Product POD Report  /pod-report
+    Delivery Routes  /route-assignments
+    Crate PODs  /crates/pods
+    Crate Opening Balances  /crates/opening-balances
+    Crate GRVs  /crates/grvs
+Field Team
+    Timesheets  /timesheets
+    Timesheet Report  /timesheet-report
+    Manage Merchandisers  /merchandiser-account
+Reports
+    Sales Order vs Invoice  /reports/order-fulfillment
+    Customer Revenue  /reports/customer-revenue
+    Item Volume  /reports/item-volume
+Account
+    Security  /security
+
+## ADR
+Account
+    Security  /security
+
+## Sales
+Account
+    Security  /security
+
+## CartVendor
+Account
+    Security  /security
+
+## TillOperator
+Account
+    Security  /security
+
+## Manager
+Overview
+    Dashboard  /manager-dashboard
+Sales
+    Credit Note Approvals  /credit-notes/approvals
+Customers & Products
+    Customers  /customers
+    Products  /products
+    Price List  /prices
+Inventory
+    Stock Monitoring  /stock
+    Transfers  /inventory-transfers
+Purchasing
+    Purchase Requests  /purchase-requests
+    Create Request  /purchase-requests/create
+    Purchase Quotations  /purchase-quotations
+    Create PQ  /purchase-quotations/create
+    Purchase Orders  /purchase-orders
+    Create PO  /purchase-orders/create
+    Goods Receipt POs  /goods-receipt-pos
+    Create GRPO  /goods-receipt-pos/create
+    A/P Invoices  /purchase-invoices
+    Create A/P Invoice  /purchase-invoices/create
+Finance
+    Daily Incoming Payments  /reports/desktop-sales/payments
+    G/L Accounts  /gl-accounts
+Tills & Vending
+    Depots & Vendors  /vending
+    Vending Sales  /vending/sales
+Van Sales
+    Routes  /van-sales/routes
+    Customer Orders  /van-sales-customer-orders
+    Market Breakages  /market-breakages
+    Van Invoices  /van-sales/invoices
+    Van Credit Notes  /van-sales/credit-notes
+    Customer App Access  /van-sales-customer-accounts
+Van Reports
+    Van Activity  /van-sales/activity
+    Sales Performance  /van-sales/reports/performance
+    Coverage & Outlets  /van-sales/reports/coverage
+    Van Stock  /van-sales/reports/stock
+    Replenishment  /van-sales/reports/replenishment
+    Attendance Report  /van-sales/attendance-report
+    Departure Compliance  /van-sales/compliance
+Deliveries
+    Crate PODs  /crates/pods
+    Crate Opening Balances  /crates/opening-balances
+    Crate GRVs  /crates/grvs
+Field Team
+    Merch PO Report  /reports/merchandiser-purchase-orders
+Reports
+    Reports Hub  /reports
+    Management Sales  /reports/management-sales
+    Desktop Sales Analysis  /reports/desktop-sales
+    Desktop Sales Review  /reports/desktop-sales/review
+    Sales Order vs Invoice  /reports/order-fulfillment
+System
+    Exception Center  /exception-center
+    Sync Status  /sync-status
+    Transfer Listener  /transfer-listener
+    Activity Log  /user-activity
+    Document Templates  /document-templates
+Account
+    Notifications  /notifications
+    Security  /security
+
+## Cashier
+Overview
+    Dashboard  /cashier-dashboard
+Sales
+    Invoices  /invoices
+    Create Invoice  /invoices/create
+    Sales Orders  /sales-orders
+    Create Sale Order  /sales-orders/create
+    Mobile Orders  /mobile-drafts
+    Quotations  /quotations
+    Create Quotation  /quotations/create
+    Credit Notes  /credit-notes
+    Create Credit Note  /credit-notes/create
+Customers & Products
+    Customers  /customers
+    Products  /products
+    Price List  /prices
+Inventory
+    Stock Monitoring  /stock
+Finance
+    Incoming Payments  /payments
+    Create Payment  /payments/create
+    Daily Incoming Payments  /reports/desktop-sales/payments
+    G/L Accounts  /gl-accounts
+Tills & Vending
+    Depots & Vendors  /vending
+    Vending Sales  /vending/sales
+Van Sales
+    Route Customers  /route-customers
+    Van Orders  /van-sales-orders
+    Customer Orders  /van-sales-customer-orders
+    Van Invoices  /van-sales/invoices
+    Van Credit Notes  /van-sales/credit-notes
+    Customer App Access  /van-sales-customer-accounts
+Van Reports
+    Route Sales Report  /route-sales-report
+Deliveries
+    POD Dashboard  /pod-dashboard
+    Product PODs  /pods
+    Product POD Report  /pod-report
+Reports
+    Reports Hub  /reports
+    Management Sales  /reports/management-sales
+    Desktop Sales Analysis  /reports/desktop-sales
+    Desktop Sales Review  /reports/desktop-sales/review
+    Sales Order vs Invoice  /reports/order-fulfillment
+System
+    Exception Center  /exception-center
+    Sync Status  /sync-status
+    Document Templates  /document-templates
+Account
+    Notifications  /notifications
+    Security  /security
+
+## StockController
+Overview
+    Dashboard  /stock-dashboard
+Customers & Products
+    Customers  /customers
+    Products  /products
+    Price List  /prices
+Inventory
+    Stock Monitoring  /stock
+    Transfers  /inventory-transfers
+    Local Stock  /local-stock
+Finance
+    G/L Accounts  /gl-accounts
+Van Sales
+    Customer Orders  /van-sales-customer-orders
+    Market Breakages  /market-breakages
+Reports
+    Reports Hub  /reports
+    Sales Order vs Invoice  /reports/order-fulfillment
+System
+    Exception Center  /exception-center
+    Sync Status  /sync-status
+    Document Templates  /document-templates
+Account
+    Notifications  /notifications
+    Security  /security
+
+## DepotController
+Overview
+    Dashboard  /dashboard
+Inventory
+    Transfers  /inventory-transfers
+    Local Stock  /local-stock
+Van Sales
+    Customer Orders  /van-sales-customer-orders
+    Market Breakages  /market-breakages
+Account
+    Security  /security
+
+## WashBay
+Sales
+    Credit Note Approvals  /credit-notes/approvals
+Inventory
+    Transfers  /inventory-transfers
+Account
+    Security  /security
+
+## Lab
+Lab
+    Batch Status  /lab/batch-status
+    Status History  /lab/batch-status/history
+Account
+    Security  /security
+
+## MerchandiserPurchaseOrderViewer
+Field Team
+    Merch PO Report  /reports/merchandiser-purchase-orders
+Account
+    Security  /security
+
+## Admin
+Overview
+    Dashboard  /dashboard
+Sales
+    Invoices  /invoices
+    Create Invoice  /invoices/create
+    Sales Orders  /sales-orders
+    Create Sale Order  /sales-orders/create
+    Mobile Orders  /mobile-drafts
+    Quotations  /quotations
+    Create Quotation  /quotations/create
+    Credit Notes  /credit-notes
+    Create Credit Note  /credit-notes/create
+    Credit Note Approvals  /credit-notes/approvals
+Customers & Products
+    Customers  /customers
+    Products  /products
+    Price List  /prices
+Inventory
+    Stock Monitoring  /stock
+    Transfers  /inventory-transfers
+    Local Stock  /local-stock
+Purchasing
+    Purchase Requests  /purchase-requests
+    Create Request  /purchase-requests/create
+    Purchase Quotations  /purchase-quotations
+    Create PQ  /purchase-quotations/create
+    Purchase Orders  /purchase-orders
+    Create PO  /purchase-orders/create
+    Goods Receipt POs  /goods-receipt-pos
+    Create GRPO  /goods-receipt-pos/create
+    A/P Invoices  /purchase-invoices
+    Create A/P Invoice  /purchase-invoices/create
+Finance
+    Incoming Payments  /payments
+    Create Payment  /payments/create
+    Daily Incoming Payments  /reports/desktop-sales/payments
+    G/L Accounts  /gl-accounts
+Tills & Vending
+    Desktop Sales  /desktop-sales
+    Desktop Transactions  /desktop-transactions
+    Depots & Vendors  /vending
+    Vending Sales  /vending/sales
+Van Sales
+    Routes  /van-sales/routes
+    Route Customers  /route-customers
+    Van Orders  /van-sales-orders
+    Customer Orders  /van-sales-customer-orders
+    Market Breakages  /market-breakages
+    Van Invoices  /van-sales/invoices
+    Van Credit Notes  /van-sales/credit-notes
+    Customer App Access  /van-sales-customer-accounts
+Van Reports
+    Van Activity  /van-sales/activity
+    Sales Performance  /van-sales/reports/performance
+    Coverage & Outlets  /van-sales/reports/coverage
+    Van Stock  /van-sales/reports/stock
+    Replenishment  /van-sales/reports/replenishment
+    Attendance Report  /van-sales/attendance-report
+    Departure Compliance  /van-sales/compliance
+    Route Sales Report  /route-sales-report
+Deliveries
+    POD Dashboard  /pod-dashboard
+    Product PODs  /pods
+    Product POD Report  /pod-report
+    Delivery Routes  /route-assignments
+    Crate PODs  /crates/pods
+    Crate Opening Balances  /crates/opening-balances
+    Crate GRVs  /crates/grvs
+Field Team
+    Timesheets  /timesheets
+    Timesheet Report  /timesheet-report
+    Merch PO Report  /reports/merchandiser-purchase-orders
+Lab
+    Batch Status  /lab/batch-status
+    Status History  /lab/batch-status/history
+Reports
+    Reports Hub  /reports
+    Management Sales  /reports/management-sales
+    Desktop Sales Analysis  /reports/desktop-sales
+    Desktop Sales Review  /reports/desktop-sales/review
+    Sales Order vs Invoice  /reports/order-fulfillment
+    Customer Revenue  /reports/customer-revenue
+    Item Volume  /reports/item-volume
+System
+    Exception Center  /exception-center
+    Sync Status  /sync-status
+    Transfer Listener  /transfer-listener
+    Activity Log  /user-activity
+    Document Templates  /document-templates
+    Mobile Push  /mobile-push
+Fiscalisation
+    Fiscal Queue  /fiscalisation
+    Offline Signing  /fiscalisation/offline-lease
+    Fiscal Console  https://fiscal.kefaloscheese.com/
+Administration
+    User Management  /user-management
+    Shops  /shops
+    Driver Shops  /driver-business-partners
+    Customer Portal  /customer-portal-management
+    Approval Process  /approval-process/setup
+    Merch Products  /merchandiser-products
+    Volume Factors  /reports/volume-conversions
+    Webhooks  /webhooks
+    WhatsApp Inbox  /whatsapp-inbox
+    API Docs  /swagger
+    Audit Trail  /audit-trail
+    Backups  /backups
+    Settings  /settings
+Account
+    Notifications  /notifications
+    Security  /security
+
+## User
+Account
+    Security  /security
+
+## ReadOnly
+Account
+    Security  /security
+

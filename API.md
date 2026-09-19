@@ -2150,7 +2150,6 @@ The list filter is `documentType`, not `type`.
 | GET | `/api/Report/low-stock-alerts` | Low stock alert items (`warehouseCode`, `threshold`) |
 | GET | `/api/Report/receivables-aging` | Customer aging analysis |
 | GET | `/api/Report/payment-summary` | Payments over a date range |
-| GET | `/api/Report/account-sales-payments` | Sales and payments per account |
 | GET | `/api/Report/order-fulfillment` | Order fulfilment |
 | GET | `/api/Report/credit-notes` | Credit notes over a date range |
 | GET | `/api/Report/purchase-orders` | Purchase orders over a date range |

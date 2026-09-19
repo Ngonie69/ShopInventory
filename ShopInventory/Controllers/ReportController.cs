@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.Middleware;
 using ShopInventory.Features.Reports.Queries.GetCreditNoteSummary;
-using ShopInventory.Features.Reports.Queries.GetAccountSalesPaymentReport;
 using ShopInventory.Features.Reports.Queries.GetItemVolumeSalesReport;
 using ShopInventory.Features.Reports.Queries.GetLowStockAlerts;
 using ShopInventory.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport;
@@ -140,28 +139,6 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetPaymentSummaryQuery(fromDate, toDate), cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
-    /// <summary>
-    /// Sales and payments per account
-    /// </summary>
-    [HttpGet("account-sales-payments")]
-    public async Task<IActionResult> GetAccountSalesPayments(
-        [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        [FromQuery] AccountSalesPaymentGrouping grouping = AccountSalesPaymentGrouping.Daily,
-        [FromQuery] List<string>? accountCodes = null,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await mediator.Send(
-            new GetAccountSalesPaymentReportQuery(
-                fromDate,
-                toDate,
-                grouping,
-                accountCodes ?? new List<string>()),
-            cancellationToken);
-
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

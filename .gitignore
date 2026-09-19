@@ -102,3 +102,6 @@ Kefalos_Portal_User_Guide.docx
 # Python bytecode from .claude/.agents skill scripts
 __pycache__/
 *.pyc
+
+# Written by NavMenuRoleRenderTests when the sidebar no longer matches NavMenu.roles.txt
+ShopInventory.Tests/NavMenu.roles.actual.txt
