@@ -16066,8 +16066,10 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
                 DocumentLines = request.Lines?.Select((line, index) =>
                 {
-                    // Only include BatchNumbers if there are actual entries;
-                    // null/empty omitted via WhenWritingNull so SAP auto-allocates from base document
+                    // Only include BatchNumbers if there are actual entries. Omitting them does NOT
+                    // make SAP take the base invoice's batches: a batch-managed line with none is
+                    // refused ("Cannot add row without complete selection of batch/serial numbers"),
+                    // so callers copy the invoice's batches onto the line before calling this.
                     var batches = line.BatchNumbers?.Where(b => !string.IsNullOrEmpty(b.BatchNumber)).ToList();
                     var hasBatches = batches != null && batches.Count > 0;
 

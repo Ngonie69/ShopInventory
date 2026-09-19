@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -269,6 +269,8 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<ISAPServiceLayerClient>((m, args) => m.Name switch
                 {
                     nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)Task.FromResult<SAPCreditNote?>(null),
+                    nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync) =>
+                        Task.FromResult(new RecordingSap().MirroringSalesFrom(db).InvoiceFor((int)args![0]!)),
                     nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => Record((CreateCreditNoteRequest)args![0]!),
                     _ => throw new NotSupportedException(m.Name)
                 }),
@@ -320,6 +322,8 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<ISAPServiceLayerClient>((m, args) => m.Name switch
                 {
                     nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)Task.FromResult<SAPCreditNote?>(null),
+                    nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync) =>
+                        Task.FromResult(new RecordingSap().MirroringSalesFrom(db).InvoiceFor((int)args![0]!)),
                     nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => Record((CreateCreditNoteRequest)args![0]!),
                     _ => throw new NotSupportedException(m.Name)
                 }),
@@ -387,6 +391,8 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<ISAPServiceLayerClient>((m, args) => m.Name switch
                 {
                     nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)Task.FromResult<SAPCreditNote?>(null),
+                    nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync) =>
+                        Task.FromResult(new RecordingSap().MirroringSalesFrom(db).InvoiceFor((int)args![0]!)),
                     nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => LoginFails(),
                     _ => throw new NotSupportedException(m.Name)
                 }),

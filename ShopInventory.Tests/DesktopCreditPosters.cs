@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
@@ -47,7 +47,7 @@ internal static class DesktopCreditPosters
         ApplicationDbContext context, RecordingSap sap, RecordingLedger? ledger = null)
         => new(
             context,
-            sap.Client,
+            sap.MirroringSalesFrom(context).Client,
             (ledger ?? new RecordingLedger()).Ledger,
             NoAudit(),
             Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
@@ -137,9 +137,50 @@ internal sealed class RecordingSap
     public Dictionary<string, SAPCreditNote> ExistingByReference { get; } =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Invoices answered as registered, ahead of any mirrored from a sale.</summary>
+    public Dictionary<int, Invoice> Invoices { get; } = [];
+
+    private ApplicationDbContext? _sales;
+
+    /// <summary>
+    /// Answers an unregistered invoice read with the invoice the sale posted as: one line per sale line
+    /// in LineNum order, and no batches — which is what a non-batch-managed item's invoice holds.
+    /// </summary>
+    public RecordingSap MirroringSalesFrom(ApplicationDbContext context)
+    {
+        _sales = context;
+        return this;
+    }
+
+    public Invoice? InvoiceFor(int docEntry)
+    {
+        if (Invoices.TryGetValue(docEntry, out var registered))
+        {
+            return registered;
+        }
+
+        var sale = _sales?.DesktopSales.AsNoTracking().Include(s => s.Lines)
+            .FirstOrDefault(s => s.SapDocEntry == docEntry);
+
+        return sale is null
+            ? null
+            : new Invoice
+            {
+                DocEntry = docEntry,
+                DocNum = sale.SapDocNum ?? docEntry,
+                CardCode = sale.CardCode,
+                DocumentLines = sale.Lines.OrderBy(l => l.LineNum)
+                    .Select((l, index) => new InvoiceLine { LineNum = index, ItemCode = l.ItemCode, Quantity = l.Quantity })
+                    .ToList()
+            };
+    }
+
     public ISAPServiceLayerClient Client => StubProxy.For<ISAPServiceLayerClient>((method, args) =>
         method.Name switch
         {
+            nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync) =>
+                (object)Task.FromResult(InvoiceFor((int)args![0]!)),
+
             // Cast to object so the switch's natural type is not taken from the arm below, which
             // answers a non-nullable Task — this lookup's contract is that it may answer null.
             nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) =>
