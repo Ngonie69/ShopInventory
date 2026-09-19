@@ -483,6 +483,63 @@ public sealed class DesktopCreditNoteTests : IDisposable
             service.CreateAsync(caller, "TILL-123", request with { Note = "Claim 2" }, default));
     }
 
+    // ── The till is told ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task The_till_is_told_once_when_zimra_accepts_the_credit()
+    {
+        var notifier = new RecordingTillNotifier();
+        var withNotifier = ServiceWith(notifier);
+
+        var request = Request();
+        var credit = await withNotifier.CreateAsync(caller, "TILL-123", request, default);
+
+        Assert.Equal([credit.Id], notifier.Issued);
+
+        // A replay of the same request, and a reconcile of a credit already filed, change nothing and
+        // must not alert the counter a second time.
+        await withNotifier.CreateAsync(caller, "TILL-123", request, default);
+        await withNotifier.ReconcileAsync(caller, "TILL-123", credit.Id, default);
+        Assert.Single(notifier.Issued);
+    }
+
+    [Fact]
+    public async Task The_till_is_not_told_about_a_credit_the_device_refused_or_has_not_confirmed()
+    {
+        var notifier = new RecordingTillNotifier();
+        var withNotifier = ServiceWith(notifier);
+
+        gateway.SubmitResult = new FiscalizationResult { Success = false, ErrorCode = "REVMAX_0", Message = "Refused" };
+        await withNotifier.CreateAsync(caller, "TILL-123", Request(8m), default);
+
+        gateway.SubmitResult = null;
+        gateway.LoseReply = true;
+        var uncertain = await withNotifier.CreateAsync(caller, "TILL-123", Request(3m), default);
+
+        Assert.Empty(notifier.Issued);
+
+        // The device later confirms it: that is the moment the till hears.
+        gateway.Existing = new FiscalizationResult { Success = true, ReceiptGlobalNo = "790" };
+        await withNotifier.ReconcileAsync(caller, "TILL-123", uncertain.Id, default);
+        Assert.Equal([uncertain.Id], notifier.Issued);
+    }
+
+    private DesktopCreditNoteService ServiceWith(IDesktopCreditTillNotifier notifier) =>
+        new(db, gateway, DesktopCreditPosters.Idle(db),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance, notifier);
+
+    private sealed class RecordingTillNotifier : IDesktopCreditTillNotifier
+    {
+        public List<Guid> Issued { get; } = [];
+
+        public Task NotifyIssuedAsync(Guid creditNoteId, CancellationToken cancellationToken)
+        {
+            Issued.Add(creditNoteId);
+            return Task.CompletedTask;
+        }
+    }
+
     [Fact]
     public async Task A_permanent_request_key_replays_the_same_credit_without_resubmitting()
     {
