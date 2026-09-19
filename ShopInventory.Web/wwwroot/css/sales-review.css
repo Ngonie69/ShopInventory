@@ -3,9 +3,9 @@
 
    /reports/desktop-sales/review. The page wears `ops ops-ds ops-dsa ops-sbd`
    from operations.css and sales-breakdown.css for its head, cards, tables,
-   swatches and split bars, and this sheet adds only `ops-dsr`: the findings
-   list, the hour columns that stack vending settlements on counter sales, the
-   shop-by-hour grid, the Pareto class chips and the posting health strip.
+   swatches and split bars, and this sheet adds only `ops-dsr`: the line of
+   business switch, the findings list, the hour columns, the shop-by-hour
+   grid, the Pareto class chips and the posting health strip.
 
    Colours are tokens only, so there is no dark-theme block: every value
    resolves against whichever scheme nocturne-tokens.css has in force.
@@ -24,6 +24,25 @@
 
 .ops-dsr .ops-dsr-nowrap {
     white-space: nowrap;
+}
+
+/* ── Line of business ───────────────────────────────────────────────────── */
+/* Shops and vending are reviewed apart; the switch sits above everything it
+   scopes, so every figure below reads as that business's alone. */
+
+.ops-dsr .ops-dsr-business {
+    margin: 4px 0 14px;
+}
+
+.ops-dsr .ops-dsr-business .ops-ds-seg {
+    align-self: flex-start;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.ops-dsr .ops-dsr-business .ops-ds-seg-opt {
+    min-width: 7.5rem;
+    font-weight: 600;
 }
 
 /* ── Findings ──────────────────────────────────────────────────────────── */
@@ -128,34 +147,19 @@
 }
 
 .ops-dsr .ops-dsr-hour-counter,
-.ops-dsr .ops-dsr-hour-settle,
-.ops-dsr .ops-dsr-key {
+.ops-dsr .ops-dsr-hour-settle {
     display: block;
     min-height: 2px;
     border-radius: 3px 3px 0 0;
 }
 
-.ops-dsr .ops-dsr-hour-counter,
-.ops-dsr .ops-dsr-key.is-counter {
+.ops-dsr .ops-dsr-hour-counter {
     background: var(--ops-accent);
 }
 
-.ops-dsr .ops-dsr-hour-settle,
-.ops-dsr .ops-dsr-key.is-settle {
+/* Vending's hours are when vendors paid in, drawn apart from a counter's. */
+.ops-dsr .ops-dsr-hour-settle {
     background: var(--dsa-t5, var(--ops-fam-warn));
-}
-
-.ops-dsr .ops-dsr-hour-stack > span + span {
-    border-radius: 0;
-}
-
-.ops-dsr .ops-dsr-key {
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    margin-right: 6px;
-    display: inline-block;
-    vertical-align: -1px;
 }
 
 .ops-dsr .ops-dsr-hour-label {

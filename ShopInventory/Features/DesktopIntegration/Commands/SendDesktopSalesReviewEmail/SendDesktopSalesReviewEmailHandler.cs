@@ -118,7 +118,7 @@ public sealed class SendDesktopSalesReviewEmailHandler(
         logger.LogInformation("Desktop sales review {Cadence} for {From:yyyy-MM-dd}..{To:yyyy-MM-dd} sent to {Sent}; failed {Failed}",
             request.Cadence, from, to, sent.Count, failed.Count);
 
-        return new DesktopSalesReviewEmailResult(request.Cadence, from, to, sent, failed, false, null, review.Findings.Count);
+        return new DesktopSalesReviewEmailResult(request.Cadence, from, to, sent, failed, false, null, review.Businesses.Sum(b => b.Findings.Count));
     }
 
     /// <summary>Why a scheduled send should not go out, or null when it should.</summary>

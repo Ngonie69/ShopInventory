@@ -28,7 +28,8 @@ internal static class ManagementSalesRollup
         DateTime? toDate,
         string? warehouseCode,
         string? sourceSystem,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? business = null)
     {
         var caller = await db.Users
             .AsNoTracking()
@@ -59,7 +60,8 @@ internal static class ManagementSalesRollup
             from.AddDays(-1),
             days,
             readScope.Value.WarehouseCode,
-            string.IsNullOrWhiteSpace(sourceSystem) ? null : sourceSystem.Trim());
+            string.IsNullOrWhiteSpace(sourceSystem) ? null : sourceSystem.Trim(),
+            SaleBusinesses.IsKnown(business) ? business!.Trim().ToLowerInvariant() : null);
     }
 
     /// <summary>
@@ -72,6 +74,7 @@ internal static class ManagementSalesRollup
         sales = window.SourceSystem is null
             ? sales.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
             : sales.Where(s => s.SourceSystem == window.SourceSystem);
+        sales = sales.InBusiness(window.Business);
         return window.WarehouseCode is null ? sales : sales.Where(s => s.WarehouseCode == window.WarehouseCode);
     }
 
@@ -295,7 +298,8 @@ internal static class ManagementSalesRollup
         DateTime PreviousTo,
         int Days,
         string? WarehouseCode,
-        string? SourceSystem);
+        string? SourceSystem,
+        string? Business = null);
 
     public sealed record Labels(
         IReadOnlyDictionary<Guid, string> Operators,

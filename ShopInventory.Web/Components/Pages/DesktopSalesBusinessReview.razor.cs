@@ -10,7 +10,8 @@ using Review = ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesReview.
 namespace ShopInventory.Web.Components.Pages;
 
 /// <summary>
-/// The business review page: the period's findings first, then the figures behind them.
+/// The business review page: one line of business at a time — shops, vending, vans — its findings first,
+/// then the figures behind them.
 /// </summary>
 /// <remarks>
 /// Everything on it — every finding, every figure — comes from the API's review, the same one the
@@ -47,6 +48,7 @@ public partial class DesktopSalesBusinessReview : IDisposable
     private string period = PeriodLastWeek;
     private DateTime? fromDate;
     private DateTime? toDate;
+    private string? business;
     private string? currency;
     private bool isLoading;
     private bool isDownloading;
@@ -65,9 +67,18 @@ public partial class DesktopSalesBusinessReview : IDisposable
             })
             .Prepend(NocturneSelectOption.All("All shops"));
 
-    /// <summary>The currency on screen: the one picked, else the first the review carries.</summary>
+    /// <summary>
+    /// The line of business on screen: the one picked, else the first the review carries. Shops and
+    /// vending are reviewed apart and never shown added together.
+    /// </summary>
+    private DesktopSalesReviewBusiness? Business =>
+        review?.Businesses.FirstOrDefault(b => b.Business == business) ?? review?.Businesses.FirstOrDefault();
+
+    /// <summary>The currency on screen, within the business: the one picked, else the first it carries.</summary>
     private DesktopSalesReviewCurrency? Section =>
-        review?.Currencies.FirstOrDefault(c => c.Currency == currency) ?? review?.Currencies.FirstOrDefault();
+        Business?.Currencies.FirstOrDefault(c => c.Currency == currency) ?? Business?.Currencies.FirstOrDefault();
+
+    private bool IsVending => Business?.Business == "vending";
 
     private string Currency => Section?.Currency ?? "";
 
@@ -127,10 +138,12 @@ public partial class DesktopSalesBusinessReview : IDisposable
             }
 
             review = result.Value;
-            if (review.Currencies.All(c => c.Currency != currency))
+            if (review.Businesses.All(b => b.Business != business))
             {
-                currency = review.Currencies.FirstOrDefault()?.Currency;
+                business = review.Businesses.FirstOrDefault()?.Business;
             }
+
+            KeepCurrency();
         }
         catch (OperationCanceledException)
         {
@@ -141,6 +154,21 @@ public partial class DesktopSalesBusinessReview : IDisposable
             {
                 isLoading = false;
             }
+        }
+    }
+
+    private void SetBusiness(string key)
+    {
+        business = key;
+        KeepCurrency();
+    }
+
+    /// <summary>Stays on the picked currency when the business on screen has it, else takes its first.</summary>
+    private void KeepCurrency()
+    {
+        if (Business is { } shown && shown.Currencies.All(c => c.Currency != currency))
+        {
+            currency = shown.Currencies.FirstOrDefault()?.Currency;
         }
     }
 
@@ -227,7 +255,17 @@ public partial class DesktopSalesBusinessReview : IDisposable
     // ── Reading the review ───────────────────────────────────────────────
 
     private List<DesktopSalesReviewFinding> Findings =>
-        review?.Findings.Where(f => f.Currency is null || f.Currency == Currency).ToList() ?? [];
+        Business?.Findings.Where(f => f.Currency is null || f.Currency == Currency).ToList() ?? [];
+
+    private string BusinessLabel => Business?.Label ?? "";
+
+    /// <summary>What the outlets are called in the business on screen.</summary>
+    private string OutletsTitle => Business?.Business switch
+    {
+        "vending" => "Vending depots",
+        "vans" => "Vans",
+        _ => "Shops and depots"
+    };
 
     private string ShopLabel(string warehouseCode) =>
         Section?.ByShop.FirstOrDefault(s => string.Equals(s.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase))?.Label
