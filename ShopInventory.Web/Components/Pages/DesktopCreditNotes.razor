@@ -526,6 +526,45 @@
                     </div>
                 }
 
+                @* Nothing sends this memo, so the app only learns it exists from this form. Until then the
+                   stock reconciliation keeps the returned units on the ledger. *@
+                @if (credit.Status == "Fiscalised" && credit.SapStatus == DesktopCreditSapStatuses.ManualInSap)
+                {
+                    <AuthorizeView Roles="Admin,Manager" Context="raiseCtx">
+                        <Authorized>
+                            <div class="ops-ds-block ops-field">
+                                <label class="ops-label" for="dcl-raise-docnum">Raised in SAP? Credit memo number</label>
+                                <div class="ops-dcl-raise-row">
+                                    <input id="dcl-raise-docnum" type="text" inputmode="numeric" class="ops-input"
+                                           placeholder="e.g. 91001" @bind="raiseDocNum" @bind:event="oninput" />
+                                    <button type="button" class="ops-btn ops-btn-primary ops-btn-sm"
+                                            disabled="@(marking || !int.TryParse(raiseDocNum?.Trim(), out _))"
+                                            @onclick="() => MarkRaisedAsync(credit)">
+                                        @if (marking)
+                                        {
+                                            <span class="ops-spin"></span>
+                                        }
+                                        else
+                                        {
+                                            <i class="ph ph-check" aria-hidden="true"></i>
+                                        }
+                                        Mark raised
+                                    </button>
+                                </div>
+                                <small>
+                                    SAP is checked first: the memo must exist, not be cancelled, and be for
+                                    @(credit.SaleCardCode ?? "the sale's customer"). Until it is marked, the
+                                    returned units stay on the stock ledger.
+                                </small>
+                                @if (raiseError is not null)
+                                {
+                                    <small class="ops-dcl-raise-error" role="alert">@raiseError</small>
+                                }
+                            </div>
+                        </Authorized>
+                    </AuthorizeView>
+                }
+
                 <div class="ops-defs">
                     <div>
                         <div class="ops-def-k">Sale</div>
@@ -642,6 +681,9 @@
     private string? notice;
     private bool noticeGood;
     private Guid? retrying;
+    private bool marking;
+    private string? raiseDocNum;
+    private string? raiseError;
     private DesktopCreditNoteListRow? openRow;
     private DesktopCreditNoteListRow? selected;
     private DateTime? loadedAt;
@@ -931,15 +973,55 @@
         await LoadAsync();
     }
 
+    private async Task MarkRaisedAsync(DesktopCreditNoteListRow row)
+    {
+        if (!int.TryParse(raiseDocNum?.Trim(), out var docNum)) return;
+
+        marking = true;
+        raiseError = null;
+
+        try
+        {
+            var result = await DesktopIntegrationService.MarkCreditNoteRaisedAsync(row.Id, docNum);
+            noticeGood = true;
+            notice = $"{row.SaleNumber}: credit memo #{result.SapDocNum} recorded. SAP now holds the returned stock.";
+            raiseDocNum = null;
+        }
+        catch (Exception ex)
+        {
+            // Shown in the drawer, next to the number that was refused, so it can be corrected there.
+            raiseError = ex.Message;
+            return;
+        }
+        finally
+        {
+            marking = false;
+        }
+
+        await LoadAsync();
+    }
+
     private void Open(DesktopCreditNoteListRow row) => openRow = row;
 
-    private void OpenDetail(DesktopCreditNoteListRow row) => selected = row;
+    private void OpenDetail(DesktopCreditNoteListRow row) => SelectDetail(row);
 
-    private void CloseDetail() => selected = null;
+    private void CloseDetail() => SelectDetail(null);
+
+    /// <summary>A number typed against one credit must not carry over to the next.</summary>
+    private void SelectDetail(DesktopCreditNoteListRow? row)
+    {
+        if (row?.Id != selected?.Id)
+        {
+            raiseDocNum = null;
+            raiseError = null;
+        }
+
+        selected = row;
+    }
 
     private void OpenFromDetail(DesktopCreditNoteListRow row)
     {
-        selected = null;
+        SelectDetail(null);
         Open(row);
     }
 
@@ -949,7 +1031,7 @@
         var items = response?.Items ?? [];
         if (selected is null || items.Count == 0) return;
         var index = items.FindIndex(r => r.Id == selected.Id);
-        selected = items[((index < 0 ? 0 : index) + step + items.Count) % items.Count];
+        SelectDetail(items[((index < 0 ? 0 : index) + step + items.Count) % items.Count]);
     }
 
     private async Task CloseDialogAsync()

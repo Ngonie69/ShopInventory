@@ -17,6 +17,7 @@ public interface IDesktopIntegrationService
     Task<DesktopCreditNoteResult> ReconcileCreditNoteAsync(string reference, Guid id) => throw new NotSupportedException();
     Task<DesktopCreditNoteListResponse> ListCreditNotesAsync(DesktopCreditNoteListQuery query) => throw new NotSupportedException();
     Task<DesktopCreditNoteListRow> RetryCreditNoteSapAsync(Guid id) => throw new NotSupportedException();
+    Task<DesktopCreditNoteListRow> MarkCreditNoteRaisedAsync(Guid id, int sapDocNum) => throw new NotSupportedException();
     // Invoice Queue
     Task<List<InvoiceQueueStatusDto>?> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100);
     Task<List<InvoiceQueueStatusDto>?> GetInvoicesRequiringReviewAsync(int limit = 50);
@@ -127,6 +128,14 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     /// <summary>Sends a refused SAP credit memo again, now. Answers with where it stands afterwards.</summary>
     public Task<DesktopCreditNoteListRow> RetryCreditNoteSapAsync(Guid id) =>
         CreditRequestAsync<DesktopCreditNoteListRow>(HttpMethod.Post, $"api/DesktopIntegration/credit-notes/{id}/retry-sap");
+
+    /// <summary>
+    /// Records the SAP memo a person raised by hand for a credit that could not post itself. The API
+    /// checks the memo in SAP first. Answers with the credit as it stands afterwards.
+    /// </summary>
+    public Task<DesktopCreditNoteListRow> MarkCreditNoteRaisedAsync(Guid id, int sapDocNum) =>
+        CreditRequestAsync<DesktopCreditNoteListRow>(HttpMethod.Post,
+            $"api/DesktopIntegration/credit-notes/{id}/mark-raised", new { sapDocNum });
 
     private async Task<T> CreditRequestAsync<T>(HttpMethod method, string url, object? body = null)
     {

@@ -30,6 +30,15 @@ public sealed class DesktopCreditNoteListController(
     public Task<IActionResult> RetrySap(Guid id, CancellationToken ct) =>
         Run(caller => service.RetrySapAsync(caller, id, ct));
 
+    /// <summary>
+    /// Records the SAP memo a person raised by hand for a ManualInSap credit. It ends the ledger's hold
+    /// on the returned units, so managers only.
+    /// </summary>
+    [HttpPost("{id:guid}/mark-raised")]
+    [Authorize(Policy = "ApiAccess", Roles = "Admin,Manager")]
+    public Task<IActionResult> MarkRaised(Guid id, [FromBody] MarkDesktopCreditRaisedRequest request, CancellationToken ct) =>
+        Run(caller => service.MarkRaisedInSapAsync(caller, id, request.SapDocNum, ct));
+
     private async Task<IActionResult> Run<T>(Func<Guid, Task<T>> action)
     {
         var id = UserClaimReader.GetUserId(User);

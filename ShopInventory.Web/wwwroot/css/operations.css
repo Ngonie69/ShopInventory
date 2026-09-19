@@ -4941,6 +4941,23 @@
     margin-top: var(--ops-s3);
 }
 
+/* The drawer's "Mark raised in SAP" form. The drawer sits outside .ops-dcl, so these are
+   not scoped under it. */
+.ops-dcl-raise-row {
+    display: flex;
+    gap: var(--ops-s3);
+    align-items: center;
+}
+
+.ops-dcl-raise-row .ops-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.ops-field .ops-dcl-raise-error {
+    color: var(--ops-fam-bad);
+}
+
 /* `.ops-ds` zeroes the edge cells because /desktop-sales has a checkbox gutter
    to inset its first column. This list has none, so its edges take back the
    inset every other ops table has. */

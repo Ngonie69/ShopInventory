@@ -224,6 +224,84 @@ public sealed class DesktopCreditNoteListTests : IDisposable
         Assert.Empty(_sap.Created);
     }
 
+    // ── Mark raised by hand ──────────────────────────────────────────────
+
+    /// <summary>
+    /// A consolidated sale's credit, raised in the SAP client by a person. Recording the memo is what
+    /// ends the ledger's hold on the returned units, so the credit becomes Posted with the memo's keys.
+    /// </summary>
+    [Fact]
+    public async Task Marking_a_hand_credit_raised_records_the_memo_and_posts_it()
+    {
+        var sale = await GivenSaleAsync("INV1", "KEFGRS", SaleSourceSystems.ShopTill, sapDocEntry: 4242, sapDocNum: 777347);
+        var note = await GivenCreditAsync(sale, sapStatus: DesktopCreditSapStatuses.ManualInSap,
+            sapError: "Raise by hand against the consolidated invoice");
+        _sap.ExistingByDocNum[91001] = new SAPCreditNote { DocEntry = 5501, DocNum = 91001, CardCode = "CIS004", Cancelled = "tNO" };
+
+        var row = await Service().MarkRaisedInSapAsync(_admin, note.Id, 91001, default);
+
+        Assert.Equal(DesktopCreditSapStatuses.Posted, row.SapStatus);
+        Assert.Equal(91001, row.SapDocNum);
+        Assert.Null(row.SapError);
+        Assert.Empty(_sap.Created);
+
+        var stored = await _db.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == note.Id);
+        Assert.Equal(5501, stored.SapDocEntry);
+        Assert.NotNull(stored.SapPostedAt);
+    }
+
+    [Theory]
+    [InlineData(91002, "holds no credit memo")]
+    [InlineData(91003, "cancelled")]
+    [InlineData(91004, "is for CIS999")]
+    [InlineData(91005, "already belongs to credit")]
+    public async Task Marking_raised_refuses_a_memo_that_cannot_be_this_credits(int docNum, string expected)
+    {
+        var sale = await GivenSaleAsync("INV1", "KEFGRS", SaleSourceSystems.ShopTill, sapDocEntry: 4242, sapDocNum: 777347);
+        var note = await GivenCreditAsync(sale, sapStatus: DesktopCreditSapStatuses.ManualInSap);
+        var other = await GivenCreditAsync(sale, sapStatus: DesktopCreditSapStatuses.Posted);
+        await _db.DesktopCreditNotes.Where(n => n.Id == other.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(n => n.SapDocEntry, 5505));
+
+        _sap.ExistingByDocNum[91003] = new SAPCreditNote { DocEntry = 5503, DocNum = 91003, CardCode = "CIS004", Cancelled = "tYES" };
+        _sap.ExistingByDocNum[91004] = new SAPCreditNote { DocEntry = 5504, DocNum = 91004, CardCode = "CIS999", Cancelled = "tNO" };
+        _sap.ExistingByDocNum[91005] = new SAPCreditNote { DocEntry = 5505, DocNum = 91005, CardCode = "CIS004", Cancelled = "tNO" };
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Service().MarkRaisedInSapAsync(_admin, note.Id, docNum, default));
+
+        Assert.Contains(expected, refusal.Message);
+        var stored = await _db.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == note.Id);
+        Assert.Equal(DesktopCreditSapStatuses.ManualInSap, stored.SapStatus);
+    }
+
+    [Theory]
+    [InlineData(DesktopCreditSapStatuses.Posted, "Already in SAP")]
+    [InlineData(DesktopCreditSapStatuses.Deferred, "raised by hand")]
+    [InlineData(DesktopCreditSapStatuses.Failed, "raised by hand")]
+    public async Task Marking_raised_refuses_a_credit_not_waiting_for_a_person(string sapStatus, string expected)
+    {
+        var sale = await GivenSaleAsync("INV1", "KEFGRS", SaleSourceSystems.ShopTill, sapDocEntry: 4242, sapDocNum: 777347);
+        var note = await GivenCreditAsync(sale, sapStatus: sapStatus);
+        _sap.ExistingByDocNum[91001] = new SAPCreditNote { DocEntry = 5501, DocNum = 91001, CardCode = "CIS004" };
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Service().MarkRaisedInSapAsync(_admin, note.Id, 91001, default));
+
+        Assert.Contains(expected, refusal.Message);
+    }
+
+    [Fact]
+    public async Task Marking_raised_refuses_another_shops_credit()
+    {
+        var sale = await GivenSaleAsync("INV1", "KEFBEL", SaleSourceSystems.ShopTill, sapDocEntry: 4242, sapDocNum: 777347);
+        var note = await GivenCreditAsync(sale, sapStatus: DesktopCreditSapStatuses.ManualInSap);
+        var cashier = await GivenShopCashierAsync("KEFGRS");
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => Service().MarkRaisedInSapAsync(cashier, note.Id, 91001, default));
+    }
+
     [Fact]
     public async Task A_credit_is_numbered_after_its_sale_and_a_second_one_takes_a_suffix()
     {
@@ -260,6 +338,7 @@ public sealed class DesktopCreditNoteListTests : IDisposable
     private DesktopCreditNoteListService Service() => new(
         _db,
         DesktopCreditPosters.Recording(_db, _sap),
+        _sap.MirroringSalesFrom(_db).Client,
         StubProxy.For<IAuditService>((m, _) => m.Name == nameof(IAuditService.LogAsync)
             ? Task.CompletedTask
             : throw new InvalidOperationException($"IAuditService.{m.Name} was not expected.")),

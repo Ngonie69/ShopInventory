@@ -252,6 +252,27 @@ public sealed class StockLedgerReconcileTests : IDisposable
     }
 
     /// <summary>
+    /// A credit against a consolidated sale waits for a person to raise its memo in the SAP client, so
+    /// SAP is short by the return until then. The reconciliation used to leave it out and take the
+    /// returned units back off the till at the next pass.
+    /// </summary>
+    [Fact]
+    public async Task Units_a_credit_to_be_raised_by_hand_returned_are_kept_until_it_is_marked_raised()
+    {
+        // 30 sold in the consolidated invoice, 10 credited back: the ledger holds 120 - 30 + 10, and
+        // SAP, with no memo yet, holds 120 - 30.
+        await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
+        var saleId = await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Consolidated);
+        await SeedCreditAsync(saleId, lineNo: 1, quantity: 10m, DesktopCreditSapStatuses.ManualInSap);
+        _sapIssuable[Item] = 90m;
+        _sapBatches.Add(Batch("B1", 90m));
+
+        await RunAsync();
+
+        Assert.Equal(100m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
     /// A sale that posts while the job is reading SAP. Read the other way round it was in neither
     /// figure — no longer unposted, not yet in SAP's reading — and its units went back on the shelf.
     /// </summary>

@@ -133,9 +133,20 @@ so a credit ZIMRA holds and SAP does not — the one somebody has to act on — 
   the sweep resumes too. It is the way back for a credit that exhausted its six attempts while the
   cause was being fixed; it never raises a second memo, because the poster looks for one under the
   credit's own `DCN-` number first.
+- **Mark raised** (Admin, Manager), in the drawer of a **Raise by hand** credit, records the memo a
+  person raised in the SAP client. SAP is checked first: the memo must exist, not be cancelled, be for
+  the sale's customer, and not already belong to another credit. The credit then reads as Posted.
 - The sale number opens the same credit dialog the sale pages use.
 
-API: `GET /api/DesktopIntegration/credit-notes`, `POST /api/DesktopIntegration/credit-notes/{id}/retry-sap`.
+**Stock on a Raise by hand credit.** The units go back on the ledger when ZIMRA accepts the credit,
+as for any other credit, and they stay there until the credit is marked raised. The hourly
+reconciliation and the morning fetch add them back on top of SAP's figure until then, because SAP is
+short by them. Before this, both left these credits out, and the returned units disappeared from the
+till at the next pass. So mark each one once its memo is in SAP. A memo raised but never marked
+leaves the ledger reading high, for up to `DailyStock:UnpostedSaleLookbackDays` (30).
+
+API: `GET /api/DesktopIntegration/credit-notes`, `POST /api/DesktopIntegration/credit-notes/{id}/retry-sap`,
+`POST /api/DesktopIntegration/credit-notes/{id}/mark-raised`.
 
 ## The till is told
 
