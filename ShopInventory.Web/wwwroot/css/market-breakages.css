@@ -1,21 +1,21 @@
 /* ==========================================================================
-   Market Breakages — Nocturne
+   Market Breakages — Nocturne counting bench
 
    Broken stock van reps collected back from shops, counted and confirmed into
-   a transfer to returns. Generated from credit-note-approvals.css (prefix
-   renamed, the attachment list, file viewer and approver rail dropped) so the
-   two review queues read as one place; the rules this page adds are at the end.
+   a transfer to returns. Built from the "Market Breakages Redesign" canvas:
+   four figures that are also the status filter, the queue on the left, and the
+   open report on a bench beside it with a stepper per line, the difference
+   from what the rep reported, and the van → returns move in the decision bar.
 
-   As there, the palette is an alias layer over nocturne-tokens.css and flips at
-   the root, so this sheet carries no `.dark-theme` block; `.mbk-overlay`
-   repeats the tokens because the drawer renders outside `.mbk`.
+   The palette is an alias layer over nocturne-tokens.css and flips at the
+   root, so this sheet carries no `.dark-theme` block. Everything, the confirm
+   dialog and the narrow-screen sheet included, renders inside `.mbk`, so the
+   tokens reach it without being repeated on an overlay class.
    ========================================================================== */
 
-.mbk,
-.mbk-overlay {
+.mbk {
     --mbk-bg: var(--noct-bg);
     --mbk-surface: var(--noct-surface);
-    --mbk-field: var(--noct-surface);
     --mbk-ink: var(--noct-ink);
     --mbk-ink-2: var(--noct-ink-2);
     --mbk-mute: var(--noct-mute);
@@ -24,36 +24,37 @@
     --mbk-faint: var(--noct-faint);
     --mbk-placeholder: var(--noct-placeholder);
     --mbk-divider: var(--noct-divider);
-    --mbk-rowline: var(--noct-rule);
+    --mbk-rule: var(--noct-rule);
     --mbk-hover: var(--noct-hover);
     --mbk-press: var(--noct-press);
+    --mbk-chip: var(--noct-avatar-bg);
+    --mbk-field-bg: var(--noct-field-bg);
     --mbk-field-edge: var(--noct-field-edge);
     --mbk-field-edge-hi: var(--noct-field-edge-hi);
     --mbk-accent: var(--noct-accent);
     --mbk-accent-rgb: var(--noct-accent-rgb);
     --mbk-accent-text: var(--noct-accent-text);
-    --mbk-tag-bg: var(--noct-avatar-bg);
-    --mbk-tag-ink: var(--noct-ink-2);
+    --mbk-fill: var(--noct-box);
+    --mbk-on-fill: var(--noct-on-box);
     --mbk-scrim: var(--noct-scrim);
-    --mbk-shadow-sm: 0 0 0 1px var(--noct-rule);
+    --mbk-shadow-pop: var(--noct-shadow-pop);
     --mbk-shadow-lg: var(--noct-shadow-lg);
 
-    /* The four states a request can be in, taken from the system's families so
-       they agree with every other status chip in the app: waiting, cleared,
-       refused, and the settled grey of one already added or cancelled. */
-    --mbk-pending: var(--noct-fam-warn);
-    --mbk-pending-rgb: var(--noct-fam-warn-rgb);
-    --mbk-approved: var(--noct-fam-good);
-    --mbk-approved-rgb: var(--noct-fam-good-rgb);
-    --mbk-rejected: var(--noct-fam-bad);
-    --mbk-rejected-rgb: var(--noct-fam-bad-rgb);
-    --mbk-settled: var(--noct-fam-neutral);
+    /* The five states a report can be in, from the system's families so they
+       agree with every other status chip: to count (accent), transferring
+       (info), transferred (good), transfer failed (bad), rejected (neutral). */
+    --mbk-accent-fam: var(--noct-fam-accent);
+    --mbk-accent-fam-rgb: var(--noct-fam-accent-rgb);
+    --mbk-info: var(--noct-fam-info);
+    --mbk-info-rgb: var(--noct-fam-info-rgb);
+    --mbk-good: var(--noct-fam-good);
+    --mbk-good-rgb: var(--noct-fam-good-rgb);
+    --mbk-warn: var(--noct-fam-warn);
+    --mbk-warn-rgb: var(--noct-fam-warn-rgb);
     --mbk-bad: var(--noct-fam-bad);
-    --mbk-bad-bg: rgba(var(--noct-fam-bad-rgb), .1);
-    --mbk-bad-edge: rgba(var(--noct-fam-bad-rgb), .35);
-    --mbk-warn-bg: var(--noct-warn-bg);
-    --mbk-warn-edge: var(--noct-warn-edge);
-    --mbk-warn-ink: var(--noct-warn-ink);
+    --mbk-bad-rgb: var(--noct-fam-bad-rgb);
+    --mbk-neutral: var(--noct-fam-neutral);
+    --mbk-neutral-rgb: var(--noct-fam-neutral-rgb);
 
     --mbk-s1: var(--noct-s1);
     --mbk-s2: var(--noct-s2);
@@ -64,6 +65,10 @@
     --mbk-r-sm: var(--noct-r-sm);
     --mbk-r-md: var(--noct-r-md);
     --mbk-r-lg: var(--noct-r-lg);
+
+    /* The page's own header, measured: the bench sticks below it. */
+    --mbk-head-h: 104px;
+    --mbk-top: var(--kf-topbar-h, 74px);
 
     color-scheme: var(--noct-scheme);
 }
@@ -76,24 +81,40 @@
     color: var(--mbk-ink);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
-    line-height: 1.55;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
 }
 
-.mbk *,
-.mbk-overlay * {
+.mbk * {
     box-sizing: border-box;
 }
 
-.mbk :focus-visible,
-.mbk-overlay :focus-visible {
+.mbk :focus-visible {
     outline: 2px solid var(--mbk-accent);
     outline-offset: 2px;
 }
 
-.mbk ::selection,
-.mbk-overlay ::selection {
+.mbk ::selection {
     background: rgba(var(--mbk-accent-rgb), .3);
+}
+
+.mbk svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+}
+
+.mbk-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
 
 .mbk-rule {
@@ -103,6 +124,10 @@
             var(--mbk-divider) calc(100% - 48px), transparent);
 }
 
+.mbk-faint {
+    color: var(--mbk-faint);
+}
+
 /* ── Header ────────────────────────────────────────────────────────────── */
 /* Opaque, not translucent: the compositor skips backdrop-filter often enough
    (headless, remote sessions, reduced-transparency settings) that a frosted
@@ -110,17 +135,17 @@
 
 .mbk-head {
     position: sticky;
-    top: var(--kf-topbar-h, 74px);
+    top: var(--mbk-top);
     z-index: 30;
     background: var(--mbk-bg);
 }
 
 .mbk-shell {
-    max-width: 1320px;
+    max-width: 1440px;
     margin: 0 auto;
     padding: var(--mbk-s6) 32px;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: var(--mbk-s8);
 }
 
@@ -139,1084 +164,1276 @@
 }
 
 .mbk-titles-row i {
-    font-size: 17px;
     color: var(--mbk-accent);
+    font-size: 20px;
 }
 
 .mbk-title {
     margin: 0;
     font-size: 22px;
-    font-weight: 500;
-    line-height: 1.12;
+    font-weight: 600;
     letter-spacing: -.01em;
+    line-height: 1.25;
     color: var(--mbk-ink);
 }
 
 .mbk-sub {
     margin: 0;
-    font-size: 12.5px;
-    color: var(--mbk-mute-2);
+    font-size: 13px;
+    color: var(--mbk-mute-3);
 }
 
 .mbk-head-actions {
     display: flex;
     align-items: center;
-    gap: var(--mbk-s4);
+    gap: var(--mbk-s3);
+    flex-shrink: 0;
 }
 
-.mbk-count {
-    font-size: 12px;
-    color: var(--mbk-mute-3);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-/* ── Body ──────────────────────────────────────────────────────────────── */
-
-.mbk-body {
-    max-width: 1320px;
-    margin: 0 auto;
-    padding: var(--mbk-s8) 32px 96px;
+/* The search box. The input inside is guarded against app.css's dark
+   `.dark-theme input` fill (0,1,1) and its placeholder rule; see the
+   dark-theme-input-fill note: `background-color` and the WebKit text fill
+   both have to be set, at a higher weight. */
+.mbk-search {
     display: flex;
-    flex-direction: column;
-    gap: var(--mbk-s6);
+    align-items: center;
+    gap: var(--mbk-s3);
+    width: 300px;
+    height: 40px;
+    padding: 0 var(--mbk-s2) 0 var(--mbk-s4);
+    border-radius: var(--mbk-r-md);
+    background: var(--mbk-field-bg);
+    border: 1px solid var(--mbk-field-edge);
+    color: var(--mbk-mute-3);
+    transition: border-color .15s;
+}
+
+.mbk-search:focus-within {
+    border-color: var(--mbk-field-edge-hi);
+}
+
+.mbk-search svg {
+    width: 16px;
+    height: 16px;
+}
+
+.mbk .mbk-search input.mbk-search-input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    appearance: none;
+    background-color: transparent;
+    color: var(--mbk-ink);
+    font: inherit;
+    font-size: 13px;
+}
+
+.mbk .mbk-search input.mbk-search-input::placeholder {
+    color: var(--mbk-placeholder);
+    -webkit-text-fill-color: var(--mbk-placeholder);
+    opacity: 1;
+}
+
+.mbk .mbk-search-clear {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--mbk-r-sm);
+    background: transparent;
+    color: var(--mbk-mute-3);
+    cursor: pointer;
+}
+
+.mbk .mbk-search-clear:hover {
+    background: var(--mbk-hover);
+    color: var(--mbk-ink);
+}
+
+.mbk-search-clear svg {
+    width: 14px;
+    height: 14px;
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 
-.mbk .mbk-btn,
-.mbk-overlay .mbk-btn {
+.mbk .mbk-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    height: 32px;
-    padding: var(--mbk-s2) calc(var(--mbk-s3) * 1.2);
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 14px;
+    gap: 8px;
+    height: 40px;
+    padding: 0 14px;
+    font-family: inherit;
+    font-size: 13px;
     font-weight: 500;
     line-height: 1.2;
-    color: var(--mbk-ink);
+    color: var(--mbk-ink-2);
     background: transparent;
     border: 1px solid transparent;
     border-radius: var(--mbk-r-md);
     cursor: pointer;
-    text-decoration: none;
     white-space: nowrap;
     transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.mbk .mbk-btn:disabled,
-.mbk-overlay .mbk-btn:disabled {
+.mbk .mbk-btn:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
 
-.mbk .mbk-btn-primary,
-.mbk-overlay .mbk-btn-primary {
-    color: var(--mbk-accent);
-    border-color: var(--mbk-accent);
-    letter-spacing: .02em;
+.mbk .mbk-btn svg {
+    width: 16px;
+    height: 16px;
 }
 
-.mbk .mbk-btn-primary:hover:not(:disabled),
-.mbk-overlay .mbk-btn-primary:hover:not(:disabled) {
-    background: rgba(var(--mbk-accent-rgb), .12);
+.mbk .mbk-btn-lg {
+    height: 44px;
+    padding: 0 18px;
+    font-size: 14px;
+    font-weight: 600;
 }
 
-.mbk .mbk-btn-primary:active:not(:disabled),
-.mbk-overlay .mbk-btn-primary:active:not(:disabled) {
-    background: rgba(var(--mbk-accent-rgb), .22);
-}
-
-.mbk .mbk-btn-secondary,
-.mbk-overlay .mbk-btn-secondary {
-    border-color: var(--mbk-divider);
+.mbk .mbk-btn-secondary {
+    background: var(--mbk-surface);
+    border-color: var(--mbk-field-edge);
 }
 
 .mbk .mbk-btn-secondary:hover:not(:disabled),
-.mbk-overlay .mbk-btn-secondary:hover:not(:disabled) {
+.mbk .mbk-btn-ghost:hover:not(:disabled) {
     background: var(--mbk-hover);
+    color: var(--mbk-ink);
 }
 
-.mbk .mbk-btn-secondary:active:not(:disabled),
-.mbk-overlay .mbk-btn-secondary:active:not(:disabled) {
-    background: var(--mbk-press);
+.mbk .mbk-btn-fill {
+    background: var(--mbk-fill);
+    color: var(--mbk-on-fill);
 }
 
-.mbk .mbk-btn-ghost,
-.mbk-overlay .mbk-btn-ghost {
-    color: var(--mbk-accent);
-    padding-inline: var(--mbk-s1);
+.mbk .mbk-btn-fill:hover:not(:disabled) {
+    filter: brightness(1.08);
 }
 
-.mbk .mbk-btn-ghost:hover:not(:disabled),
-.mbk-overlay .mbk-btn-ghost:hover:not(:disabled) {
-    background: rgba(var(--mbk-accent-rgb), .1);
+.mbk .mbk-btn-fill:active:not(:disabled) {
+    filter: brightness(.94);
 }
 
-.mbk .mbk-btn-ghost:active:not(:disabled),
-.mbk-overlay .mbk-btn-ghost:active:not(:disabled) {
-    background: rgba(var(--mbk-accent-rgb), .18);
-}
-
-/* The two decisions: outlined in their own state's hue, so approve and reject
-   are told apart before the label is read. */
-.mbk .mbk-btn-good,
-.mbk-overlay .mbk-btn-good {
-    color: var(--mbk-approved);
-    border-color: rgba(var(--mbk-approved-rgb), .5);
-}
-
-.mbk .mbk-btn-good:hover:not(:disabled),
-.mbk-overlay .mbk-btn-good:hover:not(:disabled) {
-    background: rgba(var(--mbk-approved-rgb), .12);
-}
-
-.mbk .mbk-btn-bad,
-.mbk-overlay .mbk-btn-bad {
+.mbk .mbk-btn-bad {
     color: var(--mbk-bad);
-    border-color: var(--mbk-bad-edge);
+    border-color: rgba(var(--mbk-bad-rgb), .45);
 }
 
-.mbk .mbk-btn-bad:hover:not(:disabled),
-.mbk-overlay .mbk-btn-bad:hover:not(:disabled) {
-    background: var(--mbk-bad-bg);
+.mbk .mbk-btn-bad:hover:not(:disabled) {
+    background: rgba(var(--mbk-bad-rgb), .08);
 }
 
-.mbk .mbk-btn-sm,
-.mbk-overlay .mbk-btn-sm {
-    height: 30px;
-    font-size: 12.5px;
+.mbk .mbk-btn-icon {
+    width: 40px;
+    padding: 0;
 }
 
-.mbk .mbk-btn-icon,
-.mbk-overlay .mbk-btn-icon {
+.mbk .mbk-btn-icon-sm {
     width: 28px;
     height: 28px;
     padding: 0;
 }
 
-.mbk .mbk-btn-icon-sm,
-.mbk-overlay .mbk-btn-icon-sm {
-    width: 26px;
-    height: 26px;
-    padding: 0;
-}
-
-.mbk .mbk-btn svg,
-.mbk-overlay .mbk-btn svg {
-    display: block;
-    width: 1em;
-    height: 1em;
-    fill: currentColor;
-}
-
-/* ── Filters ───────────────────────────────────────────────────────────── */
-
-.mbk-filters {
-    display: flex;
-    align-items: flex-end;
-    gap: var(--mbk-s4);
-    flex-wrap: wrap;
-}
-
-.mbk-field > label {
-    display: block;
-    font-size: 12px;
-    margin-bottom: 5px;
-    color: var(--mbk-mute);
-}
-
-/* The status filter is a segmented control rather than a dropdown: three
-   choices, all of them worth seeing at once, and the count of each is the
-   thing the page is for. */
-.mbk-seg {
-    display: inline-flex;
-    padding: 3px;
-    gap: 2px;
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-hover);
-}
-
-.mbk .mbk-seg-btn {
-    height: 28px;
-    padding: 0 12px;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--mbk-mute);
-    background: transparent;
-    border: 0;
-    border-radius: calc(var(--mbk-r-md) - 2px);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.mbk .mbk-seg-btn:hover:not(.is-on) {
-    color: var(--mbk-ink-2);
-}
-
-.mbk .mbk-seg-btn.is-on {
-    color: var(--mbk-accent-text);
-    background: var(--mbk-surface);
-    box-shadow: var(--mbk-shadow-sm);
-}
-
-.mbk .mbk-input,
-.mbk-overlay .mbk-input {
-    width: 100%;
-    min-height: 32px;
-    padding: 5px 10px;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 14px;
-    line-height: 1.3;
-    color: var(--mbk-ink);
-    caret-color: var(--mbk-accent);
-    background: var(--mbk-field);
-    background-image: none;
-    border: 1px solid var(--mbk-field-edge);
-    border-radius: var(--mbk-r-md);
-    appearance: none;
-    -webkit-appearance: none;
-}
-
-.mbk .mbk-input:hover,
-.mbk-overlay .mbk-input:hover {
-    border-color: var(--mbk-field-edge-hi);
-}
-
-.mbk .mbk-input:focus-visible,
-.mbk-overlay .mbk-input:focus-visible {
-    border-color: var(--mbk-accent);
-    outline-offset: 0;
-}
-
-.mbk .mbk-input::placeholder,
-.mbk-overlay .mbk-input::placeholder {
-    color: var(--mbk-placeholder);
-    opacity: 1;
-    -webkit-text-fill-color: var(--mbk-placeholder);
-}
-
-.mbk-overlay .mbk-textarea {
-    min-height: 76px;
-    resize: vertical;
-    line-height: 1.5;
-    padding: var(--mbk-s2) 10px;
-}
-
-.mbk-filter-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s2);
-    margin-left: auto;
-}
-
-/* ── Card ──────────────────────────────────────────────────────────────── */
-
-.mbk-card {
-    display: flex;
-    flex-direction: column;
-    background: var(--mbk-surface);
-    border-radius: var(--mbk-r-md);
-    box-shadow: var(--mbk-shadow-sm);
-    overflow: hidden;
-}
-
-.mbk-toolbar {
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s4);
-    padding: var(--mbk-s4) var(--mbk-s6);
-    min-height: 54px;
-}
-
-.mbk-range {
-    font-size: 13px;
-    color: var(--mbk-mute-2);
-}
-
-.mbk-hint {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--mbk-s2);
-    font-size: 12px;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-hint i {
-    font-size: 13px;
-}
-
-/* ── Table ─────────────────────────────────────────────────────────────── */
-
-.mbk-tablewrap {
-    overflow-x: auto;
-}
-
-.mbk-table {
-    width: 100%;
-    min-width: 1080px;
-    border-collapse: collapse;
-    font-size: 13px;
-    /* Fixed layout is what lets the customer and reason cells clip with an
-       ellipsis; an auto table stretches to fit the longest reason instead. */
-    table-layout: fixed;
-}
-
-.mbk-table th {
-    text-align: left;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--mbk-mute);
-    padding: var(--mbk-s2);
-    white-space: nowrap;
-}
-
-.mbk-table td {
-    padding: var(--mbk-s2);
-    vertical-align: middle;
-}
-
-.mbk-table th:first-child,
-.mbk-table td:first-child {
-    padding-left: var(--mbk-s6);
-}
-
-.mbk-table th:last-child,
-.mbk-table td:last-child {
-    padding-right: var(--mbk-s6);
-    text-align: right;
-    white-space: nowrap;
-}
-
-.mbk-num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-.mbk-table thead tr {
-    background: linear-gradient(to right,
-            transparent, var(--mbk-divider) 48px,
-            var(--mbk-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
-}
-
-.mbk-table tbody tr {
-    background: linear-gradient(to right,
-            transparent, var(--mbk-rowline) 48px,
-            var(--mbk-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
-}
-
-.mbk-table tbody tr:hover {
-    background:
-        linear-gradient(var(--mbk-hover), var(--mbk-hover)) no-repeat 0 0 / 100% 100%,
-        linear-gradient(to right,
-            transparent, var(--mbk-rowline) 48px,
-            var(--mbk-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
-}
-
-.mbk-table tbody tr.is-open-row,
-.mbk-table tbody tr.is-open-row:hover {
-    background:
-        linear-gradient(rgba(var(--mbk-accent-rgb), .09), rgba(var(--mbk-accent-rgb), .09)) no-repeat 0 0 / 100% 100%,
-        linear-gradient(to right,
-            transparent, var(--mbk-rowline) 48px,
-            var(--mbk-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
-}
-
-.mbk-table tbody tr.is-dim {
-    opacity: .66;
-}
-
-.mbk .mbk-link {
-    font-variant-numeric: tabular-nums;
-    font-weight: 500;
-    color: var(--mbk-accent);
-    background: none;
-    border: 0;
-    padding: 0;
-    font-size: inherit;
-    font-family: inherit;
-    cursor: pointer;
-    text-decoration: none;
-    text-underline-offset: 3px;
-}
-
-.mbk .mbk-link:hover {
-    color: var(--mbk-accent-text);
-    text-decoration: underline;
-}
-
-.mbk-cust {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 130px;
-}
-
-/* The customer name doubles as the row's control. The design gives it the body
-   colour rather than the accent, so it reads as text, but it stays a real button
-   so the row can be opened from the keyboard. */
-.mbk .mbk-cust-name {
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 500;
-    font-size: 14px;
-    font-family: inherit;
-    color: var(--mbk-ink);
-    background: none;
-    border: 0;
-    padding: 0;
-    text-align: left;
-    cursor: pointer;
-}
-
-.mbk .mbk-cust-name:hover {
-    color: var(--mbk-accent-text);
-    text-decoration: underline;
-}
-
-.mbk-cust-code {
-    /* One line. SAP card codes carry a currency suffix ("FAZ002 USD"), which wrapped
-       and left the rows at ragged heights; the full value stays on the title. */
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    font-size: 11.5px;
-    letter-spacing: .02em;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-date {
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    color: var(--mbk-ink-2);
-}
-
-.mbk-tag {
-    display: inline-flex;
-    align-items: center;
-    font-size: 11px;
-    letter-spacing: .02em;
-    padding: 2px 8px;
-    border-radius: calc(var(--mbk-r-md) * .75);
-    white-space: nowrap;
-    background: var(--mbk-tag-bg);
-    color: var(--mbk-tag-ink);
-}
-
-.mbk-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 120px;
-}
-
-.mbk-stack-sub {
-    font-size: 11.5px;
-    color: var(--mbk-mute-3);
-}
-
-/* Status: a dot in the state's hue and the word beside it, the same pairing
-   the credit notes list uses. */
-.mbk-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-}
-
-.mbk-status .mbk-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    flex: none;
-    background: var(--mbk-settled);
-}
-
-.mbk-status .mbk-dot.is-pending {
-    background: var(--mbk-pending);
-}
-
-.mbk-status .mbk-dot.is-approved {
-    background: var(--mbk-approved);
-}
-
-.mbk-status .mbk-dot.is-rejected {
-    background: var(--mbk-rejected);
-}
-
-.mbk-status-text {
-    color: var(--mbk-mute);
-}
-
-.mbk-status-text.is-pending {
-    color: var(--mbk-pending);
-}
-
-.mbk-status-text.is-approved {
-    color: var(--mbk-approved);
-}
-
-.mbk-status-text.is-rejected {
-    color: var(--mbk-rejected);
-}
-
-.mbk-rowactions {
-    display: inline-flex;
-    gap: var(--mbk-s1);
-    justify-content: flex-end;
-}
-
-/* ── Empty / loading ───────────────────────────────────────────────────── */
-
-.mbk-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--mbk-s3);
-    padding: 56px var(--mbk-s6);
-    font-size: 13.5px;
-}
-
-.mbk-empty i {
-    font-size: 22px;
-    color: var(--mbk-accent);
-    opacity: .8;
-}
-
-.mbk-skel {
-    height: 11px;
-    border-radius: var(--mbk-r-sm);
-    background: var(--mbk-rowline);
-    animation: mbk-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes mbk-pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: .45;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .mbk-skel {
-        animation: none;
-    }
-}
-
-/* ── Footer / pager ────────────────────────────────────────────────────── */
-
-.mbk-foot {
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s4);
-    padding: var(--mbk-s4) var(--mbk-s6);
-    border-top: 1px solid var(--mbk-divider);
-}
-
-.mbk-foot-range {
-    font-size: 12px;
-    color: var(--mbk-mute-3);
-    font-variant-numeric: tabular-nums;
-}
-
-.mbk-pager {
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s2);
-    margin-left: auto;
-}
-
-.mbk-page-label {
-    font-size: 12px;
-    color: var(--mbk-mute-2);
-    font-variant-numeric: tabular-nums;
-    min-width: 74px;
-    text-align: center;
-}
-
-/* ── Alerts ────────────────────────────────────────────────────────────── */
-
-.mbk-alert,
-.mbk-overlay .mbk-alert {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--mbk-s3);
-    padding: var(--mbk-s3) var(--mbk-s4);
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-bad-bg);
-    border: 1px solid var(--mbk-bad-edge);
-    color: var(--mbk-bad);
-    font-size: 13px;
-}
-
-.mbk-alert-body {
-    flex: 1;
-}
-
-/* Why an action is unavailable — a sentence from SAP's own state, not a
-   failure, so it is the notice colour rather than the danger one. */
-.mbk-blocked {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--mbk-s3);
-    padding: var(--mbk-s3) var(--mbk-s4);
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-warn-bg);
-    border: 1px solid var(--mbk-warn-edge);
-    color: var(--mbk-warn-ink);
-    font-size: 13px;
-}
-
-/* ── Overlays: drawer and dialogs ─────────────────────── */
-
-.mbk-overlay {
-    color: var(--mbk-ink);
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 14px;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
-}
-
-.mbk-scrim {
-    position: fixed;
-    inset: var(--kf-topbar-h, 74px) 0 0;
-    background: var(--mbk-scrim);
-    z-index: 9998;
-}
-
-.mbk-drawer {
-    position: fixed;
-    top: var(--kf-topbar-h, 74px);
-    right: 0;
-    width: min(680px, 96vw);
-    height: calc(100vh - var(--kf-topbar-h, 74px));
-    z-index: 9999;
-    display: flex;
-    flex-direction: column;
-    background: var(--mbk-surface);
-    box-shadow: var(--mbk-shadow-lg);
-    font-size: 14px;
-}
-
-.mbk-drawer-head {
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s4);
-    padding: var(--mbk-s4) var(--mbk-s6);
-    flex-shrink: 0;
-    border-bottom: 1px solid var(--mbk-divider);
-}
-
-.mbk-drawer-title {
-    margin: 0 auto 0 0;
-    font-size: 17px;
-    font-weight: 500;
-    letter-spacing: -.01em;
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s3);
-}
-
-.mbk-drawer-title i {
-    color: var(--mbk-accent);
-    font-size: 15px;
-}
-
-.mbk-drawer-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: var(--mbk-s6);
-    display: flex;
-    flex-direction: column;
-    gap: var(--mbk-s6);
-}
-
-.mbk-drawer-foot {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--mbk-s2);
-    padding: var(--mbk-s4) var(--mbk-s6);
-    border-top: 1px solid var(--mbk-divider);
-    flex-shrink: 0;
-}
-
-.mbk-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--mbk-s4);
-}
-
-.mbk-dt {
-    font-size: 11px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--mbk-mute-3);
-    margin-bottom: 2px;
-}
-
-.mbk-dd {
-    font-size: 13.5px;
-    color: var(--mbk-ink);
-}
-
-.mbk-sect {
-    font-size: 11px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--mbk-accent);
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s2);
-    margin-bottom: var(--mbk-s3);
-}
-
-.mbk-note {
-    padding: var(--mbk-s3) var(--mbk-s4);
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-hover);
-    font-size: 13px;
-    color: var(--mbk-ink-2);
-}
-
-.mbk-note .mbk-dt {
-    color: var(--mbk-mute-3);
-}
-
-.mbk-lines {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12.5px;
-}
-
-.mbk-lines th {
-    text-align: left;
-    font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--mbk-mute);
-    padding: var(--mbk-s2);
-    white-space: nowrap;
-}
-
-.mbk-lines td {
-    padding: var(--mbk-s2);
-    color: var(--mbk-ink-2);
-}
-
-/* A row rule, not a row fill: a bare colour in `background` ignores the 1px
-   size and floods the row. Inside a box these stay solid rather than fading. */
-.mbk-lines thead tr,
-.mbk-lines tbody tr {
-    background: linear-gradient(var(--mbk-rowline), var(--mbk-rowline)) no-repeat bottom / 100% 1px;
-}
-
-.mbk-total {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--mbk-s4) var(--mbk-s6);
-    border-radius: var(--mbk-r-md);
-    border: 1px solid var(--mbk-accent);
-    background: rgba(var(--mbk-accent-rgb), .08);
-}
-
-.mbk-total-label {
-    font-size: 13px;
-    color: var(--mbk-mute);
-}
-
-.mbk-total-value {
-    font-size: 20px;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    color: var(--mbk-accent-text);
-}
-
-.mbk-dialog-wrap {
-    position: fixed;
-    inset: var(--kf-topbar-h, 74px) 0 0;
-    z-index: 10000;
-    display: grid;
-    place-items: center;
-    padding: var(--mbk-s4);
-    background: var(--mbk-scrim);
-}
-
-.mbk-dialog {
-    width: min(560px, 100%);
-    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--mbk-s8));
-    display: flex;
-    flex-direction: column;
-    gap: var(--mbk-s4);
-    padding: var(--mbk-s6);
-    border-radius: var(--mbk-r-lg);
-    background: var(--mbk-surface);
-    box-shadow: var(--mbk-shadow-lg);
-    font-size: 14px;
-}
-
-.mbk-dialog-title {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 500;
-    letter-spacing: -.015em;
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s3);
-}
-
-.mbk-dialog-title i {
-    font-size: 17px;
-    color: var(--mbk-accent);
-}
-
-.mbk-dialog-body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--mbk-s4);
-    overflow-y: auto;
-}
-
-.mbk-dialog-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--mbk-s2);
-}
-
-.mbk-confirm {
-    display: flex;
-    align-items: center;
-    gap: var(--mbk-s4);
-    padding: var(--mbk-s3) var(--mbk-s4);
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-hover);
-}
-
-.mbk-confirm-copy {
-    font-size: 13.5px;
-}
-
-.mbk-confirm-sub {
-    font-size: 12.5px;
-    color: var(--mbk-mute-2);
-}
-
-.mbk-spin,
-.mbk-overlay .mbk-spin {
-    width: 12px;
-    height: 12px;
+.mbk-spin {
+    width: 14px;
+    height: 14px;
     border: 2px solid currentColor;
     border-right-color: transparent;
     border-radius: 50%;
     animation: mbk-spin .7s linear infinite;
 }
 
-.mbk-overlay .mbk-spin-lg {
-    width: 22px;
-    height: 22px;
-    border-width: 3px;
-}
-
 @keyframes mbk-spin {
-    to {
-        transform: rotate(360deg);
-    }
+    to { transform: rotate(360deg); }
 }
 
-/* ── Narrow screens ───────────────────────────────────────────────────── */
+/* ── Body ──────────────────────────────────────────────────────────────── */
 
-@media (max-width: 860px) {
-    .mbk-shell,
-    .mbk-body {
-        padding-left: var(--mbk-s6);
-        padding-right: var(--mbk-s6);
-    }
-
-    .mbk-shell {
-        flex-direction: column;
-        align-items: stretch;
-        gap: var(--mbk-s4);
-    }
-
-    .mbk-head-actions {
-        justify-content: space-between;
-    }
-
-    .mbk-filter-actions {
-        margin-left: 0;
-        width: 100%;
-        justify-content: flex-end;
-    }
-
-    .mbk-grid {
-        grid-template-columns: 1fr;
-    }
+.mbk-body {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: var(--mbk-s8) 32px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 }
 
-/* ---- The design's column rhythm, reason and age ------------------------- */
-
-.mbk-table th:nth-child(1) { width: 24%; }
-.mbk-table th:nth-child(2) { width: 18%; }
-.mbk-table th:nth-child(3) { width: 108px; }
-.mbk-table th:nth-child(4) { width: 132px; }
-.mbk-table th:nth-child(5) { width: 148px; }
-.mbk-table th:nth-child(6) { width: 136px; }
-.mbk-table th:nth-child(7) { width: 128px; }
-.mbk-table th:nth-child(8) { width: 56px; }
-
-/* Reason for credit. SAP leaves it blank on older memos, so the em dash is a
-   common and correct reading, not a failure to load. */
-.mbk-reason-text {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 13px;
-    color: var(--mbk-ink-2);
+.mbk-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mbk-s3);
+    padding: var(--mbk-s3) var(--mbk-s4);
+    border-radius: var(--mbk-r-md);
+    background: rgba(var(--mbk-bad-rgb), .1);
+    border: 1px solid rgba(var(--mbk-bad-rgb), .35);
+    color: var(--mbk-ink);
 }
 
-/* How long the request has waited, under the date it was raised. */
-.mbk-age {
-    font-size: 11px;
+.mbk-alert > i {
+    color: var(--mbk-bad);
+    font-size: 18px;
+    margin-top: 1px;
+}
+
+.mbk-alert-body {
+    flex: 1;
+}
+
+/* ── Figures: the status filter ───────────────────────────────────────── */
+
+.mbk-figs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.mbk .mbk-fig {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--mbk-surface);
+    border: 1px solid var(--mbk-rule);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .15s, background-color .15s;
+}
+
+.mbk .mbk-fig:hover {
+    border-color: var(--mbk-divider);
+}
+
+.mbk .mbk-fig.is-on {
+    border-color: var(--mbk-accent);
+    background: rgba(var(--mbk-accent-rgb), .1);
+}
+
+.mbk-fig-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    text-transform: uppercase;
     color: var(--mbk-mute-3);
 }
 
-/* ── Market breakages: what this page adds ─────────────────────────────── */
-
-/* Seven columns, not the approvals queue's eight. Later than the rhythm above,
-   so it wins at the same specificity. */
-.mbk-table {
-    min-width: 900px;
+.mbk-fig-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--mbk-neutral);
 }
 
-.mbk-table th.mbk-num,
-.mbk-lines th.mbk-num {
-    text-align: right;
+.mbk-fig-dot.is-accent { background: var(--mbk-accent); }
+.mbk-fig-dot.is-bad { background: var(--mbk-bad); }
+.mbk-fig-dot.is-good { background: var(--mbk-good); }
+
+.mbk-fig-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
 }
 
-/* app.css paints every `.dark-theme table thead th` slate (0,1,3), which beats
-   the sheet's own `.mbk-lines th` and turned the drawer's header row near-black
-   on the drawer's surface. Two classes out-specify it; the header stays a rule
-   under quiet type, as in light. */
-.mbk .mbk-table thead th,
-.mbk-overlay .mbk-lines thead th {
+.mbk-fig-value {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    color: var(--mbk-ink);
+}
+
+.mbk-fig-hint {
+    font-size: 13px;
+    color: var(--mbk-mute-3);
+}
+
+/* ── The bench: queue beside the open report ──────────────────────────── */
+
+.mbk-bench {
+    display: grid;
+    grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.mbk-queue,
+.mbk-detail {
+    border-radius: var(--mbk-r-lg);
+    background: var(--mbk-surface);
+    border: 1px solid var(--mbk-rule);
+    overflow: hidden;
+}
+
+.mbk-queue {
+    display: flex;
+    flex-direction: column;
+}
+
+.mbk-queue-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--mbk-s4);
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--mbk-rule);
+}
+
+.mbk-queue-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mbk-ink-2);
+}
+
+.mbk .mbk-link {
+    padding: 4px 8px;
+    margin-right: -8px;
+    border: 0;
+    border-radius: var(--mbk-r-sm);
     background: transparent;
-    color: var(--mbk-mute);
-    border-bottom-color: transparent;
+    color: var(--mbk-mute-3);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
 }
 
-.mbk-table th:nth-child(1) { width: 22%; }
-.mbk-table th:nth-child(2) { width: 22%; }
-.mbk-table th:nth-child(3) { width: 96px; }
-.mbk-table th:nth-child(4) { width: 124px; }
-.mbk-table th:nth-child(5) { width: 110px; }
-.mbk-table th:nth-child(6) { width: 150px; }
-.mbk-table th:nth-child(7) { width: 56px; }
-.mbk-table th:nth-child(8) { width: auto; }
-
-/* A count on each status tab: the number is what the office opens the page for. */
-.mbk .mbk-seg-count {
-    display: inline-block;
-    min-width: 18px;
-    margin-left: 6px;
-    padding: 0 5px;
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    line-height: 16px;
-    text-align: center;
-    color: var(--mbk-mute);
-    background: var(--mbk-tag-bg);
-    border-radius: 8px;
-}
-
-.mbk .mbk-seg-btn.is-on .mbk-seg-count {
+.mbk .mbk-link:hover,
+.mbk .mbk-link.is-on {
     color: var(--mbk-accent-text);
 }
 
-/* Reported beside counted: the difference is the office's finding, so it is
-   drawn in the warning hue rather than left for the eye to subtract. */
-.mbk-qty-pair {
-    display: inline-flex;
-    align-items: baseline;
+.mbk .mbk-link.is-on {
+    font-weight: 600;
+}
+
+.mbk-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+}
+
+/* `align-items` is restated: a global button rule centres a button's
+   children, which pulled the age line into the middle of the row. */
+.mbk .mbk-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
     gap: 6px;
-    font-variant-numeric: tabular-nums;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s, border-color .12s;
 }
 
-.mbk-qty-pair .mbk-qty-was {
-    font-size: 12px;
-    color: var(--mbk-mute-3);
-    text-decoration: line-through;
+.mbk .mbk-row:hover {
+    background: var(--mbk-hover);
 }
 
-.mbk-qty-diff {
-    color: var(--mbk-warn-ink);
+.mbk .mbk-row.is-on {
+    background: rgba(var(--mbk-accent-rgb), .1);
+    border-color: var(--mbk-accent);
 }
 
-/* The count box inside the drawer's lines table. */
-.mbk-overlay .mbk-input.mbk-qty-input {
-    width: 88px;
-    min-height: 28px;
-    padding: 3px 8px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+.mbk-row-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
 }
 
-.mbk-overlay .mbk-input.mbk-qty-input.is-changed {
-    border-color: var(--mbk-warn-edge);
-    background: var(--mbk-warn-bg);
-}
-
-.mbk-reason-chip {
-    display: inline-block;
-    padding: 1px 8px;
-    font-size: 11.5px;
-    line-height: 18px;
-    color: var(--mbk-tag-ink);
-    background: var(--mbk-tag-bg);
-    border-radius: 9px;
+.mbk-row-shop {
+    font-weight: 600;
+    color: var(--mbk-ink);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* The transfer a confirmed report became, and the last failure of one that did
-   not: the two facts somebody checking SAP needs first. */
-.mbk-doc {
+.mbk-row-units {
+    margin-left: auto;
+    font-weight: 600;
+    color: var(--mbk-ink);
+    white-space: nowrap;
+}
+
+.mbk-row-meta {
+    gap: 8px;
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-row-who {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mbk-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--mbk-r-sm);
+    background: var(--mbk-chip);
+    color: var(--mbk-ink-2);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.mbk-row-meta .mbk-status {
+    margin-left: auto;
+}
+
+.mbk-row-age {
     display: flex;
     align-items: center;
-    gap: var(--mbk-s2);
-    padding: var(--mbk-s3) var(--mbk-s4);
-    border-radius: var(--mbk-r-md);
-    background: rgba(var(--mbk-approved-rgb), .08);
-    border: 1px solid rgba(var(--mbk-approved-rgb), .3);
+    gap: 6px;
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-row-age svg {
+    width: 13px;
+    height: 13px;
+}
+
+.mbk-row-age.is-stale {
+    color: var(--mbk-warn);
+    font-weight: 600;
+}
+
+.mbk-row-skel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+}
+
+.mbk-skel {
+    height: 12px;
+    border-radius: var(--mbk-r-sm);
+    background: var(--mbk-chip);
+    animation: mbk-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mbk-pulse {
+    50% { opacity: .45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mbk-skel,
+    .mbk-spin {
+        animation: none;
+    }
+}
+
+.mbk-empty,
+.mbk-detail-idle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 48px 16px;
+    color: var(--mbk-mute-3);
+    text-align: center;
+}
+
+.mbk-empty svg {
+    width: 28px;
+    height: 28px;
+}
+
+.mbk-detail-idle i {
+    font-size: 28px;
+}
+
+.mbk-detail-idle {
+    padding: 96px 16px;
+}
+
+.mbk-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--mbk-s4);
+    padding: 10px 14px 10px 18px;
+    border-top: 1px solid var(--mbk-rule);
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--mbk-s3);
+}
+
+/* Status: a dot and a word, in the family's hue. */
+.mbk-status,
+.mbk-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    color: var(--mbk-neutral);
+}
+
+.mbk-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.mbk-status.is-accent,
+.mbk-pill.is-accent { color: var(--mbk-accent-text); }
+.mbk-status.is-info,
+.mbk-pill.is-info { color: var(--mbk-info); }
+.mbk-status.is-good,
+.mbk-pill.is-good { color: var(--mbk-good); }
+.mbk-status.is-bad,
+.mbk-pill.is-bad { color: var(--mbk-bad); }
+
+.mbk-pill {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(var(--mbk-neutral-rgb), .12);
+}
+
+.mbk-pill.is-accent { background: rgba(var(--mbk-accent-rgb), .12); }
+.mbk-pill.is-info { background: rgba(var(--mbk-info-rgb), .12); }
+.mbk-pill.is-good { background: rgba(var(--mbk-good-rgb), .12); }
+.mbk-pill.is-bad { background: rgba(var(--mbk-bad-rgb), .12); }
+
+/* ── The open report ──────────────────────────────────────────────────── */
+/* Sticks below the page header, so a long queue scrolls past it and the
+   report stays in reach; its body scrolls on its own when it runs long. */
+
+.mbk-detail {
+    position: sticky;
+    top: calc(var(--mbk-top) + var(--mbk-head-h) + 20px);
+    max-height: calc(100vh - var(--mbk-top) - var(--mbk-head-h) - 40px);
+    display: flex;
+    flex-direction: column;
+}
+
+.mbk-detail-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mbk-s6);
+    padding: 20px 24px 18px;
+    border-bottom: 1px solid var(--mbk-rule);
+    flex-shrink: 0;
+}
+
+.mbk .mbk-sheet-back {
+    display: none;
+}
+
+.mbk-detail-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
+.mbk-detail-titlerow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.mbk-detail-title {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--mbk-ink);
+}
+
+.mbk-detail-sub {
+    font-size: 13px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-who {
+    display: flex;
+    gap: 20px;
+    margin: 0;
+}
+
+.mbk-who dt {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-who dd {
+    margin: 0;
+    font-weight: 500;
+    color: var(--mbk-ink);
+    white-space: nowrap;
+}
+
+.mbk-detail-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 18px 24px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+/* One banner per state the report has reached, tinted by its family. */
+.mbk-banner {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    color: var(--mbk-ink);
+    background: rgba(var(--mbk-neutral-rgb), .1);
+}
+
+.mbk-banner > svg {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    color: var(--mbk-neutral);
+}
+
+.mbk-banner > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.mbk-banner strong {
+    font-weight: 600;
+}
+
+.mbk-banner span {
     color: var(--mbk-ink-2);
 }
 
-.mbk-doc i {
-    color: var(--mbk-approved);
-    font-size: 18px;
+.mbk-banner .mbk-banner-hint {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
 }
 
-.mbk-doc strong {
+.mbk-banner .mbk-banner-quote {
+    font-style: italic;
+}
+
+.mbk-banner.is-good { background: rgba(var(--mbk-good-rgb), .1); }
+.mbk-banner.is-good > svg { color: var(--mbk-good); stroke-width: 2.2; }
+.mbk-banner.is-info { background: rgba(var(--mbk-info-rgb), .1); }
+.mbk-banner.is-info > svg { color: var(--mbk-info); }
+.mbk-banner.is-bad { background: rgba(var(--mbk-bad-rgb), .1); }
+.mbk-banner.is-bad > svg { color: var(--mbk-bad); }
+
+.mbk-quote {
+    display: flex;
+    gap: 12px;
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--mbk-hover);
+}
+
+.mbk-quote > svg {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-quote figcaption {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-quote blockquote {
+    margin: 0;
+    color: var(--mbk-ink-2);
+}
+
+/* ── Lines ─────────────────────────────────────────────────────────────── */
+
+.mbk-lines {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+/* Bootstrap sets `caption-side: bottom` on every caption. */
+.mbk .mbk-lines caption {
+    caption-side: top;
+    padding: 0 0 8px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: var(--mbk-mute-3);
+}
+
+/* app.css paints every `.dark-theme table thead th` slate (0,1,3). Three
+   classes out-specify it, so the header stays a rule under quiet type in both
+   schemes. */
+.mbk .mbk-lines thead th {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: left;
+    color: var(--mbk-mute-3);
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--mbk-divider);
+}
+
+.mbk .mbk-lines thead th:first-child,
+.mbk-lines td:first-child {
+    padding-left: 0;
+}
+
+.mbk .mbk-lines thead th:last-child,
+.mbk-lines td:last-child {
+    padding-right: 0;
+}
+
+.mbk-lines td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--mbk-rule);
+    vertical-align: middle;
+}
+
+.mbk .mbk-lines .mbk-num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.mbk .mbk-lines .mbk-mid {
+    text-align: center;
+    width: 168px;
+}
+
+.mbk-item {
+    display: flex;
+    flex-direction: column;
+}
+
+/* SAP descriptions run long and will wrap; balancing keeps "250 g" from
+   being split into a stranded last word. */
+.mbk-item-name {
+    font-weight: 600;
+    color: var(--mbk-ink);
+    text-wrap: balance;
+}
+
+.mbk-item-code {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    background: var(--mbk-chip);
+    color: var(--mbk-ink-2);
+}
+
+.mbk-reported {
+    color: var(--mbk-mute);
+}
+
+.mbk-counted {
+    font-weight: 600;
+}
+
+.mbk-counted.is-changed {
+    color: var(--mbk-warn);
+}
+
+/* The stepper: minus, the count box, plus. Each end is a 44×40 target. */
+.mbk-stepper {
+    display: inline-flex;
+    align-items: stretch;
+}
+
+.mbk .mbk-step {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--mbk-field-edge);
+    background: var(--mbk-field-bg);
+    color: var(--mbk-ink-2);
+    cursor: pointer;
+    transition: background-color .12s;
+}
+
+.mbk .mbk-step:first-child {
+    border-right: 0;
+    border-radius: var(--mbk-r-md) 0 0 var(--mbk-r-md);
+}
+
+.mbk .mbk-step:last-child {
+    border-left: 0;
+    border-radius: 0 var(--mbk-r-md) var(--mbk-r-md) 0;
+}
+
+.mbk .mbk-step:hover:not(:disabled) {
+    background: var(--mbk-press);
+}
+
+.mbk .mbk-step:disabled {
+    color: var(--mbk-faint);
+    cursor: not-allowed;
+}
+
+.mbk .mbk-step svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2.2;
+}
+
+/* The count box, guarded against app.css's dark input fill (see the search
+   box above). The native spinner is hidden: the stepper replaces it. */
+.mbk .mbk-stepper input.mbk-count-input {
+    width: 64px;
+    height: 40px;
+    padding: 0 4px;
+    margin: 0;
+    border: 1px solid var(--mbk-field-edge);
+    border-radius: 0;
+    outline: 0;
+    appearance: textfield;
+    -moz-appearance: textfield;
+    background-color: var(--mbk-field-bg);
+    color: var(--mbk-ink);
+    font: inherit;
+    font-weight: 600;
+    text-align: center;
+}
+
+.mbk .mbk-stepper input.mbk-count-input::-webkit-outer-spin-button,
+.mbk .mbk-stepper input.mbk-count-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.mbk .mbk-stepper input.mbk-count-input:focus {
+    border-color: var(--mbk-field-edge-hi);
+}
+
+.mbk .mbk-stepper input.mbk-count-input.is-changed {
+    color: var(--mbk-warn);
+    background-color: rgba(var(--mbk-warn-rgb), .08);
+}
+
+.mbk-diff {
+    font-weight: 600;
+}
+
+.mbk-diff.is-even {
+    color: var(--mbk-mute-3);
+    font-weight: 500;
+}
+
+.mbk-diff.is-short { color: var(--mbk-warn); }
+.mbk-diff.is-over { color: var(--mbk-info); }
+
+.mbk-sums {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+}
+
+.mbk-sum {
+    display: flex;
+    flex-direction: column;
+}
+
+.mbk-sum > span {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-sum > strong {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--mbk-ink);
+}
+
+.mbk-sum > strong.is-quiet {
+    color: var(--mbk-mute);
+}
+
+.mbk-sum > strong.mbk-diff.is-even {
+    color: var(--mbk-mute-3);
+}
+
+.mbk-sums-note {
+    margin: 0 0 0 auto;
+    max-width: 300px;
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+    text-align: right;
+}
+
+/* ── Decision ─────────────────────────────────────────────────────────── */
+
+.mbk-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.mbk-field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--mbk-mute);
+}
+
+.mbk-field label span {
+    font-weight: 400;
+    color: var(--mbk-mute-3);
+}
+
+.mbk .mbk-field textarea.mbk-textarea {
+    width: 100%;
+    min-height: 64px;
+    padding: 10px 12px;
+    resize: vertical;
+    border: 1px solid var(--mbk-field-edge);
+    border-radius: var(--mbk-r-md);
+    outline: 0;
+    background-color: var(--mbk-field-bg);
+    color: var(--mbk-ink);
+    font: inherit;
+    font-size: 13px;
+}
+
+.mbk .mbk-field textarea.mbk-textarea:focus {
+    border-color: var(--mbk-field-edge-hi);
+}
+
+.mbk .mbk-field textarea.mbk-textarea.is-invalid {
+    border-color: var(--mbk-bad);
+}
+
+.mbk .mbk-field textarea.mbk-textarea::placeholder {
+    color: var(--mbk-placeholder);
+    -webkit-text-fill-color: var(--mbk-placeholder);
+    opacity: 1;
+}
+
+.mbk-field-err {
+    font-size: 12px;
+    color: var(--mbk-bad);
+}
+
+.mbk-decide {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    border-top: 1px solid var(--mbk-rule);
+    background: var(--mbk-hover);
+    flex-shrink: 0;
+}
+
+.mbk-route {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-right: auto;
+    font-size: 13px;
+    color: var(--mbk-mute);
+}
+
+.mbk-route svg {
+    width: 18px;
+    height: 18px;
+}
+
+.mbk-route-wh {
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--mbk-chip);
     color: var(--mbk-ink);
     font-weight: 600;
 }
 
+/* ── Confirm dialog ───────────────────────────────────────────────────── */
+/* Fixed, below the app bar, above the shell's drawer. `min-height: 0` is
+   not needed here — the wrap is not the root class — but the inset keeps it
+   clear of the app bar as the old drawer was. */
+
+.mbk-dialog-wrap {
+    position: fixed;
+    inset: var(--mbk-top) 0 0;
+    z-index: 9999;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: var(--mbk-scrim);
+}
+
+.mbk-dialog {
+    width: min(480px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px;
+    border-radius: var(--mbk-r-lg);
+    background: var(--mbk-surface);
+    border: 1px solid var(--mbk-divider);
+    box-shadow: var(--mbk-shadow-pop);
+}
+
+.mbk-dialog-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--mbk-ink);
+}
+
+.mbk-move {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 10px;
+    background: var(--mbk-hover);
+}
+
+.mbk-move-end {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.mbk-move-end.is-to {
+    text-align: right;
+}
+
+.mbk-move-end > span,
+.mbk-move-mid > span {
+    font-size: 12px;
+    color: var(--mbk-mute-3);
+}
+
+.mbk-move-end > strong {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--mbk-ink);
+}
+
+.mbk-move-mid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: var(--mbk-accent);
+}
+
+.mbk-move-mid > strong {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--mbk-ink);
+}
+
+.mbk-move-mid svg {
+    width: 40px;
+    height: 14px;
+}
+
+.mbk-dialog-copy {
+    margin: 0;
+    font-size: 13px;
+    color: var(--mbk-mute);
+}
+
+.mbk-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+/* Below 1100px the bench cannot sit beside the queue. The queue fills the
+   page and a picked report opens as a full-screen sheet under the app bar,
+   with a back button; the report the page opens on its own stays hidden so a
+   phone lands on the list. */
+
+@media (max-width: 1100px) {
+    .mbk-figs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .mbk-bench {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mbk-bench:not(.is-sheet) .mbk-detail {
+        display: none;
+    }
+
+    .mbk-bench.is-sheet .mbk-detail {
+        position: fixed;
+        inset: var(--mbk-top) 0 0;
+        z-index: 1400;
+        max-height: none;
+        min-height: 0;
+        border-radius: 0;
+        border: 0;
+    }
+
+    .mbk .mbk-sheet-back {
+        display: inline-flex;
+        margin: -6px 0 0 -10px;
+    }
+}
+
 @media (max-width: 860px) {
-    .mbk-overlay .mbk-input.mbk-qty-input {
-        width: 72px;
+    .mbk-shell {
+        flex-wrap: wrap;
+        align-items: flex-start;
+        padding: var(--mbk-s4) 16px;
+        gap: var(--mbk-s4);
+    }
+
+    .mbk-head {
+        position: static;
+    }
+
+    .mbk-head-actions {
+        width: 100%;
+    }
+
+    .mbk-search {
+        flex: 1;
+        width: auto;
+    }
+
+    .mbk-body {
+        padding: var(--mbk-s6) 16px 48px;
+    }
+
+    .mbk-fig-hint {
+        display: none;
+    }
+
+    .mbk-detail-head {
+        flex-wrap: wrap;
+        padding: 14px 16px;
+        gap: var(--mbk-s4);
+    }
+
+    .mbk-who {
+        width: 100%;
+    }
+
+    .mbk-detail-body {
+        padding: 14px 16px;
+    }
+
+    .mbk-lines thead {
+        display: none;
+    }
+
+    /* A line becomes a card: product and reason on top; reported, the
+       difference and the stepper beneath, so the stepper keeps its full
+       target size. */
+    .mbk-lines tr {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 8px 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--mbk-rule);
+    }
+
+    .mbk-lines td {
+        padding: 0;
+        border: 0;
+    }
+
+    .mbk-lines td:first-child {
+        grid-column: 1 / 3;
+    }
+
+    .mbk .mbk-lines td.mbk-num,
+    .mbk .mbk-lines td.mbk-mid {
+        width: auto;
+        text-align: left;
+    }
+
+    .mbk-lines td.mbk-reported { grid-area: 2 / 1; }
+    .mbk-lines td.mbk-diff { grid-area: 2 / 2; }
+    .mbk-lines td.mbk-mid { grid-area: 2 / 3; }
+
+    .mbk-lines td.mbk-reported::before {
+        content: "Reported ";
+        font-size: 12px;
+        color: var(--mbk-mute-3);
+    }
+
+    .mbk-sums {
+        flex-wrap: wrap;
+        gap: 16px 24px;
+    }
+
+    .mbk-sums-note {
+        margin: 0;
+        max-width: none;
+        text-align: left;
+    }
+
+    .mbk-decide {
+        flex-wrap: wrap;
+        padding: 12px 16px;
+    }
+
+    .mbk-route {
+        width: 100%;
+    }
+
+    .mbk-decide .mbk-btn {
+        flex: 1;
     }
 }
