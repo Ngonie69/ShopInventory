@@ -67,6 +67,20 @@ public class DailyStockSettings
     public bool EnableAutoStockFetch { get; set; } = true;
 
     /// <summary>
+    /// How often, in minutes, a finished snapshot that is missing its unbatched half is read again.
+    /// Default 10; 0 turns the retry off.
+    /// </summary>
+    /// <remarks>
+    /// When the non-batch read fails, the morning fetch still finishes the snapshot with the batch
+    /// rows and sets <c>UnbatchedStockMissing</c>. Before this retry existed, only a manual fetch
+    /// re-read that half. On 2026-09-19 the shops opened with batch-managed items only, and every
+    /// unbatched item stayed off the tills. A retry re-reads the unbatched half only (see
+    /// <c>FetchDailyStockHandler.TopUpUnbatchedStockAsync</c>): one SAP query per flagged
+    /// warehouse, and no query at all when nothing is flagged.
+    /// </remarks>
+    public int UnbatchedRetryMinutes { get; set; } = 10;
+
+    /// <summary>
     /// Max number of consolidation groups to process per batch.
     /// </summary>
     public int ConsolidationBatchSize { get; set; } = 10;
