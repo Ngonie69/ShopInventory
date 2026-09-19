@@ -45,7 +45,7 @@ public sealed class ProcessTransferEventHandler(
                 today, command.ItemCode, command.SourceWarehouse,
                 -command.Quantity, "OUT",
                 command.SourceWarehouse, command.DestinationWarehouse,
-                command.SapDocEntry, command.SapDocNum, cancellationToken);
+                command.SapDocEntry, command.SapDocNum, command.ItemDescription, cancellationToken);
 
             if (adj != null)
                 adjustments.Add(adj);
@@ -58,7 +58,7 @@ public sealed class ProcessTransferEventHandler(
                 today, command.ItemCode, command.DestinationWarehouse,
                 command.Quantity, "IN",
                 command.SourceWarehouse, command.DestinationWarehouse,
-                command.SapDocEntry, command.SapDocNum, cancellationToken);
+                command.SapDocEntry, command.SapDocNum, command.ItemDescription, cancellationToken);
 
             if (adj != null)
                 adjustments.Add(adj);
@@ -76,7 +76,7 @@ public sealed class ProcessTransferEventHandler(
         DateTime snapshotDate, string itemCode, string warehouseCode,
         decimal adjustmentQty, string direction,
         string sourceWarehouse, string destinationWarehouse,
-        int? docEntry, int? docNum,
+        int? docEntry, int? docNum, string? itemDescription,
         CancellationToken cancellationToken)
     {
         // Check for duplicate adjustment
@@ -142,10 +142,23 @@ public sealed class ProcessTransferEventHandler(
         if (direction == "IN")
         {
             // For inbound, add to first matching row or create a new row
-            if (snapshotItems.Count > 0)
+            // A row resting at zero is still the item's row, and it has the shape the item has. An
+            // item whose batches have all sold down arrives here with only zero rows, and inventing
+            // a batchless row for it — which is what this did — puts a batch-managed item on the till
+            // under "N/A" with no name, a row StockLedgerDivergenceJob.PutBack refuses to write for
+            // exactly that reason and then never corrects, because its total agrees with SAP's. So
+            // the arrival goes onto a row the item already has, a batched one where there is one.
+            var target = snapshotItems.FirstOrDefault()
+                ?? allRows
+                    .Where(row => row.BatchNumber != null)
+                    .OrderByDescending(row => row.ExpiryDate)
+                    .FirstOrDefault()
+                ?? allRows.FirstOrDefault();
+
+            if (target is not null)
             {
-                snapshotItems[0].Move(adjustmentQty);
-                newAvailable = snapshotItems[0].AvailableQuantity;
+                target.Move(adjustmentQty);
+                newAvailable = target.AvailableQuantity;
                 moved = adjustmentQty;
             }
             else
@@ -166,6 +179,10 @@ public sealed class ProcessTransferEventHandler(
                 {
                     SnapshotId = snapshot.Id,
                     ItemCode = itemCode,
+
+                    // The listener sends the SAP item name with the event. Left out, the row showed a
+                    // blank name on /local-stock and at the till.
+                    ItemDescription = string.IsNullOrWhiteSpace(itemDescription) ? null : itemDescription.Trim(),
                     WarehouseCode = warehouseCode,
                     OriginalQuantity = 0,
                     ExpiryDate = null
