@@ -4908,8 +4908,28 @@
 /* The SAP column holds the most words on the page — a status, SAP's refusal and
    the retry — so its state may wrap rather than widen the table past the edge. */
 .ops-dcl .ops-dcl-sap {
-    min-width: 200px;
-    max-width: 290px;
+    min-width: 170px;
+    max-width: 260px;
+}
+
+/* The memo number is short, so its header breaks onto two lines rather than
+   setting the column's width; the ZIMRA state wraps as the SAP one does. */
+.ops-dcl td.ops-dcl-memo {
+    white-space: nowrap;
+}
+
+.ops-dcl .ops-table thead th.ops-dcl-memo {
+    white-space: normal;
+    width: 108px;
+}
+
+.ops-dcl .ops-dcl-zimra {
+    max-width: 160px;
+}
+
+.ops-dcl .ops-dcl-zimra .ops-ds-state {
+    white-space: normal;
+    align-items: baseline;
 }
 
 .ops-dcl .ops-dcl-sap .ops-ds-state {

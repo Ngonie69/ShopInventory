@@ -325,6 +325,7 @@
                             <th>Customer</th>
                             <th class="ops-num">Credited</th>
                             <th>ZIMRA</th>
+                            <th class="ops-dcl-memo">SAP credit note</th>
                             <th>SAP</th>
                             <th class="ops-ds-chev-cell"><span class="visually-hidden">Open</span></th>
                         </tr>
@@ -366,7 +367,7 @@
                                     <span class="ops-dcl-amount">@Money(row.Amount, row.Currency)</span>
                                     <div class="ops-sub ops-dcl-reason" title="@row.Reason">@row.Reason</div>
                                 </td>
-                                <td data-label="ZIMRA">
+                                <td data-label="ZIMRA" class="ops-dcl-zimra">
                                     <span class="ops-ds-state @DesktopCreditLabels.Family(row.Status)">
                                         <span class="ops-dot"></span>@DesktopCreditLabels.Fiscal(row.Status)
                                     </span>
@@ -375,11 +376,23 @@
                                         <div class="ops-sub">receipt @row.ReceiptGlobalNo</div>
                                     }
                                 </td>
+                                @* The memo number has a column of its own, so the SAP column is left to
+                                   say how it went — and, when SAP refused it, why and the retry. *@
+                                <td data-label="SAP credit note" class="ops-dcl-memo">
+                                    @if (row.SapDocNum is { } memo)
+                                    {
+                                        <span class="ops-code">#@memo</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="ops-sub">—</span>
+                                    }
+                                </td>
                                 <td data-label="SAP" class="ops-dcl-sap">
                                     @if (row.Status == "Fiscalised")
                                     {
                                         <span class="ops-ds-state @DesktopCreditLabels.SapFamily(row.SapStatus)">
-                                            <span class="ops-dot"></span>@DesktopCreditLabels.Sap(row.SapStatus, row.SapDocNum)
+                                            <span class="ops-dot"></span>@SapResult(row.SapStatus)
                                         </span>
                                         @if (!string.IsNullOrWhiteSpace(row.SapError)
                                              && row.SapStatus is DesktopCreditSapStatuses.Failed or DesktopCreditSapStatuses.ManualInSap)
@@ -720,6 +733,10 @@
             .Concat(string.IsNullOrEmpty(warehouse) ? [] : [warehouse])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The SAP outcome in the lanes' and chips' words; the memo number is its own column.</summary>
+    private static string SapResult(string? status) =>
+        SapChoices.FirstOrDefault(c => c.Value == status).Label ?? DesktopCreditLabels.Sap(status, null);
 
     private List<ActiveFilter> activeFilters
     {
