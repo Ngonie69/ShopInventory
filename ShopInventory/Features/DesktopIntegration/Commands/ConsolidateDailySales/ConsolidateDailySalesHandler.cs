@@ -119,7 +119,7 @@ public sealed class ConsolidateDailySalesHandler(
         pendingSales.AddRange(queueSales);
 
         if (pendingSales.Count == 0)
-            return Errors.DesktopSales.NoPendingSales;
+            return Errors.DesktopSales.NoPendingSales(consolidationDate);
 
         // Group by CardCode
         var groups = pendingSales

@@ -152,21 +152,22 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
     }
 
     [Fact]
-    public async Task A_sale_that_needs_reconciliation_is_never_offered_again()
+    public async Task A_sale_that_needs_reconciliation_is_never_offered_again_on_the_platform()
     {
         // The one failure worse to retry than to leave alone: the platform could not say whether the
-        // receipt was signed, and a second submission cannot be withdrawn.
+        // receipt was signed, its receipt check can lag, and a second submission cannot be withdrawn.
         Seed("VEND-20260813-0002", requiresReconciliation: true);
         await _context.SaveChangesAsync();
 
         // callBudget 0 — any call to the platform fails the test.
-        var result = await BuildSweep(Signed, callBudget: 0).FiscalisePendingSalesAsync(CancellationToken.None);
+        var result = await BuildSweep(Signed, callBudget: 0, provider: FiscalisationProvider.Platform)
+            .FiscalisePendingSalesAsync(CancellationToken.None);
 
         Assert.Equal(0, result.Total);
     }
 
     [Fact]
-    public async Task A_reconciliation_verdict_stops_the_retries_from_then_on()
+    public async Task A_reconciliation_verdict_stops_the_retries_from_then_on_on_the_platform()
     {
         Seed("VEND-20260813-0003");
         await _context.SaveChangesAsync();
@@ -176,7 +177,7 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
             Success = false,
             Message = "The platform did not answer.",
             RequiresReconciliation = true
-        });
+        }, provider: FiscalisationProvider.Platform);
 
         await sweep.FiscalisePendingSalesAsync(CancellationToken.None);
 
@@ -186,8 +187,117 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
 
         // And the next pass leaves it alone: the budget of 0 means any further call fails the test.
         _context.ChangeTracker.Clear();
-        var second = await BuildSweep(Signed, callBudget: 0).FiscalisePendingSalesAsync(CancellationToken.None);
+        var second = await BuildSweep(Signed, callBudget: 0, provider: FiscalisationProvider.Platform)
+            .FiscalisePendingSalesAsync(CancellationToken.None);
         Assert.Equal(0, second.Total);
+    }
+
+    /// <summary>
+    /// The outage case. The device was down, so the submission failed and so did the question "do you
+    /// hold it?", and the sale was marked. Once the device answers "Invoice not Found", the sweep signs it.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_an_outage_left_unresolved_is_signed_once_the_device_says_it_holds_nothing()
+    {
+        var sale = Seed("TILL-20260919-0001", sourceSystem: SaleSourceSystems.ShopTill,
+            status: DesktopSaleFiscalizationStatus.Failed, attempts: 1, requiresReconciliation: true);
+        sale.FiscalError = "The fiscal state of KEF-TILL-20260919-0001 is unknown: REVMax neither confirmed "
+            + "the submission nor could be asked what it holds.";
+        await _context.SaveChangesAsync();
+
+        var lookups = 0;
+        var result = await BuildSweep(Signed, callBudget: 1, existingReceipt: () => { lookups++; return null; })
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Fiscalised);
+        Assert.Equal(1, lookups); // asked before anything was sent
+
+        _context.ChangeTracker.Clear();
+        var stored = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, stored.FiscalizationStatus);
+        Assert.False(stored.FiscalizationRequiresReconciliation);
+        Assert.Equal("771", stored.FiscalReceiptNumber);
+        Assert.Null(DesktopSalePostEligibility.Refusal(stored)); // and it can now reach SAP
+    }
+
+    /// <summary>The call that "failed" had in fact been filed. The receipt is adopted, not signed again.</summary>
+    [Fact]
+    public async Task An_unresolved_sale_the_device_did_sign_is_adopted_not_signed_again()
+    {
+        Seed("VEND-20260919-0002", status: DesktopSaleFiscalizationStatus.Failed, attempts: 1,
+            requiresReconciliation: true);
+        await _context.SaveChangesAsync();
+
+        var result = await BuildSweep(
+                Signed,
+                callBudget: 0, // any submission fails the test
+                existingReceipt: () => new FiscalizationResult { Success = true, ReceiptGlobalNo = "216901" })
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Fiscalised);
+        var stored = await _context.DesktopSales.SingleAsync();
+        Assert.Equal("216901", stored.FiscalReceiptNumber);
+        Assert.False(stored.FiscalizationRequiresReconciliation);
+        Assert.Equal(1, stored.FiscalizationAttempts); // adopting is not an attempt
+    }
+
+    /// <summary>
+    /// Still down. Nothing is sent, the mark stays, and no attempt is spent, so a long outage cannot
+    /// exhaust the budget before the device is back.
+    /// </summary>
+    [Fact]
+    public async Task An_unresolved_sale_is_left_alone_while_the_device_still_cannot_be_asked()
+    {
+        Seed("VEND-20260919-0003", status: DesktopSaleFiscalizationStatus.Failed, attempts: 1,
+            requiresReconciliation: true);
+        await _context.SaveChangesAsync();
+
+        var result = await BuildSweep(
+                Signed,
+                callBudget: 0,
+                existingReceipt: () => throw new InvalidOperationException("REVMax could not be asked"))
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+        _context.ChangeTracker.Clear();
+        var stored = await _context.DesktopSales.SingleAsync();
+        Assert.True(stored.FiscalizationRequiresReconciliation);
+        Assert.Equal(DesktopSaleFiscalizationStatus.Failed, stored.FiscalizationStatus);
+        Assert.Equal(1, stored.FiscalizationAttempts);
+    }
+
+    /// <summary>
+    /// The mark alone makes the device be asked, whatever the counter says: a mark is by definition an
+    /// attempt whose outcome never came back.
+    /// </summary>
+    [Fact]
+    public async Task An_unresolved_sale_is_never_submitted_without_asking_even_at_zero_attempts()
+    {
+        Seed("VEND-20260919-0004", status: DesktopSaleFiscalizationStatus.Failed, attempts: 0,
+            requiresReconciliation: true);
+        await _context.SaveChangesAsync();
+
+        var lookups = 0;
+        await BuildSweep(Signed, callBudget: 1, existingReceipt: () => { lookups++; return null; })
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, lookups);
+    }
+
+    [Fact]
+    public async Task An_unresolved_sale_that_has_run_out_of_attempts_is_left_for_a_human()
+    {
+        Seed("VEND-20260919-0005", status: DesktopSaleFiscalizationStatus.Failed,
+            attempts: new DesktopSalePostingSettings().MaxFiscalisationAttempts, requiresReconciliation: true);
+        await _context.SaveChangesAsync();
+
+        var result = await BuildSweep(
+                Signed,
+                callBudget: 0,
+                existingReceipt: () => throw new InvalidOperationException("the device should not be asked"))
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.Total);
     }
 
     [Fact]

@@ -90,8 +90,16 @@ public static partial class Errors
             Error.NotFound("DesktopSales.ConsolidationNotFound",
                 $"Consolidation with ID {id} not found");
 
-        public static Error NoPendingSales =>
-            Error.Failure("DesktopSales.NoPendingSales", "No pending sales found for consolidation");
+        /// <remarks>
+        /// Names the date and the other route because the usual reason for this answer is not an empty
+        /// day. It is a day whose pending sales all came from tills, vending or vans, which this run
+        /// never touches. Without the second sentence the console read it as "the run is broken".
+        /// </remarks>
+        public static Error NoPendingSales(DateTime date) =>
+            Error.Failure("DesktopSales.NoPendingSales",
+                $"Nothing on {date:dd MMM yyyy} is waiting for consolidation. Till, vending and van sales "
+                + "are not consolidated: they post to SAP one invoice each, so select them in the list "
+                + "and use Post to SAP.");
 
         public static Error StockFetchFailed(string warehouseCode, string message) =>
             Error.Failure("DesktopSales.StockFetchFailed",

@@ -373,8 +373,19 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
         if (!response.Success)
         {
-            // A positive "Invoice not Found" — safe to sign.
-            return null;
+            // Only a positive "Invoice not Found" is safe to sign against. The device answers its
+            // routine busy state ("Init error -1") in exactly the same shape (Code "0", Data ""), and
+            // reading that as "not found" would sign a sale the device may already hold. The desktop
+            // credit gateway draws the same line. The sweep retries within the minute, so waiting
+            // costs nothing.
+            if (response.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return null;
+            }
+
+            throw new InvalidOperationException(
+                $"Not fiscalising {invoiceNumber}: REVMax did not say whether it already holds this "
+                + $"receipt (Code {response.Code}: {response.Message}).");
         }
 
         _logger.LogWarning(

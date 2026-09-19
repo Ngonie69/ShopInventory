@@ -29,7 +29,7 @@
    **The design's row selection is built now, against a different verb.** It
    drew a checkbox per row and a "Consolidate 4" button — consolidating a chosen
    subset — and that stayed unbuilt while `TriggerConsolidationAsync()` took no
-   arguments: checkboxes that did not decide what gets consolidated would have
+   selection, and it still takes only a date: checkboxes that did not decide what gets consolidated would have
    been a lie about what the button does.
 
    `POST sales/post-batch` is the selective endpoint that was missing, so the
@@ -719,17 +719,27 @@
                     <dt>Already consolidated</dt>
                     <dd>@consolidatedCount</dd>
                     <dt>Posting date</dt>
-                    <dd>@DateTime.Today.ToString("dd.MM.yyyy")</dd>
+                    <dd>@(consolidationDate?.ToString("dd.MM.yyyy") ?? "—")</dd>
                 </dl>
 
-                @if (report != null && report.ReportDate.Date != DateTime.Today)
+                @* The run closes the day these figures are for. It used to close today whatever the
+                   page showed, so yesterday's leftovers could never be reached from here and the button
+                   answered "could not be started". *@
+                <div class="ops-msg ops-fam-neutral">
+                    <i class="ph ph-info" aria-hidden="true"></i>
+                    <div class="ops-msg-body">
+                        Only desktop-app sales are consolidated. Till, vending and van sales post to SAP
+                        one invoice each: to push those through, select them in the list and use
+                        Post to SAP.
+                    </div>
+                </div>
+
+                @if (consolidationDate is { } day && day > DateTime.Today)
                 {
                     <div class="ops-msg ops-fam-warn">
                         <i class="ph ph-warning" aria-hidden="true"></i>
                         <div class="ops-msg-body">
-                            The figures above are for @report.ReportDate.ToString("dd MMM yyyy"), but the
-                            run itself always closes today. Set the period back to Today to see what it
-                            will actually pick up.
+                            @day.ToString("dd MMM yyyy") has not happened yet, so there is nothing to close.
                         </div>
                     </div>
                 }
@@ -738,7 +748,7 @@
             <div class="ops-dialog-foot">
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseConsolidate">Cancel</button>
                 <button type="button" class="ops-btn ops-btn-primary" @onclick="TriggerConsolidation"
-                        disabled="@isConsolidating">
+                        disabled="@(isConsolidating || !canConsolidate)">
                     @if (isConsolidating)
                     {
                         <span class="ops-spin"></span>
@@ -2537,25 +2547,46 @@
 
     private decimal awaitingValue => DesktopSalesDaySummary.AwaitingValue(report);
 
+    // The day the summary card and the dialog describe. The run closes this day, so the dialog's
+    // figures and the run always describe the same day.
+    private DateTime? consolidationDate => report?.ReportDate.Date;
+
+    private bool canConsolidate => consolidationDate is { } day && day <= DateTime.Today;
+
     private async Task TriggerConsolidation()
     {
+        if (consolidationDate is not { } day || !canConsolidate)
+        {
+            return;
+        }
+
         isConsolidating = true;
         StateHasChanged();
         try
         {
-            var success = await DesktopService.TriggerConsolidationAsync();
+            var (result, error) = await DesktopService.TriggerConsolidationAsync(day);
             showConsolidate = false;
 
-            if (success)
+            if (result is null)
             {
-                Say("End-of-day consolidation triggered. The back office picks the invoices up as the run completes.",
-                    "ops-fam-good", "ph-check-circle");
-                await LoadData();
+                SayError(error ?? "The consolidation run could not be started.");
+                return;
+            }
+
+            if (result.FailedPostings > 0)
+            {
+                SayError($"Consolidated {result.TotalSalesProcessed} sale(s) for {day:dd MMM yyyy}: "
+                    + $"{result.SuccessfulPostings} invoice(s) posted, {result.FailedPostings} customer(s) "
+                    + "not posted. Their sales are still listed as unposted.");
             }
             else
             {
-                SayError("The consolidation run could not be started.");
+                Say($"Consolidated {result.TotalSalesProcessed} sale(s) for {day:dd MMM yyyy} into "
+                    + $"{result.SuccessfulPostings} SAP invoice(s).",
+                    "ops-fam-good", "ph-check-circle");
             }
+
+            await LoadData();
         }
         catch (Exception ex)
         {

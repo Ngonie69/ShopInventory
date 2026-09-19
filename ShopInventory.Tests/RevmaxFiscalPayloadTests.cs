@@ -428,6 +428,31 @@ public class RevmaxFiscalPayloadTests
             () => Service(client).FindPreSapReceiptAsync("VAN-0001"));
     }
 
+    /// <summary>
+    /// The device's busy reply has the same shape as "Invoice not Found": Code "0", empty Data. Read as
+    /// "not found", it would clear a sale the device may already hold for a second signature.
+    /// </summary>
+    [Fact]
+    public async Task A_busy_device_is_not_read_as_holding_nothing()
+    {
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoice = new InvoiceResponse { Code = "0", Message = "Init error -1" }
+        };
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Service(client).FindPreSapReceiptAsync("TILL-0001"));
+
+        Assert.Contains("Init error -1", refusal.Message);
+    }
+
+    [Fact]
+    public async Task Invoice_not_found_is_read_as_holding_nothing()
+    {
+        // The fake's default answer is the device's own "Invoice not Found".
+        Assert.Null(await Service(new RecordingRevmaxClient()).FindPreSapReceiptAsync("TILL-0001"));
+    }
+
     /// <summary>The device's own refusal, wording and all, for a number it already holds.</summary>
     private static TransactMResponse DuplicateRefusal(string invoiceNumber) => new()
     {

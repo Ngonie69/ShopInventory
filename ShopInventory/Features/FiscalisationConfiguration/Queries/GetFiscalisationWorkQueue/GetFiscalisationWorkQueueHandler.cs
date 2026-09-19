@@ -313,6 +313,18 @@ public sealed class GetFiscalisationWorkQueueHandler(
                 sale.ReceiptIngestError,
                 sale.ReceiptIngestAttempts),
 
+            // Under REVMax the sweep takes these again, asking the device first; see
+            // DesktopSaleFiscalisationRetry.MayRetryReconciliation. Still Unresolved, and still under the
+            // reconciliation filter, because that is what the row is until the device answers.
+            { FiscalizationRequiresReconciliation: true }
+                when DesktopSaleFiscalisationRetry.MayRetryReconciliation(sweep.UsesPlatform) => Fiscalisation(
+                sale,
+                sweep,
+                "Unresolved",
+                FiscalWorkQueueFilters.NeedsReconciliation,
+                "The device did not answer when this was sent. The background sweep asks it what it holds "
+                    + "before sending again, so a receipt it already signed is adopted, not signed twice."),
+
             { FiscalizationRequiresReconciliation: true } => (
                 "Fiscalisation",
                 "Unresolved",
