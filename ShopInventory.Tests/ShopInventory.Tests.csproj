@@ -33,8 +33,7 @@
       (GHSA-cvvh-rhrc-wg4q, GHSA-g8r8-53c2-pm3f, GHSA-23rf-6693-g89p, GHSA-8q5v-6pqq-x66h,
       GHSA-mmjf-rqrv-855v).
 
-      Same reasoning as the pin in scripts/AccountSalesPaymentWorkbookRestyler: ShopInventory and
-      ShopInventory.Web use the Web SDK and take this assembly from the ASP.NET Core shared
+      ShopInventory and ShopInventory.Web use the Web SDK and take this assembly from the ASP.NET Core shared
       framework, so it is not a NuGet asset there. This test project uses the plain SDK, so the
       dependency it inherits through the ShopInventory project reference resolves as a real
       package and is audited.
