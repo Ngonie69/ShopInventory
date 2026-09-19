@@ -47,7 +47,7 @@ public sealed class GetManagementSalesReportHandler(
             nameof(DesktopSaleEntity),
             string.IsNullOrWhiteSpace(request.WarehouseCode) ? "(caller scope)" : request.WarehouseCode.Trim(),
             outcome.IsError
-                ? $"Refused a management sales report for warehouse {request.WarehouseCode}."
+                ? $"Refused a management sales report for warehouse {request.WarehouseCode}, partner {request.CardCode}."
                 : $"Management sales report on {outcome.Value.Health.SalesCount} sale(s) from "
                     + $"{outcome.Value.FromDate:yyyy-MM-dd} to {outcome.Value.ToDate:yyyy-MM-dd}.",
             !outcome.IsError,
@@ -60,7 +60,7 @@ public sealed class GetManagementSalesReportHandler(
         GetManagementSalesReportQuery request, CancellationToken cancellationToken)
     {
         var resolved = await WindowAsync(
-            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, cancellationToken);
+            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, request.CardCode, cancellationToken);
         if (resolved.IsError)
         {
             return resolved.Errors;
@@ -72,6 +72,9 @@ public sealed class GetManagementSalesReportHandler(
         var currentItems = await ItemsAsync(Sales(db, window, window.From, window.To), cancellationToken);
         var previousItems = await ItemsAsync(Sales(db, window, window.PreviousFrom, window.PreviousTo), cancellationToken);
         var matrix = await MatrixAsync(Sales(db, window, window.From, window.To), cancellationToken);
+        var partnerMatrix = await PartnerMatrixAsync(Sales(db, window, window.From, window.To), cancellationToken);
+        var partners = await PartnersAsync(db, window, cancellationToken);
+        var directory = PartnerDirectory(partners);
         var health = await HealthAsync(Sales(db, window, window.From, window.To), cancellationToken);
         var (margin, marginStatus) = await MarginAsync(
             Sales(db, window, window.From, window.To), null, window, costReader, logger, cancellationToken);
@@ -96,8 +99,10 @@ public sealed class GetManagementSalesReportHandler(
                         currentItems.Where(i => i.Currency == currency).ToList(),
                         previousItems.Where(i => i.Currency == currency).ToList(),
                         matrix.Where(m => m.Currency == currency).ToList(),
+                        partnerMatrix.Where(m => m.Currency == currency).ToList(),
                         margin,
                         labels,
+                        directory,
                         groups)),
                 section => section.Currency)
             .ToList();
@@ -109,10 +114,12 @@ public sealed class GetManagementSalesReportHandler(
             window.PreviousTo,
             window.WarehouseCode,
             window.SourceSystem,
+            window.CardCode,
             DateTime.UtcNow,
             currencies,
             health,
-            marginStatus);
+            marginStatus,
+            partners);
     }
 
     // ── Reading ────────────────────────────────────────────────────────────────────────────────────
@@ -151,7 +158,7 @@ public sealed class GetManagementSalesReportHandler(
             CurrencyKey(c.Currency),
             c.DocDate.Date,
             c.WarehouseCode ?? string.Empty,
-            c.CardCode ?? string.Empty,
+            c.CardCode?.Trim() ?? string.Empty,
             c.SourceSystem ?? string.Empty,
             c.CreatedBy ?? string.Empty,
             TenderTypes.ReportingName(c.PaymentMethod),
@@ -211,6 +218,22 @@ public sealed class GetManagementSalesReportHandler(
             })
             .ToListAsync(cancellationToken))
         .Select(m => new MatrixCell(CurrencyKey(m.Currency), m.ItemCode, m.WarehouseCode ?? string.Empty, m.Quantity, m.NetAmount))
+        .ToList();
+
+    private static async Task<List<MatrixCell>> PartnerMatrixAsync(IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>
+        (await sales
+            .SelectMany(s => s.Lines, (s, line) => new { s.Currency, s.CardCode, line.ItemCode, line.Quantity, line.LineTotal })
+            .GroupBy(x => new { x.Currency, x.ItemCode, x.CardCode })
+            .Select(g => new
+            {
+                g.Key.Currency,
+                g.Key.ItemCode,
+                g.Key.CardCode,
+                Quantity = g.Sum(x => x.Quantity),
+                NetAmount = g.Sum(x => x.LineTotal),
+            })
+            .ToListAsync(cancellationToken))
+        .Select(m => new MatrixCell(CurrencyKey(m.Currency), m.ItemCode, m.CardCode?.Trim() ?? string.Empty, m.Quantity, m.NetAmount))
         .ToList();
 
     /// <summary>
@@ -322,8 +345,10 @@ public sealed class GetManagementSalesReportHandler(
         List<ItemCell> currentItems,
         List<ItemCell> previousItems,
         List<MatrixCell> matrix,
+        List<MatrixCell> partnerMatrix,
         MarginBook margin,
         Labels labels,
+        Dictionary<string, ManagementPartner> partners,
         Dictionary<string, int?> groups)
     {
         var salesCount = current.Sum(c => c.SalesCount);
@@ -377,6 +402,12 @@ public sealed class GetManagementSalesReportHandler(
                 .Select(c => c.CardCode)),
             key => margin.For(currency, Dimension.Depot, key));
 
+        var byPartner = Breakdown(current, previous, total, c => c.CardCode,
+            key => PartnerLabel(key, partners, everyCell
+                .Where(c => string.Equals(c.CardCode, key, StringComparison.OrdinalIgnoreCase))
+                .Select(c => c.WarehouseCode)),
+            key => margin.For(currency, Dimension.Partner, key));
+
         var byVendor = Breakdown(
             current.Where(c => c.RouteCustomerId is not null).ToList(),
             previous.Where(c => c.RouteCustomerId is not null).ToList(),
@@ -409,6 +440,7 @@ public sealed class GetManagementSalesReportHandler(
             Breakdown(current, previous, total, c => c.SourceSystem, key => (SourceLabel(key), null),
                 key => margin.For(currency, Dimension.Channel, key)),
             byDepot,
+            byPartner,
             Breakdown(current, previous, total, c => c.CostCentreCode, key => (key.Length == 0 ? NotRecorded : key, null),
                 key => margin.For(currency, Dimension.CostCentre, key)),
             Breakdown(current, previous, total, c => c.CreatedBy, key => (OperatorLabel(key, labels), null),
@@ -422,6 +454,11 @@ public sealed class GetManagementSalesReportHandler(
                 .OrderBy(m => m.ItemCode, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => m.WarehouseCode, StringComparer.OrdinalIgnoreCase)
                 .Select(m => new ManagementItemDepotCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount))
+                .ToList(),
+            partnerMatrix
+                .OrderBy(m => m.ItemCode, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(m => m.WarehouseCode, StringComparer.OrdinalIgnoreCase)
+                .Select(m => new ManagementItemPartnerCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount))
                 .ToList());
     }
 
@@ -571,6 +608,7 @@ public sealed class GetManagementSalesReportHandler(
     private sealed record ItemCell(
         string Currency, string ItemCode, string? ItemDescription, decimal Quantity, decimal NetAmount, decimal DiscountAmount, int SalesCount);
 
+    /// <summary>An item at one place — a warehouse in the depot grid, a CardCode in the partner grid.</summary>
     private sealed record MatrixCell(string Currency, string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount);
 
     private sealed record HealthCell(

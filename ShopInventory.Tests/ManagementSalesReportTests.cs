@@ -301,6 +301,8 @@ public sealed class ManagementSalesReportTests : IDisposable
         Assert.Equal(2, usd.Summary.CostedSalesCount);
         Assert.Equal(20m, usd.Summary.GrossProfit);
         Assert.Equal(20m, usd.ByDepot.Single().GrossProfit);
+        // Consolidation groups by CardCode, so the invoice belongs to exactly one partner.
+        Assert.Equal(20m, usd.ByPartner.Single().GrossProfit);
         Assert.Null(usd.ByVendor.Single().GrossProfit);
     }
 
@@ -353,6 +355,90 @@ public sealed class ManagementSalesReportTests : IDisposable
 
         Assert.Equal(40m, Dollars(report).Summary.TotalAmount);
         Assert.Equal(1, report.Health.SalesCount);
+    }
+
+    // ---- Business partners ------------------------------------------------------------------------
+
+    private const string VanPartner = "VAN-BP";
+
+    /// <summary>A van that loads from the depot's warehouse but sells under its own partner.</summary>
+    private DesktopSaleEntity VanOffDepot(decimal total, DateTime day, int? docEntry = null, (string Code, int Quantity, decimal Net)[]? lines = null)
+    {
+        var sale = Sale(total, day, SaleSourceSystems.VanSales, DepotWarehouse, VanPartner, lines: lines);
+        sale.CardName = "Van Twelve";
+        sale.SapDocEntry = docEntry;
+        return sale;
+    }
+
+    [Fact]
+    public async Task Two_partners_sharing_a_warehouse_are_two_rows_not_one()
+    {
+        var depotSale = Vend(100m, From, docEntry: 601, lines: [("BREAD", 10, 80m)]);
+        depotSale.CardName = "Depot One";
+        Add(depotSale);
+        Add(VanOffDepot(50m, From, docEntry: 602, lines: [("BREAD", 5, 40m)]));
+
+        _costs.Lines.Add(new SaleInvoiceLineCost(601, "USD", "BREAD", DepotWarehouse, 10m, 80m, 20m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(602, "USD", "BREAD", DepotWarehouse, 5m, 40m, 4m));
+
+        var report = await RunAsync();
+        var usd = Dollars(report);
+
+        // The warehouse view cannot tell them apart; the partner view can.
+        Assert.Single(usd.ByDepot);
+        var partners = usd.ByPartner.ToDictionary(row => row.Key);
+        Assert.Equal(2, partners.Count);
+        Assert.Equal("Depot One", partners[Depot].Label);
+        Assert.Equal($"{Depot} · {DepotWarehouse}", partners[Depot].Hint);
+        Assert.Equal(100m, partners[Depot].TotalAmount);
+        Assert.Equal(20m, partners[Depot].GrossProfit);
+        Assert.Equal("Van Twelve", partners[VanPartner].Label);
+        Assert.Equal(50m, partners[VanPartner].TotalAmount);
+        Assert.Equal(4m, partners[VanPartner].GrossProfit);
+
+        Assert.Equal(
+            [(Depot, 80m), (VanPartner, 40m)],
+            usd.ItemPartnerMatrix.Where(c => c.ItemCode == "BREAD").OrderBy(c => c.CardCode).Select(c => (c.CardCode, c.NetAmount)));
+
+        Assert.Equal(["Depot One", "Van Twelve"], report.Partners.Select(p => p.CardName));
+        Assert.All(report.Partners, p => Assert.Equal([DepotWarehouse], p.Warehouses));
+    }
+
+    [Fact]
+    public async Task A_partner_narrows_every_figure_but_not_the_list_it_was_chosen_from()
+    {
+        Add(Vend(100m, From, lines: [("BREAD", 10, 80m)]));
+        Add(VanOffDepot(50m, From, lines: [("BREAD", 5, 40m)]));
+        Add(VanOffDepot(30m, PreviousDay));
+
+        var report = await RunAsync(cardCode: VanPartner);
+        var usd = Dollars(report);
+
+        Assert.Equal(VanPartner, report.CardCode);
+        Assert.Equal(50m, usd.Summary.TotalAmount);
+        Assert.Equal(30m, usd.Summary.PreviousTotalAmount);
+        Assert.Equal(1, report.Health.SalesCount);
+        Assert.Equal([VanPartner], usd.ByPartner.Select(row => row.Key));
+        Assert.Equal(40m, usd.ByItem.Single(i => i.ItemCode == "BREAD").NetAmount);
+        Assert.Equal([Depot, VanPartner], report.Partners.Select(p => p.CardCode).Order());
+
+        var item = (await AnalyseItemAsync("BREAD", VanPartner)).Currencies.Single();
+        Assert.Equal(40m, item.Summary.NetAmount);
+        Assert.Equal([VanPartner], item.ByPartner.Select(row => row.Key));
+    }
+
+    [Fact]
+    public async Task The_item_drill_down_splits_a_shared_warehouse_by_partner()
+    {
+        Add(Vend(100m, From, lines: [("BREAD", 10, 80m)]));
+        Add(VanOffDepot(50m, From, lines: [("BREAD", 5, 40m)]));
+
+        var item = (await AnalyseItemAsync("BREAD")).Currencies.Single();
+
+        Assert.Single(item.ByDepot);
+        Assert.Equal(
+            [(VanPartner, "Van Twelve", 40m), (Depot, Depot, 80m)],
+            item.ByPartner.OrderBy(row => row.NetAmount).Select(row => (row.Key, row.Label, row.NetAmount)));
     }
 
     [Fact]
@@ -540,9 +626,13 @@ public sealed class ManagementSalesReportTests : IDisposable
             new ShopInventory.Web.Services.ReportExportService().ExportManagementSalesReportToExcel(read)));
 
         Assert.Equal(
-            ["Summary", "Posting & Fiscal", "By Day", "By Channel", "By Depot", "By Vendor", "By Cost Centre",
-             "By Operator", "By Payment", "Lapsed Vendors", "Products", "Item Groups", "Item x Depot"],
+            ["Summary", "Posting & Fiscal", "By Day", "By Partner", "By Channel", "By Warehouse", "By Vendor", "By Cost Centre",
+             "By Operator", "By Payment", "Lapsed Vendors", "Products", "Item Groups", "Item x Partner", "Item x Warehouse"],
             workbook.Worksheets.Select(sheet => sheet.Name));
+
+        var byPartner = workbook.Worksheet("By Partner");
+        Assert.Contains(byPartner.RowsUsed(), row => row.Cell(2).GetString() == Depot && row.Cell(3).GetString() == $"{Depot} · {DepotWarehouse}");
+        Assert.Contains(workbook.Worksheet("Item x Partner").RowsUsed(), row => row.Cell(2).GetString() == "BREAD" && row.Cell(3).GetString() == Depot);
 
         var products = workbook.Worksheet("Products");
         var header = products.RowsUsed().First(row => row.Cell(2).GetString() == "Item Code");
@@ -553,7 +643,7 @@ public sealed class ManagementSalesReportTests : IDisposable
         Assert.Equal(25m, bread.Cell(Column("Gross Profit")).GetValue<decimal>());
         Assert.Equal(0.25m, bread.Cell(Column("Margin")).GetValue<decimal>());
 
-        var matrixSheet = workbook.Worksheet("Item x Depot");
+        var matrixSheet = workbook.Worksheet("Item x Warehouse");
         var breadAtDepot = matrixSheet.RowsUsed().First(row => row.Cell(2).GetString() == "BREAD");
         Assert.Equal(DepotWarehouse, breadAtDepot.Cell(3).GetString());
         Assert.Equal(10m, breadAtDepot.Cell(4).GetValue<decimal>());
@@ -654,7 +744,7 @@ public sealed class ManagementSalesReportTests : IDisposable
         return sale;
     }
 
-    private async Task<ManagementItemAnalysis> AnalyseItemAsync(string itemCode)
+    private async Task<ManagementItemAnalysis> AnalyseItemAsync(string itemCode, string? cardCode = null)
     {
         _context.ChangeTracker.Clear();
         var result = await new GetManagementItemAnalysisHandler(
@@ -662,7 +752,7 @@ public sealed class ManagementSalesReportTests : IDisposable
                 new RecordingAuditService(),
                 _costs,
                 NullLogger<GetManagementItemAnalysisHandler>.Instance)
-            .Handle(new GetManagementItemAnalysisQuery(_adminId, itemCode, From, To), CancellationToken.None);
+            .Handle(new GetManagementItemAnalysisQuery(_adminId, itemCode, From, To, CardCode: cardCode), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;
@@ -722,7 +812,7 @@ public sealed class ManagementSalesReportTests : IDisposable
                 .ToList(),
         };
 
-    private async Task<ManagementSalesReport> RunAsync(string? warehouse = null)
+    private async Task<ManagementSalesReport> RunAsync(string? warehouse = null, string? cardCode = null)
     {
         _context.ChangeTracker.Clear();
         var result = await new GetManagementSalesReportHandler(
@@ -730,7 +820,7 @@ public sealed class ManagementSalesReportTests : IDisposable
                 new RecordingAuditService(),
                 _costs,
                 NullLogger<GetManagementSalesReportHandler>.Instance)
-            .Handle(new GetManagementSalesReportQuery(_adminId, From, To, warehouse), CancellationToken.None);
+            .Handle(new GetManagementSalesReportQuery(_adminId, From, To, warehouse, CardCode: cardCode), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;

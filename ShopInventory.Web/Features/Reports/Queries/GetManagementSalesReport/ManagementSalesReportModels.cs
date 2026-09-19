@@ -10,10 +10,21 @@ public sealed class ManagementSalesReportResult
     public DateTime PreviousToDate { get; set; }
     public string? WarehouseCode { get; set; }
     public string? SourceSystem { get; set; }
+    public string? CardCode { get; set; }
     public DateTime GeneratedAtUtc { get; set; }
     public List<ManagementCurrencySection> Currencies { get; set; } = [];
     public ManagementSalesHealth Health { get; set; } = new();
     public ManagementMarginStatus Margin { get; set; } = new();
+
+    /// <summary>Every partner that sold under the caller's scope in either period — the partner filter's list.</summary>
+    public List<ManagementPartner> Partners { get; set; } = [];
+}
+
+public sealed class ManagementPartner
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public List<string> Warehouses { get; set; } = [];
 }
 
 public sealed class ManagementCurrencySection
@@ -23,6 +34,7 @@ public sealed class ManagementCurrencySection
     public List<ManagementDayRow> ByDay { get; set; } = [];
     public List<ManagementBreakdownRow> ByChannel { get; set; } = [];
     public List<ManagementBreakdownRow> ByDepot { get; set; } = [];
+    public List<ManagementBreakdownRow> ByPartner { get; set; } = [];
     public List<ManagementBreakdownRow> ByCostCentre { get; set; } = [];
     public List<ManagementBreakdownRow> ByOperator { get; set; } = [];
     public List<ManagementBreakdownRow> ByPaymentMethod { get; set; } = [];
@@ -31,6 +43,7 @@ public sealed class ManagementCurrencySection
     public List<ManagementItemRow> ByItem { get; set; } = [];
     public List<ManagementItemGroupRow> ByItemGroup { get; set; } = [];
     public List<ManagementItemDepotCell> ItemDepotMatrix { get; set; } = [];
+    public List<ManagementItemPartnerCell> ItemPartnerMatrix { get; set; } = [];
 }
 
 public sealed class ManagementSummary
@@ -138,6 +151,14 @@ public sealed class ManagementItemDepotCell
 {
     public string ItemCode { get; set; } = string.Empty;
     public string WarehouseCode { get; set; } = string.Empty;
+    public decimal Quantity { get; set; }
+    public decimal NetAmount { get; set; }
+}
+
+public sealed class ManagementItemPartnerCell
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string CardCode { get; set; } = string.Empty;
     public decimal Quantity { get; set; }
     public decimal NetAmount { get; set; }
 }

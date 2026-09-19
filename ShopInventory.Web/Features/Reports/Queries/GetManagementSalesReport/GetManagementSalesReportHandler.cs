@@ -21,6 +21,7 @@ public sealed class GetManagementSalesReportHandler(
                 ("toDate", ManagementReportApi.Date(request.ToDate)),
                 ("warehouseCode", request.WarehouseCode),
                 ("sourceSystem", request.SourceSystem),
+                ("cardCode", request.CardCode),
             ],
             cancellationToken);
 }

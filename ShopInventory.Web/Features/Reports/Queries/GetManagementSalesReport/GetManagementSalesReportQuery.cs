@@ -8,11 +8,13 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport;
 /// </summary>
 /// <remarks>
 /// The API decides whose shops the signed-in account may read, as it does for the till analysis, so the
-/// warehouse is a filter and naming another shop is refused rather than rescoped.
+/// warehouse is a filter and naming another shop is refused rather than rescoped. The business partner
+/// narrows within that scope.
 /// </remarks>
 public sealed record GetManagementSalesReportQuery(
     DateTime? FromDate,
     DateTime? ToDate,
     string? WarehouseCode,
-    string? SourceSystem
+    string? SourceSystem,
+    string? CardCode = null
 ) : IRequest<ErrorOr<ManagementSalesReportResult>>;

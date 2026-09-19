@@ -12,10 +12,12 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesRe
 /// <param name="ToDate">Last business day, inclusive. Defaults to today.</param>
 /// <param name="WarehouseCode">One shop or depot's warehouse, or every one the caller may read.</param>
 /// <param name="SourceSystem">One channel — till, vending or van — or all of them.</param>
+/// <param name="CardCode">One business partner the sales were made as, or all of them.</param>
 public sealed record GetManagementSalesReportQuery(
     Guid CallerUserId,
     DateTime? FromDate,
     DateTime? ToDate,
     string? WarehouseCode = null,
-    string? SourceSystem = null
+    string? SourceSystem = null,
+    string? CardCode = null
 ) : IRequest<ErrorOr<ManagementSalesReport>>;
