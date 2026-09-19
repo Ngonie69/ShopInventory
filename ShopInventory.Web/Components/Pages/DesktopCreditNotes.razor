@@ -2,42 +2,143 @@
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Features.DesktopCreditNotes
+@using ShopInventory.Web.Features.DesktopSalesDay
 @attribute [Authorize(Roles = "Admin,Cashier,Manager")]
 @inject IDesktopIntegrationService DesktopIntegrationService
 @rendermode InteractiveServer
 
 <PageTitle>Desktop Credit Notes - Shop Inventory</PageTitle>
 
-@* Styles live in wwwroot/css/operations.css: the shared `ops` vocabulary, plus the few
-   `.ops-dcl` rules at the foot of that sheet. Not `ops-dcn` — that prefix is the credit dialog's. *@
+@* Laid out as /desktop-sales is: the same hero, summary cards, filter bar, list bar, table and
+   drawer, so the credit list reads as the other half of that page rather than a page of its own.
+   It wears `ops-ds` for that vocabulary, and `.ops-dcl` (at the foot of operations.css) for the
+   few rules only this list needs. Not `ops-dcn` — that prefix is the credit dialog's. *@
 
-<div class="ops ops-dcl">
+<div class="ops ops-ds ops-dcl">
 
     <div class="ops-hero">
         <div class="ops-hero-text">
-            <div class="ops-kicker">Tills &amp; Vending</div>
+            <div class="ops-ds-kicker-row">
+                <span class="ops-kicker">Tills &amp; Vending</span>
+                <span class="ops-ds-kicker-rule"></span>
+            </div>
             <h1>Desktop Credit Notes</h1>
             <p>
                 Every credit raised against a till, vending or van sale, with where it stands at ZIMRA and in
-                SAP. A credit is filed with ZIMRA at the counter; its SAP credit memo follows once the sale
-                has posted. The ones to act on are the ones SAP refused and the ones it cannot raise by itself.
+                SAP. The SAP credit memo follows once the sale has posted.
             </p>
         </div>
-        <div class="ops-hero-actions">
-            <button type="button" class="ops-btn ops-btn-ghost" @onclick="LoadAsync" disabled="@loading">
-                @if (loading)
-                {
-                    <span class="ops-spin"></span>
-                    <span>Loading&hellip;</span>
-                }
-                else
-                {
-                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-                    <span>Refresh</span>
-                }
-            </button>
+
+        <div class="ops-ds-hero-side">
+            <div class="ops-ds-poll">
+                <div class="ops-ds-poll-now">
+                    @(loadedAt.HasValue ? $"Loaded {loadedAt:HH:mm:ss}" : "Not loaded yet")
+                </div>
+                <div class="ops-ds-poll-then">@periodLabel</div>
+            </div>
+            <div class="ops-hero-actions">
+                <a class="ops-btn ops-btn-ghost" href="/desktop-sales">
+                    <i class="ph ph-receipt" aria-hidden="true"></i>
+                    <span>Desktop sales</span>
+                </a>
+                <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
+                        @onclick="LoadAsync" disabled="@loading">
+                    @if (loading)
+                    {
+                        <span class="ops-spin"></span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    }
+                </button>
+            </div>
         </div>
     </div>
+
+    <div class="ops-rule-fade"></div>
+
+    @if (response is not null)
+    {
+        @* Counted over every credit the other filters match, whatever the SAP filter says — so
+           "Refused by SAP" keeps its number while the table shows only the posted ones. *@
+        <div class="ops-ds-summary">
+            <div class="ops-ds-card">
+                <div class="ops-ds-card-head">
+                    <span class="ops-ds-card-label">Where the SAP memo stands</span>
+                    <span class="ops-ds-card-tally">
+                        <b>@Fiscalised</b>
+                        <span>with ZIMRA</span>
+                    </span>
+                </div>
+
+                @if (laneTotal > 0)
+                {
+                    <div class="ops-ds-strip">
+                        @foreach (var lane in lanes.Where(l => l.Count > 0))
+                        {
+                            <div class="ops-ds-strip-seg @lane.Family"
+                                 style="width:@Percent(lane.Count, laneTotal)"></div>
+                        }
+                    </div>
+                }
+
+                <div class="ops-ds-lanes">
+                    @foreach (var lane in lanes)
+                    {
+                        <div class="ops-ds-lane @lane.Family">
+                            <div class="ops-ds-lane-num">@lane.Count</div>
+                            <div class="ops-ds-lane-name">@lane.Name</div>
+                        </div>
+                    }
+                </div>
+
+                @* The two outcomes that owe SAP nothing, stated beside the four that do. *@
+                <div class="ops-ds-aside ops-ds-aside-ruled">
+                    <span>Nothing owed <b>@SapCount(DesktopCreditSapStatuses.NotRequired)</b></span>
+                    <span>Fiscalised only <b>@SapCount(DesktopCreditSapStatuses.FiscalOnly)</b></span>
+                </div>
+            </div>
+
+            <div class="ops-ds-card">
+                <div class="ops-ds-card-head">
+                    <i class="ph ph-receipt-x" aria-hidden="true"></i>
+                    <span class="ops-ds-card-label">Credited</span>
+                </div>
+
+                <div class="ops-ds-value">
+                    <b>@(headlineCurrency is { } top ? Money(top.Value, top.Key) : "Nothing")</b>
+                </div>
+                <div class="ops-ds-aside">
+                    <span>filed with ZIMRA · @Fiscalised credit@(Fiscalised == 1 ? "" : "s")</span>
+                </div>
+
+                @* Currencies are not added together: a USD and a ZiG credit are two amounts. *@
+                <div class="ops-ds-split"></div>
+                <div class="ops-ds-breakdown">
+                    @if (response.TotalsByCurrency.Count == 0)
+                    {
+                        <div class="ops-ds-empty">No credit in this view has reached ZIMRA.</div>
+                    }
+                    else
+                    {
+                        <div class="ops-ds-card-label">By currency</div>
+                        @foreach (var total in response.TotalsByCurrency.OrderByDescending(t => t.Value))
+                        {
+                            <div class="ops-ds-break-row">
+                                <span class="ops-ds-break-code">@total.Key</span>
+                                <span class="ops-ds-break-track">
+                                    <span class="ops-ds-break-fill"
+                                          style="width:@Percent(total.Value, currencyMax)"></span>
+                                </span>
+                                <span class="ops-ds-break-val">@Money(total.Value, total.Key)</span>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    }
 
     @if (notice is not null)
     {
@@ -50,111 +151,135 @@
         </div>
     }
 
-    @if (response is not null)
-    {
-        @* Counted over every credit the other filters match, whatever the SAP filter says — so
-           "Refused by SAP" keeps its number while the table shows only the posted ones. *@
-        <div class="ops-figures">
-            <div class="ops-figure ops-fam-accent">
-                <div class="ops-figure-head"><span class="ops-figure-rule"></span>With ZIMRA</div>
-                <div class="ops-figure-num">@Fiscalised</div>
-                <div class="ops-figure-sub">@CreditedText</div>
+    <section class="ops-panel ops-ds-fbar">
+        <div class="ops-ds-fbar-row">
+            <div class="ops-search ops-ds-search">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" class="ops-input" placeholder="INV or CN number, customer, SAP invoice"
+                       aria-label="Search by sale or credit number, customer or SAP invoice"
+                       @bind="search" @bind:after="ApplyFilters" />
             </div>
-            <div class="ops-figure ops-fam-good">
-                <div class="ops-figure-head"><span class="ops-figure-rule"></span>In SAP</div>
-                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.Posted)</div>
-                <div class="ops-figure-sub">credit memo raised</div>
-            </div>
-            <div class="ops-figure ops-fam-info">
-                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Waiting for the sale</div>
-                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.Deferred)</div>
-                <div class="ops-figure-sub">follows once the sale posts</div>
-            </div>
-            <div class="ops-figure @(SapCount(DesktopCreditSapStatuses.Failed) > 0 ? "ops-fam-bad" : "ops-fam-neutral")">
-                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Refused by SAP</div>
-                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.Failed)</div>
-                <div class="ops-figure-sub">retry once the cause is fixed</div>
-            </div>
-            <div class="ops-figure @(SapCount(DesktopCreditSapStatuses.ManualInSap) > 0 ? "ops-fam-warn" : "ops-fam-neutral")">
-                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Raise by hand</div>
-                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.ManualInSap)</div>
-                <div class="ops-figure-sub">SAP cannot take it automatically</div>
-            </div>
-        </div>
-    }
 
-    <section class="ops-panel">
-        <div class="ops-panel-head">
-            <h2><i class="ph ph-receipt-x" aria-hidden="true"></i>Credit notes</h2>
-            @if (response is not null)
-            {
-                <span class="ops-count">@response.TotalCount.ToString("N0") credit@(response.TotalCount == 1 ? "" : "s")</span>
-            }
-        </div>
+            <div class="ops-ds-seg" role="group" aria-label="Period">
+                @foreach (var option in PeriodOptions)
+                {
+                    <button type="button" class="ops-ds-seg-opt @(period == option.Value ? "is-on" : "")"
+                            aria-pressed="@(period == option.Value)"
+                            @onclick="() => SetPeriod(option.Value)">@option.Label</button>
+                }
+            </div>
 
-        <div class="ops-filters">
-            <div class="ops-field">
-                <label class="ops-label" for="dcl-search">Search</label>
-                <div class="ops-search">
-                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                    <input id="dcl-search" type="search" class="ops-input"
-                           placeholder="INV number, credit, customer, SAP invoice"
-                           @bind="search" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
-                </div>
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="dcl-from">From</label>
-                <NocturneDateField Id="dcl-from" Date="fromDate" DateChanged="@(value => OnDateChanged(value, isFrom: true))"
-                                   AriaLabel="From date" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="dcl-to">To</label>
-                <NocturneDateField Id="dcl-to" Date="toDate" DateChanged="@(value => OnDateChanged(value, isFrom: false))"
-                                   AriaLabel="To date" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="dcl-sap">SAP</label>
-                <NocturneSelect Id="dcl-sap" Class="nsel-block" TValue="string" Options="SapOptions"
-                                @bind-Value="sapStatus" OnChanged="FilterChanged"
-                                Caption="Filter by SAP status" AriaLabel="Filter by SAP status" Placeholder="Any SAP status" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="dcl-fiscal">ZIMRA</label>
-                <NocturneSelect Id="dcl-fiscal" Class="nsel-block" TValue="string" Options="FiscalOptions"
-                                @bind-Value="fiscalStatus" OnChanged="FilterChanged"
-                                Caption="Filter by fiscal status" AriaLabel="Filter by fiscal status" Placeholder="Any fiscal status" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="dcl-source">Sold by</label>
-                <NocturneSelect Id="dcl-source" Class="nsel-block" TValue="string" Options="SourceOptions"
-                                @bind-Value="source" OnChanged="FilterChanged"
-                                Caption="Filter by where the sale was made" AriaLabel="Filter by source" Placeholder="Till, vending and van" />
-            </div>
-            @if (response?.Warehouses.Count > 1)
+            @if (period == PeriodCustom)
             {
-                <div class="ops-field">
-                    <label class="ops-label" for="dcl-wh">Warehouse</label>
-                    <NocturneSelect Id="dcl-wh" Class="nsel-block nsel-end" TValue="string" Options="WarehouseOptions"
-                                    @bind-Value="warehouse" OnChanged="FilterChanged"
-                                    Caption="Filter by warehouse" AriaLabel="Filter by warehouse" Placeholder="All warehouses" />
+                <div class="ops-ds-dates">
+                    <NocturneDateField Id="dcl-f-from" Date="fromDate" DateChanged="@(value => OnDateChanged(value, isFrom: true))"
+                                       AriaLabel="From date" />
+                    <span class="ops-ds-dates-to" aria-hidden="true">&rarr;</span>
+                    <NocturneDateField Id="dcl-f-to" Date="toDate" DateChanged="@(value => OnDateChanged(value, isFrom: false))"
+                                       AriaLabel="To date" />
                 </div>
             }
-            <div class="ops-filter-actions">
-                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
-                    <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
+
+            <button type="button" class="ops-ds-ftoggle @(filterCount > 0 ? "is-on" : "")"
+                    aria-expanded="@filtersOpen" aria-controls="dcl-filter-panel"
+                    @onclick="() => filtersOpen = !filtersOpen">
+                <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
+                <span>Filters</span>
+                <span class="ops-ds-fcount">@filterCount</span>
+                <i class="ph @(filtersOpen ? "ph-caret-up" : "ph-caret-down")" aria-hidden="true"></i>
+            </button>
+
+            @if (filterCount > 0)
+            {
+                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="ClearFilters">
+                    <i class="ph ph-x" aria-hidden="true"></i>Clear all
                 </button>
-            </div>
+            }
         </div>
 
-        @if (loading && response is null)
+        @if (filtersOpen)
         {
-            <div class="ops-loading">
-                <span class="ops-spin ops-spin-lg"></span>
-                <p>Loading credit notes&hellip;</p>
+            @* The API filters each of these on one value, so a chip here replaces the group's pick
+               rather than adding to it. Only the SAP group is counted: those are the counts the list
+               returns, taken with the SAP filter lifted. *@
+            <div class="ops-ds-fpanel" id="dcl-filter-panel">
+                <div class="ops-ds-fgrid">
+                    @foreach (var group in ChipGroups)
+                    {
+                        <div class="ops-ds-fgroup">
+                            <span class="ops-kicker">@group.Name</span>
+                            @if (group.Chips.Count == 0)
+                            {
+                                <span class="ops-ds-fnone">Nothing in this period</span>
+                            }
+                            else
+                            {
+                                <div class="ops-ds-chips">
+                                    @foreach (var chip in group.Chips)
+                                    {
+                                        <button type="button"
+                                                class="ops-ds-chip @chip.Family @(chip.IsOn ? "is-on" : "")"
+                                                aria-pressed="@chip.IsOn"
+                                                @onclick="() => ToggleChip(group.Key, chip.Value)">
+                                            @if (chip.Family is not null)
+                                            {
+                                                <span class="ops-dot"></span>
+                                            }
+                                            <span class="ops-ds-chip-label">@chip.Label</span>
+                                            @if (chip.Count is { } count)
+                                            {
+                                                <span class="ops-ds-chip-count">@count</span>
+                                            }
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
         }
-        else if (error is not null)
+
+        @if (activeFilters.Count > 0)
         {
+            <div class="ops-ds-active">
+                <span class="ops-kicker">Active</span>
+                @foreach (var pill in activeFilters)
+                {
+                    <button type="button" class="ops-ds-pill" @onclick="pill.Remove"
+                            aria-label="@($"Remove the {pill.Group} filter {pill.Label}")">
+                        <span class="ops-ds-pill-group">@pill.Group</span>
+                        <span>@pill.Label</span>
+                        <i class="ph ph-x" aria-hidden="true"></i>
+                    </button>
+                }
+            </div>
+        }
+    </section>
+
+    <div class="ops-ds-listbar">
+        <div class="ops-ds-listbar-count">
+            <span class="ops-ds-shown">@shownText</span>
+        </div>
+
+        <div class="ops-ds-listbar-tools">
+            <span class="ops-label">Rows</span>
+            <NocturneSelect Class="nsel-sm nsel-auto nsel-end" TValue="int" Options="PageSizeOptions"
+                            Value="pageSize" ValueChanged="@(size => SetPageSize(size))"
+                            Caption="Rows per page" AriaLabel="Rows per page" />
+        </div>
+    </div>
+
+    @if (loading && response is null)
+    {
+        <div class="ops-loading">
+            <span class="ops-spin ops-spin-lg"></span>
+            <p>Loading credit notes&hellip;</p>
+        </div>
+    }
+    else if (error is not null)
+    {
+        <div class="ops-panel ops-ds-list">
             <div class="ops-empty">
                 <i class="ph ph-warning-octagon" aria-hidden="true"></i>
                 <h3>Could not load the credit notes</h3>
@@ -163,17 +288,21 @@
                     <button type="button" class="ops-btn ops-btn-ghost" @onclick="LoadAsync">Try again</button>
                 </div>
             </div>
-        }
-        else if (response is null || response.Items.Count == 0)
-        {
+        </div>
+    }
+    else if (response is null || response.Items.Count == 0)
+    {
+        <div class="ops-panel ops-ds-list">
             <div class="ops-empty">
                 <i class="ph ph-receipt-x" aria-hidden="true"></i>
-                @if (HasFilters)
+                @if (filterCount > 0)
                 {
-                    <h3>Nothing matches those filters</h3>
-                    <p>Clear them to see every credit.</p>
+                    <h3>Nothing matches these filters</h3>
+                    <p>Widen the period or drop a filter to see the rest.</p>
                     <div class="ops-empty-actions">
-                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">Clear filters</button>
+                        <button type="button" class="ops-btn ops-btn-primary" @onclick="ClearFilters">
+                            <i class="ph ph-x-circle" aria-hidden="true"></i>Clear all filters
+                        </button>
                     </div>
                 }
                 else
@@ -182,11 +311,13 @@
                     <p>Credits are raised from a sale on Desktop Sales, Vending Sales or Van Sales Invoices.</p>
                 }
             </div>
-        }
-        else
-        {
+        </div>
+    }
+    else
+    {
+        <div class="ops-panel ops-ds-list">
             <div class="ops-scroll">
-                <table class="ops-table">
+                <table class="ops-table mobile-card-table">
                     <thead>
                         <tr>
                             <th>Credit note</th>
@@ -195,68 +326,71 @@
                             <th class="ops-num">Credited</th>
                             <th>ZIMRA</th>
                             <th>SAP</th>
+                            <th class="ops-ds-chev-cell"><span class="visually-hidden">Open</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var row in response.Items)
                         {
-                            <tr class="@(selected?.Id == row.Id ? "ops-dcl-current" : null)">
-                                <td>
-                                    @* CN1753, in the shape of the sale's INV1753. It opens the credit's own
-                                       drawer, with its lines, as the sale number opens the sale's credits. *@
-                                    <button type="button" class="ops-dcl-open ops-ds-saleno" @onclick="() => OpenDetail(row)"
-                                            title="Show the lines of @row.DisplayNumber">@row.DisplayNumber</button>
-                                    <span class="ops-dcl-when ops-dcl-sub">@Stamp(row.CreatedAtUtc)</span>
+                            @* A press anywhere on the row opens the credit's drawer, as a row does on
+                               /desktop-sales. The sale number and Retry SAP stop the click so they keep
+                               their own actions. *@
+                            <tr @onclick="() => OpenDetail(row)"
+                                class="@(selected?.Id == row.Id ? "is-open" : null)">
+                                <td data-label="Credit note">
+                                    <span class="ops-ds-saleno">@row.DisplayNumber</span>
+                                    <div class="ops-sub ops-ds-when">@Stamp(row.CreatedAtUtc)</div>
                                 </td>
-                                <td>
-                                    @* The sale number opens the sale's credits — the same dialog the sale pages
-                                       use — so a row carries no separate actions column to push off-screen. *@
-                                    <button type="button" class="ops-dcl-open ops-ds-saleno" @onclick="() => Open(row)"
+                                <td data-label="Sale">
+                                    @* The sale number opens the sale's credits — the same dialog the sale
+                                       pages use. *@
+                                    <button type="button" class="ops-dcl-open ops-ds-saleno"
+                                            @onclick="() => Open(row)" @onclick:stopPropagation="true"
                                             title="Open @row.SaleNumber's credit notes">@row.SaleNumber</button>
-                                    <span class="ops-sub ops-dcl-sub ops-dcl-nowrap">
+                                    <div class="ops-sub ops-dcl-nowrap">
                                         @DesktopCreditLabels.Source(row.SaleSourceSystem) · @row.SaleWarehouseCode
-                                    </span>
+                                    </div>
                                     @if (row.SaleSapDocNum is { } invoice)
                                     {
-                                        <span class="ops-sub ops-dcl-sub ops-dcl-nowrap">invoice #@invoice</span>
+                                        <div class="ops-sub">SAP #@invoice</div>
                                     }
                                 </td>
-                                <td class="ops-name">
+                                <td data-label="Customer" class="ops-name">
                                     <span class="ops-dcl-customer" title="@Customer(row)">@Customer(row)</span>
                                     @if (!string.IsNullOrWhiteSpace(row.SaleCardCode))
                                     {
-                                        <span class="ops-code ops-dcl-sub">@row.SaleCardCode</span>
+                                        <span class="ops-sub"> · @row.SaleCardCode</span>
                                     }
                                 </td>
-                                <td class="ops-num">
-                                    <span class="ops-qty ops-dcl-amount">@row.Currency @row.Amount.ToString("N2", CultureInfo.InvariantCulture)</span>
-                                    @* The reason rides under the amount rather than taking a column: it is
-                                       read once per row, and the column it had pushed the actions off-screen. *@
-                                    <span class="ops-sub ops-dcl-sub ops-dcl-reason" title="@row.Reason">@row.Reason</span>
+                                <td data-label="Credited" class="ops-num">
+                                    <span class="ops-dcl-amount">@Money(row.Amount, row.Currency)</span>
+                                    <div class="ops-sub ops-dcl-reason" title="@row.Reason">@row.Reason</div>
                                 </td>
-                                <td>
-                                    <span class="ops-badge @DesktopCreditLabels.Family(row.Status)">@DesktopCreditLabels.Fiscal(row.Status)</span>
+                                <td data-label="ZIMRA">
+                                    <span class="ops-ds-state @DesktopCreditLabels.Family(row.Status)">
+                                        <span class="ops-dot"></span>@DesktopCreditLabels.Fiscal(row.Status)
+                                    </span>
                                     @if (!string.IsNullOrWhiteSpace(row.ReceiptGlobalNo))
                                     {
-                                        <span class="ops-sub ops-dcl-sub">receipt @row.ReceiptGlobalNo</span>
+                                        <div class="ops-sub">receipt @row.ReceiptGlobalNo</div>
                                     }
                                 </td>
-                                <td class="ops-dcl-sap">
+                                <td data-label="SAP" class="ops-dcl-sap">
                                     @if (row.Status == "Fiscalised")
                                     {
-                                        <span class="ops-badge @DesktopCreditLabels.SapFamily(row.SapStatus)">
-                                            @DesktopCreditLabels.Sap(row.SapStatus, row.SapDocNum)
+                                        <span class="ops-ds-state @DesktopCreditLabels.SapFamily(row.SapStatus)">
+                                            <span class="ops-dot"></span>@DesktopCreditLabels.Sap(row.SapStatus, row.SapDocNum)
                                         </span>
                                         @if (!string.IsNullOrWhiteSpace(row.SapError)
                                              && row.SapStatus is DesktopCreditSapStatuses.Failed or DesktopCreditSapStatuses.ManualInSap)
                                         {
-                                            <span class="ops-sub ops-dcl-sub ops-dcl-error" title="@row.SapError">
+                                            <div class="ops-sub ops-dcl-error" title="@row.SapError">
                                                 @row.SapError
                                                 @if (row.SapStatus == DesktopCreditSapStatuses.Failed)
                                                 {
                                                     <text> (@row.SapAttempts attempt@(row.SapAttempts == 1 ? "" : "s"))</text>
                                                 }
-                                            </span>
+                                            </div>
                                         }
                                         @if (row.SapStatus == DesktopCreditSapStatuses.Failed)
                                         {
@@ -264,6 +398,7 @@
                                                 <Authorized>
                                                     <button type="button" class="ops-btn ops-btn-primary ops-btn-sm ops-dcl-retry"
                                                             disabled="@(retrying is not null)" @onclick="() => RetryAsync(row)"
+                                                            @onclick:stopPropagation="true"
                                                             title="Send the SAP credit memo again now">
                                                         @if (retrying == row.Id)
                                                         {
@@ -285,29 +420,32 @@
                                         <span class="ops-sub">not until ZIMRA has it</span>
                                     }
                                 </td>
+                                <td class="ops-ds-chev-cell">
+                                    <i class="ph ph-arrow-right ops-ds-chev" aria-hidden="true"></i>
+                                </td>
                             </tr>
                         }
                     </tbody>
                 </table>
             </div>
 
-            @if (TotalPages > 1)
-            {
-                <div class="ops-foot">
-                    <span class="ops-foot-info">Page @currentPage of @TotalPages</span>
+            <div class="ops-ds-foot">
+                <span class="ops-ds-foot-info">Credits appear as the tills file them with ZIMRA</span>
+                @if (TotalPages > 1)
+                {
                     <div class="ops-pages">
                         <button type="button" class="ops-step" disabled="@(currentPage <= 1 || loading)" @onclick="() => GoToPage(currentPage - 1)">
                             <i class="ph ph-caret-left" aria-hidden="true"></i>Previous
                         </button>
-                        <span class="ops-page-now">@currentPage</span>
+                        <span class="ops-page-now">@currentPage of @TotalPages</span>
                         <button type="button" class="ops-step" disabled="@(currentPage >= TotalPages || loading)" @onclick="() => GoToPage(currentPage + 1)">
                             Next<i class="ph ph-caret-right" aria-hidden="true"></i>
                         </button>
                     </div>
-                </div>
-            }
-        }
-    </section>
+                }
+            </div>
+        </div>
+    }
 </div>
 
 @if (selected is { } credit)
@@ -485,8 +623,6 @@
                          OnClosed="CloseDialogAsync" />
 
 @code {
-    private const int PageSize = 50;
-
     private DesktopCreditNoteListResponse? response;
     private bool loading = true;
     private string? error;
@@ -495,6 +631,7 @@
     private Guid? retrying;
     private DesktopCreditNoteListRow? openRow;
     private DesktopCreditNoteListRow? selected;
+    private DateTime? loadedAt;
 
     private string search = "";
     private DateTime? fromDate;
@@ -504,59 +641,155 @@
     private string source = "";
     private string warehouse = "";
     private int currentPage = 1;
+    private int pageSize = 50;
+    private bool filtersOpen;
 
-    private CancellationTokenSource? searchDebounce;
+    // Credits are few beside sales, so the page opens on all of them rather than on today, which
+    // most days would be empty.
+    private const string PeriodAll = "all";
+    private const string PeriodToday = "today";
+    private const string PeriodWeek = "week";
+    private const string PeriodMonth = "month";
+    private const string PeriodCustom = "custom";
+    private string period = PeriodAll;
 
-    private static readonly NocturneSelectOption<string>[] SapOptions =
+    private sealed record Choice(string Value, string Label);
+
+    private static readonly Choice[] PeriodOptions =
     [
-        new(string.Empty, "Any SAP status", "neutral") { IsUnset = true, RuleAfter = true },
-        new(DesktopCreditSapStatuses.Failed, "Refused by SAP", "bad"),
-        new(DesktopCreditSapStatuses.ManualInSap, "Raise by hand", "warn"),
-        new(DesktopCreditSapStatuses.Deferred, "Waiting for the sale", "accent"),
-        new(DesktopCreditSapStatuses.Posted, "In SAP", "good"),
-        new(DesktopCreditSapStatuses.NotRequired, "Nothing owed", "neutral"),
-        new(DesktopCreditSapStatuses.FiscalOnly, "Fiscalised only", "neutral")
+        new(PeriodAll, "All"),
+        new(PeriodToday, "Today"),
+        new(PeriodWeek, "Last 7 days"),
+        new(PeriodMonth, "Last 30 days"),
+        new(PeriodCustom, "Range")
     ];
 
-    // Families match DesktopCreditLabels.Family, which colours the badge in the table.
-    private static readonly NocturneSelectOption<string>[] FiscalOptions =
+    private static readonly NocturneSelectOption<int>[] PageSizeOptions =
     [
-        new(string.Empty, "Any fiscal status", "neutral") { IsUnset = true, RuleAfter = true },
-        new("Fiscalised", DesktopCreditLabels.Fiscal("Fiscalised"), "good"),
-        new("ReconciliationRequired", DesktopCreditLabels.Fiscal("ReconciliationRequired"), "warn"),
-        new("Rejected", DesktopCreditLabels.Fiscal("Rejected"), "bad"),
-        new("Prepared", DesktopCreditLabels.Fiscal("Prepared"), "accent"),
-        new("Submitting", DesktopCreditLabels.Fiscal("Submitting"), "accent")
+        new(10, "10"),
+        new(25, "25"),
+        new(50, "50") { IsUnset = true },
+        new(100, "100"),
+        new(200, "200")
     ];
 
-    private static readonly NocturneSelectOption<string>[] SourceOptions =
+    // Families match DesktopCreditLabels, which colours the row's state.
+    private static readonly (string Value, string Label, string Family)[] SapChoices =
     [
-        new(string.Empty, "Till, vending and van") { IsUnset = true, RuleAfter = true },
-        new("KefalosShopTill", "Till"),
-        new("KefalosVending", "Vending"),
-        new("KefalosVanSales", "Van")
+        (DesktopCreditSapStatuses.Failed, "Refused by SAP", "ops-fam-bad"),
+        (DesktopCreditSapStatuses.ManualInSap, "Raise by hand", "ops-fam-warn"),
+        (DesktopCreditSapStatuses.Deferred, "Waiting for the sale", "ops-fam-accent"),
+        (DesktopCreditSapStatuses.Posted, "In SAP", "ops-fam-good"),
+        (DesktopCreditSapStatuses.NotRequired, "Nothing owed", "ops-fam-neutral"),
+        (DesktopCreditSapStatuses.FiscalOnly, "Fiscalised only", "ops-fam-neutral")
     ];
 
-    private IEnumerable<NocturneSelectOption<string>> WarehouseOptions =>
+    private static readonly string[] FiscalChoices =
+        ["Fiscalised", "ReconciliationRequired", "Rejected", "Prepared", "Submitting"];
+
+    private static readonly (string Value, string Label)[] SourceChoices =
+    [
+        ("KefalosShopTill", "Till"),
+        ("KefalosVending", "Vending"),
+        ("KefalosVanSales", "Van")
+    ];
+
+    private enum ChipGroupKey { Sap, Fiscal, Source, Warehouse }
+
+    private sealed record Chip(string Value, string Label, int? Count, string? Family, bool IsOn);
+
+    private sealed record ChipGroup(ChipGroupKey Key, string Name, List<Chip> Chips);
+
+    private sealed record ActiveFilter(string Group, string Label, Func<Task> Remove);
+
+    private List<ChipGroup> ChipGroups =>
+    [
+        new(ChipGroupKey.Sap, "SAP",
+            SapChoices.Select(c => new Chip(c.Value, c.Label, SapCount(c.Value), c.Family, sapStatus == c.Value)).ToList()),
+        new(ChipGroupKey.Fiscal, "ZIMRA",
+            FiscalChoices.Select(v => new Chip(v, DesktopCreditLabels.Fiscal(v), null, DesktopCreditLabels.Family(v), fiscalStatus == v)).ToList()),
+        new(ChipGroupKey.Source, "Sold by",
+            SourceChoices.Select(c => new Chip(c.Value, c.Label, null, null, source == c.Value)).ToList()),
+        new(ChipGroupKey.Warehouse, "Warehouse",
+            WarehouseCodes.Select(code => new Chip(code, code, null, null, warehouse == code)).ToList())
+    ];
+
+    // A picked warehouse keeps its chip even if the list stops naming it, so it can be unpicked.
+    private IEnumerable<string> WarehouseCodes =>
         (response?.Warehouses ?? [])
-            .Select(code => new NocturneSelectOption<string>(code, code))
-            .Prepend(NocturneSelectOption.All("All warehouses"));
+            .Concat(string.IsNullOrEmpty(warehouse) ? [] : [warehouse])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase);
 
-    private bool HasFilters =>
-        !string.IsNullOrWhiteSpace(search) || fromDate is not null || toDate is not null
-        || sapStatus != "" || fiscalStatus != "" || source != "" || warehouse != "";
+    private List<ActiveFilter> activeFilters
+    {
+        get
+        {
+            var list = new List<ActiveFilter>();
+            if (!string.IsNullOrWhiteSpace(search))
+                list.Add(new("Search", search.Trim(), async () => { search = ""; await ApplyFilters(); }));
+            if (period != PeriodAll)
+                list.Add(new("Period", periodLabel, () => SetPeriod(PeriodAll)));
+            if (sapStatus != "")
+                list.Add(new("SAP", SapChoices.FirstOrDefault(c => c.Value == sapStatus).Label ?? sapStatus,
+                    () => ToggleChip(ChipGroupKey.Sap, sapStatus)));
+            if (fiscalStatus != "")
+                list.Add(new("ZIMRA", DesktopCreditLabels.Fiscal(fiscalStatus), () => ToggleChip(ChipGroupKey.Fiscal, fiscalStatus)));
+            if (source != "")
+                list.Add(new("Sold by", DesktopCreditLabels.Source(source), () => ToggleChip(ChipGroupKey.Source, source)));
+            if (warehouse != "")
+                list.Add(new("Warehouse", warehouse, () => ToggleChip(ChipGroupKey.Warehouse, warehouse)));
+            return list;
+        }
+    }
 
-    private int TotalPages => response is null ? 0 : (int)Math.Ceiling(response.TotalCount / (double)PageSize);
+    private int filterCount => activeFilters.Count;
+
+    private string periodLabel => period switch
+    {
+        PeriodToday => "Today",
+        PeriodWeek => "Last 7 days",
+        PeriodMonth => "Last 30 days",
+        PeriodCustom => $"{fromDate?.ToString("dd MMM", CultureInfo.InvariantCulture) ?? "…"} – {toDate?.ToString("dd MMM", CultureInfo.InvariantCulture) ?? "…"}",
+        _ => "Every credit"
+    };
+
+    private string shownText
+    {
+        get
+        {
+            if (response is null || response.TotalCount == 0) return "No credit notes";
+            var first = ((currentPage - 1) * pageSize) + 1;
+            return $"Showing {first}–{first + response.Items.Count - 1} of {response.TotalCount:N0} credit notes";
+        }
+    }
+
+    private int TotalPages => response is null ? 0 : (int)Math.Ceiling(response.TotalCount / (double)pageSize);
 
     private int SapCount(string status) => response?.SapStatusCounts.GetValueOrDefault(status) ?? 0;
 
     private int Fiscalised => response?.SapStatusCounts.Values.Sum() ?? 0;
 
-    private string CreditedText => response is null || response.TotalsByCurrency.Count == 0
-        ? "nothing credited"
-        : string.Join(" · ", response.TotalsByCurrency
-            .OrderBy(t => t.Key)
-            .Select(t => $"{t.Key} {t.Value.ToString("N2", CultureInfo.InvariantCulture)}"));
+    private List<DesktopSalesDaySummary.Lane> lanes =>
+    [
+        new("In SAP", SapCount(DesktopCreditSapStatuses.Posted), "ops-fam-good"),
+        new("Waiting for the sale", SapCount(DesktopCreditSapStatuses.Deferred), "ops-fam-accent"),
+        new("Refused by SAP", SapCount(DesktopCreditSapStatuses.Failed), "ops-fam-bad"),
+        new("Raise by hand", SapCount(DesktopCreditSapStatuses.ManualInSap), "ops-fam-warn")
+    ];
+
+    private int laneTotal => lanes.Sum(l => l.Count);
+
+    // USD leads when there is any: amounts in different currencies are not comparable, so the
+    // largest number would put 410 ZiG above 40 USD. The rest are listed under it.
+    private KeyValuePair<string, decimal>? headlineCurrency =>
+        response is null || response.TotalsByCurrency.Count == 0
+            ? null
+            : response.TotalsByCurrency.FirstOrDefault(t => t.Key.Equals("USD", StringComparison.OrdinalIgnoreCase)) is { Key: not null } usd
+                ? usd
+                : response.TotalsByCurrency.MaxBy(t => t.Value);
+
+    private decimal currencyMax => response?.TotalsByCurrency.Values.DefaultIfEmpty(0).Max() ?? 0;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -569,7 +802,8 @@
         {
             response = await DesktopIntegrationService.ListCreditNotesAsync(new DesktopCreditNoteListQuery(
                 fromDate, toDate, NullIfEmpty(warehouse), NullIfEmpty(source), NullIfEmpty(fiscalStatus),
-                NullIfEmpty(sapStatus), NullIfEmpty(search), currentPage, PageSize));
+                NullIfEmpty(sapStatus), NullIfEmpty(search), currentPage, pageSize));
+            loadedAt = IAuditService.ToCAT(DateTime.UtcNow);
 
             // An open drawer follows its credit across a reload (a retry changes the row), and closes
             // when the credit is no longer on the page.
@@ -585,45 +819,66 @@
         }
     }
 
-    private async Task FilterChanged()
+    private async Task ApplyFilters()
     {
         currentPage = 1;
         await LoadAsync();
     }
 
+    private async Task SetPeriod(string value)
+    {
+        if (period == value) return;
+        period = value;
+
+        (fromDate, toDate) = value switch
+        {
+            PeriodToday => (DateTime.Today, DateTime.Today),
+            PeriodWeek => (DateTime.Today.AddDays(-6), DateTime.Today),
+            PeriodMonth => (DateTime.Today.AddDays(-29), DateTime.Today),
+            // "Range" keeps whatever pair is already set and reveals the fields.
+            PeriodCustom => (fromDate, toDate),
+            _ => ((DateTime?)null, (DateTime?)null)
+        };
+
+        await ApplyFilters();
+    }
+
     private async Task OnDateChanged(DateTime? value, bool isFrom)
     {
         if (isFrom) fromDate = value; else toDate = value;
-        await FilterChanged();
+        await ApplyFilters();
     }
 
-    /// <summary>Waits for typing to pause before asking the API, so a search is one read, not one per key.</summary>
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    /// <summary>The API filters each group on one value, so a chip replaces its group's pick, and pressing it again lifts it.</summary>
+    private async Task ToggleChip(ChipGroupKey key, string value)
     {
-        searchDebounce?.Cancel();
-        var debounce = searchDebounce = new CancellationTokenSource();
+        static string Flip(string current, string pressed) => current == pressed ? "" : pressed;
 
-        try
+        switch (key)
         {
-            if (e.Key != "Enter")
-            {
-                await Task.Delay(350, debounce.Token);
-            }
-        }
-        catch (TaskCanceledException)
-        {
-            return;
+            case ChipGroupKey.Sap: sapStatus = Flip(sapStatus, value); break;
+            case ChipGroupKey.Fiscal: fiscalStatus = Flip(fiscalStatus, value); break;
+            case ChipGroupKey.Source: source = Flip(source, value); break;
+            case ChipGroupKey.Warehouse: warehouse = Flip(warehouse, value); break;
         }
 
-        await FilterChanged();
+        await ApplyFilters();
+    }
+
+    private async Task SetPageSize(int size)
+    {
+        if (size == pageSize) return;
+        pageSize = size;
+        await ApplyFilters();
     }
 
     private async Task ClearFilters()
     {
         search = "";
+        period = PeriodAll;
         fromDate = toDate = null;
         sapStatus = fiscalStatus = source = warehouse = "";
-        await FilterChanged();
+        await ApplyFilters();
     }
 
     private async Task GoToPage(int target)
@@ -696,4 +951,11 @@
     private static string Stamp(DateTime utc) => IAuditService.ToCAT(
             utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc))
         .ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture);
+
+    private static string Money(decimal value, string? code) =>
+        string.IsNullOrEmpty(code) ? value.ToString("N2", CultureInfo.InvariantCulture)
+            : $"{code} {value.ToString("N2", CultureInfo.InvariantCulture)}";
+
+    private static string Percent(decimal part, decimal whole) =>
+        whole <= 0 ? "0%" : (part / whole * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
 }

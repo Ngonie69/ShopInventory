@@ -4849,23 +4849,12 @@
 
 
 /* ── /desktop-credit-notes  `.ops.ops-dcl` ────────────────────────────── */
-/* Every desktop credit in one list. The page is the shared vocabulary above —
-   hero, figures, filter row, table, pager — and borrows `.ops-ds-saleno` for the
-   sale's short number, so INV1753 reads the same here as on /desktop-sales.
-   What is its own is only the second line under a cell, SAP's refusal in the
-   bad hue, and a reason column that gives way. `dcl`, not `dcn`: `.ops-dcn` is
-   the credit dialog's, and this page opens that dialog. */
-
-.ops-dcl .ops-dcl-when {
-    font-variant-numeric: tabular-nums;
-    color: var(--ops-ink-2);
-    white-space: nowrap;
-}
-
-.ops-dcl .ops-dcl-sub {
-    display: block;
-    margin-top: 2px;
-}
+/* Every desktop credit in one list. The page wears `.ops-ds` too and is laid
+   out as /desktop-sales is — hero, summary cards, filter bar, list bar, table,
+   drawer — so a credit reads as the other half of that page. What is its own is
+   SAP's refusal in the bad hue, a reason that gives way, and a SAP state that
+   may wrap. `dcl`, not `dcn`: `.ops-dcn` is the credit dialog's, and this page
+   opens that dialog. */
 
 /* SAP's refusal is the one thing on the page worth finding by colour, and it can
    run to a paragraph; two lines of it, and the rest on hover. */
@@ -4917,25 +4906,30 @@
 }
 
 /* The SAP column holds the most words on the page — a status, SAP's refusal and
-   the retry — so its badge may wrap rather than widen the table past the edge. */
+   the retry — so its state may wrap rather than widen the table past the edge. */
 .ops-dcl .ops-dcl-sap {
     min-width: 200px;
     max-width: 290px;
 }
 
-/* A pill's radius clips the first and last letters once the text wraps, so a
-   wrapped badge here takes a card's corners instead. */
-.ops-dcl .ops-dcl-sap .ops-badge {
+.ops-dcl .ops-dcl-sap .ops-ds-state {
     white-space: normal;
-    border-radius: 6px;
+    align-items: baseline;
 }
 
 .ops-dcl .ops-dcl-retry {
     margin-top: var(--ops-s3);
 }
 
-/* The credit the drawer is showing keeps a mark, so it is findable behind the
-   drawer on a wide screen. */
-.ops-dcl .ops-table tbody tr.ops-dcl-current {
-    background: var(--ops-hover);
+/* `.ops-ds` zeroes the edge cells because /desktop-sales has a checkbox gutter
+   to inset its first column. This list has none, so its edges take back the
+   inset every other ops table has. */
+.ops-dcl .ops-table thead th:first-child,
+.ops-dcl .ops-table tbody td:first-child {
+    padding-left: var(--ops-s8);
+}
+
+.ops-dcl .ops-table thead th:last-child,
+.ops-dcl .ops-table tbody td:last-child {
+    padding-right: var(--ops-s6);
 }
