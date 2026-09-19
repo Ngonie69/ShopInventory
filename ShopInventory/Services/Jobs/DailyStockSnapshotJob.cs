@@ -50,6 +50,12 @@ public sealed class DailyStockSnapshotJob : IJob
     /// </summary>
     public static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// The repeating trigger that re-reads the unbatched half of a finished snapshot missing it. Its
+    /// Quartz identity carries the <c>-trigger</c> suffix every interval trigger gets.
+    /// </summary>
+    public const string UnbatchedRetryTriggerName = "daily-stock-snapshot-unbatched-retry";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DailyStockSnapshotJob> _logger;
     private readonly DailyStockSettings _settings;
@@ -73,6 +79,12 @@ public sealed class DailyStockSnapshotJob : IJob
         // either side of 07:00 still stamps the day it is fetching for.
         var today = StockLedgerDay.Today(_settings.StockFetchTimeCAT);
         var warehouses = _settings.MonitoredWarehouses;
+
+        if (context.Trigger.Key.Name == $"{UnbatchedRetryTriggerName}-trigger")
+        {
+            await RetryUnbatchedAsync(scope, warehouses, today, context.CancellationToken);
+            return;
+        }
 
         if (context.Trigger.Key.Name == StartupTriggerName)
         {
@@ -128,6 +140,81 @@ public sealed class DailyStockSnapshotJob : IJob
                     .FirstOrDefault()))
             .Where(entry => entry.Status != StockSnapshotStatus.Complete)
             .ToList();
+    }
+
+    /// <summary>
+    /// The warehouses, in the order given, whose snapshot for <paramref name="day"/> is finished but
+    /// is missing its unbatched half.
+    /// </summary>
+    internal static async Task<List<string>> MissingUnbatchedAsync(
+        ApplicationDbContext db,
+        IReadOnlyCollection<string> warehouses,
+        DateTime day,
+        CancellationToken cancellationToken)
+    {
+        var codes = warehouses.ToList();
+
+        var flagged = await db.DailyStockSnapshots
+            .AsNoTracking()
+            .Where(snapshot => snapshot.SnapshotDate == day
+                            && codes.Contains(snapshot.WarehouseCode)
+                            && snapshot.Status == StockSnapshotStatus.Complete
+                            && snapshot.UnbatchedStockMissing)
+            .Select(snapshot => snapshot.WarehouseCode)
+            .ToListAsync(cancellationToken);
+
+        return codes
+            .Where(code => flagged.Contains(code, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Re-reads the unbatched half of every snapshot for the day that finished without it.
+    /// </summary>
+    /// <remarks>
+    /// On 2026-09-19 the morning fetch read the batch-managed items and then failed to read the
+    /// unbatched ones. The snapshots were finished with the flag set, and nothing read that half
+    /// again: the morning run's retry covers only fetches that threw, and the startup run covers
+    /// only unfinished snapshots. The shops sold without their unbatched items until someone
+    /// fetched by hand. <see cref="FetchDailyStockHandler"/> reads only the missing half of a
+    /// flagged snapshot, so the rows the tills are already selling from are not touched.
+    /// </remarks>
+    private async Task RetryUnbatchedAsync(
+        IServiceScope scope,
+        IReadOnlyCollection<string> warehouses,
+        DateTime today,
+        CancellationToken ct)
+    {
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var missing = await MissingUnbatchedAsync(db, warehouses, today, ct);
+
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "{Count} warehouse(s) are missing unbatched stock from their {Day:yyyy-MM-dd} snapshot, reading it again: {Warehouses}",
+            missing.Count, today, string.Join(", ", missing));
+
+        var handler = scope.ServiceProvider.GetRequiredService<FetchDailyStockHandler>();
+
+        foreach (var warehouse in missing)
+        {
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
+
+            try
+            {
+                await handler.FetchWarehouseStockAsync(today, warehouse, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Retrying unbatched stock for warehouse {Warehouse} failed", warehouse);
+            }
+        }
     }
 
     private async Task RunStockFetchAsync(

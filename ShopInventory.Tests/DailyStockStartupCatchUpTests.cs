@@ -36,6 +36,9 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
     private readonly ApplicationDbContext _context;
     private readonly List<string> _sapReads = [];
     private readonly List<string> _unbatchedReads = [];
+    private bool _unbatchedReadFails;
+    private List<StockQuantityDto> _unbatchedStock = [];
+    private readonly TransferEventListenerSettings _listener = new();
 
     private readonly DailyStockSettings _settings = new()
     {
@@ -134,6 +137,110 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
         Assert.Equal([Shop], _unbatchedReads);
     }
 
+    // ── The unbatched retry ─────────────────────────────
+
+    /// <summary>
+    /// 2026-09-19: the morning fetch read the batch-managed items, failed to read the unbatched ones,
+    /// and finished the snapshots with the flag set. Nothing read that half again until someone
+    /// fetched by hand.
+    /// </summary>
+    [Fact]
+    public async Task The_retry_reads_the_unbatched_half_of_a_snapshot_missing_it_and_nothing_else()
+    {
+        var shop = await SeedAsync(Shop, StockSnapshotStatus.Complete, unbatchedMissing: true);
+        await SeedAsync(Machine, StockSnapshotStatus.Complete);
+        await SeedAsync(Groceries, StockSnapshotStatus.Failed);
+        await SeedRowAsync(shop, Shop, "CHE011", "B-1", 3m);
+
+        // One unbatched item, and the batch-managed one again: the retry must not add a second row
+        // for an item the snapshot already holds.
+        _unbatchedStock =
+        [
+            new() { ItemCode = "CON020", ItemName = "Container", WarehouseCode = Shop, InStock = 12m },
+            new() { ItemCode = "CHE011", ItemName = "Feta 1kg", WarehouseCode = Shop, InStock = 9m }
+        ];
+
+        await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+
+        // The batch rows the tills are selling from are not read again, and neither is a Failed
+        // warehouse: the retry only fills the missing half.
+        Assert.Empty(_sapReads);
+        Assert.Equal([Shop], _unbatchedReads);
+
+        var snapshot = await _context.DailyStockSnapshots.AsNoTracking()
+            .SingleAsync(header => header.WarehouseCode == Shop);
+        Assert.False(snapshot.UnbatchedStockMissing);
+
+        var rows = await _context.DailyStockSnapshotItems.AsNoTracking()
+            .Where(row => row.WarehouseCode == Shop)
+            .OrderBy(row => row.ItemCode)
+            .ToListAsync();
+        Assert.Equal(["CHE011", "CON020"], rows.Select(row => row.ItemCode));
+        Assert.Equal(3m, rows[0].AvailableQuantity);
+        Assert.Null(rows[1].BatchNumber);
+        Assert.Equal(12m, rows[1].AvailableQuantity);
+        Assert.Equal(2, snapshot.ItemCount);
+    }
+
+    [Fact]
+    public async Task A_retry_that_fails_again_leaves_the_flag_for_the_next_one()
+    {
+        await SeedAsync(Shop, StockSnapshotStatus.Complete, unbatchedMissing: true);
+        _unbatchedReadFails = true;
+
+        // SAP alone. The listener fallback has tests of its own.
+        _listener.UseForUnbatchedStockFallback = false;
+
+        await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+
+        Assert.Equal([Shop], _unbatchedReads);
+        Assert.True((await _context.DailyStockSnapshots.AsNoTracking()
+            .SingleAsync(header => header.WarehouseCode == Shop)).UnbatchedStockMissing);
+    }
+
+    [Fact]
+    public async Task With_nothing_flagged_the_retry_reads_nothing()
+    {
+        await SeedAsync(Shop, StockSnapshotStatus.Complete);
+        await SeedAsync(Machine, StockSnapshotStatus.Pending);
+
+        await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+
+        Assert.Empty(_sapReads);
+        Assert.Empty(_unbatchedReads);
+    }
+
+    /// <summary>
+    /// A flag on another day's snapshot is not today's. Tills stopped selling from it at 07:00.
+    /// </summary>
+    [Fact]
+    public async Task The_retry_ignores_a_flagged_snapshot_from_another_day()
+    {
+        await SeedAsync(Shop, StockSnapshotStatus.Complete, Today.AddDays(-1), unbatchedMissing: true);
+
+        Assert.Empty(await DailyStockSnapshotJob.MissingUnbatchedAsync(_context, [Shop], Today, default));
+    }
+
+    [Fact]
+    public void The_api_declares_the_unbatched_retry_on_the_morning_runs_job()
+    {
+        var triggers = DeclaredTriggers(enableAutoStockFetch: true);
+
+        var retry = Assert.Single(triggers,
+            trigger => trigger.Key.Name == $"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+        Assert.Equal(new JobKey(DailyStockSnapshotJob.JobName), retry.JobKey);
+        Assert.Equal(TimeSpan.FromMinutes(10), Assert.IsAssignableFrom<ISimpleTrigger>(retry).RepeatInterval);
+    }
+
+    [Fact]
+    public void The_unbatched_retry_can_be_switched_off()
+    {
+        var triggers = DeclaredTriggers(enableAutoStockFetch: true, unbatchedRetryMinutes: 0);
+
+        Assert.DoesNotContain(triggers,
+            trigger => trigger.Key.Name == $"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+    }
+
     [Fact]
     public async Task Each_unfinished_warehouse_is_named_with_how_far_it_got()
     {
@@ -210,13 +317,20 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
 
     // ── Helpers ─────────────────────────────────────────
 
-    private static IReadOnlyList<ITrigger> DeclaredTriggers(bool enableAutoStockFetch)
+    private static IReadOnlyList<ITrigger> DeclaredTriggers(bool enableAutoStockFetch, int? unbatchedRetryMinutes = null)
     {
+        var values = new Dictionary<string, string?>
+        {
+            ["DailyStock:EnableAutoStockFetch"] = enableAutoStockFetch.ToString()
+        };
+
+        if (unbatchedRetryMinutes is { } minutes)
+        {
+            values["DailyStock:UnbatchedRetryMinutes"] = minutes.ToString();
+        }
+
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["DailyStock:EnableAutoStockFetch"] = enableAutoStockFetch.ToString()
-            })
+            .AddInMemoryCollection(values)
             .Build();
 
         var services = new ServiceCollection();
@@ -228,20 +342,36 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
 
     private DateTime Today => StockLedgerDay.Today(_settings.StockFetchTimeCAT);
 
-    private async Task SeedAsync(
+    private async Task<int> SeedAsync(
         string warehouse,
         StockSnapshotStatus status,
         DateTime? day = null,
         bool unbatchedMissing = false)
     {
-        _context.DailyStockSnapshots.Add(new DailyStockSnapshotEntity
+        var snapshot = new DailyStockSnapshotEntity
         {
             SnapshotDate = day ?? Today,
             WarehouseCode = warehouse,
             Status = status,
             UnbatchedStockMissing = unbatchedMissing,
             CreatedAt = DateTime.UtcNow
-        });
+        };
+        _context.DailyStockSnapshots.Add(snapshot);
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return snapshot.Id;
+    }
+
+    private async Task SeedRowAsync(int snapshotId, string warehouse, string itemCode, string? batch, decimal quantity)
+    {
+        _context.DailyStockSnapshotItems.Add(new DailyStockSnapshotItemEntity
+        {
+            SnapshotId = snapshotId,
+            ItemCode = itemCode,
+            WarehouseCode = warehouse,
+            BatchNumber = batch
+        }.Opening(quantity));
 
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
@@ -261,7 +391,7 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
             StubProxy.Unused<IHubContext<NotificationHub>>(),
             Options.Create(_settings),
             StubProxy.Unused<ITransferEventListenerClient>(),
-            Options.Create(new TransferEventListenerSettings()),
+            Options.Create(_listener),
             new StockFetchGate(),
             NullLogger<FetchDailyStockHandler>.Instance);
 
@@ -315,7 +445,13 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
 
                 case nameof(ISAPServiceLayerClient.GetNonBatchStockQuantitiesInWarehouseAsync):
                     _unbatchedReads.Add((string)args![0]!);
-                    return Task.FromResult(new List<StockQuantityDto>());
+                    if (_unbatchedReadFails)
+                    {
+                        return Task.FromException<List<StockQuantityDto>>(
+                            new TimeoutException("SQLQueries read timed out"));
+                    }
+
+                    return Task.FromResult(_unbatchedStock.ToList());
 
                 default:
                     throw new InvalidOperationException($"Unexpected SAP call: {method.Name}");

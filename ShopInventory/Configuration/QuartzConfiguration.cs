@@ -121,6 +121,19 @@ public static class QuartzConfiguration
                 // it reads the database once and does nothing. See DailyStockSnapshotJob.
                 AddStartupTrigger(services, DailyStockSnapshotJob.JobName, DailyStockSnapshotJob.StartupTriggerName, DailyStockSnapshotJob.StartupDelay);
 
+                // The retry for a snapshot that finished without its unbatched half. It uses the same job
+                // key as the morning run, so it waits for that run instead of reading SAP beside it.
+                // With nothing flagged, a pass costs one database query.
+                if (dailyStock.UnbatchedRetryMinutes > 0)
+                {
+                    AddIntervalTriggerForJob<DailyStockSnapshotJob>(
+                        q,
+                        DailyStockSnapshotJob.JobName,
+                        DailyStockSnapshotJob.UnbatchedRetryTriggerName,
+                        TimeSpan.FromMinutes(dailyStock.UnbatchedRetryMinutes),
+                        startDelay: DailyStockSnapshotJob.StartupDelay);
+                }
+
                 // Gated on the same setting: without a morning snapshot there is no ledger to
                 // compare, so the comparison would find nothing to say. Hourly rather than
                 // continuous because it reads SAP, and it asks only about items the day has moved.
