@@ -152,16 +152,17 @@ public sealed class DesktopSaleFiscaliser(
                 sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed;
                 sale.FiscalError = result.Message ?? result.ErrorDetails;
 
-                // The platform could not tell us whether the receipt was signed. Retrying could sign
-                // it a second time, and a duplicate fiscal receipt cannot be withdrawn — so this sale
-                // stops here and waits for someone to look it up at FDMS.
+                // The device could not tell us whether the receipt was signed. Submitting blind could
+                // sign it a second time, and a duplicate fiscal receipt cannot be withdrawn. So the sale
+                // is marked, and nothing sends it again without first asking what the device holds.
+                // Where the device can answer that (REVMax), the sweep asks; where it cannot, a person does.
                 if (result.RequiresReconciliation)
                 {
                     sale.FiscalizationRequiresReconciliation = true;
 
                     logger.LogError(
-                        "Fiscalisation of desktop sale {ExternalReference} needs reconciliation at FDMS and will "
-                        + "not be retried: {Message}",
+                        "Fiscalisation of desktop sale {ExternalReference} ended without an answer from the "
+                        + "device, so it needs reconciliation before it is sent again: {Message}",
                         sale.ExternalReferenceId,
                         sale.FiscalError);
                 }
@@ -193,8 +194,11 @@ public sealed class DesktopSaleFiscaliser(
     {
         try
         {
+            // Whether the sweep takes a flagged sale again depends on the provider, which this does not
+            // know, so it says what is true either way.
             var reconciliationNote = sale.FiscalizationRequiresReconciliation
-                ? " It will not be retried automatically: check FDMS for an existing receipt before acting."
+                ? " The device did not say whether it signed this receipt, so nothing will send it again "
+                    + "without first asking the device what it holds."
                 : string.Empty;
 
             await notificationService.CreateNotificationAsync(

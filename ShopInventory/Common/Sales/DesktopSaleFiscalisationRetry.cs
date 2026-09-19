@@ -56,7 +56,31 @@ public static class DesktopSaleFiscalisationRetry
     /// </remarks>
     public static bool MayAlreadyBeFiled(DesktopSaleEntity sale) =>
         sale.FiscalizationAttempts > 0 ||
+        sale.FiscalizationRequiresReconciliation ||
         string.Equals(sale.SourceSystem, SaleSourceSystems.ShopTill, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether a sale marked for reconciliation may be offered again, by the sweep or on request.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Under REVMax, yes. The mark means an attempt ended with no answer from the device, and the device
+    /// is the thing that can answer: <c>GetInvoice</c> reads the device itself, so asking it first is
+    /// exactly the look-up reconciliation calls for. If it cannot be asked, or does not say plainly that
+    /// it holds nothing, nothing is sent.
+    /// </para>
+    /// <para>
+    /// The sweep used to leave every marked sale for a person, and an outage marks every sale it
+    /// touches, including ones refused at the connection, which never reached the device. When the device
+    /// came back, nothing fiscalised them, and every sale made during the outage sat unfiscalised and
+    /// uninvoiced until someone pressed Retry on each one.
+    /// </para>
+    /// <para>
+    /// Under the platform, no. Its receipt check reads an archive that can lag a submission it has not
+    /// finished, so a person still has to look.
+    /// </para>
+    /// </remarks>
+    public static bool MayRetryReconciliation(bool usesPlatform) => !usesPlatform;
 
     /// <summary>
     /// Whether a shop till's own request may still be fiscalising this sale.
@@ -122,7 +146,7 @@ public static class DesktopSaleFiscalisationRetry
             return "The till is still fiscalising this sale. Give it a few minutes.";
         }
 
-        if (requiresReconciliation && usesPlatform)
+        if (requiresReconciliation && !MayRetryReconciliation(usesPlatform))
         {
             return "The platform could not say whether this receipt was signed. Look it up on the "
                 + "fiscalisation console before retrying.";

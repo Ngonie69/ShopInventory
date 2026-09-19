@@ -35,7 +35,13 @@ public sealed class DesktopSaleFiscalisationSweep(
 
         // Which sources this sweep owns depends on who signs a van's receipts — see
         // DesktopSaleFiscalisationRetry.RetriedSources, which the retry command and the console read too.
-        var sweptSources = DesktopSaleFiscalisationRetry.RetriedSources(fiscalisationSettings.Value.UsesPlatform);
+        var usesPlatform = fiscalisationSettings.Value.UsesPlatform;
+        var sweptSources = DesktopSaleFiscalisationRetry.RetriedSources(usesPlatform);
+
+        // A sale marked for reconciliation is retried where the device can be asked what it holds, and
+        // left for a person where it cannot. See MayRetryReconciliation: an outage marks every sale it
+        // touches, and before this none of them fiscalised once the device was back.
+        var retriesReconciliation = DesktopSaleFiscalisationRetry.MayRetryReconciliation(usesPlatform);
 
         // A shop till sale fiscalises inline and was once excluded outright, so one failed attempt at the
         // counter — the device busy, the network down for a moment — left it Failed for good: never
@@ -54,9 +60,9 @@ public sealed class DesktopSaleFiscalisationSweep(
                         (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Failed ||
                          (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Pending &&
                           (s.SourceSystem != SaleSourceSystems.ShopTill || s.CreatedAt < inlineCutoff))) &&
-                        // Never retried: the receipt may already exist at FDMS and a second
-                        // submission cannot be withdrawn.
-                        !s.FiscalizationRequiresReconciliation &&
+                        // The receipt may already exist, and a second submission cannot be withdrawn.
+                        // Where the device can be asked, MayAlreadyBeFiled makes it be asked first.
+                        (retriesReconciliation || !s.FiscalizationRequiresReconciliation) &&
                         s.FiscalizationAttempts < options.MaxFiscalisationAttempts)
             .OrderBy(s => s.Id)
             .Take(options.BatchSize)

@@ -236,18 +236,60 @@ public sealed class FiscalisationConsoleTests : IDisposable
     }
 
     [Fact]
-    public async Task An_unresolved_sale_is_never_offered_a_retry()
+    public async Task An_unresolved_sale_is_never_offered_a_retry_on_the_platform()
     {
         await SeedSaleAsync(
             "UNRESOLVED-1",
             fiscal: DesktopSaleFiscalizationStatus.Failed,
-            requiresReconciliation: true);
+            requiresReconciliation: true,
+            sourceSystem: SaleSourceSystems.ShopTill);
 
-        var result = await RunQueueAsync(new GetFiscalisationWorkQueueQuery());
+        var result = await RunQueueAsync(new GetFiscalisationWorkQueueQuery(), FiscalisationProvider.Platform);
 
         var item = Assert.Single(result.Items);
         Assert.Equal(FiscalWorkQueueDispositions.Reconcile, item.Disposition);
         Assert.Equal("bad", item.Severity);
+    }
+
+    /// <summary>
+    /// Under REVMax the sweep takes an unresolved sale again, asking the device first, so the console must
+    /// say the sweep owns it rather than send someone to look it up by hand. It stays Unresolved and red
+    /// until the device answers.
+    /// </summary>
+    [Fact]
+    public async Task An_unresolved_sale_is_left_to_the_sweep_under_revmax()
+    {
+        await SeedSaleAsync(
+            "UNRESOLVED-2",
+            fiscal: DesktopSaleFiscalizationStatus.Failed,
+            requiresReconciliation: true,
+            sourceSystem: SaleSourceSystems.ShopTill,
+            fiscalAttempts: 1);
+
+        var result = await RunQueueAsync(
+            new GetFiscalisationWorkQueueQuery(Status: FiscalWorkQueueFilters.NeedsReconciliation));
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal("Unresolved", item.Status);
+        Assert.Equal(FiscalWorkQueueDispositions.Automatic, item.Disposition);
+        Assert.Equal("bad", item.Severity);
+        Assert.Contains("asks it what it holds", item.DispositionNote);
+    }
+
+    /// <summary>Out of budget, the sweep no longer owns it, and the console says so.</summary>
+    [Fact]
+    public async Task An_unresolved_sale_out_of_attempts_is_stalled_under_revmax()
+    {
+        await SeedSaleAsync(
+            "UNRESOLVED-3",
+            fiscal: DesktopSaleFiscalizationStatus.Failed,
+            requiresReconciliation: true,
+            sourceSystem: SaleSourceSystems.ShopTill,
+            fiscalAttempts: SweepSettings.MaxFiscalisationAttempts);
+
+        var item = Assert.Single((await RunQueueAsync(new GetFiscalisationWorkQueueQuery())).Items);
+
+        Assert.Equal(FiscalWorkQueueDispositions.Stalled, item.Disposition);
     }
 
     [Fact]
