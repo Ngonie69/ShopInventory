@@ -1655,7 +1655,8 @@ Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/DesktopIntegration/credit-notes", "List"),
-new("POST", "/api/DesktopIntegration/credit-notes/{id}/retry-sap", "Retry SAP")
+new("POST", "/api/DesktopIntegration/credit-notes/{id}/retry-sap", "Retry SAP"),
+new("POST", "/api/DesktopIntegration/credit-notes/{id}/mark-raised", "Mark raised in SAP")
 }
 },
 new ApiModule

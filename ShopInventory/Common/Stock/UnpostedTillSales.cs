@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
@@ -32,9 +32,16 @@ namespace ShopInventory.Common.Stock;
 /// <para><b>Credits go the other way.</b> A fiscal credit returns its units to the ledger the moment
 /// ZIMRA accepts it, and SAP only hears when the credit memo posts, which waits for the sale. Until then
 /// SAP is short by those units, and a reconciliation that ignored them would take the returned stock
-/// straight back off the shelf. <see cref="DesktopCreditSapStatuses.ManualInSap"/> is left out on
-/// purpose: whether a person has raised that memo is not knowable here, and assuming they have not would
-/// put stock on the till that may already be gone.</para>
+/// straight back off the shelf.</para>
+///
+/// <para><b><see cref="DesktopCreditSapStatuses.ManualInSap"/> counts too, until someone marks it
+/// raised.</b> Nothing sends that memo, so SAP stays short until a person raises it in the SAP client
+/// and records its number on /desktop-credit-notes, which moves the credit to
+/// <see cref="DesktopCreditSapStatuses.Posted"/>. It used to be left out, on the grounds that the memo
+/// might already have been raised. The cost of that was sure: every hand-raised return disappeared from
+/// the till at the next reconciliation and was gone at the next morning fetch. The risk the other way is
+/// a memo raised and never marked, which overstates the ledger. That is bounded by the lookback, and the
+/// "Raise by hand" count on the list keeps it in view.</para>
 ///
 /// <para>A sale whose post went out and whose reply was lost still counts. Counting it twice refuses a
 /// sale; not counting it sells stock that is gone, and only the second reaches a customer.</para>
@@ -92,7 +99,8 @@ public static class UnpostedTillSales
             .Where(note => note.UnitsReturnedToLedger
                         && (note.SapStatus == DesktopCreditSapStatuses.Deferred
                             || note.SapStatus == DesktopCreditSapStatuses.Failed
-                            || note.SapStatus == DesktopCreditSapStatuses.NotRequired)
+                            || note.SapStatus == DesktopCreditSapStatuses.NotRequired
+                            || note.SapStatus == DesktopCreditSapStatuses.ManualInSap)
                         && note.Sale.CreatedAt < dayEnd
                         && (note.Sale.CreatedAt >= dayStart
                             || (note.Sale.CreatedAt >= earliest

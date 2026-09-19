@@ -139,6 +139,9 @@ internal sealed class RecordingSap
     public Dictionary<string, SAPCreditNote> ExistingByReference { get; } =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Credit memos raised in the SAP client, by DocNum.</summary>
+    public Dictionary<int, SAPCreditNote> ExistingByDocNum { get; } = [];
+
     /// <summary>Invoices answered as registered, ahead of any mirrored from a sale.</summary>
     public Dictionary<int, Invoice> Invoices { get; } = [];
 
@@ -188,6 +191,10 @@ internal sealed class RecordingSap
             nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) =>
                 (object)Task.FromResult(
                     ExistingByReference.TryGetValue((string)args![0]!, out var found) ? found : null),
+
+            nameof(ISAPServiceLayerClient.GetCreditNoteByDocNumAsync) =>
+                (object)Task.FromResult(
+                    ExistingByDocNum.TryGetValue((int)args![0]!, out var byNum) ? byNum : null),
 
             nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) =>
                 Create((CreateCreditNoteRequest)args![0]!),

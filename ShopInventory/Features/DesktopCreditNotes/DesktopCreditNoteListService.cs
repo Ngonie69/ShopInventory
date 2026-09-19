@@ -62,6 +62,9 @@ public sealed record DesktopCreditNoteLineRow(
     decimal UnitPrice,
     decimal LineTotal);
 
+/// <summary>The SAP credit memo a person raised by hand for a ManualInSap credit.</summary>
+public sealed record MarkDesktopCreditRaisedRequest(int SapDocNum);
+
 /// <summary>
 /// A page of credits, and counts over every credit the filters match regardless of the SAP-status
 /// filter — so the figures still say how many have failed while the table shows only the posted.
@@ -88,6 +91,7 @@ public sealed record DesktopCreditNoteListResponse(
 public sealed class DesktopCreditNoteListService(
     ApplicationDbContext db,
     DesktopCreditSapPoster sapPoster,
+    ISAPServiceLayerClient sap,
     IAuditService audit,
     ILogger<DesktopCreditNoteListService> logger)
 {
@@ -333,6 +337,111 @@ public sealed class DesktopCreditNoteListService(
 
         // The poster re-reads the row itself (see its SettleAsync), so the ExecuteUpdate above is seen.
         await sapPoster.SettleAsync(id, CancellationToken.None);
+
+        return await RowAsync(id, ct);
+    }
+
+    /// <summary>
+    /// Records that a person raised a <see cref="DesktopCreditSapStatuses.ManualInSap"/> credit's memo
+    /// in the SAP client, and which memo it was.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the only way the app learns the memo exists. Until it does, the stock reconciliation and
+    /// the morning fetch keep the credit's returned units on the ledger
+    /// (<see cref="Common.Stock.UnpostedTillSales"/>), because SAP is short by them. Afterwards SAP holds
+    /// them and the netting stops.
+    /// </para>
+    /// <para>
+    /// The memo is read from SAP rather than taken on trust. A mistyped number would stop the netting
+    /// while SAP was still short, and the till would lose the units until the next count. So it must
+    /// exist, must not be cancelled, must be for the sale's customer, and must not already be claimed by
+    /// another credit.
+    /// </para>
+    /// </remarks>
+    public async Task<DesktopCreditNoteListRow> MarkRaisedInSapAsync(
+        Guid callerId, Guid id, int sapDocNum, CancellationToken ct)
+    {
+        var note = await db.DesktopCreditNotes.AsNoTracking()
+            .Include(n => n.Sale)
+            .SingleOrDefaultAsync(n => n.Id == id, ct)
+            ?? throw new InvalidOperationException("Credit note not found.");
+
+        await ScopeAsync(callerId, note.Sale.WarehouseCode, ct);
+
+        if (note.Status != DesktopCreditStatuses.Fiscalised)
+        {
+            throw new InvalidOperationException(
+                "Only a credit ZIMRA has accepted can have a SAP memo. Settle its fiscal outcome first.");
+        }
+
+        if (note.SapStatus != DesktopCreditSapStatuses.ManualInSap)
+        {
+            throw new InvalidOperationException(note.SapStatus switch
+            {
+                DesktopCreditSapStatuses.Posted => $"Already in SAP as credit memo {note.SapDocNum}.",
+                _ => "Only a credit waiting to be raised by hand can be marked raised."
+            });
+        }
+
+        if (sapDocNum <= 0)
+        {
+            throw new InvalidOperationException("Enter the SAP credit memo number.");
+        }
+
+        var memo = await sap.GetCreditNoteByDocNumAsync(sapDocNum, ct)
+            ?? throw new InvalidOperationException($"SAP holds no credit memo {sapDocNum}.");
+
+        if (string.Equals(memo.Cancelled, "tYES", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Credit memo {sapDocNum} is cancelled in SAP.");
+        }
+
+        if (!string.Equals(memo.CardCode?.Trim(), note.Sale.CardCode?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Credit memo {sapDocNum} is for {memo.CardCode}, but the sale is {note.Sale.CardCode}.");
+        }
+
+        var claimedBy = await db.DesktopCreditNotes.AsNoTracking()
+            .Where(n => n.Id != id && n.SapDocEntry == memo.DocEntry)
+            .Select(n => n.Number)
+            .FirstOrDefaultAsync(ct);
+
+        if (claimedBy is not null)
+        {
+            throw new InvalidOperationException($"Credit memo {sapDocNum} already belongs to credit {claimedBy}.");
+        }
+
+        // Guarded on the status so two people marking the same credit cannot both win.
+        var updated = await db.DesktopCreditNotes
+            .Where(n => n.Id == id && n.SapStatus == DesktopCreditSapStatuses.ManualInSap)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(n => n.SapStatus, DesktopCreditSapStatuses.Posted)
+                .SetProperty(n => n.SapDocEntry, memo.DocEntry)
+                .SetProperty(n => n.SapDocNum, memo.DocNum)
+                .SetProperty(n => n.SapPostedAt, DateTime.UtcNow)
+                .SetProperty(n => n.SapError, (string?)null), CancellationToken.None);
+
+        if (updated == 0)
+        {
+            throw new InvalidOperationException("This credit changed while it was being marked. Reload and try again.");
+        }
+
+        try
+        {
+            await audit.LogAsync(
+                AuditActions.PostDesktopCreditNoteToSAP,
+                nameof(DesktopCreditNoteEntity),
+                note.Number,
+                $"Credit {note.Number} against sale {note.Sale.ExternalReferenceId} marked raised by hand "
+                + $"as credit memo {memo.DocNum}",
+                true);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not audit marking credit {CreditNote} raised in SAP.", note.Number);
+        }
 
         return await RowAsync(id, ct);
     }
