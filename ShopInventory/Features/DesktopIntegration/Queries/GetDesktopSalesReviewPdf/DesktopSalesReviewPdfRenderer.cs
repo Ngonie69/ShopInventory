@@ -8,13 +8,15 @@ using iText.Layout;
 using iText.Layout.Borders;
 using iText.Layout.Element;
 using iText.Layout.Properties;
+using ShopInventory.Common.Sales;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReview;
 using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReviewPdf;
 
 /// <summary>
-/// Lays the business review out as an A4 document: headline, findings, then the figures behind them.
+/// Lays the business review out as an A4 document: each line of business in turn, its findings first,
+/// then the figures behind them.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,7 +35,6 @@ internal static class DesktopSalesReviewPdfRenderer
     private static readonly Color Rule = new DeviceRgb(221, 228, 232);
     private static readonly Color Accent = new DeviceRgb(29, 95, 138);
     private static readonly Color Band = new DeviceRgb(246, 248, 250);
-    private static readonly Color Settlement = new DeviceRgb(232, 123, 164);
     private static readonly Color ActionColor = new DeviceRgb(192, 49, 49);
     private static readonly Color ReviewColor = new DeviceRgb(178, 111, 0);
     private static readonly Color NoteColor = new DeviceRgb(29, 95, 138);
@@ -57,19 +58,40 @@ internal static class DesktopSalesReviewPdfRenderer
         document.SetFont(fonts.Regular).SetFontSize(9).SetFontColor(Ink);
 
         Header(document, fonts, review, title, generatedAtCat);
-        Findings(document, fonts, review);
+        Glance(document, fonts, review);
 
-        foreach (var section in review.Currencies)
-        {
-            Currency(document, fonts, review, section);
-        }
-
-        if (review.Currencies.Count == 0)
+        if (review.Businesses.Count == 0)
         {
             document.Add(Text("No sales were recorded in this period.", fonts.Regular, 10).SetMarginTop(12));
         }
 
-        Health(document, fonts, review);
+        // Each line of business on its own pages: shops and vending sell different ranges in different
+        // ways, so nothing below adds them together.
+        for (var i = 0; i < review.Businesses.Count; i++)
+        {
+            var business = review.Businesses[i];
+            if (i > 0)
+            {
+                document.Add(new AreaBreak(AreaBreakType.NEXT_PAGE));
+            }
+
+            document.Add(Text(business.Label.ToUpperInvariant(), fonts.Bold, 14)
+                .SetFontColor(Accent)
+                .SetCharacterSpacing(1f)
+                .SetMarginTop(i == 0 ? 14 : 0)
+                .SetBorderBottom(new SolidBorder(Accent, 1.5f))
+                .SetPaddingBottom(3)
+                .SetMarginBottom(6));
+            Findings(document, fonts, business);
+
+            foreach (var section in business.Currencies)
+            {
+                Currency(document, fonts, review, business, section);
+            }
+
+            Health(document, fonts, business);
+        }
+
         Method(document, fonts, review);
         PageNumbers(document, pdf, fonts, title, review);
 
@@ -94,11 +116,38 @@ internal static class DesktopSalesReviewPdfRenderer
             .SetMarginBottom(10));
     }
 
-    private static void Findings(Document document, Fonts fonts, DesktopSalesReview review)
+    /// <summary>Each business's takings side by side, per currency, before each is read on its own.</summary>
+    private static void Glance(Document document, Fonts fonts, DesktopSalesReview review)
     {
-        Heading(document, fonts, "What the figures say", review.Findings.Count == 0 ? "Nothing stood out." : null);
+        if (review.Businesses.Count == 0)
+        {
+            return;
+        }
 
-        foreach (var finding in review.Findings)
+        Heading(document, fonts, "By line of business", "Shops and vending are reviewed apart; currencies are never added together.");
+        var table = Grid([28f, 12f, 14f, 22f, 24f]);
+        Head(table, fonts, "Business", "Currency", "Sales", "Takings", "On the previous period");
+        foreach (var business in review.Businesses)
+        {
+            foreach (var section in business.Currencies)
+            {
+                var h = section.Headline;
+                Body(table, fonts, business.Label, bold: true);
+                Body(table, fonts, section.Currency);
+                Body(table, fonts, h.SalesCount.ToString("N0", Invariant), right: true);
+                Body(table, fonts, Money(section.Currency, h.TotalAmount), right: true);
+                Body(table, fonts, h.TotalChangePercent is { } change ? $"{Signed(change)}%" : "no previous period", right: true);
+            }
+        }
+
+        document.Add(table);
+    }
+
+    private static void Findings(Document document, Fonts fonts, DesktopSalesReviewBusiness business)
+    {
+        Heading(document, fonts, "What the figures say", business.Findings.Count == 0 ? "Nothing stood out." : null);
+
+        foreach (var finding in business.Findings)
         {
             var (label, color) = finding.Severity switch
             {
@@ -123,13 +172,14 @@ internal static class DesktopSalesReviewPdfRenderer
         }
     }
 
-    private static void Currency(Document document, Fonts fonts, DesktopSalesReview review, DesktopSalesReviewCurrency section)
+    private static void Currency(
+        Document document, Fonts fonts, DesktopSalesReview review, DesktopSalesReviewBusiness business, DesktopSalesReviewCurrency section)
     {
         var c = section.Currency;
         var h = section.Headline;
 
         document.Add(new AreaBreak(AreaBreakType.NEXT_PAGE));
-        document.Add(Text($"{c} TRADING", fonts.Bold, 8).SetFontColor(Accent).SetCharacterSpacing(0.8f));
+        document.Add(Text($"{business.Label.ToUpperInvariant()} · {c} TRADING", fonts.Bold, 8).SetFontColor(Accent).SetCharacterSpacing(0.8f));
         document.Add(Text($"{Money(c, h.TotalAmount)} from {h.SalesCount:N0} sales", fonts.Bold, 16).SetMarginBottom(8));
 
         var tiles = new Table(UnitValue.CreatePercentArray([25f, 25f, 25f, 25f])).UseAllAvailableWidth().SetMarginBottom(12);
@@ -139,7 +189,7 @@ internal static class DesktopSalesReviewPdfRenderer
         Tile(tiles, fonts, "Average sale", Money(c, h.AverageSale), $"{h.QuantitySold:N0} units · {h.DistinctItems:N0} items");
         Tile(tiles, fonts, "Gross margin",
             h.MarginPercent is { } margin ? $"{margin:0.#}%" : "—",
-            h.GrossProfit is { } profit ? $"{Money(c, profit)} on {Money(c, h.CostedNetAmount)} costed" : review.Margin.Available ? "not posted to SAP yet" : "SAP unavailable");
+            h.GrossProfit is { } profit ? $"{Money(c, profit)} on {Money(c, h.CostedNetAmount)} costed" : business.Margin.Available ? "not posted to SAP yet" : "SAP unavailable");
         Tile(tiles, fonts, "Trading days", h.DaysTraded.ToString(Invariant), $"{D(review.FromDate, "d MMM")} to {D(review.ToDate, "d MMM")}");
         var cash = section.ByPaymentMethod.FirstOrDefault(m => m.PaymentMethod == "Cash");
         Tile(tiles, fonts, "Cash", cash is null ? "—" : $"{cash.ShareOfValuePercent:0.#}%", cash is null ? "no cash sales" : $"{Money(c, cash.TotalAmount)} of takings");
@@ -150,7 +200,7 @@ internal static class DesktopSalesReviewPdfRenderer
         document.Add(tiles);
 
         Days(document, fonts, section);
-        Hours(document, fonts, section);
+        Hours(document, fonts, business, section);
         Payments(document, fonts, section);
         Shops(document, fonts, section);
         Items(document, fonts, section);
@@ -198,39 +248,26 @@ internal static class DesktopSalesReviewPdfRenderer
         document.Add(table);
     }
 
-    private static void Hours(Document document, Fonts fonts, DesktopSalesReviewCurrency section)
+    private static void Hours(Document document, Fonts fonts, DesktopSalesReviewBusiness business, DesktopSalesReviewCurrency section)
     {
         if (section.ByHour.Count == 0)
         {
             return;
         }
 
-        var settlements = section.ByHour.Sum(h => h.SettlementSalesCount) > 0;
-        Heading(document, fonts, "Hours of the counter day (CAT)",
-            settlements ? "Vending settlements are shown apart: they are when a vendor paid in, not when goods sold." : null);
+        Heading(document, fonts, "Hours of the day (CAT)",
+            business.Business == SaleBusinesses.Vending ? "When settlements were captured: a vendor paying in, not goods selling." : null);
 
         var max = section.ByHour.Max(h => h.SalesCount);
-        var table = Grid(settlements ? [10f, 12f, 12f, 16f, 50f] : [10f, 12f, 16f, 62f]);
-        if (settlements)
-        {
-            Head(table, fonts, "Hour", "Counter", "Vending", "Takings", "");
-        }
-        else
-        {
-            Head(table, fonts, "Hour", "Sales", "Takings", "");
-        }
+        var table = Grid([10f, 12f, 16f, 62f]);
+        Head(table, fonts, "Hour", "Sales", "Takings", "");
 
         foreach (var hour in section.ByHour)
         {
             Body(table, fonts, $"{hour.Hour:00}:00");
-            Body(table, fonts, (hour.SalesCount - hour.SettlementSalesCount).ToString("N0", Invariant), right: true);
-            if (settlements)
-            {
-                Body(table, fonts, hour.SettlementSalesCount == 0 ? "—" : hour.SettlementSalesCount.ToString("N0", Invariant), right: true);
-            }
-
+            Body(table, fonts, hour.SalesCount.ToString("N0", Invariant), right: true);
             Body(table, fonts, Number(hour.TotalAmount), right: true);
-            table.AddCell(StackedBarCell(hour.SalesCount - hour.SettlementSalesCount, hour.SettlementSalesCount, max));
+            table.AddCell(BarCell(hour.SalesCount, max, Accent));
         }
 
         document.Add(table);
@@ -375,10 +412,10 @@ internal static class DesktopSalesReviewPdfRenderer
         document.Add(table);
     }
 
-    private static void Health(Document document, Fonts fonts, DesktopSalesReview review)
+    private static void Health(Document document, Fonts fonts, DesktopSalesReviewBusiness business)
     {
-        var health = review.Health;
-        Heading(document, fonts, "Fiscalisation and SAP posting", $"{health.SalesCount:N0} sales in the period, every currency.");
+        var health = business.Health;
+        Heading(document, fonts, $"{business.Label}: fiscalisation and SAP posting", $"{health.SalesCount:N0} sales in the period, every currency.");
 
         var table = Grid([40f, 15f, 45f]);
         Head(table, fonts, "State", "Sales", "Value");
@@ -411,13 +448,12 @@ internal static class DesktopSalesReviewPdfRenderer
         var notes = new[]
         {
             "Figures are the Desktop Sales Analysis and Management Sales pages for the same period and scope, so they agree with both.",
-            "Currencies are never added together. Amounts include VAT unless marked before VAT.",
+            "Shops, vending and vans are reviewed apart and never added together; neither are currencies. Amounts include VAT unless marked before VAT.",
             "Takings per trading day divide by the days a shop sold anything, so a shop that opened mid-period is compared fairly.",
             "Traffic and ticket split the change on the previous period: more or fewer sales at the old average, and the average moving at the new count.",
             "Short tendered counts sales whose recorded tender was below their total. Sales with no tender recorded count as neither short nor change.",
             "Realised unit prices are value before VAT over quantity; a blend of full-price and discounted lines shows as a lower price.",
-            Clean(review.Margin.Detail),
-        };
+        }.Concat(review.Businesses.Select(business => $"{business.Label} margin: {Clean(business.Margin.Detail)}"));
 
         foreach (var note in notes)
         {
@@ -502,22 +538,6 @@ internal static class DesktopSalesReviewPdfRenderer
                 .SetHeight(6)
                 .SetBackgroundColor(color)))
             .SetVerticalAlignment(VerticalAlignment.MIDDLE);
-    }
-
-    private static Cell StackedBarCell(int counter, int settlement, int max)
-    {
-        var total = counter + settlement;
-        var filled = max == 0 ? 0f : total * 100f / max;
-        var counterPart = total == 0 ? 0f : filled * counter / total;
-        var settlementPart = filled - counterPart;
-
-        var bars = new Table(UnitValue.CreatePercentArray([Math.Max(counterPart, 0.01f), Math.Max(settlementPart, 0.01f), Math.Max(100f - filled, 0.01f)]))
-            .UseAllAvailableWidth();
-        bars.AddCell(new Cell().SetHeight(6).SetBorder(Border.NO_BORDER).SetPadding(0).SetBackgroundColor(counter > 0 ? Accent : ColorConstants.WHITE));
-        bars.AddCell(new Cell().SetHeight(6).SetBorder(Border.NO_BORDER).SetPadding(0).SetBackgroundColor(settlement > 0 ? Settlement : ColorConstants.WHITE));
-        bars.AddCell(new Cell().SetHeight(6).SetBorder(Border.NO_BORDER).SetPadding(0));
-
-        return Style(new Cell().Add(bars)).SetVerticalAlignment(VerticalAlignment.MIDDLE);
     }
 
     private static Paragraph Text(string text, PdfFont font, float size) =>

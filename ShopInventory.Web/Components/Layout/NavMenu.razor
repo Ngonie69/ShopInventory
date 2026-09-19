@@ -306,18 +306,6 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        @* The day's incoming payment per partner and the invoices it
-                           settles; the API reads it for these three roles. *@
-                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="dailyPaymentsCtx">
-                            <Authorized>
-                                <NavLink class="snav-link" href="/reports/desktop-sales/payments" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-hand-coins" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Daily Incoming Payments</span>
-                                </NavLink>
-                            </Authorized>
-                        </AuthorizeView>
                         <AuthorizeView Roles="@UserRoles.CatalogueRoles" Context="glCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/gl-accounts" Match="NavLinkMatch.Prefix">
@@ -349,6 +337,20 @@
                                         <i class="ph ph-desktop" aria-hidden="true"></i>
                                     </span>
                                     <span class="snav-text">Desktop Sales</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        @* The day's incoming payment per partner, the invoices it settles and the
+                           G/L accounts each partner posts to. Kept beside Desktop Sales because the
+                           payments settle those sales; the API reads it for these three roles. A
+                           Cashier has no Desktop Sales link, so it is only indented beneath one. *@
+                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="dailyPaymentsCtx">
+                            <Authorized>
+                                <NavLink class="@(dailyPaymentsCtx.User.IsInRole("Admin") || dailyPaymentsCtx.User.IsInRole("Manager") ? "snav-link sub-link" : "snav-link")" href="/reports/desktop-sales/payments" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-hand-coins" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Daily Incoming Payments</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>

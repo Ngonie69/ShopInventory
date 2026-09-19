@@ -107,10 +107,10 @@ Purchasing
     A/P Invoices  /purchase-invoices
     Create A/P Invoice  /purchase-invoices/create
 Finance
-    Daily Incoming Payments  /reports/desktop-sales/payments
     G/L Accounts  /gl-accounts
 Tills & Vending
     Desktop Sales  /desktop-sales
+    Daily Incoming Payments  /reports/desktop-sales/payments
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
 Van Sales
@@ -173,9 +173,9 @@ Inventory
 Finance
     Incoming Payments  /payments
     Create Payment  /payments/create
-    Daily Incoming Payments  /reports/desktop-sales/payments
     G/L Accounts  /gl-accounts
 Tills & Vending
+    Daily Incoming Payments  /reports/desktop-sales/payments
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
 Van Sales
@@ -301,10 +301,10 @@ Purchasing
 Finance
     Incoming Payments  /payments
     Create Payment  /payments/create
-    Daily Incoming Payments  /reports/desktop-sales/payments
     G/L Accounts  /gl-accounts
 Tills & Vending
     Desktop Sales  /desktop-sales
+    Daily Incoming Payments  /reports/desktop-sales/payments
     Desktop Transactions  /desktop-transactions
     Depots & Vendors  /vending
     Vending Sales  /vending/sales

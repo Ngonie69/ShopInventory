@@ -8,10 +8,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesRevie
 /// them, with the findings worth acting on written out.
 /// </summary>
 /// <remarks><list type="table">
-/// <item><term>Findings</term><description>What the figures say, most urgent first. Written by <see cref="DesktopSalesReviewFindings"/> from the figures below, never typed in.</description></item>
-/// <item><term>Currencies</term><description>One section per currency. Currencies are never added together.</description></item>
-/// <item><term>Health</term><description>Fiscalisation and SAP posting for the period, from the management report.</description></item>
-/// <item><term>Margin</term><description>Whether SAP's booked margin could be read, and on what.</description></item>
+/// <item><term>Businesses</term><description>One section per line of business that sold in the period or the one before — shops, vending, vans, in that order. They sell different ranges in different ways, so they are reviewed apart and never added together.</description></item>
 /// </list></remarks>
 public sealed record DesktopSalesReview(
     DateTime FromDate,
@@ -20,6 +17,19 @@ public sealed record DesktopSalesReview(
     DateTime PreviousToDate,
     string? WarehouseCode,
     DateTime GeneratedAtUtc,
+    List<DesktopSalesReviewBusiness> Businesses);
+
+/// <summary>Everything the review says about one line of business.</summary>
+/// <remarks><list type="table">
+/// <item><term>Business</term><description>Its key in <c>SaleBusinesses</c>: shops, vending or vans.</description></item>
+/// <item><term>Findings</term><description>What its figures say, most urgent first. Written by <see cref="DesktopSalesReviewFindings"/> from the figures below, never typed in.</description></item>
+/// <item><term>Currencies</term><description>One section per currency. Currencies are never added together.</description></item>
+/// <item><term>Health</term><description>Its fiscalisation and SAP posting for the period, from the management report.</description></item>
+/// <item><term>Margin</term><description>Whether SAP's booked margin could be read for it, and on what.</description></item>
+/// </list></remarks>
+public sealed record DesktopSalesReviewBusiness(
+    string Business,
+    string Label,
     List<DesktopSalesReviewFinding> Findings,
     List<DesktopSalesReviewCurrency> Currencies,
     ManagementSalesHealth Health,
@@ -78,7 +88,7 @@ public static class DesktopSalesReviewTopic
 /// <summary>Everything the review says about one currency.</summary>
 /// <remarks><list type="table">
 /// <item><term>ByDay</term><description>Each trading day, split by payment method.</description></item>
-/// <item><term>ByHour</term><description>Counter hours in CAT, vending settlements shown apart from counter sales.</description></item>
+/// <item><term>ByHour</term><description>Hours of the day in CAT.</description></item>
 /// <item><term>ByShop</term><description>Each shop or depot, with the per-trading-day figures a fair comparison needs.</description></item>
 /// <item><term>ShopHours</term><description>Each shop's sales per hour, one cell per pair that traded.</description></item>
 /// <item><term>ShopDays</term><description>Each shop's sales per day, one cell per pair that traded.</description></item>
@@ -131,16 +141,11 @@ public sealed record DesktopSalesReviewHeadline(
     decimal? MarginPercent,
     decimal CostedNetAmount);
 
-/// <summary>One hour of the counter day, in CAT.</summary>
-/// <remarks><list type="table">
-/// <item><term>SettlementSalesCount</term><description>Vending settlements captured in the hour — when a vendor paid in, not when the goods sold.</description></item>
-/// </list></remarks>
+/// <summary>One hour of the day, in CAT. For vending, when settlements were captured — a vendor paying in, not goods selling.</summary>
 public sealed record DesktopSalesReviewHourRow(
     int Hour,
     int SalesCount,
-    decimal TotalAmount,
-    int SettlementSalesCount,
-    decimal SettlementTotalAmount);
+    decimal TotalAmount);
 
 /// <summary>One shop or depot.</summary>
 /// <remarks><list type="table">

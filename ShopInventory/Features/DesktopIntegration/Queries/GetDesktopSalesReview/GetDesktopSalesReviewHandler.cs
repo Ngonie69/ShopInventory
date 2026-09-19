@@ -27,6 +27,10 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesRevie
 /// which of its sales were far outside its usual. The findings are then written by
 /// <see cref="DesktopSalesReviewFindings"/> from those figures alone.
 /// </para>
+/// <para>
+/// All of it is done once per line of business — shops, vending, vans — with the window confined to that
+/// business, so no figure, average or finding mixes a counter's trade with a vendor's settlements.
+/// </para>
 /// </remarks>
 public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMediator mediator)
     : IRequestHandler<GetDesktopSalesReviewQuery, ErrorOr<DesktopSalesReview>>
@@ -60,9 +64,42 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         }
 
         var window = resolved.Value;
+        var walkInPartners = await WalkInPartnersAsync(cancellationToken);
 
+        var businesses = new List<DesktopSalesReviewBusiness>();
+        foreach (var business in await BusinessesAsync(window, cancellationToken))
+        {
+            var section = await BusinessAsync(request.CallerUserId, window with { Business = business }, walkInPartners, cancellationToken);
+            if (section.IsError)
+            {
+                return section.Errors;
+            }
+
+            businesses.Add(section.Value);
+        }
+
+        return new DesktopSalesReview(
+            window.From,
+            window.To,
+            window.PreviousFrom,
+            window.PreviousTo,
+            window.WarehouseCode,
+            DateTime.UtcNow,
+            businesses);
+    }
+
+    /// <summary>
+    /// One line of business, reviewed on its own: the two reports asked for it alone, and the review's
+    /// own reads confined to it by the window.
+    /// </summary>
+    private async Task<ErrorOr<DesktopSalesReviewBusiness>> BusinessAsync(
+        Guid callerUserId,
+        Window window,
+        IReadOnlyDictionary<string, HashSet<string>> walkInPartners,
+        CancellationToken cancellationToken)
+    {
         var analysis = await mediator.Send(
-            new GetDesktopSalesAnalysisQuery(request.CallerUserId, window.From, window.To, window.WarehouseCode),
+            new GetDesktopSalesAnalysisQuery(callerUserId, window.From, window.To, window.WarehouseCode, Business: window.Business),
             cancellationToken);
         if (analysis.IsError)
         {
@@ -70,7 +107,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         }
 
         var management = await mediator.Send(
-            new GetManagementSalesReportQuery(request.CallerUserId, window.From, window.To, window.WarehouseCode),
+            new GetManagementSalesReportQuery(callerUserId, window.From, window.To, window.WarehouseCode, Business: window.Business),
             cancellationToken);
         if (management.IsError)
         {
@@ -81,8 +118,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         var cells = await CellsAsync(sales, cancellationToken);
         var hours = await ShopHoursAsync(sales, cancellationToken);
         var firstSales = await FirstSalesAsync(window, cancellationToken);
-        var largest = await LargestCounterSalesAsync(sales, cancellationToken);
-        var walkInPartners = await WalkInPartnersAsync(cancellationToken);
+        List<LargeCandidate> largest = window.Business == SaleBusinesses.Vending ? [] : await LargestSalesAsync(sales, cancellationToken);
 
         var currencies = InCurrencyOrder(
                 analysis.Value.Currencies.Select(section => Section(
@@ -97,25 +133,36 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
                 section => section.Currency)
             .ToList();
 
-        var review = new DesktopSalesReview(
-            window.From,
-            window.To,
-            window.PreviousFrom,
-            window.PreviousTo,
-            window.WarehouseCode,
-            DateTime.UtcNow,
+        var business = new DesktopSalesReviewBusiness(
+            window.Business!,
+            SaleBusinesses.Label(window.Business!),
             [],
             currencies,
             management.Value.Health,
             management.Value.Margin);
 
-        return review with
+        return business with
         {
-            Findings = DesktopSalesReviewFindings.Write(review, management.Value)
+            Findings = DesktopSalesReviewFindings.Write(business, management.Value)
         };
     }
 
     // ── Reading ────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The lines of business that sold in the period or the one before it, in review order, so a business
+    /// that stopped is still reviewed against what it did.
+    /// </summary>
+    private async Task<List<string>> BusinessesAsync(Window window, CancellationToken cancellationToken)
+    {
+        var sources = await Sales(db, window, window.PreviousFrom, window.To)
+            .Select(s => s.SourceSystem)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var present = sources.Select(SaleBusinesses.Of).ToHashSet();
+        return SaleBusinesses.All.Where(present.Contains).ToList();
+    }
 
     private static async Task<List<Cell>> CellsAsync(IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>
         (await sales
@@ -181,17 +228,16 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         .ToDictionary(g => g.Key, g => g.Min(f => f.First).Date, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The largest counter sales of the period, before they are measured against their shop's average.
+    /// The largest sales of the period, before they are measured against their shop's average.
     /// </summary>
     /// <remarks>
-    /// Vending is left out: a settlement is a vendor's whole round paid in at once and is meant to be
+    /// Not asked for vending: a settlement is a vendor's whole round paid in at once and is meant to be
     /// large. A generous slice is read so that a big shop's ordinary sales cannot crowd a small shop's
     /// outlier off the list before the comparison is made.
     /// </remarks>
-    private static async Task<List<LargeCandidate>> LargestCounterSalesAsync(
+    private static async Task<List<LargeCandidate>> LargestSalesAsync(
         IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>
         (await sales
-            .Where(s => s.SourceSystem != SaleSourceSystems.Vending)
             .OrderByDescending(s => s.TotalAmount)
             .ThenBy(s => s.Id)
             .Take(LargeSaleLimit * 10)
@@ -263,12 +309,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         var byHour = hours
             .GroupBy(h => h.Hour)
             .OrderBy(g => g.Key)
-            .Select(g => new DesktopSalesReviewHourRow(
-                g.Key,
-                g.Sum(h => h.SalesCount),
-                g.Sum(h => h.TotalAmount),
-                g.Where(h => h.SourceSystem == SaleSourceSystems.Vending).Sum(h => h.SalesCount),
-                g.Where(h => h.SourceSystem == SaleSourceSystems.Vending).Sum(h => h.TotalAmount)))
+            .Select(g => new DesktopSalesReviewHourRow(g.Key, g.Sum(h => h.SalesCount), g.Sum(h => h.TotalAmount)))
             .ToList();
 
         var shopHours = hours

@@ -6,8 +6,8 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReview;
 namespace ShopInventory.Features.DesktopIntegration.Commands.SendDesktopSalesReviewEmail;
 
 /// <summary>
-/// The message the review is sent in: the headline and every finding, so the email is useful unopened,
-/// with the full review attached as a PDF.
+/// The message the review is sent in: each business's headline and findings, so the email is useful
+/// unopened, with the full review attached as a PDF.
 /// </summary>
 /// <remarks>
 /// Tables and inline styles only — the markup mail clients still render the same. Every value is
@@ -26,37 +26,37 @@ internal static class DesktopSalesReviewEmailBody
         html.Append($"<p style=\"font-size:14px;color:#44525c;margin:0 0 16px;\">{D(review.FromDate, "ddd d MMM yyyy")} to {D(review.ToDate, "ddd d MMM yyyy")} · "
             + $"{(review.WarehouseCode is null ? "all shops" : E(review.WarehouseCode))} · compared with {D(review.PreviousFromDate, "d MMM")} to {D(review.PreviousToDate, "d MMM")}</p>");
 
-        if (review.Currencies.Count == 0)
+        if (review.Businesses.Count == 0)
         {
             html.Append("<p style=\"font-size:14px;\">No sales were recorded in this period.</p>");
         }
 
-        foreach (var section in review.Currencies)
+        // Each line of business on its own: shops and vending sell different ranges in different ways,
+        // so their figures are never added together.
+        foreach (var business in review.Businesses)
         {
-            Headline(html, section);
-        }
+            html.Append($"<h2 style=\"font-size:19px;margin:24px 0 8px;padding:0 0 4px;border-bottom:2px solid #1d5f8a;\">{E(business.Label)}</h2>");
 
-        html.Append("<h2 style=\"font-size:17px;margin:20px 0 8px;\">What the figures say</h2>");
-        if (review.Findings.Count == 0)
-        {
-            html.Append("<p style=\"font-size:14px;color:#44525c;\">Nothing stood out this period.</p>");
-        }
-
-        foreach (var finding in review.Findings)
-        {
-            var (label, color) = finding.Severity switch
+            if (business.Currencies.Count == 0)
             {
-                DesktopSalesReviewSeverity.Action => ("ACT", "#c03131"),
-                DesktopSalesReviewSeverity.Review => ("CHECK", "#b26f00"),
-                _ => ("NOTE", "#1d5f8a")
-            };
+                html.Append("<p style=\"font-size:14px;color:#44525c;\">No sales this period.</p>");
+            }
 
-            html.Append($"<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"margin:0 0 10px;border-left:3px solid {color};\"><tr>");
-            html.Append($"<td style=\"padding:2px 10px;vertical-align:top;width:52px;font-size:11px;font-weight:bold;color:{color};\">{label}</td>");
-            html.Append("<td style=\"padding:0 0 0 4px;\">");
-            html.Append($"<div style=\"font-size:14px;font-weight:bold;\">{E(finding.Title)}</div>");
-            html.Append($"<div style=\"font-size:13px;color:#44525c;line-height:1.45;\">{E(finding.Detail)}</div>");
-            html.Append("</td></tr></table>");
+            foreach (var section in business.Currencies)
+            {
+                Headline(html, section);
+            }
+
+            html.Append("<h3 style=\"font-size:15px;margin:14px 0 8px;\">What the figures say</h3>");
+            if (business.Findings.Count == 0)
+            {
+                html.Append("<p style=\"font-size:14px;color:#44525c;\">Nothing stood out this period.</p>");
+            }
+
+            foreach (var finding in business.Findings)
+            {
+                Finding(html, finding);
+            }
         }
 
         html.Append("<p style=\"font-size:13px;color:#44525c;margin:20px 0 4px;\">The full review — days, hours, shops, best sellers, prices and posting — is attached as a PDF, "
@@ -65,6 +65,23 @@ internal static class DesktopSalesReviewEmailBody
         html.Append("</div>");
 
         return html.ToString();
+    }
+
+    private static void Finding(StringBuilder html, DesktopSalesReviewFinding finding)
+    {
+        var (label, color) = finding.Severity switch
+        {
+            DesktopSalesReviewSeverity.Action => ("ACT", "#c03131"),
+            DesktopSalesReviewSeverity.Review => ("CHECK", "#b26f00"),
+            _ => ("NOTE", "#1d5f8a")
+        };
+
+        html.Append($"<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"margin:0 0 10px;border-left:3px solid {color};\"><tr>");
+        html.Append($"<td style=\"padding:2px 10px;vertical-align:top;width:52px;font-size:11px;font-weight:bold;color:{color};\">{label}</td>");
+        html.Append("<td style=\"padding:0 0 0 4px;\">");
+        html.Append($"<div style=\"font-size:14px;font-weight:bold;\">{E(finding.Title)}</div>");
+        html.Append($"<div style=\"font-size:13px;color:#44525c;line-height:1.45;\">{E(finding.Detail)}</div>");
+        html.Append("</td></tr></table>");
     }
 
     private static void Headline(StringBuilder html, DesktopSalesReviewCurrency section)

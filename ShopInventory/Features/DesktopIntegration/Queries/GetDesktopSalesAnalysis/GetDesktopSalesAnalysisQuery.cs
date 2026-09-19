@@ -22,6 +22,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// <c>PaymentMethod</c> confines every figure to one tender, matched on its reporting name, so a till's
 /// own spelling ("ecocash") and the canonical one read the same sales. "Not recorded" selects the sales
 /// no tender was stored for.
+///
+/// <c>Business</c> confines it to one of <c>SaleBusinesses</c> — shops, vending or vans — on top of the
+/// source scope; null reads them all.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     Guid CallerUserId,
@@ -29,5 +32,6 @@ public sealed record GetDesktopSalesAnalysisQuery(
     DateTime? ToDate = null,
     string? WarehouseCode = null,
     string? SourceSystem = null,
-    string? PaymentMethod = null
+    string? PaymentMethod = null,
+    string? Business = null
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;
