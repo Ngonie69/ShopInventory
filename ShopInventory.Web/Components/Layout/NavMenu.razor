@@ -338,6 +338,15 @@
                                     </span>
                                     <span class="snav-text">Desktop Sales</span>
                                 </NavLink>
+                                @* Every credit raised against those sales, and the SAP memos still owed.
+                                   Its own path rather than under /desktop-sales, which matches by prefix
+                                   and would light both links at once. *@
+                                <NavLink class="snav-link sub-link" href="/desktop-credit-notes" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-receipt-x" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Desktop Credit Notes</span>
+                                </NavLink>
                             </Authorized>
                         </AuthorizeView>
                         @* The day's incoming payment per partner, the invoices it settles and the

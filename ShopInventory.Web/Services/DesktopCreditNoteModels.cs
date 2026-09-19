@@ -1,4 +1,4 @@
-namespace ShopInventory.Web.Services;
+﻿namespace ShopInventory.Web.Services;
 
 public sealed record DesktopCreditQuantity(int LineNo, decimal Quantity);
 /// <remarks>
@@ -44,3 +44,59 @@ public static class DesktopCreditSapStatuses
 public sealed record DesktopCreditForm(DesktopCreditSource Source, List<DesktopCreditNoteResult> CreditNotes,
     Dictionary<int, decimal> ReservedQuantities, bool SaleInSap = false, int? SaleSapDocNum = null,
     decimal? RemainingAmount = null);
+
+/// <summary>
+/// One credit on <c>/desktop-credit-notes</c>, with enough of its sale to say where it came from.
+/// Mirrors the API's <c>DesktopCreditNoteListRow</c> by hand; keep the nullability the same.
+/// </summary>
+public sealed record DesktopCreditNoteListRow(
+    Guid Id,
+    string Number,
+    string Status,
+    string SapStatus,
+    decimal Amount,
+    string Currency,
+    string Reason,
+    DateTime CreatedAtUtc,
+    DateTime? FiscalisedAtUtc,
+    string? ReceiptGlobalNo,
+    string? Message,
+    int? SapDocNum,
+    int SapAttempts,
+    string? SapError,
+    string SaleReference,
+    string SaleNumber,
+    bool SaleIsConsolidated,
+    string? SaleSourceSystem,
+    string SaleWarehouseCode,
+    string? SaleCardCode,
+    string? SaleCardName,
+    string? SaleCustomerName,
+    string? SaleFiscalReceiptNumber,
+    int? SaleSapDocNum);
+
+/// <remarks>
+/// The counts cover every credit the other filters match, whatever the SAP-status filter says, so the
+/// figures keep showing how many failed while the table shows only one kind.
+/// </remarks>
+public sealed record DesktopCreditNoteListResponse(
+    List<DesktopCreditNoteListRow> Items,
+    int TotalCount,
+    int Page,
+    int PageSize,
+    Dictionary<string, int> SapStatusCounts,
+    Dictionary<string, int> StatusCounts,
+    Dictionary<string, decimal> TotalsByCurrency,
+    List<string> Warehouses);
+
+/// <summary>What <c>/desktop-credit-notes</c> asks for. Dates are CAT calendar days.</summary>
+public sealed record DesktopCreditNoteListQuery(
+    DateTime? FromDate = null,
+    DateTime? ToDate = null,
+    string? WarehouseCode = null,
+    string? SourceSystem = null,
+    string? Status = null,
+    string? SapStatus = null,
+    string? Search = null,
+    int Page = 1,
+    int PageSize = 50);

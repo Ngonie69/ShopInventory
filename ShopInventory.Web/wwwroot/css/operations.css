@@ -12,6 +12,7 @@
      /route-sales-report      `.ops.ops-rsr`    route trading, dormancy, product mix
      /desktop-transactions    `.ops.ops-dt`     the desktop sync queues
      /desktop-sales           `.ops.ops-ds`     invoices fiscalized on the desktops
+     /desktop-credit-notes    `.ops.ops-dcl`    every credit raised against those sales
      /reports/desktop-sales   `.ops.ops-dsa`    the same sales, broken down by tender
                                                 (plus sales-breakdown.css's `.ops-sbd`)
 
@@ -4844,4 +4845,91 @@
     .ops-dsa .ops-dsa-hour-label {
         font-size: 9px;
     }
+}
+
+
+/* ── /desktop-credit-notes  `.ops.ops-dcl` ────────────────────────────── */
+/* Every desktop credit in one list. The page is the shared vocabulary above —
+   hero, figures, filter row, table, pager — and borrows `.ops-ds-saleno` for the
+   sale's short number, so INV1753 reads the same here as on /desktop-sales.
+   What is its own is only the second line under a cell, SAP's refusal in the
+   bad hue, and a reason column that gives way. `dcl`, not `dcn`: `.ops-dcn` is
+   the credit dialog's, and this page opens that dialog. */
+
+.ops-dcl .ops-dcl-when {
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink-2);
+    white-space: nowrap;
+}
+
+.ops-dcl .ops-dcl-sub {
+    display: block;
+    margin-top: 2px;
+}
+
+/* SAP's refusal is the one thing on the page worth finding by colour, and it can
+   run to a paragraph; two lines of it, and the rest on hover. */
+.ops-dcl .ops-dcl-error {
+    max-width: 280px;
+    color: var(--ops-fam-bad);
+    cursor: help;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* One line each, the rest on hover: a wrapped customer or reason made every row
+   four lines tall and pushed the actions past the edge of the table. */
+.ops-dcl .ops-dcl-reason,
+.ops-dcl .ops-dcl-customer {
+    display: block;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-dcl .ops-dcl-reason {
+    margin-left: auto;
+}
+
+.ops-dcl .ops-dcl-nowrap,
+.ops-dcl .ops-dcl-amount {
+    white-space: nowrap;
+}
+
+/* The sale number is the way into the sale's credits: a button, dressed as the
+   number it is, with the link's hover underline so it reads as clickable. */
+.ops-dcl .ops-dcl-open {
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+}
+
+.ops-dcl .ops-dcl-open:hover,
+.ops-dcl .ops-dcl-open:focus-visible {
+    color: var(--ops-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* The SAP column holds the most words on the page — a status, SAP's refusal and
+   the retry — so its badge may wrap rather than widen the table past the edge. */
+.ops-dcl .ops-dcl-sap {
+    min-width: 200px;
+    max-width: 290px;
+}
+
+/* A pill's radius clips the first and last letters once the text wraps, so a
+   wrapped badge here takes a card's corners instead. */
+.ops-dcl .ops-dcl-sap .ops-badge {
+    white-space: normal;
+    border-radius: 6px;
+}
+
+.ops-dcl .ops-dcl-retry {
+    margin-top: var(--ops-s3);
 }

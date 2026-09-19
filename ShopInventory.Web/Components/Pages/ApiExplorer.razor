@@ -1646,6 +1646,20 @@ new("PUT", "/api/daily-incoming-payment-settings", "Update setting")
 },
 new ApiModule
 {
+Name = "Desktop Credit Note List",
+BasePath = "/api/DesktopIntegration/credit-notes",
+Description = "2 endpoints under /api/DesktopIntegration/credit-notes.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Success,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/DesktopIntegration/credit-notes", "List"),
+new("POST", "/api/DesktopIntegration/credit-notes/{id}/retry-sap", "Retry SAP")
+}
+},
+new ApiModule
+{
 Name = "Fiscalisation Console",
 BasePath = "/api/fiscalisation-console",
 Description = "3 endpoints under /api/fiscalisation-console.",

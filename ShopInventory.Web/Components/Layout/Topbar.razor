@@ -474,6 +474,7 @@
         new("Create invoice", "Create a new customer invoice", "/invoices/create", "ph-file-plus", UserRoles.InvoicingRoles, "new invoice"),
         new("Van sales invoices", "Invoices the van sales app created, and their receipt and SAP state", "/van-sales/invoices", "ph-receipt", "Admin,Manager,Cashier", "van", "fiscal"),
         new("Van sales credit notes", "Credit notes raised against van sales invoices", "/van-sales/credit-notes", "ph-file-minus", "Admin,Manager,Cashier", "van", "credit"),
+        new("Desktop credit notes", "Every till, vending and van credit, with its ZIMRA and SAP state", "/desktop-credit-notes", "ph-receipt-x", "Admin,Manager,Cashier", "till", "vending", "credit", "refund", "return"),
         new("Payments", "Find incoming customer payments", "/payments", "ph-credit-card", UserRoles.PaymentRoles, "receipts", "cash"),
         new("Create payment", "Record an incoming payment", "/payments/create", "ph-plus-circle", UserRoles.PaymentRoles, "new payment"),
         new("Sales orders", "Find and manage sales orders", "/sales-orders", "ph-shopping-cart", "Admin,Cashier,SalesRep", "orders"),
