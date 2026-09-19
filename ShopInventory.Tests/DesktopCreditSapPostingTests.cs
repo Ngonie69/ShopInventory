@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,6 +36,7 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         _context = new ApplicationDbContext(
             new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options);
         _context.Database.EnsureCreated();
+        _sap.MirroringSalesFrom(_context);
     }
 
     public void Dispose()
@@ -396,6 +397,137 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         // A credit memo this system did not raise is left exactly as it was: the registry widens, it
         // never asserts on somebody else's document.
         Assert.NotEqual(true, creditNotes[1].IsFiscalized);
+    }
+
+    // ── Batches ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// INV1753, 19 September 2026: fiscalised, then refused by SAP with "Cannot add row without complete
+    /// selection of batch/serial numbers". Basing the memo on the invoice does not give SAP the batches.
+    /// </summary>
+    [Fact]
+    public async Task A_batch_managed_line_returns_into_the_batch_the_invoice_issued()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
+        GivenInvoiceBatches(4242, line0: [("B-OLD", 6m)], line1: [("B-A", 1m), ("B-B", 3m)]);
+        var note = await GivenCreditAsync(sale, creditedLineNum: 1, quantity: 2m);
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        var line = Assert.Single(Assert.Single(_sap.Created).Lines);
+        Assert.Equal(
+            [("B-A", 1m), ("B-B", 1m)],
+            line.BatchNumbers!.Select(b => (b.BatchNumber, b.Quantity)).ToArray());
+        Assert.Equal(DesktopCreditSapStatuses.Posted, (await Reload(note.Id)).SapStatus);
+    }
+
+    [Fact]
+    public async Task A_second_credit_on_the_same_line_skips_what_the_first_returned()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
+        GivenInvoiceBatches(4242, line0: [("B-OLD", 6m)], line1: [("B-A", 1m), ("B-B", 3m)]);
+
+        var first = await GivenCreditAsync(sale, creditedLineNum: 1, quantity: 2m);
+        await Poster().SettleAsync(first.Id, CancellationToken.None);
+
+        var second = await GivenCreditAsync(sale, creditedLineNum: 1, quantity: 2m);
+        await Poster().SettleAsync(second.Id, CancellationToken.None);
+
+        var line = Assert.Single(_sap.Created[1].Lines);
+        Assert.Equal([("B-B", 2m)], line.BatchNumbers!.Select(b => (b.BatchNumber, b.Quantity)).ToArray());
+    }
+
+    [Fact]
+    public async Task A_line_with_no_batches_on_the_invoice_names_none()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
+        var note = await GivenCreditAsync(sale);
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Null(Assert.Single(Assert.Single(_sap.Created).Lines).BatchNumbers);
+    }
+
+    [Fact]
+    public async Task An_invoice_line_for_another_item_is_handed_to_a_person()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
+        _sap.Invoices[4242] = new Invoice
+        {
+            DocEntry = 4242, DocNum = 777347,
+            DocumentLines = [new InvoiceLine { LineNum = 0, ItemCode = "CHE011", Quantity = 6 }]
+        };
+        var note = await GivenCreditAsync(sale);
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Empty(_sap.Created);
+        var settled = await Reload(note.Id);
+        Assert.Equal(DesktopCreditSapStatuses.ManualInSap, settled.SapStatus);
+        Assert.Contains("credit the wrong item", settled.SapError);
+    }
+
+    [Fact]
+    public async Task An_invoice_sap_cannot_find_is_a_failed_attempt_and_sends_nothing()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
+        var note = await GivenCreditAsync(sale);
+        await _context.DesktopSales.Where(s => s.Id == sale.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.SapDocEntry, 9999));
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Empty(_sap.Created);
+        var settled = await Reload(note.Id);
+        Assert.Equal(DesktopCreditSapStatuses.Failed, settled.SapStatus);
+        Assert.Equal(1, settled.SapAttempts);
+        Assert.Null(settled.SapPostIssuedAtUtc);
+        Assert.Contains("to take its batches", settled.SapError);
+    }
+
+    [Fact]
+    public void Batches_that_cannot_cover_the_return_refuse_rather_than_guess()
+    {
+        var request = new CreateCreditNoteRequest
+        {
+            CardCode = "COR007",
+            Lines = [new CreateCreditNoteLineRequest { ItemCode = "ICS027", Quantity = 3m, OriginalInvoiceLineId = 0 }]
+        };
+        var invoice = new Invoice
+        {
+            DocNum = 777347,
+            DocumentLines =
+            [
+                new InvoiceLine
+                {
+                    LineNum = 0, ItemCode = "ICS027", Quantity = 4,
+                    BatchNumbers = [new InvoiceLineBatch { BatchNumber = "B-A", Quantity = 4m }]
+                }
+            ]
+        };
+
+        var refusal = Assert.Throws<InvalidOperationException>(
+            () => CreditMemoBatchSelection.Apply(request, invoice, [(0, 2m)]));
+        Assert.Contains("too little", refusal.Message);
+    }
+
+    private void GivenInvoiceBatches(
+        int docEntry, (string Batch, decimal Qty)[] line0, (string Batch, decimal Qty)[] line1)
+    {
+        InvoiceLine Line(int num, string item, (string Batch, decimal Qty)[] batches) => new()
+        {
+            LineNum = num,
+            ItemCode = item,
+            Quantity = batches.Sum(b => b.Qty),
+            BatchNumbers = batches.Select(b => new InvoiceLineBatch { BatchNumber = b.Batch, Quantity = b.Qty }).ToList()
+        };
+
+        _sap.Invoices[docEntry] = new Invoice
+        {
+            DocEntry = docEntry,
+            DocNum = 777347,
+            DocumentLines = [Line(0, "ICS025", line0), Line(1, "ICS027", line1)]
+        };
     }
 
     // ── Fixtures ─────────────────────────────────────────────────────────

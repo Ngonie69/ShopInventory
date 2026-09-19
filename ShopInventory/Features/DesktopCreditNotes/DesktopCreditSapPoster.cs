@@ -211,14 +211,38 @@ public sealed class DesktopCreditSapPoster(
             // The credited lines cannot be tied back to the invoice's own lines with certainty. A
             // credit memo built on a guessed line credits the wrong item, so this stops and says so
             // rather than posting something plausible.
-            note.SapStatus = DesktopCreditSapStatuses.ManualInSap;
-            note.SapError = Truncate(refusal.Message, 2000);
+            await HandToPersonAsync(note, sale, refusal);
+            return;
+        }
 
-            logger.LogError(
-                "Credit {CreditNote} cannot be posted to SAP automatically: {Reason}",
-                note.Number, refusal.Message);
+        // The batches come from the invoice itself. SAP refuses a batch-managed line that names none,
+        // even on a memo based on the invoice, and a till sale's own lines never recorded one.
+        Invoice? invoice;
 
-            await SaveAndAuditAsync(note, sale, "handed to a person");
+        try
+        {
+            invoice = await sap.GetInvoiceByDocEntryAsync(sale.SapDocEntry!.Value, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await RecordUnreadableInvoiceAsync(note, sale, ex.Message, ex);
+            return;
+        }
+
+        if (invoice is null)
+        {
+            await RecordUnreadableInvoiceAsync(
+                note, sale, $"SAP holds no invoice with DocEntry {sale.SapDocEntry}.", null);
+            return;
+        }
+
+        try
+        {
+            CreditMemoBatchSelection.Apply(request, invoice, await AlreadyCreditedAsync(note, sale));
+        }
+        catch (InvalidOperationException refusal)
+        {
+            await HandToPersonAsync(note, sale, refusal);
             return;
         }
 
@@ -274,14 +298,83 @@ public sealed class DesktopCreditSapPoster(
         }
     }
 
+    private async Task HandToPersonAsync(
+        DesktopCreditNoteEntity note, DesktopSaleEntity sale, InvalidOperationException refusal)
+    {
+        note.SapStatus = DesktopCreditSapStatuses.ManualInSap;
+        note.SapError = Truncate(refusal.Message, 2000);
+
+        logger.LogError(
+            "Credit {CreditNote} cannot be posted to SAP automatically: {Reason}",
+            note.Number, refusal.Message);
+
+        await SaveAndAuditAsync(note, sale, "handed to a person");
+    }
+
+    /// <remarks>
+    /// Spends an attempt, so an invoice that has gone for good stops being asked about at the cap
+    /// rather than on every pass for the lookback window. Nothing was sent, so no marker is set.
+    /// </remarks>
+    private async Task RecordUnreadableInvoiceAsync(
+        DesktopCreditNoteEntity note, DesktopSaleEntity sale, string reason, Exception? cause)
+    {
+        note.SapAttempts++;
+        note.SapStatus = DesktopCreditSapStatuses.Failed;
+        note.SapError = Truncate(
+            $"Could not read invoice {sale.SapDocNum} from SAP to take its batches: {reason}", 2000);
+
+        logger.LogError(
+            cause, "Credit {CreditNote} was not posted: invoice {DocEntry} could not be read.",
+            note.Number, sale.SapDocEntry);
+
+        await SaveAndAuditAsync(note, sale, "not sent: invoice unreadable");
+    }
+
+    /// <summary>
+    /// What earlier credits against this sale have already returned through SAP, per invoice line,
+    /// oldest first — so the batch selection can replay them before choosing this one's.
+    /// </summary>
+    private async Task<IReadOnlyList<(int InvoiceLine, decimal Quantity)>> AlreadyCreditedAsync(
+        DesktopCreditNoteEntity note, DesktopSaleEntity sale)
+    {
+        var earlier = await db.DesktopCreditNotes
+            .AsNoTracking()
+            .Where(n => n.SaleId == sale.Id
+                && n.Id != note.Id
+                && n.SapStatus == DesktopCreditSapStatuses.Posted)
+            .OrderBy(n => n.SapPostedAt)
+            .ThenBy(n => n.CreatedAtUtc)
+            .Select(n => n.PlanJson)
+            .ToListAsync(CancellationToken.None);
+
+        var invoiceLineOf = sale.Lines
+            .OrderBy(line => line.LineNum)
+            .Select((line, index) => (line.LineNum, index))
+            .ToDictionary(t => t.LineNum, t => t.index);
+
+        var credited = new List<(int, decimal)>();
+
+        foreach (var json in earlier)
+        {
+            var plan = JsonSerializer.Deserialize<DesktopCreditPlan>(json, DesktopCreditNoteService.Json)
+                ?? throw new InvalidOperationException("An earlier credit's saved plan could not be read.");
+
+            credited.AddRange(plan.Quantities
+                .Where(q => invoiceLineOf.ContainsKey(q.LineNo))
+                .OrderBy(q => q.LineNo)
+                .Select(q => (invoiceLineOf[q.LineNo], q.Quantity)));
+        }
+
+        return credited;
+    }
+
     /// <summary>
     /// Builds the credit memo, based on the invoice the sale posted as.
     /// </summary>
     /// <remarks>
-    /// <b>Based on the invoice, never standalone.</b> BaseType/BaseEntry/BaseLine are what let SAP take
-    /// the batches from the document being credited: a batch-managed line with no batch selection is
-    /// refused, and the whole document with it, and nothing here knows which batches the invoice was
-    /// allocated.
+    /// <b>Based on the invoice, never standalone</b>, so SAP ties the return to the line it reverses.
+    /// Basing it does not give SAP the batches, though: <see cref="CreditMemoBatchSelection"/> adds those
+    /// afterwards, from the invoice as SAP holds it.
     /// </remarks>
     private static CreateCreditNoteRequest BuildRequest(DesktopCreditNoteEntity note, DesktopSaleEntity sale)
     {

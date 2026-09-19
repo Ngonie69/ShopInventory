@@ -1,4 +1,4 @@
-# Desktop fiscal credit notes (REVMax)
+﻿# Desktop fiscal credit notes (REVMax)
 
 From **Desktop Sales**, open a fiscalised sale and choose **Credit notes**. The form reads the original
 REVMax receipt, shows quantities remaining after saved credits, and accepts quantities, a reason and an
@@ -79,9 +79,17 @@ hours after it is rung up — the credit shows **follows once this sale posts**,
 raises the memo the moment the invoice exists. A sweep behind that catches what the pass cannot: a
 sale adopted rather than posted, a process that died between the two, and any memo SAP refused.
 
-The memo is based on the invoice, so SAP takes the batches from the document being credited; it
-credits only the lines and quantities the credit names, and carries the credit's `DCN-` number in
-`NumAtCard` so a retry finds a memo whose reply was lost rather than raising a second.
+The memo is based on the invoice line by line. It credits only the lines and quantities the credit
+names, and carries the credit's `DCN-` number in `NumAtCard` so a retry finds a memo whose reply was
+lost rather than raising a second.
+
+Basing a line on the invoice does **not** make SAP take its batches: a batch-managed line that names
+none is refused ("Cannot add row without complete selection of batch/serial numbers") and the whole
+memo with it. So the poster reads the invoice from SAP and copies the batches onto each line
+(`CreditMemoBatchSelection`), taking them in the order SAP lists them after replaying the credits
+already posted against the same sale. An invoice it cannot read is a failed attempt, retried; an
+invoice whose line names another item, or whose batches cannot cover the return, is handed to a
+person.
 
 Two cases are still a person's job, and say so rather than guessing. A sale that reached SAP inside an
 end-of-day **consolidated invoice** has no invoice of its own to credit — a standalone memo would have
