@@ -189,7 +189,7 @@
                 <table class="ops-table">
                     <thead>
                         <tr>
-                            <th>Raised</th>
+                            <th>Credit note</th>
                             <th>Sale</th>
                             <th>Customer</th>
                             <th class="ops-num">Credited</th>
@@ -200,10 +200,13 @@
                     <tbody>
                         @foreach (var row in response.Items)
                         {
-                            <tr>
+                            <tr class="@(selected?.Id == row.Id ? "ops-dcl-current" : null)">
                                 <td>
-                                    <span class="ops-dcl-when">@Stamp(row.CreatedAtUtc)</span>
-                                    <span class="ops-code ops-dcl-sub" title="@row.Number">@ShortNumber(row.Number)</span>
+                                    @* CN1753, in the shape of the sale's INV1753. It opens the credit's own
+                                       drawer, with its lines, as the sale number opens the sale's credits. *@
+                                    <button type="button" class="ops-dcl-open ops-ds-saleno" @onclick="() => OpenDetail(row)"
+                                            title="Show the lines of @row.DisplayNumber">@row.DisplayNumber</button>
+                                    <span class="ops-dcl-when ops-dcl-sub">@Stamp(row.CreatedAtUtc)</span>
                                 </td>
                                 <td>
                                     @* The sale number opens the sale's credits — the same dialog the sale pages
@@ -307,6 +310,172 @@
     </section>
 </div>
 
+@if (selected is { } credit)
+{
+    var creditLines = credit.Lines ?? [];
+
+    <div class="ops-overlay ops-overlay-right" @onclick="CloseDetail">
+        <aside class="ops-drawer ops-ds-drawer" role="dialog" aria-modal="true"
+               aria-label="Credit note @credit.DisplayNumber"
+               @onclick:stopPropagation="true">
+
+            @* Headed like the sale drawer on /desktop-sales: the short number, then the fiscal number
+               in full. It is what ZIMRA holds the credit under, and a truncated one matches nothing. *@
+            <div class="ops-drawer-head ops-ds-dhead">
+                <div class="ops-ds-dhead-id">
+                    <span class="ops-kicker">Credit note</span>
+                    <span class="ops-ds-dhead-no">@credit.DisplayNumber</span>
+                    <span class="ops-ds-dhead-ref">@credit.Number</span>
+                </div>
+
+                <div class="ops-ds-dnav">
+                    <button type="button" class="ops-icon-btn" title="Previous credit"
+                            aria-label="Previous credit" disabled="@((response?.Items.Count ?? 0) < 2)"
+                            @onclick="() => StepDetail(-1)">
+                        <i class="ph ph-caret-up" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="ops-icon-btn" title="Next credit"
+                            aria-label="Next credit" disabled="@((response?.Items.Count ?? 0) < 2)"
+                            @onclick="() => StepDetail(1)">
+                        <i class="ph ph-caret-down" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="ops-icon-btn" title="Close"
+                            aria-label="Close" @onclick="CloseDetail">
+                        <i class="ph ph-x" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div class="ops-ds-dtags">
+                    <span class="ops-badge @DesktopCreditLabels.Family(credit.Status)">@DesktopCreditLabels.Fiscal(credit.Status)</span>
+                    @if (credit.Status == "Fiscalised")
+                    {
+                        <span class="ops-badge @DesktopCreditLabels.SapFamily(credit.SapStatus)">
+                            @DesktopCreditLabels.Sap(credit.SapStatus, credit.SapDocNum)
+                        </span>
+                    }
+                    <span class="ops-ds-dwhen">@Stamp(credit.CreatedAtUtc)</span>
+                </div>
+            </div>
+
+            <div class="ops-drawer-body">
+                <div class="ops-ds-headline">
+                    <b>@credit.Currency @credit.Amount.ToString("N2", CultureInfo.InvariantCulture)</b>
+                    <span>@credit.Reason</span>
+                </div>
+
+                @if (credit.Status == "Fiscalised" && !string.IsNullOrWhiteSpace(credit.SapError)
+                     && credit.SapStatus is DesktopCreditSapStatuses.Failed or DesktopCreditSapStatuses.ManualInSap)
+                {
+                    <div class="ops-msg ops-fam-bad" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            <strong>SAP has not taken this credit.</strong>
+                            <div class="ops-ds-sapsaid">@credit.SapError</div>
+                        </div>
+                    </div>
+                }
+
+                <div class="ops-defs">
+                    <div>
+                        <div class="ops-def-k">Sale</div>
+                        <div class="ops-def-v">
+                            @credit.SaleNumber
+                            @if (credit.SaleSapDocNum is { } invoice)
+                            {
+                                <div class="ops-sub">SAP invoice #@invoice</div>
+                            }
+                        </div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Customer</div>
+                        <div class="ops-def-v">
+                            @Customer(credit)
+                            @if (!string.IsNullOrWhiteSpace(credit.SaleCardCode))
+                            {
+                                <div class="ops-sub ops-code">@credit.SaleCardCode</div>
+                            }
+                        </div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Raised in</div>
+                        <div class="ops-def-v">@DesktopCreditLabels.Source(credit.SaleSourceSystem) · @credit.SaleWarehouseCode</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">ZIMRA receipt</div>
+                        <div class="ops-def-v">@(string.IsNullOrWhiteSpace(credit.ReceiptGlobalNo) ? "—" : credit.ReceiptGlobalNo)</div>
+                    </div>
+                    @if (credit.SapDocNum is { } memo)
+                    {
+                        <div>
+                            <div class="ops-def-k">SAP credit memo</div>
+                            <div class="ops-def-v">#@memo</div>
+                        </div>
+                    }
+                    @if (credit.FiscalisedAtUtc is { } fiscalisedAt)
+                    {
+                        <div>
+                            <div class="ops-def-k">Fiscalised</div>
+                            <div class="ops-def-v">@Stamp(fiscalisedAt)</div>
+                        </div>
+                    }
+                </div>
+
+                <div class="ops-ds-block">
+                    <div class="ops-def-k">Lines</div>
+                    @if (creditLines.Count == 0)
+                    {
+                        <p class="ops-sub">The saved lines of this credit could not be read.</p>
+                    }
+                    else
+                    {
+                        <table class="ops-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th class="ops-num">Qty</th>
+                                    <th class="ops-num">Unit price</th>
+                                    <th class="ops-num">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in creditLines)
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="ops-code">@(line.ItemCode ?? $"Line {line.ReceiptLineNo}")</span>
+                                            <div class="ops-sub">@line.Name</div>
+                                        </td>
+                                        <td class="ops-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                        <td class="ops-num">@line.UnitPrice.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                        <td class="ops-num">@line.LineTotal.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        @* Prices are the receipt's, VAT included. The amount is what ZIMRA filed, so it is
+                           stated rather than re-added from rounded lines. *@
+                        <div class="ops-ds-sum">
+                            <div>
+                                <span>Credited (VAT incl.)</span>
+                                <span>@credit.Currency @credit.Amount.ToString("N2", CultureInfo.InvariantCulture)</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="ops-drawer-foot">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDetail">Close</button>
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="() => OpenFromDetail(credit)">
+                    <i class="ph ph-arrow-u-up-left" aria-hidden="true"></i>
+                    All credits on @credit.SaleNumber
+                </button>
+            </div>
+        </aside>
+    </div>
+}
+
 @* The same dialog the sale pages open, so everything they offer on a credit — reconcile, continue,
    credit more lines — is one click from here too. Closing it reloads, because it may have changed a row. *@
 <DesktopCreditNoteDialog Reference="@openRow?.SaleReference"
@@ -325,6 +494,7 @@
     private bool noticeGood;
     private Guid? retrying;
     private DesktopCreditNoteListRow? openRow;
+    private DesktopCreditNoteListRow? selected;
 
     private string search = "";
     private DateTime? fromDate;
@@ -400,6 +570,10 @@
             response = await DesktopIntegrationService.ListCreditNotesAsync(new DesktopCreditNoteListQuery(
                 fromDate, toDate, NullIfEmpty(warehouse), NullIfEmpty(source), NullIfEmpty(fiscalStatus),
                 NullIfEmpty(sapStatus), NullIfEmpty(search), currentPage, PageSize));
+
+            // An open drawer follows its credit across a reload (a retry changes the row), and closes
+            // when the credit is no longer on the page.
+            selected = selected is null ? null : response.Items.FirstOrDefault(r => r.Id == selected.Id);
         }
         catch (Exception ex)
         {
@@ -487,6 +661,25 @@
 
     private void Open(DesktopCreditNoteListRow row) => openRow = row;
 
+    private void OpenDetail(DesktopCreditNoteListRow row) => selected = row;
+
+    private void CloseDetail() => selected = null;
+
+    private void OpenFromDetail(DesktopCreditNoteListRow row)
+    {
+        selected = null;
+        Open(row);
+    }
+
+    /// <summary>Walks the page that is loaded, as the sale drawer does; paging is the pager's job.</summary>
+    private void StepDetail(int step)
+    {
+        var items = response?.Items ?? [];
+        if (selected is null || items.Count == 0) return;
+        var index = items.FindIndex(r => r.Id == selected.Id);
+        selected = items[((index < 0 ? 0 : index) + step + items.Count) % items.Count];
+    }
+
     private async Task CloseDialogAsync()
     {
         openRow = null;
@@ -499,9 +692,6 @@
         !string.IsNullOrWhiteSpace(row.SaleCustomerName) ? row.SaleCustomerName!
         : !string.IsNullOrWhiteSpace(row.SaleCardName) ? row.SaleCardName!
         : "—";
-
-    /// <summary>A DCN number is 36 characters of which the first dozen tell them apart; the rest is on hover.</summary>
-    private static string ShortNumber(string number) => number.Length <= 16 ? number : number[..16] + "…";
 
     private static string Stamp(DateTime utc) => IAuditService.ToCAT(
             utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc))

@@ -347,11 +347,6 @@ public sealed class DesktopCreditSapPoster(
             .Select(n => n.PlanJson)
             .ToListAsync(CancellationToken.None);
 
-        var invoiceLineOf = sale.Lines
-            .OrderBy(line => line.LineNum)
-            .Select((line, index) => (line.LineNum, index))
-            .ToDictionary(t => t.LineNum, t => t.index);
-
         var credited = new List<(int, decimal)>();
 
         foreach (var json in earlier)
@@ -360,13 +355,21 @@ public sealed class DesktopCreditSapPoster(
                 ?? throw new InvalidOperationException("An earlier credit's saved plan could not be read.");
 
             credited.AddRange(plan.Quantities
-                .Where(q => invoiceLineOf.ContainsKey(q.LineNo))
                 .OrderBy(q => q.LineNo)
-                .Select(q => (invoiceLineOf[q.LineNo], q.Quantity)));
+                .Select(q => (InvoiceLineOf(sale, q.LineNo), q.Quantity))
+                .Where(t => t.Item1 >= 0));
         }
 
         return credited;
     }
+
+    /// <summary>
+    /// The invoice line (BaseLine) a receipt line was sold on, or -1 when the receipt has no such line.
+    /// </summary>
+    private static int InvoiceLineOf(DesktopSaleEntity sale, int receiptLineNo) =>
+        DesktopSaleLineOrder.ForReceiptLine(sale.Lines, receiptLineNo) is { } line
+            ? DesktopSaleLineOrder.Invoice(sale.Lines).IndexOf(line)
+            : -1;
 
     /// <summary>
     /// Builds the credit memo, based on the invoice the sale posted as.
@@ -381,15 +384,15 @@ public sealed class DesktopCreditSapPoster(
         var plan = JsonSerializer.Deserialize<DesktopCreditPlan>(note.PlanJson, DesktopCreditNoteService.Json)
             ?? throw new InvalidOperationException("The saved credit plan could not be read.");
 
-        // The invoice's line order, which is the sale's own lines by LineNum — see
-        // DesktopSaleInvoiceRequestBuilder. BaseLine is the index in that order.
-        var invoiceLines = sale.Lines.OrderBy(line => line.LineNum).ToList();
+        // BaseLine is the line's index in the invoice's order, and the receipt line is found by its
+        // position on the receipt — never by LineNum, which a sale can repeat. See DesktopSaleLineOrder.
+        var invoiceLines = DesktopSaleLineOrder.Invoice(sale.Lines);
 
         var lines = new List<CreateCreditNoteLineRequest>();
 
         foreach (var credited in plan.Quantities.OrderBy(q => q.LineNo))
         {
-            var index = invoiceLines.FindIndex(line => line.LineNum == credited.LineNo);
+            var index = InvoiceLineOf(sale, credited.LineNo);
 
             if (index < 0)
             {
@@ -401,9 +404,8 @@ public sealed class DesktopCreditSapPoster(
             var saleLine = invoiceLines[index];
 
             // The receipt line the operator actually chose, checked against the sale line it is being
-            // tied to. The two are numbered by the same value on the way out — REVMax is sent the
-            // sale's LineNum as the line's HH — but this document credits real stock, so the match is
-            // verified rather than assumed.
+            // tied to. The two are matched by position — REVMax is sent the line's position as its HH —
+            // but this document credits real stock, so the match is verified rather than assumed.
             var source = plan.Source.Lines.SingleOrDefault(line => line.LineNo == credited.LineNo);
 
             if (source is not null
@@ -588,13 +590,12 @@ public sealed class DesktopCreditSapPoster(
         try
         {
             var plan = JsonSerializer.Deserialize<DesktopCreditPlan>(note.PlanJson, DesktopCreditNoteService.Json)!;
-            var byLineNum = sale.Lines.ToDictionary(line => line.LineNum);
-
             returned = plan.Quantities
-                .Where(credited => byLineNum.ContainsKey(credited.LineNo))
-                .Select(credited =>
+                .Select(credited => (credited, line: DesktopSaleLineOrder.ForReceiptLine(sale.Lines, credited.LineNo)))
+                .Where(t => t.line is not null)
+                .Select(t =>
                 {
-                    var line = byLineNum[credited.LineNo];
+                    var (credited, line) = (t.credited, t.line!);
                     return new StockLedgerLine(
                         line.ItemCode,
                         string.IsNullOrWhiteSpace(line.WarehouseCode) ? sale.WarehouseCode : line.WarehouseCode,

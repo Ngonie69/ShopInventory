@@ -45,7 +45,22 @@ public sealed record DesktopCreditNoteListRow(
     string? SaleCardName,
     string? SaleCustomerName,
     string? SaleFiscalReceiptNumber,
-    int? SaleSapDocNum);
+    int? SaleSapDocNum,
+    string CreditNumber = "",
+    List<DesktopCreditNoteLineRow>? Lines = null);
+
+/// <summary>One line a credit returned, as it was filed with ZIMRA.</summary>
+/// <remarks>
+/// <c>UnitPrice</c> and <c>LineTotal</c> are tax-inclusive, the receipt's own figures.
+/// <c>ItemCode</c> is the sale line the receipt line was filed from, or null when it cannot be told.
+/// </remarks>
+public sealed record DesktopCreditNoteLineRow(
+    int ReceiptLineNo,
+    string? ItemCode,
+    string Name,
+    decimal Quantity,
+    decimal UnitPrice,
+    decimal LineTotal);
 
 /// <summary>
 /// A page of credits, and counts over every credit the filters match regardless of the SAP-status
@@ -127,8 +142,11 @@ public sealed class DesktopCreditNoteListService(
         {
             var term = query.Search.Trim().ToLower();
             var docNum = int.TryParse(term, out var parsed) ? parsed : (int?)null;
-            // INV1753 — the number on the customer's receipt — names the sale by its id.
-            var saleId = DesktopSaleNumber.TryParse(term, out var id) ? id : (int?)null;
+            // INV1753 — the number on the customer's receipt — names the sale by its id, and so does
+            // CN1753, the credit's own number.
+            var saleId = DesktopSaleNumber.TryParse(term, out var id) ? id
+                : DesktopCreditNoteNumber.TryParseSale(term, out var creditSale) ? creditSale
+                : (int?)null;
 
             notes = notes.Where(n =>
                 n.Number.ToLower().Contains(term)
@@ -191,9 +209,14 @@ public sealed class DesktopCreditNoteListService(
                 n.Sale.CardName,
                 n.Sale.RouteCustomerName,
                 n.Sale.FiscalReceiptNumber,
-                n.Sale.SapDocNum
+                n.Sale.SapDocNum,
+                SaleLines = n.Sale.Lines
+                    .Select(l => new DesktopSaleLineEntity { Id = l.Id, LineNum = l.LineNum, ItemCode = l.ItemCode })
+                    .ToList()
             })
             .ToListAsync(ct);
+
+        var numbers = await DesktopCreditNoteNumber.ForSalesAsync(db, rows.Select(r => r.Note.SaleId), ct);
 
         // From the caller's own scope, not the filtered one, so choosing a warehouse does not shrink
         // the list it was chosen from to itself.
@@ -230,7 +253,9 @@ public sealed class DesktopCreditNoteListService(
                 r.CardName,
                 r.RouteCustomerName,
                 r.FiscalReceiptNumber,
-                r.SapDocNum)).ToList(),
+                r.SapDocNum,
+                numbers.GetValueOrDefault(r.Note.Id, ""),
+                LinesOf(r.Note.PlanJson, r.SaleLines))).ToList(),
             total,
             page,
             pageSize,
@@ -315,8 +340,10 @@ public sealed class DesktopCreditNoteListService(
     private async Task<DesktopCreditNoteListRow> RowAsync(Guid id, CancellationToken ct)
     {
         var n = await db.DesktopCreditNotes.AsNoTracking()
-            .Include(x => x.Sale)
+            .Include(x => x.Sale).ThenInclude(s => s.Lines)
             .SingleAsync(x => x.Id == id, ct);
+
+        var numbers = await DesktopCreditNoteNumber.ForSalesAsync(db, [n.SaleId], ct);
 
         return new DesktopCreditNoteListRow(
             n.Id, n.Number, n.Status, n.SapStatus, n.Amount, n.Currency, n.Reason, n.CreatedAtUtc,
@@ -324,7 +351,49 @@ public sealed class DesktopCreditNoteListService(
             n.SapError, n.Sale.ExternalReferenceId, DesktopSaleNumber.Format(n.SaleId),
             n.Sale.ConsolidationId != null, n.Sale.SourceSystem, n.Sale.WarehouseCode,
             n.Sale.CardCode, n.Sale.CardName, n.Sale.RouteCustomerName, n.Sale.FiscalReceiptNumber,
-            n.Sale.SapDocNum);
+            n.Sale.SapDocNum, numbers.GetValueOrDefault(n.Id, ""), LinesOf(n.PlanJson, n.Sale.Lines));
+    }
+
+    /// <summary>
+    /// The lines a credit returned, from its saved plan: the receipt's own name and price for each, and
+    /// the item of the sale line it was filed from, found by position — see DesktopSaleLineOrder.
+    /// </summary>
+    private static List<DesktopCreditNoteLineRow> LinesOf(string planJson, IEnumerable<DesktopSaleLineEntity> saleLines)
+    {
+        DesktopCreditPlan? plan;
+
+        try
+        {
+            plan = JsonSerializer.Deserialize<DesktopCreditPlan>(planJson, DesktopCreditNoteService.Json);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+
+        if (plan is null)
+        {
+            return [];
+        }
+
+        var lines = saleLines.ToList();
+
+        return plan.Quantities
+            .Where(q => q.Quantity > 0)
+            .OrderBy(q => q.LineNo)
+            .Select(q =>
+            {
+                var source = plan.Source.Lines.FirstOrDefault(l => l.LineNo == q.LineNo);
+                var unitPrice = Math.Round(source?.UnitPrice ?? 0m, 2, MidpointRounding.AwayFromZero);
+                return new DesktopCreditNoteLineRow(
+                    q.LineNo,
+                    DesktopSaleLineOrder.ForReceiptLine(lines, q.LineNo)?.ItemCode,
+                    source?.Name ?? $"Line {q.LineNo}",
+                    q.Quantity,
+                    unitPrice,
+                    Math.Round(q.Quantity * (source?.UnitPrice ?? 0m), 2, MidpointRounding.AwayFromZero));
+            })
+            .ToList();
     }
 
     /// <summary>

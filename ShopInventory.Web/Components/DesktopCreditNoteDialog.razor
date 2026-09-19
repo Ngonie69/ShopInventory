@@ -77,7 +77,7 @@
                                 <p>@done.Message</p>
                             }
                             <dl class="ops-dcn-facts">
-                                <dt>Credit note</dt><dd class="ops-code">@done.Number</dd>
+                                <dt>Credit note</dt><dd class="ops-code" title="@done.Number">@done.DisplayNumber</dd>
                                 <dt>Total credited</dt><dd>@Money(done.Amount, done.Currency)</dd>
                                 @if (!string.IsNullOrWhiteSpace(done.ReceiptGlobalNo))
                                 {
@@ -111,7 +111,7 @@
                             {
                                 <div class="ops-ds-credit">
                                     <div class="ops-ds-credit-top">
-                                        <span class="ops-code">@note.Number</span>
+                                        <span class="ops-code" title="@note.Number">@note.DisplayNumber</span>
                                         <span class="ops-ds-credit-amt">@Money(note.Amount, note.Currency)</span>
                                     </div>
                                     @if (!string.IsNullOrWhiteSpace(note.Reason))

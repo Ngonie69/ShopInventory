@@ -25,7 +25,11 @@ public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Cur
 public sealed record DesktopCreditNoteResult(Guid Id, string Number, string Status, decimal Amount,
     string Currency, string Reason, string OriginalFiscalNumber, DateTime CreatedAtUtc,
     string? Message, string? QrCode, string? ReceiptGlobalNo, int? SapDocNum,
-    string SapStatus = "Deferred", string? SapError = null);
+    string SapStatus = "Deferred", string? SapError = null, string? CreditNumber = null)
+{
+    /// <summary>CN1753 — the short number in the shape of its sale's INV1753 — or the fiscal number from an older API.</summary>
+    public string DisplayNumber => string.IsNullOrWhiteSpace(CreditNumber) ? Number : CreditNumber;
+}
 
 /// <summary>The values <see cref="DesktopCreditNoteResult.SapStatus"/> takes, as the API writes them.</summary>
 public static class DesktopCreditSapStatuses
@@ -73,7 +77,25 @@ public sealed record DesktopCreditNoteListRow(
     string? SaleCardName,
     string? SaleCustomerName,
     string? SaleFiscalReceiptNumber,
-    int? SaleSapDocNum);
+    int? SaleSapDocNum,
+    string CreditNumber = "",
+    List<DesktopCreditNoteLineRow>? Lines = null)
+{
+    /// <summary>CN1753 — the short number in the shape of its sale's INV1753 — or the fiscal number from an older API.</summary>
+    public string DisplayNumber => string.IsNullOrWhiteSpace(CreditNumber) ? Number : CreditNumber;
+}
+
+/// <summary>
+/// One line a credit returned, as filed with ZIMRA; prices are tax-inclusive. Mirrors the API's
+/// <c>DesktopCreditNoteLineRow</c> by hand.
+/// </summary>
+public sealed record DesktopCreditNoteLineRow(
+    int ReceiptLineNo,
+    string? ItemCode,
+    string Name,
+    decimal Quantity,
+    decimal UnitPrice,
+    decimal LineTotal);
 
 /// <remarks>
 /// The counts cover every credit the other filters match, whatever the SAP-status filter says, so the

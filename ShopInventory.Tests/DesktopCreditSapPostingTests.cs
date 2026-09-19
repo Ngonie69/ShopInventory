@@ -181,14 +181,14 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         // A partial credit is the ordinary case here: the customer brought two of the six back. The
         // memo must name that line of the invoice and that quantity, not the whole sale.
         var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 772109);
-        var note = await GivenCreditAsync(sale, creditedLineNum: 1, quantity: 3m);
+        var note = await GivenCreditAsync(sale, receiptLineNo: 2, quantity: 3m);
 
         await Poster().SettleAsync(note.Id, CancellationToken.None);
 
         var line = Assert.Single(Assert.Single(_sap.Created).Lines);
         Assert.Equal("ICS027", line.ItemCode);
         Assert.Equal(3m, line.Quantity);
-        // BaseLine is the line's index in the invoice's own order, which is the sale's lines by LineNum.
+        // BaseLine is the line's index in the invoice's own order — see DesktopSaleLineOrder.
         Assert.Equal(1, line.OriginalInvoiceLineId);
         Assert.Equal("KEFGRS", line.WarehouseCode);
 
@@ -201,7 +201,7 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         // A credit memo built on a guessed line credits the wrong item, and stock moves for it. Better
         // to stop and say so than to post something plausible.
         var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 772109);
-        var note = await GivenCreditAsync(sale, creditedLineNum: 47);
+        var note = await GivenCreditAsync(sale, receiptLineNo: 47);
 
         await Poster().SettleAsync(note.Id, CancellationToken.None);
 
@@ -222,6 +222,35 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
 
         Assert.Empty(_sap.Created);
         Assert.Contains("credit the wrong item", (await Reload(note.Id)).SapError);
+    }
+
+    /// <summary>
+    /// INV1753, 19 September 2026: a till numbering its lines from zero was stored 1,1,2, and every
+    /// credit against the sale threw "An item with the same key has already been added. Key: 1"
+    /// instead of posting. Receipt lines are found by position, so a repeated LineNum costs nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_with_a_repeated_line_number_still_credits_the_line_the_receipt_named()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347, lineNums: [1, 1, 2]);
+
+        var first = await GivenCreditAsync(sale, receiptLineNo: 2, quantity: 1m);
+        await Poster().SettleAsync(first.Id, CancellationToken.None);
+
+        // The second credit replays the first one's batches, which is where the dictionary threw.
+        var second = await GivenCreditAsync(sale, receiptLineNo: 3, quantity: 2m);
+        await Poster().SettleAsync(second.Id, CancellationToken.None);
+
+        Assert.Equal(DesktopCreditSapStatuses.Posted, (await Reload(first.Id)).SapStatus);
+        Assert.Equal(DesktopCreditSapStatuses.Posted, (await Reload(second.Id)).SapStatus);
+
+        var banana = Assert.Single(_sap.Created[0].Lines);
+        Assert.Equal(("ICS027", 1, 1m), (banana.ItemCode, banana.OriginalInvoiceLineId!.Value, banana.Quantity));
+
+        var cheese = Assert.Single(_sap.Created[1].Lines);
+        Assert.Equal(("CHE011", 2, 2m), (cheese.ItemCode, cheese.OriginalInvoiceLineId!.Value, cheese.Quantity));
+
+        Assert.Equal(["ICS027", "CHE011"], _ledger.Released.Select(l => l.ItemCode).ToArray());
     }
 
     // ── Never twice ──────────────────────────────────────────────────────
@@ -410,7 +439,7 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
     {
         var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
         GivenInvoiceBatches(4242, line0: [("B-OLD", 6m)], line1: [("B-A", 1m), ("B-B", 3m)]);
-        var note = await GivenCreditAsync(sale, creditedLineNum: 1, quantity: 2m);
+        var note = await GivenCreditAsync(sale, receiptLineNo: 2, quantity: 2m);
 
         await Poster().SettleAsync(note.Id, CancellationToken.None);
 
@@ -427,10 +456,10 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
         GivenInvoiceBatches(4242, line0: [("B-OLD", 6m)], line1: [("B-A", 1m), ("B-B", 3m)]);
 
-        var first = await GivenCreditAsync(sale, creditedLineNum: 1, quantity: 2m);
+        var first = await GivenCreditAsync(sale, receiptLineNo: 2, quantity: 2m);
         await Poster().SettleAsync(first.Id, CancellationToken.None);
 
-        var second = await GivenCreditAsync(sale, creditedLineNum: 1, quantity: 2m);
+        var second = await GivenCreditAsync(sale, receiptLineNo: 2, quantity: 2m);
         await Poster().SettleAsync(second.Id, CancellationToken.None);
 
         var line = Assert.Single(_sap.Created[1].Lines);
@@ -562,7 +591,8 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
     private Task<DesktopCreditNoteEntity> Reload(Guid id) =>
         _context.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == id);
 
-    private async Task<DesktopSaleEntity> GivenSaleAsync(int? sapDocEntry = null, int? sapDocNum = null)
+    private async Task<DesktopSaleEntity> GivenSaleAsync(
+        int? sapDocEntry = null, int? sapDocNum = null, int[]? lineNums = null)
     {
         var sale = new DesktopSaleEntity
         {
@@ -597,6 +627,20 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
             ]
         };
 
+        if (lineNums is not null)
+        {
+            sale.Lines.Add(new DesktopSaleLineEntity
+            {
+                ItemCode = "CHE011", ItemDescription = "Cheddar",
+                Quantity = 3, UnitPrice = 10m, LineTotal = 30m, WarehouseCode = "KEFGRS"
+            });
+
+            foreach (var (line, num) in sale.Lines.Zip(lineNums))
+            {
+                line.LineNum = num;
+            }
+        }
+
         _context.DesktopSales.Add(sale);
         await _context.SaveChangesAsync();
         return sale;
@@ -624,9 +668,9 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
     private Task<DesktopCreditNoteEntity> GivenCreditAsync(
         DesktopSaleEntity sale,
         string status = DesktopCreditStatuses.Fiscalised,
-        int creditedLineNum = 0,
+        int receiptLineNo = 1,
         decimal quantity = 2m,
         string? receiptLineName = null) =>
         DesktopCreditPosters.GivenCreditAsync(
-            _context, sale, status, creditedLineNum, quantity, receiptLineName);
+            _context, sale, status, receiptLineNo, quantity, receiptLineName);
 }

@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -65,17 +66,18 @@ internal static class DesktopCreditPosters
         ApplicationDbContext context,
         DesktopSaleEntity sale,
         string status = DesktopCreditStatuses.Fiscalised,
-        int creditedLineNum = 0,
+        int receiptLineNo = 1,
         decimal quantity = 2m,
         string? receiptLineName = null)
     {
-        var saleLine = sale.Lines.FirstOrDefault(line => line.LineNum == creditedLineNum);
+        // A receipt line is the sale line at that 1-based position, never the one with that LineNum.
+        var saleLine = DesktopSaleLineOrder.ForReceiptLine(sale.Lines, receiptLineNo);
 
         var source = new DesktopCreditSource(
             sale.ExternalReferenceId, sale.Currency, sale.TotalAmount, 22862, 525, 216877, null,
             [
                 new DesktopCreditLine(
-                    creditedLineNum,
+                    receiptLineNo,
                     receiptLineName ?? saleLine?.ItemDescription ?? "Unknown",
                     saleLine?.Quantity ?? quantity,
                     10m, 7, 15.5m, "O01", null)
@@ -83,7 +85,7 @@ internal static class DesktopCreditPosters
 
         var plan = new DesktopCreditPlan(
             source,
-            [new DesktopCreditQuantity(creditedLineNum, quantity)],
+            [new DesktopCreditQuantity(receiptLineNo, quantity)],
             new SubmitReceiptApiRequest { InvoiceNo = "DCN-test", ReceiptType = ReceiptType.CreditNote },
             quantity * 10m);
 
@@ -169,7 +171,7 @@ internal sealed class RecordingSap
                 DocEntry = docEntry,
                 DocNum = sale.SapDocNum ?? docEntry,
                 CardCode = sale.CardCode,
-                DocumentLines = sale.Lines.OrderBy(l => l.LineNum)
+                DocumentLines = DesktopSaleLineOrder.Invoice(sale.Lines)
                     .Select((l, index) => new InvoiceLine { LineNum = index, ItemCode = l.ItemCode, Quantity = l.Quantity })
                     .ToList()
             };

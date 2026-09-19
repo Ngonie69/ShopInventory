@@ -4933,3 +4933,9 @@
 .ops-dcl .ops-dcl-retry {
     margin-top: var(--ops-s3);
 }
+
+/* The credit the drawer is showing keeps a mark, so it is findable behind the
+   drawer on a wide screen. */
+.ops-dcl .ops-table tbody tr.ops-dcl-current {
+    background: var(--ops-hover);
+}

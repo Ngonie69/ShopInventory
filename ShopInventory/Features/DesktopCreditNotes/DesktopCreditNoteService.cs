@@ -35,7 +35,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         var sale = await ReadSale(caller, reference, ct);
         var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id)
             .OrderByDescending(n => n.CreatedAtUtc).ToListAsync(ct);
-        return notes.Select(Map).ToList();
+        return await MapAsync(notes, ct);
     }
 
     public async Task<DesktopCreditForm> PrepareAsync(Guid caller, string reference, CancellationToken ct)
@@ -45,7 +45,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         RequireCreditableHere(sale);
         var source = await fiscal.ReadOriginalAsync(sale, ct);
         var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id).ToListAsync(ct);
-        return new DesktopCreditForm(source, notes.Select(Map).ToList(), Reserved(notes),
+        return new DesktopCreditForm(source, await MapAsync(notes, ct), Reserved(notes),
             InSap(sale), InSap(sale) ? sale.SapDocNum : null,
             Math.Max(0m, source.OriginalTotal - source.ExternalCreditedAmount - ReservedAmount(notes)));
     }
@@ -98,7 +98,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         {
             if (previous.SaleId != sale.Id || previous.RequestHash != hash)
                 throw new InvalidOperationException("This request key belongs to a different credit note. Reopen the form for a new credit.");
-            return previous.Status == DesktopCreditStatuses.Prepared ? await IssueAsync(previous, ct) : Map(previous);
+            return previous.Status == DesktopCreditStatuses.Prepared ? await IssueAsync(previous, ct) : await MapAsync(previous, ct);
         }
         // After the replay above, not before: a credit saved by "Fiscalise only" whose sale has since
         // posted is the same credit, and its retry must return it rather than be refused.
@@ -195,7 +195,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         var sale = await ReadSale(caller, reference, ct);
         var note = await db.DesktopCreditNotes.AsNoTracking().SingleOrDefaultAsync(n => n.Id == id && n.SaleId == sale.Id, ct)
             ?? throw new InvalidOperationException("Credit note not found for this sale.");
-        if (note.Status is DesktopCreditStatuses.Fiscalised or DesktopCreditStatuses.Rejected) return Map(note);
+        if (note.Status is DesktopCreditStatuses.Fiscalised or DesktopCreditStatuses.Rejected) return await MapAsync(note, ct);
         var plan = JsonSerializer.Deserialize<DesktopCreditPlan>(note.PlanJson, Json)!;
         var result = await fiscal.FindAsync(plan, ct);
         if (result?.Success == true && !result.Skipped)
@@ -212,7 +212,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
             return await SaveOutcome(note.Id, DesktopCreditStatuses.Rejected, null,
                 $"{stored.Message ?? "The device refused the credit."} REVMax holds no receipt under this number, "
                 + "so nothing was filed. The credit was released and can be created again.");
-        return Map(note) with { Message = "No receipt was confirmed. The credit remains reserved for reconciliation; nothing was resubmitted." };
+        return await MapAsync(note, ct) with { Message = "No receipt was confirmed. The credit remains reserved for reconciliation; nothing was resubmitted." };
     }
 
     public async Task<DesktopCreditNoteResult> ContinueAsync(Guid caller, string reference, Guid id, CancellationToken ct)
@@ -220,7 +220,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         var sale = await ReadSale(caller, reference, ct);
         var note = await db.DesktopCreditNotes.AsNoTracking().SingleOrDefaultAsync(n => n.Id == id && n.SaleId == sale.Id, ct)
             ?? throw new InvalidOperationException("Credit note not found for this sale.");
-        return note.Status == DesktopCreditStatuses.Prepared ? await IssueAsync(note, ct) : Map(note);
+        return note.Status == DesktopCreditStatuses.Prepared ? await IssueAsync(note, ct) : await MapAsync(note, ct);
     }
 
     private async Task<DesktopCreditNoteResult> SaveOutcome(Guid id, string status, FiscalizationResult? result, string? message)
@@ -254,7 +254,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     }
 
     private async Task<DesktopCreditNoteResult> Reload(Guid id, CancellationToken ct) =>
-        Map(await db.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == id, ct));
+        await MapAsync(await db.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == id, ct), ct);
 
     private static void RequireFiscalised(DesktopSaleEntity sale)
     {
@@ -320,6 +320,16 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     /// <summary>What the device last answered for this credit, as it was recorded.</summary>
     private static FiscalizationResult? Stored(DesktopCreditNoteEntity note) =>
         note.FiscalResultJson is null ? null : JsonSerializer.Deserialize<FiscalizationResult>(note.FiscalResultJson, Json);
+
+    /// <summary>Maps a credit with its short number — CN1753 — which depends on the sale's other credits.</summary>
+    private async Task<DesktopCreditNoteResult> MapAsync(DesktopCreditNoteEntity note, CancellationToken ct) =>
+        (await MapAsync([note], ct))[0];
+
+    private async Task<List<DesktopCreditNoteResult>> MapAsync(List<DesktopCreditNoteEntity> notes, CancellationToken ct)
+    {
+        var numbers = await DesktopCreditNoteNumber.ForSalesAsync(db, notes.Select(n => n.SaleId), ct);
+        return notes.Select(n => Map(n) with { CreditNumber = numbers.GetValueOrDefault(n.Id) }).ToList();
+    }
 
     private static DesktopCreditNoteResult Map(DesktopCreditNoteEntity note)
     {
