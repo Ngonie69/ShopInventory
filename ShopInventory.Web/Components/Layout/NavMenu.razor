@@ -340,7 +340,9 @@
             <AuthorizeView Roles="@UserRoles.VendingRoles" Context="tillsCtx">
                 <Authorized>
                     <NavSection Title="Tills & Vending">
-                        <AuthorizeView Roles="Admin" Context="tillRecordsCtx">
+                        @* The page and the API behind it admit Cashier as well; the link is
+                           kept to the roles that review the tills rather than run one. *@
+                        <AuthorizeView Roles="Admin,Manager" Context="tillSalesCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/desktop-sales" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -348,6 +350,10 @@
                                     </span>
                                     <span class="snav-text">Desktop Sales</span>
                                 </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <AuthorizeView Roles="Admin" Context="tillRecordsCtx">
+                            <Authorized>
                                 <NavLink class="snav-link" href="/desktop-transactions" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
                                         <i class="ph ph-monitor" aria-hidden="true"></i>
@@ -571,18 +577,6 @@
                                         <span class="snav-text">Product POD Report</span>
                                     </NavLink>
                                 }
-                                @* A sales rep owns the round: which shops a route calls at,
-                                   and on which days, edits included. *@
-                                <AuthorizeView Roles="Admin,Manager,SalesRep" Context="routeCtx">
-                                    <Authorized>
-                                        <NavLink class="snav-link" href="/route-assignments" Match="NavLinkMatch.Prefix">
-                                            <span class="snav-icon">
-                                                <i class="ph ph-path" aria-hidden="true"></i>
-                                            </span>
-                                            <span class="snav-text">Delivery Routes</span>
-                                        </NavLink>
-                                    </Authorized>
-                                </AuthorizeView>
                                 <AuthorizeView Roles="PodOperator" Context="driverAccountCtx">
                                     <Authorized>
                                         <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
@@ -593,6 +587,20 @@
                                         </NavLink>
                                     </Authorized>
                                 </AuthorizeView>
+                            </Authorized>
+                        </AuthorizeView>
+                        @* A sales rep owns the round: which shops a route calls at, and on
+                           which days, edits included. Its own gate rather than inside the POD
+                           one above, which has no Manager in it and so hid this from a manager
+                           the page admits. *@
+                        <AuthorizeView Roles="Admin,Manager,SalesRep" Context="routeCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/route-assignments" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-path" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Delivery Routes</span>
+                                </NavLink>
                             </Authorized>
                         </AuthorizeView>
                         <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep" Context="crateCtx">

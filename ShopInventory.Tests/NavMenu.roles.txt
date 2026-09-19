@@ -110,6 +110,7 @@ Finance
     Daily Incoming Payments  /reports/desktop-sales/payments
     G/L Accounts  /gl-accounts
 Tills & Vending
+    Desktop Sales  /desktop-sales
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
 Van Sales
@@ -128,6 +129,7 @@ Van Reports
     Attendance Report  /van-sales/attendance-report
     Departure Compliance  /van-sales/compliance
 Deliveries
+    Delivery Routes  /route-assignments
     Crate PODs  /crates/pods
     Crate Opening Balances  /crates/opening-balances
     Crate GRVs  /crates/grvs
