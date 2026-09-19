@@ -998,6 +998,7 @@ try
     // accepts), the posting pass (which calls it the moment the sale reaches SAP) and the sweep that
     // retries — one implementation, so there is one place a duplicate credit memo could come from.
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.DesktopCreditSapPoster>();
+    builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.DesktopCreditNoteListService>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.DesktopCreditSapSweep>();
     builder.Services.AddScoped<IFiscalizationService>(serviceProvider =>
     {

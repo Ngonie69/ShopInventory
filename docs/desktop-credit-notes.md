@@ -113,3 +113,18 @@ Migration metadata can be generated or checked without loading operational crede
 `-- --metadata-only` to the EF tool. This mode is for metadata commands, not database updates.
 
 Tests use SQLite and stubbed REVMax responses. No live fiscal receipt is issued during verification.
+
+## Finding and chasing credits: `/desktop-credit-notes`
+
+Every credit raised against a till, vending or van sale is listed on one page (Tills & Vending →
+Desktop Credit Notes), with its ZIMRA state and its SAP state side by side. `/credit-notes` reads SAP,
+so a credit ZIMRA holds and SAP does not — the one somebody has to act on — never appears there.
+
+- The figures count **Refused by SAP** and **Raise by hand** whatever the table is filtered to.
+- **Retry SAP** (Admin, Manager) sends a refused memo again at once and resets its attempt count, so
+  the sweep resumes too. It is the way back for a credit that exhausted its six attempts while the
+  cause was being fixed; it never raises a second memo, because the poster looks for one under the
+  credit's own `DCN-` number first.
+- The sale number opens the same credit dialog the sale pages use.
+
+API: `GET /api/DesktopIntegration/credit-notes`, `POST /api/DesktopIntegration/credit-notes/{id}/retry-sap`.

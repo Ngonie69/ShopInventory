@@ -1,0 +1,509 @@
+@page "/desktop-credit-notes"
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.DesktopCreditNotes
+@attribute [Authorize(Roles = "Admin,Cashier,Manager")]
+@inject IDesktopIntegrationService DesktopIntegrationService
+@rendermode InteractiveServer
+
+<PageTitle>Desktop Credit Notes - Shop Inventory</PageTitle>
+
+@* Styles live in wwwroot/css/operations.css: the shared `ops` vocabulary, plus the few
+   `.ops-dcl` rules at the foot of that sheet. Not `ops-dcn` — that prefix is the credit dialog's. *@
+
+<div class="ops ops-dcl">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Tills &amp; Vending</div>
+            <h1>Desktop Credit Notes</h1>
+            <p>
+                Every credit raised against a till, vending or van sale, with where it stands at ZIMRA and in
+                SAP. A credit is filed with ZIMRA at the counter; its SAP credit memo follows once the sale
+                has posted. The ones to act on are the ones SAP refused and the ones it cannot raise by itself.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="LoadAsync" disabled="@loading">
+                @if (loading)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Loading&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (notice is not null)
+    {
+        <div class="ops-msg @(noticeGood ? "ops-fam-good" : "ops-fam-bad")" role="status">
+            <i class="ph @(noticeGood ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
+            <div class="ops-msg-body">@notice</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => notice = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
+
+    @if (response is not null)
+    {
+        @* Counted over every credit the other filters match, whatever the SAP filter says — so
+           "Refused by SAP" keeps its number while the table shows only the posted ones. *@
+        <div class="ops-figures">
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>With ZIMRA</div>
+                <div class="ops-figure-num">@Fiscalised</div>
+                <div class="ops-figure-sub">@CreditedText</div>
+            </div>
+            <div class="ops-figure ops-fam-good">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>In SAP</div>
+                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.Posted)</div>
+                <div class="ops-figure-sub">credit memo raised</div>
+            </div>
+            <div class="ops-figure ops-fam-info">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Waiting for the sale</div>
+                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.Deferred)</div>
+                <div class="ops-figure-sub">follows once the sale posts</div>
+            </div>
+            <div class="ops-figure @(SapCount(DesktopCreditSapStatuses.Failed) > 0 ? "ops-fam-bad" : "ops-fam-neutral")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Refused by SAP</div>
+                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.Failed)</div>
+                <div class="ops-figure-sub">retry once the cause is fixed</div>
+            </div>
+            <div class="ops-figure @(SapCount(DesktopCreditSapStatuses.ManualInSap) > 0 ? "ops-fam-warn" : "ops-fam-neutral")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Raise by hand</div>
+                <div class="ops-figure-num">@SapCount(DesktopCreditSapStatuses.ManualInSap)</div>
+                <div class="ops-figure-sub">SAP cannot take it automatically</div>
+            </div>
+        </div>
+    }
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-receipt-x" aria-hidden="true"></i>Credit notes</h2>
+            @if (response is not null)
+            {
+                <span class="ops-count">@response.TotalCount.ToString("N0") credit@(response.TotalCount == 1 ? "" : "s")</span>
+            }
+        </div>
+
+        <div class="ops-filters">
+            <div class="ops-field">
+                <label class="ops-label" for="dcl-search">Search</label>
+                <div class="ops-search">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <input id="dcl-search" type="search" class="ops-input"
+                           placeholder="INV number, credit, customer, SAP invoice"
+                           @bind="search" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+                </div>
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="dcl-from">From</label>
+                <NocturneDateField Id="dcl-from" Date="fromDate" DateChanged="@(value => OnDateChanged(value, isFrom: true))"
+                                   AriaLabel="From date" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="dcl-to">To</label>
+                <NocturneDateField Id="dcl-to" Date="toDate" DateChanged="@(value => OnDateChanged(value, isFrom: false))"
+                                   AriaLabel="To date" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="dcl-sap">SAP</label>
+                <NocturneSelect Id="dcl-sap" Class="nsel-block" TValue="string" Options="SapOptions"
+                                @bind-Value="sapStatus" OnChanged="FilterChanged"
+                                Caption="Filter by SAP status" AriaLabel="Filter by SAP status" Placeholder="Any SAP status" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="dcl-fiscal">ZIMRA</label>
+                <NocturneSelect Id="dcl-fiscal" Class="nsel-block" TValue="string" Options="FiscalOptions"
+                                @bind-Value="fiscalStatus" OnChanged="FilterChanged"
+                                Caption="Filter by fiscal status" AriaLabel="Filter by fiscal status" Placeholder="Any fiscal status" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="dcl-source">Sold by</label>
+                <NocturneSelect Id="dcl-source" Class="nsel-block" TValue="string" Options="SourceOptions"
+                                @bind-Value="source" OnChanged="FilterChanged"
+                                Caption="Filter by where the sale was made" AriaLabel="Filter by source" Placeholder="Till, vending and van" />
+            </div>
+            @if (response?.Warehouses.Count > 1)
+            {
+                <div class="ops-field">
+                    <label class="ops-label" for="dcl-wh">Warehouse</label>
+                    <NocturneSelect Id="dcl-wh" Class="nsel-block nsel-end" TValue="string" Options="WarehouseOptions"
+                                    @bind-Value="warehouse" OnChanged="FilterChanged"
+                                    Caption="Filter by warehouse" AriaLabel="Filter by warehouse" Placeholder="All warehouses" />
+                </div>
+            }
+            <div class="ops-filter-actions">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
+                    <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
+                </button>
+            </div>
+        </div>
+
+        @if (loading && response is null)
+        {
+            <div class="ops-loading">
+                <span class="ops-spin ops-spin-lg"></span>
+                <p>Loading credit notes&hellip;</p>
+            </div>
+        }
+        else if (error is not null)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <h3>Could not load the credit notes</h3>
+                <p>@error</p>
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="LoadAsync">Try again</button>
+                </div>
+            </div>
+        }
+        else if (response is null || response.Items.Count == 0)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-receipt-x" aria-hidden="true"></i>
+                @if (HasFilters)
+                {
+                    <h3>Nothing matches those filters</h3>
+                    <p>Clear them to see every credit.</p>
+                    <div class="ops-empty-actions">
+                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">Clear filters</button>
+                    </div>
+                }
+                else
+                {
+                    <h3>No credit notes yet</h3>
+                    <p>Credits are raised from a sale on Desktop Sales, Vending Sales or Van Sales Invoices.</p>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="ops-scroll">
+                <table class="ops-table">
+                    <thead>
+                        <tr>
+                            <th>Raised</th>
+                            <th>Sale</th>
+                            <th>Customer</th>
+                            <th class="ops-num">Credited</th>
+                            <th>ZIMRA</th>
+                            <th>SAP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in response.Items)
+                        {
+                            <tr>
+                                <td>
+                                    <span class="ops-dcl-when">@Stamp(row.CreatedAtUtc)</span>
+                                    <span class="ops-code ops-dcl-sub" title="@row.Number">@ShortNumber(row.Number)</span>
+                                </td>
+                                <td>
+                                    @* The sale number opens the sale's credits — the same dialog the sale pages
+                                       use — so a row carries no separate actions column to push off-screen. *@
+                                    <button type="button" class="ops-dcl-open ops-ds-saleno" @onclick="() => Open(row)"
+                                            title="Open @row.SaleNumber's credit notes">@row.SaleNumber</button>
+                                    <span class="ops-sub ops-dcl-sub ops-dcl-nowrap">
+                                        @DesktopCreditLabels.Source(row.SaleSourceSystem) · @row.SaleWarehouseCode
+                                    </span>
+                                    @if (row.SaleSapDocNum is { } invoice)
+                                    {
+                                        <span class="ops-sub ops-dcl-sub ops-dcl-nowrap">invoice #@invoice</span>
+                                    }
+                                </td>
+                                <td class="ops-name">
+                                    <span class="ops-dcl-customer" title="@Customer(row)">@Customer(row)</span>
+                                    @if (!string.IsNullOrWhiteSpace(row.SaleCardCode))
+                                    {
+                                        <span class="ops-code ops-dcl-sub">@row.SaleCardCode</span>
+                                    }
+                                </td>
+                                <td class="ops-num">
+                                    <span class="ops-qty ops-dcl-amount">@row.Currency @row.Amount.ToString("N2", CultureInfo.InvariantCulture)</span>
+                                    @* The reason rides under the amount rather than taking a column: it is
+                                       read once per row, and the column it had pushed the actions off-screen. *@
+                                    <span class="ops-sub ops-dcl-sub ops-dcl-reason" title="@row.Reason">@row.Reason</span>
+                                </td>
+                                <td>
+                                    <span class="ops-badge @DesktopCreditLabels.Family(row.Status)">@DesktopCreditLabels.Fiscal(row.Status)</span>
+                                    @if (!string.IsNullOrWhiteSpace(row.ReceiptGlobalNo))
+                                    {
+                                        <span class="ops-sub ops-dcl-sub">receipt @row.ReceiptGlobalNo</span>
+                                    }
+                                </td>
+                                <td class="ops-dcl-sap">
+                                    @if (row.Status == "Fiscalised")
+                                    {
+                                        <span class="ops-badge @DesktopCreditLabels.SapFamily(row.SapStatus)">
+                                            @DesktopCreditLabels.Sap(row.SapStatus, row.SapDocNum)
+                                        </span>
+                                        @if (!string.IsNullOrWhiteSpace(row.SapError)
+                                             && row.SapStatus is DesktopCreditSapStatuses.Failed or DesktopCreditSapStatuses.ManualInSap)
+                                        {
+                                            <span class="ops-sub ops-dcl-sub ops-dcl-error" title="@row.SapError">
+                                                @row.SapError
+                                                @if (row.SapStatus == DesktopCreditSapStatuses.Failed)
+                                                {
+                                                    <text> (@row.SapAttempts attempt@(row.SapAttempts == 1 ? "" : "s"))</text>
+                                                }
+                                            </span>
+                                        }
+                                        @if (row.SapStatus == DesktopCreditSapStatuses.Failed)
+                                        {
+                                            <AuthorizeView Roles="Admin,Manager" Context="retryCtx">
+                                                <Authorized>
+                                                    <button type="button" class="ops-btn ops-btn-primary ops-btn-sm ops-dcl-retry"
+                                                            disabled="@(retrying is not null)" @onclick="() => RetryAsync(row)"
+                                                            title="Send the SAP credit memo again now">
+                                                        @if (retrying == row.Id)
+                                                        {
+                                                            <span class="ops-spin"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+                                                        }
+                                                        Retry SAP
+                                                    </button>
+                                                </Authorized>
+                                            </AuthorizeView>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        @* ZIMRA has not accepted it, so SAP is owed nothing yet and may never be. *@
+                                        <span class="ops-sub">not until ZIMRA has it</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (TotalPages > 1)
+            {
+                <div class="ops-foot">
+                    <span class="ops-foot-info">Page @currentPage of @TotalPages</span>
+                    <div class="ops-pages">
+                        <button type="button" class="ops-step" disabled="@(currentPage <= 1 || loading)" @onclick="() => GoToPage(currentPage - 1)">
+                            <i class="ph ph-caret-left" aria-hidden="true"></i>Previous
+                        </button>
+                        <span class="ops-page-now">@currentPage</span>
+                        <button type="button" class="ops-step" disabled="@(currentPage >= TotalPages || loading)" @onclick="() => GoToPage(currentPage + 1)">
+                            Next<i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </section>
+</div>
+
+@* The same dialog the sale pages open, so everything they offer on a credit — reconcile, continue,
+   credit more lines — is one click from here too. Closing it reloads, because it may have changed a row. *@
+<DesktopCreditNoteDialog Reference="@openRow?.SaleReference"
+                         SaleNumber="@openRow?.SaleNumber"
+                         Currency="@openRow?.Currency"
+                         IsConsolidated="@(openRow?.SaleIsConsolidated ?? false)"
+                         OnClosed="CloseDialogAsync" />
+
+@code {
+    private const int PageSize = 50;
+
+    private DesktopCreditNoteListResponse? response;
+    private bool loading = true;
+    private string? error;
+    private string? notice;
+    private bool noticeGood;
+    private Guid? retrying;
+    private DesktopCreditNoteListRow? openRow;
+
+    private string search = "";
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string sapStatus = "";
+    private string fiscalStatus = "";
+    private string source = "";
+    private string warehouse = "";
+    private int currentPage = 1;
+
+    private CancellationTokenSource? searchDebounce;
+
+    private static readonly NocturneSelectOption<string>[] SapOptions =
+    [
+        new(string.Empty, "Any SAP status", "neutral") { IsUnset = true, RuleAfter = true },
+        new(DesktopCreditSapStatuses.Failed, "Refused by SAP", "bad"),
+        new(DesktopCreditSapStatuses.ManualInSap, "Raise by hand", "warn"),
+        new(DesktopCreditSapStatuses.Deferred, "Waiting for the sale", "accent"),
+        new(DesktopCreditSapStatuses.Posted, "In SAP", "good"),
+        new(DesktopCreditSapStatuses.NotRequired, "Nothing owed", "neutral"),
+        new(DesktopCreditSapStatuses.FiscalOnly, "Fiscalised only", "neutral")
+    ];
+
+    // Families match DesktopCreditLabels.Family, which colours the badge in the table.
+    private static readonly NocturneSelectOption<string>[] FiscalOptions =
+    [
+        new(string.Empty, "Any fiscal status", "neutral") { IsUnset = true, RuleAfter = true },
+        new("Fiscalised", DesktopCreditLabels.Fiscal("Fiscalised"), "good"),
+        new("ReconciliationRequired", DesktopCreditLabels.Fiscal("ReconciliationRequired"), "warn"),
+        new("Rejected", DesktopCreditLabels.Fiscal("Rejected"), "bad"),
+        new("Prepared", DesktopCreditLabels.Fiscal("Prepared"), "accent"),
+        new("Submitting", DesktopCreditLabels.Fiscal("Submitting"), "accent")
+    ];
+
+    private static readonly NocturneSelectOption<string>[] SourceOptions =
+    [
+        new(string.Empty, "Till, vending and van") { IsUnset = true, RuleAfter = true },
+        new("KefalosShopTill", "Till"),
+        new("KefalosVending", "Vending"),
+        new("KefalosVanSales", "Van")
+    ];
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseOptions =>
+        (response?.Warehouses ?? [])
+            .Select(code => new NocturneSelectOption<string>(code, code))
+            .Prepend(NocturneSelectOption.All("All warehouses"));
+
+    private bool HasFilters =>
+        !string.IsNullOrWhiteSpace(search) || fromDate is not null || toDate is not null
+        || sapStatus != "" || fiscalStatus != "" || source != "" || warehouse != "";
+
+    private int TotalPages => response is null ? 0 : (int)Math.Ceiling(response.TotalCount / (double)PageSize);
+
+    private int SapCount(string status) => response?.SapStatusCounts.GetValueOrDefault(status) ?? 0;
+
+    private int Fiscalised => response?.SapStatusCounts.Values.Sum() ?? 0;
+
+    private string CreditedText => response is null || response.TotalsByCurrency.Count == 0
+        ? "nothing credited"
+        : string.Join(" · ", response.TotalsByCurrency
+            .OrderBy(t => t.Key)
+            .Select(t => $"{t.Key} {t.Value.ToString("N2", CultureInfo.InvariantCulture)}"));
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+
+        try
+        {
+            response = await DesktopIntegrationService.ListCreditNotesAsync(new DesktopCreditNoteListQuery(
+                fromDate, toDate, NullIfEmpty(warehouse), NullIfEmpty(source), NullIfEmpty(fiscalStatus),
+                NullIfEmpty(sapStatus), NullIfEmpty(search), currentPage, PageSize));
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task FilterChanged()
+    {
+        currentPage = 1;
+        await LoadAsync();
+    }
+
+    private async Task OnDateChanged(DateTime? value, bool isFrom)
+    {
+        if (isFrom) fromDate = value; else toDate = value;
+        await FilterChanged();
+    }
+
+    /// <summary>Waits for typing to pause before asking the API, so a search is one read, not one per key.</summary>
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        searchDebounce?.Cancel();
+        var debounce = searchDebounce = new CancellationTokenSource();
+
+        try
+        {
+            if (e.Key != "Enter")
+            {
+                await Task.Delay(350, debounce.Token);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        await FilterChanged();
+    }
+
+    private async Task ClearFilters()
+    {
+        search = "";
+        fromDate = toDate = null;
+        sapStatus = fiscalStatus = source = warehouse = "";
+        await FilterChanged();
+    }
+
+    private async Task GoToPage(int target)
+    {
+        currentPage = Math.Clamp(target, 1, Math.Max(1, TotalPages));
+        await LoadAsync();
+    }
+
+    private async Task RetryAsync(DesktopCreditNoteListRow row)
+    {
+        retrying = row.Id;
+        notice = null;
+
+        try
+        {
+            var result = await DesktopIntegrationService.RetryCreditNoteSapAsync(row.Id);
+
+            noticeGood = result.SapStatus == DesktopCreditSapStatuses.Posted;
+            notice = noticeGood
+                ? $"{row.SaleNumber}: credit memo #{result.SapDocNum} raised in SAP."
+                : $"{row.SaleNumber}: SAP did not take it — {result.SapError ?? DesktopCreditLabels.Sap(result.SapStatus, result.SapDocNum)}";
+        }
+        catch (Exception ex)
+        {
+            noticeGood = false;
+            notice = $"{row.SaleNumber}: {ex.Message}";
+        }
+        finally
+        {
+            retrying = null;
+        }
+
+        await LoadAsync();
+    }
+
+    private void Open(DesktopCreditNoteListRow row) => openRow = row;
+
+    private async Task CloseDialogAsync()
+    {
+        openRow = null;
+        await LoadAsync();
+    }
+
+    private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string Customer(DesktopCreditNoteListRow row) =>
+        !string.IsNullOrWhiteSpace(row.SaleCustomerName) ? row.SaleCustomerName!
+        : !string.IsNullOrWhiteSpace(row.SaleCardName) ? row.SaleCardName!
+        : "—";
+
+    /// <summary>A DCN number is 36 characters of which the first dozen tell them apart; the rest is on hover.</summary>
+    private static string ShortNumber(string number) => number.Length <= 16 ? number : number[..16] + "…";
+
+    private static string Stamp(DateTime utc) => IAuditService.ToCAT(
+            utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc))
+        .ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture);
+}

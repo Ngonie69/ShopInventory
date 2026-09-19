@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using ShopInventory.Web.Models;
@@ -15,6 +15,8 @@ public interface IDesktopIntegrationService
     Task<List<DesktopCreditNoteResult>> GetCreditNotesAsync(string reference) => throw new NotSupportedException();
     Task<DesktopCreditNoteResult> CreateCreditNoteAsync(string reference, CreateDesktopCreditRequest request) => throw new NotSupportedException();
     Task<DesktopCreditNoteResult> ReconcileCreditNoteAsync(string reference, Guid id) => throw new NotSupportedException();
+    Task<DesktopCreditNoteListResponse> ListCreditNotesAsync(DesktopCreditNoteListQuery query) => throw new NotSupportedException();
+    Task<DesktopCreditNoteListRow> RetryCreditNoteSapAsync(Guid id) => throw new NotSupportedException();
     // Invoice Queue
     Task<List<InvoiceQueueStatusDto>?> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100);
     Task<List<InvoiceQueueStatusDto>?> GetInvoicesRequiringReviewAsync(int limit = 50);
@@ -102,6 +104,29 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         CreditRequestAsync<DesktopCreditNoteResult>(HttpMethod.Post, CreditNoteUrl(reference) + $"/{id}/reconcile");
     public Task<DesktopCreditNoteResult> ContinueCreditNoteAsync(string reference, Guid id) =>
         CreditRequestAsync<DesktopCreditNoteResult>(HttpMethod.Post, CreditNoteUrl(reference) + $"/{id}/continue");
+
+    /// <summary>Every desktop credit, across all sales. Throws with the API's own words on refusal.</summary>
+    public Task<DesktopCreditNoteListResponse> ListCreditNotesAsync(DesktopCreditNoteListQuery query)
+    {
+        var parts = new List<string> { $"page={query.Page}", $"pageSize={query.PageSize}" };
+        void Add(string name, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) parts.Add($"{name}={Uri.EscapeDataString(value.Trim())}");
+        }
+        Add("fromDate", query.FromDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        Add("toDate", query.ToDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        Add("warehouseCode", query.WarehouseCode);
+        Add("sourceSystem", query.SourceSystem);
+        Add("status", query.Status);
+        Add("sapStatus", query.SapStatus);
+        Add("search", query.Search);
+        return CreditRequestAsync<DesktopCreditNoteListResponse>(
+            HttpMethod.Get, "api/DesktopIntegration/credit-notes?" + string.Join("&", parts));
+    }
+
+    /// <summary>Sends a refused SAP credit memo again, now. Answers with where it stands afterwards.</summary>
+    public Task<DesktopCreditNoteListRow> RetryCreditNoteSapAsync(Guid id) =>
+        CreditRequestAsync<DesktopCreditNoteListRow>(HttpMethod.Post, $"api/DesktopIntegration/credit-notes/{id}/retry-sap");
 
     private async Task<T> CreditRequestAsync<T>(HttpMethod method, string url, object? body = null)
     {

@@ -1,4 +1,4 @@
-using ShopInventory.Web.Services;
+﻿using ShopInventory.Web.Services;
 
 namespace ShopInventory.Web.Features.DesktopCreditNotes;
 
@@ -47,9 +47,12 @@ public static class DesktopCreditLabels
     /// posts — so most of these describe something happening rather than something owed. The two that
     /// do not (a refusal, and a consolidated sale) are the ones an operator has to act on.
     /// </remarks>
-    public static string Sap(DesktopCreditNoteResult note) => note.SapDocNum.HasValue
-        ? $"credit memo #{note.SapDocNum}"
-        : note.SapStatus switch
+    public static string Sap(DesktopCreditNoteResult note) => Sap(note.SapStatus, note.SapDocNum);
+
+    /// <summary>The same, for a row that carries the two fields rather than a whole result.</summary>
+    public static string Sap(string? sapStatus, int? sapDocNum) => sapDocNum.HasValue
+        ? $"credit memo #{sapDocNum}"
+        : sapStatus switch
         {
             DesktopCreditSapStatuses.Deferred => "follows once this sale posts",
             DesktopCreditSapStatuses.NotRequired => "nothing owed — this sale is not posted to SAP",
@@ -57,8 +60,31 @@ public static class DesktopCreditLabels
             DesktopCreditSapStatuses.FiscalOnly => "not raised — fiscalised only, no stock returned",
             DesktopCreditSapStatuses.Failed => "failed — will be retried",
             // A status this build predates. Shown rather than swallowed.
-            _ => note.SapStatus
+            _ => sapStatus ?? "—"
         };
+
+    /// <summary>
+    /// The tone for the SAP half. Only a refusal is bad and only a hand job is a warning; waiting for
+    /// the sale to post is the ordinary case at a till, not a fault.
+    /// </summary>
+    public static string SapFamily(string? sapStatus) => sapStatus switch
+    {
+        DesktopCreditSapStatuses.Posted => "ops-fam-good",
+        DesktopCreditSapStatuses.Failed => "ops-fam-bad",
+        DesktopCreditSapStatuses.ManualInSap => "ops-fam-warn",
+        DesktopCreditSapStatuses.Deferred => "ops-fam-accent",
+        _ => "ops-fam-neutral"
+    };
+
+    /// <summary>Where the credited sale was rung up.</summary>
+    public static string Source(string? sourceSystem) => sourceSystem?.Trim() switch
+    {
+        "KefalosShopTill" => "Till",
+        "KefalosVending" => "Vending",
+        "KefalosVanSales" or "KefalosVanSalesOnline" => "Van",
+        null or "" => "—",
+        var other => other
+    };
 
     /// <summary>The headline over a finished credit's outcome.</summary>
     public static string Outcome(string? status) => status?.Trim().ToLowerInvariant() switch
