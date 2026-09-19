@@ -13,7 +13,8 @@ namespace ShopInventory.Features.DesktopCreditNotes;
 
 public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCreditFiscalGateway fiscal,
     DesktopCreditSapPoster sapPoster, IAuditService audit,
-    IOptions<FiscalisationSettings> fiscalisationSettings, ILogger<DesktopCreditNoteService> logger)
+    IOptions<FiscalisationSettings> fiscalisationSettings, ILogger<DesktopCreditNoteService> logger,
+    IDesktopCreditTillNotifier? tillNotifier = null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -226,7 +227,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     {
         var json = result is null ? null : JsonSerializer.Serialize(result, Json);
         DateTime? fiscalisedAt = status == DesktopCreditStatuses.Fiscalised ? DateTime.UtcNow : null;
-        await db.DesktopCreditNotes.Where(n => n.Id == id && n.Status != DesktopCreditStatuses.Fiscalised)
+        var changed = await db.DesktopCreditNotes.Where(n => n.Id == id && n.Status != DesktopCreditStatuses.Fiscalised)
             .ExecuteUpdateAsync(s => s.SetProperty(n => n.Status, status).SetProperty(n => n.Message, message)
                 // Kept when this outcome carries none of its own: a release records that the device
                 // holds nothing, and erasing the refusal it answered with would take the only record
@@ -235,6 +236,11 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
                 .SetProperty(n => n.FiscalisedAtUtc, fiscalisedAt), CancellationToken.None);
         try { await audit.LogAsync("DesktopCreditNote", "DesktopCreditNote", id.ToString(), message, status == DesktopCreditStatuses.Fiscalised); }
         catch (Exception ex) { logger.LogWarning(ex, "Could not audit desktop credit {Id}", id); }
+        // The till that rang the sale up hears about it. Only on the write that made it Fiscalised —
+        // the guard above turns every later pass into a no-op — so a reconcile or a retry of a credit
+        // that was already filed does not alert the counter a second time. The notifier never throws.
+        if (changed > 0 && status == DesktopCreditStatuses.Fiscalised && tillNotifier is not null)
+            await tillNotifier.NotifyIssuedAsync(id, CancellationToken.None);
         // ZIMRA has it; now the back office. Deferred when the sale has not posted yet, which is the
         // ordinary case at a till — see DesktopCreditSapPoster. Never allowed to disturb the fiscal
         // outcome above: the receipt is filed either way, and a SAP failure here is recorded on the

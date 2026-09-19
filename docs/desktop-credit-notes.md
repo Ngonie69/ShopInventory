@@ -1,4 +1,4 @@
-﻿# Desktop fiscal credit notes (REVMax)
+# Desktop fiscal credit notes (REVMax)
 
 From **Desktop Sales**, open a fiscalised sale and choose **Credit notes**. The form reads the original
 REVMax receipt, shows quantities remaining after saved credits, and accepts quantities, a reason and an
@@ -136,3 +136,12 @@ so a credit ZIMRA holds and SAP does not — the one somebody has to act on — 
 - The sale number opens the same credit dialog the sale pages use.
 
 API: `GET /api/DesktopIntegration/credit-notes`, `POST /api/DesktopIntegration/credit-notes/{id}/retry-sap`.
+
+## The till is told
+
+When a credit first becomes Fiscalised, `HubDesktopCreditTillNotifier` pushes `DesktopCreditIssued` to
+`warehouse:{CODE}` on the notification hub — the sale's warehouse, the same group and connection the
+till already uses for `InvoiceCancelled`. The KefShop till shows it as a modal "Credit note issued"
+alert. Sent once: a reconcile or replay of a credit already filed does not alert again, and a refused
+or unconfirmed credit never does. A till that is closed or offline at that moment misses it; SignalR
+keeps no backlog.

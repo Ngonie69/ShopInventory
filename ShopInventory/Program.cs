@@ -992,6 +992,8 @@ try
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditFiscalDays,
         ShopInventory.Features.DesktopCreditNotes.DesktopCreditFiscalDays>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.DesktopCreditNoteService>();
+    builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditTillNotifier,
+        ShopInventory.Features.DesktopCreditNotes.HubDesktopCreditTillNotifier>();
 
     // The back-office half of a desktop credit: the SAP credit memo, raised as soon as there is an
     // invoice to raise it against. Shared by the fiscal path (which calls it the moment ZIMRA
