@@ -87,6 +87,12 @@ public class IncomingPayment
     [JsonPropertyName("TransferAccount")]
     public string? TransferAccount { get; set; }
 
+    [JsonPropertyName("CashAccount")]
+    public string? CashAccount { get; set; }
+
+    [JsonPropertyName("CounterReference")]
+    public string? CounterReference { get; set; }
+
     [JsonPropertyName("Cancelled")]
     public string? Cancelled { get; set; }
 

@@ -1,0 +1,435 @@
+@page "/reports/desktop-sales/payments"
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Features.DailyIncomingPayments
+
+<PageTitle>Daily Incoming Payments - Shop Inventory</PageTitle>
+
+@* The one incoming payment each business partner gets per day for its till, vending and van
+   invoices, the invoices each one settles, and the G/L accounts each partner's payment posts to.
+
+   Carried by wwwroot/css/daily-payments.css, which is shops.css renamed to `dpy-` plus a page
+   footer. See scripts/derive_daily_payments_css.py. *@
+
+<div class="dpy">
+
+    <div class="dpy-header">
+        <div class="dpy-header-left">
+            <div>
+                <div class="dpy-crumb">
+                    <span>Reports</span>
+                    <i class="bi bi-chevron-right"></i>
+                    <span>Desktop sales</span>
+                    <i class="bi bi-chevron-right"></i>
+                    <span class="dpy-crumb-here">Daily incoming payments</span>
+                </div>
+                <h2 class="dpy-title">Daily incoming payments</h2>
+                <p class="dpy-subtitle">
+                    One SAP payment per business partner per day: shops at 17:00, vans at 20:00.
+                    Each settles that day's invoices, and every payment carries a DAYPAY reference for audit.
+                </p>
+            </div>
+        </div>
+        <div class="dpy-header-actions">
+            <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="ReloadAsync" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise"></i>Refresh
+            </button>
+            @if (tab == Tab.Accounts && isAdmin)
+            {
+                <button type="button" class="dpy-btn dpy-btn-primary" @onclick="StartNew" disabled="@isSaving">
+                    <i class="bi bi-plus-lg"></i>Add partner
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="dpy-seg dpy-tabs" role="tablist" aria-label="View">
+        <button type="button" role="tab" class="dpy-seg-btn @(tab == Tab.Payments ? "is-on" : null)"
+                aria-selected="@(tab == Tab.Payments)" @onclick="() => SetTab(Tab.Payments)">
+            Payments<span class="dpy-seg-count">@payments.Count</span>
+        </button>
+        <button type="button" role="tab" class="dpy-seg-btn @(tab == Tab.Accounts ? "is-on" : null)"
+                aria-selected="@(tab == Tab.Accounts)" @onclick="() => SetTab(Tab.Accounts)">
+            G/L accounts<span class="dpy-seg-count">@mappings.Count</span>
+        </button>
+    </div>
+
+    @if (error is not null && editing is null)
+    {
+        <div class="dpy-alert" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@error</span>
+        </div>
+    }
+
+    @if (tab == Tab.Payments)
+    {
+        <div class="dpy-filter-bar">
+            <label class="dpy-filter-field">
+                From
+                <NocturneDateField Date="fromDate" DateChanged="OnFromChanged" AriaLabel="From date" />
+            </label>
+            <label class="dpy-filter-field">
+                To
+                <NocturneDateField Date="toDate" DateChanged="OnToChanged" AriaLabel="To date" />
+            </label>
+            <div class="dpy-filter-field">
+                Partner
+                <NocturneSelect Class="nsel-block" TValue="string" Options="PartnerOptions"
+                                @bind-Value="partnerFilter" OnChanged="LoadPaymentsAsync"
+                                AriaLabel="Filter by partner" Placeholder="All partners" />
+            </div>
+            <div class="dpy-filter-field">
+                Status
+                <NocturneSelect Class="nsel-block nsel-end" TValue="string" Options="StatusOptions"
+                                @bind-Value="statusFilter" OnChanged="LoadPaymentsAsync"
+                                AriaLabel="Filter by status" Placeholder="All statuses" />
+            </div>
+            <span class="dpy-result">@PaymentsLabel</span>
+        </div>
+
+        <div class="dpy-totals">
+            <div class="dpy-total">
+                <div class="dpy-total-label">Cash</div>
+                <div class="dpy-total-value">@Money(payments.Sum(p => p.CashSum))</div>
+            </div>
+            <div class="dpy-total">
+                <div class="dpy-total-label">Ecocash, Innbucks &amp; swipe</div>
+                <div class="dpy-total-value">@Money(payments.Sum(p => p.ElectronicSum))</div>
+            </div>
+            <div class="dpy-total">
+                <div class="dpy-total-label">Invoices settled</div>
+                <div class="dpy-total-value">@payments.Sum(p => p.InvoiceCount)</div>
+            </div>
+            <div class="dpy-total">
+                <div class="dpy-total-label">Not posted</div>
+                <div class="dpy-total-value">@payments.Count(p => p.Status is "Pending" or "Unresolved")</div>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="dpy-loading">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                <span>Loading payments…</span>
+            </div>
+        }
+        else
+        {
+            <div class="dpy-table-wrap">
+                @if (payments.Count == 0)
+                {
+                    <div class="dpy-empty">
+                        <i class="bi bi-cash-coin"></i>
+                        <h3>No daily payments in this range</h3>
+                        <p>Payments appear here once the 17:00 (shops) or 20:00 (vans) run has claimed a day's invoices.</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="dpy-table">
+                        <thead>
+                            <tr>
+                                <th><span class="visually-hidden">Invoices</span></th>
+                                <th>Day</th>
+                                <th>Reference</th>
+                                <th>Partner</th>
+                                <th class="dpy-num">Cash</th>
+                                <th class="dpy-num">Electronic</th>
+                                <th>G/L accounts</th>
+                                <th>SAP payment</th>
+                                <th class="dpy-num">Invoices</th>
+                                <th>Status</th>
+                                <th>Email</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var payment in payments)
+                            {
+                                var open = openId == payment.Id;
+                                <tr @key="payment.Id" class="@(open ? "dpy-row-open" : null)">
+                                    <td>
+                                        <button type="button" class="dpy-expand" aria-expanded="@open"
+                                                aria-label="@(open ? "Hide" : "Show") invoices on @payment.Reference"
+                                                @onclick="() => ToggleAsync(payment)">
+                                            <i class="bi @(open ? "bi-chevron-down" : "bi-chevron-right")"></i>
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <span class="dpy-primary">@payment.PaymentDate.ToString("dd MMM", System.Globalization.CultureInfo.InvariantCulture)</span>
+                                        <span class="dpy-sub">@payment.PaymentDate.ToString("ddd yyyy", System.Globalization.CultureInfo.InvariantCulture)</span>
+                                    </td>
+                                    <td><span class="dpy-code">@payment.Reference</span></td>
+                                    <td class="dpy-wrap">
+                                        <span class="dpy-primary">@(payment.CardName ?? payment.CardCode)</span>
+                                        <span class="dpy-sub">@payment.CardCode</span>
+                                    </td>
+                                    <td class="dpy-num">@Money(payment.CashSum)</td>
+                                    <td class="dpy-num">@Money(payment.ElectronicSum)</td>
+                                    <td>
+                                        <span class="dpy-acct">@(payment.CashAccount ?? "—")</span>
+                                        <span class="dpy-sub">@(payment.TransferAccount ?? "—")</span>
+                                    </td>
+                                    <td>@(payment.SapDocNum?.ToString() ?? "—")</td>
+                                    <td class="dpy-num">@payment.InvoiceCount</td>
+                                    <td>
+                                        <span class="dpy-chip @StatusChip(payment)" title="@payment.LastError">@StatusLabel(payment)</span>
+                                    </td>
+                                    <td>
+                                        @if (payment.EmailSentAtUtc is { } sent)
+                                        {
+                                            <i class="bi bi-envelope-check dpy-mail-ok" title="Emailed @ToCat(sent)"></i>
+                                        }
+                                        else if (payment.EmailError is not null)
+                                        {
+                                            <i class="bi bi-envelope-exclamation dpy-mail-bad" title="@payment.EmailError"></i>
+                                        }
+                                        else
+                                        {
+                                            <span class="dpy-sub">—</span>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (open)
+                                {
+                                    <tr @key="-payment.Id">
+                                        <td colspan="11" class="dpy-detail-cell">
+                                            <div class="dpy-detail">
+                                                @if (!string.IsNullOrWhiteSpace(payment.LastError))
+                                                {
+                                                    <div class="dpy-detail-error"><i class="bi bi-exclamation-circle"></i> @payment.LastError</div>
+                                                }
+                                                @if (detail is null)
+                                                {
+                                                    <div class="dpy-loading"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>Loading invoices…</span></div>
+                                                }
+                                                else if (detail.Lines.Count == 0)
+                                                {
+                                                    <span class="dpy-sub">No invoices are left on this payment.</span>
+                                                }
+                                                else
+                                                {
+                                                    <table class="dpy-lines">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>SAP invoice</th>
+                                                                <th>Source</th>
+                                                                <th>Sale</th>
+                                                                <th>Sold</th>
+                                                                <th>Tender</th>
+                                                                <th class="dpy-num">Cash</th>
+                                                                <th class="dpy-num">Electronic</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var line in detail.Lines)
+                                                            {
+                                                                <tr>
+                                                                    <td class="dpy-mono">@(line.InvoiceDocNum?.ToString() ?? $"entry {line.InvoiceDocEntry}")</td>
+                                                                    <td>@line.Source</td>
+                                                                    <td class="dpy-mono">@(line.SaleReference ?? "—")</td>
+                                                                    <td>@(line.SaleDate?.ToString("dd MMM yyyy") ?? "—")</td>
+                                                                    <td>@(line.PaymentMethod ?? "—")</td>
+                                                                    <td class="dpy-num">@Money(line.CashAmount)</td>
+                                                                    <td class="dpy-num">@Money(line.ElectronicAmount)</td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        <div class="dpy-form-note">
+            <i class="bi bi-info-circle" aria-hidden="true"></i>
+            <span>
+                Cash posts to the cash account; Ecocash, Innbucks and swipe post to the electronic account.
+                A partner with no active row here is held rather than posted, so nothing lands in SAP's
+                default account (700300). The people listed are emailed once the day's payment posts.
+            </span>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="dpy-loading">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                <span>Loading G/L accounts…</span>
+            </div>
+        }
+        else
+        {
+            <div class="dpy-table-wrap">
+                <table class="dpy-table">
+                    <thead>
+                        <tr>
+                            <th>Partner</th>
+                            <th>Run</th>
+                            <th>Cash account</th>
+                            <th>Electronic account</th>
+                            <th>Emailed to</th>
+                            <th>Status</th>
+                            <th>Last changed</th>
+                            <th><span class="visually-hidden">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var mapping in mappings)
+                        {
+                            <tr @key="mapping.CardCode">
+                                <td class="dpy-wrap">
+                                    <span class="dpy-primary">@(mapping.CardName ?? mapping.CardCode)</span>
+                                    <span class="dpy-sub">@mapping.CardCode</span>
+                                </td>
+                                <td>
+                                    <span class="dpy-chip @(mapping.Run == "Vans" ? "dpy-chip-info" : "dpy-chip-accent")">
+                                        @(mapping.Run == "Vans" ? "Vans · 20:00" : "Shops · 17:00")
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="dpy-acct">@mapping.CashAccount</span>
+                                    <span class="dpy-sub">@AccountName(mapping.CashAccount)</span>
+                                </td>
+                                <td>
+                                    <span class="dpy-acct">@mapping.ElectronicAccount</span>
+                                    @if (mapping.NeedsReview)
+                                    {
+                                        <span class="dpy-chip dpy-chip-warn" title="No electronic receipt in the pre-September history confirmed this account. Saving the row clears this.">Review</span>
+                                    }
+                                    <span class="dpy-sub">@AccountName(mapping.ElectronicAccount)</span>
+                                </td>
+                                <td class="dpy-wrap">
+                                    @if (string.IsNullOrWhiteSpace(mapping.NotifyEmails))
+                                    {
+                                        <span class="dpy-sub">Nobody</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var address in mapping.NotifyEmails.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                                        {
+                                            <span class="dpy-sub">@address</span>
+                                        }
+                                    }
+                                </td>
+                                <td>
+                                    <span class="dpy-chip @(mapping.IsActive ? "dpy-chip-good" : "dpy-chip-neutral")">
+                                        @(mapping.IsActive ? "Active" : "Held")
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="dpy-sub">@ToCat(mapping.UpdatedAtUtc)</span>
+                                    <span class="dpy-sub">@(mapping.UpdatedBy ?? "")</span>
+                                </td>
+                                <td>
+                                    @if (isAdmin)
+                                    {
+                                        <div class="dpy-row-act">
+                                            <button type="button" class="dpy-action-btn"
+                                                    title="Edit @mapping.CardCode" aria-label="Edit @mapping.CardCode"
+                                                    @onclick="() => StartEdit(mapping)" disabled="@isSaving">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@if (editing is not null)
+{
+    <div class="dpy-overlay" @onclick="CloseDialog">
+        <div class="dpy-modal" role="dialog" aria-modal="true" aria-labelledby="dpy-dialog-title"
+             @onclick:stopPropagation="true">
+            <div class="dpy-modal-header">
+                <h2 id="dpy-dialog-title">@(isNew ? "Add partner" : $"G/L accounts for {editing.CardCode}")</h2>
+                <button type="button" class="dpy-modal-close" @onclick="CloseDialog" aria-label="Close dialog" disabled="@isSaving">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="dpy-modal-body">
+                @if (error is not null)
+                {
+                    <div class="dpy-alert" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>@error</span>
+                    </div>
+                }
+
+                <div class="dpy-form-grid">
+                    <div class="dpy-form-field">
+                        <label for="dpy-code">Business partner code <span class="required">*</span></label>
+                        <input id="dpy-code" class="dpy-input" @bind="editing.CardCode" placeholder="CIS006" disabled="@(!isNew)" />
+                    </div>
+                    <div class="dpy-form-field">
+                        <label for="dpy-name">Name</label>
+                        <input id="dpy-name" class="dpy-input" @bind="editing.CardName" placeholder="Factory Kefalos shop" />
+                    </div>
+
+                    <div class="dpy-form-field">
+                        <label for="dpy-cash">Cash account <span class="required">*</span></label>
+                        <NocturnePicker Class="npick-block" Id="dpy-cash" Options="accountOptions"
+                                        @bind-Value="editing.CashAccount" Loading="accountsLoading"
+                                        Placeholder="Select G/L account" EmptyText="No G/L accounts cached"
+                                        AllowClear="false" AriaLabel="Cash account" />
+                    </div>
+                    <div class="dpy-form-field">
+                        <label for="dpy-electronic">Electronic account <span class="required">*</span></label>
+                        <NocturnePicker Class="npick-block npick-end" Id="dpy-electronic" Options="accountOptions"
+                                        @bind-Value="editing.ElectronicAccount" Loading="accountsLoading"
+                                        Placeholder="Select G/L account" EmptyText="No G/L accounts cached"
+                                        AllowClear="false" AriaLabel="Electronic account" />
+                    </div>
+
+                    <div class="dpy-form-field dpy-form-full">
+                        <span>Daily run</span>
+                        <div class="dpy-seg" role="radiogroup" aria-label="Daily run">
+                            <button type="button" role="radio" class="dpy-seg-btn @(editing.Run == "Shops" ? "is-on" : null)"
+                                    aria-checked="@(editing.Run == "Shops")" @onclick="@(() => editing.Run = "Shops")">
+                                Shops · 17:00
+                            </button>
+                            <button type="button" role="radio" class="dpy-seg-btn @(editing.Run == "Vans" ? "is-on" : null)"
+                                    aria-checked="@(editing.Run == "Vans")" @onclick="@(() => editing.Run = "Vans")">
+                                Vans · 20:00
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="dpy-form-field dpy-form-full">
+                        <label for="dpy-emails">Email when posted (the people receiving the cash)</label>
+                        <textarea id="dpy-emails" class="dpy-input dpy-textarea" @bind="editing.NotifyEmails"
+                                  placeholder="cashier@example.com, supervisor@example.com"></textarea>
+                        <span class="dpy-form-hint">Separate addresses with commas. Leave empty to email nobody.</span>
+                    </div>
+
+                    <label class="dpy-check dpy-form-full">
+                        <input type="checkbox" @bind="editing.IsActive" />
+                        Active: post this partner's daily payment. Untick to hold it.
+                    </label>
+                </div>
+            </div>
+
+            <div class="dpy-modal-footer">
+                <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="CloseDialog" disabled="@isSaving">Cancel</button>
+                <button type="button" class="dpy-btn dpy-btn-primary" @onclick="SaveAsync" disabled="@isSaving">
+                    @(isSaving ? "Checking in SAP…" : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}

@@ -28,6 +28,8 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly FakeSap _sap = new();
+    private readonly List<(string To, string Subject, string Body)> _emails = [];
+    private bool _emailDelivers = true;
     private int _nextReference = 1;
 
     public DailyIncomingPaymentServiceTests()
@@ -37,6 +39,9 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
 
         _context = NewContext();
         _context.Database.EnsureCreated();
+
+        GivenMapping("BP-1", "700300", "701100");
+        GivenMapping("BP-2", "700610", "701100");
     }
 
     public void Dispose()
@@ -110,15 +115,204 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         Assert.Equal(0, _sap.CreateCalls);
     }
 
+    // ---- G/L accounts ----------------------------------------------------------------------------------
+
     [Fact]
-    public async Task A_van_sale_is_never_paid()
+    public async Task A_payment_posts_to_its_partners_mapped_accounts_and_records_them()
     {
-        // Out of scope by the business's decision: van invoices stay as they are.
-        await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0), source: SaleSourceSystems.VanSales);
+        await GivenSaleAsync("BP-2", docEntry: 201, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+        await GivenSaleAsync("BP-2", docEntry: 202, TenderTypes.Ecocash, 10m, postedAt: Cat(Day, 9, 5));
 
         await Run(Cat(Day, 17, 0));
 
+        var request = Assert.Single(_sap.Held).Request;
+        Assert.Equal("700610", request.CashAccount);
+        Assert.Equal("701100", request.TransferAccount);
+        Assert.Equal("DAYPAY-20260914-BP-2", request.CounterReference);
+
+        var payment = await _context.DailyIncomingPayments.AsNoTracking().SingleAsync();
+        Assert.Equal("700610", payment.CashAccount);
+        Assert.Equal("701100", payment.TransferAccount);
+    }
+
+    [Fact]
+    public async Task A_partner_with_no_mapping_is_held_rather_than_posted_to_SAPs_default_account()
+    {
+        // SAP's default cash account is 700300, the factory's. Every daily payment before the mapping went there.
+        await GivenSaleAsync("BP-9", docEntry: 901, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+
+        var held = await Run(Cat(Day, 17, 0));
+
+        Assert.Equal(1, held.Created);
+        Assert.Equal(1, held.Held);
         Assert.Equal(0, _sap.CreateCalls);
+        var pending = await _context.DailyIncomingPayments.AsNoTracking().SingleAsync();
+        Assert.Equal(DailyIncomingPaymentStatus.Pending, pending.Status);
+        Assert.Equal(0, pending.Attempts);
+        Assert.Contains("No active G/L mapping for BP-9", pending.LastError);
+
+        GivenMapping("BP-9", "701500", "701100");
+        var mapped = await Run(Cat(Day, 17, 10));
+
+        Assert.Equal(1, mapped.Posted);
+        Assert.Equal("701500", Assert.Single(_sap.Held).Request.CashAccount);
+    }
+
+    [Fact]
+    public async Task An_inactive_mapping_holds_the_payment()
+    {
+        GivenMapping("BP-1", "700300", "701100", isActive: false);
+        await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+
+        var result = await Run(Cat(Day, 17, 0));
+
+        Assert.Equal(1, result.Held);
+        Assert.Equal(0, _sap.CreateCalls);
+    }
+
+    [Fact]
+    public async Task A_swipe_is_banked_to_the_electronic_account_alongside_the_days_wallets()
+    {
+        var swipe = await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Swipe, 40m, postedAt: Cat(Day, 9, 0));
+        await GivenSaleAsync("BP-1", docEntry: 102, TenderTypes.Ecocash, 12.50m, postedAt: Cat(Day, 9, 5));
+        await GivenSaleAsync("BP-1", docEntry: 103, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 10));
+
+        await Run(Cat(Day, 17, 0));
+
+        var request = Assert.Single(_sap.Held).Request;
+        Assert.Equal(25m, request.CashSum);
+        Assert.Equal(52.50m, request.TransferSum);
+        Assert.Equal(0m, request.CreditSum);
+        Assert.Equal("701100", request.TransferAccount);
+        Assert.Equal(DesktopSalePaymentStatuses.Posted, (await Reload(swipe)).PaymentStatus);
+    }
+
+    // ---- Vans ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_vans_invoices_are_paid_by_the_20_00_run_not_the_17_00_one()
+    {
+        GivenMapping("VAN008", "700610", "700610", DailyPaymentRun.Vans);
+        await GivenSaleAsync("VAN008", docEntry: 801, TenderTypes.Cash, 30m, postedAt: Cat(Day, 18, 0), source: SaleSourceSystems.VanSales);
+        await GivenSaleAsync("VAN008", docEntry: 802, TenderTypes.Ecocash, 20m, postedAt: Cat(Day, 19, 30), source: SaleSourceSystems.VanSales);
+
+        var shops = await Run(Cat(Day, 17, 0));
+        Assert.Equal(0, shops.Created);
+
+        var evening = await Run(Cat(Day, 20, 0));
+
+        Assert.Equal(1, evening.Posted);
+        var request = Assert.Single(_sap.Held).Request;
+        Assert.Equal("2026-09-14", request.DocDate);
+        Assert.Equal([801, 802], request.PaymentInvoices!.Select(line => line.DocEntry).Order());
+        Assert.Equal("700610", request.CashAccount);
+        Assert.Equal("700610", request.TransferAccount);
+    }
+
+    [Fact]
+    public async Task An_online_van_sale_is_paid_what_its_invoice_owes_not_its_net_reservation_value()
+    {
+        GivenMapping("VAN008", "700610", "700610", DailyPaymentRun.Vans);
+        // Reserved at SAP's net price; the customer paid the invoice's gross total.
+        await GivenReservationAsync("VAN008", docEntry: 811, netValue: 86.96m, invoiceTotal: 100m, tender: null, confirmedAt: Cat(Day, 11, 0));
+        await GivenReservationAsync("VAN008", docEntry: 812, netValue: 43.48m, invoiceTotal: 50m, tender: TenderTypes.Ecocash, confirmedAt: Cat(Day, 12, 0));
+        await GivenReservationAsync("VAN008", docEntry: 813, netValue: 10m, invoiceTotal: 11.50m, tender: TenderTypes.Cash, confirmedAt: Cat(Day, 13, 0));
+        _sap.Invoices[813].PaidToDate = 11.50m;
+
+        await Run(Cat(Day, 20, 0));
+
+        var request = Assert.Single(_sap.Held).Request;
+        Assert.Equal([811, 812], request.PaymentInvoices!.Select(line => line.DocEntry).Order());
+        Assert.Equal(100m, request.CashSum);
+        Assert.Equal(50m, request.TransferSum);
+
+        // Claimed once: a second evening pass leaves it alone.
+        await Run(Cat(Day, 20, 10));
+        Assert.Equal(1, _sap.CreateCalls);
+    }
+
+    [Fact]
+    public async Task A_shop_run_does_not_release_a_vans_payment_that_the_van_run_is_still_working_on()
+    {
+        GivenMapping("VAN008", "700610", "700610", DailyPaymentRun.Vans);
+        await GivenSaleAsync("VAN008", docEntry: 801, TenderTypes.Cash, 30m, postedAt: Cat(Day, 18, 0), source: SaleSourceSystems.VanSales);
+        _sap.RefuseAll = true;
+        await Run(Cat(Day, 20, 0));
+
+        // The next day at 17:00 the shop run is on the 15th, but the van run is still on the 14th.
+        _sap.RefuseAll = false;
+        var next = await Run(Cat(Day.AddDays(1), 17, 0));
+
+        Assert.Equal(0, next.Released);
+        Assert.Equal(1, next.Posted);
+        Assert.Equal("2026-09-14", Assert.Single(_sap.Held).Request.DocDate);
+    }
+
+    // ---- Email to the people holding the cash ----------------------------------------------------------
+
+    [Fact]
+    public async Task The_people_holding_the_cash_are_emailed_once_after_the_payment_posts()
+    {
+        GivenMapping("BP-1", "700300", "701100", emails: "shop@example.com, supervisor@example.com");
+        await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+        await GivenSaleAsync("BP-1", docEntry: 102, TenderTypes.Ecocash, 10m, postedAt: Cat(Day, 9, 5));
+
+        var first = await Run(Cat(Day, 17, 0));
+
+        Assert.Equal(1, first.Emailed);
+        Assert.Equal(["shop@example.com", "supervisor@example.com"], _emails.Select(email => email.To));
+        var body = _emails[0].Body;
+        Assert.Contains("DAYPAY-20260914-BP-1", body);
+        Assert.Contains("25.00", body);
+        Assert.Contains("10.00", body);
+        Assert.Contains("700300", body);
+        Assert.Contains("701100", body);
+
+        await Run(Cat(Day, 17, 10));
+        Assert.Equal(2, _emails.Count);
+        Assert.NotNull((await _context.DailyIncomingPayments.AsNoTracking().SingleAsync()).EmailSentAtUtc);
+    }
+
+    [Fact]
+    public async Task An_email_that_did_not_go_is_tried_again_on_the_next_pass()
+    {
+        GivenMapping("BP-1", "700300", "701100", emails: "shop@example.com");
+        await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+        _emailDelivers = false;
+
+        await Run(Cat(Day, 17, 0));
+
+        var payment = await _context.DailyIncomingPayments.AsNoTracking().SingleAsync();
+        Assert.Null(payment.EmailSentAtUtc);
+        Assert.Contains("shop@example.com", payment.EmailError);
+
+        _emailDelivers = true;
+        var retry = await Run(Cat(Day, 17, 10));
+
+        Assert.Equal(1, retry.Emailed);
+        payment = await _context.DailyIncomingPayments.AsNoTracking().SingleAsync();
+        Assert.NotNull(payment.EmailSentAtUtc);
+        Assert.Null(payment.EmailError);
+    }
+
+    [Fact]
+    public async Task A_payment_posted_before_the_mapping_existed_is_never_emailed()
+    {
+        GivenMapping("BP-1", "700300", "701100", emails: "shop@example.com");
+        _context.DailyIncomingPayments.Add(new DailyIncomingPaymentEntity
+        {
+            CardCode = "BP-1",
+            PaymentDate = Day,
+            Reference = "DAYPAY-20260914-BP-1",
+            Status = DailyIncomingPaymentStatus.Posted,
+            SapDocNum = 89820,
+            PostedAtUtc = Cat(Day, 17, 0)
+        });
+        await _context.SaveChangesAsync();
+
+        await Run(Cat(Day, 17, 10));
+
+        Assert.Empty(_emails);
     }
 
     [Fact]
@@ -291,23 +485,6 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         Assert.Equal(0, _sap.CreateCalls);
     }
 
-    [Fact]
-    public async Task A_swipe_without_a_card_code_waits_and_the_rest_of_the_day_still_pays()
-    {
-        var swipe = await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Swipe, 40m, postedAt: Cat(Day, 9, 0));
-        await GivenSaleAsync("BP-1", docEntry: 102, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 5));
-
-        await Run(Cat(Day, 17, 0));
-
-        var held = Assert.Single(_sap.Held);
-        Assert.Equal(102, Assert.Single(held.Request.PaymentInvoices!).DocEntry);
-        Assert.Equal(0m, held.Request.CreditSum);
-
-        var waiting = await Reload(swipe);
-        Assert.Equal(DesktopSalePaymentStatuses.Unmapped, waiting.PaymentStatus);
-        Assert.Contains("SwipeCreditCardCode", waiting.LastPaymentError);
-    }
-
     [Theory]
     // 17:00 CAT exactly is today's cut-off.
     [InlineData(15, 0, "2026-09-14", 15)]
@@ -343,10 +520,77 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
             _sap.Client,
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
             Options.Create(new DesktopSalePostingSettings()),
-            Options.Create(new SAPSettings()),
+            Email,
             NullLogger<DailyIncomingPaymentService>.Instance);
 
         return await service.RunAsync(utcNow);
+    }
+
+    private IEmailService Email => StubProxy.For<IEmailService>((method, args) =>
+    {
+        if (method.Name == nameof(IEmailService.SendEmailAsync) && args!.Length == 6)
+        {
+            if (_emailDelivers)
+            {
+                _emails.Add(((string)args[0]!, (string)args[1]!, (string)args[2]!));
+            }
+
+            return Task.FromResult(_emailDelivers);
+        }
+
+        throw new InvalidOperationException($"Unexpected email call: {method.Name}");
+    });
+
+    private void GivenMapping(
+        string cardCode,
+        string cash,
+        string electronic,
+        DailyPaymentRun run = DailyPaymentRun.Shops,
+        string? emails = null,
+        bool isActive = true)
+    {
+        using var context = NewContext();
+        var mapping = context.IncomingPaymentGlMappings.Find(cardCode);
+        if (mapping is null)
+        {
+            mapping = new IncomingPaymentGlMappingEntity { CardCode = cardCode };
+            context.IncomingPaymentGlMappings.Add(mapping);
+        }
+
+        mapping.CashAccount = cash;
+        mapping.ElectronicAccount = electronic;
+        mapping.Run = run;
+        mapping.NotifyEmails = emails;
+        mapping.IsActive = isActive;
+        context.SaveChanges();
+    }
+
+    private async Task GivenReservationAsync(
+        string cardCode,
+        int docEntry,
+        decimal netValue,
+        decimal invoiceTotal,
+        string? tender,
+        DateTime confirmedAt)
+    {
+        _context.StockReservations.Add(new StockReservationEntity
+        {
+            ExternalReferenceId = $"VAN-ONLINE-{_nextReference++:000000}",
+            SourceSystem = SaleSourceSystems.VanSales,
+            CardCode = cardCode,
+            TotalValue = netValue,
+            Currency = "USD",
+            PaymentMethod = tender,
+            Status = ReservationStatus.Confirmed,
+            CreatedAt = confirmedAt.AddMinutes(-1),
+            ExpiresAt = confirmedAt.AddHours(1),
+            ConfirmedAt = confirmedAt,
+            SAPDocEntry = docEntry,
+            SAPDocNum = docEntry
+        });
+        await _context.SaveChangesAsync();
+
+        _sap.Invoices[docEntry] = new Invoice { DocEntry = docEntry, DocNum = docEntry, DocTotal = invoiceTotal, DocCurrency = "USD" };
     }
 
     private async Task<DesktopSaleEntity> Reload(DesktopSaleEntity sale) =>

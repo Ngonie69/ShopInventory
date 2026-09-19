@@ -168,6 +168,7 @@ public static class AuditActions
     public const string UpdateMobileVersionPolicy = "UpdateMobileVersionPolicy";
     public const string UpdateFiscalisationSettings = "UpdateFiscalisationSettings";
     public const string UpdateDailyIncomingPaymentSettings = "UpdateDailyIncomingPaymentSettings";
+    public const string UpdateIncomingPaymentGlMapping = "UpdateIncomingPaymentGlMapping";
     public const string UpdateDesktopSalesReviewSchedule = "UpdateDesktopSalesReviewSchedule";
     public const string SendDesktopSalesReview = "SendDesktopSalesReview";
 

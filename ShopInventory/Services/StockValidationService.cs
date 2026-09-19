@@ -308,6 +308,16 @@ public class CreateIncomingPaymentRequest
     public string? Remarks { get; set; }
 
     /// <summary>
+    /// The payment's "Reference" field in SAP (CounterReference), for audit look-ups
+    /// </summary>
+    public string? CounterReference { get; set; }
+
+    /// <summary>
+    /// Remarks carried onto the payment's journal entry
+    /// </summary>
+    public string? JournalRemarks { get; set; }
+
+    /// <summary>
     /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
     /// Deduplicates retried submissions across both the synchronous SAP post and the
     /// queue-fallback path so a duplicate incoming payment is not posted to SAP.

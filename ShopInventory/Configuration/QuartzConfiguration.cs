@@ -253,6 +253,13 @@ public static class QuartzConfiguration
                 AddCronJob<DailyIncomingPaymentJob>(
                     q, "daily-incoming-payment", BuildDailyCron(desktopSalePosting.DailyPaymentTimeCAT, "17:00"));
 
+                // The vans' run, on the same key so it never overlaps the shops' or a retry.
+                AddCronTriggerForJob(
+                    q,
+                    "daily-incoming-payment",
+                    "daily-incoming-payment-vans",
+                    BuildDailyCron(desktopSalePosting.VanDailyPaymentTimeCAT, "20:00"));
+
                 if (desktopSalePosting.DailyPaymentRetryMinutes > 0)
                 {
                     // Same key as the 17:00 trigger, so a retry and the 17:00 pass never run together.
@@ -404,6 +411,23 @@ public static class QuartzConfiguration
                 trigger.StartNow();
             }
         });
+    }
+
+    /// <summary>
+    /// A second cron schedule for a job already registered under <paramref name="jobName"/>.
+    /// </summary>
+    private static void AddCronTriggerForJob(
+        IServiceCollectionQuartzConfigurator quartz,
+        string jobName,
+        string triggerName,
+        string cronExpression)
+    {
+        quartz.AddTrigger(trigger => trigger
+            .ForJob(new JobKey(jobName))
+            .WithIdentity($"{triggerName}-trigger")
+            .WithCronSchedule(cronExpression, cron => cron
+                .InTimeZone(CatTimeZone)
+                .WithMisfireHandlingInstructionDoNothing()));
     }
 
     private static void AddCronJob<TJob>(

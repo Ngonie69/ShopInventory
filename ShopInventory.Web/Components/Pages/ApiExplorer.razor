@@ -1617,6 +1617,22 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
+Name = "Daily Incoming Payments",
+BasePath = "/api/daily-incoming-payments",
+Description = "The day's incoming payment per business partner, its invoices, and the G/L accounts it posts to.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "GET", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/daily-incoming-payments", "Daily payments for a range of trading days"),
+new("GET", "/api/daily-incoming-payments/{id}", "One payment with the invoices it settles"),
+new("GET", "/api/daily-incoming-payments/gl-mappings", "Every partner's cash and electronic G/L accounts"),
+new("PUT", "/api/daily-incoming-payments/gl-mappings/{cardCode}", "Create or replace a partner's G/L accounts and recipients (Admin)")
+}
+},
+new ApiModule
+{
 Name = "Daily Incoming Payment Settings",
 BasePath = "/api/daily-incoming-payment-settings",
 Description = "Turn the daily incoming payment for desktop sales on or off.",

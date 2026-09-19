@@ -1,0 +1,1102 @@
+/* ==========================================================================
+   Daily incoming payments — Nocturne
+
+   /reports/desktop-sales/payments: the one incoming payment each business
+   partner gets per day for its till, vending and van invoices, the invoices
+   each one settles, and the G/L accounts each partner's payment posts to.
+   `dpy-` is not shared with any other sheet.
+
+   GENERATED FILE. Do not hand-edit: regenerate with
+
+       python scripts/derive_daily_payments_css.py
+
+   run from the repo root. Everything above the page footer is shops.css with
+   its prefix renamed, so it follows that sheet's palette and both themes
+   through nocturne-tokens.css and has no `.dark-theme` block of its own.
+   ========================================================================== */
+
+.dpy,
+.dpy-overlay {
+    --dpy-bg: var(--noct-bg);
+    --dpy-surface: var(--noct-surface);
+    --dpy-wash: var(--noct-wash);
+    --dpy-ink: var(--noct-ink);
+    --dpy-ink-2: var(--noct-ink-2);
+    --dpy-mute: var(--noct-mute);
+    --dpy-mute-2: var(--noct-mute-2);
+    --dpy-mute-3: var(--noct-mute-3);
+    --dpy-faint: var(--noct-faint);
+    --dpy-placeholder: var(--noct-placeholder);
+    --dpy-divider: var(--noct-divider);
+    --dpy-rule: var(--noct-rule);
+    --dpy-hover: var(--noct-hover);
+    --dpy-press: var(--noct-press);
+    --dpy-avatar-bg: var(--noct-avatar-bg);
+    --dpy-field-bg: var(--noct-field-bg);
+    --dpy-field-edge: var(--noct-field-edge);
+    --dpy-field-edge-hi: var(--noct-field-edge-hi);
+    --dpy-accent: var(--noct-accent);
+    --dpy-accent-rgb: var(--noct-accent-rgb);
+    --dpy-accent-text: var(--noct-accent-text);
+    --dpy-box: var(--noct-box);
+    --dpy-on-box: var(--noct-on-box);
+    --dpy-dot-off: var(--noct-dot-off);
+    --dpy-thumb: var(--noct-thumb);
+    --dpy-scrim: var(--noct-scrim);
+    --dpy-shadow-pop: var(--noct-shadow-pop);
+    --dpy-caret: var(--noct-caret);
+    --dpy-clear: var(--noct-clear);
+    --dpy-scheme: var(--noct-scheme);
+    --dpy-fam-neutral: var(--noct-fam-neutral);
+    --dpy-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --dpy-fam-accent: var(--noct-fam-accent);
+    --dpy-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --dpy-fam-info: var(--noct-fam-info);
+    --dpy-fam-info-rgb: var(--noct-fam-info-rgb);
+    --dpy-fam-good: var(--noct-fam-good);
+    --dpy-fam-good-rgb: var(--noct-fam-good-rgb);
+    --dpy-fam-warn: var(--noct-fam-warn);
+    --dpy-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --dpy-fam-bad: var(--noct-fam-bad);
+    --dpy-fam-bad-rgb: var(--noct-fam-bad-rgb);
+    --dpy-s1: var(--noct-s1);
+    --dpy-s2: var(--noct-s2);
+    --dpy-s3: var(--noct-s3);
+    --dpy-s4: var(--noct-s4);
+    --dpy-s6: var(--noct-s6);
+    --dpy-s8: var(--noct-s8);
+    --dpy-r-sm: var(--noct-r-sm);
+    --dpy-r-md: var(--noct-r-md);
+    --dpy-r-lg: var(--noct-r-lg);
+    --dpy-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+    color-scheme: var(--dpy-scheme);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dpy {
+    min-height: 100vh;
+    padding: 30px 28px 64px;
+    max-width: 1400px;
+    margin: 0 auto;
+    background: var(--dpy-bg);
+    color: var(--dpy-ink);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dpy-s6);
+}
+
+.dpy *,
+.dpy-overlay * {
+    box-sizing: border-box;
+}
+
+.dpy,
+.dpy *,
+.dpy-overlay,
+.dpy-overlay * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.dpy :focus-visible,
+.dpy-overlay :focus-visible {
+    outline: 2px solid var(--dpy-accent);
+    outline-offset: 2px;
+}
+
+.dpy ::selection,
+.dpy-overlay ::selection {
+    background: rgba(var(--dpy-accent-rgb), .3);
+}
+
+.dpy h1,
+.dpy h2,
+.dpy h3,
+.dpy-overlay h1,
+.dpy-overlay h2,
+.dpy-overlay h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.dpy-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.dpy-header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dpy-s4);
+    min-width: 0;
+}
+
+.dpy-title {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.dpy-subtitle {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--dpy-mute-2);
+    max-width: 58ch;
+    text-wrap: pretty;
+}
+
+.dpy-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--dpy-s3);
+    flex-wrap: wrap;
+}
+
+.dpy .dpy-btn,
+.dpy-overlay .dpy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--dpy-s2) calc(var(--dpy-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--dpy-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--dpy-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.dpy .dpy-btn:disabled,
+.dpy-overlay .dpy-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.dpy .dpy-btn-primary,
+.dpy-overlay .dpy-btn-primary {
+    color: var(--dpy-accent);
+    border-color: var(--dpy-accent);
+    letter-spacing: .02em;
+}
+
+.dpy .dpy-btn-primary:hover:not(:disabled),
+.dpy-overlay .dpy-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--dpy-accent-rgb), .12);
+}
+
+.dpy .dpy-btn-primary:active:not(:disabled),
+.dpy-overlay .dpy-btn-primary:active:not(:disabled) {
+    background: rgba(var(--dpy-accent-rgb), .22);
+}
+
+.dpy .dpy-btn-ghost,
+.dpy-overlay .dpy-btn-ghost {
+    color: var(--dpy-mute-2);
+    border-color: var(--dpy-divider);
+}
+
+.dpy .dpy-btn-ghost:hover:not(:disabled),
+.dpy-overlay .dpy-btn-ghost:hover:not(:disabled) {
+    color: var(--dpy-ink);
+    border-color: var(--dpy-field-edge-hi);
+    background: var(--dpy-hover);
+}
+
+.dpy .dpy-btn-danger,
+.dpy-overlay .dpy-btn-danger {
+    color: var(--dpy-fam-bad);
+    border-color: rgba(var(--dpy-fam-bad-rgb), .55);
+}
+
+.dpy .dpy-btn-danger:hover:not(:disabled),
+.dpy-overlay .dpy-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--dpy-fam-bad-rgb), .12);
+    border-color: var(--dpy-fam-bad);
+}
+
+.dpy .dpy-action-btn,
+.dpy-overlay .dpy-action-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--dpy-r-sm);
+    background: transparent;
+    color: var(--dpy-mute-2);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color .13s, color .13s;
+}
+
+.dpy .dpy-action-btn:hover,
+.dpy-overlay .dpy-action-btn:hover {
+    background: var(--dpy-press);
+    color: var(--dpy-ink);
+}
+
+.dpy-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--dpy-s3);
+    flex-wrap: wrap;
+}
+
+.dpy-search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 220px;
+    max-width: 420px;
+}
+
+.dpy-search-box i {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    font-size: 13px;
+    color: var(--dpy-mute-3);
+}
+
+.dpy .dpy-search-box input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px 8px 33px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--dpy-ink);
+    caret-color: var(--dpy-accent);
+    background: var(--dpy-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.dpy .dpy-search-box input:hover {
+    border-color: var(--dpy-field-edge);
+}
+
+.dpy .dpy-search-box input:focus-visible {
+    border-color: rgba(var(--dpy-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.dpy .dpy-search-box input::placeholder {
+    color: var(--dpy-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--dpy-placeholder);
+}
+
+.dpy .dpy-search-box input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    background: var(--dpy-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.dpy .dpy-input,
+.dpy-overlay .dpy-input,
+.dpy-overlay textarea.dpy-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--dpy-ink);
+    caret-color: var(--dpy-accent);
+    background: var(--dpy-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--dpy-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.dpy-overlay textarea.dpy-input {
+    min-height: 76px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.dpy .dpy-input option,
+.dpy-overlay .dpy-input option,
+.dpy .dpy-input optgroup,
+.dpy-overlay .dpy-input optgroup {
+    color: var(--dpy-ink);
+    background-color: var(--dpy-surface);
+}
+
+.dpy .dpy-input:hover,
+.dpy-overlay .dpy-input:hover {
+    border-color: var(--dpy-field-edge);
+}
+
+.dpy .dpy-input:focus-visible,
+.dpy-overlay .dpy-input:focus-visible {
+    border-color: rgba(var(--dpy-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.dpy .dpy-input::placeholder,
+.dpy-overlay .dpy-input::placeholder {
+    color: var(--dpy-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--dpy-placeholder);
+}
+
+.dpy-overlay {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    min-height: 0;
+    background: var(--dpy-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow-y: auto;
+    padding: var(--dpy-s6);
+    color: var(--dpy-ink);
+    animation: dpy-fade .18s ease;
+}
+
+.dpy-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(560px, 100%);
+    margin: auto;
+    min-height: 0;
+    border: 1px solid var(--dpy-divider);
+    border-radius: var(--dpy-r-lg);
+    background: var(--dpy-bg);
+    box-shadow: var(--dpy-shadow-pop);
+    animation: dpy-rise .2s ease;
+    overflow: visible;
+}
+
+.dpy-modal>form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: visible;
+}
+
+.dpy-modal-header {
+    display: flex;
+    align-items: center;
+    gap: var(--dpy-s4);
+    padding: var(--dpy-s6) var(--dpy-s8);
+    border-bottom: 1px solid var(--dpy-divider);
+    flex: none;
+}
+
+.dpy-modal-header h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dpy-overlay .dpy-modal-close {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: var(--dpy-r-sm);
+    background: transparent;
+    color: var(--dpy-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.dpy-overlay .dpy-modal-close:hover {
+    background: var(--dpy-press);
+    color: var(--dpy-ink);
+}
+
+.dpy-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow: visible;
+    padding: var(--dpy-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dpy-s6);
+}
+
+.dpy-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--dpy-s3);
+    padding: var(--dpy-s4) var(--dpy-s8);
+    border-top: 1px solid var(--dpy-divider);
+    flex: none;
+}
+
+.dpy-alert-head {
+    border-bottom-color: rgba(var(--dpy-fam-bad-rgb), .35);
+}
+
+.dpy-alert-head h2 {
+    color: var(--dpy-fam-bad);
+}
+
+.dpy-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dpy-s3);
+    padding: 11px 13px;
+    border-radius: var(--dpy-r-md);
+    font-size: 12.5px;
+    color: var(--dpy-fam-bad);
+    background: rgba(var(--dpy-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--dpy-fam-bad-rgb), .3);
+    text-wrap: pretty;
+}
+
+.dpy-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--dpy-s4);
+}
+
+.dpy-form-full {
+    grid-column: 1 / -1;
+}
+
+.dpy-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dpy-form-field > label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dpy-mute-3);
+}
+
+.dpy-form-field .required {
+    color: var(--dpy-fam-bad);
+}
+
+.dpy-form-hint {
+    font-size: 11.5px;
+    color: var(--dpy-mute-3);
+    text-wrap: pretty;
+}
+
+.dpy-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--dpy-s3);
+    padding: 64px var(--dpy-s8);
+    font-size: 13px;
+    color: var(--dpy-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+    border: 1px solid var(--dpy-divider);
+    border-radius: var(--dpy-r-lg);
+}
+
+.dpy-empty i {
+    font-size: 26px;
+    color: var(--dpy-accent);
+    opacity: .7;
+}
+
+.dpy-empty h3 {
+    font-size: 15px;
+    color: var(--dpy-ink-2);
+}
+
+.dpy-empty p {
+    margin: 0;
+    max-width: 44ch;
+}
+
+.dpy-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dpy-s4);
+    padding: 72px var(--dpy-s8);
+    font-size: 13px;
+    color: var(--dpy-mute-2);
+}
+
+.dpy-loading p {
+    margin: 0;
+}
+
+.dpy .dpy-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.dpy .dpy-chip-good {
+    background: rgba(var(--dpy-fam-good-rgb), .13);
+    color: var(--dpy-fam-good);
+}
+
+.dpy .dpy-chip-bad {
+    background: rgba(var(--dpy-fam-bad-rgb), .13);
+    color: var(--dpy-fam-bad);
+}
+
+.dpy .dpy-chip-neutral {
+    background: rgba(var(--dpy-fam-neutral-rgb), .12);
+    color: var(--dpy-fam-neutral);
+}
+
+.dpy .dpy-table-wrap {
+    border: 1px solid var(--dpy-divider);
+    border-radius: var(--dpy-r-lg);
+    overflow-x: auto;
+    background: var(--dpy-surface);
+}
+
+.dpy .dpy-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+}
+
+.dpy .dpy-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--dpy-surface);
+    padding: 11px 16px;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dpy-mute-3);
+    border-bottom: 1px solid var(--dpy-divider);
+    white-space: nowrap;
+}
+
+.dpy .dpy-table tbody td {
+    padding: 11px 16px;
+    font-size: 0.85rem;
+    color: var(--dpy-ink);
+    border-bottom: 1px solid var(--dpy-rule);
+    vertical-align: middle;
+}
+
+.dpy .dpy-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.dpy .dpy-table tbody tr:hover td {
+    background: var(--dpy-hover);
+}
+
+.dpy .dpy-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dpy .dpy-primary {
+    font-weight: 500;
+}
+
+.dpy-seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: var(--dpy-r-md);
+    background: var(--dpy-hover);
+}
+
+.dpy .dpy-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--dpy-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--dpy-r-md) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.dpy .dpy-seg-btn:hover:not(.is-on) {
+    color: var(--dpy-ink-2);
+}
+
+.dpy .dpy-seg-btn.is-on {
+    color: var(--dpy-accent-text);
+    background: var(--dpy-surface);
+    box-shadow: var(--dpy-shadow-sm);
+}
+
+.dpy,
+.dpy-overlay {
+    --dpy-shadow-sm: 0 0 0 1px var(--noct-rule);
+
+    --npick-h: 34px;
+    --npick-pad-y: 8px;
+    --npick-pad-x: 12px;
+    --npick-fs: 13px;
+    --npick-radius: var(--noct-r-md);
+    --npick-fill: transparent;
+    --npick-edge: transparent;
+    --npick-edge-hi: var(--noct-field-edge);
+}
+
+.dpy .npick .npick-btn,
+.dpy-overlay .npick .npick-btn {
+    background: var(--dpy-field-bg);
+}
+
+.dpy .npick .npick-btn:focus-visible,
+.dpy-overlay .npick .npick-btn:focus-visible {
+    border-color: rgba(var(--dpy-accent-rgb), .55);
+}
+
+.dpy .dpy-input:disabled,
+.dpy-overlay .dpy-input:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+.dpy-overlay .dpy-label-lock {
+    margin-left: 4px;
+    font-size: 9px;
+    vertical-align: 1px;
+    color: var(--dpy-faint);
+    cursor: help;
+}
+
+.dpy-modal {
+    width: min(640px, 100%);
+}
+
+.dpy-form-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dpy-s3);
+    padding: 10px 12px;
+    border-radius: var(--dpy-r-md);
+    background: var(--dpy-wash);
+    box-shadow: inset 0 0 0 1px var(--dpy-rule);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--dpy-mute-2);
+    text-wrap: pretty;
+}
+
+.dpy-form-note > i {
+    flex: none;
+    margin-top: 1px;
+    font-size: 13px;
+    color: var(--dpy-accent-text);
+}
+
+.dpy-crumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 7px;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dpy-mute-3);
+}
+
+.dpy-crumb-here {
+    color: var(--dpy-accent-text);
+}
+
+.dpy .dpy-seg-count {
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+    opacity: .65;
+}
+
+.dpy-result {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--dpy-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.dpy .dpy-code {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: var(--dpy-r-sm);
+    background: rgba(var(--dpy-fam-accent-rgb), .13);
+    color: var(--dpy-fam-accent);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    white-space: nowrap;
+}
+
+.dpy .dpy-cell-dpy {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.dpy .dpy-cell-dpy > i {
+    flex: none;
+    font-size: 15px;
+    color: var(--dpy-mute-3);
+}
+
+.dpy .dpy-with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dpy .dpy-with-icon > i {
+    font-size: 13px;
+    color: var(--dpy-faint);
+}
+
+.dpy .dpy-row-act {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    opacity: .4;
+    transition: opacity .12s ease;
+}
+
+.dpy tbody tr:hover .dpy-row-act,
+.dpy tbody tr:focus-within .dpy-row-act {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .dpy .dpy-row-act {
+        opacity: 1;
+    }
+}
+
+.dpy .dpy-table-wrap .dpy-empty {
+    border: 0;
+}
+
+.dpy-overlay::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dpy-overlay::-webkit-scrollbar-thumb {
+    background: var(--dpy-thumb);
+    border-radius: 8px;
+}
+
+.dpy-overlay::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+@keyframes dpy-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes dpy-rise {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .dpy-overlay,
+    .dpy-modal {
+        animation: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .dpy-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .dpy {
+        padding: var(--dpy-s8) 18px 56px;
+    }
+
+    .dpy-title {
+        font-size: 24px;
+    }
+
+    .dpy-header-actions {
+        width: 100%;
+    }
+
+    .dpy-header-actions .dpy-btn {
+        flex: 1;
+    }
+
+    .dpy-search-box {
+        max-width: none;
+    }
+
+    .dpy-modal-header,
+    .dpy-modal-body,
+    .dpy-modal-footer {
+        padding-inline: var(--dpy-s6);
+    }
+
+    .dpy .dpy-input,
+    .dpy .dpy-search-box input,
+    .dpy-overlay .dpy-input {
+        font-size: 16px;
+    }
+}
+
+
+/* ── This page ───────────────────────────────────────────────────────────
+   What /shops does not have. Every colour resolves through the --dpy-*
+   aliases above, so both themes follow from nocturne-tokens.css.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.dpy .dpy-tabs {
+    align-self: flex-start;
+}
+
+.dpy .dpy-filter-bar .ndf,
+.dpy .dpy-filter-bar .nsel {
+    min-width: 150px;
+}
+
+.dpy .dpy-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--dpy-mute);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.dpy .dpy-totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dpy-s4);
+}
+
+.dpy .dpy-total {
+    flex: 1 1 160px;
+    padding: var(--dpy-s3) var(--dpy-s4);
+    border: 1px solid var(--dpy-divider);
+    border-radius: var(--dpy-r-md);
+    background: var(--dpy-surface);
+}
+
+.dpy .dpy-total-label {
+    font-size: 11px;
+    color: var(--dpy-mute);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.dpy .dpy-total-value {
+    font-size: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--dpy-ink);
+}
+
+/* Dates, references, money and account codes never wrap: a wrapped day or amount reads as two
+   values. Only the partner name may, and it gets enough room not to break mid-word. */
+.dpy .dpy-table th,
+.dpy .dpy-table td {
+    white-space: nowrap;
+}
+
+.dpy .dpy-table td.dpy-wrap {
+    white-space: normal;
+    min-width: 180px;
+    max-width: 260px;
+}
+
+.dpy .dpy-table .dpy-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.dpy .dpy-mono {
+    font-family: var(--dpy-mono);
+    font-size: 12.5px;
+}
+
+.dpy .dpy-acct {
+    font-family: var(--dpy-mono);
+    font-size: 12px;
+    color: var(--dpy-ink-2);
+}
+
+.dpy .dpy-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--dpy-mute);
+}
+
+.dpy .dpy-row-open td {
+    background: var(--dpy-hover);
+}
+
+.dpy .dpy-expand {
+    background: none;
+    border: 0;
+    color: var(--dpy-mute);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--dpy-r-sm);
+}
+
+.dpy .dpy-expand:hover {
+    color: var(--dpy-ink);
+    background: var(--dpy-hover);
+}
+
+.dpy .dpy-detail-cell {
+    padding: 0 !important;
+    background: var(--dpy-wash);
+}
+
+.dpy .dpy-detail {
+    padding: var(--dpy-s3) var(--dpy-s6) var(--dpy-s4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dpy-s3);
+}
+
+.dpy .dpy-detail-error {
+    color: rgb(var(--dpy-fam-bad-rgb));
+    font-size: 13px;
+}
+
+.dpy .dpy-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.dpy .dpy-lines th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--dpy-mute);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--dpy-divider);
+}
+
+.dpy .dpy-lines td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--dpy-rule);
+    color: var(--dpy-ink-2);
+}
+
+.dpy .dpy-lines .dpy-num,
+.dpy .dpy-lines th.dpy-num {
+    text-align: right;
+}
+
+.dpy .dpy-chip-warn {
+    color: var(--dpy-fam-warn);
+    background: rgba(var(--dpy-fam-warn-rgb), .12);
+}
+
+.dpy .dpy-chip-info {
+    color: var(--dpy-fam-info);
+    background: rgba(var(--dpy-fam-info-rgb), .12);
+}
+
+.dpy .dpy-chip-accent {
+    color: var(--dpy-fam-accent);
+    background: rgba(var(--dpy-fam-accent-rgb), .12);
+}
+
+.dpy .dpy-mail-ok {
+    color: var(--dpy-fam-good);
+}
+
+.dpy .dpy-mail-bad {
+    color: var(--dpy-fam-warn);
+}
+
+.dpy-overlay .dpy-textarea {
+    min-height: 84px;
+    resize: vertical;
+    font-family: inherit;
+    line-height: 1.5;
+}
+
+.dpy-overlay .dpy-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--dpy-ink);
+}
+
+.dpy-overlay .dpy-check input {
+    accent-color: var(--dpy-accent);
+    width: 16px;
+    height: 16px;
+}

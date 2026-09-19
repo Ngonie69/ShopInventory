@@ -295,7 +295,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // on a payment, so those rows are the only record of what was paid by cheque or card, and
     // IncomingPayment.DocTotal is computed from them. Dropping them to save payload would silently
     // understate every non-cash payment.
-    private const string IncomingPaymentSelect = "$select=DocEntry,DocNum,DocDate,DueDate,CardCode,CardName,DocCurrency,CashSum,CashSumFC,TransferSum,Remarks,JournalRemarks,TransferReference,TransferDate,TransferAccount,Cancelled,PaymentInvoices,PaymentChecks,PaymentCreditCards";
+    private const string IncomingPaymentSelect = "$select=DocEntry,DocNum,DocDate,DueDate,CardCode,CardName,DocCurrency,CashSum,CashSumFC,TransferSum,Remarks,JournalRemarks,TransferReference,TransferDate,TransferAccount,CashAccount,CounterReference,Cancelled,PaymentInvoices,PaymentChecks,PaymentCreditCards";
     private const string ItemSelect = "$select=ItemCode,ItemName,ItemType,ItemsGroupCode,BarCode,ManageBatchNumbers,ManageSerialNumbers,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers,InventoryUOM,SalesUnit,PurchaseUnit,DefaultWarehouse,U_ItemGroup";
 
     /// <summary>Rows per request when walking a document list.</summary>
@@ -12418,6 +12418,16 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         if (!string.IsNullOrWhiteSpace(request.Remarks))
         {
             payload["Remarks"] = request.Remarks;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.CounterReference))
+        {
+            payload["CounterReference"] = request.CounterReference;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.JournalRemarks))
+        {
+            payload["JournalRemarks"] = request.JournalRemarks;
         }
 
         // Add payment invoices
