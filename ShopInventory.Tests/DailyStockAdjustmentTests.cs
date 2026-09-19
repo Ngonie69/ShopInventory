@@ -177,6 +177,47 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         Assert.Empty(strayDays);
     }
 
+    /// <summary>
+    /// ICC011 at a shop, 2026-09-19: both batches had sold down to zero, a transfer brought 37 in,
+    /// and the handler wrote them to a new row with no batch and no name. The till showed the item
+    /// as "N/A" and nothing reconciled it, because the total then agreed with SAP.
+    /// </summary>
+    [Fact]
+    public async Task An_arrival_for_a_sold_out_batched_item_lands_on_a_batch_it_already_has()
+    {
+        await AddSnapshotItemAsync(Destination, "ICC011", 0m, new DateTime(2026, 8, 1), "IC011#M24/1B-24");
+        await AddSnapshotItemAsync(Destination, "ICC011", 0m, new DateTime(2026, 10, 1), "ICC011#E21/1,2,3,4 I-24");
+
+        await Handler().Handle(Transfer("ICC011", 37m), default);
+
+        var rows = await _context.DailyStockSnapshotItems
+            .AsNoTracking()
+            .Where(item => item.WarehouseCode == Destination && item.ItemCode == "ICC011")
+            .ToListAsync();
+
+        Assert.Equal(2, rows.Count);
+        Assert.DoesNotContain(rows, row => row.BatchNumber == null);
+        Assert.Equal(37m, rows.Single(row => row.BatchNumber == "ICC011#E21/1,2,3,4 I-24").AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task A_row_created_for_a_new_item_carries_the_item_name_from_the_event()
+    {
+        // Only for the snapshot header: the handler writes into a day that was fetched, never one it invents.
+        await AddSnapshotItemAsync(Destination, "ITEM-1", 1m);
+
+        await Handler().Handle(
+            new ProcessTransferEventCommand("ITEM-9", Source, Destination, 5m, 4002, 4002, "Feta 200g"),
+            default);
+
+        var row = await _context.DailyStockSnapshotItems
+            .AsNoTracking()
+            .SingleAsync(item => item.WarehouseCode == Destination && item.ItemCode == "ITEM-9");
+
+        Assert.Equal("Feta 200g", row.ItemDescription);
+        Assert.Equal(5m, row.AvailableQuantity);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private ProcessTransferEventHandler Handler() => new(
@@ -200,7 +241,8 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         string warehouse,
         string itemCode,
         decimal available,
-        DateTime? expiryDate = null)
+        DateTime? expiryDate = null,
+        string? batchNumber = null)
     {
         var today = LedgerDay;
         var snapshot = await _context.DailyStockSnapshots
@@ -217,6 +259,7 @@ public sealed class DailyStockAdjustmentTests : IDisposable
             SnapshotId = snapshot.Id,
             ItemCode = itemCode,
             WarehouseCode = warehouse,
+            BatchNumber = batchNumber,
             ExpiryDate = expiryDate
         }.Opened(available));
         await _context.SaveChangesAsync();
