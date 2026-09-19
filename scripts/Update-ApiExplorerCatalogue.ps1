@@ -173,6 +173,7 @@ $categoryOf = @{
 
     'VanSalesReportController'='Field Operations'; 'VanSalesAttendanceController'='Field Operations'
     'VanSalesCompatibilityController'='Field Operations'; 'TimesheetController'='Field Operations'
+    'MarketBreakageController'='Field Operations'
     'MerchandiserController'='Field Operations'
 
     'AuthController'='System & Security'; 'TwoFactorController'='System & Security'

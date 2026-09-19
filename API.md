@@ -91,6 +91,7 @@ Examples:
   - [Van Sales Customer Ordering](#49-van-sales-customer-ordering)
   - [Credit Note Approvals (SAP)](#50-credit-note-approvals-sap)
   - [Shops](#51-shops)
+  - [Market Breakages](#52-market-breakages)
 - [DTOs Reference](#dtos-reference)
 
 ---
@@ -3787,6 +3788,8 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/inventory/request` | `inventory.transfer` | Ask the depot for stock. `201` |
 | GET | `/api/vansales/inventory/request` | `inventory.transfer` | The caller's transfer requests |
 | POST | `/api/vansales/inventory/confirm` | `inventory.transfer` | Confirm a transfer into the van |
+| POST | `/api/vansales/breakages` | `vansales.breakages.report` | Report broken stock collected from a shop. `201`. Moves nothing in SAP — see [Market Breakages](#52-market-breakages) |
+| GET | `/api/vansales/breakages` | `vansales.breakages.report` | The caller's own breakage reports from the last `days` days (default 30, at most 90), with status and the office's count |
 
 `POST /api/vansales/sales` is not `POST /api/vansales/order` with a flag. Nothing on it reaches SAP
 during the request — the batch is held for the end-of-day posting run — and nothing on it is
@@ -4604,6 +4607,46 @@ than an error, so a double-click is not something an administrator has to read a
 
 There is no delete. A shop owns its sales history, and its warehouse stays reserved after it closes so
 that history cannot be handed to a new shop.
+
+### 52. Market Breakages
+
+**Base route:** `/api/market-breakages`  
+**Auth:** Bearer + `vansales.breakages.confirm` throughout
+
+Broken or damaged stock a van rep collected back from shops. The rep swaps the shop's broken units
+for good ones off the van and carries the broken ones home, so the van is physically short while SAP
+still counts the stock as sellable. The rep reports it from the handset
+(`POST /api/vansales/breakages`, which moves nothing); the office counts what comes off the van and
+**confirms** it, which posts a SAP stock transfer of the counted quantities from the van's warehouse
+into the returns warehouse (`MarketBreakages:ReturnsWarehouseCode`, default `RETURNS`). Or it
+**rejects** the report, with a reason, and nothing moves.
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|-----------|-------------|
+| GET | `/api/market-breakages` | `vansales.breakages.confirm` | Reports newest first: `status` open (pending, failed or stranded), `Pending`, `Transferring`, `Transferred`, `TransferFailed`, `Rejected` or empty for all; `search` matches the rep, van, shop or an item code; `page` 1, `pageSize` 25. `statusCounts` holds every status, filters aside |
+| GET | `/api/market-breakages/{id}` | `vansales.breakages.confirm` | One report: lines with the reported and confirmed quantity, who decided, the transfer's `sapDocNum`, `lastError` |
+| POST | `/api/market-breakages/{id}/confirm` | `vansales.breakages.confirm` | `{ "lines": [{ "lineId": 1, "confirmedQuantity": 2 }], "remarks": "…" }` — every line, exactly once; zero drops a line; all zeros is refused (reject instead). Posts the transfer |
+| POST | `/api/market-breakages/{id}/reject` | `vansales.breakages.confirm` | `{ "remarks": "…" }` — required. Nothing is transferred |
+
+**The report's van, not the rep's current one.** The van warehouse is snapshotted when the report
+arrives, so moving a rep to another van before the office confirms does not take the stock off the
+wrong van. A rep with no van assigned is refused at the handset (`MarketBreakage.NoVanWarehouse`).
+
+**Reported and confirmed are kept apart.** `reportedQuantity` is what the rep sent and never changes;
+`confirmedQuantity` is the office's count and the only figure the transfer uses.
+
+**One transfer per report.** The confirm holds a post lock keyed on the report alone (scope
+`market-breakage-transfer`), so two people confirming at once get one transfer and a
+`409 MarketBreakage.PostInProgress`; a confirm after the transfer replays it. The report is claimed as
+`Transferring` in one conditional update before SAP is called, which is also what stops a reject landing
+mid-transfer. From the claim on the request's token is dropped, so a closed tab cannot strand it.
+
+**Failures are retried by confirming again.** A SAP refusal, short stock on the van
+(`MarketBreakage.InsufficientStock`), or stock SAP could not read leaves the report `TransferFailed` with
+`lastError`, and the office may correct the count on the retry. A SAP timeout is recorded the same way
+but says the transfer may exist — check SAP before confirming again. A report read back as
+`Transferring` was stranded mid-post; confirming finishes it once the lock has expired.
+
 
 ---
 

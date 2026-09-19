@@ -142,6 +142,11 @@ public static class Permissions
     // users.edit, which the route endpoints used to borrow and which also edits every user account.
     public const string ManageVanSalesRoutes = "vansales.routes.manage";
 
+    // Market breakages: broken stock a van collects back from shops. Reporting is the handset's and
+    // moves nothing; confirming posts a SAP transfer from the van to returns, so it is the office's.
+    public const string ReportMarketBreakages = "vansales.breakages.report";
+    public const string ConfirmMarketBreakages = "vansales.breakages.confirm";
+
     /// <summary>
     /// Get all permissions grouped by category
     /// </summary>
@@ -272,7 +277,9 @@ public static class Permissions
             {
                 new(ViewVanSalesAttendance, "View Van Sales Attendance", "View van sales check-in/check-out activity and departure compliance"),
                 new(FulfilVanSalesCustomerOrders, "Fulfil Van Sales Customer Orders", "See the orders a route's shops placed, record deliveries and turn orders into sales orders"),
-                new(ManageVanSalesRoutes, "Manage Van Sales Routes", "Create and edit selling routes and the stops on each route's plan")
+                new(ManageVanSalesRoutes, "Manage Van Sales Routes", "Create and edit selling routes and the stops on each route's plan"),
+                new(ReportMarketBreakages, "Report Market Breakages", "Report broken or damaged stock collected from shops, from the van sales handset"),
+                new(ConfirmMarketBreakages, "Confirm Market Breakages", "Count reported breakages and transfer them from the van to the returns warehouse, or reject them")
             },
             ["System"] = new()
             {
@@ -323,7 +330,8 @@ public static class Permissions
                 ViewSyncStatus,
                 // Van sales: attendance, fulfilling customer orders, and the routes themselves. A manager
                 // oversees the vans; merchandiser timesheets are the sales rep's to read.
-                ViewVanSalesAttendance, FulfilVanSalesCustomerOrders, ManageVanSalesRoutes
+                ViewVanSalesAttendance, FulfilVanSalesCustomerOrders, ManageVanSalesRoutes,
+                ConfirmMarketBreakages
             },
             ApplicationRoles.User => new List<string>
             {
@@ -374,7 +382,10 @@ public static class Permissions
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers,
                 // /van-sales-customer-orders: loading the van from what shops ordered.
-                FulfilVanSalesCustomerOrders
+                FulfilVanSalesCustomerOrders,
+                // A stock controller both sells off a van (the handset role table) and counts what
+                // comes back at the depot.
+                ReportMarketBreakages, ConfirmMarketBreakages
             },
             // A stock controller's transfer rights plus the decision on a held credit memo. Not the
             // add: posting the approved memo stays with the managers, and which memos it may decide
@@ -392,7 +403,9 @@ public static class Permissions
             {
                 ViewProducts,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
-                FulfilVanSalesCustomerOrders
+                FulfilVanSalesCustomerOrders,
+                // The depot is where a van unloads its breakages, so it counts and confirms them.
+                ConfirmMarketBreakages
             },
             ApplicationRoles.ReadOnly => new List<string>
             {
@@ -432,7 +445,8 @@ public static class Permissions
                 ViewCustomers, CreateCustomers,
                 ViewStock, ViewInventory,
                 ViewSalesOrders, CreateSalesOrders,
-                ViewTimesheets, ManageTimesheets
+                ViewTimesheets, ManageTimesheets,
+                ReportMarketBreakages
             },
             ApplicationRoles.Sales => new List<string>
             {
@@ -443,7 +457,8 @@ public static class Permissions
                 ViewInvoices, CreateInvoices,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
                 TransferStock, TransferInventory,
-                ViewTimesheets, ManageTimesheets
+                ViewTimesheets, ManageTimesheets,
+                ReportMarketBreakages
             },
             // A sales rep quotes a customer and, when the quote is taken up, turns it into the
             // sales order they were already trusted to raise. Quoting stops there: no invoice
@@ -595,6 +610,10 @@ public static class Permission
     // Van sales customer orders and routes
     public const string FulfilVanSalesCustomerOrders = Permissions.FulfilVanSalesCustomerOrders;
     public const string ManageVanSalesRoutes = Permissions.ManageVanSalesRoutes;
+
+    // Market breakages
+    public const string ReportMarketBreakages = Permissions.ReportMarketBreakages;
+    public const string ConfirmMarketBreakages = Permissions.ConfirmMarketBreakages;
 
     /// <summary>
     /// Get all permissions grouped by category (delegates to Permissions)

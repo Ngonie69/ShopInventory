@@ -43,6 +43,8 @@ using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesOrderHisto
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesPodDeliveries;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesSalesOrderHistory;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesTransferRequests;
+using ShopInventory.Features.MarketBreakages.Commands.ReportMarketBreakage;
+using ShopInventory.Features.MarketBreakages.Queries.GetMyMarketBreakages;
 using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
@@ -887,6 +889,55 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(
             value => StatusCode(StatusCodes.Status201Created, value),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Report broken or damaged stock collected from a shop. 201
+    /// </summary>
+    /// <remarks>
+    /// Moves nothing in SAP. The office counts what comes off the van and confirms it into a transfer
+    /// from the van to the returns warehouse — see <c>/api/market-breakages</c>. A resend with the same
+    /// <c>client_request_id</c> is answered with the report already made, <c>alreadyReported</c> true.
+    /// </remarks>
+    [HttpPost("breakages")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ReportMarketBreakages)]
+    [ProducesResponseType(typeof(VanSalesMarketBreakageResponse), StatusCodes.Status201Created)]
+    public async Task<IActionResult> ReportMarketBreakage(
+        [FromBody] VanSalesMarketBreakageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new ReportMarketBreakageCommand(request, userId.Value), cancellationToken);
+        return result.Match(
+            value => StatusCode(StatusCodes.Status201Created, value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The caller's own breakage reports from the last <c>days</c> days (default 30), with their status.
+    /// </summary>
+    [HttpGet("breakages")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ReportMarketBreakages)]
+    [ProducesResponseType(typeof(List<MarketBreakageDetailDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMyMarketBreakages(
+        [FromQuery] int days = 30,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new GetMyMarketBreakagesQuery(userId.Value, days), cancellationToken);
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
     /// <summary>

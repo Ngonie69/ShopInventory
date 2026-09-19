@@ -183,6 +183,10 @@ public static class AuditActions
     public const string DownloadSapCreditNoteAttachment = "DownloadSapCreditNoteAttachment";
     public const string SendPodReportEmail = "SendPodReportEmail";
 
+    // Market breakages
+    public const string ConfirmMarketBreakage = "ConfirmMarketBreakage";
+    public const string RejectMarketBreakage = "RejectMarketBreakage";
+
     // Van sales actions
     //
     // The attendance report leaves the building as an email with the workbook attached, so both the

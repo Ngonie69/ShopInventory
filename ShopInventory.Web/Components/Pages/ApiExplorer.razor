@@ -941,6 +941,22 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
+Name = "Market Breakage",
+BasePath = "/api/market-breakages",
+Description = "4 endpoints under /api/market-breakages.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/market-breakages", "Get all"),
+new("GET", "/api/market-breakages/{id}", "Get by ID"),
+new("POST", "/api/market-breakages/{id}/confirm", "Confirm"),
+new("POST", "/api/market-breakages/{id}/reject", "Reject")
+}
+},
+new ApiModule
+{
 Name = "Merchandiser",
 BasePath = "/api/Merchandiser",
 Description = "20 endpoints under /api/Merchandiser.",
@@ -1016,6 +1032,7 @@ Endpoints = new List<ApiEndpoint>
 new("GET", "/api/vansales/attendance", "The caller's own calls"),
 new("GET", "/api/vansales/attendance/date", "The caller's calls for a date (query parameter is 'value')"),
 new("GET", "/api/vansales/attendance/status", "Whether the caller is checked in"),
+new("GET", "/api/vansales/breakages", "Get my market breakages"),
 new("GET", "/api/vansales/customer", "The shops on the caller's route"),
 new("GET", "/api/vansales/customer/{code}/history", "What one shop on the caller's route has bought and still has on order (from, to)"),
 new("GET", "/api/vansales/customer/{code}/invoices", "Get customer invoices"),
@@ -1030,6 +1047,7 @@ new("POST", "/api/vansales/attendance", "Check in or out"),
 new("POST", "/api/vansales/auth/login", "Sign a handset in (anonymous, rate-limited)"),
 new("POST", "/api/vansales/auth/password", "Change own password"),
 new("POST", "/api/vansales/auth/refresh", "Refresh a handset token (anonymous, rate-limited)"),
+new("POST", "/api/vansales/breakages", "Report market breakage"),
 new("POST", "/api/vansales/customer", "Create a route customer"),
 new("DELETE", "/api/vansales/customer/{code}", "Take a shop off the caller's route - deactivates rather than removes, so the trading history stays"),
 new("PUT", "/api/vansales/customer/{code}", "Correct a shop on the caller's route - the route, the code and the active flag are read off the row, not the body"),
