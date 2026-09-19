@@ -60,7 +60,7 @@ public sealed class GetManagementSalesReportHandler(
         GetManagementSalesReportQuery request, CancellationToken cancellationToken)
     {
         var resolved = await WindowAsync(
-            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, cancellationToken);
+            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, cancellationToken, request.Business);
         if (resolved.IsError)
         {
             return resolved.Errors;

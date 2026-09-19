@@ -13,6 +13,13 @@ public sealed class DesktopSalesReview
     public DateTime PreviousToDate { get; set; }
     public string? WarehouseCode { get; set; }
     public DateTime GeneratedAtUtc { get; set; }
+    public List<DesktopSalesReviewBusiness> Businesses { get; set; } = [];
+}
+
+public sealed class DesktopSalesReviewBusiness
+{
+    public string Business { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
     public List<DesktopSalesReviewFinding> Findings { get; set; } = [];
     public List<DesktopSalesReviewCurrency> Currencies { get; set; } = [];
     public ManagementSalesHealth Health { get; set; } = new();
@@ -75,8 +82,6 @@ public sealed class DesktopSalesReviewHourRow
     public int Hour { get; set; }
     public int SalesCount { get; set; }
     public decimal TotalAmount { get; set; }
-    public int SettlementSalesCount { get; set; }
-    public decimal SettlementTotalAmount { get; set; }
 }
 
 public sealed class DesktopSalesReviewShopRow

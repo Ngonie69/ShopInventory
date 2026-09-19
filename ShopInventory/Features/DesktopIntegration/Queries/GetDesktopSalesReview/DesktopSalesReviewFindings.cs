@@ -36,9 +36,6 @@ public static class DesktopSalesReviewFindings
     /// <summary>How many consecutive hours make the counter's peak window.</summary>
     public const int PeakWindowHours = 3;
 
-    /// <summary>A vending settlement carrying this many times a counter sale's units reads as a round paid in, not a sale.</summary>
-    public const decimal SettlementUnitsFactor = 3m;
-
     /// <summary>A shop's effective VAT this many points below the highest shop's implies zero-rated lines.</summary>
     public const decimal VatGapPoints = 0.15m;
 
@@ -54,28 +51,28 @@ public static class DesktopSalesReviewFindings
     /// <summary>A sale SAP has not had for this many days past its date is late.</summary>
     public const int PostingLateDays = 3;
 
-    public static List<DesktopSalesReviewFinding> Write(DesktopSalesReview review, ManagementSalesReport management)
+    /// <summary>The findings for one line of business, from its figures and the management report asked for it alone.</summary>
+    public static List<DesktopSalesReviewFinding> Write(DesktopSalesReviewBusiness business, ManagementSalesReport management)
     {
         var findings = new List<DesktopSalesReviewFinding>();
 
-        Compliance(review, findings);
+        Compliance(business, management, findings);
 
-        foreach (var section in review.Currencies)
+        foreach (var section in business.Currencies)
         {
             var managementSection = management.Currencies.FirstOrDefault(m => m.Currency == section.Currency);
 
-            Period(review, section, findings);
+            Period(management, section, findings);
             Trend(section, findings);
             SpikeDays(section, findings);
             Concentration(section, findings);
-            Settlements(section, findings);
-            Hours(section, findings);
+            Hours(business, section, findings);
             Payments(section, findings);
             Pricing(section, findings);
             LargeSales(section, findings);
-            Operators(section, findings);
+            Operators(business, section, findings);
             Tax(section, findings);
-            Margin(review, section, findings);
+            Margin(business, section, findings);
             Discounts(section, managementSection, findings);
             LapsedVendors(section, managementSection, findings);
         }
@@ -91,9 +88,9 @@ public static class DesktopSalesReviewFindings
     // ── Rules ──────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Sales that have not reached ZIMRA or SAP. Money and compliance, so they lead.</summary>
-    private static void Compliance(DesktopSalesReview review, List<DesktopSalesReviewFinding> findings)
+    private static void Compliance(DesktopSalesReviewBusiness business, ManagementSalesReport review, List<DesktopSalesReviewFinding> findings)
     {
-        var health = review.Health;
+        var health = business.Health;
 
         if (health.FiscalFailed.SalesCount > 0)
         {
@@ -128,12 +125,12 @@ public static class DesktopSalesReviewFindings
         {
             findings.Add(new("posting-late", DesktopSalesReviewSeverity.Review, DesktopSalesReviewTopic.Compliance, null,
                 $"Sales from {Day(oldest)} are not in SAP yet",
-                $"{Count(health.PostingWaiting.SalesCount + health.PostingFailing.SalesCount, "sale")} are still outside SAP, the oldest {(review.ToDate - oldest).Days} days before the period's end. Stock and the ledger in SAP are short by them until they post."));
+                $"{Count(health.PostingWaiting.SalesCount + health.PostingFailing.SalesCount, "sale")} {(health.PostingWaiting.SalesCount + health.PostingFailing.SalesCount == 1 ? "is" : "are")} still outside SAP, the oldest {(review.ToDate - oldest).Days} days before the period's end. Stock and the ledger in SAP are short by them until they post."));
         }
     }
 
     /// <summary>Shops that started mid-period, or a period with nothing before it to compare with.</summary>
-    private static void Period(DesktopSalesReview review, DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
+    private static void Period(ManagementSalesReport review, DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
     {
         var started = section.ByShop
             .Where(shop => shop.StartedInPeriod && shop.FirstSaleDate > review.FromDate)
@@ -219,39 +216,20 @@ public static class DesktopSalesReviewFindings
                 + $"The next best is {next.Label} at {Money(section.Currency, next.PerTradingDay)} a day. A day lost at {top.Label} costs more than any other shop's."));
     }
 
-    /// <summary>Vending settlements behave nothing like a counter sale, and skew every average they touch.</summary>
-    private static void Settlements(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
+    /// <summary>
+    /// When the counters or vans are busiest, and when they are nearly empty. Not for vending: a
+    /// settlement's hour is when a vendor paid in, not when anything sold.
+    /// </summary>
+    private static void Hours(DesktopSalesReviewBusiness business, DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
     {
-        var vending = section.ByShop.Where(IsVending).ToList();
-        var counters = section.ByShop.Where(shop => !IsVending(shop)).ToList();
-        if (vending.Count == 0 || counters.Count == 0)
+        if (business.Business == SaleBusinesses.Vending)
         {
             return;
         }
 
-        var vendingUnits = UnitsPerSale(vending);
-        var counterUnits = UnitsPerSale(counters);
-        if (counterUnits == 0 || vendingUnits < counterUnits * SettlementUnitsFactor)
-        {
-            return;
-        }
-
-        var vendingTotal = vending.Sum(shop => shop.TotalAmount);
-        var vendingCount = vending.Sum(shop => shop.SalesCount);
-        var busiest = section.ByHour.MaxBy(hour => hour.SalesCount);
-        findings.Add(new("vending-settlements", DesktopSalesReviewSeverity.Note, DesktopSalesReviewTopic.Shops, section.Currency,
-            "Vending sales are settlements, not customer purchases",
-            $"{Count(vendingCount, "vending sale")} ({Money(section.Currency, vendingTotal)}) average {vendingUnits:0} units each against {counterUnits:0.#} at a counter: each is a vendor's round paid in. "
-                + "They lift the average sale and the hours they are captured in"
-                + (busiest is { SettlementSalesCount: > 0 } ? $" — {busiest.SettlementSalesCount} of the {busiest.SalesCount} sales at {Hour(busiest.Hour)} are settlements" : string.Empty)
-                + ". Counter figures below are read without them."));
-    }
-
-    /// <summary>When the counters are busiest, and when they are nearly empty.</summary>
-    private static void Hours(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
-    {
+        var who = business.Business == SaleBusinesses.Vans ? "Vans" : "Counters";
         var counter = section.ByHour
-            .Select(hour => (hour.Hour, Sales: hour.SalesCount - hour.SettlementSalesCount, Takings: hour.TotalAmount - hour.SettlementTotalAmount))
+            .Select(hour => (hour.Hour, Sales: hour.SalesCount, Takings: hour.TotalAmount))
             .Where(hour => hour.Sales > 0)
             .OrderBy(hour => hour.Hour)
             .ToList();
@@ -271,9 +249,9 @@ public static class DesktopSalesReviewFindings
         var edge = counter.Where(hour => hour.Hour < 8 || hour.Hour >= 16).Sum(hour => hour.Takings);
 
         findings.Add(new("peak-hours", DesktopSalesReviewSeverity.Note, DesktopSalesReviewTopic.Hours, section.Currency,
-            $"Counters are busiest from {Hour(best.Start)} to {Hour(best.Start + PeakWindowHours)}",
-            $"{Pct(Math.Round(best.Sales * 100m / total, 0))} of counter sales fall in those {PeakWindowHours} hours; {Hour(busiest.Hour)} is the busiest single hour ({busiest.Sales:N0} sales). "
-                + $"Before 08:00 and from 16:00 the counters take {Pct(takings == 0 ? 0 : Math.Round(edge * 100m / takings, 1))} of their takings. Staff for the peak; question the opening hours at the edges."));
+            $"{who} are busiest from {Hour(best.Start)} to {Hour(best.Start + PeakWindowHours)}",
+            $"{Pct(Math.Round(best.Sales * 100m / total, 0))} of their sales fall in those {PeakWindowHours} hours; {Hour(busiest.Hour)} is the busiest single hour ({busiest.Sales:N0} sales). "
+                + $"Before 08:00 and from 16:00 the {who.ToLowerInvariant()} take {Pct(takings == 0 ? 0 : Math.Round(edge * 100m / takings, 1))} of their takings. Staff for the peak; question the opening hours at the edges."));
     }
 
     private static void Payments(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
@@ -341,9 +319,14 @@ public static class DesktopSalesReviewFindings
                 + "Regular buyers of this size belong on a customer account: credit control, a purchase history and standing orders."));
     }
 
-    private static void Operators(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
+    private static void Operators(DesktopSalesReviewBusiness business, DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
     {
-        var counters = section.ByShop.Where(shop => !IsVending(shop) && shop.SalesCount > 0).ToList();
+        if (business.Business != SaleBusinesses.Shops)
+        {
+            return;
+        }
+
+        var counters = section.ByShop.Where(shop => shop.SalesCount > 0).ToList();
         if (counters.Count < 2 || counters.Any(shop => shop.OperatorCount != 1))
         {
             return;
@@ -372,9 +355,9 @@ public static class DesktopSalesReviewFindings
         }
     }
 
-    private static void Margin(DesktopSalesReview review, DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
+    private static void Margin(DesktopSalesReviewBusiness business, DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
     {
-        if (!review.Margin.Available || section.Headline.MarginPercent is not { } overall)
+        if (!business.Margin.Available || section.Headline.MarginPercent is not { } overall)
         {
             return;
         }
@@ -433,15 +416,6 @@ public static class DesktopSalesReviewFindings
     }
 
     // ── Wording ────────────────────────────────────────────────────────────────────────────────────
-
-    private static bool IsVending(DesktopSalesReviewShopRow shop) =>
-        shop.Channel == ManagementSalesRollup.SourceLabel(SaleSourceSystems.Vending);
-
-    private static decimal UnitsPerSale(List<DesktopSalesReviewShopRow> shops)
-    {
-        var count = shops.Sum(shop => shop.SalesCount);
-        return count == 0 ? 0 : shops.Sum(shop => shop.QuantitySold) / count;
-    }
 
     private static Dictionary<string, string> ShopLabels(DesktopSalesReviewCurrency section) =>
         section.ByShop.ToDictionary(shop => shop.WarehouseCode, shop => shop.Label, StringComparer.OrdinalIgnoreCase);

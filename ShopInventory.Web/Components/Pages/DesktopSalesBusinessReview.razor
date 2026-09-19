@@ -6,7 +6,8 @@
 
 <PageTitle>Desktop Sales Review - Shop Inventory</PageTitle>
 
-@* The business review: what a period's till and vending takings say, written out as findings, then the
+@* The business review: what a period's till and vending takings say — each line of business on its own,
+   picked with the "Line of business" switch — written out as findings, then the
    figures behind them. Built on the Sales Breakdown vocabulary (`ops ops-ds ops-dsa ops-sbd`) for the
    head, cards, tables, swatches and split bars, so it reads as the analysis page's sibling; only the
    findings list, the stacked hour bars and the shop-by-hour grid are new, in `ops-dsr`
@@ -56,12 +57,12 @@
                     </div>
                 }
 
-                @if (review is { Currencies.Count: > 1 })
+                @if (Business is { Currencies.Count: > 1 } shown)
                 {
                     <div class="ops-field">
                         <span class="ops-label" id="dsr-currency-label">Currency</span>
                         <div class="ops-ds-seg" role="group" aria-labelledby="dsr-currency-label">
-                            @foreach (var option in review.Currencies)
+                            @foreach (var option in shown.Currencies)
                             {
                                 <button type="button" class="ops-ds-seg-opt @(Currency == option.Currency ? "is-on" : "")"
                                         aria-pressed="@(Currency == option.Currency)"
@@ -131,9 +132,25 @@
     }
     else
     {
+        @if (review.Businesses.Count > 0)
+        {
+            @* Shops and vending sell different ranges in different ways, so each is reviewed on its own. *@
+            <div class="ops-field ops-dsr-business">
+                <span class="ops-label" id="dsr-business-label">Line of business</span>
+                <div class="ops-ds-seg" role="group" aria-labelledby="dsr-business-label">
+                    @foreach (var option in review.Businesses)
+                    {
+                        <button type="button" class="ops-ds-seg-opt @(Business?.Business == option.Business ? "is-on" : "")"
+                                aria-pressed="@(Business?.Business == option.Business)"
+                                @onclick="() => SetBusiness(option.Business)">@option.Label</button>
+                    }
+                </div>
+            </div>
+        }
+
         <div class="ops-sbd-scope">
             <i class="ph ph-funnel" aria-hidden="true"></i>
-            <span>@RangeLabel(review.FromDate, review.ToDate) · @(review.WarehouseCode is null ? "all shops" : ShopLabel(review.WarehouseCode)) · compared with @RangeLabel(review.PreviousFromDate, review.PreviousToDate)</span>
+            <span>@(Business is null ? "" : $"{BusinessLabel} · ")@RangeLabel(review.FromDate, review.ToDate) · @(review.WarehouseCode is null ? "all shops" : ShopLabel(review.WarehouseCode)) · compared with @RangeLabel(review.PreviousFromDate, review.PreviousToDate)</span>
             @if (isLoading)
             {
                 <span class="ops-spin" role="status" aria-label="Updating"></span>
@@ -145,7 +162,7 @@
             <div class="ops-empty">
                 <i class="ph ph-receipt" aria-hidden="true"></i>
                 <h3>No sales in this period</h3>
-                <p>Nothing was rung up at a till or vending counter between these dates. Pick another period.</p>
+                <p>@(Business is null ? "Nothing was rung up at a till or vending counter between these dates." : $"{BusinessLabel} recorded nothing between these dates, only in the period before.") Pick another period.</p>
             </div>
         }
         else
@@ -157,7 +174,7 @@
                 @* ── The headline ─────────────────────────────────────────────────── *@
                 <section class="ops-sbd-headline" aria-label="Headline figures">
                     <div class="ops-sbd-kpi">
-                        <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule is-accent"></span>Takings</div>
+                        <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule is-accent"></span>@BusinessLabel takings</div>
                         <div class="ops-sbd-kpi-num">@Money(h.TotalAmount)</div>
                         <div class="ops-sbd-kpi-change">
                             @if (h.TotalChangePercent is { } change)
@@ -191,7 +208,7 @@
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Gross margin</div>
                             <div class="ops-sbd-fig-num">@(h.MarginPercent is { } margin ? Pct(margin) : "—")</div>
-                            <div class="ops-sbd-fig-sub">@(h.GrossProfit is { } profit ? $"{Money(profit)} on {Money(h.CostedNetAmount)} SAP has costed" : review.Margin.Available ? "not posted to SAP yet" : "SAP could not be read")</div>
+                            <div class="ops-sbd-fig-sub">@(h.GrossProfit is { } profit ? $"{Money(profit)} on {Money(h.CostedNetAmount)} SAP has costed" : Business!.Margin.Available ? "not posted to SAP yet" : "SAP could not be read")</div>
                         </div>
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
@@ -281,35 +298,23 @@
                         @{
                             var hours = Hours(sales);
                             var busiest = sales.ByHour.Count == 0 ? 0 : sales.ByHour.Max(x => x.SalesCount);
-                            var settles = sales.ByHour.Any(x => x.SettlementSalesCount > 0);
+                            var noun = IsVending ? "settlement" : "sale";
                         }
                         <div class="ops-ds-card-head">
                             <i class="ph ph-clock" aria-hidden="true"></i>
-                            <span class="ops-ds-card-label" id="dsr-hours-title">Sales by hour</span>
-                            <span class="ops-sbd-hint">counter time (CAT)</span>
-                            @if (settles)
-                            {
-                                <div class="ops-sbd-legend ops-sbd-head-end" aria-hidden="true">
-                                    <span class="ops-sbd-legend-key"><span class="ops-dsr-key is-counter"></span>Counter</span>
-                                    <span class="ops-sbd-legend-key"><span class="ops-dsr-key is-settle"></span>Vending settlement</span>
-                                </div>
-                            }
+                            <span class="ops-ds-card-label" id="dsr-hours-title">@(IsVending ? "Settlements by hour" : "Sales by hour")</span>
+                            <span class="ops-sbd-hint">@(IsVending ? "when vendors paid in (CAT)" : "time of sale (CAT)")</span>
                         </div>
-                        <div class="ops-dsr-hours" role="img" aria-label="Sales per hour of the counter day">
+                        <div class="ops-dsr-hours" role="img" aria-label="@(IsVending ? "Settlements per hour of the day" : "Sales per hour of the day")">
                             @foreach (var hour in hours)
                             {
                                 var row = sales.ByHour.FirstOrDefault(x => x.Hour == hour);
-                                var counter = (row?.SalesCount ?? 0) - (row?.SettlementSalesCount ?? 0);
-                                var settle = row?.SettlementSalesCount ?? 0;
-                                <div class="ops-dsr-hour" title="@($"{hour:00}:00 · {Plural(counter, "counter sale")}{(settle > 0 ? $" · {Plural(settle, "settlement")}" : "")} · {Money(row?.TotalAmount ?? 0)}")">
-                                    <span class="ops-dsr-hour-stack" style="height:@Percent(counter + settle, busiest)">
-                                        @if (settle > 0)
+                                var count = row?.SalesCount ?? 0;
+                                <div class="ops-dsr-hour" title="@($"{hour:00}:00 · {Plural(count, noun)} · {Money(row?.TotalAmount ?? 0)}")">
+                                    <span class="ops-dsr-hour-stack" style="height:@Percent(count, busiest)">
+                                        @if (count > 0)
                                         {
-                                            <span class="ops-dsr-hour-settle" style="flex-grow:@settle"></span>
-                                        }
-                                        @if (counter > 0)
-                                        {
-                                            <span class="ops-dsr-hour-counter" style="flex-grow:@counter"></span>
+                                            <span class="@(IsVending ? "ops-dsr-hour-settle" : "ops-dsr-hour-counter")" style="flex-grow:@count"></span>
                                         }
                                     </span>
                                     <span class="ops-dsr-hour-label">@hour.ToString("00")</span>
@@ -323,7 +328,7 @@
                 <section class="ops-ds-card" aria-labelledby="dsr-shops-title">
                     <div class="ops-ds-card-head">
                         <i class="ph ph-storefront" aria-hidden="true"></i>
-                        <span class="ops-ds-card-label" id="dsr-shops-title">Shops and depots</span>
+                        <span class="ops-ds-card-label" id="dsr-shops-title">@OutletsTitle</span>
                         <span class="ops-sbd-hint">compare on takings per trading day</span>
                     </div>
                     @{ var bestShop = sales.ByShop.Count == 0 ? 0m : sales.ByShop.Max(s => s.PerTradingDay); }
@@ -535,23 +540,24 @@
                 }
 
                 @* ── Fiscalisation and posting ────────────────────────────────────── *@
+                @{ var health = Business!.Health; }
                 <section class="ops-ds-card" aria-labelledby="dsr-health-title">
                     <div class="ops-ds-card-head">
                         <i class="ph ph-seal-check" aria-hidden="true"></i>
                         <span class="ops-ds-card-label" id="dsr-health-title">Fiscalisation and SAP posting</span>
-                        <span class="ops-sbd-hint">@Plural(review.Health.SalesCount, "sale") in the period</span>
+                        <span class="ops-sbd-hint">@Plural(health.SalesCount, "sale") in the period · @BusinessLabel.ToLowerInvariant() only</span>
                     </div>
                     <dl class="ops-dsr-health">
                         @foreach (var (label, bucket, bad) in new[]
                         {
-                            ("Fiscalised", review.Health.FiscalSucceeded, false),
-                            ("Waiting to fiscalise", review.Health.FiscalPending, false),
-                            ("Fiscalisation failed", review.Health.FiscalFailed, true),
-                            ("Needs reconciliation", review.Health.NeedsReconciliation, true),
-                            ("Posted to SAP", review.Health.Posted, false),
-                            ("Waiting to post", review.Health.PostingWaiting, false),
-                            ("SAP refused", review.Health.PostingFailing, true),
-                            ("Payment failed", review.Health.PaymentFailed, true),
+                            ("Fiscalised", health.FiscalSucceeded, false),
+                            ("Waiting to fiscalise", health.FiscalPending, false),
+                            ("Fiscalisation failed", health.FiscalFailed, true),
+                            ("Needs reconciliation", health.NeedsReconciliation, true),
+                            ("Posted to SAP", health.Posted, false),
+                            ("Waiting to post", health.PostingWaiting, false),
+                            ("SAP refused", health.PostingFailing, true),
+                            ("Payment failed", health.PaymentFailed, true),
                         })
                         {
                             <div class="ops-dsr-health-item @(bad && bucket.SalesCount > 0 ? "is-bad" : "")">
@@ -564,7 +570,7 @@
 
                 <div class="ops-sbd-foot">
                     <span>Generated @IAuditService.ToCAT(review.GeneratedAtUtc).ToString("dd MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture) CAT · amounts in @Currency, VAT included unless stated</span>
-                    <span>The same review is emailed weekly and monthly when switched on in Settings. Online van receipts are excluded.</span>
+                    <span>Shops and vending are reviewed apart and never added together. The same review is emailed weekly and monthly when switched on in Settings. Online van receipts are excluded.</span>
                 </div>
             </div>
         }

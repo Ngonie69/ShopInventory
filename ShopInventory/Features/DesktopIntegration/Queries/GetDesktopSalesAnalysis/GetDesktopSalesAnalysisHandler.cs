@@ -101,6 +101,7 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             scoped = source is null
                 ? scoped.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
                 : scoped.Where(s => s.SourceSystem == source);
+            scoped = scoped.InBusiness(request.Business);
 
             return warehouse is null ? scoped : scoped.Where(s => s.WarehouseCode == warehouse);
         }

@@ -15,8 +15,9 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Pins the desktop sales business review: that its per-shop figures add back to the analysis the till
-/// page shows, and that each finding is written when — and only when — the figures call for it.
+/// Pins the desktop sales business review: that shops and vending are reviewed apart, that its per-shop
+/// figures add back to the analysis the till page shows, and that each finding is written when — and only
+/// when — the figures call for it.
 /// </summary>
 /// <remarks>
 /// The analysis and the management report are run for real behind a stub mediator, so what is tested is
@@ -85,16 +86,41 @@ public sealed class DesktopSalesReviewTests : IDisposable
     }
 
     [Fact]
-    public async Task Vending_settlements_are_counted_apart_in_the_hours()
+    public async Task Shops_and_vending_are_reviewed_apart_and_never_added_together()
     {
         SeedWeek();
 
-        var usd = Dollars(await RunAsync());
-        var vending = usd.ByShop.Single(s => s.WarehouseCode == VendingCentre);
+        var review = await RunAsync();
 
-        Assert.Equal("Vending", vending.Channel);
-        Assert.Equal(vending.SalesCount, usd.ByHour.Sum(h => h.SettlementSalesCount));
-        Assert.Equal(vending.TotalAmount, usd.ByHour.Sum(h => h.SettlementTotalAmount));
+        Assert.Equal([SaleBusinesses.Shops, SaleBusinesses.Vending], review.Businesses.Select(b => b.Business));
+
+        var shops = Dollars(review, SaleBusinesses.Shops);
+        var vending = Dollars(review, SaleBusinesses.Vending);
+        Assert.Equal([SmallShop, FactoryShop], shops.ByShop.Select(s => s.WarehouseCode).Order());
+        Assert.Equal([VendingCentre], vending.ByShop.Select(s => s.WarehouseCode));
+        Assert.Equal(5, vending.Headline.SalesCount);
+        Assert.Equal(215m, vending.Headline.TotalAmount);
+        Assert.DoesNotContain(shops.TopItems, item => item.Quantity >= 600);
+
+        // Every sale is in exactly one business: together they are the whole of the analysis.
+        var whole = await new GetDesktopSalesAnalysisHandler(_context, new RecordingAuditService())
+            .Handle(new GetDesktopSalesAnalysisQuery(_adminId, From, To), CancellationToken.None);
+        var all = whole.Value.Currencies.Single(c => c.Currency == "USD");
+        Assert.Equal(all.TotalAmount, shops.Headline.TotalAmount + vending.Headline.TotalAmount);
+        Assert.Equal(all.SalesCount, shops.Headline.SalesCount + vending.Headline.SalesCount);
+
+        // Each business's health counts its own sales only.
+        Assert.Equal(5, review.Businesses.Single(b => b.Business == SaleBusinesses.Vending).Health.SalesCount);
+    }
+
+    [Fact]
+    public async Task A_business_with_no_sales_in_either_period_is_left_out()
+    {
+        Add(Sale(10m, From, FactoryShop));
+
+        var review = await RunAsync();
+
+        Assert.Equal([SaleBusinesses.Shops], review.Businesses.Select(b => b.Business));
     }
 
     [Fact]
@@ -102,16 +128,16 @@ public sealed class DesktopSalesReviewTests : IDisposable
     {
         SeedWeek();
 
-        var usd = Dollars(await RunAsync());
+        var review = await RunAsync();
 
-        var vending = usd.ByShop.Single(s => s.WarehouseCode == VendingCentre);
+        var vending = Dollars(review, SaleBusinesses.Vending).ByShop.Single(s => s.WarehouseCode == VendingCentre);
         Assert.True(vending.StartedInPeriod);
         Assert.Equal(To, vending.FirstSaleDate);
         Assert.Equal(1, vending.DaysTraded);
         Assert.Equal(vending.TotalAmount, vending.PerTradingDay);
 
         // Traded in the previous period, so its total covers the whole of this one.
-        Assert.False(usd.ByShop.Single(s => s.WarehouseCode == SmallShop).StartedInPeriod);
+        Assert.False(Dollars(review).ByShop.Single(s => s.WarehouseCode == SmallShop).StartedInPeriod);
     }
 
     [Fact]
@@ -165,7 +191,8 @@ public sealed class DesktopSalesReviewTests : IDisposable
         Add(Sale(36m, From, VendingCentre, source: SaleSourceSystems.Vending, lines: [("CONE", 100, 36m)]));
         Add(Sale(100m, From, FactoryShop, lines: [("CONE", 100, 100m)]));
 
-        Assert.Empty(Dollars(await RunAsync()).PriceSpreads);
+        var review = await RunAsync();
+        Assert.All(review.Businesses.SelectMany(b => b.Currencies), section => Assert.Empty(section.PriceSpreads));
     }
 
     [Fact]
@@ -218,24 +245,27 @@ public sealed class DesktopSalesReviewTests : IDisposable
         SeedWeek();
 
         var review = await RunAsync();
-        var codes = review.Findings.Select(f => f.Code).ToList();
+        var shops = Findings(review, SaleBusinesses.Shops);
+        var codes = shops.Select(f => f.Code).ToList();
 
-        Assert.Contains("shops-started", codes);
         Assert.Contains("takings-change", codes);
-        Assert.Contains("vending-settlements", codes);
         Assert.Contains("cash-heavy", codes);
         Assert.Contains("short-tender", codes);
         Assert.Contains("price-spread", codes);
+        Assert.DoesNotContain("shops-started", codes);
         Assert.DoesNotContain("high-change", codes);
         Assert.DoesNotContain("no-comparison", codes);
         Assert.DoesNotContain("missing-reference", codes);
 
         // Most urgent first.
-        var ranks = review.Findings.Select(f => DesktopSalesReviewSeverity.Rank(f.Severity)).ToList();
+        var ranks = shops.Select(f => DesktopSalesReviewSeverity.Rank(f.Severity)).ToList();
         Assert.Equal(ranks.OrderBy(r => r), ranks);
 
-        var started = review.Findings.Single(f => f.Code == "shops-started");
+        // The vending centre's first round is the vending business's news, not the shops'.
+        var vending = Findings(review, SaleBusinesses.Vending);
+        var started = vending.Single(f => f.Code == "shops-started");
         Assert.Contains(VendingCentre, started.Title + started.Detail);
+        Assert.Contains(vending, f => f.Code == "no-comparison");
     }
 
     [Fact]
@@ -243,7 +273,7 @@ public sealed class DesktopSalesReviewTests : IDisposable
     {
         Add(Sale(10m, From, FactoryShop));
 
-        var codes = (await RunAsync()).Findings.Select(f => f.Code).ToList();
+        var codes = Findings(await RunAsync()).Select(f => f.Code).ToList();
 
         Assert.Contains("no-comparison", codes);
         Assert.DoesNotContain("takings-change", codes);
@@ -257,7 +287,7 @@ public sealed class DesktopSalesReviewTests : IDisposable
         sale.PaymentReference = null;
         Add(sale);
 
-        var finding = Assert.Single((await RunAsync()).Findings, f => f.Code == "missing-reference");
+        var finding = Assert.Single(Findings(await RunAsync()), f => f.Code == "missing-reference");
 
         Assert.Equal(DesktopSalesReviewSeverity.Action, finding.Severity);
     }
@@ -270,7 +300,7 @@ public sealed class DesktopSalesReviewTests : IDisposable
         sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed;
         Add(sale);
 
-        var first = (await RunAsync()).Findings[0];
+        var first = Findings(await RunAsync())[0];
 
         Assert.Equal("fiscal-failed", first.Code);
         Assert.Equal(DesktopSalesReviewSeverity.Action, first.Severity);
@@ -295,7 +325,9 @@ public sealed class DesktopSalesReviewTests : IDisposable
         Assert.Contains("Weekly review", text);
         Assert.Contains("Kefalos Factory Shop", text);
         Assert.Contains(VendingCentre, text);
-        foreach (var finding in review.Findings)
+        Assert.Contains("SHOPS", text);
+        Assert.Contains("VENDING", text);
+        foreach (var finding in review.Businesses.SelectMany(b => b.Findings))
         {
             // Titles may wrap, so the first few words are enough to find each one.
             Assert.Contains(string.Join(' ', finding.Title.Replace("→", "to").Replace("−", "-").Split(' ').Take(3)), text);
@@ -429,8 +461,11 @@ public sealed class DesktopSalesReviewTests : IDisposable
             _ => throw new InvalidOperationException($"Unexpected mediator call: {method.Name}")
         });
 
-    private static DesktopSalesReviewCurrency Dollars(DesktopSalesReview review) =>
-        review.Currencies.Single(c => c.Currency == "USD");
+    private static DesktopSalesReviewCurrency Dollars(DesktopSalesReview review, string business = SaleBusinesses.Shops) =>
+        review.Businesses.Single(b => b.Business == business).Currencies.Single(c => c.Currency == "USD");
+
+    private static List<DesktopSalesReviewFinding> Findings(DesktopSalesReview review, string business = SaleBusinesses.Shops) =>
+        review.Businesses.Single(b => b.Business == business).Findings;
 
     private sealed class NoCost : ISaleInvoiceCostReader
     {
