@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -173,6 +174,77 @@ public sealed class DesktopSalePostGuardTests : IDisposable
         Assert.Equal(1, sap.InvoicesCreated);
     }
 
+    [Fact]
+    public async Task A_claim_whose_owner_died_stops_refusing_the_sale_once_its_lease_lapses()
+    {
+        await GivenSaleAsync();
+
+        const int leaseSeconds = 1;
+        var guard = SalePostGuards.Backed(_connection, leaseSeconds);
+
+        // What an app-pool recycle mid-post leaves behind: a claim the guard granted, and then nobody
+        // alive to renew it, complete it or give it back. Taken through the production guard so the
+        // lease on it is the one the guard sets, not one this test chose.
+        var dyingGuard = new DesktopSalePostGuard(
+            new OwnerThatNeverRenews(SalePostGuards.Store(_connection)),
+            Options.Create(new DesktopSalePostingSettings { PostClaimLeaseSeconds = leaseSeconds }),
+            NullLogger<DesktopSalePostGuard>.Instance);
+        var sale = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == 1);
+        var orphan = await dyingGuard.ClaimAsync(sale, CancellationToken.None);
+        Assert.True(orphan.Granted);
+
+        var sap = new BlockingSapClient();
+        sap.ReleaseSap.SetResult();
+
+        // While the lease runs the claim is honoured: nothing here can tell a dead owner from a slow one.
+        var refused = await Service(_context, sap, guard).PostSaleAsync(1);
+        Assert.Equal(1, refused!.InFlight);
+
+        // It used to hold for the idempotency expiry, an hour, answering every press of Post with
+        // "a post to SAP for this sale is already in progress".
+        await Task.Delay(TimeSpan.FromSeconds(leaseSeconds) + TimeSpan.FromMilliseconds(500));
+
+        var posted = await Service(_context, sap, guard).PostSaleAsync(1);
+
+        Assert.Equal(1, posted!.Posted);
+        Assert.Equal(1, sap.InvoicesCreated);
+    }
+
+    [Fact]
+    public async Task A_post_still_running_keeps_its_claim_however_long_it_outlasts_the_lease()
+    {
+        await GivenSaleAsync();
+
+        const int leaseSeconds = 1;
+        var guard = SalePostGuards.Backed(_connection, leaseSeconds);
+        var sap = new BlockingSapClient();
+
+        var first = Service(_context, sap, guard).PostSaleAsync(1);
+        await sap.EnteredSap.Task;
+
+        // Held inside SAP for well over two leases, the way a hung Service Layer call holds it. A
+        // lease that measured the post rather than its owner would have lapsed twice by now.
+        await Task.Delay(TimeSpan.FromSeconds(leaseSeconds * 2.5));
+
+        using var other = new ApplicationDbContext(_options);
+        var second = await Service(other, sap, guard).PostSaleAsync(1);
+
+        Assert.Equal(1, second!.InFlight);
+        Assert.Equal(0, second.Posted);
+
+        sap.ReleaseSap.SetResult();
+        var completed = await first;
+
+        Assert.Equal(1, completed!.Posted);
+        Assert.Equal(1, sap.InvoicesCreated);
+
+        // Renewal stops before completion, so the finished claim replays rather than lapsing.
+        await Task.Delay(TimeSpan.FromSeconds(leaseSeconds * 1.5));
+        var claim = await other.IdempotencyRequests.AsNoTracking().SingleAsync();
+        Assert.Equal(IdempotencyRequestStatus.Completed, claim.Status);
+        Assert.True(claim.ExpiresAtUtc > DateTime.UtcNow.AddMinutes(30));
+    }
+
     private async Task GivenSaleAsync()
     {
         _context.DesktopSales.Add(new DesktopSaleEntity
@@ -213,17 +285,43 @@ public sealed class DesktopSalePostGuardTests : IDisposable
     /// incoming payment to settle. The claim is the same object on both, and what is being pinned
     /// here is the claim.
     /// </remarks>
-    private VanSalesEndOfDayPostingService Service(ApplicationDbContext context, BlockingSapClient sap)
+    private VanSalesEndOfDayPostingService Service(
+        ApplicationDbContext context, BlockingSapClient sap, IDesktopSalePostGuard? guard = null)
         => new(
             context,
             sap.Client,
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
             SaleBatchAllocators.Holding(),
             new StockLedger(context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
-            _guard,
+            guard ?? _guard,
             DesktopCreditPosters.Idle(context),
             Options.Create(new VanSalesPostingSettings()),
             NullLogger<VanSalesEndOfDayPostingService>.Instance);
+
+    /// <summary>
+    /// The store as a dead process sees it: the claim was written, and no renewal ever lands.
+    /// </summary>
+    private sealed class OwnerThatNeverRenews(IIdempotencyRequestStore inner) : IIdempotencyRequestStore
+    {
+        public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
+            string scope, string key, object request, CancellationToken cancellationToken)
+            => inner.TryAcquireAsync<TResponse>(scope, key, request, cancellationToken);
+
+        public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
+            string scope, string key, object request, TimeSpan? inProgressLease, CancellationToken cancellationToken)
+            => inner.TryAcquireAsync<TResponse>(scope, key, request, inProgressLease, cancellationToken);
+
+        public Task<bool> RenewAsync(long requestId, TimeSpan lease, CancellationToken cancellationToken)
+            => Task.FromResult(false);
+
+        public Task CompleteAsync<TResponse>(long requestId, TResponse response, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task ReleaseAsync(long requestId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<bool> TryTakeOverAsync(long requestId, DateTime issuedBeforeUtc, CancellationToken cancellationToken)
+            => Task.FromResult(false);
+    }
 
     /// <summary>
     /// A SAP client that can be held inside <c>CreateInvoiceAsync</c>, which is the only window in

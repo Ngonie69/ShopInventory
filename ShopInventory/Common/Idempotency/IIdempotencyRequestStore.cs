@@ -8,6 +8,37 @@ public interface IIdempotencyRequestStore
         object request,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// As <see cref="TryAcquireAsync{TResponse}(string, string, object, CancellationToken)"/>, but a
+    /// claim this acquires lapses after <paramref name="inProgressLease"/> unless
+    /// <see cref="RenewAsync"/> keeps it alive.
+    /// </summary>
+    /// <remarks>
+    /// For work whose owner can die holding the claim — an app-pool recycle mid-post — and where
+    /// refusing every retry for the full expiry window is the costlier failure. The owner renews while
+    /// it runs, so the lease measures how long ago the owner was last alive rather than how long the
+    /// work has taken. Null keeps the ordinary expiry. A completed claim keeps the ordinary expiry
+    /// either way, since that is how long its result is replayed.
+    /// </remarks>
+    Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
+        string scope,
+        string key,
+        object request,
+        TimeSpan? inProgressLease,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Pushes an in-progress claim's expiry out to <paramref name="lease"/> from now.
+    /// </summary>
+    /// <returns>
+    /// False when the claim is no longer this caller's to renew: completed, released, or lapsed and
+    /// deleted so that somebody else could acquire it.
+    /// </returns>
+    Task<bool> RenewAsync(
+        long requestId,
+        TimeSpan lease,
+        CancellationToken cancellationToken);
+
     Task CompleteAsync<TResponse>(
         long requestId,
         TResponse response,

@@ -75,6 +75,27 @@ public class DesktopSalePostingSettings
     public int UnresolvedPostGraceMinutes { get; set; } = 15;
 
     /// <summary>
+    /// How long a sale's post claim outlives the process holding it. Covers van sales too: one guard
+    /// serves both routes.
+    /// </summary>
+    /// <remarks>
+    /// A running post renews its claim every quarter of this, however long SAP takes, so this is not
+    /// a limit on a post — it is how soon a claim whose owner died (an app-pool recycle or a deploy
+    /// mid-post) stops refusing "a post to SAP for this sale is already in progress". It used to be
+    /// the idempotency expiry, an hour.
+    ///
+    /// <para>
+    /// Shortening it cannot let a second invoice through. A claim lapses only once nobody has renewed
+    /// it for this long, so its owner is gone; and a post that reached SAP before dying left
+    /// <c>PostIssuedAtUtc</c> behind, which holds the sale for <see cref="UnresolvedPostGraceMinutes"/>
+    /// and has the next attempt ask SAP first.
+    /// </para>
+    ///
+    /// <para>Zero or less restores the old behaviour: no renewal, and the idempotency expiry.</para>
+    /// </remarks>
+    public int PostClaimLeaseSeconds { get; set; } = 120;
+
+    /// <summary>
     /// Whether the daily incoming payment runs, until an admin saves the switch from Web → Settings.
     /// Off: desktop sales post their invoices only, and every invoice stays open in SAP.
     /// </summary>

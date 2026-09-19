@@ -419,6 +419,13 @@ public sealed class TransferRequestConversionTests : IDisposable
             => Task.FromResult(new IdempotencyAcquireResult<TResponse>(
                 IdempotencyAcquireOutcome.Acquired, _nextId++));
 
+        public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
+            string scope, string key, object request, TimeSpan? inProgressLease, CancellationToken cancellationToken)
+            => TryAcquireAsync<TResponse>(scope, key, request, cancellationToken);
+
+        public Task<bool> RenewAsync(long requestId, TimeSpan lease, CancellationToken cancellationToken)
+            => Task.FromResult(true);
+
         public Task CompleteAsync<TResponse>(long requestId, TResponse response, CancellationToken cancellationToken)
             => Task.CompletedTask;
 

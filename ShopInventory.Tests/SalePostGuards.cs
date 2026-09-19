@@ -23,12 +23,17 @@ namespace ShopInventory.Tests;
 internal static class SalePostGuards
 {
     /// <summary>The production guard, over the store, on this test's database.</summary>
-    public static IDesktopSalePostGuard Backed(SqliteConnection connection)
+    public static IDesktopSalePostGuard Backed(SqliteConnection connection, int? leaseSeconds = null)
         => new DesktopSalePostGuard(
-            new IdempotencyRequestStore(
-                new ConnectionScopeFactory(connection),
-                Options.Create(new SecuritySettings())),
+            Store(connection),
+            Options.Create(leaseSeconds is { } seconds
+                ? new DesktopSalePostingSettings { PostClaimLeaseSeconds = seconds }
+                : new DesktopSalePostingSettings()),
             NullLogger<DesktopSalePostGuard>.Instance);
+
+    /// <summary>The store under <see cref="Backed"/>, for a test that plants or inspects a claim.</summary>
+    public static IdempotencyRequestStore Store(SqliteConnection connection)
+        => new(new ConnectionScopeFactory(connection), Options.Create(new SecuritySettings()));
 
     /// <summary>
     /// Grants every claim and remembers nothing.
