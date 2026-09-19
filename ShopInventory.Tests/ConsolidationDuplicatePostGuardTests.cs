@@ -339,6 +339,27 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
         Assert.Equal(2, result.Groups.Count);
     }
 
+    /// <summary>
+    /// A day whose only pending sale came off a till: the run leaves it to the per-sale route, and
+    /// says so, naming the day, instead of a bare "no pending sales" the console read as a fault.
+    /// </summary>
+    [Fact]
+    public async Task A_day_of_till_sales_is_refused_with_the_date_and_the_route_they_take()
+    {
+        await GivenAPendingSaleAsync();
+        (await _context.DesktopSales.SingleAsync()).SourceSystem = "KefalosShopTill";
+        await _context.SaveChangesAsync();
+
+        var result = await CreateHandler().Handle(
+            new ConsolidateDailySalesCommand(SaleDate), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.NoPendingSales", result.FirstError.Code);
+        Assert.Contains("10 Aug 2026", result.FirstError.Description);
+        Assert.Contains("Post to SAP", result.FirstError.Description);
+        Assert.Null(_posted);
+    }
+
     private async Task<ConsolidateDailySalesResult> Consolidate()
     {
         var result = await CreateHandler().Handle(

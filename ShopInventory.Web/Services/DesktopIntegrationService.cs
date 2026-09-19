@@ -61,7 +61,11 @@ public interface IDesktopIntegrationService
     Task<(WarehouseStockRefreshResultDto? Result, string? Error)> RefreshWarehouseStockAsync(
         string warehouseCode, CancellationToken cancellationToken = default);
 
-    Task<bool> TriggerConsolidationAsync();
+    // Consolidates the day the page is showing, not whatever day the API's clock says it is, and
+    // returns the API's refusal verbatim: "nothing to consolidate" is the common answer, and it has
+    // to reach the operator as that rather than as "could not be started".
+    Task<(DesktopConsolidationResultDto? Result, string? Error)> TriggerConsolidationAsync(
+        DateTime consolidationDate, CancellationToken cancellationToken = default);
 
     // Posting held sales to SAP by hand. Both return the API's own refusal rather than a bool: every
     // one of them is a sentence the operator has to read — "not fiscalised yet", "already in SAP",
@@ -505,17 +509,38 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
     }
 
-    public async Task<bool> TriggerConsolidationAsync()
+    public async Task<(DesktopConsolidationResultDto? Result, string? Error)> TriggerConsolidationAsync(
+        DateTime consolidationDate, CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await _httpClient.PostAsync("api/DesktopIntegration/end-of-day/consolidate", null);
-            return response.IsSuccessStatusCode;
+            // Sent as a bare date. A DateTime would carry the Web server's offset and could land on
+            // the neighbouring day once the API reads it.
+            var response = await _httpClient.PostAsJsonAsync(
+                "api/DesktopIntegration/end-of-day/consolidate",
+                new { ConsolidationDate = consolidationDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) },
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<DesktopConsolidationResultDto>(cancellationToken);
+            return result is null
+                ? (null, "The API accepted the consolidation but returned nothing to show for it.")
+                : (result, null);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error triggering consolidation");
-            return false;
+            _logger.LogError(ex, "Error consolidating desktop sales for {Date:yyyy-MM-dd}", consolidationDate);
+
+            // A run posts one invoice per customer and can outlive the client's timeout, so this is not
+            // phrased as a failure. A second run is safe: each customer's invoice is guarded by its
+            // CONSOL key, so a customer already posted is not posted twice.
+            return (null,
+                $"The consolidation could not be completed from here: {ex.Message}. Refresh to see what "
+                + "reached SAP before running it again.");
         }
     }
 
@@ -1167,6 +1192,18 @@ public class DesktopSalesBulkPostResultDto
 
     private int Count(string outcome) =>
         Results.Count(result => string.Equals(result.Outcome, outcome, StringComparison.Ordinal));
+}
+
+/// <summary>
+/// What <c>POST end-of-day/consolidate</c> answers: the API's <c>ConsolidateDailySalesResult</c>,
+/// less the per-customer groups, which the page does not show.
+/// </summary>
+public class DesktopConsolidationResultDto
+{
+    public DateTime ConsolidationDate { get; set; }
+    public int TotalSalesProcessed { get; set; }
+    public int SuccessfulPostings { get; set; }
+    public int FailedPostings { get; set; }
 }
 
 public class DesktopSaleLineDto
