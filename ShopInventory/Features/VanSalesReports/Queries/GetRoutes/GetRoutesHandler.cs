@@ -29,6 +29,9 @@ public sealed class GetRoutesHandler(
                 route.Name,
                 route.Territory,
                 route.TruckRegNo,
+                route.TemperatureMinC,
+                route.TemperatureMaxC,
+                route.TemperatureProbeChannel,
                 route.IsActive,
                 // How many vans run this route. A route with none is either new or forgotten, and the
                 // management page should be able to show which without a second request.

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920063204_AddRouteTemperatureLimits")]
+    partial class AddRouteTemperatureLimits
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -6444,131 +6447,6 @@ namespace ShopInventory.Migrations
                     b.ToTable("StockTransferAdjustments", (string)null);
                 });
 
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ClientRequestId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("LastAttemptedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<DateTime?>("PostedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RaisedByName")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<Guid>("RaisedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Remarks")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<int?>("SapDocEntry")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("SapDocNum")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("SapReference")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("WarehouseCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClientRequestId")
-                        .IsUnique();
-
-                    b.HasIndex("RaisedByUserId", "CreatedAtUtc");
-
-                    b.HasIndex("Status", "CreatedAtUtc");
-
-                    b.HasIndex("WarehouseCode", "CreatedAtUtc");
-
-                    b.ToTable("StockWriteOffs", (string)null);
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffLineEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("BatchNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("ItemCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("ItemDescription")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<int>("LineNum")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18,6)");
-
-                    b.Property<string>("SerialNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("UoMCode")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<int>("WriteOffId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WriteOffId");
-
-                    b.ToTable("StockWriteOffLines", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_StockWriteOffLines_Quantity_Positive", "\"Quantity\" > 0");
-                        });
-                });
-
             modelBuilder.Entity("ShopInventory.Models.Entities.SystemConfigEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -6619,82 +6497,6 @@ namespace ShopInventory.Migrations
                         .IsUnique();
 
                     b.ToTable("SystemConfigs", (string)null);
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.TelematicsVehicleEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<long?>("CartrackVehicleId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ClientVehicleName")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("FirstSeenAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("HasFuelAnalogLevel")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("HasFuelCanbusConsumed")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("HasFuelCanbusLevel")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("HasTemperatureProbe")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsActiveInFleet")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsUnderMaintenance")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("LastSeenAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("LastTemperatureSeenAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Manufacturer")
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<string>("Model")
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<string>("Registration")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("RegistrationNormalized")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<bool>("TerminalInRepair")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("TerminalSerial")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CartrackVehicleId");
-
-                    b.HasIndex("RegistrationNormalized")
-                        .IsUnique();
-
-                    b.ToTable("TelematicsVehicles", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.TimesheetEntryEntity", b =>
@@ -7364,256 +7166,6 @@ namespace ShopInventory.Migrations
                     b.HasIndex("VanSalesOrderId");
 
                     b.ToTable("VanSalesOrderLines", (string)null);
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.VehicleDayRollupEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("BuiltAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long?>("DistanceMetres")
-                        .HasColumnType("bigint");
-
-                    b.Property<int?>("DrivingSeconds")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal?>("EstimatedFuelUsedLitres")
-                        .HasColumnType("numeric");
-
-                    b.Property<double?>("FirstDepartureLatitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<double?>("FirstDepartureLongitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<DateTime?>("FirstDepartureUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("FirstIgnitionOnUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal?>("FuelConsumedLitres")
-                        .HasColumnType("numeric");
-
-                    b.Property<int?>("FuelFillCount")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal?>("FuelFilledLitres")
-                        .HasColumnType("numeric");
-
-                    b.Property<bool?>("FuelIsCalibrated")
-                        .HasColumnType("boolean");
-
-                    b.Property<decimal?>("FuelLevelEndLitres")
-                        .HasColumnType("numeric");
-
-                    b.Property<decimal?>("FuelLevelStartLitres")
-                        .HasColumnType("numeric");
-
-                    b.Property<bool?>("FuelReadingsAccurate")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("HasActivity")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("HasFuel")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("HasOdometer")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("HasTemperature")
-                        .HasColumnType("boolean");
-
-                    b.Property<int?>("IdleSeconds")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("IgnitionCycleCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTime?>("LastIgnitionOffUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal?>("LimitMaxC")
-                        .HasColumnType("decimal(4,1)");
-
-                    b.Property<decimal?>("LimitMinC")
-                        .HasColumnType("decimal(4,1)");
-
-                    b.Property<int?>("MinutesAboveMaxLimit")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("MinutesBelowMinLimit")
-                        .HasColumnType("integer");
-
-                    b.Property<long?>("OdometerEndMetres")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("OdometerStartMetres")
-                        .HasColumnType("bigint");
-
-                    b.Property<bool>("OdometerWasReset")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("RegistrationNormalized")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<decimal?>("TemperatureAvgC")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<byte?>("TemperatureChannel")
-                        .HasColumnType("smallint");
-
-                    b.Property<DateTime?>("TemperatureFirstSampleUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("TemperatureLastSampleUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal?>("TemperatureMaxC")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<decimal?>("TemperatureMinC")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<int?>("TemperatureSampleCount")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("TerminalChanged")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("TradingDate")
-                        .HasColumnType("date");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TradingDate");
-
-                    b.HasIndex("RegistrationNormalized", "TradingDate")
-                        .IsUnique();
-
-                    b.ToTable("VehicleDayRollups", (string)null);
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.VehicleLiveStatusEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("Bearing")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("DriverName")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTime?>("EventAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool?>("Idling")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("IgnitionOn")
-                        .HasColumnType("boolean");
-
-                    b.Property<double?>("Latitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<double?>("Longitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<long?>("OdometerMetres")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("PolledAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PositionDescription")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<string>("RegistrationNormalized")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<int?>("SpeedKph")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal?>("Temp1C")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<decimal?>("Temp2C")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<decimal?>("Temp3C")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<decimal?>("Temp4C")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RegistrationNormalized")
-                        .IsUnique();
-
-                    b.ToTable("VehicleLiveStatuses", (string)null);
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.VehicleTemperatureSampleEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<byte>("Channel")
-                        .HasColumnType("smallint");
-
-                    b.Property<DateTime>("EventAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("ReceivedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RegistrationNormalized")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<decimal>("TemperatureC")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<DateTime>("TradingDate")
-                        .HasColumnType("date");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RegistrationNormalized", "TradingDate");
-
-                    b.HasIndex("RegistrationNormalized", "Channel", "EventAtUtc")
-                        .IsUnique();
-
-                    b.ToTable("VehicleTemperatureSamples", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.WhatsAppWebhookEventEntity", b =>
@@ -9132,17 +8684,6 @@ namespace ShopInventory.Migrations
                     b.Navigation("Reservation");
                 });
 
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffLineEntity", b =>
-                {
-                    b.HasOne("ShopInventory.Models.Entities.StockWriteOffEntity", "WriteOff")
-                        .WithMany("Lines")
-                        .HasForeignKey("WriteOffId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("WriteOff");
-                });
-
             modelBuilder.Entity("ShopInventory.Models.Entities.TimesheetEntryEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "User")
@@ -9482,11 +9023,6 @@ namespace ShopInventory.Migrations
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationLineEntity", b =>
                 {
                     b.Navigation("BatchAllocations");
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffEntity", b =>
-                {
-                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.VanSalesOrderEntity", b =>

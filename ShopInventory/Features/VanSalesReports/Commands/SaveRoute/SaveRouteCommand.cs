@@ -19,6 +19,9 @@ public sealed record SaveRouteCommand(
     string Name,
     string? Territory,
     string? TruckRegNo,
+    decimal? TemperatureMinC,
+    decimal? TemperatureMaxC,
+    byte? TemperatureProbeChannel,
     bool IsActive,
     Guid? ActingUserId
 ) : IRequest<ErrorOr<RouteDto>>;

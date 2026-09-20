@@ -143,12 +143,100 @@ public class RouteDto
     public string Name { get; set; } = string.Empty;
     public string? Territory { get; set; }
     public string? TruckRegNo { get; set; }
+
+    /// <summary>
+    /// The limits the load on this round is held to, in Celsius. Both null — the ordinary case —
+    /// means the round carries nothing chilled and is never judged on temperature, so both must
+    /// stay nullable: a non-nullable pair would make every ambient route read as 0 °C to 0 °C and
+    /// breach on every reading.
+    /// </summary>
+    public decimal? TemperatureMinC { get; set; }
+
+    /// <inheritdoc cref="TemperatureMinC"/>
+    public decimal? TemperatureMaxC { get; set; }
+
+    /// <summary>Which of the tracker's four probes is the load box, or null for the first that reports.</summary>
+    public byte? TemperatureProbeChannel { get; set; }
+
     public bool IsActive { get; set; }
     public int AssignedUserCount { get; set; }
 
     public string DisplayLabel => string.IsNullOrWhiteSpace(Territory)
         ? Name
         : $"{Name} — {Territory}";
+
+    /// <summary>The range as a person writes it, or null when this round keeps no limits.</summary>
+    public string? TemperatureRangeLabel =>
+        TemperatureMinC is { } minimum && TemperatureMaxC is { } maximum
+            ? $"{minimum:0.#} to {maximum:0.#} °C"
+            : null;
+}
+
+/// <summary>
+/// How a route's truck registration matches the telematics fleet.
+/// </summary>
+/// <remarks>
+/// Mirrors the API's <c>TelematicsVehiclesResult</c>. <c>Reason</c> is a sentence the page prints
+/// verbatim, because an empty list has four different causes — switched off, no credentials, not
+/// synced yet, or an account that genuinely holds no vehicles — and each needs a different thing
+/// done about it.
+/// </remarks>
+public class TelematicsVehiclesResponse
+{
+    public bool Enabled { get; set; }
+    public bool Configured { get; set; }
+    public DateTime? LastSyncedAt { get; set; }
+    public string? Reason { get; set; }
+    public List<TelematicsVehicleDto> Vehicles { get; set; } = [];
+}
+
+/// <summary>One vehicle the telematics provider knows about.</summary>
+public class TelematicsVehicleDto
+{
+    public string Registration { get; set; } = string.Empty;
+    public string RegistrationNormalized { get; set; } = string.Empty;
+
+    /// <summary>The fleet's own name, "306_AFQ9644". A hint beside the plate, never matched on.</summary>
+    public string? ClientVehicleName { get; set; }
+
+    public string? Description { get; set; }
+    public bool HasAnyFuelSensor { get; set; }
+
+    /// <summary>Null means no sync has looked yet, which is not the same as no probe.</summary>
+    public bool? HasTemperatureProbe { get; set; }
+
+    public bool IsActiveInFleet { get; set; }
+
+    /// <summary>Why this vehicle may report nothing — workshop, tracker repair, retired.</summary>
+    public string? StateLabel { get; set; }
+
+    /// <summary>
+    /// The muted text beside the plate in the picker: what the vehicle is, and anything that
+    /// would stop it reporting.
+    /// </summary>
+    /// <remarks>
+    /// The yard name is dropped when it already contains the plate — this fleet names vehicles
+    /// "306_AFQ9644", so carrying both made the hint long enough to squeeze the registration
+    /// itself down to "A…" in the menu. The plate is the thing being chosen and must never be
+    /// the part that gets elided.
+    /// </remarks>
+    public string? Hint
+    {
+        get
+        {
+            var yardName = ClientVehicleName is { } name
+                           && !string.IsNullOrWhiteSpace(Registration)
+                           && name.Contains(Registration, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : ClientVehicleName;
+
+            var parts = new[] { yardName, Description, StateLabel }
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .ToList();
+
+            return parts.Count == 0 ? null : string.Join(" · ", parts);
+        }
+    }
 }
 
 /// <summary>

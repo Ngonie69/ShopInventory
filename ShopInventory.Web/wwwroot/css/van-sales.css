@@ -69,6 +69,12 @@
     --vs-field-edge: var(--noct-field-edge);
     --vs-field-edge-hi: var(--noct-field-edge-hi);
 
+    /* Every other page sheet declares this on its root and this one did not, which went
+       unnoticed only because nothing on these pages was a native control with parts the
+       browser draws itself. A number input's spinner is, and without this it is painted
+       for the wrong scheme — dark arrows on the light theme. */
+    --vs-scheme: var(--noct-scheme);
+
     /* — Accent — */
     --vs-accent: var(--noct-accent);
     --vs-accent-rgb: var(--noct-accent-rgb);
@@ -148,6 +154,7 @@
     /* Never min-height:100vh — a drawer or scrim carrying this class would
        inherit it and hang a topbar below the fold. */
     color: var(--vs-ink);
+    color-scheme: var(--vs-scheme);
     font-size: 14px;
     line-height: 1.5;
 }
@@ -2687,6 +2694,30 @@
 .vs .vsr-panel-title {
     margin: 0;
     font-size: 1.05rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--vs-ink);
+}
+
+/* Why the truck picker has nothing to pick from. Sits between the route's fields and the cold
+   chain block, so it reads as a note about the field above it rather than about the section
+   below. Muted: it explains, it does not warn. */
+.vs .vsr-fleet-note {
+    margin: -6px 0 0;
+    padding: 9px 11px;
+    border-radius: var(--vs-r-sm);
+    background: var(--vs-hover);
+    color: var(--vs-mute-2);
+}
+
+/* A second heading inside a panel that already has one — the route's cold chain under its
+   details. Smaller than the panel's own title so the panel still reads as one thing, and
+   ruled off so the two groups of fields are not mistaken for one long form. */
+.vs .vsr-panel-title-2 {
+    margin: 20px 0 0;
+    padding-top: 18px;
+    border-top: 1px solid var(--vs-rule);
+    font-size: 0.92rem;
     font-weight: 500;
     letter-spacing: -0.01em;
     color: var(--vs-ink);

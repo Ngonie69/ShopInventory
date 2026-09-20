@@ -31,6 +31,32 @@ public sealed class SaveRouteHandler(
             return Error.Validation("Routes.NameRequired", "A route needs a name.");
         }
 
+        // A round with one limit set and not the other is almost always a half-finished edit, and
+        // accepting it would judge the load against an open-ended range that can never be breached
+        // on the missing side — a cold-chain check that quietly only checks one direction.
+        if (command.TemperatureMinC.HasValue != command.TemperatureMaxC.HasValue)
+        {
+            return Error.Validation(
+                "Routes.TemperatureRangeIncomplete",
+                "Set both temperature limits, or neither. A route with no limits is not judged on temperature.");
+        }
+
+        if (command.TemperatureMinC is { } minimum
+            && command.TemperatureMaxC is { } maximum
+            && minimum > maximum)
+        {
+            return Error.Validation(
+                "Routes.TemperatureRangeInverted",
+                $"The lower temperature limit ({minimum:0.#} °C) is above the upper one ({maximum:0.#} °C).");
+        }
+
+        if (command.TemperatureProbeChannel is { } channel && channel is < 1 or > 4)
+        {
+            return Error.Validation(
+                "Routes.TemperatureProbeUnknown",
+                "The tracker reports four temperature probes, so the channel has to be 1, 2, 3 or 4.");
+        }
+
         var clash = await db.Routes
             .AsNoTracking()
             .AnyAsync(
@@ -73,6 +99,9 @@ public sealed class SaveRouteHandler(
             existing.Name = name;
             existing.Territory = NullIfBlank(command.Territory);
             existing.TruckRegNo = NullIfBlank(command.TruckRegNo);
+            existing.TemperatureMinC = command.TemperatureMinC;
+            existing.TemperatureMaxC = command.TemperatureMaxC;
+            existing.TemperatureProbeChannel = command.TemperatureProbeChannel;
             existing.IsActive = command.IsActive;
             existing.UpdatedAt = DateTime.UtcNow;
 
@@ -86,6 +115,9 @@ public sealed class SaveRouteHandler(
                 Name = name,
                 Territory = NullIfBlank(command.Territory),
                 TruckRegNo = NullIfBlank(command.TruckRegNo),
+                TemperatureMinC = command.TemperatureMinC,
+                TemperatureMaxC = command.TemperatureMaxC,
+                TemperatureProbeChannel = command.TemperatureProbeChannel,
                 IsActive = command.IsActive,
                 CreatedByUserId = command.ActingUserId
             };
@@ -122,6 +154,9 @@ public sealed class SaveRouteHandler(
             route.Name,
             route.Territory,
             route.TruckRegNo,
+            route.TemperatureMinC,
+            route.TemperatureMaxC,
+            route.TemperatureProbeChannel,
             route.IsActive,
             assignedCount);
     }
