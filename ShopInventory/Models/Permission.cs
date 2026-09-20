@@ -53,6 +53,8 @@ public static class Permissions
     public const string TransferInventory = "inventory.transfer";
     public const string AdjustStock = "stock.adjust";
     public const string AdjustInventory = "inventory.adjust";
+    public const string ViewStockWriteOffs = "stock.writeoffs.view";
+    public const string PostStockWriteOffs = "stock.writeoffs.post";
 
     // Reports
     public const string ViewReports = "reports.view";
@@ -206,7 +208,9 @@ public static class Permissions
                 new(TransferStock, "Transfer Stock", "Transfer stock between warehouses"),
                 new(TransferInventory, "Transfer Inventory", "Transfer inventory between locations"),
                 new(AdjustStock, "Adjust Stock", "Make stock adjustments"),
-                new(AdjustInventory, "Adjust Inventory", "Make inventory corrections")
+                new(AdjustInventory, "Adjust Inventory", "Make inventory corrections"),
+                new(ViewStockWriteOffs, "View Stock Write-offs", "See stock written off a warehouse and why"),
+                new(PostStockWriteOffs, "Post Stock Write-offs", "Write counted stock off a warehouse, issuing it out of SAP")
             },
             ["Reports"] = new()
             {
@@ -314,6 +318,7 @@ public static class Permissions
                 ViewInvoices, CreateInvoices, EditInvoices, VoidInvoices,
                 ViewPayments, CreatePayments, RefundPayments, ProcessRefunds,
                 ViewStock, ViewInventory, TransferStock, TransferInventory, AdjustStock, AdjustInventory,
+                ViewStockWriteOffs, PostStockWriteOffs,
                 ViewPurchaseOrders, CreatePurchaseOrders, EditPurchaseOrders, ApprovePurchaseOrders, ReceivePurchaseOrders,
                 ViewPurchaseRequests, CreatePurchaseRequests,
                 ViewPurchaseQuotations, CreatePurchaseQuotations,
@@ -385,7 +390,10 @@ public static class Permissions
                 FulfilVanSalesCustomerOrders,
                 // A stock controller both sells off a van (the handset role table) and counts what
                 // comes back at the depot.
-                ReportMarketBreakages, ConfirmMarketBreakages
+                ReportMarketBreakages, ConfirmMarketBreakages,
+                // Counting what came back is half the job; writing off what cannot be sold is the
+                // other half, and the returns warehouse has no other way to be drained.
+                ViewStockWriteOffs, PostStockWriteOffs
             },
             // A stock controller's transfer rights plus the decision on a held credit memo. Not the
             // add: posting the approved memo stays with the managers, and which memos it may decide
@@ -533,6 +541,8 @@ public static class Permission
     public const string TransferStock = Permissions.TransferStock;
     public const string TransferInventory = Permissions.TransferInventory;
     public const string AdjustStock = Permissions.AdjustStock;
+    public const string ViewStockWriteOffs = Permissions.ViewStockWriteOffs;
+    public const string PostStockWriteOffs = Permissions.PostStockWriteOffs;
     public const string AdjustInventory = Permissions.AdjustInventory;
 
     // Reports

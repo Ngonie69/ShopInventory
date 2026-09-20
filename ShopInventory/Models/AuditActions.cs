@@ -130,6 +130,9 @@ public static class AuditActions
     public const string ConfirmMarketBreakage = "ConfirmMarketBreakage";
     public const string RejectMarketBreakage = "RejectMarketBreakage";
 
+    // Stock write-off actions
+    public const string CreateStockWriteOff = "CreateStockWriteOff";
+
     // Inventory Transfer actions
     public const string CreateTransfer = "CreateTransfer";
     public const string CreateTransferRequest = "CreateTransferRequest";

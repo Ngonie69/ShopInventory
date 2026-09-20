@@ -180,6 +180,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<PendingTransferRequestEditEntity> PendingTransferRequestEdits { get; set; }
   public DbSet<MarketBreakageEntity> MarketBreakages { get; set; }
   public DbSet<MarketBreakageLineEntity> MarketBreakageLines { get; set; }
+  public DbSet<StockWriteOffEntity> StockWriteOffs { get; set; }
+  public DbSet<StockWriteOffLineEntity> StockWriteOffLines { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -450,6 +452,25 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       {
         t.HasCheckConstraint("CK_MarketBreakageLines_ReportedQuantity_Positive", "\"ReportedQuantity\" > 0");
         t.HasCheckConstraint("CK_MarketBreakageLines_ConfirmedQuantity_NonNegative", "\"ConfirmedQuantity\" IS NULL OR \"ConfirmedQuantity\" >= 0");
+      });
+    });
+
+    // Stock write-offs: counted at a warehouse, issued out of SAP as a goods issue.
+    modelBuilder.Entity<StockWriteOffEntity>(entity =>
+    {
+      entity.ToTable("StockWriteOffs");
+      entity.HasIndex(e => e.ClientRequestId).IsUnique();
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.WriteOff)
+            .HasForeignKey(l => l.WriteOffId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<StockWriteOffLineEntity>(entity =>
+    {
+      entity.ToTable("StockWriteOffLines", t =>
+      {
+        t.HasCheckConstraint("CK_StockWriteOffLines_Quantity_Positive", "\"Quantity\" > 0");
       });
     });
 

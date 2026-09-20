@@ -277,6 +277,7 @@ try
     builder.Services.AddScoped<IApprovalProcessService, ApprovalProcessService>();
     builder.Services.AddScoped<ICreditNoteApprovalService, CreditNoteApprovalService>();
     builder.Services.AddScoped<IMarketBreakageService, MarketBreakageService>();
+    builder.Services.AddScoped<IStockWriteOffService, StockWriteOffService>();
     builder.Services.AddScoped<IIncomingPaymentCacheService, IncomingPaymentCacheService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
     builder.Services.AddScoped<IWarehouseStockCacheService, WarehouseStockCacheService>();

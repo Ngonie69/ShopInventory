@@ -80,6 +80,55 @@ public interface ISAPServiceLayerClient
         string? toWarehouse = null,
         CancellationToken cancellationToken = default);
 
+    // Goods Issue Operations
+    /// <summary>
+    /// Issues stock out of one warehouse, as a SAP Goods Issue.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The document that takes stock off SAP's books without a business partner on the other side —
+    /// a write-off. Everything else this client posts either sells stock, buys it, or moves it
+    /// between warehouses, so a warehouse that only ever receives (a returns warehouse) had no way
+    /// to be drained before this.
+    /// </para>
+    /// <para>
+    /// Batch and serial selections must already be on the lines. Unlike
+    /// <see cref="CreateInventoryTransferAsync(CreateInventoryTransferRequest, CancellationToken)"/>,
+    /// which allocates its own, this refuses a managed line that carries none rather than posting it
+    /// unallocated: the allocation belongs to the caller because a write-off is a count of specific
+    /// physical stock, and where the caller has no preference
+    /// <c>IBatchInventoryValidationService</c> is the house allocator for choosing one.
+    /// </para>
+    /// </remarks>
+    Task<GoodsIssue> CreateGoodsIssueAsync(CreateGoodsIssueRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads one goods issue with its lines.
+    /// </summary>
+    Task<GoodsIssue?> GetGoodsIssueByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds the goods issue carrying a given <c>Reference2</c>, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// How a post whose reply was lost is resolved without issuing the stock twice: the reference is
+    /// derived from the caller's idempotency key, so the document a first attempt created can be
+    /// recognised as belonging to this request.
+    /// </remarks>
+    Task<GoodsIssue?> GetGoodsIssueByReferenceAsync(string reference, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The reasons a goods issue line may carry, as SAP itself defines them, or an empty list when
+    /// this company database defines no reason user field on the goods-issue line table.
+    /// </summary>
+    /// <remarks>
+    /// A user field is defined per table in Business One, so the <c>U_Reasons</c> field that
+    /// <see cref="GetCreditNoteLineReasonsAsync"/> reads off <c>RIN1</c> says nothing about whether
+    /// <c>IGE1</c> has one. An empty list here means the write-off reason cannot be sent to SAP at
+    /// all and lives only on the local record and in the document's comments.
+    /// </remarks>
+    Task<IReadOnlyList<SapDocumentLineReason>> GetGoodsIssueLineReasonsAsync(CancellationToken cancellationToken = default);
+
     // Invoice Operations
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);

@@ -165,6 +165,15 @@ public static class UserRoles
     /// from the handset and never see this page.
     /// </summary>
     public const string MarketBreakageRoles = "Admin,Manager,StockController,DepotController";
+
+    /// <summary>
+    /// Who can open /stock-write-offs: the roles that may issue counted stock out of a warehouse in
+    /// SAP. The API agrees through <c>stock.writeoffs.view</c> and <c>stock.writeoffs.post</c>;
+    /// <c>WebPageGatePermissionAlignmentTests</c> pins the two. Narrower than
+    /// <see cref="MarketBreakageRoles"/> on purpose — a depot controller counts what comes back, but
+    /// deciding that it is worth nothing is not the depot's call.
+    /// </summary>
+    public const string StockWriteOffRoles = "Admin,Manager,StockController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 

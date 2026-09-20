@@ -1,0 +1,650 @@
+/* ==========================================================================
+   Stock Write-offs — Nocturne
+
+   Counted stock issued out of a warehouse in SAP as a goods issue. The shape is
+   Market Breakages': the history on the left, the bench on the right, because
+   it is the same job — walk a list, count, commit — and a drawer would hide the
+   list at the moment the operator most wants to check it against what they are
+   about to destroy.
+
+   The palette is an alias layer over nocturne-tokens.css and flips at the root,
+   so this sheet carries no `.dark-theme` block. `color-scheme` is declared on
+   the root class because the number input and the native controls inside the
+   Nocturne components read it: without it they paint light furniture on the
+   dark ground.
+
+   Prefix `swo-`. A separate sheet from transfer-forms.css (`tfm-`) on purpose:
+   that sheet dresses two create forms, and this page is a list beside a bench
+   rather than a third form in that family.
+   ========================================================================== */
+
+.swo {
+    --swo-bg: var(--noct-bg);
+    --swo-surface: var(--noct-surface);
+    --swo-ink: var(--noct-ink);
+    --swo-ink-2: var(--noct-ink-2);
+    --swo-mute: var(--noct-mute);
+    --swo-mute-2: var(--noct-mute-2);
+    --swo-faint: var(--noct-faint);
+    --swo-placeholder: var(--noct-placeholder);
+    --swo-divider: var(--noct-divider);
+    --swo-rule: var(--noct-rule);
+    --swo-hover: var(--noct-hover);
+    --swo-press: var(--noct-press);
+    --swo-field-bg: var(--noct-field-bg);
+    --swo-field-edge: var(--noct-field-edge);
+    --swo-field-edge-hi: var(--noct-field-edge-hi);
+    --swo-accent: var(--noct-accent);
+    --swo-accent-rgb: var(--noct-accent-rgb);
+    --swo-accent-text: var(--noct-accent-text);
+    --swo-fill: var(--noct-box);
+    --swo-on-fill: var(--noct-on-box);
+    --swo-shadow-lg: var(--noct-shadow-lg);
+
+    /* The five states a write-off can be in, from the system's families so they
+       agree with every other status chip on the app: to post (accent), posting
+       (info), written off (good), failed (bad), cancelled (neutral). */
+    --swo-fam-accent: var(--noct-fam-accent);
+    --swo-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --swo-fam-info: var(--noct-fam-info);
+    --swo-fam-info-rgb: var(--noct-fam-info-rgb);
+    --swo-fam-good: var(--noct-fam-good);
+    --swo-fam-good-rgb: var(--noct-fam-good-rgb);
+    --swo-fam-bad: var(--noct-fam-bad);
+    --swo-fam-bad-rgb: var(--noct-fam-bad-rgb);
+    --swo-fam-neutral: var(--noct-fam-neutral);
+    --swo-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+
+    --swo-s1: var(--noct-s1);
+    --swo-s2: var(--noct-s2);
+    --swo-s3: var(--noct-s3);
+    --swo-s4: var(--noct-s4);
+    --swo-s6: var(--noct-s6);
+    --swo-s8: var(--noct-s8);
+    --swo-r-sm: var(--noct-r-sm);
+    --swo-r-md: var(--noct-r-md);
+    --swo-r-lg: var(--noct-r-lg);
+
+    /* The Nocturne controls fit the page from here rather than being restyled:
+       the closed field matches the inputs beside it, the menus stay identical
+       to every other menu in the app. */
+    --nsel-h: 38px;
+    --ndf-h: 38px;
+    --ndf-fs: 14px;
+    --npick-h: 38px;
+
+    color-scheme: var(--noct-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.swo {
+    min-height: 100vh;
+    background: var(--swo-bg);
+    color: var(--swo-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+}
+
+.swo * {
+    box-sizing: border-box;
+}
+
+.swo-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 16px;
+}
+
+.swo-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.swo-head {
+    padding: var(--swo-s6) 0 var(--swo-s4);
+    border-bottom: 1px solid var(--swo-divider);
+    background: var(--swo-bg);
+}
+
+.swo-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--swo-s2);
+}
+
+.swo-title-icon {
+    width: 22px;
+    height: 22px;
+    color: var(--swo-accent);
+    flex: none;
+}
+
+.swo-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--swo-ink);
+}
+
+.swo-sub {
+    margin: var(--swo-s1) 0 0;
+    max-width: 68ch;
+    color: var(--swo-mute);
+}
+
+.swo-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--swo-s2);
+    margin-top: var(--swo-s4);
+}
+
+.swo-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 104px;
+    padding: var(--swo-s2) var(--swo-s3);
+    border: 1px solid var(--swo-field-edge);
+    border-radius: var(--swo-r-md);
+    background: var(--swo-field-bg);
+    color: var(--swo-mute);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .12s ease, color .12s ease, background .12s ease;
+}
+
+.swo-tab:hover {
+    background: var(--swo-hover);
+    border-color: var(--swo-field-edge-hi);
+}
+
+.swo-tab.is-on {
+    border-color: rgba(var(--swo-accent-rgb), .55);
+    color: var(--swo-ink);
+    background: rgba(var(--swo-accent-rgb), .10);
+}
+
+.swo-tab-n {
+    font-size: 19px;
+    font-weight: 650;
+    color: var(--swo-ink);
+}
+
+.swo-tab-l {
+    font-size: 12px;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.swo-body {
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+    gap: var(--swo-s6);
+    align-items: start;
+    padding-top: var(--swo-s6);
+    padding-bottom: var(--swo-s8);
+}
+
+/* ── History ───────────────────────────────────────────────────────────── */
+
+.swo-queue {
+    display: flex;
+    flex-direction: column;
+    gap: var(--swo-s2);
+}
+
+.swo-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    padding: var(--swo-s3);
+    border: 1px solid var(--swo-field-edge);
+    border-radius: var(--swo-r-md);
+    background: var(--swo-surface);
+    color: var(--swo-ink);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .12s ease, background .12s ease;
+}
+
+.swo-row:hover {
+    background: var(--swo-hover);
+    border-color: var(--swo-field-edge-hi);
+}
+
+.swo-row.is-open {
+    border-color: rgba(var(--swo-accent-rgb), .6);
+    background: rgba(var(--swo-accent-rgb), .08);
+}
+
+.swo-row-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--swo-s2);
+}
+
+.swo-row-id {
+    font-weight: 600;
+    color: var(--swo-ink-2);
+}
+
+.swo-row-main {
+    font-weight: 550;
+}
+
+.swo-row-meta,
+.swo-row-doc {
+    font-size: 12.5px;
+    color: var(--swo-mute);
+}
+
+.swo-row-doc {
+    margin-left: var(--swo-s1);
+    color: var(--swo-fam-good);
+}
+
+/* Skeletons share the row class so anything waiting on a row sees them too. */
+.swo-row.is-skeleton {
+    cursor: default;
+    pointer-events: none;
+}
+
+.swo-skel {
+    display: block;
+    height: 11px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--swo-hover), var(--swo-press), var(--swo-hover));
+    background-size: 200% 100%;
+    animation: swo-shimmer 1.3s linear infinite;
+}
+
+.swo-skel-title {
+    width: 58%;
+}
+
+.swo-skel-meta {
+    width: 82%;
+    height: 9px;
+}
+
+@keyframes swo-shimmer {
+    from { background-position: 200% 0; }
+    to   { background-position: -200% 0; }
+}
+
+/* ── Bench ─────────────────────────────────────────────────────────────── */
+
+.swo-bench {
+    padding: var(--swo-s4) var(--swo-s4) var(--swo-s3);
+    border: 1px solid var(--swo-rule);
+    border-radius: var(--swo-r-lg);
+    background: var(--swo-surface);
+    box-shadow: var(--swo-shadow-lg);
+}
+
+.swo-bench-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--swo-s3);
+    padding-bottom: var(--swo-s3);
+    border-bottom: 1px solid var(--swo-divider);
+}
+
+.swo-bench-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 620;
+}
+
+.swo-bench-sub {
+    margin: 2px 0 0;
+    max-width: 60ch;
+    color: var(--swo-mute);
+    font-size: 13px;
+}
+
+/* ── Form ──────────────────────────────────────────────────────────────── */
+
+.swo-form,
+.swo-add {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--swo-s3);
+    padding: var(--swo-s4) 0;
+}
+
+.swo-add {
+    align-items: end;
+    border-top: 1px solid var(--swo-divider);
+}
+
+.swo-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.swo-field-wide {
+    grid-column: span 2;
+}
+
+.swo-field-sm {
+    max-width: 180px;
+}
+
+.swo-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: var(--swo-mute-2);
+}
+
+.swo-optional {
+    margin-left: 4px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--swo-faint);
+}
+
+/* Two classes deep on purpose, the way nocturne-date-field.css is: app.css gives
+   `.dark-theme input` an opaque slate fill (#1e293b, app.css:3020), which
+   out-specifies a single-class rule here and leaves these fields a different
+   colour from the Nocturne triggers standing beside them. A computed-style probe
+   is the only way to see it — the slate is perfectly readable, just wrong. */
+.swo .swo-input {
+    height: 38px;
+    padding: 0 var(--swo-s3);
+    border: 1px solid var(--swo-field-edge);
+    border-radius: var(--swo-r-sm);
+    background: var(--swo-field-bg);
+    color: var(--swo-ink);
+    font: inherit;
+    width: 100%;
+}
+
+.swo .swo-input::placeholder {
+    color: var(--swo-placeholder);
+    -webkit-text-fill-color: var(--swo-placeholder);
+    opacity: 1;
+}
+
+.swo .swo-input:focus-visible {
+    outline: none;
+    border-color: rgba(var(--swo-accent-rgb), .7);
+    box-shadow: 0 0 0 3px rgba(var(--swo-accent-rgb), .18);
+}
+
+.swo .swo-input-num {
+    text-align: right;
+}
+
+.swo-add-btn {
+    height: 38px;
+    align-self: end;
+}
+
+.swo-note {
+    margin: 0 0 var(--swo-s3);
+    padding: var(--swo-s2) var(--swo-s3);
+    border-left: 3px solid var(--swo-fam-info);
+    border-radius: var(--swo-r-sm);
+    background: rgba(var(--swo-fam-info-rgb), .10);
+    color: var(--swo-ink-2);
+    font-size: 13px;
+}
+
+.swo-alert {
+    margin: var(--swo-s3) 0 0;
+    padding: var(--swo-s2) var(--swo-s3);
+    border-radius: var(--swo-r-sm);
+    font-size: 13px;
+}
+
+.swo-alert-bad {
+    border-left: 3px solid var(--swo-fam-bad);
+    background: rgba(var(--swo-fam-bad-rgb), .12);
+    color: var(--swo-ink);
+}
+
+/* ── Lines ─────────────────────────────────────────────────────────────── */
+
+.swo-lines {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: var(--swo-s3);
+}
+
+.swo-lines th {
+    padding: var(--swo-s2) var(--swo-s2);
+    border-bottom: 1px solid var(--swo-rule);
+    font-size: 11.5px;
+    font-weight: 650;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--swo-mute-2);
+}
+
+.swo-lines td {
+    padding: var(--swo-s2);
+    border-bottom: 1px solid var(--swo-divider);
+    vertical-align: top;
+}
+
+.swo-num {
+    text-align: right;
+}
+
+.swo-item-code {
+    display: block;
+    font-weight: 600;
+}
+
+.swo-item-name {
+    display: block;
+    font-size: 12.5px;
+    color: var(--swo-mute);
+}
+
+/* ── Pills ─────────────────────────────────────────────────────────────── */
+
+.swo-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    padding: 3px 9px;
+    border: 1px solid rgba(var(--swo-fam), .45);
+    border-radius: 999px;
+    background: rgba(var(--swo-fam), .12);
+    color: var(--swo-fam-ink);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    white-space: nowrap;
+}
+
+.swo-fam-accent  { --swo-fam: var(--swo-fam-accent-rgb);  --swo-fam-ink: var(--swo-fam-accent); }
+.swo-fam-info    { --swo-fam: var(--swo-fam-info-rgb);    --swo-fam-ink: var(--swo-fam-info); }
+.swo-fam-good    { --swo-fam: var(--swo-fam-good-rgb);    --swo-fam-ink: var(--swo-fam-good); }
+.swo-fam-bad     { --swo-fam: var(--swo-fam-bad-rgb);     --swo-fam-ink: var(--swo-fam-bad); }
+.swo-fam-neutral { --swo-fam: var(--swo-fam-neutral-rgb); --swo-fam-ink: var(--swo-fam-neutral); }
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+.swo-bench-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--swo-s4);
+    flex-wrap: wrap;
+    padding-top: var(--swo-s3);
+    border-top: 1px solid var(--swo-divider);
+}
+
+.swo-total {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--swo-s2);
+}
+
+.swo-total-n {
+    font-size: 21px;
+    font-weight: 650;
+}
+
+.swo-total-l {
+    color: var(--swo-mute);
+    font-size: 13px;
+}
+
+.swo-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--swo-s4);
+    margin: 0;
+}
+
+.swo-facts dt {
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--swo-mute-2);
+}
+
+.swo-facts dd {
+    margin: 2px 0 0;
+    font-weight: 550;
+}
+
+.swo-empty {
+    margin: var(--swo-s4) 0;
+    color: var(--swo-mute);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.swo-btn {
+    height: 38px;
+    padding: 0 var(--swo-s4);
+    border: 1px solid transparent;
+    border-radius: var(--swo-r-sm);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .12s ease, border-color .12s ease, opacity .12s ease;
+}
+
+.swo-btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.swo-btn-primary {
+    background: var(--swo-fill);
+    color: var(--swo-on-fill);
+}
+
+.swo-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.06);
+}
+
+.swo-btn-ghost {
+    border-color: var(--swo-field-edge);
+    background: var(--swo-field-bg);
+    color: var(--swo-ink);
+}
+
+.swo-btn-ghost:hover:not(:disabled) {
+    background: var(--swo-hover);
+    border-color: var(--swo-field-edge-hi);
+}
+
+.swo-btn:focus-visible,
+.swo-icon-btn:focus-visible,
+.swo-tab:focus-visible,
+.swo-row:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--swo-accent-rgb), .3);
+}
+
+.swo-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--swo-field-edge);
+    border-radius: var(--swo-r-sm);
+    background: transparent;
+    color: var(--swo-mute);
+    cursor: pointer;
+}
+
+.swo-icon-btn:hover {
+    background: rgba(var(--swo-fam-bad-rgb), .12);
+    border-color: rgba(var(--swo-fam-bad-rgb), .45);
+    color: var(--swo-fam-bad);
+}
+
+.swo-icon-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1000px) {
+    .swo-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .swo-queue {
+        order: 2;
+    }
+
+    .swo-bench {
+        order: 1;
+    }
+}
+
+@media (max-width: 560px) {
+    .swo-field-wide {
+        grid-column: span 1;
+    }
+
+    .swo-field-sm {
+        max-width: none;
+    }
+
+    .swo-bench {
+        padding: var(--swo-s3);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .swo-skel {
+        animation: none;
+    }
+}
