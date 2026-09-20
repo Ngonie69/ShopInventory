@@ -131,6 +131,18 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // One rep's trading day on a route: the departure compliance record
   public DbSet<VanRouteDayEntity> VanRouteDays { get; set; }
 
+  // The fleet as the telematics provider knows it, and what each tracker can measure
+  public DbSet<TelematicsVehicleEntity> TelematicsVehicles { get; set; }
+
+  // What one vehicle did on one trading day, beside what its rep recorded
+  public DbSet<VehicleDayRollupEntity> VehicleDayRollups { get; set; }
+
+  // Cold-chain evidence: the readings themselves, kept longer than the provider keeps them
+  public DbSet<VehicleTemperatureSampleEntity> VehicleTemperatureSamples { get; set; }
+
+  // Where each vehicle is now — a snapshot, overwritten each poll
+  public DbSet<VehicleLiveStatusEntity> VehicleLiveStatuses { get; set; }
+
   // The weekly pattern of calls: which shops the van is due at on which weekday
   public DbSet<RouteCustomerVisitDayEntity> RouteCustomerVisitDays { get; set; }
 
@@ -1824,10 +1836,94 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.TruckRegNo).HasMaxLength(30);
       entity.Property(e => e.SeedKey).HasMaxLength(60);
 
+      // One decimal place is what a probe reports and what a cold-chain limit is ever written to.
+      entity.Property(e => e.TemperatureMinC).HasColumnType("decimal(4,1)");
+      entity.Property(e => e.TemperatureMaxC).HasColumnType("decimal(4,1)");
+
       entity.HasOne(e => e.CreatedByUser)
             .WithMany()
             .HasForeignKey(e => e.CreatedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // — Fleet telematics —————————————————————————————————————————————
+    //
+    // Four tables behind the vehicle half of the departure compliance report. Three are
+    // projections that can be rebuilt from the provider at any time; VehicleTemperatureSamples
+    // is not, because the provider discards temperature after about two months.
+    //
+    // Every one of them keys on a normalised registration rather than the plate as typed. See
+    // TelematicsRegistration: the same truck is spelled three ways across two tables and the
+    // provider's own console, and a join that misses reports the van as never having moved.
+
+    modelBuilder.Entity<TelematicsVehicleEntity>(entity =>
+    {
+      entity.ToTable("TelematicsVehicles");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.RegistrationNormalized).IsUnique();
+      entity.HasIndex(e => e.CartrackVehicleId);
+
+      entity.Property(e => e.RegistrationNormalized).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.Registration).HasMaxLength(30);
+      entity.Property(e => e.TerminalSerial).HasMaxLength(40);
+      entity.Property(e => e.ClientVehicleName).HasMaxLength(100);
+      entity.Property(e => e.Manufacturer).HasMaxLength(60);
+      entity.Property(e => e.Model).HasMaxLength(60);
+    });
+
+    modelBuilder.Entity<VehicleDayRollupEntity>(entity =>
+    {
+      entity.ToTable("VehicleDayRollups");
+      entity.HasKey(e => e.Id);
+
+      // The idempotency key. A rebuild of any day — a retry, a Quartz misfire, the nightly
+      // reconciliation pass re-reading a window the provider has since corrected — upserts onto
+      // this rather than adding a second opinion about the same van on the same day.
+      entity.HasIndex(e => new { e.RegistrationNormalized, e.TradingDate }).IsUnique();
+      entity.HasIndex(e => e.TradingDate);
+
+      entity.Property(e => e.RegistrationNormalized).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.TradingDate).HasColumnType("date");
+      entity.Property(e => e.LastError).HasMaxLength(1000);
+
+      entity.Property(e => e.TemperatureMinC).HasColumnType("decimal(5,2)");
+      entity.Property(e => e.TemperatureMaxC).HasColumnType("decimal(5,2)");
+      entity.Property(e => e.TemperatureAvgC).HasColumnType("decimal(5,2)");
+      entity.Property(e => e.LimitMinC).HasColumnType("decimal(4,1)");
+      entity.Property(e => e.LimitMaxC).HasColumnType("decimal(4,1)");
+    });
+
+    modelBuilder.Entity<VehicleTemperatureSampleEntity>(entity =>
+    {
+      entity.ToTable("VehicleTemperatureSamples");
+      entity.HasKey(e => e.Id);
+
+      // Re-ingest is normal: the reconciliation pass re-reads days the provider may have added
+      // late readings to. Uniqueness on the reading's own identity is what makes that free.
+      entity.HasIndex(e => new { e.RegistrationNormalized, e.Channel, e.EventAtUtc }).IsUnique();
+      entity.HasIndex(e => new { e.RegistrationNormalized, e.TradingDate });
+
+      entity.Property(e => e.RegistrationNormalized).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.TradingDate).HasColumnType("date");
+      entity.Property(e => e.TemperatureC).HasColumnType("decimal(5,2)");
+    });
+
+    modelBuilder.Entity<VehicleLiveStatusEntity>(entity =>
+    {
+      entity.ToTable("VehicleLiveStatuses");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.RegistrationNormalized).IsUnique();
+
+      entity.Property(e => e.RegistrationNormalized).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.PositionDescription).HasMaxLength(300);
+      entity.Property(e => e.DriverName).HasMaxLength(120);
+
+      entity.Property(e => e.Temp1C).HasColumnType("decimal(5,2)");
+      entity.Property(e => e.Temp2C).HasColumnType("decimal(5,2)");
+      entity.Property(e => e.Temp3C).HasColumnType("decimal(5,2)");
+      entity.Property(e => e.Temp4C).HasColumnType("decimal(5,2)");
     });
 
     // The areas each route works, and when — the published schedule as data

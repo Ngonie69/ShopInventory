@@ -36,6 +36,8 @@ public static class QuartzConfiguration
             .Get<DesktopSalePostingSettings>() ?? new DesktopSalePostingSettings();
         var fiscalisation = configuration.GetSection(FiscalisationSettings.SectionName)
             .Get<FiscalisationSettings>() ?? new FiscalisationSettings();
+        var cartrack = configuration.GetSection(CartrackSettings.SectionName)
+            .Get<CartrackSettings>() ?? new CartrackSettings();
 
         services.AddQuartz(q =>
         {
@@ -111,6 +113,21 @@ public static class QuartzConfiguration
             // After the UoM warm rather than alongside it: both sweep SAP, and the item master read
             // here is the wider of the two.
             AddCronJob<SapItemTaxGroupWarmJob>(q, "sap-item-tax-group-warm", "0 45 3 * * ?");
+
+            // The telematics fleet list: which vehicles exist and what each tracker can measure.
+            // Nightly because it changes when a truck is bought, sold or sent to the workshop, and
+            // once after a start so the registration picker on /van-sales/routes is populated on a
+            // fresh deployment rather than empty until the following morning. One request either way.
+            if (cartrack.Enabled)
+            {
+                AddCronJob<CartrackFleetSyncJob>(q, CartrackFleetSyncJob.JobName, "0 15 3 * * ?");
+
+                AddStartupTrigger(
+                    services,
+                    CartrackFleetSyncJob.JobName,
+                    CartrackFleetSyncJob.StartupTriggerName,
+                    CartrackFleetSyncJob.StartupDelay);
+            }
 
             if (dailyStock.EnableAutoStockFetch)
             {

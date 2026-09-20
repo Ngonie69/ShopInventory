@@ -3318,6 +3318,7 @@ handlers and are not recorded twice.
 | PUT | `/api/van-sales/route-stops/{id}` | `users.edit` or `vansales.routes.manage` | Edit an area on a route's plan |
 | DELETE | `/api/van-sales/route-stops/{id}` | `users.edit` or `vansales.routes.manage` | Drop an area from a route's plan |
 | POST | `/api/van-sales/route-stops/reorder` | `users.edit` or `vansales.routes.manage` | Put one weekday's or cycle week's stops in order |
+| GET | `/api/van-sales/telematics/vehicles` | `users.edit` or `vansales.routes.manage` | The fleet telematics vehicles, for assigning one to a route |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 | GET | `/api/van-sales/invoices` | `invoices.view` | Invoices the van sales app created, with their ZIMRA and SAP state, newest first |
@@ -3509,8 +3510,14 @@ bridged, so a gap reads as a gap instead of as a large one-day variance.
 |-----------|---------|-------|
 | `includeInactive` | `false` | Bring back retired routes too; they still head historical days |
 
-**Response:** `List<RouteDto>` — `id`, `code`, `name`, `territory`, `truckRegNo`, `isActive`,
-`assignedUserCount`.
+**Response:** `List<RouteDto>` — `id`, `code`, `name`, `territory`, `truckRegNo`,
+`temperatureMinC`, `temperatureMaxC`, `temperatureProbeChannel`, `isActive`, `assignedUserCount`.
+
+The three temperature fields are the round's cold chain. Both limits null — the ordinary case —
+means the route carries nothing chilled and is never judged on temperature.
+`temperatureProbeChannel` says which of the tracker's four probes reads the load box, or null for
+the lowest-numbered probe that reports; the fleet API publishes no capability flag for
+temperature, so it can only be told, never discovered.
 
 ##### POST `/api/van-sales/routes` · PUT `/api/van-sales/routes/{id}`
 
@@ -3522,12 +3529,45 @@ bridged, so a gap reads as a gap instead of as a large one-day variance.
   "name": "Harare North 2",
   "territory": "Harare North",
   "truckRegNo": "AEK 4471",
-  "isActive": true
+  "isActive": true,
+  "temperatureMinC": -18.0,
+  "temperatureMaxC": -12.0,
+  "temperatureProbeChannel": 1
 }
 ```
 
 **Response:** `RouteDto`. `409 Conflict` on a duplicate code; `PUT` also answers `404` for an
-unknown id.
+unknown id. `400` when one temperature limit is set without the other, when the lower limit is
+above the upper, or when the probe channel is outside 1-4.
+
+##### GET `/api/van-sales/telematics/vehicles`
+
+The vehicles the fleet telematics provider knows about, for choosing one on the route editor
+rather than typing a registration. It carries no positions and no movements — only which
+vehicles exist and what each tracker can measure — which is why it is gated like the route
+writes rather than like the reports.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `includeRetired` | `false` | Bring back vehicles that have left the fleet. A route still naming one needs this, or the picker cannot show what it is set to |
+
+**Response:** `TelematicsVehiclesResult` — `enabled`, `configured`, `lastSyncedAt`, `reason`,
+`vehicles`. Each vehicle carries `registration`, `registrationNormalized`, `clientVehicleName`,
+`description`, `hasAnyFuelSensor`, `hasTemperatureProbe`, `isActiveInFleet` and `stateLabel`.
+
+`reason` is a sentence to print verbatim, and is null when there is nothing to explain. An empty
+`vehicles` list has four different causes — telematics switched off, no credentials, the sync has
+not run yet, or an account that genuinely holds no vehicles — and each needs something different
+done about it, so the caller is told which rather than left to guess.
+
+`registrationNormalized` is the plate reduced to letters and digits, upper case: it is what the
+compliance report joins on, because the same truck is spelled several ways across this system and
+the provider's console. `clientVehicleName` is the fleet's own name for the vehicle and is **not**
+a registration — this account names one "306_AFQ9644" — so it must never be matched as one.
+
+`hasTemperatureProbe` is null until a sync has looked, and is inferred from readings actually
+arriving rather than declared: the provider publishes capability flags for fuel and electric and
+nothing at all for the four temperature channels.
 
 ##### GET `/api/van-sales/route-stops`
 

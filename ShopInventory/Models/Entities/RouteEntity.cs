@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 
 namespace ShopInventory.Models.Entities;
@@ -44,6 +45,44 @@ public class RouteEntity
     /// </summary>
     [MaxLength(30)]
     public string? TruckRegNo { get; set; }
+
+    /// <summary>
+    /// The temperature the load on this round has to stay between, in Celsius, or null on a round
+    /// that carries nothing chilled.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// These sit on the route rather than on the vehicle because they describe the load, not the
+    /// box: a frozen round and an ambient round are held to different figures whichever truck
+    /// happens to be running them that week. The consequence, stated so it is not discovered
+    /// later: a route running a substitute truck is judged against the usual round's limits. The
+    /// day's rollup snapshots whatever was set at the time it was built, so widening a limit
+    /// today cannot quietly erase last month's breach.
+    /// </para>
+    /// <para>
+    /// Both null means this round is never flagged on temperature — which is the right default,
+    /// because a plain van with no probe fitted would otherwise report a breach every day by
+    /// having no reading at all.
+    /// </para>
+    /// </remarks>
+    [Column(TypeName = "decimal(4,1)")]
+    public decimal? TemperatureMinC { get; set; }
+
+    /// <inheritdoc cref="TemperatureMinC"/>
+    [Column(TypeName = "decimal(4,1)")]
+    public decimal? TemperatureMaxC { get; set; }
+
+    /// <summary>
+    /// Which of the tracker's four temperature probes is the load box, or null to use the
+    /// lowest-numbered probe that reported.
+    /// </summary>
+    /// <remarks>
+    /// The fleet API publishes four temperature channels per vehicle and no flag saying which are
+    /// fitted or what any of them is measuring — a reading from probe 2 could be the box, the cab
+    /// or nothing at all. So this cannot be discovered and has to be told, once, by somebody who
+    /// looked.
+    /// </remarks>
+    public byte? TemperatureProbeChannel { get; set; }
 
     public bool IsActive { get; set; } = true;
 

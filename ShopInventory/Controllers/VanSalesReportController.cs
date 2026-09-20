@@ -10,6 +10,7 @@ using ShopInventory.Features.VanSalesReports.Commands.SaveRouteStop;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRouteStops;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
+using ShopInventory.Features.VanSalesReports.Queries.GetTelematicsVehicles;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
@@ -274,6 +275,34 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The vehicles the telematics provider knows about, for assigning one to a route.
+    /// </summary>
+    /// <remarks>
+    /// Gated like the route writes rather than like the reports, because the only thing this
+    /// feeds is the registration picker on the route editor. It carries no positions and no
+    /// movements — only which vehicles exist and what each tracker can measure.
+    /// </remarks>
+    /// <param name="includeRetired">
+    /// Bring back vehicles that have left the fleet. A route still naming one needs this, or the
+    /// picker cannot show what the route is currently set to.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("telematics/vehicles")]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
+    [ProducesResponseType(typeof(TelematicsVehiclesResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetTelematicsVehicles(
+        [FromQuery] bool includeRetired = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetTelematicsVehiclesQuery(includeRetired), cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
     /// <summary>Creates a route.</summary>
     /// <param name="request">The route's code, name, territory and truck.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -455,6 +484,9 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 request.Name,
                 request.Territory,
                 request.TruckRegNo,
+                request.TemperatureMinC,
+                request.TemperatureMaxC,
+                request.TemperatureProbeChannel,
                 request.IsActive,
                 UserClaimReader.GetUserId(User)),
             cancellationToken);
@@ -504,4 +536,7 @@ public record SaveRouteRequest(
     string Name,
     string? Territory,
     string? TruckRegNo,
-    bool IsActive = true);
+    bool IsActive = true,
+    decimal? TemperatureMinC = null,
+    decimal? TemperatureMaxC = null,
+    byte? TemperatureProbeChannel = null);

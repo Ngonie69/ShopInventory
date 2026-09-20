@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920085154_AddFleetTelematics")]
+    partial class AddFleetTelematics
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -6444,131 +6447,6 @@ namespace ShopInventory.Migrations
                     b.ToTable("StockTransferAdjustments", (string)null);
                 });
 
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ClientRequestId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("LastAttemptedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<DateTime?>("PostedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RaisedByName")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<Guid>("RaisedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Remarks")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<int?>("SapDocEntry")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("SapDocNum")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("SapReference")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("WarehouseCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClientRequestId")
-                        .IsUnique();
-
-                    b.HasIndex("RaisedByUserId", "CreatedAtUtc");
-
-                    b.HasIndex("Status", "CreatedAtUtc");
-
-                    b.HasIndex("WarehouseCode", "CreatedAtUtc");
-
-                    b.ToTable("StockWriteOffs", (string)null);
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffLineEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("BatchNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("ItemCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("ItemDescription")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<int>("LineNum")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18,6)");
-
-                    b.Property<string>("SerialNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("UoMCode")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<int>("WriteOffId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WriteOffId");
-
-                    b.ToTable("StockWriteOffLines", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_StockWriteOffLines_Quantity_Positive", "\"Quantity\" > 0");
-                        });
-                });
-
             modelBuilder.Entity("ShopInventory.Models.Entities.SystemConfigEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -9132,17 +9010,6 @@ namespace ShopInventory.Migrations
                     b.Navigation("Reservation");
                 });
 
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffLineEntity", b =>
-                {
-                    b.HasOne("ShopInventory.Models.Entities.StockWriteOffEntity", "WriteOff")
-                        .WithMany("Lines")
-                        .HasForeignKey("WriteOffId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("WriteOff");
-                });
-
             modelBuilder.Entity("ShopInventory.Models.Entities.TimesheetEntryEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "User")
@@ -9482,11 +9349,6 @@ namespace ShopInventory.Migrations
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationLineEntity", b =>
                 {
                     b.Navigation("BatchAllocations");
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.StockWriteOffEntity", b =>
-                {
-                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.VanSalesOrderEntity", b =>

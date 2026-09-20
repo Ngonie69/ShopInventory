@@ -262,8 +262,22 @@
                                                         <input id="vsr-eterr" class="vs-field" @bind="editing!.Territory" />
                                                     </div>
                                                     <div class="vsr-field">
-                                                        <label class="vs-filter-label" for="vsr-etruck">Truck reg</label>
-                                                        <input id="vsr-etruck" class="vs-field" @bind="editing!.TruckRegNo" placeholder="Not assigned" />
+                                                        @if (HasFleetList)
+                                                        {
+                                                            <span class="vs-filter-label">Truck reg</span>
+                                                            <NocturneSelect Class="nsel-block" TValue="string"
+                                                                            Options="TruckOptions" @bind-Value="truckRegNo"
+                                                                            Caption="The vehicle this route runs"
+                                                                            AriaLabel="Truck registration"
+                                                                            Placeholder="Not assigned" />
+                                                        }
+                                                        else
+                                                        {
+                                                            @* No fleet list to choose from, so the field stays typeable rather
+                                                               than becoming an empty picker nobody can get past. *@
+                                                            <label class="vs-filter-label" for="vsr-etruck">Truck reg</label>
+                                                            <input id="vsr-etruck" class="vs-field" @bind="editing!.TruckRegNo" placeholder="Not assigned" />
+                                                        }
                                                     </div>
                                                     <div class="vs-actions">
                                                         <button class="vs-btn vs-btn-accent" @onclick="SaveAsync" disabled="@isSaving">
@@ -272,6 +286,39 @@
                                                         <button class="vs-btn" @onclick="CancelEdit" disabled="@isSaving">Cancel</button>
                                                     </div>
                                                 </div>
+                                                @if (fleet?.Reason is { } fleetReason)
+                                                {
+                                                    @* Printed verbatim. An empty vehicle list has four causes and each
+                                                       needs a different thing done, so the page does not guess. *@
+                                                    <p class="vsr-panel-sub vsr-fleet-note">@fleetReason</p>
+                                                }
+
+                                                <h4 class="vsr-panel-title-2">Cold chain</h4>
+                                                <p class="vsr-panel-sub">
+                                                    What the load on this round has to stay between. Leave both empty on a
+                                                    round that carries nothing chilled — a route with no limits is never
+                                                    flagged on temperature.
+                                                </p>
+                                                <div class="vsr-form">
+                                                    <div class="vsr-field">
+                                                        <label class="vs-filter-label" for="vsr-etmin">Lower limit °C</label>
+                                                        <input id="vsr-etmin" class="vs-field" type="number" step="0.1"
+                                                               @bind="editing!.TemperatureMinC" placeholder="Not set" />
+                                                    </div>
+                                                    <div class="vsr-field">
+                                                        <label class="vs-filter-label" for="vsr-etmax">Upper limit °C</label>
+                                                        <input id="vsr-etmax" class="vs-field" type="number" step="0.1"
+                                                               @bind="editing!.TemperatureMaxC" placeholder="Not set" />
+                                                    </div>
+                                                    <div class="vsr-field">
+                                                        <span class="vs-filter-label">Box probe</span>
+                                                        <NocturneSelect Class="nsel-block" TValue="int"
+                                                                        Options="ProbeOptions" @bind-Value="probeChannel"
+                                                                        Caption="Which tracker probe reads the load box"
+                                                                        AriaLabel="Which tracker probe reads the load box" />
+                                                    </div>
+                                                </div>
+
                                                 <label class="vsr-check">
                                                     <input type="checkbox" @bind="editing!.IsActive" />
                                                     Active — retiring a route keeps it on its historical days but stops it taking new ones.
@@ -461,6 +508,71 @@
     private int stopDay = (int)DayOfWeek.Monday;
     private int stopWeek = EveryWeek;
     private int stopSet;
+
+    /// <summary>
+    /// The probe select's value while a route is open. Held as an int beside the edited route
+    /// rather than bound through it because <c>NocturneSelect</c> has no null value, and the
+    /// route's own property is nullable for a reason worth keeping.
+    /// </summary>
+    private int probeChannel = FirstProbeThatReports;
+
+    /// <summary>The telematics fleet, or a reason there is no list. Never null once loaded.</summary>
+    private TelematicsVehiclesResponse? fleet;
+
+    /// <summary>
+    /// The truck select's value. Held beside the route for the same reason as the probe channel:
+    /// the select has no null, and "" is how it says "not assigned".
+    /// </summary>
+    private string truckRegNo = string.Empty;
+
+    /// <summary>
+    /// Whether there is a fleet to pick from. With none, the registration stays a text field —
+    /// an administrator must still be able to record a truck when telematics is off or has not
+    /// synced yet.
+    /// </summary>
+    private bool HasFleetList => fleet is { Vehicles.Count: > 0 };
+
+    /// <summary>
+    /// The fleet, plus whatever the route is already set to.
+    /// </summary>
+    /// <remarks>
+    /// A route naming a plate the provider does not know keeps it, shown as "not in the fleet",
+    /// rather than being silently cleared by opening the editor. That state is a finding for
+    /// somebody to fix — a typo, or a truck sold — and quietly dropping it would hide it.
+    /// </remarks>
+    private NocturneSelectOption<string>[] TruckOptions
+    {
+        get
+        {
+            var options = new List<NocturneSelectOption<string>>
+            {
+                new(string.Empty, "Not assigned") { RuleAfter = true, IsUnset = true }
+            };
+
+            var known = fleet?.Vehicles ?? [];
+
+            options.AddRange(known.Select(vehicle =>
+                new NocturneSelectOption<string>(
+                    vehicle.Registration,
+                    vehicle.Registration,
+                    vehicle.IsActiveInFleet ? null : "warn")
+                {
+                    Hint = vehicle.Hint
+                }));
+
+            if (!string.IsNullOrWhiteSpace(truckRegNo)
+                && !known.Any(vehicle => string.Equals(
+                    vehicle.Registration, truckRegNo, StringComparison.OrdinalIgnoreCase)))
+            {
+                options.Add(new NocturneSelectOption<string>(truckRegNo, truckRegNo, "bad")
+                {
+                    Hint = "not in the Cartrack fleet"
+                });
+            }
+
+            return [.. options];
+        }
+    }
     private bool isSavingStop;
     private string? stopError;
 
@@ -488,6 +600,21 @@
         new(2, "Week 2"),
         new(3, "Week 3"),
         new(4, "Week 4")
+    ];
+
+    /// <summary>
+    /// The sentinel for "whichever probe reports", which is what a fleet of one-probe trackers
+    /// wants and is why it is the unset row rather than probe 1 being the default.
+    /// </summary>
+    private const int FirstProbeThatReports = 0;
+
+    private static readonly NocturneSelectOption<int>[] ProbeOptions =
+    [
+        new(FirstProbeThatReports, "First probe that reports") { RuleAfter = true, IsUnset = true },
+        new(1, "Probe 1"),
+        new(2, "Probe 2"),
+        new(3, "Probe 3"),
+        new(4, "Probe 4")
     ];
 
     private static readonly NocturneSelectOption<int>[] PlanOptions =
@@ -780,6 +907,11 @@
             routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
             stops = await VanSalesReportService.GetRouteStopsAsync();
 
+            // Retired vehicles included: a route still naming one has to be able to show what it
+            // is set to. The service answers with a reason rather than throwing, so a telematics
+            // outage leaves the page working with a typeable registration field.
+            fleet = await VanSalesReportService.GetTelematicsVehiclesAsync(includeRetired: true);
+
             // Re-point the open drawer at the reloaded row rather than leaving it on the stale copy,
             // so a route retired or renamed in the form shows through here too. A route that has gone
             // entirely closes the drawer instead of leaving it headed by a row nobody holds.
@@ -801,6 +933,8 @@
     {
         error = null;
         editing = new RouteDto { IsActive = true };
+        probeChannel = FirstProbeThatReports;
+        truckRegNo = string.Empty;
     }
 
     /// <summary>
@@ -818,9 +952,15 @@
             Name = route.Name,
             Territory = route.Territory,
             TruckRegNo = route.TruckRegNo,
+            TemperatureMinC = route.TemperatureMinC,
+            TemperatureMaxC = route.TemperatureMaxC,
+            TemperatureProbeChannel = route.TemperatureProbeChannel,
             IsActive = route.IsActive,
             AssignedUserCount = route.AssignedUserCount
         };
+
+        probeChannel = route.TemperatureProbeChannel ?? FirstProbeThatReports;
+        truckRegNo = route.TruckRegNo ?? string.Empty;
 
         if (scheduleRoute?.Id != route.Id)
         {
@@ -846,6 +986,31 @@
         {
             error = "A route needs both a code and a name.";
             return;
+        }
+
+        // Said here as well as on the server, because the server's refusal arrives after a round
+        // trip that loses which of the two boxes the person was in.
+        if (editing.TemperatureMinC.HasValue != editing.TemperatureMaxC.HasValue)
+        {
+            error = "Set both temperature limits, or neither.";
+            return;
+        }
+
+        if (editing.TemperatureMinC > editing.TemperatureMaxC)
+        {
+            error = "The lower temperature limit is above the upper one.";
+            return;
+        }
+
+        editing.TemperatureProbeChannel = probeChannel == FirstProbeThatReports
+            ? null
+            : (byte)probeChannel;
+
+        // Only when the picker was the control on screen. With no fleet list the field was a text
+        // input bound straight to the route, and reading the select back would blank it.
+        if (HasFleetList)
+        {
+            editing.TruckRegNo = string.IsNullOrWhiteSpace(truckRegNo) ? null : truckRegNo;
         }
 
         isSaving = true;

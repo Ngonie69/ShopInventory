@@ -35,6 +35,7 @@ using ShopInventory.Models;
 using ShopInventory.Services;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Services.Fiscalisation;
+using ShopInventory.Services.Telematics;
 using System.IO.Compression;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
@@ -867,6 +868,49 @@ try
         builder.Configuration.GetSection(RevmaxSettings.SectionName));
 
     builder.Services.AddHttpClient<IRevmaxClient, RevmaxClient>();
+
+    // Register the Cartrack fleet telematics client — the vehicle half of the van sales departure
+    // compliance report. Off unless a deployment turns it on: it is an external system with
+    // per-endpoint rate limits on an account shared with whatever else the business runs.
+    builder.Services.Configure<CartrackSettings>(
+        builder.Configuration.GetSection(CartrackSettings.SectionName));
+
+    // Singleton because the budget has to be shared by every caller in the process. See the class
+    // comment for the one assumption that holds it together: every caller is a Quartz job, and the
+    // clustered store runs one instance of a job key at a time.
+    builder.Services.AddSingleton<ICartrackRateLimiter, CartrackRateLimiter>();
+
+    var cartrackStartupSettings = builder.Configuration
+        .GetSection(CartrackSettings.SectionName)
+        .Get<CartrackSettings>();
+
+    // Said once, here, for the reason spelled out above the fiscalisation check below: the live
+    // status poll runs every few minutes, so a per-request warning would write several hundred
+    // identical lines a day and bury whatever else went wrong.
+    if (cartrackStartupSettings?.Enabled == true && !cartrackStartupSettings.HasCredentials)
+    {
+        Log.Warning(
+            "Cartrack telematics is enabled but no credentials are configured. Set "
+            + "Cartrack__Username and Cartrack__Password — an administrator generates them in "
+            + "Fleetweb under API Settings. Every request will be rejected until they are supplied, "
+            + "and the compliance report will show no vehicle data rather than an error.");
+    }
+
+    builder.Services.AddHttpClient<ICartrackClient, CartrackClient>((serviceProvider, client) =>
+    {
+        var cartrack = serviceProvider.GetRequiredService<IOptions<CartrackSettings>>().Value;
+
+        client.BaseAddress = new Uri(cartrack.BaseUrl.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(Math.Max(cartrack.TimeoutSeconds, 1));
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+
+        // Built in CartrackAuthentication rather than here, so the encoding choice sits somewhere
+        // a test can reach it. Null when either half is missing — the startup warning above has
+        // already said so once.
+        client.DefaultRequestHeaders.Authorization = CartrackAuthentication.HeaderFor(cartrack);
+    });
+
+    builder.Services.AddScoped<ICartrackFleetSyncService, CartrackFleetSyncService>();
 
     // Register the Fiscalisation platform client
     builder.Services.Configure<FiscalisationSettings>(

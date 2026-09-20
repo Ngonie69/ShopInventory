@@ -39,6 +39,9 @@ public interface IVanSalesReportService
 
     Task<List<RouteDto>> GetRoutesAsync(bool includeInactive = false);
 
+    /// <summary>The telematics fleet, for the truck registration picker on the route editor.</summary>
+    Task<TelematicsVehiclesResponse> GetTelematicsVehiclesAsync(bool includeRetired = false);
+
     /// <summary>Creates or updates a route. Returns the saved route, or the server's refusal.</summary>
     Task<(RouteDto? Route, string? Error)> SaveRouteAsync(RouteDto route);
 
@@ -73,9 +76,9 @@ public interface IVanSalesReportService
 /// checked against <c>VanSalesReportController</c> — <c>api/van-sales/compliance-report</c>,
 /// <c>api/van-sales/performance-report</c>, <c>api/van-sales/coverage-report</c>,
 /// <c>api/van-sales/replenishment-report</c>, <c>api/van-sales/stock-report</c> and
-/// <c>api/van-sales/routes</c>, <c>api/van-sales/route-stops</c> and
-/// <c>api/van-sales/route-stops/reorder</c> — and the exception is
-/// logged rather than only returned as null, so a wrong URL leaves a trail.
+/// <c>api/van-sales/routes</c>, <c>api/van-sales/route-stops</c>,
+/// <c>api/van-sales/route-stops/reorder</c> and <c>api/van-sales/telematics/vehicles</c> — and
+/// the exception is logged rather than only returned as null, so a wrong URL leaves a trail.
 /// </remarks>
 public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReportService> logger)
     : IVanSalesReportService
@@ -240,6 +243,30 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         }
     }
 
+    public async Task<TelematicsVehiclesResponse> GetTelematicsVehiclesAsync(bool includeRetired = false)
+    {
+        try
+        {
+            var url = "api/van-sales/telematics/vehicles"
+                      + $"?includeRetired={includeRetired.ToString().ToLowerInvariant()}";
+
+            return await httpClient.GetFromJsonAsync<TelematicsVehiclesResponse>(url)
+                   ?? new TelematicsVehiclesResponse();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the telematics fleet");
+
+            // A reason rather than a bare empty list, so the route editor can say the vehicle
+            // list could not be fetched instead of implying the fleet is empty. The registration
+            // stays typeable either way.
+            return new TelematicsVehiclesResponse
+            {
+                Reason = "The vehicle list could not be fetched. Type the registration instead."
+            };
+        }
+    }
+
     public async Task<(RouteDto? Route, string? Error)> SaveRouteAsync(RouteDto route)
     {
         try
@@ -250,7 +277,10 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
                 name = route.Name,
                 territory = route.Territory,
                 truckRegNo = route.TruckRegNo,
-                isActive = route.IsActive
+                isActive = route.IsActive,
+                temperatureMinC = route.TemperatureMinC,
+                temperatureMaxC = route.TemperatureMaxC,
+                temperatureProbeChannel = route.TemperatureProbeChannel
             };
 
             var response = route.Id > 0

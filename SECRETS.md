@@ -74,6 +74,19 @@ dotnet user-secrets set "Email:Password" "YOUR_SMTP_PASSWORD"
 # Fiscalisation__ApiKey env var in the IIS web.config (the Settings page writes it there).
 # dotnet user-secrets set "Fiscalisation:ApiKey" "YOUR_FISCALISATION_API_KEY"
 
+# Cartrack fleet telematics (fleetapi-zw.cartrack.com) — the vehicle half of the van sales
+# departure compliance report. Generate the credential yourself: log in to Fleetweb as an
+# administrator, open API Settings and press Generate User Credentials. Cartrack support is not
+# involved. The integration is OFF unless Cartrack:Enabled is set, and with it on but no
+# credential every request is refused and startup warns once.
+# Production: Cartrack__Enabled, Cartrack__Username and Cartrack__Password as env vars in the IIS
+# web.config. They survive a blue/green swap on their own, because the new slot's web.config is
+# seeded from the live site — do not add them to $managedEnvironmentVariablesByApp, which copies
+# the other way and would blank them on every deploy.
+# dotnet user-secrets set "Cartrack:Enabled" "true"
+# dotnet user-secrets set "Cartrack:Username" "YOUR_CARTRACK_API_USERNAME"
+# dotnet user-secrets set "Cartrack:Password" "YOUR_CARTRACK_API_PASSWORD"
+
 # MediatR licence key (MediatR 13+ is commercial; obtain a key from
 # https://luckypennysoftware.com). Without it MediatR logs a licence warning at every
 # start in BOTH the API and the Web app. Same key for both projects; env var MediatR__LicenseKey.
