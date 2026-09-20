@@ -16284,7 +16284,26 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         return trimmed.Length <= 250 ? trimmed : trimmed[..250];
     }
 
-    public async Task<IReadOnlyList<SapDocumentLineReason>> GetCreditNoteLineReasonsAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<SapDocumentLineReason>> GetCreditNoteLineReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        return ReadLineReasonsAsync(ReturnReasonLineTable, ReturnReasonFieldName, "credit note", cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads the valid values of a line-level reason user field on one document line table.
+    /// </summary>
+    /// <remarks>
+    /// Parameterised by table because a user field belongs to a table in Business One, not to
+    /// documents in general: <c>U_Reasons</c> on <c>RIN1</c> is a different field definition from one
+    /// on <c>IGE1</c>, and a company database may define either, both or neither. A table with no
+    /// such field returns an empty list rather than failing, because "this document type cannot
+    /// carry a reason" is an answer callers act on.
+    /// </remarks>
+    private async Task<IReadOnlyList<SapDocumentLineReason>> ReadLineReasonsAsync(
+        string lineTable,
+        string fieldName,
+        string what,
+        CancellationToken cancellationToken)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
 
@@ -16293,25 +16312,25 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         // against the other. Paging matters here too — UserFieldsMD answers 20 rows without a
         // maxpagesize preference, and this company database defines over 700 user fields, so a
         // filtered read that does not page finds nothing and looks like "the field does not exist".
-        var filter = Uri.EscapeDataString($"TableName eq '{ReturnReasonLineTable}' and Name eq '{ReturnReasonFieldName}'");
+        var filter = Uri.EscapeDataString($"TableName eq '{lineTable}' and Name eq '{fieldName}'");
         var url = $"UserFieldsMD?$select=FieldID,Name,TableName&$filter={filter}";
 
-        var listJson = await GetSapJsonAsync(url, "credit note reason field", cancellationToken);
+        var listJson = await GetSapJsonAsync(url, $"{what} reason field", cancellationToken);
         using var listDocument = JsonDocument.Parse(listJson);
 
         if (!listDocument.RootElement.TryGetProperty("value", out var rows) || rows.GetArrayLength() == 0)
         {
             _logger.LogWarning(
-                "SAP company database defines no {Field} user field on {Table}; credit notes will carry no reason",
-                ReturnReasonFieldName, ReturnReasonLineTable);
+                "SAP company database defines no {Field} user field on {Table}; {What} lines will carry no reason",
+                fieldName, lineTable, what);
             return Array.Empty<SapDocumentLineReason>();
         }
 
         var fieldId = rows[0].GetProperty("FieldID").GetInt32();
 
         var fieldJson = await GetSapJsonAsync(
-            $"UserFieldsMD(TableName='{ReturnReasonLineTable}',FieldID={fieldId})",
-            "credit note reasons",
+            $"UserFieldsMD(TableName='{lineTable}',FieldID={fieldId})",
+            $"{what} reasons",
             cancellationToken);
 
         using var fieldDocument = JsonDocument.Parse(fieldJson);
@@ -16341,8 +16360,8 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         }
 
         _logger.LogInformation(
-            "Read {Count} credit note reasons from SAP ({Table}.U_{Field}, FieldID {FieldId})",
-            reasons.Count, ReturnReasonLineTable, ReturnReasonFieldName, fieldId);
+            "Read {Count} {What} reasons from SAP ({Table}.U_{Field}, FieldID {FieldId})",
+            reasons.Count, what, lineTable, fieldName, fieldId);
 
         return reasons;
     }

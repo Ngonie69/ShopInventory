@@ -1,0 +1,303 @@
+@page "/stock-write-offs"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.StockWriteOffRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>Stock Write-offs - Shop Inventory</PageTitle>
+
+@* Nocturne. wwwroot/css/stock-write-offs.css (linked from App.razor) carries both schemes as an
+   alias layer over nocturne-tokens.css, so this page has no .dark-theme block of its own. The shape
+   is Market Breakages' — history on the left, the bench on the right — because it is the same job:
+   walk a list, count, commit. Icon-only buttons draw their glyph inline so a font that fails to load
+   cannot leave them reading as dead controls. Every picker here is a Nocturne control rather than a
+   native one; see the nocturne-dropdowns-and-dates skill for why a native select cannot be used. *@
+
+<div class="swo">
+
+    <header class="swo-head">
+        <div class="swo-shell">
+            <div class="swo-titles-row">
+                <svg class="swo-title-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" fill="none" stroke="currentColor"
+                          stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <h1 class="swo-title">Stock Write-offs</h1>
+            </div>
+            <p class="swo-sub">
+                Stock that cannot be sold, issued out of its warehouse in SAP so the books stop
+                carrying it. Count it, give it a reason, and it leaves as a goods issue.
+            </p>
+
+            <div class="swo-tabs" role="tablist" aria-label="Filter by status">
+                @foreach (var tab in StatusTabs)
+                {
+                    <button type="button" role="tab"
+                            class="swo-tab @(statusFilter == tab.Value ? "is-on" : "")"
+                            aria-selected="@(statusFilter == tab.Value ? "true" : "false")"
+                            @onclick="() => ApplyStatusAsync(tab.Value)">
+                        <span class="swo-tab-n">@CountFor(tab.Value)</span>
+                        <span class="swo-tab-l">@tab.Label</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </header>
+
+    <div class="swo-shell swo-body">
+
+        @* ── History ────────────────────────────────────────────────────────── *@
+        <section class="swo-queue" aria-label="Write-offs">
+            @if (isLoadingList)
+            {
+                @for (var skeleton = 0; skeleton < 4; skeleton++)
+                {
+                    <div class="swo-row is-skeleton" aria-hidden="true">
+                        <span class="swo-skel swo-skel-title"></span>
+                        <span class="swo-skel swo-skel-meta"></span>
+                    </div>
+                }
+            }
+            else if (writeOffs.Count == 0)
+            {
+                <p class="swo-empty">Nothing has been written off@(string.IsNullOrEmpty(statusFilter) ? "" : " in this state") yet.</p>
+            }
+            else
+            {
+                @foreach (var row in writeOffs)
+                {
+                    <button type="button"
+                            class="swo-row @(selected?.Id == row.Id ? "is-open" : "")"
+                            @onclick="() => OpenAsync(row.Id)">
+                        <span class="swo-row-top">
+                            <span class="swo-row-id">#@row.Id</span>
+                            <span class="swo-pill swo-fam-@FamilyFor(row.Status)">@LabelFor(row.Status)</span>
+                        </span>
+                        <span class="swo-row-main">@row.Reason · @row.WarehouseCode</span>
+                        <span class="swo-row-meta">
+                            @row.LineCount line@(row.LineCount == 1 ? "" : "s") ·
+                            @row.TotalQuantity.ToString("0.###") unit@(row.TotalQuantity == 1 ? "" : "s") ·
+                            @row.RaisedByName
+                            @if (row.SapDocNum is int docNum)
+                            {
+                                <span class="swo-row-doc">GI #@docNum</span>
+                            }
+                        </span>
+                    </button>
+                }
+            }
+        </section>
+
+        @* ── Bench ──────────────────────────────────────────────────────────── *@
+        <section class="swo-bench" aria-label="@(selected is null ? "New write-off" : $"Write-off {selected.Id}")">
+
+            @if (selected is not null)
+            {
+                <div class="swo-bench-head">
+                    <div>
+                        <h2 class="swo-bench-title">Write-off #@selected.Id</h2>
+                        <p class="swo-bench-sub">
+                            @selected.Reason · @selected.WarehouseCode · raised by @selected.RaisedByName
+                        </p>
+                    </div>
+                    <span class="swo-pill swo-fam-@FamilyFor(selected.Status)">@LabelFor(selected.Status)</span>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(selected.LastError))
+                {
+                    <p class="swo-alert swo-alert-bad" role="alert">@selected.LastError</p>
+                }
+
+                <table class="swo-lines">
+                    <thead>
+                        <tr>
+                            <th scope="col">Item</th>
+                            <th scope="col">Batch / serial</th>
+                            <th scope="col" class="swo-num">Quantity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in selected.Lines)
+                        {
+                            <tr>
+                                <td>
+                                    <span class="swo-item-code">@line.ItemCode</span>
+                                    @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                                    {
+                                        <span class="swo-item-name">@line.ItemDescription</span>
+                                    }
+                                </td>
+                                <td>@(line.BatchNumber ?? line.SerialNumber ?? "—")</td>
+                                <td class="swo-num">@line.Quantity.ToString("0.###") @line.UoMCode</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                <div class="swo-bench-foot">
+                    <dl class="swo-facts">
+                        <div><dt>Raised</dt><dd>@ToCat(selected.CreatedAtUtc)</dd></div>
+                        @if (selected.PostedAtUtc is DateTime posted)
+                        {
+                            <div><dt>Posted</dt><dd>@ToCat(posted)</dd></div>
+                        }
+                        @if (selected.SapDocNum is int docNum)
+                        {
+                            <div><dt>Goods issue</dt><dd>#@docNum</dd></div>
+                        }
+                    </dl>
+                    <button type="button" class="swo-btn swo-btn-ghost" @onclick="StartNew">New write-off</button>
+                </div>
+            }
+            else
+            {
+                <div class="swo-bench-head">
+                    <div>
+                        <h2 class="swo-bench-title">New write-off</h2>
+                        <p class="swo-bench-sub">
+                            What is counted here leaves SAP when you post it, and cannot be taken back
+                            from this page.
+                        </p>
+                    </div>
+                </div>
+
+                @if (errorMessage is not null)
+                {
+                    <p class="swo-alert swo-alert-bad" role="alert">@errorMessage</p>
+                }
+
+                <div class="swo-form">
+                    <label class="swo-field">
+                        <span class="swo-label">Warehouse</span>
+                        <NocturneSelect Class="nsel-block" TValue="string"
+                                        Options="WarehouseOptions" Value="warehouseCode"
+                                        ValueChanged="@(code => OnWarehouseChangedAsync(code))"
+                                        Placeholder="Choose a warehouse"
+                                        AriaLabel="Warehouse the stock is leaving" />
+                    </label>
+
+                    <label class="swo-field">
+                        <span class="swo-label">Reason</span>
+                        <NocturneSelect Class="nsel-block" TValue="string"
+                                        Options="ReasonOptions" @bind-Value="reason"
+                                        Placeholder="Why it cannot be sold"
+                                        AriaLabel="Reason for the write-off" />
+                    </label>
+
+                    <label class="swo-field swo-field-sm">
+                        <span class="swo-label">Posting date</span>
+                        <NocturneDateField @bind-Date="docDate" AriaLabel="Posting date" />
+                    </label>
+
+                    <label class="swo-field swo-field-wide">
+                        <span class="swo-label">Remarks <span class="swo-optional">optional</span></span>
+                        <input class="swo-input" type="text" maxlength="500" @bind="remarks"
+                               placeholder="Anything the office should know" />
+                    </label>
+                </div>
+
+                @if (reasonsRecordedInSap == false)
+                {
+                    <p class="swo-note">
+                        This SAP company keeps no reason field on its goods issues, so the reason is
+                        recorded here and in the document's comments rather than in a SAP field.
+                    </p>
+                }
+
+                @* ── Line editor ───────────────────────────────────────────── *@
+                <div class="swo-add">
+                    <label class="swo-field swo-field-wide">
+                        <span class="swo-label">Item</span>
+                        <NocturnePicker Class="npick-block" Options="ItemOptions"
+                                        Value="draftItemCode"
+                                        ValueChanged="@(code => OnDraftItemChangedAsync(code))"
+                                        Loading="isLoadingItems"
+                                        Placeholder="@(string.IsNullOrEmpty(warehouseCode) ? "Choose a warehouse first" : "Search by code or name")"
+                                        Disabled="@string.IsNullOrEmpty(warehouseCode)"
+                                        AriaLabel="Item to write off" />
+                    </label>
+
+                    @if (draftNeedsBatch)
+                    {
+                        <label class="swo-field">
+                            <span class="swo-label">Batch</span>
+                            <NocturneSelect Class="nsel-block" TValue="string"
+                                            Options="BatchOptions" @bind-Value="draftBatchNumber"
+                                            Disabled="isLoadingBatches"
+                                            Placeholder="@(isLoadingBatches ? "Reading batches…" : "Choose a batch")"
+                                            EmptyText="No batch here holds stock"
+                                            AriaLabel="Batch the units come out of" />
+                        </label>
+                    }
+
+                    <label class="swo-field swo-field-sm">
+                        <span class="swo-label">Quantity</span>
+                        <input class="swo-input swo-input-num" type="number" step="0.001" min="0"
+                               @bind="draftQuantity" aria-label="Quantity to write off" />
+                    </label>
+
+                    <button type="button" class="swo-btn swo-btn-ghost swo-add-btn"
+                            disabled="@(!CanAddLine)" @onclick="AddLine">
+                        Add line
+                    </button>
+                </div>
+
+                @if (draft.Count == 0)
+                {
+                    <p class="swo-empty">No lines yet. Add what you counted, one row per item and batch.</p>
+                }
+                else
+                {
+                    <table class="swo-lines">
+                        <thead>
+                            <tr>
+                                <th scope="col">Item</th>
+                                <th scope="col">Batch</th>
+                                <th scope="col" class="swo-num">Quantity</th>
+                                <th scope="col"><span class="swo-sr">Remove</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in draft)
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="swo-item-code">@line.ItemCode</span>
+                                        @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                                        {
+                                            <span class="swo-item-name">@line.ItemDescription</span>
+                                        }
+                                    </td>
+                                    <td>@(line.BatchNumber ?? "—")</td>
+                                    <td class="swo-num">@line.Quantity.ToString("0.###")</td>
+                                    <td class="swo-num">
+                                        <button type="button" class="swo-icon-btn"
+                                                aria-label="@($"Remove {line.ItemCode}")"
+                                                @onclick="() => RemoveLine(line)">
+                                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                      stroke-width="1.8" stroke-linecap="round" />
+                                            </svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                <div class="swo-bench-foot">
+                    <p class="swo-total">
+                        <span class="swo-total-n">@draft.Sum(line => line.Quantity).ToString("0.###")</span>
+                        <span class="swo-total-l">unit@(draft.Sum(line => line.Quantity) == 1 ? "" : "s") over @draft.Count line@(draft.Count == 1 ? "" : "s")</span>
+                    </p>
+                    <button type="button" class="swo-btn swo-btn-primary"
+                            disabled="@(!CanPost)" @onclick="PostAsync">
+                        @(isPosting ? "Writing off…" : "Write off in SAP")
+                    </button>
+                </div>
+            }
+        </section>
+    </div>
+</div>

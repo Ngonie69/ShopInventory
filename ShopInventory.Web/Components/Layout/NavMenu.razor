@@ -209,6 +209,21 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
+                        @* Counted stock issued out of a warehouse in SAP. It sits in Inventory rather
+                           than beside Market Breakages because it serves any warehouse — expired shop
+                           stock and shrinkage as much as what a van brought back. Narrower roles than
+                           breakages: the depot counts what came back, but deciding it is worth nothing
+                           is not the depot's call. The API gates it on stock.writeoffs.post. *@
+                        <AuthorizeView Roles="@UserRoles.StockWriteOffRoles" Context="stockWriteOffCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/stock-write-offs" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-trash" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Stock Write-offs</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                     </NavSection>
                 </Authorized>
             </AuthorizeView>

@@ -92,6 +92,7 @@ Examples:
   - [Credit Note Approvals (SAP)](#50-credit-note-approvals-sap)
   - [Shops](#51-shops)
   - [Market Breakages](#52-market-breakages)
+  - [Stock Write-offs](#53-stock-write-offs)
 - [DTOs Reference](#dtos-reference)
 
 ---
@@ -4666,6 +4667,66 @@ mid-transfer. From the claim on the request's token is dropped, so a closed tab 
 `lastError`, and the office may correct the count on the retry. A SAP timeout is recorded the same way
 but says the transfer may exist — check SAP before confirming again. A report read back as
 `Transferring` was stranded mid-post; confirming finishes it once the lock has expired.
+
+
+---
+
+### 53. Stock Write-offs
+
+**Base route:** `/api/stock-write-offs`  
+**Auth:** Bearer + `stock.writeoffs.view` to read, `stock.writeoffs.post` to write anything off
+
+Counted stock issued out of a warehouse as a SAP **goods issue** (`InventoryGenExits`) — the one
+document that takes stock off SAP's books with no business partner on the other side of it. Every
+other path here either sells stock, buys it, or moves it between warehouses, so a warehouse that only
+ever receives (the returns warehouse market breakages transfer into) had no way to be drained.
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|-----------|-------------|
+| GET | `/api/stock-write-offs` | `stock.writeoffs.view` | Write-offs newest first: `status` `Pending`, `Posting`, `Posted`, `PostFailed`, `Cancelled` or empty for all; `warehouseCode`; `page` 1, `pageSize` 25 (max 200). `statusCounts` holds every status, filters aside |
+| GET | `/api/stock-write-offs/reasons` | `stock.writeoffs.view` | The reasons a write-off may carry, and `recordedInSap` — see **Where the reason comes from** below |
+| GET | `/api/stock-write-offs/{id}` | `stock.writeoffs.view` | One write-off: its lines with batch or serial, who raised it, the goods issue's `sapDocNum`, `lastError` |
+| POST | `/api/stock-write-offs` | `stock.writeoffs.post` | `{ "warehouseCode": "RETURNS", "reason": "Breakage", "remarks": "…", "docDate": "2026-09-20", "clientRequestId": "…", "lines": [{ "itemCode": "…", "quantity": 4, "batchNumber": "B-0099" }] }`. `201` with the posted write-off, or `200` when a resend replays one already posted |
+
+**A line is one thing counted.** An item, and the batch it came out of where SAP manages the item that
+way. Five of one batch and three of another are two lines, because that is how they were counted and
+how SAP records them. A serial-managed line names one serial number and is one unit.
+
+**A batch-managed line must name its batch.** SAP refuses the *whole document* when one does not, so
+nineteen good lines are lost with the twentieth. The API refuses such a line before anything is sent.
+
+**SAP decides what the write-off is worth.** No `AccountCode` and no price are sent, so SAP's own item
+and warehouse G/L determination charges the issue and values it at the item's cost — exactly as it
+would for a goods issue keyed into B1 by hand. There is no `CardCode`: it is not a business-partner
+document.
+
+**Where the reason comes from.** A user field belongs to a table in Business One, so whether a reason
+can be recorded in SAP at all depends on whether this company database defines one on the goods-issue
+line table (`IGE1`). Where it does, `GET /reasons` returns SAP's own valid values and `recordedInSap`
+is true — SAP rejects any value its field does not carry, so the picker and the payload must come from
+the same place. Where it does not, the configured list (`StockWriteOffs:Reasons`) is offered,
+`recordedInSap` is false, and the reason is kept on the local record and in the document's `Comments`.
+
+**One goods issue per write-off.** `clientRequestId` (or the `Idempotency-Key` header) identifies the
+count: resending it returns the write-off already raised rather than issuing the stock twice, and is
+how a failed post is retried. On top of that the post holds a lock keyed on the record alone (scope
+`stock-write-off-post`), so two people posting at once get one goods issue and a
+`409 StockWriteOff.PostInProgress`. The record is claimed as `Posting` in one conditional update before
+SAP is called, and from the claim on the request's token is dropped, so a closed tab cannot strand it.
+A `clientRequestId` another account already used is a `409 StockWriteOff.DuplicateRequest`.
+
+**Stock SAP could not be read is not written off.** Short stock is a
+`StockWriteOff.InsufficientStock`; a warehouse SAP would not answer for is a `StockWriteOff.PostFailed`
+that says so. Unread is not the same as zero, and the difference decides whether stock is destroyed, so
+the check fails closed either way. A SAP timeout leaves `PostFailed` saying the goods issue may exist —
+check SAP before posting again.
+
+**The local ledger is not moved.** A write-off out of a warehouse the daily stock ledger monitors
+leaves that ledger overstating it until `StockLedgerDivergenceJob` corrects it, within the hour. The
+returns warehouse is in neither `DailyStock:MonitoredWarehouses` nor `ReconcileWarehouses`, so a
+write-off out of it needs nothing local at all.
+
+**There is no reversal here.** A posted goods issue is cancelled in B1, or offset with a goods receipt.
 
 
 ---
