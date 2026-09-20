@@ -1085,6 +1085,7 @@ new("GET", "/api/van-sales/replenishment-report", "How well the depots are keepi
 new("GET", "/api/van-sales/route-stops", "The areas each route works, and when"),
 new("GET", "/api/van-sales/routes", "The selling routes"),
 new("GET", "/api/van-sales/stock-report", "What each van carried, sold, and is still riding around with"),
+new("GET", "/api/van-sales/telematics/vehicles", "Get telematics vehicles"),
 new("POST", "/api/van-sales/route-stops", "Add an area to a route's plan"),
 new("DELETE", "/api/van-sales/route-stops/{id}", "Drop an area from a route's plan"),
 new("PUT", "/api/van-sales/route-stops/{id}", "Edit an area on a route's plan"),
@@ -1655,8 +1656,8 @@ Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/DesktopIntegration/credit-notes", "List"),
-new("POST", "/api/DesktopIntegration/credit-notes/{id}/retry-sap", "Retry SAP"),
-new("POST", "/api/DesktopIntegration/credit-notes/{id}/mark-raised", "Mark raised in SAP")
+new("POST", "/api/DesktopIntegration/credit-notes/{id}/mark-raised", "Mark raised in SAP"),
+new("POST", "/api/DesktopIntegration/credit-notes/{id}/retry-sap", "Retry SAP")
 }
 },
 new ApiModule
@@ -1690,6 +1691,22 @@ new("GET", "/api/Shops/{id}", "Get one shop"),
 new("POST", "/api/Shops", "Open a shop"),
 new("PUT", "/api/Shops/{id}", "Change a shop's name, business partner, warehouse or cost centre"),
 new("PUT", "/api/Shops/{id}/active", "Close a shop, or reopen one; refused while operators are assigned")
+}
+},
+new ApiModule
+{
+Name = "Stock Write Off",
+BasePath = "/api/stock-write-offs",
+Description = "4 endpoints under /api/stock-write-offs.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/stock-write-offs", "Get all"),
+new("GET", "/api/stock-write-offs/{id}", "Get by ID"),
+new("GET", "/api/stock-write-offs/reasons", "Get reasons"),
+new("POST", "/api/stock-write-offs", "Create")
 }
 },
 new ApiModule
