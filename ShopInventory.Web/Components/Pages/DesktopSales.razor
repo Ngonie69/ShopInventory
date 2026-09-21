@@ -266,8 +266,8 @@
                         @foreach (var partner in topPartners)
                         {
                             <div class="ops-ds-break-row">
-                                <span class="ops-ds-break-code" title="@(partner.CardName ?? partner.CardCode)">
-                                    @partner.CardCode
+                                <span class="ops-ds-break-name" title="@partner.Title">
+                                    @partner.Label
                                 </span>
                                 <span class="ops-ds-break-track">
                                     <span class="ops-ds-break-fill"

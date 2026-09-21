@@ -4,8 +4,8 @@ using MediatR;
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 
 /// <summary>
-/// A breakdown of till takings over a period: by payment method, day, hour, shop, source, operator and
-/// item.
+/// A breakdown of till takings over a period: by payment method, day, hour, shop, business partner,
+/// source, operator and item.
 /// </summary>
 /// <remarks>
 /// Scoped exactly as the sales list is, and for the same reason. <c>CallerUserId</c> decides whose shops

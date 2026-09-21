@@ -146,6 +146,24 @@ public sealed class DesktopSalesDaySummaryTests : IDisposable
             report.BusinessPartnerSummaries.Single(bp => bp.CardCode == "COR007").TotalAmount);
     }
 
+    /// <summary>
+    /// The card names the customer where the sale did, and falls back to the code where it did not — a
+    /// code still says who, and a blank row would not.
+    /// </summary>
+    [Fact]
+    public void A_customer_on_the_device_is_named_and_falls_back_to_its_code()
+    {
+        var named = new DesktopSalesDaySummary.PartnerValue("CIS006", "  Farm Counter Sales ", 10m);
+        var unnamed = new DesktopSalesDaySummary.PartnerValue("CIS009", null, 5m);
+        var blank = new DesktopSalesDaySummary.PartnerValue("CIS010", "   ", 5m);
+
+        Assert.Equal("Farm Counter Sales", named.Label);
+        Assert.Equal("Farm Counter Sales · CIS006", named.Title);
+        Assert.Equal("CIS009", unnamed.Label);
+        Assert.Equal("CIS009", unnamed.Title);
+        Assert.Equal("CIS010", blank.Label);
+    }
+
     // --- Harness ---
 
     private static int Lane(List<DesktopSalesDaySummary.Lane> lanes, string name) =>

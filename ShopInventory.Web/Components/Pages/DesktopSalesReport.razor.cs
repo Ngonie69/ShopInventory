@@ -18,6 +18,7 @@ public partial class DesktopSalesReport : IDisposable
     private const string PeriodCustom = "custom";
 
     private const string BreakdownShop = "shop";
+    private const string BreakdownPartner = "partner";
     private const string BreakdownOperator = "operator";
     private const string BreakdownSource = "source";
 
@@ -46,6 +47,7 @@ public partial class DesktopSalesReport : IDisposable
     private static readonly (string Key, string Label)[] BreakdownOptions =
     [
         (BreakdownShop, "Shop"),
+        (BreakdownPartner, "Business partner"),
         (BreakdownOperator, "Operator"),
         (BreakdownSource, "Source")
     ];
@@ -557,6 +559,7 @@ public partial class DesktopSalesReport : IDisposable
     {
         var rows = breakdown switch
         {
+            BreakdownPartner => sales.ByBusinessPartner,
             BreakdownOperator => sales.ByOperator,
             BreakdownSource => sales.BySource,
             _ => sales.ByWarehouse
@@ -572,18 +575,24 @@ public partial class DesktopSalesReport : IDisposable
 
     private string BreakdownHeading => breakdown switch
     {
+        BreakdownPartner => "Business partner",
         BreakdownOperator => "Operator",
         BreakdownSource => "Source",
         _ => "Shop"
     };
 
-    /// <summary>A shop by its code, which is what the tills and the sale list call it; anything else by name.</summary>
+    /// <summary>
+    /// A shop by its code, which is what the tills and the sale list call it; a business partner by the
+    /// name its sales carried, with the code beneath; anything else by name.
+    /// </summary>
     private string BreakdownLabel(DesktopSalesBreakdownRow row) =>
         breakdown == BreakdownShop && row.Key != "" ? row.Key : row.Label;
 
     private string? BreakdownSub(DesktopSalesBreakdownRow row) => breakdown switch
     {
         BreakdownShop => WarehouseName(row.Key),
+        // The code whenever it is not the name itself: "POSETA" under "Poseta" is the code SAP is searched by.
+        BreakdownPartner => row.Key != "" && row.Key != row.Label ? row.Key : null,
         BreakdownSource => row.Key != "" && row.Key != row.Label ? row.Key : null,
         _ => row.SalesCount == 0 ? null : $"avg {Money(row.TotalAmount / row.SalesCount)}"
     };

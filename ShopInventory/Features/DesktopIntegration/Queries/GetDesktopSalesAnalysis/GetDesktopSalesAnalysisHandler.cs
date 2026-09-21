@@ -10,7 +10,8 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 
 /// <summary>
-/// Breaks a period's till takings down by how they were paid, and by when, where, who and what.
+/// Breaks a period's till takings down by how they were paid, and by when, where, who sold it, who it
+/// was sold to, and what.
 /// </summary>
 /// <remarks>
 /// A handful of grouped queries rather than one read of every sale. A month across every shop is tens of
@@ -125,9 +126,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         var sales = Filtered(from, to);
 
         // Every breakdown except the hour and the item is a roll-up of this one grouping, so it is read
-        // once. Its rows number days × shops × sources × operators × tenders at most, which stays small.
+        // once. Its rows number days × shops × partners × sources × operators × tenders at most, which
+        // stays small: a counter sells as a handful of partners.
         var cells = (await sales
-                .GroupBy(s => new { s.Currency, s.DocDate, s.WarehouseCode, s.SourceSystem, s.CreatedBy, s.PaymentMethod })
+                .GroupBy(s => new { s.Currency, s.DocDate, s.WarehouseCode, s.SourceSystem, s.CreatedBy, s.PaymentMethod, s.CardCode })
                 .Select(g => new
                 {
                     g.Key.Currency,
@@ -136,6 +138,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     g.Key.SourceSystem,
                     g.Key.CreatedBy,
                     g.Key.PaymentMethod,
+                    g.Key.CardCode,
+                    // One name per cell is enough: a partner's sales all carry the same one, bar a card
+                    // renamed part-way through the period, which the label settles by majority.
+                    CardName = g.Max(s => s.CardName),
                     SalesCount = g.Count(),
                     TotalAmount = g.Sum(s => s.TotalAmount),
                     VatAmount = g.Sum(s => s.VatAmount),
@@ -149,6 +155,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 c.SourceSystem ?? string.Empty,
                 c.CreatedBy ?? string.Empty,
                 TenderTypes.ReportingName(c.PaymentMethod),
+                c.CardCode?.Trim() ?? string.Empty,
+                string.IsNullOrWhiteSpace(c.CardName) ? null : c.CardName.Trim(),
                 c.SalesCount,
                 c.TotalAmount,
                 c.VatAmount,
@@ -295,6 +303,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount, Share(i.NetAmount, lineValue)))
             .ToList();
 
+        var partnerNames = PartnerNames(cells);
+
         return new DesktopSalesCurrencyAnalysis(
             currency,
             salesCount,
@@ -309,6 +319,7 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             byDay,
             byHour,
             Breakdown(cells, c => c.WarehouseCode, code => string.IsNullOrEmpty(code) ? "Not recorded" : code, total, paymentMethods),
+            Breakdown(cells, c => c.CardCode, code => PartnerLabel(code, partnerNames), total, paymentMethods),
             Breakdown(cells, c => c.SourceSystem, SourceLabel, total, paymentMethods),
             Breakdown(cells, c => c.CreatedBy, id => OperatorLabel(id, operators), total, paymentMethods),
             topItems,
@@ -421,6 +432,30 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         return SaleOperatorNames.Label(createdBy, operators) ?? createdBy;
     }
 
+    /// <summary>
+    /// What each business partner's sales called it: the name most of them carried, so a card renamed
+    /// part-way through the period reads as one partner under one name rather than two.
+    /// </summary>
+    private static Dictionary<string, string> PartnerNames(IEnumerable<Cell> cells) =>
+        cells
+            .Where(c => c.CardCode.Length > 0 && c.CardName is not null)
+            .GroupBy(c => c.CardCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                partner => partner.Key,
+                partner => partner
+                    .GroupBy(c => c.CardName!, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(name => name.Sum(c => c.SalesCount))
+                    .ThenBy(name => name.Key, StringComparer.OrdinalIgnoreCase)
+                    .First().Key,
+                StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A business partner by its name, or by its code where none of its sales carried one — the code
+    /// still says who, where a blank row would not.
+    /// </summary>
+    private static string PartnerLabel(string cardCode, IReadOnlyDictionary<string, string> names) =>
+        cardCode.Length == 0 ? "Not recorded" : names.GetValueOrDefault(cardCode, cardCode);
+
     private static string SourceLabel(string source) => source switch
     {
         SaleSourceSystems.ShopTill => "Shop till",
@@ -479,6 +514,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         string SourceSystem,
         string CreatedBy,
         string PaymentMethod,
+        string CardCode,
+        string? CardName,
         int SalesCount,
         decimal TotalAmount,
         decimal VatAmount,

@@ -22,6 +22,10 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     private static readonly DateTime Day1 = new(2026, 9, 1);
     private static readonly DateTime Day2 = new(2026, 9, 2);
 
+    private const string FarmPartner = "FARM-BP";
+    private const string FarmPartnerName = "Farm Counter Sales";
+    private const string MachipisaPartner = "MACH-BP";
+
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
 
@@ -96,10 +100,12 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
                 lines: [("MILK", 1, 4.35m), ("BREAD", 3, 8.70m)]),
             Sale("F-SWIPE-1", TenderTypes.Swipe, 30m, Day1, utcHour: 10, paymentReference: "SLIP-9",
                 lines: [("BREAD", 10, 26.10m)]),
+            // The same partner under no name at all, and under an older spelling of it: neither is a
+            // second partner.
             Sale("F-ECO-1", TenderTypes.Ecocash, 20m, Day2, utcHour: 8, paymentReference: "MP240902.0850.A1",
-                lines: [("CHEESE", 1, 17.40m)]),
+                cardName: null, lines: [("CHEESE", 1, 17.40m)]),
             Sale("F-ECO-2", "ecocash", 5m, Day2, utcHour: 12,
-                lines: [("MILK", 1, 4.35m)]),
+                cardName: "Farm Counter (old card name)", lines: [("MILK", 1, 4.35m)]),
             Sale("F-NONE", null, 7m, Day1, utcHour: 12, paid: 0m),
             Sale("F-LEGACY", "transfer", 3m, Day1, utcHour: 12, source: SaleSourceSystems.LegacyDesktop),
 
@@ -109,8 +115,9 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
             // A receipt carrier for an online van sale already counted as its SAP invoice.
             Sale("VAN-ONLINE", TenderTypes.Cash, 999m, Day1, utcHour: 12, source: SaleSourceSystems.VanSalesOnline),
 
-            // Another shop, rung up by another operator.
-            Sale("M-CASH", TenderTypes.Cash, 50m, Day1, utcHour: 12, warehouse: "CORMACH2", createdBy: _otherOperatorId),
+            // Another shop, rung up by another operator, as a partner whose sales carry no name.
+            Sale("M-CASH", TenderTypes.Cash, 50m, Day1, utcHour: 12, warehouse: "CORMACH2", createdBy: _otherOperatorId,
+                cardCode: MachipisaPartner, cardName: null),
 
             // Outside the period.
             Sale("F-OUT", TenderTypes.Cash, 77m, new DateTime(2026, 8, 31), utcHour: 12));
@@ -387,6 +394,36 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     }
 
     [Fact]
+    public async Task Business_partners_are_broken_down_by_the_name_their_sales_carried()
+    {
+        var result = await AnalyseAsAdmin();
+        var usd = Dollars(result);
+
+        Assert.Equal(new[] { FarmPartner, MachipisaPartner }, usd.ByBusinessPartner.Select(p => p.Key));
+
+        // Named, and by the name most of its sales carried: one carried no name and one an older
+        // spelling, and neither splits the partner into two rows or renames it.
+        var farm = usd.ByBusinessPartner[0];
+        Assert.Equal(FarmPartnerName, farm.Label);
+        Assert.Equal(7, farm.SalesCount);
+        Assert.Equal(90m, farm.TotalAmount);
+        Assert.Equal(64.3m, farm.ShareOfValuePercent);
+        Assert.Equal(25m, farm.ByPaymentMethod.Single(p => p.PaymentMethod == TenderTypes.Cash).TotalAmount);
+        Assert.Equal(30m, farm.ByPaymentMethod.Single(p => p.PaymentMethod == TenderTypes.Swipe).TotalAmount);
+        Assert.Equal(25m, farm.ByPaymentMethod.Single(p => p.PaymentMethod == TenderTypes.Ecocash).TotalAmount);
+
+        // A partner none of whose sales carried a name is still listed, by its code.
+        var machipisa = usd.ByBusinessPartner[1];
+        Assert.Equal(MachipisaPartner, machipisa.Label);
+        Assert.Equal(1, machipisa.SalesCount);
+        Assert.Equal(50m, machipisa.TotalAmount);
+
+        // Its ZWG sales are its own row in the ZWG section, never added to the dollars.
+        var zwg = result.Value.Currencies.Single(c => c.Currency == "ZWG").ByBusinessPartner.Single();
+        Assert.Equal((FarmPartnerName, 100m), (zwg.Label, zwg.TotalAmount));
+    }
+
+    [Fact]
     public async Task Best_sellers_rank_by_net_value_and_count_sales_rather_than_lines()
     {
         var usd = Dollars(await AnalyseAsAdmin());
@@ -447,11 +484,14 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
         string warehouse = "KEFSHOP",
         string source = SaleSourceSystems.ShopTill,
         Guid? createdBy = null,
+        string cardCode = FarmPartner,
+        string? cardName = FarmPartnerName,
         (string Code, int Quantity, decimal Net)[]? lines = null) => new()
         {
             ExternalReferenceId = externalReference,
             SourceSystem = source,
-            CardCode = "BP-1",
+            CardCode = cardCode,
+            CardName = cardName,
             WarehouseCode = warehouse,
             DocDate = day,
             TotalAmount = total,

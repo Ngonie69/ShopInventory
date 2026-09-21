@@ -21,7 +21,7 @@ public sealed class DesktopSalesAnalysisExportTests
         using var workbook = Export(Report());
 
         Assert.Equal(
-            new[] { "Payment Methods", "By Day", "By Shop", "By Operator", "By Source", "By Hour", "Best Sellers" },
+            new[] { "Payment Methods", "By Day", "By Shop", "By Business Partner", "By Operator", "By Source", "By Hour", "Best Sellers" },
             workbook.Worksheets.Select(sheet => sheet.Name));
     }
 
@@ -81,7 +81,7 @@ public sealed class DesktopSalesAnalysisExportTests
 
         using var workbook = Export(report);
 
-        foreach (var sheetName in new[] { "By Day", "By Shop", "By Hour" })
+        foreach (var sheetName in new[] { "By Day", "By Shop", "By Business Partner", "By Hour" })
         {
             var sheet = workbook.Worksheet(sheetName);
             var header = RowWhere(sheet, column: 1, "Currency");
@@ -119,7 +119,7 @@ public sealed class DesktopSalesAnalysisExportTests
 
         using var workbook = Export(report);
 
-        Assert.Equal(7, workbook.Worksheets.Count);
+        Assert.Equal(8, workbook.Worksheets.Count);
         foreach (var sheet in workbook.Worksheets)
         {
             Assert.Contains(sheet.CellsUsed(), cell => cell.GetString().StartsWith("No ", StringComparison.Ordinal));
@@ -138,6 +138,42 @@ public sealed class DesktopSalesAnalysisExportTests
         {
             Assert.Contains(sheet.CellsUsed(), cell => cell.GetString().Contains("Paid by EcoCash only", StringComparison.Ordinal));
         }
+    }
+
+    [Fact]
+    public void The_business_partner_sheet_names_each_partner_and_states_its_code_beside_it()
+    {
+        using var workbook = Export(Report());
+        var sheet = workbook.Worksheet("By Business Partner");
+
+        var header = RowWhere(sheet, column: 1, "Currency");
+        var codeColumn = ColumnWhere(sheet, header, "Card Code");
+        var salesColumn = ColumnWhere(sheet, header, "Sales");
+        var swipeColumn = ColumnWhere(sheet, header, "Swipe");
+        var takingsColumn = ColumnWhere(sheet, header, "Takings");
+        var shareColumn = ColumnWhere(sheet, header, "Share of Takings");
+
+        // The name is what the reader knows the customer by; the code is what SAP is searched by.
+        var farm = RowWhere(sheet, column: 2, "Farm Counter Sales");
+        Assert.Equal("CIS006", sheet.Cell(farm, codeColumn).GetString());
+        Assert.Equal(10, sheet.Cell(farm, salesColumn).GetValue<int>());
+        Assert.Equal(132.15m, sheet.Cell(farm, swipeColumn).GetValue<decimal>());
+        Assert.Equal(300.70m, sheet.Cell(farm, takingsColumn).GetValue<decimal>());
+        Assert.Equal(0.974m, sheet.Cell(farm, shareColumn).GetValue<decimal>());
+
+        // A partner whose sales carried no name is listed under its code, not dropped.
+        var walkIn = RowWhere(sheet, column: 2, "CIS009");
+        Assert.Equal("CIS009", sheet.Cell(walkIn, codeColumn).GetString());
+        Assert.Equal(8.00m, sheet.Cell(walkIn, takingsColumn).GetValue<decimal>());
+
+        // The strip names the top partner rather than coding it.
+        var topLabel = sheet.CellsUsed().First(cell => cell.GetString() == "Top Partner");
+        Assert.Equal("USD Farm Counter Sales", sheet.Cell(topLabel.Address.RowNumber - 1, topLabel.Address.ColumnNumber).GetString());
+
+        // The sheets without a code column still start their counts in the third column.
+        var shopSheet = workbook.Worksheet("By Shop");
+        var shopHeader = RowWhere(shopSheet, column: 1, "Currency");
+        Assert.Equal(3, ColumnWhere(shopSheet, shopHeader, "Sales"));
     }
 
     // ---- Harness ----------------------------------------------------------------------------------
@@ -195,6 +231,11 @@ public sealed class DesktopSalesAnalysisExportTests
                     ByWarehouse =
                     [
                         new() { Key = "KEFSHOP", Label = "KEFSHOP", SalesCount = 11, TotalAmount = 308.70m, ShareOfValuePercent = 100m, ByPaymentMethod = Split(102.55m, 132.15m, 66.00m, 8.00m) },
+                    ],
+                    ByBusinessPartner =
+                    [
+                        new() { Key = "CIS006", Label = "Farm Counter Sales", SalesCount = 10, TotalAmount = 300.70m, ShareOfValuePercent = 97.4m, ByPaymentMethod = Split(102.55m, 132.15m, 66.00m, 0m) },
+                        new() { Key = "CIS009", Label = "CIS009", SalesCount = 1, TotalAmount = 8.00m, ShareOfValuePercent = 2.6m, ByPaymentMethod = Split(0m, 0m, 0m, 8.00m) },
                     ],
                     TopItems = [new() { ItemCode = "MILK-1L", ItemDescription = "Full cream milk 1L", Quantity = 20, NetAmount = 90m, SalesCount = 4, ShareOfNetPercent = 33.7m }],
                 },

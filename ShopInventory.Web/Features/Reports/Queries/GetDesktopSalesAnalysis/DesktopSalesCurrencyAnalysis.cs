@@ -32,6 +32,9 @@ public sealed class DesktopSalesCurrencyAnalysis
 
     public List<DesktopSalesBreakdownRow> ByWarehouse { get; set; } = [];
 
+    /// <summary>Each business partner the sales were made as, keyed by CardCode and labelled by its name.</summary>
+    public List<DesktopSalesBreakdownRow> ByBusinessPartner { get; set; } = [];
+
     public List<DesktopSalesBreakdownRow> BySource { get; set; } = [];
 
     public List<DesktopSalesBreakdownRow> ByOperator { get; set; } = [];

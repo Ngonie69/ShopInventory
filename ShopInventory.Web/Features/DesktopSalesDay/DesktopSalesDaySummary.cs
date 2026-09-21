@@ -24,7 +24,14 @@ public static class DesktopSalesDaySummary
     public sealed record Lane(string Name, int Count, string Family);
 
     /// <summary>A customer's share of what is still on the device.</summary>
-    public sealed record PartnerValue(string CardCode, string? CardName, decimal TotalAmount);
+    public sealed record PartnerValue(string CardCode, string? CardName, decimal TotalAmount)
+    {
+        /// <summary>The customer by name where its sales carried one, else by code.</summary>
+        public string Label => string.IsNullOrWhiteSpace(CardName) ? CardCode : CardName.Trim();
+
+        /// <summary>Both, for the row's tooltip: the name it shows and the code SAP knows it by.</summary>
+        public string Title => Label == CardCode ? CardCode : $"{Label} · {CardCode}";
+    }
 
     /// <summary>
     /// The four lanes, all counting <i>sales</i>, adding up to <see cref="EndOfDayReportDto.TotalSalesCount"/>.
