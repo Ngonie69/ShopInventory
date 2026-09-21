@@ -2383,20 +2383,14 @@ Then redeploy with:
                     $shell = [powershell]::Create()
                     $shell.Runspace = $runspace
                     [void]$shell.AddScript({
-                            while (-not $shared.Stop) {
-                                $answered = $false
+                            function Test-PublicPort {
+                                param([int]$TimeoutMilliseconds)
 
                                 try {
                                     $request = [System.Net.HttpWebRequest]::Create($probeUrl)
                                     $request.Method = 'GET'
-                                    # Short on purpose. A probe that straddles the switch can connect
-                                    # into a listen backlog whose socket is then closed and wait for a
-                                    # response that is never coming; at two seconds that one probe
-                                    # blinded the measurement for longer than the outage it was there
-                                    # to see. /health/live on localhost answers in single-figure
-                                    # milliseconds.
-                                    $request.Timeout = 300
-                                    $request.ReadWriteTimeout = 300
+                                    $request.Timeout = $TimeoutMilliseconds
+                                    $request.ReadWriteTimeout = $TimeoutMilliseconds
                                     # No proxy lookup: the target is localhost, and resolving the
                                     # system proxy on every call is latency inside the sample.
                                     $request.Proxy = $null
@@ -2413,12 +2407,33 @@ Then redeploy with:
                                     # exists to measure into a clean bill of health.
                                     $answered = ([int]$response.StatusCode -lt 400)
                                     $response.Close()
+                                    return $answered
                                 }
                                 catch {
                                     # No connection, no response in time, or a status HTTP.sys itself
                                     # returned. None of them is the public port serving the shops.
-                                    $answered = $false
+                                    return $false
                                 }
+                            }
+
+                            # Not a sample. The first request a runspace makes pays for compiling this
+                            # script and for the networking stack's first use, and none of it is the
+                            # port. Measured 21 September 2026 in Windows PowerShell 5.1 on a loaded
+                            # machine, after an Invoke-WebRequest in the same process as
+                            # Wait-ForHealthyEndpoint leaves it: the first request took ~200ms and every
+                            # later one 4-23ms. At 300ms that first sample is one busy box away from a
+                            # failure against a healthy port, and Get-LongestOutage would report it as
+                            # an outage that ended before the switch began. So one request goes first
+                            # with room to spare, and whatever it finds is discarded.
+                            [void](Test-PublicPort -TimeoutMilliseconds 5000)
+
+                            while (-not $shared.Stop) {
+                                # Short on purpose. A probe that straddles the switch can connect into
+                                # a listen backlog whose socket is then closed and wait for a response
+                                # that is never coming; at two seconds that one probe blinded the
+                                # measurement for longer than the outage it was there to see.
+                                # /health/live on localhost answers in single-figure milliseconds.
+                                $answered = Test-PublicPort -TimeoutMilliseconds 300
 
                                 [void]$shared.Samples.Add([pscustomobject]@{ At = [DateTime]::UtcNow; Ok = $answered })
                                 Start-Sleep -Milliseconds $probeInterval
@@ -2437,7 +2452,9 @@ Then redeploy with:
                     # BeginInvoke queues the loop; it does not run it. Returning before the first probe
                     # has been taken would let the switch happen while the runspace was still waiting
                     # for a thread, and the cutover would then report a clean handover it never
-                    # watched. Saying nothing is fine. Saying zero when nobody looked is not.
+                    # watched. Saying nothing is fine. Saying zero when nobody looked is not. The
+                    # warm-up request comes first and is not a sample, so this waits for it too; ten
+                    # seconds covers its five and the first real probe after it.
                     $deadline = (Get-Date).AddSeconds(10)
                     while ($shared.Samples.Count -eq 0 -and (Get-Date) -lt $deadline) {
                         Start-Sleep -Milliseconds 5

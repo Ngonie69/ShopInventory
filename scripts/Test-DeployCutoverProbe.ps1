@@ -165,15 +165,23 @@ function Get-FreeLoopbackPort {
 # answering, with the status HTTP.sys itself returns when the port is still bound but no site owns
 # the prefix - which is what the 14 September 2026 till log recorded, and the case a probe is most
 # likely to get wrong, because a 404 arrives looking exactly like a healthy reply.
+#
+# FirstResponseDelayMilliseconds holds back the reply to the first connection only, which stands in
+# for a first request that is slow for reasons that have nothing to do with the port. Served counts
+# the connections it has taken.
 function Start-TinyHttpServer {
-    param([int]$Port)
+    param(
+        [int]$Port,
+        [int]$FirstResponseDelayMilliseconds = 0
+    )
 
-    $shared = [hashtable]::Synchronized(@{ Stop = $false; Listening = $false; Refusing = $false; StatusLine = '200 OK' })
+    $shared = [hashtable]::Synchronized(@{ Stop = $false; Listening = $false; Refusing = $false; StatusLine = '200 OK'; Served = 0 })
 
     $runspace = [runspacefactory]::CreateRunspace()
     $runspace.Open()
     $runspace.SessionStateProxy.SetVariable('shared', $shared)
     $runspace.SessionStateProxy.SetVariable('serverPort', $Port)
+    $runspace.SessionStateProxy.SetVariable('firstResponseDelay', $FirstResponseDelayMilliseconds)
 
     $shell = [powershell]::Create()
     $shell.Runspace = $runspace
@@ -190,7 +198,10 @@ function Start-TinyHttpServer {
                     }
 
                     $client = $listener.AcceptTcpClient()
+                    $shared.Served++
                     try {
+                        if ($shared.Served -eq 1 -and $firstResponseDelay -gt 0) { Start-Sleep -Milliseconds $firstResponseDelay }
+
                         # Taken and dropped, with nothing written back.
                         if ($shared.Refusing) { continue }
 
@@ -323,6 +334,42 @@ Check "A 404 from a port that is still bound counts as an outage, not as an answ
     Assert ($outage.Failures -ge 1) "The probe counted 404s as answers, so an outage like 14 September would read as a clean cutover."
     Assert ($outage.LongestOutageMs -ge 300) "Reported $($outage.LongestOutageMs)ms for a 600ms run of 404s."
     Assert ($outage.LongestOutageMs -le 3000) "Reported $($outage.LongestOutageMs)ms for a 600ms run of 404s."
+}
+
+Check "A slow first request is the probe's own warm-up, not a sample" {
+    # The first request a runspace makes pays for JIT and the networking stack's first use. Measured on
+    # loaded machines: 3.6 seconds in a fresh pwsh, ~200ms in Windows PowerShell 5.1 set up the way a
+    # deploy leaves it, and 4-23ms for every request after it. Counted against the probe's 300ms timeout it is a failure against a
+    # healthy port, and it would be reported as an outage that ended before the switch began. How
+    # slow that request is depends on the machine, so a server that holds back its first reply for
+    # well past 300ms stands in for it here. Only a probe that warms up first and does not count
+    # the warm-up gets through this with no failures.
+    $port = Get-FreeLoopbackPort
+    $server = Start-TinyHttpServer -Port $port -FirstResponseDelayMilliseconds 1500
+
+    try {
+        $probe = Start-PublicPortProbe -Url "http://127.0.0.1:$port/health/live" -IntervalMilliseconds 40
+        Assert ($null -ne $probe) "The probe did not start."
+
+        # Read before anything else can move them: what the probe had done when it handed back control.
+        $servedAtReturn = $server.Shared.Served
+        $samplesAtReturn = $probe.Shared.Samples.Count
+
+        Start-Sleep -Milliseconds 400
+        $firstSample = $probe.Shared.Samples[0]
+        $outage = Stop-PublicPortProbe -Probe $probe
+    }
+    finally {
+        Stop-TinyHttpServer -Server $server
+    }
+
+    # Still returns only once a real sample exists - the warm-up is not allowed to stand in for one.
+    Assert ($samplesAtReturn -ge 1) "The probe returned before its first real sample, so it could miss the start of a cutover."
+    Assert ($servedAtReturn -ge 2) "The server had taken $servedAtReturn connection(s) when the probe returned: there was no warm-up request ahead of the first sample."
+    Assert ($firstSample.Ok) "The first sample failed against a port that was only slow to answer once: the warm-up was counted, or never happened."
+    Assert ($null -ne $outage) "The probe collected no samples."
+    Assert ($outage.Failures -eq 0) "$($outage.Failures) of $($outage.Probes) probes failed against a port that never stopped."
+    Assert ($outage.LongestOutageMs -eq 0) "Reported a phantom outage of $($outage.LongestOutageMs)ms before any switch."
 }
 
 Write-Host ""
