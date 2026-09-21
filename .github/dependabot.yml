@@ -25,6 +25,13 @@ updates:
       - dependency-name: "SixLabors.ImageSharp"
         update-types:
           - "version-update:semver-major"
+      # Quartz 4 is a breaking major: IJob.Execute gains a CancellationToken,
+      # Quartz.Impl.Matchers and IServiceCollectionQuartzConfigurator move, and
+      # every job plus the clustered ADO store config has to be migrated. Take
+      # that on as its own change, not inside a weekly grouped bump.
+      - dependency-name: "Quartz*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -39,3 +46,10 @@ updates:
       - "security"
     commit-message:
       prefix: "ci"
+    groups:
+      # init and analyze must run the same CodeQL version ("Loaded a
+      # configuration file for version X, but running version Y"), so they
+      # have to move in one PR.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
