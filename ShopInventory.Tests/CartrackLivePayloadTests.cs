@@ -139,6 +139,43 @@ public class CartrackLivePayloadTests
     }
 
     [Fact]
+    public async Task A_fill_is_read_from_the_fill_prefixed_fields_the_server_sends()
+    {
+        // Captured 2026-09-21: GET /fuel/fills/AFQ9644 for 14 Sep. The spec's fuel_filled /
+        // event_ts / odometer / location bind to nothing, and every fill read as zero litres.
+        // The same fill is listed twice, verbatim — kept here because de-duplicating it is the
+        // caller's job and this body is what the caller is handed. Chassis number redacted.
+        const string body = """
+        {"data":[{"vehicle_id":32173439,"registration":"AFQ9644","chassis_number":"REDACTED","vehicle_description":null,
+          "fill_amount_litres":121.90123760313844,"fill_timestamp":"2026-09-14 08:14:18+02","fill_odometer":386634593,
+          "fill_location":"Prospect, Harare, Harare, Zimbabwe","latitude":-17.882225,"longitude":31.069748,"accurate":true},
+          {"vehicle_id":32173439,"registration":"AFQ9644","chassis_number":"REDACTED","vehicle_description":null,
+          "fill_amount_litres":121.90123760313844,"fill_timestamp":"2026-09-14 08:14:18+02","fill_odometer":386634593,
+          "fill_location":"Prospect, Harare, Harare, Zimbabwe","latitude":-17.882225,"longitude":31.069748,"accurate":true}],
+         "meta":{"from":1,"to":2,"current_page":1,"per_page":50,"last_page":1,"total":2,"calibrated":true}}
+        """;
+
+        var (client, _) = Build(body);
+
+        var fills = await client.GetFuelFillsAsync(
+            "AFQ9644",
+            new DateTime(2026, 9, 13, 22, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 9, 14, 22, 0, 0, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.Equal(2, fills.Count);
+
+        var fill = fills[0];
+        Assert.Equal(121.90123760313844m, fill.Litres);
+        Assert.Equal(386634593L, fill.OdometerMetres);
+        Assert.Equal("Prospect, Harare, Harare, Zimbabwe", fill.Location);
+        Assert.True(fill.IsAccurate);
+        Assert.Equal(
+            AuditService.FromCAT(new DateTime(2026, 9, 14, 8, 14, 18)),
+            CartrackTime.ToUtc(fill.EventTs));
+    }
+
+    [Fact]
     public async Task A_temperature_reading_keeps_cartracks_own_misspelling()
     {
         // Captured: GET /topics/vehicles/temperature?filter[registration]=AFQ9644. Only temp1 is

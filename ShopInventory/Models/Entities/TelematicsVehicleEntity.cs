@@ -15,15 +15,17 @@ namespace ShopInventory.Models.Entities;
 /// fuel sensor of any kind, so skipping them removes most of the rollup's per-vehicle cost.
 /// </para>
 /// <para>
-/// Everything here except <see cref="HasTemperatureProbe"/> and
-/// <see cref="LastTemperatureSeenAtUtc"/> is owned by the provider and overwritten on every sync.
-/// Those two are inferred from readings actually arriving, because the fleet API publishes
-/// capability flags for fuel and electric and says nothing whatever about the four temperature
-/// channels — "has a probe" can only honestly mean "has reported one".
+/// Four columns are <b>not</b> owned by the provider and must survive every sync:
+/// <see cref="HasTemperatureProbe"/> and <see cref="LastTemperatureSeenAtUtc"/>, which are
+/// inferred from readings actually arriving because the fleet API publishes capability flags for
+/// fuel and electric and says nothing whatever about the four temperature channels; and
+/// <see cref="BusinessPartnerCode"/> with <see cref="BusinessPartnerName"/>, which the provider
+/// could not know about at all. Everything else is overwritten on every sync.
 /// </para>
 /// </remarks>
 [Index(nameof(RegistrationNormalized), IsUnique = true)]
 [Index(nameof(CartrackVehicleId))]
+[Index(nameof(BusinessPartnerCode))]
 public class TelematicsVehicleEntity
 {
     [Key]
@@ -80,6 +82,30 @@ public class TelematicsVehicleEntity
     /// <summary>Whether any fuel figure is worth asking for at all.</summary>
     [NotMapped]
     public bool HasAnyFuelSensor => HasFuelCanbusConsumed || HasFuelCanbusLevel || HasFuelAnalogLevel;
+
+    /// <summary>
+    /// The van sales business partner this vehicle runs for, or null when it is not a van.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Admin-owned, like the two temperature columns below, and for the same reason: the
+    /// provider knows nothing about this company's selling accounts, so a sync must never
+    /// overwrite it.
+    /// </para>
+    /// <para>
+    /// This is a second, more direct association than the route's <c>TruckRegNo</c>. A route says
+    /// which truck normally runs a round; this says which selling account the truck's takings and
+    /// stock belong to, which is what lets a day's kilometres be read beside the money that van
+    /// moved. Matching <c>User.AssignedBusinessPartnerCode</c> at 100 characters — the same code,
+    /// so the same width.
+    /// </para>
+    /// </remarks>
+    [MaxLength(100)]
+    public string? BusinessPartnerCode { get; set; }
+
+    /// <summary>The partner's name at the time it was linked, so the fleet list reads without a join.</summary>
+    [MaxLength(200)]
+    public string? BusinessPartnerName { get; set; }
 
     /// <summary>
     /// Whether a temperature reading has ever arrived. Inferred, never told by the API — see the

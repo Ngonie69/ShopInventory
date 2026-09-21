@@ -422,6 +422,15 @@
                                     </span>
                                     <span class="snav-text">Routes</span>
                                 </NavLink>
+                                @* Beside Routes rather than with the reports: this is where the
+                                   fleet is administered — a truck is linked to its van account
+                                   here — and only then where it is read. *@
+                                <NavLink class="snav-link" href="/van-sales/fleet" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-truck" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Fleet</span>
+                                </NavLink>
                             </Authorized>
                         </AuthorizeView>
                         <AuthorizeView Roles="Admin,Cashier" Context="routeCustomerCtx">

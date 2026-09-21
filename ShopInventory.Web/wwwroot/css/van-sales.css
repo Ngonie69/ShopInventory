@@ -3348,3 +3348,195 @@
         margin-left: 0;
     }
 }
+
+/* ==========================================================================
+   `vsf-` — the fleet audit, /van-sales/fleet
+
+   Sits on the shared `vs-` chrome and borrows the compliance sheet's row,
+   KPI and caret vocabulary wholesale (`vsc-`). That sharing is deliberate:
+   the two pages are the same period read from opposite ends, and a fleet row
+   that looked nothing like a rep-day row would suggest they were unrelated.
+
+   What is its own here is the track — eleven columns, with a van account
+   instead of a rate pair and fuel and cold chain at the end — and the nested
+   day table inside an open vehicle, which has no counterpart on the
+   compliance sheet.
+   ========================================================================== */
+
+/* Stated once. The compliance sheet's comment applies here too: nothing else
+   may restate these tracks, or the header and the rows drift apart the first
+   time one is edited. */
+.vs .vsf-track {
+    display: grid;
+    grid-template-columns:
+        minmax(170px, 1.5fr)   /* vehicle */
+        minmax(150px, 1.4fr)   /* van account */
+        72px                   /* days out */
+        88px                   /* km */
+        76px                   /* driving */
+        60px                   /* idle */
+        104px                  /* sales */
+        84px                   /* km per sale */
+        96px                   /* fuel */
+        112px                  /* cold chain */
+        22px;                  /* caret */
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    min-width: 1240px;
+}
+
+.vs .vsf-cols {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--vs-wash);
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsf-num {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.84rem;
+    color: var(--vs-ink-2);
+}
+
+.vs .vsf-num .vsc-sub {
+    display: block;
+}
+
+/* The van account. Muted and italic when there is none, because "Not linked"
+   is a state to fix rather than a value — and the money columns beside it read
+   as dashes until somebody does. */
+.vs .vsf-account {
+    font-size: 0.84rem;
+    color: var(--vs-ink-2);
+}
+
+.vs .vsf-account-none {
+    color: var(--vs-mute-3);
+    font-style: italic;
+}
+
+/* Printed verbatim from the API when the projection cannot speak for the whole
+   period. Muted: it explains, it does not warn. */
+.vs .vsf-note {
+    margin: -4px 0 12px;
+    padding: 9px 12px;
+    border-radius: var(--vs-r-sm);
+    background: var(--vs-hover);
+    color: var(--vs-mute-2);
+    font-size: 0.82rem;
+    font-style: italic;
+}
+
+/* — Inside an open vehicle ———————————————————————————————————————— */
+
+.vs .vsf-link {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 14px 16px 16px;
+    background: var(--vs-bg);
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsf-link-field {
+    flex: 0 0 300px;
+    min-width: 240px;
+}
+
+.vs .vsf-link-note {
+    flex: 1 1 320px;
+    margin: 18px 0 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsf-days {
+    padding-bottom: 6px;
+    background: var(--vs-bg);
+    overflow-x: auto;
+}
+
+/* The day table's own track, narrower than the fleet's and with no caret: a
+   day does not open. */
+.vs .vsf-day-track {
+    display: grid;
+    grid-template-columns:
+        minmax(132px, 1fr)     /* day */
+        minmax(140px, 1.2fr)   /* rep and route */
+        minmax(118px, 1fr)     /* out — in */
+        62px                   /* starts */
+        76px                   /* driving */
+        70px                   /* idle */
+        86px                   /* km */
+        86px                   /* rep km */
+        104px                  /* sales */
+        104px                  /* fuel */
+        150px;                 /* cold chain */
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    min-width: 1180px;
+}
+
+.vs .vsf-day-cols {
+    font-size: 0.64rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsf-day + .vsf-day {
+    box-shadow: inset 0 1px 0 var(--vs-divider);
+}
+
+/* A day the van did not work. Dimmed rather than hidden — a fortnight of
+   silence is the finding, and it has to be visible as a run of rows. */
+.vs .vsf-day-quiet {
+    color: var(--vs-mute-3);
+}
+
+.vs .vsf-day-quiet .vsf-num,
+.vs .vsf-day-quiet .vsf-rep,
+.vs .vsf-day-quiet .vsf-times {
+    color: var(--vs-mute-3);
+}
+
+/* A fuel figure the provider has not settled, or from a sender that is not
+   calibrated. Shown, because hiding it would hide every figure this fleet has,
+   but muted and italic so it is not read at face value. Never the warning ink:
+   fuel on this fleet is too thin to accuse anybody with. */
+.vs .vsf-provisional {
+    color: var(--vs-mute-2);
+    font-style: italic;
+}
+
+.vs .vsf-rep {
+    font-size: 0.82rem;
+    color: var(--vs-ink-2);
+}
+
+.vs .vsf-times {
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--vs-mute);
+}
+
+@media (max-width: 860px) {
+    .vs .vsf-link-field {
+        flex-basis: 100%;
+    }
+
+    .vs .vsf-link-note {
+        margin-top: 0;
+    }
+}

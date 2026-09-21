@@ -1,0 +1,643 @@
+@page "/van-sales/fleet"
+@* Admin and Manager only — this is fleet administration, and it writes. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Common
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IMasterDataCacheService MasterDataCache
+
+<PageTitle>Fleet - Shop Inventory</PageTitle>
+
+@* The fleet, audited.
+
+   Carried by the `vsf-` block at the foot of wwwroot/css/van-sales.css (linked
+   from App.razor) in both schemes, on the shared `vs-` chrome.
+
+   The departure compliance report asks how each rep did, a row per rep-day.
+   This asks the same period from the other side: what did each truck do. They
+   read the same projection and deliberately do not share a shape — a fleet
+   manager is looking for the vehicle that is barely moving or barely
+   reporting, and a rep-day grid buries both.
+
+   Three things this page decides:
+
+   - **Silence is a figure, not a gap.** Every vehicle is listed for every day
+     in the period, so a tracker that said nothing for a fortnight shows a
+     fortnight of silence. An empty list would read as a short period.
+
+   - **A van account is linked here rather than on the user.** The truck is the
+     thing being administered, and the same screen that shows a van's
+     kilometres is where somebody decides whose takings those kilometres
+     earned. The account list is the canonical van set, not the whole customer
+     master: linking a truck to an ordinary customer would report that
+     customer's entire trade as this van's.
+
+   - **Money is only shown where it can be attributed.** A vehicle with no
+     account linked shows a dash, never 0.00 — a van nobody has mapped has not
+     sold nothing. *@
+
+<div class="vs">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Fleet</h2>
+            <p class="vs-subtitle">
+                One row per vehicle — what it did over the period, and the van account its
+                takings belong to. Open a row for its day-by-day record.
+            </p>
+        </div>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="vs-notice">@error</div>
+    }
+
+    <div class="vs-filters">
+        @* The Bootstrap row the other van sales filter bars use — .vs-filters is a card and
+           carries no layout of its own, so without it the fields stack full width. *@
+        <div class="row g-3">
+            @* NocturneDateField, never <input type="date">: the native calendar is a platform
+               window no page stylesheet reaches into. See the compliance sheet. *@
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsf-from">From</label>
+                <NocturneDateField Id="vsf-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsf-to">To</label>
+                <NocturneDateField Id="vsf-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (report?.Telematics is { Enabled: false })
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Fleet telematics is not configured</div>
+            <div>@(report.Telematics.Reason ?? "Nothing is being tracked, so there is nothing to audit.")</div>
+        </div>
+    }
+    else if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Loading the fleet…</span>
+        </div>
+    }
+    else if (Vehicles.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No vehicles</div>
+            <div>
+                The fleet list is empty. It is fetched a few minutes after the service starts, and
+                nightly after that.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="vsc-kpis">
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@Vehicles.Count</div>
+                <div class="vsc-kpi-l">vehicles</div>
+                <div class="vsc-kpi-sub">@Vehicles.Count(v => v.IsActiveInFleet) in the fleet</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark @Ink(SilentVehicles > 0)"></div>
+                <div class="vsc-kpi-n @Ink(SilentVehicles > 0)">@SilentVehicles</div>
+                <div class="vsc-kpi-l">never reported</div>
+                <div class="vsc-kpi-sub">@SilentDays silent vehicle-days</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@Vehicles.Sum(v => v.TotalDistanceKm).ToString("N0")</div>
+                <div class="vsc-kpi-l">kilometres</div>
+                <div class="vsc-kpi-sub">@Vehicles.Sum(v => v.DaysMoved) round@(Vehicles.Sum(v => v.DaysMoved) == 1 ? "" : "s")</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark @Ink(UnlinkedVehicles > 0)"></div>
+                <div class="vsc-kpi-n @Ink(UnlinkedVehicles > 0)">@UnlinkedVehicles</div>
+                <div class="vsc-kpi-l">not linked</div>
+                <div class="vsc-kpi-sub">no van account, so no takings</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@(FuelLitres is { } litres ? litres.ToString("N0") : "—")</div>
+                <div class="vsc-kpi-l">litres used</div>
+                <div class="vsc-kpi-sub">@FuelKpiSub</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark @Ink(BreachDays > 0)"></div>
+                <div class="vsc-kpi-n @Ink(BreachDays > 0)">@BreachDays</div>
+                <div class="vsc-kpi-l">days out of range</div>
+                <div class="vsc-kpi-sub">@ColdKpiSub</div>
+            </div>
+        </div>
+
+        @if (report?.Telematics.Reason is { } note)
+        {
+            <p class="vsf-note">@note</p>
+        }
+
+        <div class="vsc-sheet">
+            <div class="vsf-track vsf-cols">
+                <span>Vehicle</span>
+                <span>Van account</span>
+                <span class="vs-right">Days out</span>
+                <span class="vs-right">Km</span>
+                <span class="vs-right">Driving</span>
+                <span class="vs-right">Idle</span>
+                <span class="vs-right">Sales</span>
+                <span class="vs-right">Km / sale</span>
+                <span class="vs-right">Fuel</span>
+                <span class="vs-right">Cold chain</span>
+                <span></span>
+            </div>
+
+            @foreach (var vehicle in Vehicles)
+            {
+                var key = vehicle.RegistrationNormalized;
+                var isOpen = key == openVehicle;
+
+                <div @key="key">
+                    <button type="button" class="vsc-rowbtn" aria-expanded="@isOpen"
+                            @onclick="() => ToggleVehicle(key)">
+                        <span class="vsf-track vsc-row @(vehicle.NeverReported ? "vsc-row-flagged" : "")">
+
+                            <span class="vsc-cell">
+                                <span class="vsc-name">
+                                    <span class="vsc-name-text">@vehicle.Registration</span>
+                                    @if (vehicle.StateLabel is { } state)
+                                    {
+                                        <span class="vsc-flag vsc-flag-info">@state</span>
+                                    }
+                                    else if (vehicle.NeverReported)
+                                    {
+                                        <span class="vsc-flag vsc-flag-strong">never reported</span>
+                                    }
+                                </span>
+                                <span class="vsc-where">@Subline(vehicle)</span>
+                            </span>
+
+                            <span class="vsc-cell">
+                                <span class="vsf-account @(vehicle.BusinessPartnerCode is null ? "vsf-account-none" : "")">
+                                    @vehicle.AccountLabel
+                                </span>
+                            </span>
+
+                            <span class="vs-right vsf-num">
+                                @vehicle.DaysMoved
+                                <span class="vsc-sub">of @(vehicle.DaysWithData + vehicle.DaysSilent)</span>
+                            </span>
+
+                            <span class="vs-right vsf-num">
+                                @(vehicle.TotalDistanceKm > 0 ? vehicle.TotalDistanceKm.ToString("N0") : "—")
+                                @if (vehicle.AverageDistanceKm is { } average)
+                                {
+                                    <span class="vsc-sub">@average.ToString("N0") / round</span>
+                                }
+                            </span>
+
+                            <span class="vs-right vsf-num">@Hours(vehicle.TotalDrivingMinutes)</span>
+
+                            <span class="vs-right vsf-num @Ink(vehicle.IdleShare > 0.5)">
+                                @(vehicle.IdleShare is { } idle ? idle.ToString("P0") : "—")
+                            </span>
+
+                            <span class="vs-right vsf-num">@Money(vehicle)</span>
+
+                            <span class="vs-right vsf-num">
+                                @(vehicle.KmPerSale is { } perSale ? perSale.ToString("N1") : "—")
+                            </span>
+
+                            @RenderCell(FleetAuditCells.VehicleFuel(vehicle))
+                            @RenderCell(FleetAuditCells.VehicleColdChain(vehicle))
+
+                            <span class="vsc-caret @(isOpen ? "vsc-caret-on" : "")" aria-hidden="true">›</span>
+                        </span>
+                    </button>
+
+                    @if (isOpen)
+                    {
+                        <div class="vsc-detail">
+                            @RenderVehicleDetail(vehicle)
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@* — One fuel or cold-chain cell. The wording lives in FleetAuditCells, where it is tested. — *@
+@{
+    RenderFragment RenderCell(FleetCell cell, string? title = null) =>
+    @<span class="vs-right vsf-num @Ink(cell.Flagged) @(cell.Muted ? "vsf-provisional" : "")" title="@title">
+        @cell.Figure
+        @if (cell.Sub is { } sub)
+        {
+            <span class="vsc-sub">@sub</span>
+        }
+    </span>;
+}
+
+@* — The open vehicle: link its account, then its days ——————————————— *@
+@{
+    RenderFragment RenderVehicleDetail(FleetAuditVehicle vehicle) =>
+    @<div>
+        <div class="vsf-link">
+            <div class="vsf-link-field">
+                <span class="vs-filter-label">Van sales account</span>
+                <NocturneSelect Class="nsel-block" TValue="string"
+                                Options="AccountOptionsFor(vehicle)"
+                                Value="@(vehicle.BusinessPartnerCode ?? string.Empty)"
+                                ValueChanged="@(code => OnAccountChosen(vehicle, code))"
+                                Caption="Whose takings this truck carries"
+                                AriaLabel="Van sales account"
+                                Placeholder="Not linked"
+                                Disabled="@isSaving" />
+            </div>
+            <p class="vsf-link-note">
+                The account a van bills as, which is how its sales and stock are recorded. Linking
+                it here is what lets this truck's kilometres be read beside the money it moved.
+                One account, one truck.
+            </p>
+        </div>
+
+        @if (vehicle.Days.Count == 0)
+        {
+            <div class="vs-empty">
+                <div class="vs-empty-title">No days in this period</div>
+            </div>
+        }
+        else
+        {
+            <div class="vsf-days">
+                <div class="vsf-day-track vsf-day-cols">
+                    <span>Day</span>
+                    <span>Rep &amp; route</span>
+                    <span>Out — in</span>
+                    <span class="vs-right">Starts</span>
+                    <span class="vs-right">Driving</span>
+                    <span class="vs-right">Idle</span>
+                    <span class="vs-right">Km</span>
+                    <span class="vs-right">Rep km</span>
+                    <span class="vs-right">Sales</span>
+                    <span class="vs-right">Fuel</span>
+                    <span class="vs-right">Cold chain</span>
+                </div>
+
+                @foreach (var day in vehicle.Days)
+                {
+                    <div class="vsf-day-track vsf-day @(day.State == FleetDayState.Worked ? "" : "vsf-day-quiet")"
+                         @key="day.TradingDate">
+
+                        <span class="vsc-cell">
+                            <span class="vsc-day">@day.TradingDate.ToString("ddd dd MMM")</span>
+                            @if (StateLabel(day) is { } label)
+                            {
+                                <span class="vsc-sub @Ink(day.State == FleetDayState.DidNotMove)">@label</span>
+                            }
+                        </span>
+
+                        <span class="vsc-cell">
+                            <span class="vsf-rep">@(day.RepName ?? "—")</span>
+                            @if (day.RouteName is { } route)
+                            {
+                                <span class="vsc-sub">@route</span>
+                            }
+                        </span>
+
+                        <span class="vsf-times">@DayTimes(day)</span>
+
+                        <span class="vs-right vsf-num">@(day.IgnitionCycleCount?.ToString("N0") ?? "—")</span>
+                        <span class="vs-right vsf-num">@Hours(day.DrivingMinutes)</span>
+                        <span class="vs-right vsf-num">@Hours(day.IdleMinutes)</span>
+
+                        <span class="vs-right vsf-num">
+                            @(day.DistanceKm is { } km ? km.ToString("N0") : "—")
+                            @if (day.OdometerReset || day.TerminalChanged)
+                            {
+                                @* The distance across a reset or a tracker swap means little,
+                                   and a bare number would be read as though it did. *@
+                                <span class="vsc-sub">@(day.OdometerReset ? "odometer reset" : "tracker changed")</span>
+                            }
+                        </span>
+
+                        <span class="vs-right vsf-num">
+                            @(day.RepOdometerKm is { } repKm ? repKm.ToString("N0") : "—")
+                            @if (day.OdometerDivergenceKm is { } gap && Math.Abs(gap) > 0)
+                            {
+                                <span class="vsc-sub">@(gap > 0 ? "+" : "")@gap.ToString("N0")</span>
+                            }
+                        </span>
+
+                        <span class="vs-right vsf-num">
+                            @(day.Sales is { } sales && vehicle.BusinessPartnerCode is not null
+                                ? sales.ToString("N2")
+                                : "—")
+                            @if (day.SaleCount is { } count && count > 0)
+                            {
+                                <span class="vsc-sub">@count sale@(count == 1 ? "" : "s")</span>
+                            }
+                        </span>
+
+                        @RenderCell(FleetAuditCells.DayFuel(vehicle, day), FuelTitle(day))
+                        @RenderCell(FleetAuditCells.DayColdChain(day), ColdTitle(day))
+                    </div>
+                }
+            </div>
+        }
+    </div>;
+}
+
+@code {
+    private FleetAuditResponse? report;
+    private List<VanSalesAccountOption> accounts = [];
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    private string? openVehicle;
+    private string? error;
+    private bool isLoading = true;
+    private bool isSaving;
+
+    private List<FleetAuditVehicle> Vehicles => report?.Vehicles ?? [];
+
+    /// <summary>Vehicles that reported on no day at all — a tracker question, not a driver one.</summary>
+    private int SilentVehicles => Vehicles.Count(vehicle => vehicle.NeverReported);
+
+    private int SilentDays => Vehicles.Sum(vehicle => vehicle.DaysSilent);
+
+    private int UnlinkedVehicles => Vehicles.Count(vehicle => vehicle.BusinessPartnerCode is null);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-13);
+        toDate = today;
+
+        await LoadAccountsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            report = await VanSalesReportService.GetFleetAuditAsync(fromDate, toDate);
+
+            if (report is null)
+            {
+                error = "The fleet audit could not be loaded. Check that the API is reachable.";
+            }
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// The van accounts, from the canonical set rather than the customer master.
+    /// </summary>
+    /// <remarks>
+    /// The master holds several thousand customers and a van is not one of them in any sense a
+    /// reader means. Linking a truck to an ordinary customer would report that customer's entire
+    /// trade as this van's takings — a wrong figure that looks completely plausible — so the
+    /// picker cannot offer one. Names come from the cache where it has them; a code with no
+    /// cached name is still offered, because the code is what everything joins on.
+    /// </remarks>
+    private async Task LoadAccountsAsync()
+    {
+        var names = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var partners = await MasterDataCache.GetBusinessPartnersAsync(includeInactive: true);
+
+            foreach (var partner in partners)
+            {
+                if (partner.CardCode is { } code && VanSalesAccounts.IsVanSalesAccount(code))
+                {
+                    names[code] = partner.CardName;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // A cache that will not load costs the names, not the picker: the codes are known
+            // without it and a van account is recognisable from its code alone.
+            error = $"Van account names could not be loaded ({ex.Message}). Codes are still shown.";
+        }
+
+        accounts = VanSalesAccounts.CardCodes
+            .OrderBy(code => code, StringComparer.Ordinal)
+            .Select(code => new VanSalesAccountOption
+            {
+                CardCode = code,
+                CardName = names.GetValueOrDefault(code)
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// The picker's rows for one vehicle: unlink, then every van account, with the ones already
+    /// taken by another truck marked and disabled.
+    /// </summary>
+    /// <remarks>
+    /// Shown rather than hidden, because "VAN010 is already on AFQ9644" is the answer to the
+    /// question somebody is asking when they cannot find it. The server refuses the same case,
+    /// so this is a courtesy rather than the guard.
+    /// </remarks>
+    private NocturneSelectOption<string>[] AccountOptionsFor(FleetAuditVehicle vehicle)
+    {
+        var takenBy = Vehicles
+            .Where(other => other.BusinessPartnerCode is not null
+                            && other.RegistrationNormalized != vehicle.RegistrationNormalized)
+            .ToDictionary(
+                other => other.BusinessPartnerCode!,
+                other => other.Registration,
+                StringComparer.OrdinalIgnoreCase);
+
+        var options = new List<NocturneSelectOption<string>>
+        {
+            new(string.Empty, "Not linked") { RuleAfter = true, IsUnset = true }
+        };
+
+        options.AddRange(accounts.Select(account =>
+        {
+            var taken = takenBy.GetValueOrDefault(account.CardCode);
+
+            return new NocturneSelectOption<string>(
+                account.CardCode,
+                account.CardName is { Length: > 0 } name
+                    ? account.CardCode + " — " + name
+                    : account.CardCode,
+                taken is null ? null : "warn")
+            {
+                Hint = taken is null ? null : "on " + taken,
+                Disabled = taken is not null
+            };
+        }));
+
+        return [.. options];
+    }
+
+    private async Task OnAccountChosen(FleetAuditVehicle vehicle, string? code)
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        var chosen = string.IsNullOrWhiteSpace(code) ? null : code;
+
+        if (string.Equals(chosen, vehicle.BusinessPartnerCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        isSaving = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var name = chosen is null
+                ? null
+                : accounts.FirstOrDefault(account =>
+                    string.Equals(account.CardCode, chosen, StringComparison.OrdinalIgnoreCase))?.CardName;
+
+            var failure = await VanSalesReportService.LinkVehicleBusinessPartnerAsync(
+                vehicle.Registration, chosen, name);
+
+            if (failure is not null)
+            {
+                error = failure;
+                return;
+            }
+
+            // Reloaded rather than patched in place: linking an account changes this vehicle's
+            // takings, its sales-per-kilometre and every day's money column, and none of that
+            // can be worked out on the client.
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleVehicle(string key) => openVehicle = openVehicle == key ? null : key;
+
+    private static string Subline(FleetAuditVehicle vehicle)
+    {
+        var parts = new[] { vehicle.VehicleName, vehicle.Description }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToList();
+
+        return parts.Count == 0 ? "no description" : string.Join(" · ", parts);
+    }
+
+    /// <summary>Minutes as hours and minutes, or an em dash. Never "0 min" for a figure never taken.</summary>
+    private static string Hours(int? minutes) => minutes switch
+    {
+        null or 0 => "—",
+        < 60 => minutes + "m",
+        _ => (minutes / 60) + "h " + (minutes % 60).Value.ToString("00") + "m"
+    };
+
+    private static string Money(FleetAuditVehicle vehicle) =>
+        vehicle.BusinessPartnerCode is null
+            ? "—"
+            : vehicle.TotalSales.ToString("N2", CultureInfo.InvariantCulture);
+
+    /// <summary>What a day was, where it was not an ordinary working one.</summary>
+    private static string? StateLabel(FleetAuditDay day) => day.State switch
+    {
+        FleetDayState.NoData => "no telematics",
+        FleetDayState.NotRead => "could not be read",
+        FleetDayState.DidNotMove => "never left the depot",
+        _ => null
+    };
+
+    private static string DayTimes(FleetAuditDay day)
+    {
+        if (day.FirstIgnitionOn is null)
+        {
+            return "—";
+        }
+
+        var start = day.FirstDeparture ?? day.FirstIgnitionOn;
+
+        return day.LastIgnitionOff is { } off
+            ? start.Value.ToString("HH:mm") + " — " + off.ToString("HH:mm")
+            : start.Value.ToString("HH:mm") + " — still out";
+    }
+
+    /// <summary>
+    /// The page's one mark, shared with the compliance sheet. See it for why there is only one.
+    /// </summary>
+    private static string Ink(bool on) => on ? "vsc-flagged" : string.Empty;
+
+    /// <summary>Null when no vehicle gave a figure, so the card says "—" rather than "0".</summary>
+    private decimal? FuelLitres =>
+        Vehicles.Any(vehicle => vehicle.FuelUsedLitres is not null)
+            ? Vehicles.Sum(vehicle => vehicle.FuelUsedLitres ?? 0m)
+            : null;
+
+    private string FuelKpiSub =>
+        !Vehicles.Any(vehicle => vehicle.HasAnyFuelSensor) ? "no fuel sensors fitted"
+        : FuelLitres is null ? "no fuel reported"
+        : Vehicles.Any(vehicle => vehicle.DaysWithFuel > 0 && !vehicle.FuelAllTrustworthy) ? "provisional — see each vehicle"
+        : Vehicles.Sum(vehicle => vehicle.FuelFillCount) is var fills && fills > 0 ? fills + " fill" + (fills == 1 ? "" : "s")
+        : "no fills recorded";
+
+    private int BreachDays => Vehicles.Sum(vehicle => vehicle.DaysBreached);
+
+    private string ColdKpiSub =>
+        Vehicles.All(vehicle => vehicle.MinutesOutsideLimits is null) ? "no route has limits set"
+        : Vehicles.Sum(vehicle => vehicle.MinutesOutsideLimits ?? 0) is var minutes && minutes > 0
+            ? FleetAuditCells.Duration(minutes) + " outside the limits"
+            : "every judged day in range";
+
+    /// <summary>The day's full fuel reading, for whoever wants the tank levels behind the estimate.</summary>
+    private static string? FuelTitle(FleetAuditDay day) =>
+        day.Fuel is not { } fuel
+            ? null
+            : string.Join(" · ", new[]
+            {
+                fuel.LevelStartLitres is { } start && fuel.LevelEndLitres is { } end
+                    ? $"tank {start.ToString("N1", CultureInfo.InvariantCulture)} → {end.ToString("N1", CultureInfo.InvariantCulture)} L"
+                    : null,
+                fuel.IsCalibrated is { } calibrated ? (calibrated ? "calibrated" : "not calibrated") : null,
+                fuel.ReadingsSettled is { } settled ? (settled ? "settled" : "still being revised") : null
+            }.Where(part => part is not null));
+
+    /// <summary>The day's probe in full: how many readings, over what span, on which channel.</summary>
+    private static string? ColdTitle(FleetAuditDay day) =>
+        day.Temperature is not { SampleCount: > 0 } cold
+            ? null
+            : $"{cold.SampleCount} reading{(cold.SampleCount == 1 ? "" : "s")}"
+              + (cold.FirstSampleAt is { } first && cold.LastSampleAt is { } last
+                  ? $", {first:HH:mm}–{last:HH:mm}"
+                  : "")
+              + (cold.AvgC is { } avg ? $" · avg {avg.ToString("0.0", CultureInfo.InvariantCulture)} °C" : "")
+              + (cold.Channel is { } channel ? $" · probe {channel}" : "");
+}
