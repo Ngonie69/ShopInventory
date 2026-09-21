@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesOrderHistory;
@@ -123,6 +124,82 @@ public sealed class VanSalesInvoiceHistoryScopeTests : IDisposable
         var history = await WhenHistoryIsRead(SapHolds(Invoice(docEntry: 9003, docNum: 4023)));
 
         Assert.Equal("SECOND-TRY", Assert.Single(history).Verification);
+    }
+
+    // ── The invoices that record a sale signed before SAP ──────────────────
+
+    /// <summary>
+    /// A van sale is signed on the handset under its own reference and posted to SAP afterwards, one
+    /// invoice per sale. Nothing in the fiscal transaction log names its DocNum, so the invoice read
+    /// "Not Fiscalised" on the phone that signed it while the office showed the receipt.
+    /// </summary>
+    [Fact]
+    public async Task A_van_sale_posted_per_sale_is_listed_fiscalised_under_its_sale_number()
+    {
+        GivenVanRep();
+        var saleId = GivenSignedSale("VAN014-INV-20260820-AB12CD", sapDocNum: 4028, sapDocEntry: 9008);
+
+        var history = await WhenHistoryIsRead(SapHolds(Invoice(docEntry: 9008, docNum: 4028)));
+
+        var invoice = Assert.Single(history);
+        Assert.Equal(1, invoice.Fiscalized);
+        Assert.Equal("Fiscalised", invoice.FiscalizedText);
+
+        // The office's number for the sale, beside — not instead of — the SAP identity.
+        Assert.Equal(DesktopSaleNumber.Format(saleId), invoice.SaleNumber);
+        Assert.Equal(9008, invoice.Id);
+
+        // The receipt is the sale's own.
+        Assert.Equal("07E3-19D4-D197-3BB5", invoice.Verification);
+        Assert.Equal("221595", invoice.ReceiptGlobalNo);
+        Assert.Equal("538", invoice.FiscalDay);
+        Assert.Equal("8DE6996C0188", invoice.DeviceSerial);
+
+        // Dated by the signing, not 02:00 on the SAP document date.
+        Assert.Equal("2026-08-20 14:51:07", invoice.DueDate);
+    }
+
+    /// <summary>
+    /// A van sale SAP would not take at the time reaches it later through the invoice queue. The
+    /// receipt row was written before there was a DocNum, and on older code was never given one, so
+    /// the invoice is matched through the reservation that posted it.
+    /// </summary>
+    [Fact]
+    public async Task A_van_sale_that_reached_SAP_through_the_queue_is_found_by_its_reservation()
+    {
+        GivenVanRep();
+        const string reference = "VAN014-INV-20260820-9F8E7D";
+        var saleId = GivenSignedSale(reference, sapDocNum: null, sapDocEntry: null);
+        GivenQueuedPost(reference, sapDocNum: 4029, sapDocEntry: 9009);
+
+        var history = await WhenHistoryIsRead(SapHolds(Invoice(docEntry: 9009, docNum: 4029)));
+
+        var invoice = Assert.Single(history);
+        Assert.Equal(1, invoice.Fiscalized);
+        Assert.Equal(DesktopSaleNumber.Format(saleId), invoice.SaleNumber);
+        Assert.Equal("07E3-19D4-D197-3BB5", invoice.Verification);
+    }
+
+    /// <summary>
+    /// The sale is the receipt, so a sale that never fiscalised vouches for nothing: its invoice is
+    /// listed as SAP holds it, and stays fiscalisable by hand.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_that_never_fiscalised_does_not_mark_its_invoice()
+    {
+        GivenVanRep();
+        GivenSignedSale(
+            "VAN014-INV-20260820-0FF1CE",
+            sapDocNum: 4030,
+            sapDocEntry: 9010,
+            status: DesktopSaleFiscalizationStatus.Failed);
+
+        var history = await WhenHistoryIsRead(SapHolds(Invoice(docEntry: 9010, docNum: 4030)));
+
+        var invoice = Assert.Single(history);
+        Assert.Equal(0, invoice.Fiscalized);
+        Assert.Equal(string.Empty, invoice.SaleNumber);
+        Assert.Equal(string.Empty, invoice.Verification);
     }
 
     // ── The narrowing that is now the only one ──────────────────────────────
@@ -270,6 +347,95 @@ public sealed class VanSalesInvoiceHistoryScopeTests : IDisposable
             CreatedByUserId = createdBy,
             TimestampUtc = at ?? new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc),
             CreatedAtUtc = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc)
+        });
+
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+    }
+
+    /// <summary>
+    /// A van sale's receipt row: signed on the handset at 14:51:07 on the 20th, uploaded two minutes
+    /// later, and — when it has them — carrying the SAP numbers its posting wrote back.
+    /// </summary>
+    private int GivenSignedSale(
+        string reference,
+        int? sapDocNum,
+        int? sapDocEntry,
+        DesktopSaleFiscalizationStatus status = DesktopSaleFiscalizationStatus.Success)
+    {
+        var signed = status == DesktopSaleFiscalizationStatus.Success;
+
+        var sale = new DesktopSaleEntity
+        {
+            ExternalReferenceId = reference,
+            SourceSystem = SaleSourceSystems.VanSalesOnline,
+            CardCode = VanBusinessPartner,
+            WarehouseCode = "VAN14",
+            DocDate = new DateTime(2026, 8, 20),
+            Currency = "USD",
+            TotalAmount = 80m,
+            VatAmount = 10.74m,
+            AmountPaid = 80m,
+            FiscalizationStatus = status,
+            FiscalReceiptNumber = signed ? "221595" : null,
+            ReceiptGlobalNo = signed ? 221595 : null,
+            FiscalVerificationCode = signed ? "07E3-19D4-D197-3BB5" : null,
+            FiscalQRCode = signed ? "https://fdms.zimra.co.zw/verify?y" : null,
+            FiscalDayNo = signed ? "538" : null,
+            FiscalDeviceNumber = signed ? "8DE6996C0188" : null,
+            ReceiptDate = signed ? new DateTime(2026, 8, 20, 14, 51, 7, DateTimeKind.Unspecified) : null,
+            SapDocNum = sapDocNum,
+            SapDocEntry = sapDocEntry,
+            ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated,
+            CreatedAt = new DateTime(2026, 8, 20, 12, 53, 0, DateTimeKind.Utc)
+        };
+
+        _context.DesktopSales.Add(sale);
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+
+        return sale.Id;
+    }
+
+    /// <summary>
+    /// The queue marker: a reservation confirmed as the invoice, and the queue entry that fiscalised
+    /// the sale before the post — the shape <c>PerSaleInvoiceRegistry</c> reads when no sale row names
+    /// the DocNum.
+    /// </summary>
+    private void GivenQueuedPost(string reference, int sapDocNum, int sapDocEntry)
+    {
+        var reservation = new StockReservationEntity
+        {
+            ExternalReferenceId = reference,
+            SourceSystem = SaleSourceSystems.VanSales,
+            CardCode = VanBusinessPartner,
+            Currency = "USD",
+            Status = ReservationStatus.Confirmed,
+            SAPDocEntry = sapDocEntry,
+            SAPDocNum = sapDocNum,
+            ExpiresAt = new DateTime(2026, 8, 20, 13, 53, 0, DateTimeKind.Utc),
+            CreatedAt = new DateTime(2026, 8, 20, 12, 53, 0, DateTimeKind.Utc)
+        };
+
+        _context.StockReservations.Add(reservation);
+        _context.SaveChanges();
+
+        _context.InvoiceQueue.Add(new InvoiceQueueEntity
+        {
+            ReservationId = reservation.ReservationId,
+            ExternalReference = reference,
+            SourceSystem = SaleSourceSystems.VanSales,
+            CustomerCode = VanBusinessPartner,
+            TotalAmount = 80m,
+            Currency = "USD",
+            WarehouseCode = "VAN14",
+            Status = InvoiceQueueStatus.Completed,
+            RequiresFiscalization = true,
+            FiscalReceiptNumber = "221595",
+            SapDocEntry = sapDocEntry.ToString(),
+            SapDocNum = sapDocNum,
+            InvoicePayload = "{}",
+            CreatedAt = new DateTime(2026, 8, 20, 12, 53, 0, DateTimeKind.Utc)
         });
 
         _context.SaveChanges();

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Sales;
 using ShopInventory.DTOs;
@@ -513,23 +514,42 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
+    /// <summary>
+    /// Draws a SAP invoice for the handset, with whatever fiscal record stands behind it.
+    /// </summary>
+    /// <remarks>
+    /// Two records can. The fiscal transaction log holds an invoice fiscalised under its own DocNum —
+    /// one raised at the depot, or a consolidated one. A per-sale invoice has nothing there, because
+    /// its receipt was signed under the sale's own reference before SAP assigned a number, and it was
+    /// drawn as "Not Fiscalised" for exactly that reason. <paramref name="sale"/> is that sale, found
+    /// by <see cref="PerSaleInvoiceRegistry.FindSaleFactsByDocNumsAsync"/>, and when it is present it
+    /// is the record that counts: the receipt is the sale's, the sale date is the moment it was signed
+    /// rather than the calendar day SAP filed it under, and the sale number is the one the office
+    /// knows.
+    ///
+    /// <para><see cref="VanSalesLegacyOrderDto.Id"/> stays the SAP DocEntry either way — see the
+    /// remarks on <see cref="VanSalesLegacyOrderDto.SaleNumber"/> for why it cannot be the sale id.</para>
+    /// </remarks>
     public static VanSalesLegacyOrderDto MapLegacyInvoice(
         Invoice invoice,
-        DesktopFiscalTransactionEntity? fiscalTransaction)
+        DesktopFiscalTransactionEntity? fiscalTransaction,
+        PerSaleInvoiceSaleFacts? sale = null)
     {
         var lines = (invoice.DocumentLines ?? new List<InvoiceLine>())
             .OrderBy(line => line.LineNum)
             .ToList();
 
-        var docDate = ParseLegacyDate(invoice.DocDate);
-        var dueDate = ParseLegacyDate(invoice.DocDueDate) ?? docDate;
-        var createdAt = fiscalTransaction?.TimestampUtc ?? docDate;
+        var docDate = ParseSapDocumentDate(invoice.DocDate);
+        var dueDate = ParseSapDocumentDate(invoice.DocDueDate) ?? docDate;
+        var soldAt = sale?.SoldAt;
+        var createdAt = soldAt ?? fiscalTransaction?.TimestampUtc ?? docDate;
         var netTotal = Math.Max(invoice.DocTotal - invoice.VatSum, 0m);
-        var isFiscalized = fiscalTransaction is not null &&
-            (string.Equals(fiscalTransaction.Status, "Success", StringComparison.OrdinalIgnoreCase) ||
-             !string.IsNullOrWhiteSpace(fiscalTransaction.VerificationCode) ||
-             !string.IsNullOrWhiteSpace(fiscalTransaction.QRCode) ||
-             fiscalTransaction.ReceiptGlobalNo.HasValue);
+        var isFiscalized = sale is not null ||
+            (fiscalTransaction is not null &&
+             (string.Equals(fiscalTransaction.Status, "Success", StringComparison.OrdinalIgnoreCase) ||
+              !string.IsNullOrWhiteSpace(fiscalTransaction.VerificationCode) ||
+              !string.IsNullOrWhiteSpace(fiscalTransaction.QRCode) ||
+              fiscalTransaction.ReceiptGlobalNo.HasValue));
 
         return new VanSalesLegacyOrderDto
         {
@@ -549,22 +569,29 @@ public static partial class VanSalesCompatibilityMapper
             // list did, so it carried the same cent and the same guessed rate.
             Gross = ToLegacyDouble(invoice.DocTotal),
             DocDate = FormatLegacyDateTime(docDate),
-            DueDate = FormatLegacyDateTime(dueDate),
+            // The handset shows this as "Sale date". For a per-sale invoice that is the moment the
+            // receipt was signed; SAP's due date is the calendar day the invoice was filed under,
+            // which for a sale posted from the queue can be a later day than the sale.
+            DueDate = FormatLegacyDateTime(soldAt ?? dueDate),
             Invoice = invoice.DocNum.ToString(CultureInfo.InvariantCulture),
             DocNum = invoice.DocNum.ToString(CultureInfo.InvariantCulture),
             DocEntry = invoice.DocEntry.ToString(CultureInfo.InvariantCulture),
             PurchaseOrders = invoice.U_Van_saleorder ?? invoice.NumAtCard ?? string.Empty,
             Fiscalized = isFiscalized ? 1 : 0,
-            Verification = fiscalTransaction?.VerificationCode ?? string.Empty,
-            QrCode = fiscalTransaction?.QRCode ?? string.Empty,
-            FiscalDay = fiscalTransaction?.FiscalDay ?? string.Empty,
-            DeviceSerial = fiscalTransaction?.DeviceSerialNumber ?? string.Empty,
-            ReceiptGlobalNo = fiscalTransaction?.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            Verification = sale?.VerificationCode ?? fiscalTransaction?.VerificationCode ?? string.Empty,
+            QrCode = sale?.QrCode ?? fiscalTransaction?.QRCode ?? string.Empty,
+            FiscalDay = sale?.FiscalDay ?? fiscalTransaction?.FiscalDay ?? string.Empty,
+            DeviceSerial = sale?.DeviceSerial ?? fiscalTransaction?.DeviceSerialNumber ?? string.Empty,
+            ReceiptGlobalNo = sale?.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture)
+                ?? sale?.FiscalReceiptNumber
+                ?? fiscalTransaction?.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture)
+                ?? string.Empty,
+            SaleNumber = sale?.SaleId is { } saleId ? DesktopSaleNumber.Format(saleId) : string.Empty,
             Status = isFiscalized ? 2 : 0,
             Timestamps = new VanSalesLegacyTimestampsDto
             {
                 CreateDate = FormatLegacyDateTime(createdAt),
-                ApprovalDate = FormatLegacyDateTime(fiscalTransaction?.TimestampUtc),
+                ApprovalDate = FormatLegacyDateTime(soldAt ?? fiscalTransaction?.TimestampUtc),
                 DeliveryDate = string.Empty
             },
             Pod = new VanSalesLegacyPodDto(),
@@ -791,6 +818,39 @@ public static partial class VanSalesCompatibilityMapper
         value.Kind == DateTimeKind.Unspecified
             ? value
             : DateTime.SpecifyKind(AuditService.ToCAT(value), DateTimeKind.Unspecified);
+
+    /// <summary>
+    /// Reads a SAP document date as the calendar day it is.
+    /// </summary>
+    /// <remarks>
+    /// SAP serialises <c>DocDate</c> and <c>DocDueDate</c> as midnight UTC — "2026-09-21T00:00:00Z" —
+    /// for what is a day with no time on it. Through <see cref="ParseLegacyDate"/> that is a real
+    /// instant and is moved to CAT, so every invoice reported a sale date of 02:00:00, which is the
+    /// exact symptom <see cref="FormatLegacyDateTime"/> warns against. The day is what SAP means, so
+    /// the day is what is taken, unzoned; anything not in that shape still goes the legacy way.
+    /// </remarks>
+    private static DateTime? ParseSapDocumentDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+
+        if (trimmed.Length >= 10 &&
+            DateTime.TryParseExact(
+                trimmed[..10],
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var day))
+        {
+            return day;
+        }
+
+        return ParseLegacyDate(trimmed);
+    }
 
     /// <summary>
     /// Renders a handset-supplied date as the ISO string SAP will accept.

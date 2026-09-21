@@ -2,6 +2,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -227,14 +228,23 @@ public sealed class GetVanSalesOrderHistoryHandler(
             return new List<VanSalesLegacyOrderDto>();
         }
 
-        var latestFiscalByDocNum = await ReadFiscalNotesAsync(
-            invoices.Select(invoice => invoice.DocNum).ToList(),
+        var docNums = invoices.Select(invoice => invoice.DocNum).ToList();
+
+        var latestFiscalByDocNum = await ReadFiscalNotesAsync(docNums, cancellationToken);
+
+        // A van sale is signed before SAP is asked, under its own reference, so the fiscal log above
+        // knows nothing about its invoice. The sale row does — and it is also where the sale number
+        // the office quotes and the moment of sale come from.
+        var saleByDocNum = await PerSaleInvoiceRegistry.FindSaleFactsByDocNumsAsync(
+            db,
+            docNums,
             cancellationToken);
 
         return invoices
             .Select(invoice => VanSalesCompatibilityMapper.MapLegacyInvoice(
                 invoice,
-                latestFiscalByDocNum.GetValueOrDefault(invoice.DocNum)))
+                latestFiscalByDocNum.GetValueOrDefault(invoice.DocNum),
+                saleByDocNum.GetValueOrDefault(invoice.DocNum)))
             .OrderByDescending(order => VanSalesCompatibilityMapper.ParseLegacyDate(order.Timestamps.CreateDate) ?? DateTime.MinValue)
             .ThenByDescending(order => order.Id)
             .ToList();

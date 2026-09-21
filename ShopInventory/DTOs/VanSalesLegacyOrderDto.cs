@@ -100,6 +100,20 @@ public class VanSalesLegacyOrderDto
     [JsonPropertyName("receipt_global_no")]
     public string ReceiptGlobalNo { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The number the office knows this sale by — "INV2327" — when the invoice records a sale that was
+    /// fiscalised before it reached SAP. Empty for any other invoice.
+    /// </summary>
+    /// <remarks>
+    /// The handset titles an invoice <c>{type}{id}</c>, and <see cref="Id"/> is the SAP DocEntry, so a
+    /// van sale the office lists as INV2327 read "INV2387710" on the phone that sold it. The DocEntry
+    /// has to stay in <see cref="Id"/>: the proof-of-delivery upload sends it back as the document to
+    /// file against, and a sale id there would collide with a sales order's. So the sale number is
+    /// carried beside it, for the handset to show and print in place of the composed title.
+    /// </remarks>
+    [JsonPropertyName("sale_number")]
+    public string SaleNumber { get; set; } = string.Empty;
+
     [JsonPropertyName("status")]
     public int Status { get; set; }
 
