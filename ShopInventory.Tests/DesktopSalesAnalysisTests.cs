@@ -112,9 +112,6 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
             // The same shop in ZWG, which must never be added to the dollars.
             Sale("F-ZWG", TenderTypes.Cash, 100m, Day1, utcHour: 12, currency: "ZWG"),
 
-            // A receipt carrier for an online van sale already counted as its SAP invoice.
-            Sale("VAN-ONLINE", TenderTypes.Cash, 999m, Day1, utcHour: 12, source: SaleSourceSystems.VanSalesOnline),
-
             // Another shop, rung up by another operator, as a partner whose sales carry no name.
             Sale("M-CASH", TenderTypes.Cash, 50m, Day1, utcHour: 12, warehouse: "CORMACH2", createdBy: _otherOperatorId,
                 cardCode: MachipisaPartner, cardName: null),
@@ -275,7 +272,7 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     public async Task The_period_before_is_read_under_the_same_filters()
     {
         var byDay = Dollars(await Analyse(_adminId, Day2, Day2));
-        Assert.Equal(100m, byDay.PreviousTotalAmount); // Day1, every tender, both shops, no online van receipt
+        Assert.Equal(100m, byDay.PreviousTotalAmount); // Day1, every tender, both shops
 
         var cashOnly = Dollars(await Analyse(_adminId, Day2, Day2, paymentMethod: TenderTypes.Cash));
         Assert.Equal(60m, cashOnly.PreviousTotalAmount);
@@ -296,12 +293,32 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     }
 
     [Fact]
-    public async Task Online_van_receipts_are_not_counted_as_takings()
+    public async Task Online_van_sales_are_counted_once_from_their_receipt()
     {
-        var result = (await AnalyseAsAdmin()).Value;
+        // The receipt row is the only record of an online van sale this report reads, so leaving it out
+        // would drop the sale from the analysis rather than save it from being counted twice.
+        _context.DesktopSales.Add(
+            Sale("VAN-ONLINE", TenderTypes.Cash, 999m, Day1, utcHour: 12, source: SaleSourceSystems.VanSalesOnline));
+        await _context.SaveChangesAsync();
 
-        Assert.DoesNotContain(result.Currencies, c => c.TotalAmount >= 999m);
-        Assert.DoesNotContain(Dollars(result).BySource, row => row.Key == SaleSourceSystems.VanSalesOnline);
+        var usd = Dollars((await AnalyseAsAdmin()).Value);
+
+        Assert.Equal(140m + 999m, usd.TotalAmount);
+        Assert.Equal(8 + 1, usd.SalesCount);
+        var online = Assert.Single(usd.BySource, row => row.Key == SaleSourceSystems.VanSalesOnline);
+        Assert.Equal(1, online.SalesCount);
+        Assert.Equal(999m, online.TotalAmount);
+        Assert.Equal("Van sales (online)", online.Label);
+    }
+
+    [Fact]
+    public async Task Naming_a_source_reads_that_source_alone()
+    {
+        var result = (await Analyse(_adminId, Day1, Day2, sourceSystem: SaleSourceSystems.LegacyDesktop)).Value;
+
+        var usd = Dollars(result);
+        Assert.Equal(1, usd.SalesCount);
+        Assert.Equal(3m, usd.TotalAmount);
     }
 
     [Fact]
@@ -555,9 +572,10 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     private Task<ErrorOr.ErrorOr<DesktopSalesAnalysisResult>> AnalyseAsAdmin() => Analyse(_adminId, Day1, Day2);
 
     private Task<ErrorOr.ErrorOr<DesktopSalesAnalysisResult>> Analyse(
-        Guid callerId, DateTime from, DateTime to, string? warehouseCode = null, string? paymentMethod = null) =>
+        Guid callerId, DateTime from, DateTime to, string? warehouseCode = null, string? paymentMethod = null,
+        string? sourceSystem = null) =>
         new GetDesktopSalesAnalysisHandler(_context, new RecordingAuditService())
             .Handle(
-                new GetDesktopSalesAnalysisQuery(callerId, from, to, warehouseCode, PaymentMethod: paymentMethod),
+                new GetDesktopSalesAnalysisQuery(callerId, from, to, warehouseCode, SourceSystem: sourceSystem, PaymentMethod: paymentMethod),
                 CancellationToken.None);
 }

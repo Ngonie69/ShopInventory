@@ -255,6 +255,14 @@ otherwise be surprised.
 
 ### Changed
 
+- **`GET /api/DesktopIntegration/sales/analysis` now counts online van sales.** With no
+  `sourceSystem` it used to leave out `KefalosVanSalesOnline`, on the grounds that those sales are
+  counted as their SAP invoices — but this report reads no SAP invoices and no reservations, so an
+  online van sale appeared nowhere in it and the Desktop Sales Analysis showed only the vans' offline
+  sales. The receipt row is now counted once, under the source "Van sales (online)". Takings, counts,
+  the source, shop, partner, hour and item breakdowns all rise by those sales. `business=vans` and
+  `business=shops` (the business review) are unchanged, and so is the sales list's default scope.
+
 - **The Stock Write-offs item picker lists every active item, from the Web's own catalogue.**
 
   `/stock-write-offs` used to fill its item picker with the items holding stock in the chosen
