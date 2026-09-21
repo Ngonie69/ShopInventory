@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Features.GoodsReceiptPurchaseOrders;
 using ShopInventory.Services;
@@ -28,8 +29,7 @@ public sealed class CreateGoodsReceiptPurchaseOrderHandler(
                 var supplierDisplay = BuildBusinessPartnerDisplay(goodsReceiptDto.CardCode, goodsReceiptDto.CardName);
                 var totalDisplay = BuildMoneyDisplay(goodsReceiptDto.DocCurrency, goodsReceiptDto.DocTotal);
 
-                await notificationService.CreateNotificationAsync(
-                    ModuleNotificationFactory.CreateBroadcastNotification(
+                var notification = ModuleNotificationFactory.CreateBroadcastNotification(
                         $"Goods Receipt PO Created: #{goodsReceiptDto.DocNum}",
                         $"Goods receipt PO #{goodsReceiptDto.DocNum} for {supplierDisplay} totaling {totalDisplay} was created successfully.",
                         "Success",
@@ -45,8 +45,14 @@ public sealed class CreateGoodsReceiptPurchaseOrderHandler(
                             ["cardName"] = goodsReceiptDto.CardName ?? string.Empty,
                             ["docCurrency"] = goodsReceiptDto.DocCurrency ?? string.Empty,
                             ["docTotal"] = goodsReceiptDto.DocTotal.ToString("N2")
-                        }),
-                    cancellationToken);
+                        });
+
+                // A goods receipt PO is stock arriving in SAP, which is what inventory.received
+                // promises. The app's own purchase-order Receive is deliberately not wired: it only
+                // updates a local tracker that never reaches SAP, so no stock moves anywhere.
+                notification.WebhookEvent = WebhookEventTypes.InventoryReceived;
+
+                await notificationService.CreateNotificationAsync(notification, cancellationToken);
             }
             catch (Exception ex)
             {

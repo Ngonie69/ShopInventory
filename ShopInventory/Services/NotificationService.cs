@@ -65,13 +65,15 @@ public class NotificationService : INotificationService
     private readonly ILogger<NotificationService> _logger;
     private readonly IHubContext<NotificationHub> _hubContext;
     private readonly IPushNotificationService _pushService;
+    private readonly IWebhookService _webhookService;
 
-    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger, IHubContext<NotificationHub> hubContext, IPushNotificationService pushService)
+    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger, IHubContext<NotificationHub> hubContext, IPushNotificationService pushService, IWebhookService webhookService)
     {
         _context = context;
         _logger = logger;
         _hubContext = hubContext;
         _pushService = pushService;
+        _webhookService = webhookService;
     }
 
     /// <summary>
@@ -216,6 +218,59 @@ public class NotificationService : INotificationService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send mobile push notification");
+        }
+
+        // Third fan-out, on the same terms as the two above: a subscriber that cannot be reached does
+        // not fail the notification that has already been stored and broadcast.
+        //
+        // This is where most of the webhook event vocabulary gets published from. Almost every module
+        // that would raise an event already raises a notification here, so one opt-in field on the
+        // request lights up a site without a publish call of its own. Sites with no notification to
+        // ride -- the cache syncs, the health transitions -- call IWebhookService directly instead.
+        if (!string.IsNullOrWhiteSpace(request.WebhookEvent))
+        {
+            try
+            {
+                if (!WebhookEventTypes.All.Contains(request.WebhookEvent))
+                {
+                    // Not thrown: the notification itself is fine and the caller's work is done. Logged
+                    // as an error because the alternative is a subscriber waiting on an event that no
+                    // longer exists under that name, which looks exactly like nothing happening.
+                    _logger.LogError(
+                        "Notification {NotificationId} asked for unknown webhook event {WebhookEvent}; nothing was published",
+                        notification.Id,
+                        request.WebhookEvent);
+                }
+                else
+                {
+                    var webhookData = new Dictionary<string, object?>
+                    {
+                        ["notificationId"] = notification.Id,
+                        ["title"] = request.Title,
+                        ["message"] = request.Message,
+                        ["category"] = request.Category,
+                        ["entityType"] = request.EntityType,
+                        ["entityId"] = request.EntityId,
+                        ["occurredAt"] = notification.CreatedAt
+                    };
+
+                    if (request.Data != null)
+                    {
+                        foreach (var entry in request.Data)
+                        {
+                            // Never over the keys above: a caller's "title" is its own, and a payload
+                            // whose fields mean different things on different events is unreadable.
+                            webhookData.TryAdd(entry.Key, entry.Value);
+                        }
+                    }
+
+                    await _webhookService.TriggerEventAsync(request.WebhookEvent, webhookData);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish webhook event {WebhookEvent}", request.WebhookEvent);
+            }
         }
 
         return dto;

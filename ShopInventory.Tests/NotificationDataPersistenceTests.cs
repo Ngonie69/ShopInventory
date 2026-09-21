@@ -52,7 +52,8 @@ public sealed class NotificationDataPersistenceTests : IDisposable
             _context,
             NullLogger<NotificationService>.Instance,
             _hub,
-            new NoOpPushNotificationService());
+            new NoOpPushNotificationService(),
+            new RecordingWebhookService());
     }
 
     public void Dispose()

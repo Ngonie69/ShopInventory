@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -31,15 +32,18 @@ public class WebhookService : IWebhookService
     private readonly ApplicationDbContext _context;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<WebhookService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public WebhookService(
         ApplicationDbContext context,
         IHttpClientFactory httpClientFactory,
-        ILogger<WebhookService> logger)
+        ILogger<WebhookService> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _context = context;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     public async Task<List<WebhookDto>> GetAllWebhooksAsync()
@@ -147,16 +151,19 @@ public class WebhookService : IWebhookService
             data = request.SampleData ?? new { message = "This is a test webhook delivery" }
         };
 
-        return await DeliverWebhookAsync(webhook, request.EventType, payload, isTest: true);
+        return await DeliverWebhookAsync(_context, webhook, request.EventType, payload, isTest: true);
     }
 
     public async Task TriggerEventAsync(string eventType, object payload)
     {
-        var webhooks = await _context.Webhooks
+        // Ids rather than entities: each delivery runs on its own scope and its own context below,
+        // and an entity tracked by this request's context cannot be saved from there.
+        var webhookIds = await _context.Webhooks
             .Where(w => w.IsActive && w.Events.Contains(eventType))
+            .Select(w => w.Id)
             .ToListAsync();
 
-        if (!webhooks.Any())
+        if (webhookIds.Count == 0)
         {
             _logger.LogDebug("No active webhooks subscribed to event: {EventType}", eventType);
             return;
@@ -170,23 +177,38 @@ public class WebhookService : IWebhookService
             data = payload
         };
 
-        foreach (var webhook in webhooks)
+        foreach (var webhookId in webhookIds)
         {
             // Fire and forget - don't wait for webhook delivery
             _ = Task.Run(async () =>
             {
+                // Its own scope, because this outlives the request that raised the event: the retry
+                // loop alone can run to 2+4+8 seconds, by which time the request's context is
+                // disposed. Writing the delivery row on that context threw ObjectDisposedException
+                // into the catch below, so deliveries went out and the log -- the only thing the
+                // admin page can diagnose a failure from -- stayed empty.
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
                 try
                 {
-                    await DeliverWebhookWithRetryAsync(webhook, eventType, webhookPayload);
+                    var webhook = await context.Webhooks.FindAsync(webhookId);
+                    if (webhook == null)
+                    {
+                        // Deleted between the read above and now. Nothing to deliver to.
+                        return;
+                    }
+
+                    await DeliverWebhookWithRetryAsync(context, webhook, eventType, webhookPayload);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error delivering webhook {Id} for event {Event}", webhook.Id, eventType);
+                    _logger.LogError(ex, "Error delivering webhook {Id} for event {Event}", webhookId, eventType);
                 }
             });
         }
 
-        _logger.LogInformation("Triggered event {EventType} to {Count} webhooks", eventType, webhooks.Count);
+        _logger.LogInformation("Triggered event {EventType} to {Count} webhooks", eventType, webhookIds.Count);
     }
 
     public async Task<WebhookDeliveryListResponse> GetDeliveriesAsync(int? webhookId = null, int page = 1, int pageSize = 50)
@@ -232,32 +254,40 @@ public class WebhookService : IWebhookService
 
     public Task<List<WebhookEventTypeInfo>> GetEventTypesAsync()
     {
+        // Each description says what actually publishes the event, and says so plainly when nothing
+        // does. Until 2026-09-21 all eighteen read as though they fired and fifteen never had, so a
+        // subscription to any of those looked configured and healthy and simply received nothing.
+        // A description here is a promise to whoever subscribes; keep it true when a publisher moves.
+        const string NotPublished = "Not published yet — subscribing is accepted but nothing will be delivered.";
+
         var eventTypes = new List<WebhookEventTypeInfo>
         {
-            new() { EventType = WebhookEventTypes.InvoiceCreated, Category = "Invoice", Description = "Triggered when a new invoice is created" },
-            new() { EventType = WebhookEventTypes.InvoicePaid, Category = "Invoice", Description = "Triggered when an invoice is fully paid" },
-            new() { EventType = WebhookEventTypes.InvoiceCancelled, Category = "Invoice", Description = "Triggered when an invoice is cancelled" },
-            new() { EventType = WebhookEventTypes.PaymentReceived, Category = "Payment", Description = "Triggered when a payment is received" },
-            new() { EventType = WebhookEventTypes.PaymentFailed, Category = "Payment", Description = "Triggered when a payment fails" },
-            new() { EventType = WebhookEventTypes.PaymentRefunded, Category = "Payment", Description = "Triggered when a payment is refunded" },
-            new() { EventType = WebhookEventTypes.StockLow, Category = "Stock", Description = "Triggered when stock falls below minimum level" },
-            new() { EventType = WebhookEventTypes.StockOut, Category = "Stock", Description = "Triggered when stock reaches zero" },
-            new() { EventType = WebhookEventTypes.StockReplenished, Category = "Stock", Description = "Triggered when stock is replenished" },
-            new() { EventType = WebhookEventTypes.StockTransfer, Category = "Stock", Description = "Triggered when stock is transferred between warehouses" },
-            new() { EventType = WebhookEventTypes.InventoryAdjusted, Category = "Inventory", Description = "Triggered when inventory is adjusted" },
-            new() { EventType = WebhookEventTypes.InventoryReceived, Category = "Inventory", Description = "Triggered when inventory is received" },
-            new() { EventType = WebhookEventTypes.CustomerCreated, Category = "Customer", Description = "Triggered when a new customer is created" },
-            new() { EventType = WebhookEventTypes.CustomerUpdated, Category = "Customer", Description = "Triggered when a customer is updated" },
-            new() { EventType = WebhookEventTypes.SapSyncSuccess, Category = "SAP", Description = "Triggered when SAP sync completes successfully" },
-            new() { EventType = WebhookEventTypes.SapSyncFailed, Category = "SAP", Description = "Triggered when SAP sync fails" },
-            new() { EventType = WebhookEventTypes.SapConnectionLost, Category = "SAP", Description = "Triggered when SAP connection is lost" },
-            new() { EventType = WebhookEventTypes.SapConnectionRestored, Category = "SAP", Description = "Triggered when SAP connection is restored" }
+            new() { EventType = WebhookEventTypes.InvoiceCreated, Category = "Invoice", Description = "An invoice was created in SAP by a known user — through the API, desktop sales consolidation or a stock reservation. An invoice with no attributable user raises nothing." },
+            new() { EventType = WebhookEventTypes.InvoicePaid, Category = "Invoice", Description = $"{NotPublished} Payments here are daily per-customer aggregates, so there is no single moment an invoice becomes paid." },
+            new() { EventType = WebhookEventTypes.InvoiceCancelled, Category = "Invoice", Description = "An invoice was cancelled and reversed by a credit note." },
+            new() { EventType = WebhookEventTypes.PaymentReceived, Category = "Payment", Description = "A payment gateway confirmed a payment. Only published while a gateway (PayNow, Innbucks or Ecocash) is enabled." },
+            new() { EventType = WebhookEventTypes.PaymentFailed, Category = "Payment", Description = "A payment gateway reported a failed payment. Only published while a gateway is enabled." },
+            new() { EventType = WebhookEventTypes.PaymentRefunded, Category = "Payment", Description = "A payment was refunded through a gateway. Only published while a gateway is enabled." },
+            new() { EventType = WebhookEventTypes.StockLow, Category = "Stock", Description = $"{NotPublished} There is no low-stock detector yet." },
+            new() { EventType = WebhookEventTypes.StockOut, Category = "Stock", Description = $"{NotPublished} There is no per-item stock-out detector yet." },
+            new() { EventType = WebhookEventTypes.StockReplenished, Category = "Stock", Description = NotPublished },
+            new() { EventType = WebhookEventTypes.StockTransfer, Category = "Stock", Description = "SAP accepted an inventory transfer this system created, by any route — including market breakages moving to the returns warehouse." },
+            new() { EventType = WebhookEventTypes.InventoryAdjusted, Category = "Inventory", Description = "A stock write-off was posted to SAP as a goods issue. Carries the warehouse, reason and lines." },
+            new() { EventType = WebhookEventTypes.InventoryReceived, Category = "Inventory", Description = "A goods receipt PO was created in SAP. Receiving against this system's own purchase orders does not raise it, because those never reach SAP." },
+            new() { EventType = WebhookEventTypes.CustomerCreated, Category = "Customer", Description = NotPublished },
+            new() { EventType = WebhookEventTypes.CustomerUpdated, Category = "Customer", Description = $"{NotPublished} Business partners are owned by SAP, and this system does not see them change." },
+            new() { EventType = WebhookEventTypes.SapSyncSuccess, Category = "SAP", Description = "A SAP-backed cache (warehouses, business partners, G/L accounts) refilled successfully. Fires on every refill, which under normal load is several times an hour — a heartbeat rather than a rare event." },
+            new() { EventType = WebhookEventTypes.SapSyncFailed, Category = "SAP", Description = "A SAP-backed cache (warehouses, business partners, G/L accounts) failed to refill. Carries SAP's error." },
+            new() { EventType = WebhookEventTypes.SapConnectionLost, Category = "SAP", Description = "The SAP health check went from reachable to unreachable. Only published while system health alerting (SystemHealthAlert:Enabled) is on." },
+            new() { EventType = WebhookEventTypes.SapConnectionRestored, Category = "SAP", Description = "The SAP health check became reachable again after being reported lost. Only published while system health alerting (SystemHealthAlert:Enabled) is on." }
         };
 
         return Task.FromResult(eventTypes);
     }
 
-    private async Task DeliverWebhookWithRetryAsync(Webhook webhook, string eventType, object payload)
+    // context is passed in rather than taken from the field because the caller runs on its own scope,
+    // outliving the request this service was built for. See TriggerEventAsync.
+    private async Task DeliverWebhookWithRetryAsync(ApplicationDbContext context, Webhook webhook, string eventType, object payload)
     {
         var maxAttempts = webhook.RetryCount;
         var attempt = 0;
@@ -265,13 +295,13 @@ public class WebhookService : IWebhookService
         while (attempt < maxAttempts)
         {
             attempt++;
-            var result = await DeliverWebhookAsync(webhook, eventType, payload, retryAttempt: attempt);
+            var result = await DeliverWebhookAsync(context, webhook, eventType, payload, retryAttempt: attempt);
 
             if (result.Success)
             {
                 webhook.SuccessCount++;
                 webhook.LastTriggeredAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
+                await context.SaveChangesAsync();
                 return;
             }
 
@@ -288,12 +318,12 @@ public class WebhookService : IWebhookService
         // All retries exhausted
         webhook.FailureCount++;
         webhook.LastTriggeredAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+        await context.SaveChangesAsync();
 
         _logger.LogError("Webhook delivery failed for {Id} after {Attempts} attempts", webhook.Id, maxAttempts);
     }
 
-    private async Task<TestWebhookResponse> DeliverWebhookAsync(Webhook webhook, string eventType, object payload, int retryAttempt = 1, bool isTest = false)
+    private async Task<TestWebhookResponse> DeliverWebhookAsync(ApplicationDbContext context, Webhook webhook, string eventType, object payload, int retryAttempt = 1, bool isTest = false)
     {
         var stopwatch = Stopwatch.StartNew();
         var delivery = new WebhookDelivery
@@ -345,8 +375,8 @@ public class WebhookService : IWebhookService
 
             if (!isTest)
             {
-                _context.WebhookDeliveries.Add(delivery);
-                await _context.SaveChangesAsync();
+                context.WebhookDeliveries.Add(delivery);
+                await context.SaveChangesAsync();
             }
 
             return new TestWebhookResponse
@@ -366,8 +396,8 @@ public class WebhookService : IWebhookService
 
             if (!isTest)
             {
-                _context.WebhookDeliveries.Add(delivery);
-                await _context.SaveChangesAsync();
+                context.WebhookDeliveries.Add(delivery);
+                await context.SaveChangesAsync();
             }
 
             _logger.LogError(ex, "Error delivering webhook {Id} to {Url}", webhook.Id, webhook.Url);

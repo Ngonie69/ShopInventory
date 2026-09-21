@@ -615,8 +615,6 @@ public class UserManagementService : IUserManagementService
             Permission.ManageIntegrations => "Manage third-party integrations",
             Permission.ViewAuditLogs => "View audit logs",
             Permission.ExportAuditLogs => "Export audit logs",
-            Permission.ViewWebhooks => "View webhooks",
-            Permission.ManageWebhooks => "Create and manage webhooks",
             Permission.SystemAdmin => "Full system administration access",
             Permission.ManageBackups => "Manage system backups",
             _ => permission

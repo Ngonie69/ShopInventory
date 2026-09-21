@@ -52,7 +52,8 @@ public sealed class NotificationVisibilityTests : IDisposable
             _context,
             NullLogger<NotificationService>.Instance,
             new SilentHubContext(),
-            new SilentPushNotificationService());
+            new SilentPushNotificationService(),
+            new RecordingWebhookService());
     }
 
     public void Dispose()

@@ -38,7 +38,8 @@ public sealed class TransferApprovalNotificationTests : IDisposable
             _context,
             NullLogger<NotificationService>.Instance,
             new NoOpHubContext(),
-            new StubPushNotificationService());
+            new StubPushNotificationService(),
+            new RecordingWebhookService());
     }
 
     public void Dispose()

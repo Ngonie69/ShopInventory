@@ -50,6 +50,21 @@ public class CreateNotificationRequest
     public string? TargetUsername { get; set; } // null = broadcast to all
     public string? TargetRole { get; set; } // null = all roles
     public Dictionary<string, string>? Data { get; set; }
+
+    /// <summary>
+    /// A <see cref="ShopInventory.Models.WebhookEventTypes"/> constant to publish alongside this
+    /// notification, or null to publish nothing.
+    /// </summary>
+    /// <remarks>
+    /// Opt-in per call, deliberately, rather than derived from <see cref="Category"/>. Category is a
+    /// free string and has already drifted -- SAP / SAP Posting / Synchronization / Sync Retry all
+    /// describe the same thing, Stock and LowStock likewise -- so a mapping off it would fire the
+    /// wrong event or none at all, and would change meaning whenever someone renamed a category.
+    ///
+    /// An unrecognised value here is dropped with an error logged, never sent: a subscriber that
+    /// receives nothing cannot tell a typo from an event that did not happen.
+    /// </remarks>
+    public string? WebhookEvent { get; set; }
 }
 
 /// <summary>

@@ -1,5 +1,6 @@
 using System.Globalization;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Notifications;
@@ -95,6 +96,10 @@ internal static class WorkflowNotificationFactory
             Message = message,
             Type = "Success",
             Category = "Invoice",
+            // Set here rather than at the three call sites, because this factory is the one place
+            // that defines what "an invoice was created" means: the API's own handler, desktop sales
+            // consolidation and the reservation service all come through it.
+            WebhookEvent = WebhookEventTypes.InvoiceCreated,
             EntityType = "Invoice",
             EntityId = invoice.DocNum.ToString(CultureInfo.InvariantCulture),
             ActionUrl = actionUrl,
