@@ -209,11 +209,17 @@
                 <div class="swo-add">
                     <label class="swo-field swo-field-wide">
                         <span class="swo-label">Item</span>
+                        @* Every active item, from the Web's own catalogue in PostgreSQL — not the
+                           warehouse's stock from SAP. See the code-behind for why. *@
+                        @* Value needs the @: the parameter is a string, so without it Razor passes
+                           the literal text "draftItemCode" and the trigger reads "not in the list"
+                           whatever was picked. *@
                         <NocturnePicker Class="npick-block" Options="ItemOptions"
-                                        Value="draftItemCode"
+                                        Value="@draftItemCode"
                                         ValueChanged="@(code => OnDraftItemChangedAsync(code))"
                                         Loading="isLoadingItems"
                                         Placeholder="@(string.IsNullOrEmpty(warehouseCode) ? "Choose a warehouse first" : "Search by code or name")"
+                                        EmptyText="@(catalogueSyncedAt is null ? "The item catalogue has not been synced from SAP yet" : "The item catalogue is empty")"
                                         Disabled="@string.IsNullOrEmpty(warehouseCode)"
                                         AriaLabel="Item to write off" />
                     </label>

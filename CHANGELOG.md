@@ -224,6 +224,16 @@ otherwise be surprised.
 
 ### Changed
 
+- **The Stock Write-offs item picker lists every active item, from the Web's own catalogue.**
+
+  `/stock-write-offs` used to fill its item picker with the items holding stock in the chosen
+  warehouse, read from SAP through `GET /api/product/warehouse/{code}/paged` a hundred rows at a
+  time, every time a warehouse was chosen. It now reads the Web's `CachedProducts` table once per
+  visit and offers every active item, whatever the warehouse holds. What an operator sees: the
+  picker is ready at once, an item with no stock in the warehouse can be picked, and it is then the
+  batch picker ("No batch here holds stock") or the post itself ("does not hold enough stock in
+  SAP") that says so. The per-item batch read and the stock check at post time are unchanged.
+
 - **A till sale whose SAP post got no clear answer is no longer looked up every minute.**
 
   When a post leaves for SAP and the reply is lost, the sale is held for
