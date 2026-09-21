@@ -293,6 +293,8 @@ public sealed class NotificationBroadcastAudienceTests : IDisposable
         public Task<int> SendToAllAsync(string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default) =>
             throw new InvalidOperationException("A notification was pushed to every registered device.");
 
+        public Task<int> SendSilentDataToUsersAsync(IReadOnlyCollection<Guid> userIds, Dictionary<string, string> data, CancellationToken ct = default) => Task.FromResult(0);
+
         // Silent data pushes do not come from the notification service at all.
         public Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default) =>
             throw new InvalidOperationException($"The notification service sent a silent data push to {role}.");

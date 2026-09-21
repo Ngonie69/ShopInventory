@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -6,6 +6,7 @@ using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
+using ShopInventory.Features.DesktopIntegration.Events.StockTransferReceived;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Tests;
@@ -28,6 +29,7 @@ public sealed class DailyStockAdjustmentTests : IDisposable
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
+    private readonly CapturingPublisher _publisher = new();
 
     /// <summary>
     /// One settings instance for the handler and for the rows the tests plant, so both date a
@@ -220,9 +222,96 @@ public sealed class DailyStockAdjustmentTests : IDisposable
 
     // ── Helpers ─────────────────────────────────────────
 
+    // ── what the webhook announces ─────────────────────────────────────────
+
+    /// <summary>
+    /// The one thing a van handset cannot find out on its own is that a load has landed after its
+    /// morning position was taken. The webhook is where this system first hears of it, so the webhook
+    /// is what has to say so — and only once the ledger row is saved, because the event is read as
+    /// "there is stock to go and look at".
+    /// </summary>
+    [Fact]
+    public async Task An_inbound_line_is_announced_once_it_is_on_the_ledger()
+    {
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+        await AddSnapshotItemAsync(Destination, "ITEM-1", 2m);
+
+        await Handler().Handle(
+            new ProcessTransferEventCommand("ITEM-1", Source, Destination, 4m, 7001, 9001, "Gouda 1kg"),
+            default);
+
+        var arrived = Assert.Single(_publisher.Of<StockTransferReceivedEvent>());
+        Assert.Equal(Destination, arrived.WarehouseCode);
+        Assert.Equal(Source, arrived.SourceWarehouse);
+        Assert.Equal("ITEM-1", arrived.ItemCode);
+        Assert.Equal("Gouda 1kg", arrived.ItemDescription);
+        Assert.Equal(4m, arrived.Quantity);
+        Assert.Equal(7001, arrived.TransferDocEntry);
+        Assert.Equal(9001, arrived.TransferDocNum);
+    }
+
+    /// <summary>
+    /// Stock leaving a monitored warehouse for one nobody here watches is not an arrival. Announcing it
+    /// would wake the handsets of whoever drives the source, to go and read a figure that went down.
+    /// </summary>
+    [Fact]
+    public async Task The_outbound_side_alone_announces_nothing()
+    {
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+
+        await Handler().Handle(
+            new ProcessTransferEventCommand("ITEM-1", Source, "WH99", 4m, 7002, 9002), default);
+
+        Assert.Empty(_publisher.Of<StockTransferReceivedEvent>());
+    }
+
+    /// <summary>
+    /// The listener re-sends a line whose delivery it saw fail. The ledger already absorbs that as a
+    /// duplicate; the announcement has to as well, or a handset refreshes twice for one load — and the
+    /// second refresh is a full catalogue walk against SAP for nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_re_delivered_line_is_announced_only_the_first_time()
+    {
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+        await AddSnapshotItemAsync(Destination, "ITEM-1", 2m);
+
+        var line = new ProcessTransferEventCommand("ITEM-1", Source, Destination, 4m, 7003, 9003);
+
+        await Handler().Handle(line, default);
+        await Handler().Handle(line, default);
+
+        Assert.Single(_publisher.Of<StockTransferReceivedEvent>());
+    }
+
+    /// <summary>
+    /// A van loaded before its day has a snapshot has no row for the arrival to land on. The stock is
+    /// on the van all the same, and its adjustment row is written all the same — so the handset is
+    /// told. Leaving this out is how a load booked at 06:50 stayed invisible until pull-to-refresh.
+    /// </summary>
+    [Fact]
+    public async Task An_arrival_with_no_snapshot_for_the_day_is_still_recorded_and_announced()
+    {
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+
+        var result = await Handler().Handle(
+            new ProcessTransferEventCommand("ITEM-1", Source, Destination, 4m, 7004, 9004), default);
+
+        Assert.False(result.IsError);
+
+        var recorded = await _context.StockTransferAdjustments
+            .AsNoTracking()
+            .Where(adjustment => adjustment.WarehouseCode == Destination && adjustment.Direction == "IN")
+            .ToListAsync();
+
+        Assert.Single(recorded);
+        Assert.Single(_publisher.Of<StockTransferReceivedEvent>());
+    }
+
     private ProcessTransferEventHandler Handler() => new(
         _context,
         Options.Create(_settings),
+        _publisher,
         NullLogger<ProcessTransferEventHandler>.Instance);
 
     /// <summary>The snapshot day the handler will resolve, given the fetch time under test.</summary>

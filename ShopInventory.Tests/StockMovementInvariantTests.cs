@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -194,6 +194,7 @@ public sealed class StockMovementInvariantTests : IDisposable
     private ProcessTransferEventHandler Handler() => new(
         _context,
         Options.Create(_settings),
+        new CapturingPublisher(),
         NullLogger<ProcessTransferEventHandler>.Instance);
 
     private StockLedger Ledger() => new(

@@ -211,6 +211,8 @@ public sealed class ProductCatalogStatusChangeTests : IDisposable
 
         public IReadOnlyList<(string Role, Dictionary<string, string> Data)> SilentPushes => _silentPushes;
 
+        public Task<int> SendSilentDataToUsersAsync(IReadOnlyCollection<Guid> userIds, Dictionary<string, string> data, CancellationToken ct = default) => Task.FromResult(0);
+
         public Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default)
         {
             _silentPushes.Add((role, data));

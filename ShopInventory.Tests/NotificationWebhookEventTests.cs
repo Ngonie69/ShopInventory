@@ -163,6 +163,8 @@ public sealed class NotificationWebhookEventTests : IDisposable
         public Task<int> SendToUserAsync(Guid userId, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default) => Task.FromResult(0);
         public Task<int> SendToUsernameAsync(string username, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default) => Task.FromResult(0);
         public Task<int> SendToRoleAsync(string role, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default) => Task.FromResult(0);
+        public Task<int> SendSilentDataToUsersAsync(IReadOnlyCollection<Guid> userIds, Dictionary<string, string> data, CancellationToken ct = default) => Task.FromResult(0);
+
         public Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default) => Task.FromResult(0);
         public Task<int> SendToAllAsync(string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default) => Task.FromResult(0);
         public Task<int> SendToDeviceTokensAsync(IReadOnlyCollection<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default) => Task.FromResult(0);

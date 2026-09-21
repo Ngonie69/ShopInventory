@@ -4129,6 +4129,11 @@ during the request — the batch is held for the end-of-day posting run — and 
 fiscalised, because the customer is already holding the printed receipt. Per-sale outcomes come back
 individually so one bad row cannot strand a van's whole backlog on the handset.
 
+A load that lands on the van *after* its morning position is not a route at all: the transfer
+listener's webhook raises `StockTransferReceivedEvent`, and the van sales feature answers it with a
+silent push to the reps assigned to that warehouse, on which the handset re-reads its warehouse
+catalogue and reconciles its ledger. See [Push Notifications](#42-push-notifications).
+
 **Related routes on other controllers**
 
 | Method | Endpoint | Permission | Description |
@@ -4460,6 +4465,17 @@ because nothing else records that a broadcast happened.
 Not every push is a tray notification: a merchandiser catalogue refresh is a data-only message the
 app acts on silently. See [Notifications](#25-notifications) for the in-app bell, which is a
 separate mechanism.
+
+**Van stock arrivals are a second data-only message.** When the transfer listener's webhook records
+a line landing in a warehouse (`ProcessTransferEventHandler`), it raises `StockTransferReceivedEvent`;
+`StockTransferReceivedHandler` in the van sales feature sends the active `ADR`/`Sales` accounts
+assigned to that warehouse a silent push with `changeType: "VanStock"`, `warehouseCode`,
+`fromWarehouse`, `transferDocEntry`, `transferDocNum` and `changedAtUtc`. One push per transfer
+document, not per line — the handset re-reads its whole warehouse on the signal and reconciles its
+own ledger from that, so a load booked after the van's morning position reaches the handset the next
+time it has signal instead of the next time the rep pulls the stock screen down. Every data-only push
+also carries `is_silent_in_foreground: "true"`, which is what keeps the handset's FCM plugin from
+raising a blank tray entry for it.
 
 ---
 
