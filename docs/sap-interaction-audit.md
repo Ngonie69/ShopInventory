@@ -100,9 +100,11 @@ Getting the annotation wrong by omitting a small endpoint costs nothing; omittin
 approval latency, which is why the heavy ones are named explicitly rather than inferred.
 
 Some endpoints serve both kinds of traffic. The Web's cache services (`InventoryTransferCacheService`,
-`WarehouseStockCacheService`, `IncomingPaymentCacheService`, `MasterDataCacheService`) walk `/paged`
-endpoints page after page from fire-and-forget sweeps, and the same endpoints answer the first page
-a person is waiting on — so they cannot be annotated either way. A caller declares a single request
+`IncomingPaymentCacheService`, `MasterDataCacheService`) walk `/paged` endpoints page after page from
+fire-and-forget sweeps, and the same endpoints answer the first page a person is waiting on — so they
+cannot be annotated either way. (`WarehouseStockCacheService` no longer pages: its sweep reads the
+whole warehouse in one request to `GET /api/stock/warehouse/{code}`, because every `/paged` page cost
+SAP a fresh execution of the warehouse's stock query.) A caller declares a single request
 background with the header `X-Sap-Priority: background`. It can only lower priority: any other
 value is ignored and it never lifts a `[SapBackgroundWork]` endpoint, so it needs no authorisation.
 On the Web side the sweeps start through `SapBackgroundPriority.Run` instead of `Task.Run`, and

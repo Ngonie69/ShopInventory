@@ -202,6 +202,28 @@ otherwise be surprised.
 
 ### Changed
 
+- **A till sale whose SAP post got no clear answer is no longer looked up every minute.**
+
+  When a post leaves for SAP and the reply is lost, the sale is held for
+  `DesktopSalePosting:UnresolvedPostGraceMinutes` (default 15) so it is not invoiced twice. The
+  minute-by-minute pass used to load every held sale and ask SAP whether it held the invoice — a
+  scan of every invoice for one UDF, fifteen times per hold, for an answer the hold said could not
+  be trusted yet. The pass now leaves held sales out until the hold ends and asks once. What an
+  operator sees: a post that did land but whose reply was lost is adopted when the hold ends rather
+  than a minute or two later, and `/desktop-sales` shows it as held until then. Pressing Post to
+  SAP still asks straight away. Held sales also no longer fill the batch: after an outage
+  twenty-five of them could be the whole batch, and nothing behind them posted until they cleared.
+
+- **The Web's warehouse stock cache reads a warehouse in one request and keeps it for fifteen minutes.**
+
+  `WarehouseStockCacheService` walked `GET /api/stock/warehouse/{code}/paged` a hundred rows at a
+  time, and each page cost SAP a fresh execution of the warehouse's stock query; a warehouse of four
+  thousand items was forty executions per sweep, re-armed every five minutes for every warehouse
+  somebody had open. It now reads `GET /api/stock/warehouse/{code}` once and serves the rows for
+  fifteen minutes. Stock figures on the dashboard, the product page and the transfer pickers can
+  therefore be up to fifteen minutes old; the posts that must be exact validate against SAP
+  themselves. A read that fails is now recorded as a failure rather than as an empty warehouse.
+
 - **A van sales SAP credit memo names the shop, not the van.**
 
   `GET /api/van-sales/credit-notes` returned a memo's own `CardCode`/`CardName` as its customer, which is

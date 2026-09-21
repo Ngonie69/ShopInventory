@@ -60,12 +60,28 @@ public sealed class DesktopSalePostingService(
         // one that failed at 23:55 must not be stranded when the date rolls over.
         var cutoff = DateTime.UtcNow.Date.AddDays(-options.LookbackDays);
 
+        // A sale whose post went out and got no clear answer stays out of the pass until its hold
+        // ends, rather than being loaded so SAP can be asked and the sale then not sent. Asking is
+        // the cost: passes are a minute apart, so a held sale used to be looked up fifteen times per
+        // hold — a scan of every invoice for one UDF each time — for an answer the hold said could
+        // not be trusted yet. Once the hold has lapsed the sale is back in the batch, SAP is asked
+        // once, and it is adopted or posted. A person pressing Post to SAP is not held to this:
+        // PostSaleAsync loads the sale directly and asks straight away.
+        //
+        // Leaving them out also keeps them from filling the batch. Twenty-five held sales after an
+        // outage used to be the whole batch, and nothing behind them posted until they cleared.
+        var heldIfIssuedAfter = UnresolvedPostHold.HeldIfIssuedAfterUtc(
+            options.UnresolvedPostGraceMinutes, DateTime.UtcNow);
+
+        await RecordHeldWithoutReplyAsync(cutoff, heldIfIssuedAfter, cancellationToken);
+
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
             .Where(s => s.DocDate >= cutoff &&
                         s.SourceSystem != null &&
                         SaleSourceSystems.PostedByDesktopSaleJob.Contains(s.SourceSystem) &&
                         s.PostingAttempts < options.MaxPostingAttempts &&
+                        (s.PostIssuedAtUtc == null || s.PostIssuedAtUtc <= heldIfIssuedAfter) &&
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
                         // Ready to be invoiced. Pending means vending has not fiscalised it yet, and
                         // Failed means it needs a human — posting either would put an invoice in SAP
@@ -141,6 +157,43 @@ public sealed class DesktopSalePostingService(
             result.Posted, result.Adopted, result.Failed);
 
         return result;
+    }
+
+    /// <summary>
+    /// Gives a held sale that has no recorded error the note saying its post got no reply.
+    /// </summary>
+    /// <remarks>
+    /// A post cut off between the marker and the answer — by a restart, typically — leaves nothing on
+    /// the sale to say why it is not in SAP. The pass that would have asked SAP used to write the
+    /// note; now that held sales stay out of the pass, it is written here, from the database alone.
+    /// Nearly always no rows, and never a SAP call.
+    /// </remarks>
+    private async Task RecordHeldWithoutReplyAsync(
+        DateTime cutoff,
+        DateTime heldIfIssuedAfter,
+        CancellationToken cancellationToken)
+    {
+        var unexplained = await context.DesktopSales
+            .Where(s => s.DocDate >= cutoff &&
+                        s.SourceSystem != null &&
+                        SaleSourceSystems.PostedByDesktopSaleJob.Contains(s.SourceSystem) &&
+                        s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
+                        s.PostIssuedAtUtc != null &&
+                        s.PostIssuedAtUtc > heldIfIssuedAfter &&
+                        s.LastPostingError == null)
+            .ToListAsync(cancellationToken);
+
+        if (unexplained.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var sale in unexplained)
+        {
+            sale.LastPostingError = UnresolvedPostHold.NoReplyRecorded(sale.ExternalReferenceId);
+        }
+
+        await context.SaveChangesAsync(CancellationToken.None);
     }
 
     /// <summary>
@@ -351,6 +404,9 @@ public sealed class DesktopSalePostingService(
                 // No attempt is spent: it is not the sale's fault and the wait is short. Once the
                 // window passes, the lookup is trustworthy and the sale posts normally, so a post
                 // that genuinely never landed still recovers on its own.
+                //
+                // The scheduled pass never gets here — it leaves held sales out of its batch (see
+                // PostPendingSalesAsync) — so this branch is answering a person's Post to SAP.
                 RecordUnresolvedPost(sale, result, settings.Value);
             }
             else
@@ -468,9 +524,10 @@ public sealed class DesktopSalePostingService(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// No attempt is spent: each pass re-asks SAP, so an invoice that was merely slow to become
-    /// visible is adopted within a minute or two, and one that never landed posts once the window
-    /// has passed.
+    /// No attempt is spent: the hold is not the sale's fault. The scheduled pass does not get here —
+    /// it leaves held sales out of its batch and asks SAP once the hold has lapsed (see
+    /// <see cref="PostPendingSalesAsync"/>) — so this is what a person pressing Post to SAP is told,
+    /// and where a post whose reply never came back at all gets its error recorded.
     /// </para>
     /// <para>
     /// The sale's recorded error is left alone. It holds what the post actually failed with — a
