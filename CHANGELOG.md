@@ -18,6 +18,27 @@ otherwise be surprised.
 
 ### Added
 
+- **The van handset's invoice history (`POST /api/vansales/order/history`) now reports a per-sale
+  invoice as fiscalised, with the sale's own receipt, and carries the sale number beside the SAP
+  identity.**
+
+  A van sale is signed on the handset under its own reference and reaches SAP afterwards, one
+  invoice per sale, so nothing in the fiscal transaction log names its DocNum. The history read only
+  that log, and every such invoice came back `fiscalized: 0` with no verification code, QR, fiscal
+  day or device — "Fiscalised: No" on the very phone that printed the receipt — while the Van Sales
+  drawer showed it signed. The read now also asks the sale behind the invoice, through the same
+  registry the invoice list and PDF use, and answers with the sale's receipt.
+
+  Two more fields moved with it. `due_date` (the handset's "Sale date") and `timestamps.create_date`
+  are the moment the receipt was signed rather than the SAP document date; and an invoice with no
+  sale behind it now reports that document date as `00:00:00`, where it used to read the midnight-UTC
+  value SAP serialises as an instant and show `02:00:00`. A new `sale_number` field carries the number
+  the office quotes — `INV2327` — and is empty for an invoice that records no sale.
+
+  `id` is unchanged and is still the SAP DocEntry, because the handset sends it back as the document
+  to file a proof of delivery against, and the server reads that number as a sales order id first. A
+  handset that wants to title the invoice `INV2327` rather than `INV{DocEntry}` reads `sale_number`.
+
 - **An online van sale SAP refused can be posted from the Van Sales → Invoices drawer, the way
   Desktop Sales posts a held till sale.**
 
