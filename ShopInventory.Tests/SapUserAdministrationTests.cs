@@ -201,6 +201,29 @@ public sealed class SapUserAdministrationTests
     }
 
     /// <summary>
+    /// Production, 2026-09-21: SAP refused to unlock a manager because one of their user settings
+    /// differed from their User Defaults. SAP's sentence names the setting but not the fix, and
+    /// the setting is not writable through the Service Layer, so the error says where to fix it.
+    /// </summary>
+    [Fact]
+    public async Task Unlock_refused_over_user_defaults_says_where_to_fix_it()
+    {
+        var sap = new RecordingSapClient([Account(4, "jason", "Jason", locked: true)])
+        {
+            LockWriteRefusal = "Checkbox \"Take Control of eDoc Processing in Electronic Document Monitor\" in \"Users - Setup\" is different to \"User Defaults\" "
+        };
+        var audit = new RecordingAuditService();
+
+        var result = await UnlockHandler(sap, audit).Handle(new UnlockSapUserAccountCommand(4), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("SapUser.DefaultsMismatch", result.FirstError.Code);
+        Assert.Contains("\"Take Control of eDoc Processing in Electronic Document Monitor\"", result.FirstError.Description);
+        Assert.Contains("Users - Setup", result.FirstError.Description);
+        Assert.False(Assert.Single(audit.Entries).Succeeded);
+    }
+
+    /// <summary>
     /// The Web sends its integration key alongside the signed-in user's token, and the key's
     /// identity comes first — so the audit row is signed from the account, not from the name claim.
     /// </summary>
