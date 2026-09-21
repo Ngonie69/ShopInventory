@@ -209,6 +209,7 @@ try
         client.Timeout = TimeSpan.FromMinutes(5);
     });
 
+    builder.Services.AddSingleton(_ => new SalesOrderPodStatusCache(TimeProvider.System));
     builder.Services.AddHttpClient<IPodService, PodService>(client =>
     {
         client.BaseAddress = new Uri(apiBaseUrl);
