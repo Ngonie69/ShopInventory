@@ -1,14 +1,18 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoice;
 
-public sealed class GetVanSalesInvoiceHandler(ApplicationDbContext db)
+public sealed class GetVanSalesInvoiceHandler(
+    ApplicationDbContext db,
+    IOptions<FiscalisationSettings> fiscalisationSettings)
     : IRequestHandler<GetVanSalesInvoiceQuery, ErrorOr<VanSalesInvoiceDetail>>
 {
     public async Task<ErrorOr<VanSalesInvoiceDetail>> Handle(
@@ -67,13 +71,74 @@ public sealed class GetVanSalesInvoiceHandler(ApplicationDbContext db)
                     l.TaxCode))
                 .ToListAsync(cancellationToken);
 
+        var (postRefusal, fiscaliseRefusal) = Refusals(
+            record, fiscalisationSettings.Value.UsesPlatform, DateTime.UtcNow);
+
         return new VanSalesInvoiceDetail(
             record.Row,
             record.FiscalQrCode,
             record.PostingAttempts,
             record.QueueStatus,
+            postRefusal,
+            fiscaliseRefusal,
             lines,
             await LoadCreditsAsync(reference, record.Row.SapDocEntry, cancellationToken));
+    }
+
+    /// <summary>
+    /// Why the invoice may not be posted to SAP, or fiscalised, on request — or null where it may.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same two rules the desktop sales console offers its buttons on and the two commands refuse
+    /// from, asked of the sale row the invoice has: the receipt row of an online sale, the sale itself
+    /// for an offline one. Asked with the invoice's own SAP number rather than the row's, because an
+    /// online sale's number can sit on its reservation before the receipt row has it — and a sale SAP
+    /// holds is not offered a post on the strength of a row that has not caught up.
+    /// </para>
+    /// <para>
+    /// A converted order has no sale row for either command to find. It is signed and posted from its
+    /// queue entry, and the refusal says where to send it instead of naming a button that would answer
+    /// "not found".
+    /// </para>
+    /// </remarks>
+    internal static (string? Post, string? Fiscalise) Refusals(
+        VanSalesInvoiceRecord record,
+        bool usesPlatform,
+        DateTime nowUtc)
+    {
+        if (record.Sale is { } sale)
+        {
+            return (
+                DesktopSalePostEligibility.Refusal(
+                    sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus, record.Row.SapDocNum),
+                DesktopSaleFiscalisationRetry.ManualRefusal(
+                    sale.SourceSystem,
+                    sale.FiscalizationStatus,
+                    sale.RequiresReconciliation,
+                    sale.CreatedAtUtc,
+                    nowUtc,
+                    usesPlatform));
+        }
+
+        var parked = string.Equals(
+            record.QueueStatus, nameof(InvoiceQueueStatus.RequiresReview), StringComparison.Ordinal);
+
+        var post = record.Row.SapDocNum is not null
+            ? "This sale is already in SAP."
+            : parked
+                ? "This sale is posted from its invoice queue entry, which is parked for review. Put it back "
+                  + "with Retry in the Exception Center and the queue posts it."
+                : "This sale is waiting in the invoice queue, which posts it on its next run.";
+
+        var fiscalise = !string.IsNullOrWhiteSpace(record.Row.FiscalReceiptNumber)
+            ? "This sale is already fiscalised."
+            : parked
+                ? "This sale is signed from its invoice queue entry, which is parked for review. Put it back "
+                  + "with Retry in the Exception Center and the queue asks the device before signing."
+                : "This sale is waiting in the invoice queue, which signs it on its next run.";
+
+        return (post, fiscalise);
     }
 
     /// <summary>

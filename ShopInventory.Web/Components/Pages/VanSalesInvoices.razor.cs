@@ -7,6 +7,8 @@ using MudBlazor;
 using ShopInventory.Web.Common;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.VanSalesDocuments;
+using ShopInventory.Web.Features.VanSalesDocuments.Commands.PostVanSalesInvoiceToSap;
+using ShopInventory.Web.Features.VanSalesDocuments.Commands.RetryVanSalesInvoiceFiscalisation;
 using ShopInventory.Web.Features.VanSalesDocuments.Queries.GetVanSalesInvoice;
 using ShopInventory.Web.Features.VanSalesDocuments.Queries.GetVanSalesInvoices;
 using ShopInventory.Web.Models;
@@ -92,6 +94,12 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
     private bool isDetailLoading;
     private string? detailError;
     private bool isDownloading;
+
+    /// <summary>A post to SAP is in flight for the invoice open in the drawer.</summary>
+    private bool isPosting;
+
+    /// <summary>A fiscalisation retry is in flight for the invoice open in the drawer.</summary>
+    private bool isRetryingFiscal;
 
     /// <summary>The invoice the credit dialog is open over, which is what opens and shuts it.</summary>
     private VanSalesInvoiceRowModel? creditInvoice;
@@ -457,6 +465,100 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
         finally
         {
             isDownloading = false;
+        }
+    }
+
+    // ── Post to SAP, retry fiscalisation ────────────────────────────────
+    //
+    // The two levers /desktop-sales offers on a held sale, offered here on the same terms: only where the
+    // API's own rule allows, through the same endpoints, with the API's own sentence as the answer. The
+    // drawer stays open either way and is re-read after the list: a sale that posted now carries its
+    // invoice number and its row moves to Complete, and one SAP refused has its reason refreshed — which
+    // is the thing the operator pressed the button to read.
+
+    private async Task PostToSapAsync()
+    {
+        if (detail is null || isPosting || isRetryingFiscal)
+        {
+            return;
+        }
+
+        var reference = detail.Invoice.Reference;
+        isPosting = true;
+
+        try
+        {
+            var result = await Mediator.Send(new PostVanSalesInvoiceToSapCommand(reference), disposeCts.Token);
+
+            await RefreshAsync(reference);
+
+            if (result.IsError)
+            {
+                Snackbar.Add(result.FirstError.Description, Severity.Error);
+                return;
+            }
+
+            var posted = result.Value.Outcome == DesktopSalePostOutcomes.Posted;
+
+            Snackbar.Add(
+                result.Value.Message ?? $"{reference} reached SAP.",
+                posted ? Severity.Success : Severity.Info);
+        }
+        catch (OperationCanceledException) when (disposeCts.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            isPosting = false;
+        }
+    }
+
+    private async Task RetryFiscalisationAsync()
+    {
+        if (detail is null || isPosting || isRetryingFiscal)
+        {
+            return;
+        }
+
+        var reference = detail.Invoice.Reference;
+        isRetryingFiscal = true;
+
+        try
+        {
+            var result = await Mediator.Send(
+                new RetryVanSalesInvoiceFiscalisationCommand(reference), disposeCts.Token);
+
+            await RefreshAsync(reference);
+
+            if (result.IsError)
+            {
+                Snackbar.Add(result.FirstError.Description, Severity.Error);
+                return;
+            }
+
+            // Signed now or adopted from the device: either way the sale has its receipt, and the API's
+            // message says which.
+            Snackbar.Add(result.Value.Message ?? $"{reference} is fiscalised.", Severity.Success);
+        }
+        catch (OperationCanceledException) when (disposeCts.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            isRetryingFiscal = false;
+        }
+    }
+
+    /// <summary>
+    /// Re-reads the list and then the drawer, in that order, so the row and the counts move with the detail.
+    /// </summary>
+    private async Task RefreshAsync(string reference)
+    {
+        await LoadAsync();
+
+        if (detailReference == reference)
+        {
+            await OpenAsync(reference);
         }
     }
 

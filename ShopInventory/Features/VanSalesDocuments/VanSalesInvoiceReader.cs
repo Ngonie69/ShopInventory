@@ -18,7 +18,20 @@ internal sealed record VanSalesInvoiceRecord(
     int? DesktopSaleId,
     string? FiscalQrCode,
     int PostingAttempts,
-    string? QueueStatus);
+    string? QueueStatus,
+    VanSalesInvoiceSaleFacts? Sale);
+
+/// <summary>
+/// The columns the on-request post and fiscalisation rules read, from the sale row an invoice has: its
+/// receipt row for an online sale, the sale itself for an offline one. Null for a converted order, whose
+/// receipt lives on its queue entry alone.
+/// </summary>
+internal sealed record VanSalesInvoiceSaleFacts(
+    string? SourceSystem,
+    DesktopSaleConsolidationStatus ConsolidationStatus,
+    DesktopSaleFiscalizationStatus FiscalizationStatus,
+    bool RequiresReconciliation,
+    DateTime CreatedAtUtc);
 
 /// <summary>
 /// Assembles the invoices the van sales app created, from the three places they are recorded.
@@ -102,7 +115,9 @@ internal static class VanSalesInvoiceReader
                     s.SapDocEntry,
                     s.SapDocNum,
                     s.PostingAttempts,
-                    s.LastPostingError))
+                    s.LastPostingError,
+                    s.ConsolidationStatus,
+                    s.CreatedAt))
                 .ToListAsync(cancellationToken);
 
         var receiptByReference = receipts
@@ -148,6 +163,7 @@ internal static class VanSalesInvoiceReader
                 s.Currency,
                 s.SapDocEntry,
                 s.SapDocNum,
+                s.ConsolidationStatus,
                 s.FiscalizationStatus,
                 s.FiscalizationRequiresReconciliation,
                 s.FiscalError,
@@ -234,7 +250,15 @@ internal static class VanSalesInvoiceReader
                 DesktopSaleId: null,
                 FiscalQrCode: signed ? receipt!.FiscalQrCode : null,
                 PostingAttempts: receipt?.PostingAttempts ?? 0,
-                QueueStatus: queue?.Status.ToString()));
+                QueueStatus: queue?.Status.ToString(),
+                Sale: receipt is null
+                    ? null
+                    : new VanSalesInvoiceSaleFacts(
+                        SaleSourceSystems.VanSalesOnline,
+                        receipt.ConsolidationStatus,
+                        receipt.FiscalizationStatus,
+                        receipt.RequiresReconciliation,
+                        receipt.CreatedAtUtc)));
 
             if (!signed && !queueSigned && sapDocNum is > 0)
             {
@@ -286,7 +310,18 @@ internal static class VanSalesInvoiceReader
                 SaleNumber: DesktopSaleNumber.Format(s.Id));
 
             records.Add(new VanSalesInvoiceRecord(
-                row, null, s.Id, s.FiscalQRCode, s.PostingAttempts, QueueStatus: null));
+                row,
+                null,
+                s.Id,
+                s.FiscalQRCode,
+                s.PostingAttempts,
+                QueueStatus: null,
+                Sale: new VanSalesInvoiceSaleFacts(
+                    SaleSourceSystems.VanSales,
+                    s.ConsolidationStatus,
+                    s.FiscalizationStatus,
+                    s.FiscalizationRequiresReconciliation,
+                    s.CreatedAt)));
         }
 
         if (needLedgerLookup.Count > 0)
@@ -375,5 +410,7 @@ internal static class VanSalesInvoiceReader
         int? SapDocEntry,
         int? SapDocNum,
         int PostingAttempts,
-        string? LastPostingError);
+        string? LastPostingError,
+        DesktopSaleConsolidationStatus ConsolidationStatus,
+        DateTime CreatedAtUtc);
 }

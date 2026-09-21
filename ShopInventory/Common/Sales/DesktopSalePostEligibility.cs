@@ -35,16 +35,27 @@ public static class DesktopSalePostEligibility
     /// Why this sale may not be posted, in words an operator can act on, or null when it may be.
     /// </summary>
     public static string? Refusal(DesktopSaleEntity sale)
-        => Refusal(sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus);
+        => Refusal(sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus, sale.SapDocNum);
 
     /// <summary>
     /// The same rule over loose values, for a caller reading projected columns rather than an entity.
     /// </summary>
+    /// <param name="sapDocNum">
+    /// The invoice the sale posted as, when it has. Only an online van sale's row is decided by it — see
+    /// <see cref="OnlineVanSaleRefusal"/> — but it is asked of every caller, so the two readers cannot
+    /// disagree about that row by one of them leaving it out.
+    /// </param>
     public static string? Refusal(
         string? sourceSystem,
         DesktopSaleConsolidationStatus consolidationStatus,
-        DesktopSaleFiscalizationStatus fiscalizationStatus)
+        DesktopSaleFiscalizationStatus fiscalizationStatus,
+        int? sapDocNum)
     {
+        if (string.Equals(sourceSystem, SaleSourceSystems.VanSalesOnline, StringComparison.Ordinal))
+        {
+            return OnlineVanSaleRefusal(fiscalizationStatus, sapDocNum);
+        }
+
         // Asked first, because the answer for a sale SAP already has should say so rather than
         // complaining about the route it took to get there.
         switch (consolidationStatus)
@@ -60,11 +71,8 @@ public static class DesktopSalePostEligibility
 
         if (!isTillSale && !isVanSale)
         {
-            // The two remaining sources are not refusals of this sale so much as statements that
-            // something else owns it, so each says which.
-            return string.Equals(sourceSystem, SaleSourceSystems.VanSalesOnline, StringComparison.Ordinal)
-                ? "This row carries the receipt for a sale that reached SAP through its reservation, so there is nothing to post."
-                : "This sale reaches SAP through the end-of-day consolidation, not as an invoice of its own.";
+            // Not a refusal of this sale so much as a statement that something else owns it.
+            return "This sale reaches SAP through the end-of-day consolidation, not as an invoice of its own.";
         }
 
         // One rule now, where the two routes used to disagree.
@@ -103,6 +111,44 @@ public static class DesktopSalePostEligibility
                     "This sale's fiscalisation failed, so it cannot be invoiced until the device signs it. "
                     + "Retry fiscalisation to try again now."
             };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The rule for an online van sale's receipt row, which its consolidation status cannot answer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The row is written Consolidated before SAP is asked, because the invoice is its reservation's to
+    /// produce — see <c>VanSaleFiscalFirstPoster</c> — so Consolidated says nothing here about whether SAP
+    /// has the sale. The DocNum the post writes back is what does. Until this rule existed the row fell to
+    /// the consolidation check and was refused as "already in SAP" while SAP had refused it, which left the
+    /// one sale that most needs a person to press Post with no button to press: signed, holding its stock,
+    /// and parked for review by the queue after SAP said no. It posts through its reservation, the same
+    /// door the handset's request and the queue use.
+    /// </para>
+    /// <para>
+    /// An unsigned row is not a sale yet. The handset was told the sale did not go through and to send it
+    /// again, which is when the device is asked; and a device that could not say whether it signed hands
+    /// the sale to the queue for a person, whose Retry asks the device before signing. Neither is a post.
+    /// </para>
+    /// </remarks>
+    private static string? OnlineVanSaleRefusal(
+        DesktopSaleFiscalizationStatus fiscalizationStatus,
+        int? sapDocNum)
+    {
+        if (sapDocNum is not null)
+        {
+            return "This sale is already in SAP.";
+        }
+
+        if (fiscalizationStatus != DesktopSaleFiscalizationStatus.Success)
+        {
+            return "This sale has no confirmed fiscal receipt, so there is nothing to give SAP. It is signed "
+                + "when the handset sends it again, or from its queue entry with Retry in the Exception "
+                + "Center — not from here.";
         }
 
         return null;

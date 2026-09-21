@@ -138,7 +138,11 @@ public static class DesktopSaleFiscalisationRetry
         {
             return string.Equals(sourceSystem, SaleSourceSystems.VanSales, StringComparison.Ordinal)
                 ? "This van sale is signed on its handset, not here."
-                : "This sale is not fiscalised by this system, so there is nothing to retry here.";
+                : string.Equals(sourceSystem, SaleSourceSystems.VanSalesOnline, StringComparison.Ordinal)
+                    ? "An online van sale is signed when the handset sends it, not from here. If the device "
+                      + "could not say whether it signed, put the sale's queue entry back with Retry in the "
+                      + "Exception Center, which asks the device before signing."
+                    : "This sale is not fiscalised by this system, so there is nothing to retry here.";
         }
 
         if (IsInlineRequestInFlight(sourceSystem, status, createdAtUtc, nowUtc))

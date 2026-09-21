@@ -16,13 +16,18 @@ namespace ShopInventory.Services;
 /// <param name="Transient">
 /// Whether the failure looks like SAP or the device being unavailable, rather than refusing this sale.
 /// </param>
+/// <param name="Adopted">
+/// With <see cref="VanSaleFiscalFirstStatus.Posted"/>: SAP already held the invoice, so it was adopted
+/// rather than raised again. A person who pressed Post is told which of the two happened.
+/// </param>
 public sealed record VanSaleFiscalFirstOutcome(
     VanSaleFiscalFirstStatus Status,
     DesktopSaleEntity? Sale,
     int? SapDocEntry = null,
     int? SapDocNum = null,
     string? Error = null,
-    bool Transient = false)
+    bool Transient = false,
+    bool Adopted = false)
 {
     /// <summary>Whether a fiscal receipt exists for this sale, so it can no longer be refused.</summary>
     public bool IsFiscalised =>

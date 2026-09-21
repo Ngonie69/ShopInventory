@@ -137,8 +137,27 @@ public class VanSalesInvoiceDetailModel
     public string? FiscalQrCode { get; set; }
     public int PostingAttempts { get; set; }
     public string? QueueStatus { get; set; }
+
+    /// <summary>
+    /// Why the invoice may not be posted to SAP on request, or null when it may. The API's own rule — the
+    /// one Desktop Sales offers its button on — so a button this page shows is one the API accepts.
+    /// </summary>
+    public string? PostRefusal { get; set; }
+
+    /// <summary>Why the invoice may not be fiscalised again on request, or null when it may.</summary>
+    public string? FiscaliseRefusal { get; set; }
+
     public List<VanSalesInvoiceLineModel> Lines { get; set; } = [];
     public List<VanSalesInvoiceCreditModel> CreditNotes { get; set; } = [];
+
+    /// <summary>
+    /// Whether the drawer should offer "Post to SAP". Derived rather than carried, so it cannot contradict
+    /// the reason beside it.
+    /// </summary>
+    public bool CanPostToSap => PostRefusal is null;
+
+    /// <summary>Whether the drawer should offer "Retry fiscalisation".</summary>
+    public bool CanRetryFiscalisation => FiscaliseRefusal is null;
 }
 
 /// <summary>A credit note against a van invoice, as the invoice's drawer states it.</summary>
