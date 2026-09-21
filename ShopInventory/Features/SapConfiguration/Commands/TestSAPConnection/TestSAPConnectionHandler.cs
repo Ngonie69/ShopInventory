@@ -7,6 +7,7 @@ namespace ShopInventory.Features.SapConfiguration.Commands.TestSAPConnection;
 
 public sealed class TestSAPConnectionHandler(
     ISAPServiceLayerClient sapClient,
+    SapConnectionSwitch connectionSwitch,
     ILogger<TestSAPConnectionHandler> logger
 ) : IRequestHandler<TestSAPConnectionCommand, ErrorOr<TestSAPConnectionResult>>
 {
@@ -28,6 +29,15 @@ public sealed class TestSAPConnectionHandler(
                 connected = await sapClient.TestConnectionWithCredentialsAsync(
                     request.ServiceLayerUrl, request.CompanyDB, request.UserName, request.Password,
                     cancellationToken);
+            }
+            else if (!connectionSwitch.IsEnabled)
+            {
+                // The stored credentials are tested through the app's own SAP client, which refuses
+                // every request while the connection is off. A test with a password typed in uses a
+                // client of its own, so it still works.
+                return new TestSAPConnectionResult(
+                    false,
+                    "The SAP connection is turned off, so the saved credentials cannot be tested. Enter the password to test without turning it on.");
             }
             else
             {

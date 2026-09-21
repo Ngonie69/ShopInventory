@@ -2697,6 +2697,17 @@ the list endpoint returns, filtered to those currently blocked.
 | GET | `/api/sap-settings` | Get current SAP settings (password masked) |
 | PUT | `/api/sap-settings` | Update SAP connection settings |
 | POST | `/api/sap-settings/test-connection` | Test SAP connectivity |
+| GET | `/api/sap-settings/connection` | Whether the API may send requests to SAP: `{ "enabled": true, "updatedAtUtc": null }` |
+| PUT | `/api/sap-settings/connection` | Turn the SAP connection on or off: `{ "enabled": false }` |
+
+**The SAP connection switch.** Off, every request to the Service Layer is refused before it is sent,
+exactly as an open circuit breaker refuses it. Endpoints that post to SAP answer `503` (or queue the
+document, where they already queue while the circuit is open), and the posting jobs skip their pass.
+Queued invoices, transfers and payments post by themselves once it is back on. Stored in
+`SystemConfigs` (`SAP.ConnectionEnabled`), so no restart is needed. The node that saves it applies it
+at once, and every other node re-reads it within 15 seconds. `/health/dependencies` reports SAP as
+`Degraded` while it is off. Unsaved, it is on. This is separate from the `SAP:Enabled` configuration
+flag, which only decides whether some jobs are scheduled.
 
 **Update SAP Settings Request:**
 

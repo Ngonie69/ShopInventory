@@ -1240,14 +1240,16 @@ new ApiModule
 {
 Name = "SAP Settings",
 BasePath = "/api/sap-settings",
-Description = "3 endpoints under /api/sap-settings.",
+Description = "Connection settings, the connection test, and the switch that turns SAP on or off.",
 Icon = Icons.Material.Filled.Bolt,
 Color = Color.Success,
 Methods = new[] { "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/sap-settings", "Get settings"),
+new("GET", "/api/sap-settings/connection", "Get connection"),
 new("PUT", "/api/sap-settings", "Update settings"),
+new("PUT", "/api/sap-settings/connection", "Update connection"),
 new("POST", "/api/sap-settings/test-connection", "Test connection")
 }
 },
