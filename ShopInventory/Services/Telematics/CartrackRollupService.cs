@@ -9,14 +9,36 @@ using ShopInventory.Models.Telematics;
 
 namespace ShopInventory.Services.Telematics;
 
+/// <summary>Which of the rollup's two passes is running, and so how much it may ask Cartrack for.</summary>
+/// <remarks>
+/// The request cost is almost all per vehicle: odometer, temperature and fuel are each a call per
+/// registration per date, while movement is two fleet-wide calls per date whatever the fleet size.
+/// So the passes split on that line.
+/// </remarks>
+public enum CartrackRollupPass
+{
+    /// <summary>
+    /// Once a night: a slice of backfill, yesterday in full, and the reconciliation window. Every
+    /// per-vehicle read happens here, once per date, after the date is over.
+    /// </summary>
+    Nightly = 0,
+
+    /// <summary>
+    /// Hourly through the trading day: today's movement only — ignition, departure, driving and
+    /// idle — from the two fleet-wide calls. Nothing per vehicle, so it costs the same for one van
+    /// as for forty; today's odometer, fuel and temperature wait for the nightly pass.
+    /// </summary>
+    Intraday = 1
+}
+
 /// <summary>Builds the per-vehicle, per-day telematics rollup the compliance report joins to.</summary>
 public interface ICartrackRollupService
 {
     /// <summary>
-    /// Runs one pass: a slice of backfill if there is any left, then yesterday and today, then a
-    /// reconciliation window once a calendar day. Returns how many day rows were written.
+    /// Runs one pass — see <see cref="CartrackRollupPass"/> for what each reads. Returns how many
+    /// day rows were written.
     /// </summary>
-    Task<int> SyncAsync(CancellationToken cancellationToken);
+    Task<int> SyncAsync(CartrackRollupPass pass, CancellationToken cancellationToken);
 
     /// <summary>Rebuilds exactly one vehicle-day, for a retry or a test.</summary>
     Task<bool> BuildDayAsync(string registration, DateTime tradingDate, CancellationToken cancellationToken);
@@ -49,6 +71,7 @@ public interface ICartrackRollupService
 public sealed class CartrackRollupService(
     ApplicationDbContext db,
     ICartrackClient client,
+    CartrackRequestBudget budget,
     IOptions<CartrackSettings> settings,
     ILogger<CartrackRollupService> logger
 ) : ICartrackRollupService
@@ -62,7 +85,7 @@ public sealed class CartrackRollupService(
 
     private readonly CartrackSettings _settings = settings.Value;
 
-    public async Task<int> SyncAsync(CancellationToken cancellationToken)
+    public async Task<int> SyncAsync(CartrackRollupPass pass, CancellationToken cancellationToken)
     {
         if (!_settings.Enabled || !_settings.HasCredentials)
         {
@@ -76,62 +99,48 @@ public sealed class CartrackRollupService(
         syncState.UpdatedAt = now;
         await db.SaveChangesAsync(cancellationToken);
 
+        SystemConfigEntity? row = null;
+        CartrackRollupCheckpoint? checkpoint = null;
+        long usedToday = 0;
+
         try
         {
-            var (row, checkpoint) = await GetCheckpointAsync(now, today, cancellationToken);
+            (row, checkpoint) = await GetCheckpointAsync(now, today, cancellationToken);
+            usedToday = checkpoint.RequestsDate == today ? checkpoint.RequestsUsed : 0;
+
+            if (!TryAllowForPass(pass, usedToday))
+            {
+                return 0;
+            }
+
             var built = 0;
+            var stopped = false;
 
-            if (!checkpoint.BackfillCompleted)
+            if (pass == CartrackRollupPass.Intraday)
             {
-                (checkpoint, var backfilled) =
-                    await RunBackfillAsync(checkpoint, today, now, cancellationToken);
-
-                built += backfilled;
-                await SaveCheckpointAsync(row, checkpoint, now, cancellationToken);
-            }
-
-            // Yesterday and today, every pass. Yesterday because a van reporting from a dead spot
-            // arrives late; today because the hourly trigger is what keeps the live-ish figures
-            // on the report moving.
-            foreach (var date in new[] { today.AddDays(-1), today })
-            {
-                built += (await BuildDateAsync(date, cancellationToken)).Rows;
-            }
-
-            checkpoint = checkpoint with { LastBuiltDate = today };
-
-            // Gated on the CAT trading date, not on the UTC one. Everything else in this service
-            // thinks in trading days, and a UTC gate would roll the "once a day" boundary at
-            // 02:00 CAT — inside the night the nightly pass runs in.
-            var reconciledOn = checkpoint.LastReconciledAtUtc is { } last
-                ? CartrackTime.TradingDateOf(last)
-                : (DateTime?)null;
-
-            if (reconciledOn is null || reconciledOn < today)
-            {
-                var window = Math.Max(1, _settings.ReconciliationWindowDays);
-                var reconciled = true;
-
-                for (var back = 2; back <= window; back++)
+                // Today's movement and nothing else. The departure the compliance report grades
+                // comes from the fleet-wide events read, so this keeps the morning's report
+                // current for two requests a pass rather than two plus three per van.
+                try
                 {
-                    var pass = await BuildDateAsync(today.AddDays(-back), cancellationToken);
+                    built += (await BuildDateAsync(today, movementOnly: true, cancellationToken)).Rows;
 
-                    built += pass.Rows;
-                    reconciled &= pass.MovementLoaded;
+                    checkpoint = checkpoint with { LastBuiltDate = today };
                 }
-
-                // Only mark it done if it actually reconciled. A pass that could not reach the
-                // provider has re-read nothing, and marking it done would cost a whole day before
-                // anything tried again — which is a long time to leave a corrected figure unread.
-                if (reconciled)
+                catch (CartrackRateLimitedException) when (budget.Exhausted)
                 {
-                    checkpoint = checkpoint with { LastReconciledAtUtc = now };
+                    stopped = true;
                 }
             }
+            else
+            {
+                (checkpoint, built, stopped) =
+                    await RunNightlyAsync(checkpoint, row, today, now, cancellationToken);
+            }
 
+            checkpoint = WithUsage(checkpoint, today, usedToday);
             await SaveCheckpointAsync(row, checkpoint, now, cancellationToken);
 
-            var previous = syncState.ItemCount;
             syncState.ItemCount = await db.VehicleDayRollups.CountAsync(cancellationToken);
             syncState.LastSyncedAt = now;
             syncState.LastError = null;
@@ -139,20 +148,19 @@ public sealed class CartrackRollupService(
             syncState.UpdatedAt = now;
             await db.SaveChangesAsync(cancellationToken);
 
-            // Only when something moved. This runs hourly through the trading day whether or not
-            // a van did anything, and a job that reports the same figure twelve times is how a
-            // real change stops being noticed.
-            if (syncState.ItemCount != previous)
-            {
-                logger.LogInformation(
-                    "Fleet telematics rollup: {Rows} vehicle-day row(s), {Delta:+#;-#;0} since the last pass",
-                    syncState.ItemCount, syncState.ItemCount - previous);
-            }
+            // Every pass, deliberately: what each one spends is the evidence for raising the
+            // budget, and there are at most a couple of dozen passes a day.
+            logger.LogInformation(
+                "Fleet telematics {Pass} pass: {Requests} request(s), {UsedToday} of {Budget} today; "
+                + "{Rows} vehicle-day row(s) written{Stopped}",
+                pass, budget.Used, checkpoint.RequestsUsed, BudgetLabel(), built,
+                stopped ? " — stopped at the request budget, resumes next pass" : string.Empty);
 
             return built;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            await RecordUsageAfterFailureAsync(row, checkpoint, today, usedToday);
             throw;
         }
         catch (Exception ex)
@@ -164,7 +172,75 @@ public sealed class CartrackRollupService(
             syncState.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(CancellationToken.None);
 
+            await RecordUsageAfterFailureAsync(row, checkpoint, today, usedToday);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Caps this pass at what is left of the day's budget. A nightly pass also leaves the day's
+    /// intraday passes their share, so history and reconciliation never crowd out this morning's
+    /// departures. False when there is nothing left to spend.
+    /// </summary>
+    private bool TryAllowForPass(CartrackRollupPass pass, long usedToday)
+    {
+        if (_settings.MaxRequestsPerDay <= 0)
+        {
+            budget.Allow(null);
+            return true;
+        }
+
+        var reserve = pass == CartrackRollupPass.Nightly
+            ? _settings.IntradayPassesPerDay * CartrackSettings.RequestsPerIntradayPass
+            : 0;
+
+        var allowance = _settings.MaxRequestsPerDay - usedToday - reserve;
+
+        if (allowance <= 0)
+        {
+            logger.LogInformation(
+                "Fleet telematics {Pass} pass skipped: {UsedToday} of {Budget} requests spent today"
+                + "{Reserve}.",
+                pass, usedToday, _settings.MaxRequestsPerDay,
+                reserve > 0 ? $", {reserve} held back for the intraday passes" : string.Empty);
+
+            return false;
+        }
+
+        budget.Allow(allowance);
+        return true;
+    }
+
+    private string BudgetLabel() =>
+        _settings.MaxRequestsPerDay > 0
+            ? _settings.MaxRequestsPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : "unlimited";
+
+    private CartrackRollupCheckpoint WithUsage(
+        CartrackRollupCheckpoint checkpoint, DateTime today, long usedToday) =>
+        checkpoint with { RequestsDate = today, RequestsUsed = usedToday + budget.Used };
+
+    /// <summary>
+    /// A pass that failed still spent its requests, and an uncounted failure is exactly the run
+    /// that would otherwise let the next pass overspend. Best effort: the failure itself is
+    /// already on its way out and must not be replaced by a second one.
+    /// </summary>
+    private async Task RecordUsageAfterFailureAsync(
+        SystemConfigEntity? row, CartrackRollupCheckpoint? checkpoint, DateTime today, long usedToday)
+    {
+        if (row is null || checkpoint is null || budget.Used == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await SaveCheckpointAsync(
+                row, WithUsage(checkpoint, today, usedToday), DateTime.UtcNow, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Fleet telematics could not record the requests a failed pass made.");
         }
     }
 
@@ -180,12 +256,109 @@ public sealed class CartrackRollupService(
 
         var context = await LoadDayContextAsync(tradingDate, [key], cancellationToken);
 
-        return await BuildOneAsync(key, tradingDate, context, cancellationToken);
+        return await BuildOneAsync(key, tradingDate, context, movementOnly: false, cancellationToken);
     }
 
     // — The passes ————————————————————————————————————————————————————
 
-    private async Task<(CartrackRollupCheckpoint, int)> RunBackfillAsync(
+    /// <summary>
+    /// Yesterday in full, then the reconciliation window once a trading day, then as much
+    /// backfill as the budget has left — in that order because that is the order of their value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Yesterday is read here and only here. It used to be rebuilt by every hourly pass as well, in
+    /// case a van reporting from a dead spot arrived late — but the reconciliation window re-reads
+    /// it tomorrow night as day two, which catches the same late data for a fraction of the
+    /// requests.
+    /// </para>
+    /// <para>
+    /// A spent budget stops the pass where it is and keeps what it finished. Each step saves its
+    /// own progress, so the next night picks up at the step that ran out rather than redoing the
+    /// ones before it.
+    /// </para>
+    /// </remarks>
+    private async Task<(CartrackRollupCheckpoint, int, bool)> RunNightlyAsync(
+        CartrackRollupCheckpoint checkpoint,
+        SystemConfigEntity row,
+        DateTime today,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var built = 0;
+        var yesterday = today.AddDays(-1);
+
+        try
+        {
+            built += (await BuildDateAsync(yesterday, movementOnly: false, cancellationToken)).Rows;
+        }
+        catch (CartrackRateLimitedException) when (budget.Exhausted)
+        {
+            return (checkpoint, built, true);
+        }
+
+        // Never backwards: an intraday pass has usually built today already, and the readiness
+        // gate reads this as the most recent day it may show.
+        checkpoint = checkpoint with
+        {
+            LastBuiltDate = checkpoint.LastBuiltDate is { } last && last > yesterday ? last : yesterday
+        };
+
+        // Gated on the CAT trading date, not on the UTC one. Everything else in this service
+        // thinks in trading days, and a UTC gate would roll the "once a day" boundary at
+        // 02:00 CAT — inside the night the nightly pass runs in.
+        var reconciledOn = checkpoint.LastReconciledAtUtc is { } reconciledAt
+            ? CartrackTime.TradingDateOf(reconciledAt)
+            : (DateTime?)null;
+
+        if (reconciledOn is null || reconciledOn < today)
+        {
+            var window = Math.Max(1, _settings.ReconciliationWindowDays);
+            var reconciled = true;
+
+            try
+            {
+                for (var back = 2; back <= window; back++)
+                {
+                    var pass = await BuildDateAsync(today.AddDays(-back), movementOnly: false, cancellationToken);
+
+                    built += pass.Rows;
+                    reconciled &= pass.MovementLoaded;
+                }
+            }
+            catch (CartrackRateLimitedException) when (budget.Exhausted)
+            {
+                // Not marked done, so tomorrow's pass tries the window again.
+                return (checkpoint, built, true);
+            }
+
+            // Only mark it done if it actually reconciled. A pass that could not reach the
+            // provider has re-read nothing, and marking it done would cost a whole day before
+            // anything tried again — which is a long time to leave a corrected figure unread.
+            if (reconciled)
+            {
+                checkpoint = checkpoint with { LastReconciledAtUtc = now };
+            }
+        }
+
+        if (!checkpoint.BackfillCompleted)
+        {
+            (checkpoint, var backfilled, var stopped) =
+                await RunBackfillAsync(checkpoint, today, now, cancellationToken);
+
+            built += backfilled;
+            await SaveCheckpointAsync(row, checkpoint, now, cancellationToken);
+
+            if (stopped)
+            {
+                return (checkpoint, built, true);
+            }
+        }
+
+        return (checkpoint, built, false);
+    }
+
+    private async Task<(CartrackRollupCheckpoint, int, bool)> RunBackfillAsync(
         CartrackRollupCheckpoint checkpoint, DateTime today, DateTime now, CancellationToken cancellationToken)
     {
         var start = checkpoint.BackfillStartDate
@@ -197,10 +370,23 @@ public sealed class CartrackRollupService(
         var slice = Math.Max(1, _settings.MaxBackfillDaysPerRun);
         var built = 0;
         var reached = checkpoint.BackfillThroughDate;
+        var stopped = false;
 
         for (var day = 0; day < slice && next < today.AddDays(-1); day++, next = next.AddDays(1))
         {
-            var pass = await BuildDateAsync(next, cancellationToken);
+            DateBuildResult pass;
+
+            try
+            {
+                pass = await BuildDateAsync(next, movementOnly: false, cancellationToken);
+            }
+            catch (CartrackRateLimitedException) when (budget.Exhausted)
+            {
+                // The date that ran out is not counted as reached, so it is read again in full.
+                stopped = true;
+                break;
+            }
+
             built += pass.Rows;
 
             // Stop where the reading stopped. Walking on past a date the provider would not
@@ -222,7 +408,7 @@ public sealed class CartrackRollupService(
             BackfillThroughDate = reached ?? start,
             BackfillCompleted = complete,
             BackfillCompletedAtUtc = complete ? checkpoint.BackfillCompletedAtUtc ?? now : null
-        }, built);
+        }, built, stopped);
     }
 
     /// <summary>
@@ -234,7 +420,7 @@ public sealed class CartrackRollupService(
     /// reconciled, however many rows it touched.
     /// </returns>
     private async Task<DateBuildResult> BuildDateAsync(
-        DateTime tradingDate, CancellationToken cancellationToken)
+        DateTime tradingDate, bool movementOnly, CancellationToken cancellationToken)
     {
         var registrations = await RegistrationsForAsync(tradingDate, cancellationToken);
 
@@ -249,7 +435,7 @@ public sealed class CartrackRollupService(
 
         foreach (var registration in registrations)
         {
-            if (await BuildOneAsync(registration, tradingDate, context, cancellationToken))
+            if (await BuildOneAsync(registration, tradingDate, context, movementOnly, cancellationToken))
             {
                 built++;
             }
@@ -428,8 +614,14 @@ public sealed class CartrackRollupService(
     private sealed record RouteLimitsRow(
         string TruckRegNo, string RouteCode, decimal? MinC, decimal? MaxC, byte? Channel);
 
+    // movementOnly skips the per-vehicle reads. Their columns and Has… flags are left as they
+    // stand, so an intraday refresh never erases what a nightly build already read.
     private async Task<bool> BuildOneAsync(
-        string registration, DateTime tradingDate, DayContext context, CancellationToken cancellationToken)
+        string registration,
+        DateTime tradingDate,
+        DayContext context,
+        bool movementOnly,
+        CancellationToken cancellationToken)
     {
         var row = await db.VehicleDayRollups
             .SingleOrDefaultAsync(
@@ -453,9 +645,13 @@ public sealed class CartrackRollupService(
         row.LastError = Truncate(context.Error);
 
         ApplyMovement(row, registration, context);
-        await ApplyOdometerAsync(row, registration, context, cancellationToken);
-        await ApplyFuelAsync(row, registration, context, cancellationToken);
-        await ApplyTemperatureAsync(row, registration, context, cancellationToken);
+
+        if (!movementOnly)
+        {
+            await ApplyOdometerAsync(row, registration, context, cancellationToken);
+            await ApplyFuelAsync(row, registration, context, cancellationToken);
+            await ApplyTemperatureAsync(row, registration, context, cancellationToken);
+        }
 
         await db.SaveChangesAsync(cancellationToken);
 

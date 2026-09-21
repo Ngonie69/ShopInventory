@@ -93,7 +93,8 @@ public class CartrackRollupTests : IDisposable
         tune?.Invoke(settings);
 
         return new CartrackRollupService(
-            _context, client, Options.Create(settings), NullLogger<CartrackRollupService>.Instance);
+            _context, client, client.Budget, Options.Create(settings),
+            NullLogger<CartrackRollupService>.Instance);
     }
 
     private static DateTime At(int hour, int minute) =>
@@ -479,7 +480,7 @@ public class CartrackRollupTests : IDisposable
     {
         // The case the report most wants to catch: the rep never tapped Start Day, so there is no
         // handset record at all — and the vehicle can still be checked.
-        var built = await Service(new StubClient()).SyncAsync(CancellationToken.None);
+        var built = await Service(new StubClient()).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         Assert.True(built > 0);
         Assert.All(_context.VehicleDayRollups, row => Assert.Equal(Plate, row.RegistrationNormalized));
@@ -488,7 +489,7 @@ public class CartrackRollupTests : IDisposable
     [Fact]
     public async Task A_sync_records_itself_and_its_checkpoint()
     {
-        await Service(new StubClient()).SyncAsync(CancellationToken.None);
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         var state = Assert.Single(
             _context.CacheSyncStates.Where(s => s.CacheKey == CartrackRollupService.CacheKey));
@@ -509,7 +510,7 @@ public class CartrackRollupTests : IDisposable
         // again, which is a long time to leave a corrected figure unread.
         var client = new StubClient { EventsThrow = new HttpRequestException("No such host is known.") };
 
-        await Service(client).SyncAsync(CancellationToken.None);
+        await Service(client).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         var checkpoint = ReadCheckpoint();
 
@@ -519,7 +520,7 @@ public class CartrackRollupTests : IDisposable
     [Fact]
     public async Task A_reconciliation_that_reached_the_provider_is_marked_done()
     {
-        await Service(new StubClient()).SyncAsync(CancellationToken.None);
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         Assert.NotNull(ReadCheckpoint().LastReconciledAtUtc);
     }
@@ -531,10 +532,225 @@ public class CartrackRollupTests : IDisposable
         // never come back, and the readiness gate would then claim a covered range with a hole.
         var client = new StubClient { EventsThrow = new HttpRequestException("No such host is known.") };
 
-        await Service(client).SyncAsync(CancellationToken.None);
+        await Service(client).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         var checkpoint = ReadCheckpoint();
 
+        Assert.False(checkpoint.BackfillCompleted);
+    }
+
+    // — What each pass costs ——————————————————————————————————————————
+
+    [Fact]
+    public async Task An_intraday_pass_reads_only_todays_fleet_wide_movement()
+    {
+        // The hourly pass runs fifteen times a day. Per-vehicle reads there would cost three
+        // requests per van per hour against a rate limit shared with Cartrack's other customers.
+        var client = new StubClient();
+
+        await Service(client).SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+
+        Assert.Equal(["activity", "events"], client.Calls);
+
+        var today = CartrackTime.TradingDateOf(DateTime.UtcNow);
+        var row = Assert.Single(_context.VehicleDayRollups);
+
+        Assert.Equal(today, row.TradingDate);
+        Assert.False(row.HasOdometer);
+    }
+
+    [Fact]
+    public async Task An_intraday_pass_neither_backfills_nor_reconciles()
+    {
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+
+        var checkpoint = ReadCheckpoint();
+
+        Assert.False(checkpoint.BackfillCompleted);
+        Assert.Null(checkpoint.LastReconciledAtUtc);
+        Assert.Equal(CartrackTime.TradingDateOf(DateTime.UtcNow), checkpoint.LastBuiltDate);
+    }
+
+    [Fact]
+    public async Task An_intraday_refresh_keeps_what_a_full_build_already_read()
+    {
+        // A movement-only pass leaves the odometer alone. Turning HasOdometer off because this
+        // pass did not ask would tell the report the reading had failed.
+        var today = CartrackTime.TradingDateOf(DateTime.UtcNow);
+        var client = new StubClient
+        {
+            Odometer = new CartrackOdometerSummary
+            {
+                StartOdometerMetres = 100_000,
+                EndOdometerMetres = 142_000,
+                DistanceMetres = 42_000
+            }
+        };
+
+        await Service(client).BuildDayAsync(Plate, today, CancellationToken.None);
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+
+        var row = await _context.VehicleDayRollups.AsNoTracking().SingleAsync();
+
+        Assert.True(row.HasOdometer);
+        Assert.Equal(42_000, row.DistanceMetres);
+        Assert.Equal(2, row.AttemptCount);
+    }
+
+    [Fact]
+    public async Task A_nightly_pass_builds_yesterday_and_leaves_today_to_the_hourly_pass()
+    {
+        var client = new StubClient();
+
+        await Service(client, s => s.BackfillDays = 1).SyncAsync(
+            CartrackRollupPass.Nightly, CancellationToken.None);
+
+        var today = CartrackTime.TradingDateOf(DateTime.UtcNow);
+        var dates = _context.VehicleDayRollups.Select(row => row.TradingDate).ToList();
+
+        Assert.DoesNotContain(today, dates);
+        Assert.Contains(today.AddDays(-1), dates);
+        Assert.Contains("odometer", client.Calls);
+        Assert.Equal(today.AddDays(-1), ReadCheckpoint().LastBuiltDate);
+    }
+
+    [Fact]
+    public async Task A_nightly_pass_never_moves_the_built_date_backwards()
+    {
+        // The readiness gate reads LastBuiltDate as the newest day it may show; the nightly pass
+        // building yesterday must not hide the today an hourly pass already built.
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
+
+        Assert.Equal(CartrackTime.TradingDateOf(DateTime.UtcNow), ReadCheckpoint().LastBuiltDate);
+    }
+
+    [Theory]
+    [InlineData(5, 19, 1, "0 10 5-19 * * ?", 15)]
+    [InlineData(5, 19, 2, "0 10 5-19/2 * * ?", 8)]
+    [InlineData(4, 20, 1, "0 10 4-20 * * ?", 17)]
+    [InlineData(5, 19, 0, "0 10 5-19 * * ?", 15)]
+    [InlineData(20, 4, 1, "0 10 5-19 * * ?", 15)]
+    [InlineData(-1, 19, 1, "0 10 5-19 * * ?", 15)]
+    [InlineData(5, 24, 1, "0 10 5-19 * * ?", 15)]
+    public void The_intraday_schedule_covers_the_trading_hours_only(
+        int from, int to, int every, string expected, int passes)
+    {
+        var settings = new CartrackSettings
+        {
+            IntradayRollupFromHourCat = from,
+            IntradayRollupToHourCat = to,
+            IntradayRollupEveryHours = every
+        };
+
+        var cron = QuartzConfiguration.BuildIntradayRollupCron(settings);
+
+        Assert.Equal(expected, cron);
+        Assert.True(Quartz.CronExpression.IsValidExpression(cron));
+
+        // The reserve the nightly pass leaves is sized from this, so it must count what the
+        // schedule actually fires: every firing of the cron inside one day.
+        var expression = new Quartz.CronExpression(cron) { TimeZone = TimeZoneInfo.Utc };
+        var fired = 0;
+
+        for (var at = expression.GetTimeAfter(new DateTimeOffset(2026, 9, 21, 0, 0, 0, TimeSpan.Zero));
+             at is { } next && next < new DateTimeOffset(2026, 9, 22, 0, 0, 0, TimeSpan.Zero);
+             at = expression.GetTimeAfter(next))
+        {
+            fired++;
+        }
+
+        Assert.Equal(passes, fired);
+        Assert.Equal(passes, settings.IntradayPassesPerDay);
+    }
+
+    // — The daily request budget ————————————————————————————————————————
+
+    [Fact]
+    public async Task A_pass_that_runs_out_of_budget_stops_cleanly_and_counts_what_it_spent()
+    {
+        // One request left: the activity call is made, the events call is refused. That is a
+        // stopped pass, not a failed one — no exception, no error on the status page.
+        var client = new StubClient();
+
+        await Service(client, s => s.MaxRequestsPerDay = 1)
+            .SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+
+        Assert.Equal(["activity"], client.Calls);
+
+        var checkpoint = ReadCheckpoint();
+
+        Assert.Equal(1, checkpoint.RequestsUsed);
+        Assert.Equal(CartrackTime.TradingDateOf(DateTime.UtcNow), checkpoint.RequestsDate);
+        Assert.Null(checkpoint.LastBuiltDate);
+        Assert.Null(_context.CacheSyncStates.Single(s => s.CacheKey == CartrackRollupService.CacheKey).LastError);
+    }
+
+    [Fact]
+    public async Task The_daily_budget_holds_across_passes()
+    {
+        // Counted in the checkpoint, not in memory, so a new job run — or another node — sees
+        // what the day has already spent.
+        void Cap(CartrackSettings s) => s.MaxRequestsPerDay = 3;
+
+        var first = new StubClient();
+        await Service(first, Cap).SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+
+        var second = new StubClient();
+        await Service(second, Cap).SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+
+        var third = new StubClient();
+        await Service(third, Cap).SyncAsync(CartrackRollupPass.Intraday, CancellationToken.None);
+
+        Assert.Equal(2, first.Calls.Count);
+        Assert.Single(second.Calls);
+        Assert.Empty(third.Calls);
+        Assert.Equal(3, ReadCheckpoint().RequestsUsed);
+    }
+
+    [Fact]
+    public async Task A_nightly_pass_leaves_the_intraday_passes_their_share()
+    {
+        // Eight intraday passes at four requests each: a budget no bigger than that reserve gives
+        // the nightly pass nothing, so history can never crowd out this morning's departures.
+        var client = new StubClient();
+
+        await Service(client, s =>
+            {
+                s.IntradayRollupEveryHours = 2;
+                s.MaxRequestsPerDay = 8 * CartrackSettings.RequestsPerIntradayPass;
+            })
+            .SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
+
+        Assert.Empty(client.Calls);
+        Assert.Empty(_context.VehicleDayRollups);
+    }
+
+    [Fact]
+    public async Task A_nightly_pass_spends_on_yesterday_first_and_backfill_last()
+    {
+        // One van, four requests a date: yesterday, one reconciliation day, one backfill date, and
+        // two requests into a second backfill date before the budget runs out. The backfill keeps
+        // the date it finished and not the one it was part-way through.
+        var client = new StubClient();
+        var today = CartrackTime.TradingDateOf(DateTime.UtcNow);
+
+        await Service(client, s =>
+            {
+                s.IntradayRollupEveryHours = 2;
+                s.ReconciliationWindowDays = 2;
+                s.BackfillDays = 3;
+                s.MaxBackfillDaysPerRun = 2;
+                s.MaxRequestsPerDay = 8 * CartrackSettings.RequestsPerIntradayPass + 4 + 4 + 4 + 2;
+            })
+            .SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
+
+        var checkpoint = ReadCheckpoint();
+
+        Assert.Equal(14, checkpoint.RequestsUsed);
+        Assert.Equal(today.AddDays(-1), checkpoint.LastBuiltDate);
+        Assert.NotNull(checkpoint.LastReconciledAtUtc);
+        Assert.Equal(today.AddDays(-3), checkpoint.BackfillThroughDate);
         Assert.False(checkpoint.BackfillCompleted);
     }
 
@@ -552,7 +768,7 @@ public class CartrackRollupTests : IDisposable
     public async Task Nothing_runs_when_the_integration_is_off()
     {
         var built = await Service(new StubClient(), s => s.Enabled = false)
-            .SyncAsync(CancellationToken.None);
+            .SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         Assert.Equal(0, built);
         Assert.Empty(_context.VehicleDayRollups);
@@ -572,7 +788,7 @@ public class CartrackRollupTests : IDisposable
 
         await _context.SaveChangesAsync();
 
-        var built = await Service(new StubClient()).SyncAsync(CancellationToken.None);
+        var built = await Service(new StubClient()).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         Assert.True(built > 0);
     }
@@ -584,7 +800,7 @@ public class CartrackRollupTests : IDisposable
     {
         // A backfill that has reached September cannot speak for July. Showing July as "the van
         // never moved" reads as a finding, which is worse than showing nothing.
-        await Service(new StubClient()).SyncAsync(CancellationToken.None);
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         var status = await Reader().GetStatusAsync(
             new DateTime(2026, 7, 1), new DateTime(2026, 7, 31), CancellationToken.None);
@@ -624,7 +840,7 @@ public class CartrackRollupTests : IDisposable
     [Fact]
     public async Task The_gate_refuses_a_stale_rollup()
     {
-        await Service(new StubClient()).SyncAsync(CancellationToken.None);
+        await Service(new StubClient()).SyncAsync(CartrackRollupPass.Nightly, CancellationToken.None);
 
         var state = _context.CacheSyncStates.Single(s => s.CacheKey == CartrackRollupService.CacheKey);
         state.LastSyncedAt = DateTime.UtcNow.AddDays(-4);
@@ -644,28 +860,58 @@ public class CartrackRollupTests : IDisposable
         public Exception? EventsThrow { get; set; }
         public Exception? OdometerThrows { get; set; }
 
+        /// <summary>Every call the rollup made, by endpoint — what a pass costs against the rate limit.</summary>
+        public List<string> Calls { get; } = [];
+
+        /// <summary>The run's request budget, spent on every call the way the real client spends it.</summary>
+        public CartrackRequestBudget Budget { get; } = new();
+
+        private void Spend(string endpoint)
+        {
+            Budget.Take(endpoint);
+            Calls.Add(endpoint);
+        }
+
         public Task<IReadOnlyList<CartrackVehicle>> GetVehiclesAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<CartrackVehicle>>([]);
 
         public Task<IReadOnlyList<CartrackVehicleActivity>> GetActivityAsync(
-            DateTime tradingDate, CancellationToken cancellationToken) =>
-            EventsThrow is not null ? Task.FromException<IReadOnlyList<CartrackVehicleActivity>>(EventsThrow)
+            DateTime tradingDate, CancellationToken cancellationToken)
+        {
+            Spend("activity");
+
+            return EventsThrow is not null
+                ? Task.FromException<IReadOnlyList<CartrackVehicleActivity>>(EventsThrow)
                 : Task.FromResult(Activity);
+        }
 
         public Task<IReadOnlyList<CartrackVehicleEvent>> GetEventsAsync(
-            DateTime fromUtc, DateTime toUtc, string? registration, CancellationToken cancellationToken) =>
-            EventsThrow is not null ? Task.FromException<IReadOnlyList<CartrackVehicleEvent>>(EventsThrow)
+            DateTime fromUtc, DateTime toUtc, string? registration, CancellationToken cancellationToken)
+        {
+            Spend("events");
+
+            return EventsThrow is not null
+                ? Task.FromException<IReadOnlyList<CartrackVehicleEvent>>(EventsThrow)
                 : Task.FromResult(Events);
+        }
 
         public Task<IReadOnlyList<CartrackTemperatureReading>> GetTemperaturesAsync(
-            DateTime fromUtc, DateTime toUtc, string? registration, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<CartrackTemperatureReading>>([]);
+            DateTime fromUtc, DateTime toUtc, string? registration, CancellationToken cancellationToken)
+        {
+            Spend("temperatures");
+
+            return Task.FromResult<IReadOnlyList<CartrackTemperatureReading>>([]);
+        }
 
         public Task<CartrackOdometerSummary?> GetOdometerAsync(
-            string registration, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken) =>
-            OdometerThrows is not null
+            string registration, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken)
+        {
+            Spend("odometer");
+
+            return OdometerThrows is not null
                 ? Task.FromException<CartrackOdometerSummary?>(OdometerThrows)
                 : Task.FromResult(Odometer);
+        }
 
         public Task<CartrackFuelConsumed?> GetFuelConsumedAsync(
             string registration, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken) =>

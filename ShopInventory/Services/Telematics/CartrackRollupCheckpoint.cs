@@ -33,6 +33,16 @@ public sealed record CartrackRollupCheckpoint
     /// anything changes minute to minute.
     /// </summary>
     public DateTime? LastReconciledAtUtc { get; init; }
+
+    /// <summary>The CAT trading date <see cref="RequestsUsed"/> counts for.</summary>
+    public DateTime? RequestsDate { get; init; }
+
+    /// <summary>
+    /// Provider requests the rollup has made on <see cref="RequestsDate"/>, against
+    /// <see cref="Configuration.CartrackSettings.MaxRequestsPerDay"/>. Kept here rather than in
+    /// memory so the cap holds across a restart and across whichever node runs the next pass.
+    /// </summary>
+    public long RequestsUsed { get; init; }
 }
 
 /// <summary>

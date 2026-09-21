@@ -73,6 +73,7 @@ public class CartrackColdChainAndFuelTests : IDisposable
     private CartrackRollupService Service(StubClient client) =>
         new(_context,
             client,
+            new CartrackRequestBudget(),
             Options.Create(new CartrackSettings
             {
                 Enabled = true,

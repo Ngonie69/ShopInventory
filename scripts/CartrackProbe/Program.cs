@@ -84,7 +84,7 @@ http.DefaultRequestHeaders.Add("Accept", "application/json");
 http.DefaultRequestHeaders.Authorization = CartrackAuthentication.HeaderFor(settings);
 
 var client = new CartrackClient(
-    http, options, new CartrackRateLimiter(options), loggerFactory.CreateLogger<CartrackClient>());
+    http, options, new CartrackRateLimiter(options), new CartrackRequestBudget(), loggerFactory.CreateLogger<CartrackClient>());
 
 Console.WriteLine($"Cartrack probe  ·  {settings.BaseUrl}  ·  trading date {probeDate:yyyy-MM-dd} (CAT)");
 Console.WriteLine(new string('=', 100));

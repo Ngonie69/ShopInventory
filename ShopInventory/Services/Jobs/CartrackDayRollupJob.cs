@@ -27,9 +27,15 @@ public sealed class CartrackDayRollupJob(
 
         var rollup = scope.ServiceProvider.GetRequiredService<ICartrackRollupService>();
 
+        // Anything that is not the hourly trigger — the nightly cron, or someone firing the job
+        // by hand — gets the full pass, so a manual run is never a cheaper one than expected.
+        var pass = context.Trigger.Key.Name == $"{HourlyTriggerName}-trigger"
+            ? CartrackRollupPass.Intraday
+            : CartrackRollupPass.Nightly;
+
         try
         {
-            await rollup.SyncAsync(context.CancellationToken);
+            await rollup.SyncAsync(pass, context.CancellationToken);
         }
         catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
         {

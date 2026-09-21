@@ -134,6 +134,66 @@ public class CartrackSettings
     /// <summary>Past this, the rollup is stale and the report says so rather than showing it as fact.</summary>
     public int RollupReadyMaxAgeHours { get; set; } = 36;
 
+    /// <summary>
+    /// The first CAT hour the intraday rollup runs, at ten past. It reads only today's fleet-wide
+    /// movement — two requests a pass — and nothing runs overnight while the fleet is parked.
+    /// </summary>
+    public int IntradayRollupFromHourCat { get; set; } = 5;
+
+    /// <inheritdoc cref="IntradayRollupFromHourCat"/>
+    public int IntradayRollupToHourCat { get; set; } = 19;
+
+    /// <summary>
+    /// Hours between intraday passes inside that window. 2 is every other hour from the first;
+    /// 1 is every hour. Anything under 1 is taken as 1.
+    /// </summary>
+    public int IntradayRollupEveryHours { get; set; } = 2;
+
+    /// <summary>
+    /// The most rollup requests one CAT trading day may make, retries included; 0 means no cap.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The throttle to raise as the integration proves itself. It is counted in the rollup's
+    /// checkpoint, so it holds across restarts and nodes. When it runs out the pass stops cleanly
+    /// and resumes from its checkpoint the next day.
+    /// </para>
+    /// <para>
+    /// Spent in order of value: yesterday in full, then the reconciliation window, then backfill —
+    /// and the backfill leaves enough behind for the day's intraday passes, so history never
+    /// crowds out this morning's departures.
+    /// </para>
+    /// </remarks>
+    public int MaxRequestsPerDay { get; set; } = 250;
+
+    /// <summary>
+    /// Requests set aside for one intraday pass: the activity and events calls plus a page each.
+    /// </summary>
+    public const int RequestsPerIntradayPass = 4;
+
+    /// <summary>How many intraday passes the schedule makes in a day.</summary>
+    public int IntradayPassesPerDay
+    {
+        get
+        {
+            var (from, to) = EffectiveIntradayWindow;
+
+            return (to - from) / Math.Max(1, IntradayRollupEveryHours) + 1;
+        }
+    }
+
+    /// <summary>
+    /// The intraday window as it will actually run. Out-of-range or inverted hours fall back to
+    /// 05–19 rather than failing startup: a mistyped window should cost some freshness, not the
+    /// scheduler.
+    /// </summary>
+    public (int From, int To) EffectiveIntradayWindow =>
+        IntradayRollupFromHourCat is < 0 or > 23
+        || IntradayRollupToHourCat is < 0 or > 23
+        || IntradayRollupFromHourCat > IntradayRollupToHourCat
+            ? (5, 19)
+            : (IntradayRollupFromHourCat, IntradayRollupToHourCat);
+
     public int LivePollIntervalSeconds { get; set; } = 180;
 
     /// <summary>The CAT window the live poll runs in. Outside it the fleet is parked.</summary>
