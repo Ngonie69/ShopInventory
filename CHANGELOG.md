@@ -18,6 +18,20 @@ otherwise be surprised.
 
 ### Added
 
+- **SAP user accounts can be unlocked and given a new password from the back office.**
+
+  `GET /api/sap-users`, `POST /api/sap-users/{internalKey}/unlock` and
+  `POST /api/sap-users/{internalKey}/password`, behind the new `sapusers.view`, `sapusers.unlock` and
+  `sapusers.change_password` permissions — Admin holds all three by default and no other role holds
+  any. The screen is `/sap-users`, under Administration.
+
+  Two things an operator should know. **These are SAP Business One's own logins, not this
+  application's accounts** — resetting one here does nothing to the person's ShopInventory sign-in,
+  and the page says so. And **the Service Layer account this application signs in as must be a SAP
+  superuser** for either write; where it is not, SAP refuses and says which authorisation is missing,
+  and that sentence is what the page shows. Creating and removing SAP users is still done in the B1
+  client, because it is a licensing decision.
+
 - **Van sales document lists take new filters and return a period summary.**
 
   `GET /api/van-sales/invoices` takes `channel` (`Online` or `Offline`) and returns `summary`: online

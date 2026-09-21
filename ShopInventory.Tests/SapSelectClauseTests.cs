@@ -53,6 +53,7 @@ public class SapSelectClauseTests
         { "ApprovalStageSelect", "ApprovalStage" },
         { "ApprovalTemplateSelect", "ApprovalTemplate" },
         { "SapUserSelect", "User" },
+        { "SapUserAccountSelect", "User" },
         { "AttachmentSelect", "Attachments2" },
         { "ItemSelect", "Item" },
     };

@@ -367,6 +367,7 @@ Fiscalisation
     Fiscal Console  https://fiscal.kefaloscheese.com/
 Administration
     User Management  /user-management
+    SAP Users  /sap-users
     Shops  /shops
     Driver Shops  /driver-business-partners
     Customer Portal  /customer-portal-management

@@ -303,6 +303,8 @@ try
     builder.Services.AddScoped<IDeliveryRouteDirectory, DeliveryRouteDirectory>();
     builder.Services.AddScoped<IGlobalSearchService, GlobalSearchService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
+    // SAP Business One's own user accounts, which are unrelated to this application's above.
+    builder.Services.AddScoped<ISapUserAccountService, SapUserAccountService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<IPushNotificationClientService, PushNotificationClientService>();
     builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
