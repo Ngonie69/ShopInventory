@@ -260,6 +260,10 @@ The solution supports real-time and push-style notifications through:
 - SignalR hub updates for connected clients
 - notification services in the API and web app
 - push registration and delivery flows
+- data-only pushes the mobile apps act on without showing anything: a merchandiser catalogue change,
+  and a load landing on a van's warehouse (`StockTransferReceivedEvent`, raised by the transfer
+  listener's webhook and handled in the van sales feature), which is what lets a handset bring its
+  own stock ledger up to date after a transfer booked later than its morning position
 
 ### WhatsApp via OpenWA
 

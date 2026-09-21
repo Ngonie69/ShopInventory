@@ -223,6 +223,8 @@ public sealed class NotificationVisibilityTests : IDisposable
         public Task<int> SendToRoleAsync(string role, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default)
             => Task.FromResult(0);
 
+        public Task<int> SendSilentDataToUsersAsync(IReadOnlyCollection<Guid> userIds, Dictionary<string, string> data, CancellationToken ct = default) => Task.FromResult(0);
+
         public Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default)
             => Task.FromResult(0);
 

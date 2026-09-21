@@ -1,10 +1,11 @@
-﻿using ErrorOr;
+using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.DesktopIntegration.Events.StockTransferReceived;
 using ShopInventory.Models.Entities;
 using Microsoft.Extensions.Options;
 
@@ -13,6 +14,7 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEven
 public sealed class ProcessTransferEventHandler(
     ApplicationDbContext context,
     IOptions<DailyStockSettings> settings,
+    IPublisher publisher,
     ILogger<ProcessTransferEventHandler> logger
 ) : IRequestHandler<ProcessTransferEventCommand, ErrorOr<ProcessTransferEventResult>>
 {
@@ -41,7 +43,7 @@ public sealed class ProcessTransferEventHandler(
         // Process OUT from source warehouse
         if (sourceIsMonitored)
         {
-            var adj = await AdjustStockAsync(
+            var (adj, _) = await AdjustStockAsync(
                 today, command.ItemCode, command.SourceWarehouse,
                 -command.Quantity, "OUT",
                 command.SourceWarehouse, command.DestinationWarehouse,
@@ -52,13 +54,17 @@ public sealed class ProcessTransferEventHandler(
         }
 
         // Process IN to destination warehouse
+        var inboundRecorded = false;
+
         if (destIsMonitored)
         {
-            var adj = await AdjustStockAsync(
+            var (adj, recorded) = await AdjustStockAsync(
                 today, command.ItemCode, command.DestinationWarehouse,
                 command.Quantity, "IN",
                 command.SourceWarehouse, command.DestinationWarehouse,
                 command.SapDocEntry, command.SapDocNum, command.ItemDescription, cancellationToken);
+
+            inboundRecorded = recorded;
 
             if (adj != null)
                 adjustments.Add(adj);
@@ -66,13 +72,65 @@ public sealed class ProcessTransferEventHandler(
 
         await context.SaveChangesAsync(cancellationToken);
 
+        if (inboundRecorded)
+        {
+            await AnnounceArrivalAsync(command, cancellationToken);
+        }
+
         return new ProcessTransferEventResult(
             adjustments.Count > 0,
             $"Applied {adjustments.Count} adjustment(s)",
             adjustments);
     }
 
-    private async Task<StockAdjustmentDetail?> AdjustStockAsync(
+    /// <summary>
+    /// Says that stock has landed in the destination warehouse, to whoever is listening for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>After the save, because the event is a statement that the ledger has moved. Only for a
+    /// line recorded for the first time: a re-delivered webhook is journalled as a duplicate above and
+    /// announces nothing, so a subscriber never hears one load twice. A line the ledger could not place
+    /// — no snapshot yet for the day — still counts: its adjustment row is written all the same, and the
+    /// stock is on the shelf whether or not this system had a row to put it on.</para>
+    ///
+    /// <para>Never fails the webhook. The adjustment is committed by now, and the listener re-sends a
+    /// line whose delivery it saw fail — which is exactly the duplicate the check above then has to
+    /// absorb. A subscriber that could not act costs the signal, not the ledger.</para>
+    /// </remarks>
+    private async Task AnnounceArrivalAsync(ProcessTransferEventCommand command, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await publisher.Publish(
+                new StockTransferReceivedEvent(
+                    command.DestinationWarehouse,
+                    command.SourceWarehouse,
+                    command.ItemCode,
+                    command.ItemDescription,
+                    command.Quantity,
+                    command.SapDocEntry,
+                    command.SapDocNum,
+                    DateTime.UtcNow),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Stock arrived in {Warehouse} (DocEntry={DocEntry}, {ItemCode}) but announcing it failed; the ledger is adjusted",
+                command.DestinationWarehouse, command.SapDocEntry, command.ItemCode);
+        }
+    }
+
+    /// <summary>
+    /// Journals one side of the transfer and moves the day's rows for it.
+    /// </summary>
+    /// <returns>
+    /// The movement made, or null where none was; and whether an adjustment row was written at all,
+    /// which is a different question — a re-delivered line writes nothing, while an arrival with no
+    /// snapshot to land on writes its row and moves nothing.
+    /// </returns>
+    private async Task<(StockAdjustmentDetail? Adjustment, bool Recorded)> AdjustStockAsync(
         DateTime snapshotDate, string itemCode, string warehouseCode,
         decimal adjustmentQty, string direction,
         string sourceWarehouse, string destinationWarehouse,
@@ -96,7 +154,7 @@ public sealed class ProcessTransferEventHandler(
                 logger.LogInformation(
                     "Duplicate transfer adjustment skipped: DocEntry={DocEntry}, Item={ItemCode}, WH={Warehouse}, Dir={Direction}",
                     docEntry, itemCode, warehouseCode, direction);
-                return null;
+                return (null, false);
             }
         }
 
@@ -172,7 +230,7 @@ public sealed class ProcessTransferEventHandler(
                 {
                     logger.LogWarning("No snapshot found for {Warehouse} on {Date}, cannot adjust IN transfer",
                         warehouseCode, snapshotDate);
-                    return null;
+                    return (null, true);
                 }
 
                 var created = new DailyStockSnapshotItemEntity
@@ -252,6 +310,6 @@ public sealed class ProcessTransferEventHandler(
             "Stock adjustment: {Direction} {Qty} of {ItemCode} in {Warehouse} (DocEntry={DocEntry})",
             direction, Math.Abs(adjustmentQty), itemCode, warehouseCode, docEntry);
 
-        return new StockAdjustmentDetail(warehouseCode, direction, adjustmentQty, newAvailable);
+        return (new StockAdjustmentDetail(warehouseCode, direction, adjustmentQty, newAvailable), true);
     }
 }

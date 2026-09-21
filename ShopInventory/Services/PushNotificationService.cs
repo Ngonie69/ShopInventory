@@ -56,6 +56,17 @@ public interface IPushNotificationService
     Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default);
 
     /// <summary>
+    /// Wake the app on every device these users hold and hand it a payload, with nothing shown to
+    /// whoever is holding the phone.
+    /// </summary>
+    /// <remarks>
+    /// The per-account form of <see cref="SendSilentDataToRoleAsync"/>, for a signal that belongs to
+    /// a few people rather than a role — stock landing on a van is that van's business and nobody
+    /// else's. Same transport, same silence: no tray entry, no sound, the app woken and handed the data.
+    /// </remarks>
+    Task<int> SendSilentDataToUsersAsync(IReadOnlyCollection<Guid> userIds, Dictionary<string, string> data, CancellationToken ct = default);
+
+    /// <summary>
     /// Send push notification to all registered devices
     /// </summary>
     /// <summary>
@@ -86,6 +97,12 @@ public interface IPushNotificationService
 
 public class PushNotificationService : IPushNotificationService
 {
+    /// <summary>
+    /// The data key Plugin.Firebase reads to keep a message out of the tray. See the silent branch of
+    /// <c>SendToTokensAsync</c>.
+    /// </summary>
+    internal const string SilentInForegroundKey = "is_silent_in_foreground";
+
     private readonly ApplicationDbContext _context;
     private readonly ILogger<PushNotificationService> _logger;
     private readonly FirebaseSettings _settings;
@@ -254,6 +271,25 @@ public class PushNotificationService : IPushNotificationService
         return await SendToTokensAsync(tokens, notification: null, data, $"silent data push to {role}", ct);
     }
 
+    public async Task<int> SendSilentDataToUsersAsync(IReadOnlyCollection<Guid> userIds, Dictionary<string, string> data, CancellationToken ct = default)
+    {
+        if (userIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var ids = userIds.Distinct().ToList();
+
+        var tokens = await _context.PushDeviceRegistrations
+            .AsNoTracking()
+            .Where(d => ids.Contains(d.UserId) && !d.IsRevoked)
+            .Select(d => d.DeviceToken)
+            .Distinct()
+            .ToListAsync(ct);
+
+        return await SendToTokensAsync(tokens, notification: null, data, $"silent data push to {ids.Count} user(s)", ct);
+    }
+
     private Task<List<string>> RoleTokensAsync(string role, CancellationToken ct) =>
         _context.PushDeviceRegistrations
             .AsNoTracking()
@@ -320,6 +356,18 @@ public class PushNotificationService : IPushNotificationService
         {
             _logger.LogWarning("Push notifications disabled — Firebase not initialized. Would have sent to {Count} devices", tokens.Count);
             return 0;
+        }
+
+        // A message with no notification block is silent by intent, and the key says so to the
+        // handset. Plugin.Firebase — what the van app receives with — raises a local tray entry for
+        // every message it is handed unless the payload carries is_silent_in_foreground, and for a
+        // data-only message that entry would be a blank card with no title. Stamped here, on the
+        // transport, so no caller building a silent payload has to remember it.
+        if (notification is null)
+        {
+            var silentData = new Dictionary<string, string>(data ?? []);
+            silentData[SilentInForegroundKey] = "true";
+            data = silentData;
         }
 
         var sent = 0;
