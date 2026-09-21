@@ -120,8 +120,8 @@ public class UpdateSAPSettingsRequest
     [Required]
     public string UserName { get; set; } = null!;
 
-    [Required]
-    public string Password { get; set; } = null!;
+    /// <summary>Blank keeps the currently configured password.</summary>
+    public string? Password { get; set; }
 
     public int? InvoiceSeries { get; set; }
 
