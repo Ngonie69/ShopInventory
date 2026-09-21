@@ -6,6 +6,7 @@
 @attribute [Authorize(Roles = "Admin,Cashier,Merchandiser,SalesRep")]
 @inject ISalesOrderService SalesOrderService
 @inject IPodService PodService
+@inject SalesOrderPodStatusCache PodStatusCache
 @inject IPurchaseOrderService PurchaseOrderService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
@@ -1494,7 +1495,23 @@
             .GroupBy(order => order.SAPDocNum!.Value)
             .ToDictionary(group => group.Key, group => group.ToList());
 
-        if (ordersBySalesOrderDocNum.Count == 0)
+        // Answers already had are shown straight away; only the rest go to SAP. See SalesOrderPodStatusCache.
+        var salesOrderDocNumsToAsk = new List<int>();
+        foreach (var (salesOrderDocNum, matchingOrders) in ordersBySalesOrderDocNum)
+        {
+            if (!PodStatusCache.TryGet(salesOrderDocNum, out var knownStatus))
+            {
+                salesOrderDocNumsToAsk.Add(salesOrderDocNum);
+                continue;
+            }
+
+            foreach (var order in matchingOrders)
+            {
+                podStatusByOrderId[order.Id] = knownStatus;
+            }
+        }
+
+        if (salesOrderDocNumsToAsk.Count == 0)
             return;
 
         // Superseded by the next load and ended by leaving the page. Neither used to stop it, so a
@@ -1506,10 +1523,16 @@
         try
         {
             var completed = await SalesOrderPodStatusSweep.RunAsync(
-                ordersBySalesOrderDocNum.Keys,
+                salesOrderDocNumsToAsk,
                 (batch, ct) => PodService.ValidateBulkSalesOrderPodsAsync(batch, ct),
                 async results =>
                 {
+                    foreach (var podStatus in results)
+                    {
+                        if (podStatus.SalesOrderDocNum.HasValue && ordersBySalesOrderDocNum.TryGetValue(podStatus.SalesOrderDocNum.Value, out var answeredOrders))
+                            PodStatusCache.Remember(podStatus, answeredOrders[0].OrderDate);
+                    }
+
                     if (loadVersion != ordersLoadVersion)
                         return false;
 
@@ -1533,7 +1556,7 @@
             {
                 Logger.LogWarning(
                     "Stopped checking POD delivery status for {Count} mobile sales orders: a batch could not be looked up in SAP.",
-                    ordersBySalesOrderDocNum.Count);
+                    salesOrderDocNumsToAsk.Count);
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
