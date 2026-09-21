@@ -15,9 +15,11 @@ namespace ShopInventory.Tests;
 /// Pins what pressing "Post to SAP" does to a till or vending sale, as against what the background
 /// pass does to the same row.
 ///
-/// The two differ in exactly one respect and it has to stay exactly one: the attempt cap. Everything
-/// that prevents a second invoice — the claim, the SAP lookup, the unresolved-post grace window —
-/// applies identically, because those exist to stop a duplicate rather than to ration retries.
+/// The two differ in what they ration, and in nothing that prevents a second invoice: the manual post
+/// ignores the attempt cap, and it asks SAP about a sale whose post is still held where the pass
+/// leaves that sale out until the hold ends. The claim, the lookup before a post and the hold on
+/// posting again apply identically, because those exist to stop a duplicate rather than to ration
+/// SAP's time.
 /// </summary>
 public sealed class DesktopSaleOnRequestPostTests : IDisposable
 {
@@ -160,17 +162,98 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
         Assert.Empty(_sap.Payments);
     }
 
+    // ---------------------------------------------------------------
+    // What the background pass does with a sale whose post is held
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task The_pass_does_not_ask_sap_about_a_sale_whose_post_is_still_held()
+    {
+        // A post went out two minutes ago and got no clear answer. Every pass used to load the sale,
+        // ask SAP whether it held the invoice, and then not post it because the hold said the answer
+        // could not be trusted yet: fifteen lookups per hold, each a scan of every invoice for one
+        // UDF. The pass now leaves the sale out until the hold ends.
+        var sale = await GivenSaleAsync(docDate: DateTime.UtcNow, postIssuedAtUtc: DateTime.UtcNow.AddMinutes(-2));
+
+        var result = await Service().PostPendingSalesAsync();
+
+        Assert.Equal(0, result.Total);
+        Assert.Empty(_sap.LookedUp);
+        Assert.Empty(_sap.Created);
+
+        var held = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
+        Assert.Equal(DesktopSaleConsolidationStatus.Pending, held.ConsolidationStatus);
+        Assert.NotNull(held.PostIssuedAtUtc);
+    }
+
+    [Fact]
+    public async Task Once_the_hold_has_lapsed_the_pass_asks_sap_once_and_adopts_what_it_finds()
+    {
+        // The post from twenty minutes ago did land. One lookup, no second invoice.
+        var sale = await GivenSaleAsync(docDate: DateTime.UtcNow, postIssuedAtUtc: DateTime.UtcNow.AddMinutes(-20));
+        _sap.ExistingByVanSaleOrder[sale.ExternalReferenceId] = new Invoice { DocEntry = 88, DocNum = 88 };
+
+        var result = await Service().PostPendingSalesAsync();
+
+        Assert.Equal(1, result.Adopted);
+        Assert.Equal(0, result.Posted);
+        Assert.Single(_sap.LookedUp);
+        Assert.Empty(_sap.Created);
+
+        var adopted = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
+        Assert.Equal(88, adopted.SapDocNum);
+    }
+
+    [Fact]
+    public async Task A_held_sale_does_not_keep_the_sales_behind_it_out_of_the_batch()
+    {
+        // Twenty-five held sales after an outage used to be the whole batch, and nothing behind them
+        // posted until they cleared.
+        var held = await GivenSaleAsync(
+            reference: "KEFSHOP-01-20260921-000001",
+            docDate: DateTime.UtcNow,
+            postIssuedAtUtc: DateTime.UtcNow.AddMinutes(-1));
+        var behind = await GivenSaleAsync(reference: "KEFSHOP-01-20260921-000002", docDate: DateTime.UtcNow);
+
+        var result = await Service(settings: new DesktopSalePostingSettings { BatchSize = 1 }).PostPendingSalesAsync();
+
+        Assert.Equal(1, result.Posted);
+        Assert.Equal(new[] { behind.ExternalReferenceId }, _sap.LookedUp);
+
+        var rows = await _context.DesktopSales.AsNoTracking().ToDictionaryAsync(s => s.Id);
+        Assert.Equal(DesktopSaleConsolidationStatus.Consolidated, rows[behind.Id].ConsolidationStatus);
+        Assert.Equal(DesktopSaleConsolidationStatus.Pending, rows[held.Id].ConsolidationStatus);
+    }
+
+    [Fact]
+    public async Task A_person_posting_a_held_sale_still_gets_sap_asked()
+    {
+        // The hold rations the background pass, not a person. Pressing Post asks SAP straight away,
+        // so an invoice that has since become visible is adopted on the spot.
+        var sale = await GivenSaleAsync(postIssuedAtUtc: DateTime.UtcNow.AddMinutes(-2));
+        _sap.ExistingByVanSaleOrder[sale.ExternalReferenceId] = new Invoice { DocEntry = 91, DocNum = 91 };
+
+        var result = await Service().PostSaleAsync(sale.Id);
+
+        Assert.Equal(1, result!.Adopted);
+        Assert.Single(_sap.LookedUp);
+        Assert.Empty(_sap.Created);
+    }
+
     private async Task<DesktopSaleEntity> GivenSaleAsync(
         string source = SaleSourceSystems.ShopTill,
         int attempts = 0,
-        decimal amountPaid = 0m)
+        decimal amountPaid = 0m,
+        string reference = "KEFSHOP-01-20260910-000123",
+        DateTime? docDate = null,
+        DateTime? postIssuedAtUtc = null)
     {
         var sale = new DesktopSaleEntity
         {
-            ExternalReferenceId = "KEFSHOP-01-20260910-000123",
+            ExternalReferenceId = reference,
             SourceSystem = source,
             CardCode = "KEFSHOP-BP",
-            DocDate = TradingDate.Date,
+            DocDate = (docDate ?? TradingDate).Date,
             TotalAmount = 25m,
             VatAmount = 3.26m,
             Currency = "USD",
@@ -178,6 +261,7 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
             ConsolidationStatus = DesktopSaleConsolidationStatus.Pending,
             WarehouseCode = "KEFSHOP",
             PostingAttempts = attempts,
+            PostIssuedAtUtc = postIssuedAtUtc,
             // Zero by default: the settlement is a separate step with its own guards, and leaving it
             // out keeps most of these tests about the invoice.
             AmountPaid = amountPaid,
@@ -220,13 +304,14 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
         public List<CreateIncomingPaymentRequest> Payments { get; } = [];
         public Dictionary<string, Invoice> ExistingByVanSaleOrder { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Every reference SAP was asked about, in order: the cost the hold exists to bound.</summary>
+        public List<string> LookedUp { get; } = [];
+
         private int _nextDocNum = 5000;
 
         public ISAPServiceLayerClient Client => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
-            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) =>
-                (object)Task.FromResult(
-                    ExistingByVanSaleOrder.TryGetValue((string)args![0]!, out var invoice) ? invoice : null),
+            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => (object)LookUp((string)args![0]!),
 
             nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => Create((CreateInvoiceRequest)args![0]!),
 
@@ -234,6 +319,12 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
 
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
         });
+
+        private Task<Invoice?> LookUp(string reference)
+        {
+            LookedUp.Add(reference);
+            return Task.FromResult(ExistingByVanSaleOrder.TryGetValue(reference, out var invoice) ? invoice : null);
+        }
 
         private Task<Invoice> Create(CreateInvoiceRequest request)
         {

@@ -85,7 +85,14 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly HttpClient _httpClient;
     private readonly ILogger<WarehouseStockCacheService> _logger;
-    private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// How long a warehouse's rows are served before a resync. Fifteen minutes rather than the five
+    /// it was: every expiry costs SAP the whole warehouse again — one stored query over every item
+    /// in it — and on 2026-09-21 those sweeps were the largest share of this application's load on
+    /// the HANA server. The rows are a picker's stock figures and a dashboard's counts; the transfer
+    /// and sale posts that have to be exact validate against SAP themselves.
+    /// </summary>
+    internal static readonly TimeSpan CacheExpiry = TimeSpan.FromMinutes(15);
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static readonly HashSet<string> _syncInProgress = new();
     private static readonly object _syncLock = new();
@@ -124,7 +131,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
             _logger.LogDebug("CacheSyncInfo lookup completed. Found: {Found}", syncInfo != null);
 
             var isCacheStale = syncInfo == null ||
-                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
+                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > CacheExpiry ||
                           !syncInfo.SyncSuccessful;
 
             // Get cached data. The search is applied before both the count and the
@@ -275,7 +282,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         {
             var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
             var isCacheStale = syncInfo == null ||
-                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
+                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > CacheExpiry ||
                           !syncInfo.SyncSuccessful;
 
             // Get ALL cached data (no pagination)
@@ -475,7 +482,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         var syncInfo = await dbContext.CacheSyncInfo.FindAsync([cacheKey], cancellationToken);
         var cacheFresh = syncInfo != null &&
                          syncInfo.SyncSuccessful &&
-                         DateTime.UtcNow - syncInfo.LastSyncedAt <= _cacheExpiration;
+                         DateTime.UtcNow - syncInfo.LastSyncedAt <= CacheExpiry;
 
         var cachedItems = await dbContext.CachedWarehouseStocks
             .AsNoTracking()
@@ -530,24 +537,21 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         {
             _logger.LogInformation("Starting full stock sync for warehouse {WarehouseCode}", warehouseCode);
 
-            var allItems = new List<StockItemDto>();
-            var page = 1;
-            var pageSize = 100;
-            var hasMore = true;
+            // The whole warehouse in one request. This used to page through the API a hundred rows
+            // at a time, and the API answers each such page by running the warehouse's stored stock
+            // query on SAP again and skipping to the page — so a warehouse of four thousand items
+            // cost forty executions of a query over all four thousand. The unpaged read the API
+            // already has fetches the same rows in pages of five hundred on the SAP side and
+            // returns them together.
+            var allItems = await FetchWholeWarehouseFromApiAsync(warehouseCode);
 
-            while (hasMore)
+            if (allItems is null)
             {
-                var response = await FetchStockFromApiAsync(warehouseCode, page, pageSize);
-                if (response?.Items != null)
-                {
-                    allItems.AddRange(response.Items);
-                    hasMore = response.HasMore;
-                    page++;
-                }
-                else
-                {
-                    hasMore = false;
-                }
+                // Not an empty warehouse: the read failed or timed out, and the rows already cached
+                // are better than none. Recorded as a failed sync so the next read tries again
+                // rather than serving the old rows for the whole expiry as if they were fresh.
+                await UpdateSyncInfoAsync(warehouseCode, 0, false, "The warehouse could not be read from the API");
+                return false;
             }
 
             if (allItems.Any())
@@ -579,66 +583,77 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         }
     }
 
+    /// <summary>
+    /// Finishes a warehouse whose first page was fetched and cached to answer a read straight away.
+    /// </summary>
     private async Task SyncRemainingStockInBackgroundAsync(string warehouseCode, bool hasMore)
     {
-        if (!hasMore) return;
-
-        // Prevent concurrent syncs for the same warehouse
-        lock (_syncLock)
+        if (!hasMore)
         {
-            if (_syncInProgress.Contains(warehouseCode))
+            // The first page was the whole warehouse and is already cached. This writes the sync
+            // record it was missing: without one, every read treated the warehouse as never synced
+            // and started a full sync of rows it already had.
+            try
             {
-                _logger.LogDebug("Sync already in progress for warehouse {WarehouseCode}", warehouseCode);
-                return;
+                await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+                var cachedCount = await dbContext.CachedWarehouseStocks
+                    .CountAsync(s => s.WarehouseCode == warehouseCode);
+
+                await UpdateSyncInfoAsync(warehouseCode, cachedCount, true, null);
+                SyncCompleted?.Invoke(this, warehouseCode);
             }
-            _syncInProgress.Add(warehouseCode);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error recording the stock sync for warehouse {WarehouseCode}", warehouseCode);
+            }
+
+            return;
         }
 
+        // The rest of the warehouse is read the same way as the whole of it: one request, after
+        // which the first page's rows are replaced along with everything else. Paging on from page
+        // two used to cost SAP one execution of the warehouse's stock query per hundred rows.
+        await SyncWarehouseStockInBackgroundAsync(warehouseCode);
+    }
+
+    /// <summary>
+    /// Every stock row in a warehouse, from the API's unpaged read. Null when the read failed, as
+    /// against an empty list for a warehouse with no rows.
+    /// </summary>
+    private async Task<List<StockItemDto>?> FetchWholeWarehouseFromApiAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
         try
         {
-            _logger.LogInformation("Starting background sync for remaining stock in warehouse {WarehouseCode}", warehouseCode);
+            // Longer than a page used to be allowed: this is the whole warehouse, which the API reads
+            // from SAP in pages of five hundred, each under its own stock budget. Still inside the
+            // client's five-minute timeout, so a hung read ends here and is recorded rather than lost.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromMinutes(4));
 
-            var page = 2; // Start from page 2 since page 1 is already cached
-            var pageSize = 100;
+            // Packaging stock is not cached, and asking for it is a further SAP read per warehouse.
+            var encodedWarehouse = Uri.EscapeDataString(warehouseCode);
+            var response = await _httpClient.GetFromJsonAsync<StockItemsApiResponse>(
+                $"api/stock/warehouse/{encodedWarehouse}?includePackagingStock=false",
+                _jsonOptions,
+                cts.Token);
 
-            while (hasMore)
-            {
-                var response = await FetchStockFromApiAsync(warehouseCode, page, pageSize);
-                if (response?.Items != null && response.Items.Any())
-                {
-                    await SaveStockToCacheAsync(warehouseCode, response.Items);
-                    hasMore = response.HasMore;
-                    page++;
-                    _logger.LogDebug("Cached page {Page} for warehouse {WarehouseCode}: {Count} items",
-                        page - 1, warehouseCode, response.Items.Count);
-                }
-                else
-                {
-                    hasMore = false;
-                }
-            }
-
-            // Update sync info
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            var totalCount = await dbContext.CachedWarehouseStocks
-                .Where(s => s.WarehouseCode == warehouseCode)
-                .CountAsync();
-
-            await UpdateSyncInfoAsync(warehouseCode, totalCount, true, null);
-            _logger.LogInformation("Completed background sync for warehouse {WarehouseCode}: {Count} total items", warehouseCode, totalCount);
-            SyncCompleted?.Invoke(this, warehouseCode);
+            return response?.Items ?? [];
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Stock read timed out for warehouse {WarehouseCode}", warehouseCode);
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during background sync for warehouse {WarehouseCode}", warehouseCode);
-            await UpdateSyncInfoAsync(warehouseCode, 0, false, ex.Message);
-        }
-        finally
-        {
-            lock (_syncLock)
-            {
-                _syncInProgress.Remove(warehouseCode);
-            }
+            _logger.LogError(ex, "Error reading stock from the API for warehouse {WarehouseCode}", warehouseCode);
+            return null;
         }
     }
 

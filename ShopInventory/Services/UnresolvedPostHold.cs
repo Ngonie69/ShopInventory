@@ -32,6 +32,18 @@ public static class UnresolvedPostHold
         postIssuedAtUtc is { } issuedAt && nowUtc < RetryAfterUtc(issuedAt, graceMinutes);
 
     /// <summary>
+    /// The instant a post must have gone out after to still be held at <paramref name="nowUtc"/>:
+    /// a sale is held exactly when its post was issued after this.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IsHeld"/> from the other side, for a query. The till pass leaves held sales out of
+    /// its batch rather than loading them to ask SAP and then not post, so the boundary has to be a
+    /// value the column can be compared against.
+    /// </remarks>
+    public static DateTime HeldIfIssuedAfterUtc(int graceMinutes, DateTime nowUtc) =>
+        nowUtc.AddMinutes(-Math.Max(0, graceMinutes));
+
+    /// <summary>
     /// What a post that ran into the hold reports — the answer a person pressing Post to SAP reads.
     /// </summary>
     public static string Describe(DateTime postIssuedAtUtc, int graceMinutes) =>

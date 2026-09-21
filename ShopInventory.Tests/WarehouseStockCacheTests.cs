@@ -3,6 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Services;
+using System.Net;
+using System.Text;
+using System.Text.Json;
 
 namespace ShopInventory.Tests;
 
@@ -204,6 +207,76 @@ public sealed class WarehouseStockCacheTests : IDisposable
         Assert.Equal(0, summary.OutOfStockItems);
     }
 
+    // ── Sync ────────────────────────────────────────────────────────────────
+
+    private const string WholeWarehouse = "/api/stock/warehouse/KEFSHOP?includePackagingStock=false";
+
+    [Fact]
+    public async Task A_full_sync_reads_the_whole_warehouse_in_one_request()
+    {
+        // It used to page through the API a hundred rows at a time, and the API answered each page
+        // by running the warehouse's stock query on SAP again. One request here is one read there.
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.PathAndQuery == WholeWarehouse
+                ? Json(new
+                {
+                    warehouseCode = "KEFSHOP",
+                    totalItems = 2,
+                    itemsInStock = 1,
+                    queryDate = DateTime.UtcNow,
+                    items = new[]
+                    {
+                        new { itemCode = "ICC001", itemName = "Icecream Cone", barCode = "6001", warehouseCode = "KEFSHOP", inStock = 3m, committed = 1m, ordered = 0m, available = 2m, uoM = "Each" },
+                        new { itemCode = "ICS001", itemName = "Icecream Stick", barCode = "6002", warehouseCode = "KEFSHOP", inStock = 0m, committed = 0m, ordered = 0m, available = 0m, uoM = "Each" }
+                    }
+                })
+                : throw new InvalidOperationException($"Unexpected call {request.RequestUri}"));
+
+        var service = CreateService(handler);
+
+        Assert.True(await service.SyncWarehouseStockAsync("KEFSHOP"));
+        Assert.Equal(new[] { WholeWarehouse }, handler.Requests);
+
+        // The zero-stock row is kept. The dashboard's out-of-stock count and the transfer pages'
+        // item pickers read it from here, and an item missing from the cache is looked up on SAP
+        // per item — so filtering it out at source would cost more than it saved.
+        var summary = await service.GetStockSummaryAsync("KEFSHOP");
+        Assert.Equal(2, summary.TotalItems);
+        Assert.Equal(1, summary.InStockItems);
+        Assert.Equal(1, summary.OutOfStockItems);
+
+        var status = await service.GetSyncStatusAsync("KEFSHOP");
+        Assert.True(status!.SyncSuccessful);
+        Assert.Equal(2, status.ItemCount);
+    }
+
+    [Fact]
+    public async Task A_read_that_fails_keeps_the_rows_it_has_and_is_not_an_empty_warehouse()
+    {
+        await SeedAsync(Stock("KEFSHOP", "ICC001", inStock: 3));
+        var handler = new RecordingHandler(_ => throw new HttpRequestException("The API is not answering."));
+
+        var service = CreateService(handler);
+
+        Assert.False(await service.SyncWarehouseStockAsync("KEFSHOP"));
+
+        // Still there, and still counted.
+        Assert.Equal(1, (await service.GetStockSummaryAsync("KEFSHOP")).TotalItems);
+
+        // And the failure is on record, so the next read tries again rather than serving the old
+        // rows for the whole expiry as if they were fresh.
+        var status = await service.GetSyncStatusAsync("KEFSHOP");
+        Assert.False(status!.SyncSuccessful);
+    }
+
+    [Fact]
+    public void Rows_are_served_for_fifteen_minutes_before_a_resync()
+    {
+        // Every expiry is the whole warehouse read from SAP again. Five minutes was the largest
+        // share of this application's load on the HANA server on 2026-09-21.
+        Assert.Equal(TimeSpan.FromMinutes(15), WarehouseStockCacheService.CacheExpiry);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private static CachedWarehouseStock Stock(
@@ -271,4 +344,23 @@ public sealed class WarehouseStockCacheTests : IDisposable
             => throw new InvalidOperationException(
                 $"The cache should have answered without calling {request.RequestUri}.");
     }
+
+    /// <summary>Answers each request from <paramref name="respond"/> and keeps the paths it was asked for.</summary>
+    private sealed class RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri!.PathAndQuery);
+            return Task.FromResult(respond(request));
+        }
+    }
+
+    private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+    };
 }

@@ -3044,7 +3044,9 @@ sale is not sent again for `DesktopSalePosting:UnresolvedPostGraceMinutes` (van 
 `VanSalesPosting:UnresolvedPostGraceMinutes`, both default 15). The sales list reports that as
 `postHeldUntilUtc`: when the sale may be sent again, or null when it is not held. `lastPostingError`
 keeps what the post actually failed with through the hold. A post requested inside the window is
-answered `Failed` with a message naming the time the hold ends, and nothing is sent. A failure
+answered `Failed` with a message naming the time the hold ends, and nothing is sent. The scheduled
+pass leaves a held sale out of its batch until the hold ends, so SAP is asked about it once per hold
+rather than once a minute; a person's request asks SAP straight away. A failure
 before the invoice leaves — the SAP login, the invoice series lookup, an open circuit — holds
 nothing, and the sale is retried on the next pass. The same holds for the desktop credit memo and
 the daily incoming payment: a failed login before either is sent leaves no post marker, so the

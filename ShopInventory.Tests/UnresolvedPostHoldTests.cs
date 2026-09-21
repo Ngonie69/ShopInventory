@@ -79,12 +79,13 @@ public sealed class UnresolvedPostHoldTests : IDisposable
         Assert.NotNull(afterPost.PostIssuedAtUtc);
         Assert.Equal("The SAP Service Layer did not respond in time.", afterPost.LastPostingError);
 
-        // The next pass, a minute later, falls inside the window. It used to write its own notice over
-        // the timeout; the timeout is the only thing that says why the sale is not in SAP.
+        // The next pass, a minute later, falls inside the window and leaves the sale out altogether:
+        // it used to load it, ask SAP, and write its own notice over the timeout. The timeout is the
+        // only thing that says why the sale is not in SAP, and nothing is sent.
         _sap.CreateFails = null;
         var held = await Service().PostPendingSalesAsync();
 
-        Assert.Equal(1, held.Failed);
+        Assert.Equal(0, held.Total);
         Assert.Single(_sap.CreateCalls);
 
         var duringHold = await ReloadAsync(sale.Id);
