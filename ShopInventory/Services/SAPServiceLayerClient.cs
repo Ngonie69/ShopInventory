@@ -17724,16 +17724,29 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                     && sapError.Contains("No matching records found", StringComparison.OrdinalIgnoreCase)));
     }
 
-    private static string? ExtractSAPErrorMessage(string errorContent)
+    /// <summary>
+    /// SAP's message out of either error envelope: v1 (OData 3) nests it as
+    /// <c>"message": { "lang", "value" }</c>, v2 (OData 4) gives it as a plain string. Reading only
+    /// the v1 shape handed the whole v2 body to the user as the "message".
+    /// </summary>
+    internal static string? ExtractSAPErrorMessage(string errorContent)
     {
         try
         {
             using var doc = JsonDocument.Parse(errorContent);
             if (doc.RootElement.TryGetProperty("error", out var errorObj) &&
-                errorObj.TryGetProperty("message", out var msgObj) &&
-                msgObj.TryGetProperty("value", out var valueElem))
+                errorObj.TryGetProperty("message", out var msgObj))
             {
-                return valueElem.GetString();
+                if (msgObj.ValueKind == JsonValueKind.String)
+                {
+                    return msgObj.GetString();
+                }
+
+                if (msgObj.ValueKind == JsonValueKind.Object &&
+                    msgObj.TryGetProperty("value", out var valueElem))
+                {
+                    return valueElem.GetString();
+                }
             }
         }
         catch
