@@ -51,7 +51,7 @@ public class CartrackClientTests
         var client = new CartrackClient(
             http,
             Options.Create(settings),
-            new CartrackRateLimiter(Options.Create(settings)),
+            new CartrackRateLimiter(Options.Create(settings)), new CartrackRequestBudget(),
             NullLogger<CartrackClient>.Instance);
 
         return (client, handler);

@@ -45,7 +45,7 @@ public class CartrackLivePayloadTests
         var http = new HttpClient(handler) { BaseAddress = new Uri("https://fleetapi-zw.cartrack.com/rest/") };
         var options = Options.Create(settings);
 
-        return (new CartrackClient(http, options, new CartrackRateLimiter(options),
+        return (new CartrackClient(http, options, new CartrackRateLimiter(options), new CartrackRequestBudget(),
             NullLogger<CartrackClient>.Instance), handler);
     }
 

@@ -128,21 +128,21 @@ public static class QuartzConfiguration
                     CartrackFleetSyncJob.StartupTriggerName,
                     CartrackFleetSyncJob.StartupDelay);
 
-                // The day rollup: yesterday and today every pass, a slice of backfill until the
-                // history is in, and a reconciliation window once a day. Nightly at 02:30 so a
-                // complete yesterday is waiting when somebody opens the report in the morning.
+                // The day rollup's nightly pass: a slice of backfill until the history is in,
+                // yesterday in full, and the reconciliation window. Every per-vehicle request is
+                // made here, once per date. 02:30 so a complete yesterday is waiting in the morning.
                 AddCronJob<CartrackDayRollupJob>(q, CartrackDayRollupJob.JobName, "0 30 2 * * ?");
 
-                // And hourly through the day, so today's row is warm rather than a day behind.
-                // Same job key as the nightly pass, deliberately: DisallowConcurrentExecution is
-                // enforced per key, so on a separate key the two would build the same date at the
-                // same time and race to upsert the same rows.
-                AddIntervalTriggerForJob<CartrackDayRollupJob>(
+                // And hourly through the trading day only, reading today's movement — two
+                // fleet-wide requests a pass, so the morning's departures show up without paying
+                // per van every hour. Nothing overnight: the fleet is parked. Same job key as the
+                // nightly pass, deliberately: DisallowConcurrentExecution is enforced per key, so
+                // on a separate key the two would race to upsert the same rows.
+                AddCronTriggerForJob(
                     q,
                     CartrackDayRollupJob.JobName,
                     CartrackDayRollupJob.HourlyTriggerName,
-                    TimeSpan.FromHours(1),
-                    startDelay: TimeSpan.FromMinutes(6));
+                    BuildIntradayRollupCron(cartrack));
 
                 // Temperature readings are the one telematics table that is evidence rather than a
                 // projection, so it grows until something trims it. Weekly, Sunday 03:45, clear of
@@ -547,6 +547,18 @@ public static class QuartzConfiguration
         }
 
         return $"0 {time.Minutes} {time.Hours} * * ?";
+    }
+
+    /// <summary>
+    /// Ten past the hour, every <see cref="CartrackSettings.IntradayRollupEveryHours"/> hours
+    /// across <see cref="CartrackSettings.EffectiveIntradayWindow"/>, CAT.
+    /// </summary>
+    internal static string BuildIntradayRollupCron(CartrackSettings settings)
+    {
+        var (from, to) = settings.EffectiveIntradayWindow;
+        var every = Math.Max(1, settings.IntradayRollupEveryHours);
+
+        return every == 1 ? $"0 10 {from}-{to} * * ?" : $"0 10 {from}-{to}/{every} * * ?";
     }
 
     private static TimeZoneInfo ResolveCatTimeZone()

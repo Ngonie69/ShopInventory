@@ -2681,8 +2681,9 @@ Then redeploy with:
                     Assert-CustomerPortalJwtSecret -WebConfigPath "$($Plan.TargetPath)\web.config"
                 }
 
+                # Cartrack__Enabled only - never its credentials, which the package leaves blank.
                 $managedEnvironmentVariablesByApp = @{
-                    API = @('SAP__AttachmentsPath', 'SAP__AttachmentsServiceLayerSourcePath')
+                    API = @('SAP__AttachmentsPath', 'SAP__AttachmentsServiceLayerSourcePath', 'Cartrack__Enabled')
                 }
 
                 if ($managedEnvironmentVariablesByApp.ContainsKey($Plan.Name)) {

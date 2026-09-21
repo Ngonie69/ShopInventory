@@ -39,6 +39,7 @@ public sealed class CartrackClient : ICartrackClient
     private readonly HttpClient _http;
     private readonly CartrackSettings _settings;
     private readonly ICartrackRateLimiter _limiter;
+    private readonly CartrackRequestBudget _budget;
     private readonly ILogger<CartrackClient> _logger;
     private readonly JsonSerializerOptions _json;
 
@@ -46,11 +47,13 @@ public sealed class CartrackClient : ICartrackClient
         HttpClient http,
         IOptions<CartrackSettings> settings,
         ICartrackRateLimiter limiter,
+        CartrackRequestBudget budget,
         ILogger<CartrackClient> logger)
     {
         _http = http;
         _settings = settings.Value;
         _limiter = limiter;
+        _budget = budget;
         _logger = logger;
 
         // Every property is named explicitly on the model. Case-insensitive as a safety net for a
@@ -228,6 +231,10 @@ public sealed class CartrackClient : ICartrackClient
         for (var attempt = 0; ; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Counted before it is paced, so a spent budget refuses at once rather than after
+            // waiting out a per-minute slot for a request it was never going to make.
+            _budget.Take(path);
 
             await _limiter.WaitAsync(budget, cancellationToken);
 

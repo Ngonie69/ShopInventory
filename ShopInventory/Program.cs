@@ -882,6 +882,9 @@ try
     // clustered store runs one instance of a job key at a time.
     builder.Services.AddSingleton<ICartrackRateLimiter, CartrackRateLimiter>();
 
+    // Scoped: one job run's request count, shared by the typed client and the service driving it.
+    builder.Services.AddScoped<CartrackRequestBudget>();
+
     var cartrackStartupSettings = builder.Configuration
         .GetSection(CartrackSettings.SectionName)
         .Get<CartrackSettings>();
