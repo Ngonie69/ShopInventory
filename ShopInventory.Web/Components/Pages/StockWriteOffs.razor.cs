@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using ShopInventory.Web.Features.StockWriteOffs.Commands.CreateStockWriteOff;
 using ShopInventory.Web.Features.StockWriteOffs.Queries.GetStockWriteOff;
+using ShopInventory.Web.Features.StockWriteOffs.Queries.GetStockWriteOffItems;
 using ShopInventory.Web.Features.StockWriteOffs.Queries.GetStockWriteOffReasons;
 using ShopInventory.Web.Features.StockWriteOffs.Queries.GetStockWriteOffs;
 using ShopInventory.Web.Models;
@@ -24,6 +25,13 @@ namespace ShopInventory.Web.Components.Pages;
 /// The batch picker is not a convenience: SAP refuses the whole goods issue when a batch-managed line
 /// names no batch, so the page will not let such a line be added at all. The API refuses it a second
 /// time, because a caller that is not this page still has to be told.
+/// </para>
+/// <para>
+/// The item picker is filled once, from the Web's own PostgreSQL copy of the item master, and not
+/// per warehouse from SAP: a code and a description are all it needs, and asking the Service Layer
+/// for every item holding stock in a warehouse each time one was chosen was the dearest read on the
+/// page. Whether the warehouse holds the item is settled by the batch read and by the API when it
+/// posts — both of which are still SAP, and both of which are per item rather than per warehouse.
 /// </para>
 /// </remarks>
 public partial class StockWriteOffs
@@ -46,7 +54,7 @@ public partial class StockWriteOffs
 
     private bool hasInitialized;
     private bool isLoadingList = true;
-    private bool isLoadingItems;
+    private bool isLoadingItems = true;
     private bool isLoadingBatches;
     private bool isPosting;
 
@@ -65,7 +73,8 @@ public partial class StockWriteOffs
     private bool draftNeedsBatch;
 
     private List<WarehouseDto> warehouses = [];
-    private List<ProductDto> items = [];
+    private IReadOnlyList<StockWriteOffItem> items = [];
+    private DateTime? catalogueSyncedAt;
     private List<BatchDto> batches = [];
     private List<StockWriteOffReason> reasons = [];
 
@@ -93,7 +102,7 @@ public partial class StockWriteOffs
 
         hasInitialized = true;
 
-        await Task.WhenAll(LoadListAsync(), LoadWarehousesAsync(), LoadReasonsAsync());
+        await Task.WhenAll(LoadListAsync(), LoadWarehousesAsync(), LoadReasonsAsync(), LoadItemsAsync());
         StateHasChanged();
     }
 
@@ -114,10 +123,9 @@ public partial class StockWriteOffs
 
     private IReadOnlyList<NocturnePickerOption> ItemOptions =>
         items
-            .Where(item => !string.IsNullOrWhiteSpace(item.ItemCode))
             .Select(item => new NocturnePickerOption(
-                item.ItemCode!,
-                item.ItemName ?? item.ItemCode!,
+                item.ItemCode,
+                item.ItemName ?? item.ItemCode,
                 item.ItemCode))
             .ToList();
 
@@ -189,35 +197,41 @@ public partial class StockWriteOffs
         reasonsRecordedInSap = result.Value.RecordedInSap;
     }
 
-    private async Task OnWarehouseChangedAsync(string? code)
+    /// <summary>
+    /// The catalogue, read once per visit from the Web's PostgreSQL copy of the item master. It is
+    /// not reread when the warehouse changes, because it does not depend on the warehouse.
+    /// </summary>
+    private async Task LoadItemsAsync()
     {
-        warehouseCode = code;
-
-        // The lines already counted belong to the warehouse they were counted at, so changing it
-        // clears them rather than quietly moving them somewhere they were never counted.
-        draft.Clear();
-        ClearDraftLine();
-
-        items = [];
-        if (string.IsNullOrWhiteSpace(code))
-        {
-            return;
-        }
-
         isLoadingItems = true;
         try
         {
-            items = await MasterData.GetProductsAsync(code);
-        }
-        catch (Exception exception)
-        {
-            Logger.LogError(exception, "Could not load the items in warehouse {Warehouse}", code);
-            errorMessage = $"The items in {code} could not be read, so nothing can be counted against it yet.";
+            var result = await Mediator.Send(new GetStockWriteOffItemsQuery());
+            if (result.IsError)
+            {
+                errorMessage = result.FirstError.Description;
+                return;
+            }
+
+            items = result.Value.Items;
+            catalogueSyncedAt = result.Value.SyncedAt;
         }
         finally
         {
             isLoadingItems = false;
         }
+    }
+
+    private Task OnWarehouseChangedAsync(string? code)
+    {
+        warehouseCode = code;
+
+        // The lines already counted belong to the warehouse they were counted at, so changing it
+        // clears them rather than quietly moving them somewhere they were never counted. The item
+        // list itself stays: it is the whole catalogue, not the warehouse's stock.
+        draft.Clear();
+        ClearDraftLine();
+        return Task.CompletedTask;
     }
 
     private async Task OnDraftItemChangedAsync(string? itemCode)
