@@ -7,11 +7,19 @@ namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoice;
 /// <summary>One van invoice, by van order: its lines, its receipt, and how far it got.</summary>
 public sealed record GetVanSalesInvoiceQuery(string Reference) : IRequest<ErrorOr<VanSalesInvoiceDetail>>;
 
+/// <remarks>
+/// <para><c>PostRefusal</c>, <c>FiscaliseRefusal</c>: why the invoice may not be posted to SAP, or fiscalised,
+/// on request through <c>POST /api/DesktopIntegration/sales/{reference}/post</c> and <c>.../fiscalise</c>;
+/// null where it may. They are the rules the desktop sales console offers its buttons on and those two
+/// commands refuse from, so a button this detail warrants is one the command accepts.</para>
+/// </remarks>
 public sealed record VanSalesInvoiceDetail(
     VanSalesInvoiceRow Invoice,
     string? FiscalQrCode,
     int PostingAttempts,
     string? QueueStatus,
+    string? PostRefusal,
+    string? FiscaliseRefusal,
     List<VanSalesInvoiceLine> Lines,
     List<VanSalesInvoiceCredit> CreditNotes);
 

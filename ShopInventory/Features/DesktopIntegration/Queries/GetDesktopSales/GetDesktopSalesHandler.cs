@@ -325,7 +325,7 @@ public sealed class GetDesktopSalesHandler(
                 SaleNumber = DesktopSaleNumber.Format(row.Sale.Id),
                 CreatedByName = SaleOperatorNames.Label(row.Sale.CreatedBy, operators),
                 PostRefusal = DesktopSalePostEligibility.Refusal(
-                    row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus),
+                    row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus, row.Sale.SapDocNum),
                 FiscaliseRefusal = DesktopSaleFiscalisationRetry.ManualRefusal(
                     row.Sale.SourceSystem,
                     row.FiscalizationStatus,

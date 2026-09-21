@@ -628,9 +628,11 @@
             </div>
 
             <div class="vsd-dfoot">
-                @if (detail is not null && detail.Invoice.SapDocEntry is null)
+                @if (detail is not null && detail.Invoice.SapDocEntry is null && !detail.CanPostToSap && !detail.CanRetryFiscalisation)
                 {
-                    <span class="vsd-dfoot-why">No SAP invoice to download yet</span>
+                    @* The reason stands in the buttons' place rather than a disabled button standing there
+                       greyed out with nothing to explain it — as on /desktop-sales. *@
+                    <span class="vsd-dfoot-why">@(detail.PostRefusal ?? "No SAP invoice to download yet")</span>
                 }
                 <button type="button" class="vsd-btn vsd-btn-ghost" @onclick="CloseDetail">Close</button>
                 @* Offered on any invoice ZIMRA holds a receipt for, whether or not SAP took it — which is
@@ -643,6 +645,42 @@
                     <button type="button" class="vsd-btn vsd-btn-primary" @onclick="OpenCredit">
                         <i class="ph ph-arrow-u-up-left" aria-hidden="true"></i>
                         <span>Credit notes</span>
+                    </button>
+                }
+                @* The two levers /desktop-sales offers on a held sale, on the same terms: only where the API's
+                   own rule allows, so a button shown here is one the API accepts. The API asks the device for an
+                   existing receipt before signing and claims the sale before posting, so pressing either twice
+                   cannot sign or invoice twice. *@
+                @if (detail?.CanRetryFiscalisation == true)
+                {
+                    <button type="button" class="vsd-btn vsd-btn-primary" @onclick="RetryFiscalisationAsync"
+                            disabled="@(isRetryingFiscal || isPosting || isLoading)">
+                        @if (isRetryingFiscal)
+                        {
+                            <span class="vsd-spin"></span>
+                            <span>Fiscalising&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+                            <span>Retry fiscalisation</span>
+                        }
+                    </button>
+                }
+                @if (detail?.CanPostToSap == true)
+                {
+                    <button type="button" class="vsd-btn vsd-btn-primary" @onclick="PostToSapAsync"
+                            disabled="@(isPosting || isRetryingFiscal || isLoading)">
+                        @if (isPosting)
+                        {
+                            <span class="vsd-spin"></span>
+                            <span>Posting&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                            <span>Post to SAP</span>
+                        }
                     </button>
                 }
                 @if (detail?.Invoice.SapDocEntry is not null)

@@ -495,6 +495,7 @@ public class StockReservationService : IStockReservationService
             {
                 Success = true,
                 Message = "Reservation was already confirmed",
+                AlreadyPosted = true,
                 ReservationId = request.ReservationId,
                 SAPDocEntry = reservation.SAPDocEntry,
                 SAPDocNum = reservation.SAPDocNum,
@@ -685,6 +686,7 @@ public class StockReservationService : IStockReservationService
                     {
                         Success = true,
                         Message = "Reservation already posted previously; returning existing SAP invoice",
+                        AlreadyPosted = true,
                         ReservationId = reservation.ReservationId,
                         SAPDocEntry = existingInvoice.DocEntry,
                         SAPDocNum = existingInvoice.DocNum,

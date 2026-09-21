@@ -2991,7 +2991,7 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | GET | `/api/DesktopIntegration/sales/review/schedule` | Admin. When the review is emailed (weekly, Mondays 07:00 CAT; monthly, the 1st 07:00), to whom, which admin it is read as, and the last period each was sent for |
 | PUT | `/api/DesktopIntegration/sales/review/schedule` | Admin. Save the schedule (`weeklyEnabled`, `monthlyEnabled`, `recipients`); the saving admin becomes the account the scheduled review is read as. Takes effect on the next 07:00 run |
 | POST | `/api/DesktopIntegration/sales/review/email` | Admin, Manager. Email the review now under the sender's scope: `cadence` `weekly` or `monthly` for the last complete period, or `custom` with `fromDate`/`toDate`; `recipients`, or the schedule's list when empty. One message per recipient, PDF attached |
-| POST | `/api/DesktopIntegration/sales/{externalReference}/post` | Post one held sale to SAP now |
+| POST | `/api/DesktopIntegration/sales/{externalReference}/post` | Post one held sale to SAP now: a till or offline van sale as an invoice of its own, or an online van sale's receipt row — signed, refused by SAP — through its reservation, with fiscalisation off. `outcome` is `Posted` or `AlreadyInSap`; a refusal is a problem naming the sale and what is wrong with it |
 | POST | `/api/DesktopIntegration/sales/{externalReference}/fiscalise` | Retry a failed sale's fiscalisation now (asks the device for an existing receipt first) |
 | POST | `/api/DesktopIntegration/sales/post-batch` | Post a named set of held sales, one invoice each (`externalReferenceIds`, at most 50) |
 | POST | `/api/DesktopIntegration/end-of-day/consolidate` | Consolidate the day's sales |
@@ -3448,7 +3448,7 @@ handlers and are not recorded twice.
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 | GET | `/api/van-sales/invoices` | `invoices.view` | Invoices the van sales app created, with their ZIMRA and SAP state, newest first |
-| GET | `/api/van-sales/invoices/{reference}` | `invoices.view` | One of those invoices by van order: its lines, receipt and posting history |
+| GET | `/api/van-sales/invoices/{reference}` | `invoices.view` | One of those invoices by van order: its lines, receipt and posting history, and `postRefusal` / `fiscaliseRefusal` — why `POST /api/DesktopIntegration/sales/{reference}/post` and `.../fiscalise` would refuse it, null where they would not; the same rules Desktop Sales offers its buttons on |
 | GET | `/api/van-sales/credit-notes` | `invoices.view` | Credit notes raised against van sales invoices, with the invoice each reverses |
 
 `/api/van-sales/routes` takes **any one** of its three permissions, not all three. It has two

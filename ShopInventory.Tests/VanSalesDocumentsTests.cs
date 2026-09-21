@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesDocuments;
 using ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesCreditNotes;
@@ -197,7 +199,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
         AddReceiptRow("VAN-D", signed: true, docNum: 9700);
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context)
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
             .Handle(new GetVanSalesInvoiceQuery("VAN-D"), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -208,7 +210,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
     [Fact]
     public async Task A_reference_the_app_did_not_create_is_not_found()
     {
-        var result = await new GetVanSalesInvoiceHandler(_context)
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
             .Handle(new GetVanSalesInvoiceQuery("WEB-123"), CancellationToken.None);
 
         Assert.True(result.IsError);
@@ -298,7 +300,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
         });
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context)
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
             .Handle(new GetVanSalesInvoiceQuery("VAN-CRD"), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -311,6 +313,110 @@ public sealed class VanSalesDocumentsTests : IDisposable
         Assert.False(credits["3071"].GivesBack);
         Assert.Equal("Till", credits["CR-VAN-CRD-1"].Origin);
         Assert.False(credits["CR-VAN-CRD-1"].GivesBack);
+    }
+
+    // --- What the drawer may offer: the same rules as Desktop Sales ---
+
+    /// <summary>
+    /// The sale the drawer's buttons exist for. Signed, refused by SAP, parked for review by the queue: the
+    /// detail says it may be posted on request, exactly as Desktop Sales would say of a till sale, and that
+    /// it is not to be signed again.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_online_sale_may_be_posted_on_request_and_not_signed_again()
+    {
+        var reservation = AddReservation("VAN-RF", ReservationStatus.Failed);
+        AddReceiptRow("VAN-RF", signed: true, postingError: "Quantity falls into negative inventory");
+        AddQueueEntry(
+            reservation.ReservationId,
+            "VAN-RF",
+            InvoiceQueueStatus.RequiresReview,
+            "SAP did not take this fiscalised van sale (reservation Failed): Quantity falls into negative inventory",
+            receipt: "812");
+
+        var detail = await DetailAsync("VAN-RF");
+
+        Assert.Equal(VanSalesDocumentStates.NeedsAttention, detail.Invoice.State);
+        Assert.Null(detail.PostRefusal);
+        Assert.Contains("already fiscalised", detail.FiscaliseRefusal);
+    }
+
+    [Fact]
+    public async Task A_posted_online_sale_is_not_offered_a_post()
+    {
+        AddReservation("VAN-PD", ReservationStatus.Confirmed, docEntry: 501, docNum: 9501);
+        AddReceiptRow("VAN-PD", signed: true, docNum: 9501, docEntry: 501);
+
+        var detail = await DetailAsync("VAN-PD");
+
+        Assert.Contains("already in SAP", detail.PostRefusal);
+    }
+
+    /// <summary>
+    /// The number can sit on the reservation before the receipt row has it — a save that died between the
+    /// two writes. The rule is asked with the invoice's number, not the row's, so SAP is not offered the sale
+    /// a second time on the strength of a row that has not caught up.
+    /// </summary>
+    [Fact]
+    public async Task An_online_sale_whose_number_only_its_reservation_carries_is_not_offered_a_post()
+    {
+        AddReservation("VAN-RS", ReservationStatus.Confirmed, docEntry: 502, docNum: 9502);
+        AddReceiptRow("VAN-RS", signed: true);
+
+        var detail = await DetailAsync("VAN-RS");
+
+        Assert.Equal(9502, detail.Invoice.SapDocNum);
+        Assert.Contains("already in SAP", detail.PostRefusal);
+    }
+
+    [Fact]
+    public async Task A_refused_offline_sale_may_be_posted_on_request()
+    {
+        var sale = AddOfflineSale("VAN-OFR", SaleSourceSystems.VanSales, docNum: null);
+        sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Pending;
+        sale.LastPostingError = "SAP rejected the invoice: item is blocked for sale.";
+        sale.PostingAttempts = 4;
+
+        var detail = await DetailAsync("VAN-OFR");
+
+        Assert.Equal(VanSalesDocumentStates.NeedsAttention, detail.Invoice.State);
+        Assert.Equal(4, detail.PostingAttempts);
+        Assert.Null(detail.PostRefusal);
+        Assert.Contains("already fiscalised", detail.FiscaliseRefusal);
+    }
+
+    /// <summary>
+    /// A converted order has no sale row for the post command to find. Rather than a button that would
+    /// answer "not found", the detail says where the sale is posted from.
+    /// </summary>
+    [Fact]
+    public async Task A_converted_order_parked_for_review_is_sent_to_the_exception_center()
+    {
+        var reservation = AddReservation("VAN-CV", ReservationStatus.Failed);
+        AddQueueEntry(
+            reservation.ReservationId,
+            "VAN-CV",
+            InvoiceQueueStatus.RequiresReview,
+            "SAP did not take this fiscalised van sale (reservation Failed): Bad batch",
+            receipt: "640");
+
+        var detail = await DetailAsync("VAN-CV");
+
+        Assert.Equal(VanSalesDocumentStates.NeedsAttention, detail.Invoice.State);
+        Assert.Contains("Exception Center", detail.PostRefusal);
+        Assert.Contains("already fiscalised", detail.FiscaliseRefusal);
+    }
+
+    [Fact]
+    public async Task A_converted_order_still_in_the_queue_is_left_to_the_queue()
+    {
+        var reservation = AddReservation("VAN-CQ", ReservationStatus.Pending);
+        AddQueueEntry(reservation.ReservationId, "VAN-CQ", InvoiceQueueStatus.Fiscalized, lastError: null, receipt: "641");
+
+        var detail = await DetailAsync("VAN-CQ");
+
+        Assert.Equal(VanSalesDocumentStates.AwaitingSap, detail.Invoice.State);
+        Assert.Contains("next run", detail.PostRefusal);
     }
 
     // --- Credit notes ---
@@ -486,6 +592,39 @@ public sealed class VanSalesDocumentsTests : IDisposable
     }
 
     // --- Helpers ---
+
+    private async Task<VanSalesInvoiceDetail> DetailAsync(string reference)
+    {
+        await _context.SaveChangesAsync();
+
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
+            .Handle(new GetVanSalesInvoiceQuery(reference), CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        return result.Value;
+    }
+
+    private void AddQueueEntry(
+        string reservationId,
+        string reference,
+        InvoiceQueueStatus status,
+        string? lastError,
+        string? receipt = null)
+    {
+        _context.InvoiceQueue.Add(new InvoiceQueueEntity
+        {
+            ReservationId = reservationId,
+            ExternalReference = reference,
+            CustomerCode = "VAN008",
+            InvoicePayload = "{}",
+            Status = status,
+            SourceSystem = SaleSourceSystems.VanSales,
+            FiscalizationSuccess = receipt is null ? null : true,
+            FiscalReceiptNumber = receipt,
+            LastError = lastError,
+            CreatedAt = DuringDayUtc
+        });
+    }
 
     private async Task<VanSalesInvoicesResult> ListInvoicesAsync(
         string? state = null, string? channel = null, string? search = null)

@@ -445,4 +445,72 @@ public sealed class VanSaleFiscalFirstPosterTests : IDisposable
         Assert.Equal(VanSaleFiscalFirstStatus.NotPostable, outcome.Status);
         Assert.Empty(_calls);
     }
+
+    /// <summary>
+    /// The queue entry a refused sale was handed to is closed by whichever post lands first.
+    /// </summary>
+    /// <remarks>
+    /// After SAP refuses a signed sale the request hands it to the invoice queue, and the queue parks it for
+    /// review once SAP refuses again. A person pressing Post on the van sales console then posts it through
+    /// this same poster — and an entry left open would keep the sale in the Exception Center over an invoice
+    /// that exists, or have the queue re-confirm it on its next run.
+    /// </remarks>
+    [Fact]
+    public async Task A_post_that_lands_closes_the_queue_entry_that_was_waiting_for_the_sale()
+    {
+        var reservation = SeedReservation();
+
+        await BuildPoster(confirm: _ => new ConfirmReservationResponseDto { Success = false, Message = "SAP said no." })
+            .FiscaliseThenPostAsync(Request(reservation.ReservationId), default);
+
+        // As CreateVanSalesDirectInvoiceHandler queues it, and as PostQueuedVanInvoices then parks it.
+        _context.InvoiceQueue.Add(new InvoiceQueueEntity
+        {
+            ReservationId = reservation.ReservationId,
+            ExternalReference = Reference,
+            CustomerCode = "VAN008",
+            InvoicePayload = "{}",
+            Status = InvoiceQueueStatus.RequiresReview,
+            SourceSystem = SaleSourceSystems.VanSales,
+            FiscalizationSuccess = true,
+            FiscalReceiptNumber = "771",
+            LastError = "SAP did not take this fiscalised van sale (reservation Failed): SAP said no.",
+            ProcessedAt = DateTime.UtcNow
+        });
+        _context.SaveChanges();
+
+        var outcome = await BuildPoster()
+            .FiscaliseThenPostAsync(Request(reservation.ReservationId, mayAlreadyBeFiscalised: true), default);
+
+        Assert.Equal(VanSaleFiscalFirstStatus.Posted, outcome.Status);
+        Assert.False(outcome.Adopted);
+        Assert.Equal(["sign", "post", "post"], _calls);
+
+        var entry = _context.InvoiceQueue.AsNoTracking().Single(q => q.ExternalReference == Reference);
+        Assert.Equal(InvoiceQueueStatus.Completed, entry.Status);
+        Assert.Equal(5001, entry.SapDocNum);
+        Assert.Equal("9001", entry.SapDocEntry);
+        Assert.Null(entry.LastError);
+        Assert.NotNull(entry.ProcessedAt);
+    }
+
+    [Fact]
+    public async Task An_invoice_SAP_already_held_is_reported_as_adopted()
+    {
+        var reservation = SeedReservation();
+
+        var outcome = await BuildPoster(confirm: _ => new ConfirmReservationResponseDto
+            {
+                Success = true,
+                AlreadyPosted = true,
+                Message = "Reservation already posted previously; returning existing SAP invoice",
+                SAPDocEntry = 9001,
+                SAPDocNum = 5001
+            })
+            .FiscaliseThenPostAsync(Request(reservation.ReservationId), default);
+
+        Assert.Equal(VanSaleFiscalFirstStatus.Posted, outcome.Status);
+        Assert.True(outcome.Adopted);
+        Assert.Equal(5001, StoredSale().SapDocNum);
+    }
 }

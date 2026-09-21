@@ -153,9 +153,15 @@ card carries `O8` (15.5% ZiG, tax account `805650` locked to ZiG), so every USD 
 -1250000090 after its receipt was signed. The group is pinned on local-currency (USD) invoices only: the item
 master's groups are the USD ones, and a ZiG customer's card is right for a ZiG document. Once signed a sale is never refused: a SAP failure keeps the reservation holding and hands the sale
 to the invoice queue **already `Fiscalized`**, written in one save so `InvoicePostingJob` never sees it
-`Pending` and signs it again; `PostQueuedVanInvoices` posts it. A converted order takes the queue's own route
-— `InvoicePostingJob` signs it, `PostQueuedVanInvoices` posts it against its sales order. A sale the handset
-stamped itself keeps the old route.
+`Pending` and signs it again; `PostQueuedVanInvoices` posts it. When SAP refuses again the queue parks the
+sale for review, and from there a person posts it from the Van Sales → Invoices drawer exactly as Desktop
+Sales posts a held till sale: `POST /api/DesktopIntegration/sales/{reference}/post` routes a signed
+`KefalosVanSalesOnline` row back through `VanSaleFiscalFirstPoster` (no device call, reservation reopened,
+fiscalisation off) and closes the queue entry. `DesktopSalePostEligibility` is the one rule that decides which
+rows get the button and which the command accepts — an online row with a SAP number is "already in SAP", an
+unsigned one is refused with where it is signed instead. A converted order takes the queue's own route
+— `InvoicePostingJob` signs it, `PostQueuedVanInvoices` posts it against its sales order — and has no sale row,
+so its refusal points at the Exception Center's Retry. A sale the handset stamped itself keeps the old route.
 
 Other integrations:
 

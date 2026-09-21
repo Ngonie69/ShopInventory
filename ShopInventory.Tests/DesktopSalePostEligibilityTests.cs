@@ -132,14 +132,46 @@ public sealed class DesktopSalePostEligibilityTests
     }
 
     [Fact]
-    public void An_online_van_sale_receipt_carrier_is_refused()
+    public void A_signed_online_van_sale_that_SAP_has_not_taken_may_be_posted()
     {
-        // This row is not a sale awaiting SAP. It carries the receipt a handset signed for a sale
-        // that reached SAP through its reservation, and posting it would invoice that sale twice.
-        Assert.Contains("nothing to post", Refusal(
+        // The row is written Consolidated before SAP is asked, because its invoice is the
+        // reservation's to produce. Read through the consolidation check it was "already in SAP"
+        // while SAP had refused it — and the van sales console had no button for exactly the sale
+        // that most needs one: signed, holding its stock, parked for review by the queue.
+        Assert.Null(Refusal(
             SaleSourceSystems.VanSalesOnline,
-            DesktopSaleConsolidationStatus.Pending,
-            DesktopSaleFiscalizationStatus.Success));
+            DesktopSaleConsolidationStatus.Consolidated,
+            DesktopSaleFiscalizationStatus.Success,
+            sapDocNum: null));
+    }
+
+    [Fact]
+    public void An_online_van_sale_SAP_holds_is_refused_by_its_invoice_number_not_its_consolidation()
+    {
+        // Consolidated says nothing about this row; the DocNum the post wrote back does.
+        Assert.Contains("already in SAP", Refusal(
+            SaleSourceSystems.VanSalesOnline,
+            DesktopSaleConsolidationStatus.Consolidated,
+            DesktopSaleFiscalizationStatus.Success,
+            sapDocNum: 777913));
+    }
+
+    [Theory]
+    [InlineData(DesktopSaleFiscalizationStatus.Pending)]
+    [InlineData(DesktopSaleFiscalizationStatus.Failed)]
+    public void An_unsigned_online_van_sale_is_not_a_sale_to_post(DesktopSaleFiscalizationStatus fiscalisation)
+    {
+        // The handset was told the sale did not go through and to send it again, which is when the
+        // device is asked. Posting the row would invoice a basket the customer may have walked away
+        // from, and signing it from the office is what a resend or the queue's Retry does, not this.
+        var refusal = Refusal(
+            SaleSourceSystems.VanSalesOnline,
+            DesktopSaleConsolidationStatus.Consolidated,
+            fiscalisation,
+            sapDocNum: null);
+
+        Assert.Contains("no confirmed fiscal receipt", refusal);
+        Assert.Contains("not from here", refusal);
     }
 
     [Theory]
@@ -170,7 +202,7 @@ public sealed class DesktopSalePostEligibilityTests
 
         Assert.Equal(
             DesktopSalePostEligibility.Refusal(
-                sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus),
+                sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus, sale.SapDocNum),
             DesktopSalePostEligibility.Refusal(sale));
 
         Assert.False(DesktopSalePostEligibility.CanPost(sale));
@@ -179,6 +211,7 @@ public sealed class DesktopSalePostEligibilityTests
     private static string Refusal(
         string? source,
         DesktopSaleConsolidationStatus consolidation,
-        DesktopSaleFiscalizationStatus fiscalisation)
-        => DesktopSalePostEligibility.Refusal(source, consolidation, fiscalisation)!;
+        DesktopSaleFiscalizationStatus fiscalisation,
+        int? sapDocNum = null)
+        => DesktopSalePostEligibility.Refusal(source, consolidation, fiscalisation, sapDocNum)!;
 }

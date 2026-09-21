@@ -1760,6 +1760,11 @@
         padding-inline: var(--vsd-s4);
     }
 
+    /* Close, Credit notes and Post to SAP, plus a reason, do not share one row at phone width. */
+    .vsd-dfoot {
+        flex-wrap: wrap;
+    }
+
     .vsd-defs {
         grid-template-columns: minmax(0, 1fr);
     }

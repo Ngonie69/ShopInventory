@@ -256,13 +256,15 @@ public sealed class VanSaleFiscalFirstPoster(
             sale.LastPostingError = null;
             await db.SaveChangesAsync(persist);
 
+            await CloseQueuedEntryAsync(sale, confirmed.SAPDocEntry, confirmed.SAPDocNum.Value);
             await RaiseDeferredCreditsAsync(sale);
 
             return new VanSaleFiscalFirstOutcome(
                 VanSaleFiscalFirstStatus.Posted,
                 sale,
                 confirmed.SAPDocEntry,
-                confirmed.SAPDocNum);
+                confirmed.SAPDocNum,
+                Adopted: confirmed.AlreadyPosted);
         }
 
         // SAP refused, or another request holds the post. The confirm marks a non-transient refusal Failed,
@@ -314,6 +316,69 @@ public sealed class VanSaleFiscalFirstPoster(
                 + "could not be raised in SAP.",
                 sale.ExternalReferenceId,
                 sale.SapDocNum);
+        }
+    }
+
+    /// <summary>
+    /// Closes the invoice queue entry that was waiting to post this sale, now that it is posted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A sale SAP refused in the request is handed to the queue. When a resend of the same van order, or a
+    /// person pressing Post on the console, posts it before the queue does, the entry would otherwise stay
+    /// open: a Fiscalized one to be re-confirmed and adopted on the queue's next run, a RequiresReview one
+    /// to sit in the Exception Center over an invoice that exists. Closed here the way
+    /// <c>PostQueuedVanInvoicesHandler</c> closes it when the queue posts first, with the same document on it.
+    /// </para>
+    /// <para>
+    /// Advisory: the invoice is in SAP whatever happens to the entry, and an entry left open is adopted
+    /// rather than posted again. An entry the job is mid-way through is left to it.
+    /// </para>
+    /// </remarks>
+    private async Task CloseQueuedEntryAsync(DesktopSaleEntity sale, int? sapDocEntry, int sapDocNum)
+    {
+        try
+        {
+            var entries = await db.InvoiceQueue
+                .AsTracking()
+                .Where(entry => entry.ExternalReference == sale.ExternalReferenceId
+                    && entry.SourceSystem == SaleSourceSystems.VanSales
+                    && entry.Status != InvoiceQueueStatus.Completed
+                    && entry.Status != InvoiceQueueStatus.Cancelled
+                    && entry.Status != InvoiceQueueStatus.Processing)
+                .ToListAsync(CancellationToken.None);
+
+            if (entries.Count == 0)
+            {
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+
+            foreach (var entry in entries)
+            {
+                entry.Status = InvoiceQueueStatus.Completed;
+                entry.SapDocEntry = sapDocEntry?.ToString(CultureInfo.InvariantCulture);
+                entry.SapDocNum = sapDocNum;
+                entry.ProcessedAt = now;
+                entry.NextRetryAt = null;
+                entry.LastError = null;
+            }
+
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            logger.LogInformation(
+                "Van sale {Reference} posted as invoice {DocNum}; its invoice queue entry is closed.",
+                sale.ExternalReferenceId,
+                sapDocNum);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Van sale {Reference} posted as invoice {DocNum}, but its invoice queue entry could not be closed.",
+                sale.ExternalReferenceId,
+                sapDocNum);
         }
     }
 

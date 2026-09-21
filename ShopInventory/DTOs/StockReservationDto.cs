@@ -391,6 +391,14 @@ public class ConfirmReservationResponseDto
     public string ReservationId { get; set; } = string.Empty;
     public int? SAPDocEntry { get; set; }
     public int? SAPDocNum { get; set; }
+
+    /// <summary>
+    /// True when SAP already held the invoice — the reservation was confirmed earlier, or a document
+    /// carrying the sale's own <c>U_Van_saleorder</c> was found — so nothing was posted and that document
+    /// is answered. A caller reporting to a person says "already in SAP" rather than "posted".
+    /// </summary>
+    public bool AlreadyPosted { get; set; }
+
     public InvoiceDto? Invoice { get; set; }
     public FiscalizationResult? Fiscalization { get; set; }
     public bool WasQueued { get; set; }

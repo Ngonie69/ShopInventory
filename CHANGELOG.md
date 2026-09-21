@@ -18,6 +18,28 @@ otherwise be surprised.
 
 ### Added
 
+- **An online van sale SAP refused can be posted from the Van Sales → Invoices drawer, the way
+  Desktop Sales posts a held till sale.**
+
+  A van sale is signed before SAP is asked, and when SAP then refuses the invoice the queue retries
+  once and parks the sale for review — after which nothing offered it again, and
+  `POST /api/DesktopIntegration/sales/{reference}/post` refused its receipt row as "already in SAP"
+  because that row is written Consolidated before SAP is ever asked. The post now takes an online van
+  sale's receipt row (signed, no SAP number) through its reservation, with fiscalisation off, and
+  closes the invoice queue entry that was waiting for it; `outcome` is `Posted` or `AlreadyInSap` as
+  for a till sale. A receipt row that already carries a SAP number is refused as before, and an
+  unsigned one is refused with where the sale is signed instead (the handset's resend, or the queue
+  entry's Retry in the Exception Center).
+
+  `GET /api/van-sales/invoices/{reference}` gains `postRefusal` and `fiscaliseRefusal`: the reasons
+  those two commands would refuse the invoice, null where they would not — the same rules Desktop
+  Sales offers its buttons on. The drawer at `/van-sales/invoices` offers **Post to SAP** and
+  **Retry fiscalisation** on exactly those terms, and states the reason in the buttons' place
+  otherwise. A converted order, which has no sale row of its own, is pointed at the Exception Center.
+
+  `ConfirmReservationResponseDto` gains `alreadyPosted`, true when the confirm found the invoice in
+  SAP rather than creating it. Additive.
+
 - **SAP user accounts can be unlocked and given a new password from the back office.**
 
   `GET /api/sap-users`, `POST /api/sap-users/{internalKey}/unlock` and
