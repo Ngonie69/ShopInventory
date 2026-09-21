@@ -68,6 +68,7 @@ Examples:
   - [Backups](#27-backups)
   - [Rate Limit Management](#28-rate-limit-management)
   - [SAP Settings](#29-sap-settings)
+  - [SAP User Accounts](#29a-sap-user-accounts)
   - [Desktop Integration](#30-desktop-integration)
   - [Customer Portal](#31-customer-portal)
   - [Fiscalisation](#32-fiscalisation)
@@ -2684,6 +2685,81 @@ the list endpoint returns, filtered to those currently blocked.
   "testedAt": "2026-04-01T10:00:00Z"
 }
 ```
+
+---
+
+### 29a. SAP User Accounts
+
+**Base route:** `/api/sap-users`
+**Auth:** Bearer + `sapusers.view` / `sapusers.unlock` / `sapusers.change_password` (Admin holds all three)
+
+The user accounts inside SAP Business One — the logins for the SAP client itself. These are **not**
+this application's accounts, which are under [User Management](#12-user-management); a person may
+hold one, the other, both or neither. Creating and removing SAP users stays in the B1 client,
+because it is a licensing decision.
+
+Both writes require the Service Layer account this application signs in as to be a SAP superuser.
+SAP refuses them otherwise, and its refusal is passed through as the `detail` of the problem
+details rather than translated.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/sap-users` | The SAP user accounts, with the count of those locked out |
+| POST | `/api/sap-users/{internalKey}/unlock` | Clear SAP's lock on one account |
+| POST | `/api/sap-users/{internalKey}/password` | Set a new password on one account |
+
+**Query parameters (GET):**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `search` | string | Matched against both `userCode` and `userName`; omit to read all |
+| `lockedOnly` | bool | Only the accounts SAP is currently keeping out |
+
+**List Response:**
+
+```json
+{
+  "items": [
+    {
+      "internalKey": 12,
+      "userCode": "kmoyo",
+      "userName": "Kudzai Moyo",
+      "email": "kudzai@example.com",
+      "isLocked": true,
+      "isSuperuser": false,
+      "lastPasswordChangedBy": "manager",
+      "lastLogoutDate": "2026-09-18T00:00:00Z"
+    }
+  ],
+  "totalCount": 1,
+  "lockedCount": 1,
+  "truncated": false
+}
+```
+
+`truncated` is true when SAP held more accounts than one read returns (200). The two counts then
+describe the page in hand rather than the company, and the caller should narrow with `search`.
+
+**Unlock:** no body. The account is read back from SAP after the write, so a 200 means the account
+really is unlocked rather than that SAP accepted the PATCH. An account that was not locked is
+refused with `409 SapUser.NotLocked` — whoever cannot sign in is failing on something else, and
+answering "done" would send them round the same loop.
+
+**Change Password Request:**
+
+```json
+{
+  "newPassword": "Ch33se!2026"
+}
+```
+
+The password is never logged, never audited and never echoed back; the response is the account, with
+the `lastPasswordChangedBy` SAP now records against it. SAP's own password policy decides what it
+will accept, and its reason ("Password must contain at least one digit") is what a refusal carries.
+
+Both writes raise an audit row — `UnlockSapUser` / `ChangeSapUserPassword` against entity type
+`SapUser` — naming the signed-in user, resolved from their account rather than from the request's
+name claim.
 
 ---
 

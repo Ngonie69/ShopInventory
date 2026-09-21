@@ -809,6 +809,45 @@ public interface ISAPServiceLayerClient
 
     Task<SAPUser?> GetSapUserAsync(int internalKey, CancellationToken cancellationToken = default);
     Task<SAPUser?> GetSapUserByCodeAsync(string userCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The company's SAP user accounts with their lock state, ordered by user code.
+    /// </summary>
+    /// <param name="search">Matched against both <c>UserCode</c> and <c>UserName</c>; null reads all.</param>
+    /// <param name="lockedOnly">Only the accounts SAP is currently keeping out.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <remarks>
+    /// One page, capped — a B1 company has tens of users, not thousands, and an administrator looking
+    /// for one searches rather than pages. A company that outgrows the cap gets the first page by
+    /// user code and has to narrow with <paramref name="search"/>.
+    /// </remarks>
+    Task<List<SAPUserAccount>> GetSapUserAccountsAsync(
+        string? search = null,
+        bool lockedOnly = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>One SAP user account with its lock state; null when SAP has no such key.</summary>
+    Task<SAPUserAccount?> GetSapUserAccountAsync(int internalKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets or clears SAP's <c>Locked</c> flag on a user account. Clearing it is what lets an account
+    /// locked out by failed sign-ins — or locked by hand in User Setup — sign in again.
+    /// </summary>
+    /// <remarks>
+    /// The Service Layer session has to be a superuser or SAP refuses the write; its refusal surfaces
+    /// as <see cref="SapRequestRejectedException"/> carrying SAP's own message.
+    /// </remarks>
+    Task SetSapUserLockedAsync(int internalKey, bool locked, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets a SAP user account's password. SAP's own password policy decides what it will accept, and
+    /// refuses the whole PATCH with its reason when the new password does not meet it.
+    /// </summary>
+    /// <remarks>
+    /// The password is never logged and never read back — <c>UserPassword</c> appears in no
+    /// <c>$select</c> this client sends.
+    /// </remarks>
+    Task ChangeSapUserPasswordAsync(int internalKey, string newPassword, CancellationToken cancellationToken = default);
     Task<SAPApprovalTemplate?> GetApprovalTemplateAsync(int code, CancellationToken cancellationToken = default);
     Task<SAPApprovalStage?> GetApprovalStageAsync(int code, CancellationToken cancellationToken = default);
 

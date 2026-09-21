@@ -160,6 +160,12 @@ public static class AuditActions
     public const string UpdatePermissions = "UpdatePermissions";
     public const string ResetTwoFactor = "ResetTwoFactor";
 
+    // SAP user administration — accounts in the B1 company, not accounts in this application.
+    // Named apart from UnlockUser and ChangePassword above on purpose: the two families look alike
+    // in an audit trail and are not, and "who unlocked that account" has to be answerable of each.
+    public const string UnlockSapUser = "UnlockSapUser";
+    public const string ChangeSapUserPassword = "ChangeSapUserPassword";
+
     // Backup actions
     public const string CreateBackup = "CreateBackup";
     public const string RestoreBackup = "RestoreBackup";

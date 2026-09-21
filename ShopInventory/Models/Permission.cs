@@ -77,6 +77,15 @@ public static class Permissions
     public const string ManagePermissions = "users.manage_permissions";
     public const string ManageUserPermissions = "users.manage_permissions";
 
+    // SAP user accounts — accounts in the B1 company, not accounts in this application. Its own
+    // family rather than the users.* one above because the two grant power over different systems:
+    // somebody trusted to reset a till operator's password here is not thereby trusted to reset the
+    // password of a SAP account that can post to the ledger. Admin holds these by default and no
+    // other role does.
+    public const string ViewSapUsers = "sapusers.view";
+    public const string UnlockSapUsers = "sapusers.unlock";
+    public const string ChangeSapUserPasswords = "sapusers.change_password";
+
     // Settings
     public const string ViewSettings = "settings.view";
     public const string EditSettings = "settings.edit";
@@ -233,6 +242,12 @@ public static class Permissions
                 new(DeleteUsers, "Delete Users", "Delete user accounts"),
                 new(ManageRoles, "Manage Roles", "Assign roles to users"),
                 new(ManagePermissions, "Manage Permissions", "Assign granular permissions")
+            },
+            ["SAP Users"] = new()
+            {
+                new(ViewSapUsers, "View SAP Users", "See the SAP Business One user accounts and which of them are locked out"),
+                new(UnlockSapUsers, "Unlock SAP Users", "Clear the lock keeping a SAP user account from signing in"),
+                new(ChangeSapUserPasswords, "Change SAP User Passwords", "Set a new password on a SAP user account")
             },
             ["Settings"] = new()
             {
@@ -565,6 +580,11 @@ public static class Permission
     public const string ManageUserRoles = Permissions.ManageUserRoles;
     public const string ManagePermissions = Permissions.ManagePermissions;
     public const string ManageUserPermissions = Permissions.ManageUserPermissions;
+
+    // SAP user accounts
+    public const string ViewSapUsers = Permissions.ViewSapUsers;
+    public const string UnlockSapUsers = Permissions.UnlockSapUsers;
+    public const string ChangeSapUserPasswords = Permissions.ChangeSapUserPasswords;
 
     // Settings
     public const string ViewSettings = Permissions.ViewSettings;

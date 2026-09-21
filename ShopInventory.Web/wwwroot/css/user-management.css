@@ -1131,6 +1131,43 @@
     letter-spacing: -.01em;
 }
 
+/* An explanatory note at the top of a page: an icon beside a sentence, inside a
+   section card. Added for /sap-users, which has to say plainly that those are
+   SAP Business One's own accounts and not this application's — a distinction
+   that costs somebody a password reset on the wrong system when it is missed.
+
+   Not `.um-perm-summary`, which looks similar and is a <summary>: it carries a
+   caret and a pointer cursor, so a plain sentence wearing it reads as a
+   disclosure that will not open. */
+.um-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--um-s3);
+    padding: var(--um-s4) 18px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--um-ink-2);
+    text-wrap: pretty;
+}
+
+.um-note > i {
+    flex: none;
+    margin-top: 2px;
+    font-size: 14px;
+    color: var(--um-accent);
+}
+
+/* Two classes deep, and stated at all, because MudBlazor.min.css loads after
+   every page sheet and its bare `a { color: var(--mud-palette-text-primary) }`
+   resolves to rgba(255,255,255,.7) in *both* themes. A link left to the cascade
+   here is white on a near-white card in light theme: present, focusable and
+   unreadable — measured on /sap-users, 2026-09-21. */
+.um-page .um-note a {
+    color: var(--um-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
 /* ── Permissions ───────────────────────────────────────────────────────── */
 
 .um-perm-group {

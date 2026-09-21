@@ -25,6 +25,16 @@ SHEETS = ROOT / "ShopInventory.Web" / "wwwroot" / "css"
 # Classes that come from somewhere other than the page's own sheet.
 SHARED_PREFIXES = ("nsel-", "ndf-", "ph-", "ph", "visually-hidden", "dark-theme")
 
+# Pages that wear a sheet named after a different page, and so are invisible to the
+# name-matching below. A sheet shared by two pages is deliberate where the vocabulary
+# is genuinely the same thing -- but a page outside the pairing is a page whose classes
+# nothing checks, which is exactly the failure this script exists to catch.
+EXTRA_PAIRS = {
+    # SAP Business One's own user accounts. The same list-of-people, locked-badge and
+    # reset-password vocabulary as /user-management, under that sheet's `um-` prefix.
+    "SapUserAccounts": "user-management",
+}
+
 # A page sheet's prefix is its root class: the sheet's first selector.
 CLASS_IN_MARKUP = re.compile(r'class="([^"]*)"')
 CLASS_IN_CSS = re.compile(r'\.([A-Za-z_][\w-]*)')
@@ -105,6 +115,13 @@ def pairs() -> list[tuple[Path, Path]]:
                       if p.stem.lower() == stem.replace("-", "")]
         if candidates:
             found.append((candidates[0], sheet))
+
+    for page_stem, sheet_stem in EXTRA_PAIRS.items():
+        page = next((p for p in PAGES.rglob("*.razor") if p.stem == page_stem), None)
+        sheet = SHEETS / f"{sheet_stem}.css"
+        if page is not None and sheet.exists():
+            found.append((page, sheet))
+
     return found
 
 

@@ -1,0 +1,271 @@
+@page "/sap-users"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>SAP User Accounts - Shop Inventory</PageTitle>
+
+@* Wears wwwroot/css/user-management.css (linked from App.razor) rather than a
+   sheet of its own. The vocabulary is the same one that sheet already names —
+   a list of people, a locked badge, a reset-password dialog — and a second
+   sheet saying the same things under a second prefix is how two pages that do
+   the same job end up looking different. These are SAP's accounts and
+   /user-management's are this application's; they are unrelated systems wearing
+   one design, which is the point.
+
+   The filter is a <NocturneSelect> rather than a native <select>: a page
+   control the administrator scans, and a native popup takes its background from
+   the field, which on a Nocturne wash renders the list near-white on near-white
+   in dark theme. *@
+
+<div class="um-page">
+
+    <div class="um-header">
+        <div class="um-header-left">
+            <div class="um-header-icon">
+                <i class="bi bi-database-lock"></i>
+            </div>
+            <div>
+                <h1 class="um-title">SAP User Accounts</h1>
+                <p class="um-subtitle">Unlock accounts SAP is keeping out, and set passwords</p>
+            </div>
+        </div>
+        <div class="um-header-actions">
+            <button class="um-btn um-btn-ghost" @onclick="ReloadAsync" disabled="@isLoading"
+                    title="Read the accounts from SAP again">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>Refresh</span>
+            </button>
+        </div>
+    </div>
+
+    @* These are SAP accounts, not this application's, and the two get confused the
+       first time somebody is sent here to reset the wrong password. Said once, at
+       the top, rather than in a tooltip nobody opens. *@
+    <div class="um-section-card">
+        @* The sentence is one flex item, not five: `.um-note` is a flex row, so an inline
+           <a> left bare beside the text would become a column of its own and the line
+           would break around it. *@
+        <div class="um-note">
+            <i class="bi bi-info-circle"></i>
+            <span>
+                These are user accounts in SAP Business One — the logins for the SAP client itself.
+                They are not this application&rsquo;s accounts, which are on
+                <a href="/user-management">User Management</a>. Creating and removing SAP users stays
+                in the SAP client, because it is a licensing decision.
+            </span>
+        </div>
+    </div>
+
+    <div class="um-stats-grid">
+        <div class="um-stat-card">
+            <div class="um-stat-value">@accounts.TotalCount</div>
+            <div class="um-stat-label">Accounts@(accounts.Truncated ? " (first page)" : "")</div>
+        </div>
+        <div class="um-stat-card @(accounts.LockedCount > 0 ? "um-stat-danger" : "um-stat-success")">
+            <div class="um-stat-value">@accounts.LockedCount</div>
+            <div class="um-stat-label">Locked out</div>
+        </div>
+        <div class="um-stat-card um-stat-warning">
+            <div class="um-stat-value">@accounts.Items.Count(account => account.IsSuperuser)</div>
+            <div class="um-stat-label">Superusers</div>
+        </div>
+    </div>
+
+    <div class="um-filter-bar">
+        <div class="um-search-box">
+            <i class="bi bi-search"></i>
+            <input type="search" placeholder="Search by user code or name..."
+                   @bind="searchTerm" @bind:event="oninput" @bind:after="OnSearchChangedAsync"
+                   enterkeyhint="search" aria-label="Search SAP user accounts" />
+        </div>
+        <NocturneSelect Class="nsel-auto" TValue="bool" Options="LockFilterOptions"
+                        @bind-Value="lockedOnly" OnChanged="ReloadAsync"
+                        Icon="bi bi-funnel" Caption="Filter by lock state"
+                        AriaLabel="Filter by lock state" />
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="um-section-card">
+            <div class="um-delete-warning">
+                <i class="bi bi-exclamation-triangle-fill"></i> @loadError
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="um-loading">
+            <div class="um-spinner"></div>
+            <p>Reading user accounts from SAP...</p>
+        </div>
+    }
+    else if (accounts.Items.Count > 0)
+    {
+        <div class="um-user-list">
+            @foreach (var account in accounts.Items)
+            {
+                <div class="um-user-card @(account.IsLocked ? "locked" : "")">
+                    <div class="um-user-main">
+                        <div class="um-avatar @(account.IsSuperuser ? "um-avatar-admin" : "um-avatar-default")">
+                            @AvatarInitial(account)
+                        </div>
+                        <div class="um-user-info">
+                            <div class="um-user-name">@account.DisplayName</div>
+                            <div class="um-user-email">@(account.Email ?? account.UserCode)</div>
+                        </div>
+                        <div class="um-user-meta">
+                            <span class="um-badge um-badge-user">@account.UserCode</span>
+                            @if (account.IsSuperuser)
+                            {
+                                <span class="um-badge um-badge-admin">Superuser</span>
+                            }
+                            @if (account.IsLocked)
+                            {
+                                <span class="um-badge um-badge-locked"><i class="bi bi-lock-fill"></i> Locked</span>
+                            }
+                            else
+                            {
+                                <span class="um-badge um-badge-active">Active</span>
+                            }
+                        </div>
+                        <div class="um-user-login">
+                            <span class="um-login-label">Password set by</span>
+                            <span class="um-login-time @(string.IsNullOrWhiteSpace(account.LastPasswordChangedBy) ? "um-login-never" : "")">
+                                @(string.IsNullOrWhiteSpace(account.LastPasswordChangedBy) ? "Not recorded" : account.LastPasswordChangedBy)
+                            </span>
+                        </div>
+                    </div>
+                    <div class="um-user-actions">
+                        @if (account.IsLocked)
+                        {
+                            <button class="um-action-btn" title="Unlock this SAP account"
+                                    @onclick="@(() => ShowUnlockModal(account))" disabled="@isSaving">
+                                <i class="bi bi-unlock-fill"></i>
+                            </button>
+                        }
+                        <button class="um-action-btn" title="Set a new password for this SAP account"
+                                @onclick="@(() => ShowPasswordModal(account))" disabled="@isSaving">
+                            <i class="bi bi-key-fill"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (accounts.Truncated)
+        {
+            @* The counts above describe what came back. Saying so beats a "3 locked" that
+               is three of the first two hundred accounts and reads as three in the company. *@
+            <div class="um-empty" style="padding: 1rem;">
+                <p>SAP has more accounts than one read returns. Search to narrow the list.</p>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="um-empty">
+            <i class="bi bi-person-badge"></i>
+            <h3>@(lockedOnly ? "No locked accounts" : "No SAP user accounts found")</h3>
+            <p>@(lockedOnly
+                    ? "Nobody is locked out of SAP right now."
+                    : "Try a different search, or check that SAP integration is switched on in Settings.")</p>
+        </div>
+    }
+</div>
+
+@* Unlock confirmation.
+
+   A confirmation rather than a straight-through button: this hands somebody
+   back into SAP, and the accounts are one mis-click apart in a list ordered by
+   code. *@
+@if (showUnlockModal && actionTarget is not null)
+{
+    <div class="um-overlay" @onclick="CloseUnlockModal">
+        <div class="um-modal" style="max-width: 480px;" @onclick:stopPropagation="true">
+            <div class="um-modal-header">
+                <h2>Unlock @actionTarget.UserCode</h2>
+                <button class="um-modal-close" @onclick="CloseUnlockModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="um-modal-body">
+                <p style="margin-bottom: 1rem;">
+                    Clear SAP&rsquo;s lock on <strong>@actionTarget.DisplayName</strong>
+                    (<strong>@actionTarget.UserCode</strong>) so they can sign in to SAP again?
+                </p>
+                @if (!string.IsNullOrWhiteSpace(actionError))
+                {
+                    <div class="um-delete-warning">
+                        <i class="bi bi-exclamation-triangle-fill"></i> @actionError
+                    </div>
+                }
+            </div>
+            <div class="um-modal-footer">
+                <button type="button" class="um-btn um-btn-ghost" @onclick="CloseUnlockModal">Cancel</button>
+                <button type="button" class="um-btn um-btn-primary" @onclick="UnlockAsync" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="um-spinner-sm"></span>
+                    }
+                    <i class="bi bi-unlock-fill"></i> Unlock
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Change password.
+
+   The password is shown as typed rather than masked, the way /van-sales-customer-accounts
+   does it: whoever sets it here has to read it back to the SAP user on the spot, and a
+   password typed blind is one that gets passed on wrong and comes back as a report that
+   SAP is broken. The confirm field stays, because a typo here locks somebody out of SAP. *@
+@if (showPasswordModal && actionTarget is not null)
+{
+    <div class="um-overlay" @onclick="ClosePasswordModal">
+        <div class="um-modal" style="max-width: 480px;" @onclick:stopPropagation="true">
+            <div class="um-modal-header">
+                <h2>New password for @actionTarget.UserCode</h2>
+                <button class="um-modal-close" @onclick="ClosePasswordModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <EditForm Model="passwordModel" OnValidSubmit="ChangePasswordAsync">
+                <DataAnnotationsValidator />
+                <div class="um-modal-body">
+                    <div class="um-form-field">
+                        <label>New Password <span class="required">*</span></label>
+                        <InputText type="text" class="um-input" autocomplete="off"
+                                   @bind-Value="passwordModel.NewPassword" placeholder="Min. 8 characters" />
+                        <ValidationMessage For="@(() => passwordModel.NewPassword)" />
+                    </div>
+                    <div class="um-form-field" style="margin-top: 1rem;">
+                        <label>Confirm Password <span class="required">*</span></label>
+                        <InputText type="text" class="um-input" autocomplete="off"
+                                   @bind-Value="passwordModel.ConfirmPassword" placeholder="Re-enter password" />
+                        <ValidationMessage For="@(() => passwordModel.ConfirmPassword)" />
+                    </div>
+                    <p class="um-form-hint" style="margin-top: 1rem;">
+                        SAP&rsquo;s own password policy decides what it will accept. If it refuses, its
+                        reason appears here.
+                    </p>
+                    @if (!string.IsNullOrWhiteSpace(actionError))
+                    {
+                        <div class="um-delete-warning" style="margin-top: 1rem;">
+                            <i class="bi bi-exclamation-triangle-fill"></i> @actionError
+                        </div>
+                    }
+                </div>
+                <div class="um-modal-footer">
+                    <button type="button" class="um-btn um-btn-ghost" @onclick="ClosePasswordModal">Cancel</button>
+                    <button type="submit" class="um-btn um-btn-primary" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="um-spinner-sm"></span>
+                        }
+                        <i class="bi bi-key-fill"></i> Set Password
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}

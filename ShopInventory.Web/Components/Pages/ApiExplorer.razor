@@ -1678,6 +1678,21 @@ new("GET", "/api/fiscalisation-console/work-queue", "Get work queue")
 },
 new ApiModule
 {
+Name = "SAP Users",
+BasePath = "/api/sap-users",
+Description = "The user accounts inside SAP Business One — not this application's, which are under User Management. Unlock one, or set its password. Administrator only.",
+Icon = Icons.Material.Filled.LockOpen,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/sap-users", "The SAP user accounts, and how many are locked out"),
+new("POST", "/api/sap-users/{internalKey}/password", "Set a new password on a SAP account"),
+new("POST", "/api/sap-users/{internalKey}/unlock", "Clear SAP's lock on an account")
+}
+},
+new ApiModule
+{
 Name = "Shops",
 BasePath = "/api/Shops",
 Description = "The retail shop master — the business partner, warehouse and cost centre a till operator sells on. Administrator only.",
