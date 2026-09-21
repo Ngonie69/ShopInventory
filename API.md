@@ -3353,6 +3353,36 @@ performance and replenishment, 90 for coverage, 14 for stock.
 **null rather than zero** where the day has no denominator — a CCR of 0% and "we cannot say" are
 different findings. Summary rates are recomputed from the period's totals, not averaged across days.
 
+Each day also carries `telematics` — what the vehicle did, beside what the rep recorded. It is
+**null if and only if fleet telematics is switched off for the whole report**; when the feature is
+on, every day carries one, including days whose truck could not be looked up. That makes "the
+feature is off" and "this van has no data" structurally different rather than a convention:
+
+| `match` | Meaning |
+|---|---|
+| `NoRegistration` | Neither the day nor the rep's route names a truck |
+| `NotInFleet` | A truck is named but the provider does not hold it — a typo, or a vehicle sold |
+| `Matched` | Looked up. Whether it reported is `hasRollup`, and whether the read succeeded is `movementRead` |
+
+`firstIgnitionOn` and `firstDeparture` are **different questions** and both are given.
+`verifiedDeparture` is the second falling back to the first, and `effectiveDeparture` is that
+falling back to the rep's own `timeOut` — which is the time a late departure is judged against.
+The gap between ignition and departure is real: measured across five days on one truck it ran from
+eighteen minutes to five and a half hours, because a driver warming a diesel or pulling a fridge
+down to temperature turns the key long before the van goes anywhere.
+
+`distanceKm` is the provider's own figure, never the difference of the two odometer readings —
+a vehicle can report a distance of zero with an end reading below its start. Treat it as
+meaningless when `odometerReset` or `terminalChanged` is true.
+
+The result carries a `telematics` status of its own — `enabled`, `configured`, `ready`,
+`lastSyncedAt`, `coveredFrom`, `coveredThrough` and `reason`. **`reason` is a sentence to print
+verbatim** and is null when everything is in order: an absent vehicle column has four different
+causes and each needs a different thing done about it, so the caller is told which rather than
+left to compose an explanation. When `ready` is false the per-day `telematics` records are still
+present but carry no figures, because a projection that has only backfilled to September must not
+answer for July — rendering July as "the van never moved" reads as a finding.
+
 ```json
 {
   "fromDate": "2026-07-18T00:00:00",
@@ -3400,7 +3430,33 @@ different findings. Summary rates are recomputed from the period's totals, not a
       "declaredVariance": 5.00,
       "declaredShortfall": null,
       "declaredOverage": null,
-      "rtiOutstanding": 2
+      "rtiOutstanding": 2,
+      "telematics": {
+        "registration": "AEK4471",
+        "match": "Matched",
+        "hasRollup": true,
+        "movementRead": true,
+        "odometerRead": true,
+        "firstIgnitionOn": "2026-08-15T06:12:00",
+        "firstDeparture": "2026-08-15T07:05:00",
+        "lastIgnitionOff": "2026-08-15T17:08:00",
+        "departureLatitude": -17.79,
+        "departureLongitude": 31.03,
+        "ignitionCycleCount": 11,
+        "drivingMinutes": 264,
+        "idleMinutes": 91,
+        "distanceKm": 151,
+        "odometerReset": false,
+        "terminalChanged": false,
+        "vehicleStateLabel": null,
+        "verifiedDeparture": "2026-08-15T07:05:00",
+        "isVerified": true,
+        "didNotMove": false
+      },
+      "effectiveDeparture": "2026-08-15T07:05:00",
+      "departureIsVerified": true,
+      "departureDiscrepancyMinutes": 25,
+      "odometerDivergenceKm": 4
     }
   ],
   "summary": {

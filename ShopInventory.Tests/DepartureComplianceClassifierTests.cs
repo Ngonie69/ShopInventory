@@ -85,6 +85,187 @@ public class DepartureComplianceClassifierTests
         Assert.False(gaps.HasFlag(Gaps.NoOdometer));
     }
 
+    // — The verdict moves to the vehicle ——————————————————————————————
+
+    /// <summary>A vehicle that left at <paramref name="hour"/>:<paramref name="minute"/>.</summary>
+    private static DepartureComplianceTelematicsDay Vehicle(
+        int hour, int minute, int? distanceKm = null) => new()
+        {
+            Registration = "AFQ9644",
+            Match = TelematicsMatch.Matched,
+            HasRollup = true,
+            MovementRead = true,
+            OdometerRead = true,
+            FirstIgnitionOn = Day(hour, minute).AddMinutes(-40),
+            FirstDeparture = Day(hour, minute),
+            DistanceKm = distanceKm
+        };
+
+    [Fact]
+    public void The_vehicle_decides_when_it_has_an_answer()
+    {
+        // The whole point. The rep taps Start Day at 06:55 and the van leaves at 07:40; the
+        // handset alone recorded that as on time and nothing disagreed.
+        var day = Clean();
+        day.TimeOut = Day(6, 55);
+        day.Telematics = Vehicle(7, 40);
+
+        Assert.True(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.LateOut));
+    }
+
+    [Fact]
+    public void The_vehicle_can_clear_a_rep_the_handset_would_have_marked()
+    {
+        // It cuts both ways, which is the reason it is fair to use it.
+        var day = Clean();
+        day.TimeOut = Day(7, 20);
+        day.Telematics = Vehicle(6, 45);
+
+        Assert.False(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.LateOut));
+    }
+
+    [Fact]
+    public void The_handset_still_decides_when_the_vehicle_has_no_answer()
+    {
+        var day = Clean();
+        day.TimeOut = Day(7, 30);
+        day.Telematics = new DepartureComplianceTelematicsDay
+        {
+            Match = TelematicsMatch.NoRegistration
+        };
+
+        Assert.True(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.LateOut));
+    }
+
+    [Fact]
+    public void A_vehicle_that_only_started_falls_back_to_its_ignition()
+    {
+        // No departure but an ignition: the van started and never left, so the ignition is the
+        // only thing the vehicle can say about when the day began.
+        var day = Clean();
+        day.TimeOut = Day(6, 30);
+        day.Telematics = new DepartureComplianceTelematicsDay
+        {
+            Match = TelematicsMatch.Matched,
+            HasRollup = true,
+            MovementRead = true,
+            FirstIgnitionOn = Day(7, 45)
+        };
+
+        Assert.True(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.LateOut));
+    }
+
+    // — Signals are never findings ————————————————————————————————————
+
+    [Fact]
+    public void A_disagreement_is_shown_and_never_scored()
+    {
+        var day = Clean();
+        day.TimeOut = Day(6, 10);
+        day.Telematics = Vehicle(6, 40);
+
+        var gaps = DepartureComplianceClassifier.GapsOf(day);
+        var signals = DepartureComplianceClassifier.SignalsOf(day);
+
+        Assert.Equal(Gaps.None, gaps);
+        Assert.True(signals.HasFlag(Signals.DepartureDiscrepancy));
+        Assert.Equal(30, day.DepartureDiscrepancyMinutes);
+    }
+
+    [Fact]
+    public void A_disagreement_inside_the_tolerance_is_not_even_shown()
+    {
+        var day = Clean();
+        day.TimeOut = Day(6, 40);
+        day.Telematics = Vehicle(6, 45);
+
+        Assert.False(DepartureComplianceClassifier.SignalsOf(day)
+            .HasFlag(Signals.DepartureDiscrepancy));
+    }
+
+    [Theory]
+    [InlineData(TelematicsMatch.NoRegistration, Signals.VehicleNoRegistration)]
+    [InlineData(TelematicsMatch.NotInFleet, Signals.VehicleUnmatched)]
+    public void A_vehicle_that_cannot_be_looked_up_marks_the_data_not_the_rep(
+        TelematicsMatch match, Signals expected)
+    {
+        var day = Clean();
+        day.Telematics = new DepartureComplianceTelematicsDay { Match = match, Registration = "BAD1234" };
+
+        Assert.Equal(Gaps.None, DepartureComplianceClassifier.GapsOf(day));
+        Assert.True(DepartureComplianceClassifier.SignalsOf(day).HasFlag(expected));
+    }
+
+    [Fact]
+    public void A_van_that_never_moved_is_a_signal_not_a_gap()
+    {
+        // It is as likely to be a dead tracker as an idle driver, and the report must not decide
+        // which on the rep's behalf.
+        var day = Clean();
+        day.Telematics = new DepartureComplianceTelematicsDay
+        {
+            Match = TelematicsMatch.Matched,
+            HasRollup = true,
+            MovementRead = true
+        };
+
+        Assert.Equal(Gaps.None, DepartureComplianceClassifier.GapsOf(day));
+        Assert.True(DepartureComplianceClassifier.SignalsOf(day).HasFlag(Signals.VehicleDidNotMove));
+    }
+
+    [Fact]
+    public void A_small_mileage_gap_is_not_a_finding()
+    {
+        // The tracker accumulates metres while the rep subtracts two whole-kilometre readings,
+        // so the vehicle reads slightly higher as a matter of course.
+        var day = Clean();
+        day.Telematics = Vehicle(6, 30, distanceKm: 213);
+
+        Assert.False(DepartureComplianceClassifier.SignalsOf(day)
+            .HasFlag(Signals.OdometerDivergence));
+    }
+
+    [Fact]
+    public void A_mileage_gap_past_both_tolerances_is_shown()
+    {
+        var day = Clean();
+        day.Telematics = Vehicle(6, 30, distanceKm: 400);
+
+        Assert.True(DepartureComplianceClassifier.SignalsOf(day)
+            .HasFlag(Signals.OdometerDivergence));
+        Assert.Equal(190, day.OdometerDivergenceKm);
+    }
+
+    [Fact]
+    public void A_clean_day_with_a_verified_departure_is_still_clean()
+    {
+        var day = Clean();
+        day.TimeOut = Day(6, 40);
+        day.Telematics = Vehicle(6, 42, distanceKm: 210);
+
+        Assert.Equal(Gaps.None, DepartureComplianceClassifier.GapsOf(day));
+        Assert.True(DepartureComplianceClassifier.SignalsOf(day).HasFlag(Signals.DepartureVerified));
+    }
+
+    [Fact]
+    public void A_signal_never_outranks_a_gap_for_the_badge()
+    {
+        var flag = DepartureComplianceClassifier.PrimaryFlag(
+            Gaps.ShortDeclaration, Signals.VehicleDidNotMove);
+
+        Assert.Equal("Short declaration", flag!.Value.Label);
+        Assert.Equal(FlagTone.Strong, flag.Value.Tone);
+    }
+
+    [Fact]
+    public void A_signal_badge_is_drawn_quietly()
+    {
+        var flag = DepartureComplianceClassifier.PrimaryFlag(Gaps.None, Signals.VehicleDidNotMove);
+
+        Assert.Equal("Vehicle never moved", flag!.Value.Label);
+        Assert.Equal(FlagTone.Info, flag.Value.Tone);
+    }
+
     // — Odometer ——————————————————————————————————————————————————————
 
     [Fact]
@@ -213,19 +394,19 @@ public class DepartureComplianceClassifierTests
     // — The badge ——————————————————————————————————————————————————————
 
     [Theory]
-    [InlineData(Gaps.NoDeparture, "No departure record", true)]
-    [InlineData(Gaps.NothingDeclared, "Nothing declared", true)]
-    [InlineData(Gaps.ShortDeclaration, "Short declaration", true)]
-    [InlineData(Gaps.OverDeclaration, "Over declaration", true)]
-    [InlineData(Gaps.LateOut, "Late out", false)]
-    [InlineData(Gaps.NoOdometer, "No odometer", false)]
-    public void Each_gap_that_carries_a_badge_carries_its_own(Gaps gap, string label, bool strong)
+    [InlineData(Gaps.NoDeparture, "No departure record", FlagTone.Strong)]
+    [InlineData(Gaps.NothingDeclared, "Nothing declared", FlagTone.Strong)]
+    [InlineData(Gaps.ShortDeclaration, "Short declaration", FlagTone.Strong)]
+    [InlineData(Gaps.OverDeclaration, "Over declaration", FlagTone.Strong)]
+    [InlineData(Gaps.LateOut, "Late out", FlagTone.Warn)]
+    [InlineData(Gaps.NoOdometer, "No odometer", FlagTone.Warn)]
+    public void Each_gap_that_carries_a_badge_carries_its_own(Gaps gap, string label, FlagTone tone)
     {
         var flag = DepartureComplianceClassifier.PrimaryFlag(gap);
 
         Assert.NotNull(flag);
         Assert.Equal(label, flag!.Value.Label);
-        Assert.Equal(strong, flag.Value.Strong);
+        Assert.Equal(tone, flag.Value.Tone);
     }
 
     [Fact]
@@ -257,8 +438,8 @@ public class DepartureComplianceClassifierTests
         var all = DepartureComplianceClassifier.Filters[0];
 
         Assert.Equal(DepartureComplianceClassifier.AllRepDays, all.Key);
-        Assert.True(all.Test(Gaps.None));
-        Assert.True(all.Test(Gaps.NoDeparture));
+        Assert.True(all.Test(Row(Gaps.None)));
+        Assert.True(all.Test(Row(Gaps.NoDeparture)));
     }
 
     [Fact]
@@ -266,16 +447,19 @@ public class DepartureComplianceClassifierTests
     {
         var money = DepartureComplianceClassifier.Filters.Single(filter => filter.Key == "money");
 
-        Assert.True(money.Test(Gaps.NothingDeclared));
-        Assert.True(money.Test(Gaps.ShortDeclaration));
-        Assert.True(money.Test(Gaps.OverDeclaration));
-        Assert.False(money.Test(Gaps.LateOut));
+        Assert.True(money.Test(Row(Gaps.NothingDeclared)));
+        Assert.True(money.Test(Row(Gaps.ShortDeclaration)));
+        Assert.True(money.Test(Row(Gaps.OverDeclaration)));
+        Assert.False(money.Test(Row(Gaps.LateOut)));
     }
+
+    private static ComplianceRow Row(Gaps gaps, Signals signals = Signals.None) =>
+        new(Clean(), gaps, signals);
 
     [Fact]
     public void Every_chip_has_a_distinct_key()
     {
-        var keys = DepartureComplianceClassifier.Filters.Select(filter => filter.Key).ToList();
+        var keys = DepartureComplianceClassifier.AllFilters.Select(filter => filter.Key).ToList();
 
         Assert.Equal(keys.Count, keys.Distinct().Count());
     }

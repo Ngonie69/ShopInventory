@@ -3,7 +3,9 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
+using ShopInventory.Common.Telematics;
 using ShopInventory.Services;
+using ShopInventory.Services.Telematics;
 
 namespace ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 
@@ -27,7 +29,8 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceR
 /// counts — if the two ever disagree it is a bug in one shared place, not a discrepancy to hunt.
 /// </summary>
 public sealed class GetDepartureComplianceReportHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    ICartrackReadService telematics
 ) : IRequestHandler<GetDepartureComplianceReportQuery, ErrorOr<DepartureComplianceReportResult>>
 {
     /// <summary>A day that produced neither a departure record, a visit nor a sale is not a day.</summary>
@@ -73,6 +76,35 @@ public sealed class GetDepartureComplianceReportHandler(
 
         var names = await LoadUserNamesAsync(keys.Select(key => key.UserId).Distinct(), cancellationToken);
 
+        // The truck each row should be checked against: what the day recorded, or failing that the
+        // default truck of the rep's own route. The second is what lets a day where the rep never
+        // tapped Start Day still be answered for by a vehicle — which is the case this report most
+        // wants to catch.
+        var routeTrucks = await LoadRouteTrucksAsync(
+            keys.Select(key => key.UserId).Distinct(), cancellationToken);
+
+        var plates = keys
+            .Select(key => PlateFor(days, routeTrucks, key))
+            .Where(plate => plate is not null)
+            .Select(plate => plate!)
+            .Distinct(TelematicsRegistration.Comparer)
+            .ToList();
+
+        var status = await telematics.GetStatusAsync(from, to, cancellationToken);
+
+        // Only load the projection when it can actually speak for the period. Reading it while the
+        // backfill is short would put real-looking figures on some rows and nothing on others, and
+        // a reader has no way to tell that apart from vans that did not move.
+        var rollups = status.Ready
+            // One day earlier than asked, because a rep who tags a round to the wrong calendar day
+            // leaves the vehicle's movement on the date before the one the handset claims.
+            ? await telematics.LoadRollupsAsync(plates, from.AddDays(-1), to, cancellationToken)
+            : [];
+
+        var fleet = status.Enabled && status.Configured
+            ? await telematics.LoadVehiclesAsync(plates, cancellationToken)
+            : [];
+
         var rows = new List<DepartureComplianceDayDto>(keys.Count);
 
         foreach (var key in keys)
@@ -91,7 +123,12 @@ public sealed class GetDepartureComplianceReportHandler(
                 continue;
             }
 
-            rows.Add(BuildRow(key, day, visit, sale, newCustomerCount, name));
+            var telematicsDay = status.Enabled
+                ? BuildTelematics(
+                    PlateFor(days, routeTrucks, key), key, day, rollups, fleet, status)
+                : null;
+
+            rows.Add(BuildRow(key, day, visit, sale, newCustomerCount, name, telematicsDay));
         }
 
         var ordered = rows
@@ -99,7 +136,19 @@ public sealed class GetDepartureComplianceReportHandler(
             .ThenBy(row => row.FullName ?? row.Username, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return new DepartureComplianceReportResult(from, to, ordered, Summarise(ordered));
+        return new DepartureComplianceReportResult(
+            from,
+            to,
+            ordered,
+            Summarise(ordered),
+            new DepartureComplianceTelematicsStatusDto(
+                status.Enabled,
+                status.Configured,
+                status.Ready,
+                status.LastSyncedAtUtc is { } synced ? AuditService.ToCAT(synced) : null,
+                status.CoveredFrom,
+                status.CoveredThrough,
+                status.Reason));
     }
 
     private static DepartureComplianceDayDto BuildRow(
@@ -108,7 +157,8 @@ public sealed class GetDepartureComplianceReportHandler(
         VisitTotals? visit,
         SaleTotals? sale,
         int newCustomerCount,
-        UserName? name)
+        UserName? name,
+        DepartureComplianceTelematicsDto? telematics)
     {
         return new DepartureComplianceDayDto(
             VanRouteDayId: day?.Id,
@@ -152,7 +202,8 @@ public sealed class GetDepartureComplianceReportHandler(
 
             HasDayRecord: day is not null,
             IsClosed: day?.IsClosed ?? false,
-            Notes: day?.Notes);
+            Notes: day?.Notes,
+            Telematics: telematics);
     }
 
     private static DepartureComplianceSummary Summarise(List<DepartureComplianceDayDto> rows)
@@ -171,6 +222,123 @@ public sealed class GetDepartureComplianceReportHandler(
             TotalSales: rows.Sum(row => row.SystemTotalSales),
             NewCustomers: rows.Sum(row => row.NewCustomers),
             KilometresTravelled: kilometres.Count > 0 ? kilometres.Sum() : null);
+    }
+
+
+    /// <summary>
+    /// The truck a row should be checked against: the one the day recorded, or the default on the
+    /// rep's own route when there is no day record to have recorded one.
+    /// </summary>
+    private static string? PlateFor(
+        Dictionary<DayKey, VanRouteDayEntity> days,
+        Dictionary<Guid, string> routeTrucks,
+        DayKey key)
+    {
+        var recorded = days.TryGetValue(key, out var day) ? day.TruckRegNo : null;
+
+        return TelematicsRegistration.Normalize(recorded)
+               ?? (routeTrucks.TryGetValue(key.UserId, out var fallback)
+                   ? TelematicsRegistration.Normalize(fallback)
+                   : null);
+    }
+
+    /// <summary>Each rep's route's default truck, for the rows that have no day record.</summary>
+    private async Task<Dictionary<Guid, string>> LoadRouteTrucksAsync(
+        IEnumerable<Guid> userIds, CancellationToken cancellationToken)
+    {
+        var ids = userIds.ToList();
+
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var pairs = await db.Users
+            .AsNoTracking()
+            .Where(user => ids.Contains(user.Id)
+                           && user.Route != null
+                           && user.Route.TruckRegNo != null)
+            .Select(user => new { user.Id, Truck = user.Route!.TruckRegNo! })
+            .ToListAsync(cancellationToken);
+
+        return pairs.ToDictionary(pair => pair.Id, pair => pair.Truck);
+    }
+
+    /// <summary>
+    /// What the vehicle says about this rep-day.
+    /// </summary>
+    /// <remarks>
+    /// Returns a record even when there is nothing to report, because the four reasons a row can
+    /// be empty — no truck named, a truck the provider does not know, a truck that reported
+    /// nothing, and a period the projection cannot speak for — need to be distinguishable on the
+    /// page. A null here means one thing only: telematics is off for the whole report.
+    /// </remarks>
+    private static DepartureComplianceTelematicsDto BuildTelematics(
+        string? plate,
+        DayKey key,
+        VanRouteDayEntity? day,
+        Dictionary<(string Registration, DateTime TradingDate), VehicleDayRollupEntity> rollups,
+        Dictionary<string, TelematicsVehicleEntity> fleet,
+        CartrackRollupStatus status)
+    {
+        if (plate is null)
+        {
+            return Empty(null, TelematicsMatch.NoRegistration, null);
+        }
+
+        fleet.TryGetValue(plate, out var vehicle);
+
+        if (vehicle is null)
+        {
+            return Empty(plate, TelematicsMatch.NotInFleet, null);
+        }
+
+        var state = !vehicle.IsActiveInFleet ? "no longer in the fleet"
+            : vehicle.TerminalInRepair ? "tracker in repair"
+            : vehicle.IsUnderMaintenance ? "under maintenance"
+            : null;
+
+        // The day the handset tagged the round to first, then the calendar day the van actually
+        // departed on. They differ when a rep opens tomorrow's round late tonight, and the
+        // vehicle's movement is filed under the day it happened.
+        if (!rollups.TryGetValue((plate, key.TradingDate.Date), out var rollup)
+            && day is not null
+            && AuditService.ToCAT(day.DepartedAt).Date is var departedOn
+            && departedOn != key.TradingDate.Date)
+        {
+            rollups.TryGetValue((plate, departedOn), out rollup);
+        }
+
+        if (rollup is null)
+        {
+            return Empty(plate, TelematicsMatch.Matched, state);
+        }
+
+        return new DepartureComplianceTelematicsDto(
+            Registration: plate,
+            Match: TelematicsMatch.Matched,
+            HasRollup: true,
+            MovementRead: rollup.HasActivity,
+            OdometerRead: rollup.HasOdometer,
+            FirstIgnitionOn: Cat(rollup.FirstIgnitionOnUtc),
+            FirstDeparture: Cat(rollup.FirstDepartureUtc),
+            LastIgnitionOff: Cat(rollup.LastIgnitionOffUtc),
+            DepartureLatitude: rollup.FirstDepartureLatitude,
+            DepartureLongitude: rollup.FirstDepartureLongitude,
+            IgnitionCycleCount: rollup.IgnitionCycleCount,
+            DrivingMinutes: rollup.DrivingSeconds is { } driving ? driving / 60 : null,
+            IdleMinutes: rollup.IdleSeconds is { } idle ? idle / 60 : null,
+            // Metres to whole kilometres, matching the rep's own two whole-kilometre readings.
+            DistanceKm: rollup.DistanceMetres is { } metres ? (int)Math.Round(metres / 1000.0) : null,
+            OdometerReset: rollup.OdometerWasReset,
+            TerminalChanged: rollup.TerminalChanged,
+            VehicleStateLabel: state);
+
+        static DepartureComplianceTelematicsDto Empty(string? plate, TelematicsMatch match, string? state) =>
+            new(plate, match, false, false, false, null, null, null, null, null,
+                null, null, null, null, false, false, state);
+
+        static DateTime? Cat(DateTime? utc) => utc is null ? null : AuditService.ToCAT(utc.Value);
     }
 
     private async Task<Dictionary<DayKey, VanRouteDayEntity>> LoadDaysAsync(

@@ -1760,6 +1760,50 @@
     color: var(--vs-flag);
 }
 
+/* A note about the data, not a finding against the rep — so quieter than the plain badge above
+   it rather than louder. "Vehicle never moved" and "Short declaration" must not look alike. */
+.vs .vsc-flag-info {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--vs-rule);
+    color: var(--vs-mute-2);
+}
+
+/* The mark that says this time came from the truck rather than the handset. Sized to the digits
+   beside it and given the accent, because which clock answered is the whole point of the column. */
+.vs .vsc-verified {
+    margin-right: 5px;
+    color: var(--vs-accent-text);
+    font-size: 0.82rem;
+    vertical-align: -1px;
+}
+
+/* The vehicle chips sit under the exception chips as their own strip. Ruled off above rather
+   than merely spaced, because the two groups mean different things: one narrows to a finding
+   against a rep, the other to something about the data. */
+.vs .vsc-chips-vehicle {
+    margin-top: -4px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vs-rule);
+}
+
+/* Printed verbatim from the API. It explains why the vehicle columns are empty, and there are
+   four different reasons, so it is never abbreviated to a dash. */
+.vs .vsc-telematics-note {
+    color: var(--vs-mute-2);
+    font-style: italic;
+}
+
+/* Why this row's vehicle has nothing to say. Given a box rather than set as another muted line,
+   so it does not read as one more empty field among the fields it replaces. */
+.vs .vsc-vehicle-none {
+    padding: 9px 11px;
+    border-radius: var(--vs-r-sm);
+    background: var(--vs-hover);
+    color: var(--vs-mute-2);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
 .vs .vsc-time {
     font-size: 0.79rem;
     color: var(--vs-mute);
@@ -1854,9 +1898,11 @@
     box-shadow: inset 0 -1px 0 var(--vs-rule);
 }
 
+/* Four panels since the vehicle joined the three that mirror the paper sheet. The breakpoints
+   below already step this down, so nothing else has to change. */
 .vs .vsc-panels {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 18px;
 }
 
@@ -1941,6 +1987,15 @@
 @media (max-width: 1240px) {
     .vs .vsc-kpis {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+/* Four panels need a step the three never did. On a laptop the drawer is about 1,100px wide,
+   which gives each of four roughly 250px — enough for a label and a figure, but not for
+   "the odometer was reset during the day" underneath one. Two by two well before that. */
+@media (max-width: 1180px) {
+    .vs .vsc-panels {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 

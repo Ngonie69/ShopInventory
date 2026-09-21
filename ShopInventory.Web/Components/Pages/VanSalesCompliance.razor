@@ -210,6 +210,34 @@
             <span class="vsc-period">@PeriodSummary()</span>
         </div>
 
+        @if (report?.Telematics.Enabled == true)
+        {
+            @* A second row, kept apart from the exceptions above on purpose: none of these
+               narrows to a finding against a rep, and mixing them into one strip would say
+               they did. *@
+            <div class="vsc-chips vsc-chips-vehicle" role="group" aria-label="Vehicle">
+                <span class="vsc-chips-label">Vehicle</span>
+                @foreach (var filter in VehicleFilters)
+                {
+                    var count = CountFor(filter);
+                    var on = filter.Key == activeGapFilter;
+
+                    <button type="button"
+                            class="vsc-chip @(on ? "vsc-chip-on" : "")"
+                            disabled="@(count == 0 && !on)"
+                            aria-pressed="@on"
+                            @onclick="() => SetGapFilter(filter.Key)">
+                        @filter.Label
+                        <span class="vsc-chip-count @Ink(count > 0)">@count</span>
+                    </button>
+                }
+                @if (report.Telematics.Reason is { } telematicsReason)
+                {
+                    <span class="vsc-period vsc-telematics-note">@telematicsReason</span>
+                }
+            </div>
+        }
+
         <div class="vsc-sheet">
 
             <div class="vsc-track vsc-cols">
@@ -238,7 +266,7 @@
                 var day = row.Day;
                 var key = RowKey(day);
                 var isOpen = key == openRow;
-                var flag = PrimaryFlag(row.Gaps);
+                var flag = PrimaryFlag(row);
                 var declared = day.DeclaredTotal;
                 var missing = row.Gaps.HasFlag(Gaps.NoDeparture);
                 var declarationOff = declared is null
@@ -264,14 +292,29 @@
                                         <span class="vsc-name-text">@day.DisplayName</span>
                                         @if (flag is { } mark)
                                         {
-                                            <span class="vsc-flag @(mark.Strong ? "vsc-flag-strong" : "")">@mark.Label</span>
+                                            <span class="vsc-flag @ToneClass(mark.Tone)">@mark.Label</span>
                                         }
                                     </span>
                                     <span class="vsc-where">@RouteLine(day)</span>
                                 </span>
                             </span>
 
-                            <span class="vsc-time @Ink(missing)">@TimeSpanText(day)</span>
+                            <span class="vsc-cell">
+                                <span class="vsc-time @Ink(missing)">
+                                    @if (day.DepartureIsVerified)
+                                    {
+                                        @* The van's own answer. Marked, because a reader has to
+                                           know which of the two clocks they are looking at. *@
+                                        <i class="ph ph-truck vsc-verified" aria-hidden="true"
+                                           title="Verified by the vehicle"></i>
+                                    }
+                                    @TimeSpanText(day)
+                                </span>
+                                @if (DiscrepancyText(row) is { } disagreement)
+                                {
+                                    <span class="vsc-sub">@disagreement</span>
+                                }
+                            </span>
 
                             <span class="vsc-cell">
                                 <span class="vsc-rate">
@@ -390,6 +433,50 @@
                                     }
                                     @ItemWithNote("Total declared", FormatMoney(declared), VarianceText(day), declarationOff)
                                 </div>
+
+                                @if (day.Telematics is { } vehicle)
+                                {
+                                    @* A fourth panel after the three, rather than the vehicle's
+                                       figures folded into "Departure record". Those three mirror
+                                       the paper sheet in reading order, and a supervisor checking
+                                       against a handwritten form should not have to hunt. *@
+                                    <div>
+                                        <div class="vsc-panel-title">Vehicle</div>
+                                        @if (VehicleAbsence(vehicle) is { } absence)
+                                        {
+                                            @* Why there is nothing, in words. An em dash here
+                                               would say "the van did nothing", which is a
+                                               different thing from "we were not told". *@
+                                            <div class="vsc-vehicle-none">@absence</div>
+                                        }
+                                        else
+                                        {
+                                            @Item("Truck", vehicle.Registration ?? "—", false)
+                                            @ItemWithNote("Ignition on", FormatTime(vehicle.FirstIgnitionOn),
+                                                          vehicle.IgnitionCycleCount is { } cycles && cycles > 1
+                                                              ? $"{cycles} starts" : null, false)
+                                            @ItemWithNote("Left the depot",
+                                                          vehicle.FirstDeparture is null
+                                                              ? "never left"
+                                                              : FormatTime(vehicle.FirstDeparture),
+                                                          vehicle.FirstDeparture is null
+                                                              ? null
+                                                              : DiscrepancyText(row)?.Replace("handset said ", "handset "),
+                                                          vehicle.FirstDeparture is null)
+                                            @Item("Ignition off", FormatTime(vehicle.LastIgnitionOff), false)
+                                            @Item("Driving", vehicle.DrivingMinutes is { } drive
+                                                  ? $"{drive:N0} min" : "—", false)
+                                            @Item("Idling", vehicle.IdleMinutes is { } idle
+                                                  ? $"{idle:N0} min" : "—", false)
+                                            @ItemWithNote("Vehicle distance",
+                                                          vehicle.DistanceKm is { } vehicleKm
+                                                              ? $"{vehicleKm:N0} km" : "not reported",
+                                                          OdometerNote(row),
+                                                          row.Signals.HasFlag(Signals.OdometerDivergence)
+                                                          || row.Signals.HasFlag(Signals.OdometerUnreliable))
+                                        }
+                                    </div>
+                                }
                             </div>
 
                             <div class="vsc-detail-foot">@DayNote(day)</div>
@@ -442,8 +529,11 @@
 
     private static GapFilter[] GapFilters => DepartureComplianceClassifier.Filters;
 
-    private static (string Label, bool Strong)? PrimaryFlag(Gaps gaps)
-        => DepartureComplianceClassifier.PrimaryFlag(gaps);
+    private static (string Label, FlagTone Tone)? PrimaryFlag(ComplianceRow row)
+        => DepartureComplianceClassifier.PrimaryFlag(row.Gaps, row.Signals);
+
+    /// <summary>The chips, exceptions first and the vehicle group after.</summary>
+    private static GapFilter[] VehicleFilters => DepartureComplianceClassifier.VehicleFilters;
 
     private DepartureComplianceReportResponse? report;
     private List<RouteDto> routes = [];
@@ -507,12 +597,25 @@
             ? allRows
             : allRows.Where(row => row.Day.UserId.ToString("N") == selectedRepId).ToList();
 
+    /// <summary>
+    /// The class that draws a badge at its tone. Strong for a finding to act on, warn for a
+    /// softer one, and nothing at all for a note about the data — which must not read as a mark
+    /// against the rep.
+    /// </summary>
+    private static string ToneClass(FlagTone tone) => tone switch
+    {
+        FlagTone.Strong => "vsc-flag-strong",
+        FlagTone.Warn => string.Empty,
+        _ => "vsc-flag-info"
+    };
+
     private GapFilter ActiveFilter =>
-        GapFilters.FirstOrDefault(filter => filter.Key == activeGapFilter) ?? GapFilters[0];
+        DepartureComplianceClassifier.AllFilters.FirstOrDefault(filter => filter.Key == activeGapFilter)
+            ?? GapFilters[0];
 
     /// <summary>What is on screen: rep filter, then exception chip, then the chosen sort.</summary>
     private List<ComplianceRow> VisibleRows =>
-        Arrange(FilteredRows.Where(row => ActiveFilter.Test(row.Gaps)));
+        Arrange(FilteredRows.Where(row => ActiveFilter.Test(row)));
 
     protected override async Task OnInitializedAsync()
     {
@@ -547,7 +650,10 @@
             }
 
             allRows = report.Days
-                .Select(day => new ComplianceRow(day, DepartureComplianceClassifier.GapsOf(day)))
+                .Select(day => new ComplianceRow(
+                    day,
+                    DepartureComplianceClassifier.GapsOf(day),
+                    DepartureComplianceClassifier.SignalsOf(day)))
                 .ToList();
 
             // The rep picker's rows come from this list, so a rep who has no day in the new period
@@ -654,7 +760,7 @@
     /// how many of the rows they can currently see also have this other problem, which is a question
     /// nobody asked.
     /// </summary>
-    private int CountFor(GapFilter filter) => FilteredRows.Count(row => filter.Test(row.Gaps));
+    private int CountFor(GapFilter filter) => FilteredRows.Count(filter.Test);
 
     // — Totals ——————————————————————————————————————————————————————————
 
@@ -711,6 +817,110 @@
 
         return parts.Count == 0 ? "No route recorded" : string.Join(" · ", parts);
     }
+
+    /// <summary>
+    /// The line under the times when the vehicle and the handset disagree about the departure.
+    /// </summary>
+    /// <remarks>
+    /// Shown, never scored. A clock that disagrees with an ignition switch is a question for a
+    /// supervisor, not a finding against a rep — see <c>Signals</c>.
+    /// </remarks>
+    private static string? DiscrepancyText(ComplianceRow row)
+    {
+        if (!row.Signals.HasFlag(Signals.DepartureDiscrepancy))
+        {
+            return null;
+        }
+
+        var delta = row.Day.DepartureDiscrepancyMinutes!.Value;
+        var magnitude = Math.Abs(delta);
+        var spread = magnitude >= 90
+            ? $"{magnitude / 60}h {magnitude % 60:00}m"
+            : $"{magnitude} min";
+
+        // Which event is being compared, and which way round. A bare "45 min later" could as
+        // easily describe the handset as the van, and "left" is wrong on a day the van never
+        // left — there the verified time is the ignition, and saying "left 65 min after" beside
+        // "never left" is a straight contradiction on the same row.
+        var verb = row.Day.Telematics?.FirstDeparture is null ? "started" : "left";
+
+        return delta > 0
+            ? $"handset said {FormatTime(row.Day.TimeOut)} — {verb} {spread} after"
+            : $"handset said {FormatTime(row.Day.TimeOut)} — {verb} {spread} before";
+    }
+
+    /// <summary>
+    /// Why the vehicle has nothing to say, or null when it has.
+    /// </summary>
+    /// <remarks>
+    /// Four different sentences on purpose. "No truck assigned" is an administrator's omission,
+    /// "not in the fleet" is a typo or a sold vehicle, "did not report" is a tracker question and
+    /// "never left the depot" is a finding about the round. A single em dash for all four would
+    /// make them one thing, and they are not.
+    /// </remarks>
+    private static string? VehicleAbsence(DepartureComplianceTelematicsDay vehicle) => vehicle.Match switch
+    {
+        TelematicsMatch.NoRegistration =>
+            "No truck is assigned to this route. Set one on the routes page and the vehicle will "
+            + "answer for future rounds.",
+
+        TelematicsMatch.NotInFleet =>
+            $"{vehicle.Registration} is not in the Cartrack fleet, so nothing can be checked "
+            + "against it. Usually a typo on the route, or a vehicle that has been sold.",
+
+        _ when !vehicle.HasRollup =>
+            vehicle.VehicleStateLabel is { } state
+                ? $"No telematics for this day — the vehicle is {state}."
+                : "No telematics for this day.",
+
+        _ when !vehicle.MovementRead =>
+            "The vehicle's movement could not be read for this day. It will be tried again.",
+
+        _ => null
+    };
+
+    /// <summary>The note under the vehicle's distance: what it disagrees with, or why it is unusable.</summary>
+    private static string? OdometerNote(ComplianceRow row)
+    {
+        var vehicle = row.Day.Telematics;
+
+        if (vehicle is null)
+        {
+            return null;
+        }
+
+        if (row.Signals.HasFlag(Signals.OdometerUnreliable))
+        {
+            return vehicle.OdometerReset
+                ? "the odometer was reset during the day, so this figure means little"
+                : "the tracker was changed during the day, so this figure means little";
+        }
+
+        if (row.Signals.HasFlag(Signals.OdometerDivergence))
+        {
+            var delta = row.Day.OdometerDivergenceKm!.Value;
+
+            return delta > 0
+                ? $"{delta:N0} km more than the rep recorded"
+                : $"{Math.Abs(delta):N0} km less than the rep recorded";
+        }
+
+        return row.Signals.HasFlag(Signals.OdometerFromVehicle)
+            ? "the rep recorded no mileage"
+            : null;
+    }
+
+    /// <summary>One word for the export: which of the vehicle's states this row is in.</summary>
+    private static string TelematicsStateText(DepartureComplianceTelematicsDay? vehicle) => vehicle switch
+    {
+        null => string.Empty,
+        { Match: TelematicsMatch.NoRegistration } => "no truck assigned",
+        { Match: TelematicsMatch.NotInFleet } => "not in fleet",
+        { HasRollup: false } => "no data",
+        { MovementRead: false } => "not read",
+        { FirstDeparture: null } => "never left",
+        _ => "verified"
+    };
 
     private static string TimeSpanText(DepartureComplianceDay day)
     {
@@ -983,7 +1193,14 @@
             + "Sales,Currency,Cash,Ecocash,Innbucks,Swipe,Untendered,Declarable takings,"
             + "Declared cash,Declared ecocash,Declared innbucks,Declared total,Variance,"
             + "Shortfall,Overage,"
-            + "Odometer out,Odometer in,Kilometres,New customers,Returns out,Returns back,Flags,Notes");
+            + "Odometer out,Odometer in,Kilometres,New customers,Returns out,Returns back,Flags,Notes"
+            // Appended, never inserted. The header above is a contract: people have saved
+            // spreadsheets and pivots keyed to these column positions, and moving one silently
+            // re-points every formula that reads it.
+            + ",Verified out,Departure source,Departure delta (min),Vehicle ignition on,"
+            + "Vehicle ignition off,Vehicle left depot,Ignition cycles,Driving (min),Idle (min),"
+            + "Vehicle distance (km),Odometer divergence (km),Odometer reset,Tracker changed,"
+            + "Telematics state,Signals");
 
         foreach (var row in rows)
         {
@@ -1029,7 +1246,26 @@
                 Number(day.RtiOut),
                 Number(day.RtiReturned),
                 Csv(DepartureComplianceClassifier.FlagList(row.Gaps)),
-                Csv(day.Notes));
+                Csv(day.Notes),
+                Csv(day.EffectiveDeparture?.ToString("HH:mm", CultureInfo.InvariantCulture)),
+                // Which clock decided the day. A spreadsheet full of times says nothing about
+                // where each one came from unless this column is beside them.
+                Csv(day.DepartureIsVerified ? "vehicle" : day.HasDayRecord ? "handset" : string.Empty),
+                Number(day.DepartureDiscrepancyMinutes),
+                Csv(day.Telematics?.FirstIgnitionOn?.ToString("HH:mm", CultureInfo.InvariantCulture)),
+                Csv(day.Telematics?.LastIgnitionOff?.ToString("HH:mm", CultureInfo.InvariantCulture)),
+                Csv(day.Telematics?.FirstDeparture?.ToString("HH:mm", CultureInfo.InvariantCulture)),
+                Number(day.Telematics?.IgnitionCycleCount),
+                Number(day.Telematics?.DrivingMinutes),
+                Number(day.Telematics?.IdleMinutes),
+                Number(day.Telematics?.DistanceKm),
+                Number(day.OdometerDivergenceKm),
+                Csv(day.Telematics?.OdometerReset == true ? "yes" : string.Empty),
+                Csv(day.Telematics?.TerminalChanged == true ? "yes" : string.Empty),
+                Csv(TelematicsStateText(day.Telematics)),
+                // Its own column rather than folded into Flags, so "Flags" keeps meaning
+                // compliance findings for anyone with a saved pivot over it.
+                Csv(DepartureComplianceClassifier.SignalList(row.Signals)));
 
             csv.AppendLine();
         }

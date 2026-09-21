@@ -80,7 +80,10 @@ public static class DepartureComplianceClassifier
                 gaps |= Gaps.NoOdometer;
             }
 
-            if (day.TimeOut is { } departed && departed.TimeOfDay > LatestDeparture)
+            // The vehicle's departure where there is one, the handset's where there is not.
+            // This is the whole point of reading the truck: a rep who taps Start Day at 06:55 and
+            // leaves at 07:40 was recorded as on time, and nothing in the system disagreed.
+            if (day.EffectiveDeparture is { } departed && departed.TimeOfDay > LatestDeparture)
             {
                 gaps |= Gaps.LateOut;
             }
@@ -124,33 +127,165 @@ public static class DepartureComplianceClassifier
     /// becomes the badge: the figure itself is already marked, in its own column, next to the
     /// numbers that explain it.
     /// </summary>
-    public static (string Label, bool Strong)? PrimaryFlag(Gaps gaps)
+    public static (string Label, FlagTone Tone)? PrimaryFlag(Gaps gaps, Signals signals = Signals.None)
     {
-        if (gaps.HasFlag(Gaps.NoDeparture)) return ("No departure record", true);
-        if (gaps.HasFlag(Gaps.NothingDeclared)) return ("Nothing declared", true);
-        if (gaps.HasFlag(Gaps.ShortDeclaration)) return ("Short declaration", true);
+        if (gaps.HasFlag(Gaps.NoDeparture)) return ("No departure record", FlagTone.Strong);
+        if (gaps.HasFlag(Gaps.NothingDeclared)) return ("Nothing declared", FlagTone.Strong);
+        if (gaps.HasFlag(Gaps.ShortDeclaration)) return ("Short declaration", FlagTone.Strong);
         // A rep who counts back more than the day can account for is as much a finding as one who
         // counts back less — an unrecorded sale, most often — and carried no badge at all before.
-        if (gaps.HasFlag(Gaps.OverDeclaration)) return ("Over declaration", true);
-        if (gaps.HasFlag(Gaps.LateOut)) return ("Late out", false);
-        if (gaps.HasFlag(Gaps.NoOdometer)) return ("No odometer", false);
+        if (gaps.HasFlag(Gaps.OverDeclaration)) return ("Over declaration", FlagTone.Strong);
+        if (gaps.HasFlag(Gaps.LateOut)) return ("Late out", FlagTone.Warn);
+        if (gaps.HasFlag(Gaps.NoOdometer)) return ("No odometer", FlagTone.Warn);
+
+        // Below the gaps, and never in their ink. A clean day that the vehicle could not answer
+        // for is still a clean day; the badge says only that nothing checked it.
+        if (signals.HasFlag(Signals.VehicleDidNotMove)) return ("Vehicle never moved", FlagTone.Info);
+        if (signals.HasFlag(Signals.VehicleUnmatched)) return ("Truck not in fleet", FlagTone.Info);
+        if (signals.HasFlag(Signals.NoTelematics)) return ("Not verified", FlagTone.Info);
 
         return null;
+    }
+
+    /// <summary>
+    /// How far the handset and the vehicle may disagree before the row says so.
+    /// </summary>
+    /// <remarks>
+    /// A threshold, so policy, so it sits with the others. Ten minutes because the vehicle's
+    /// departure is the first position fix past the depot radius and the rep taps Start Day at
+    /// the wheel: a few minutes between the two is the system working, not a finding.
+    /// </remarks>
+    public const int DiscrepancyToleranceMinutes = 10;
+
+    /// <summary>
+    /// The smallest odometer gap worth showing, and the smallest share of the day worth showing.
+    /// </summary>
+    /// <remarks>
+    /// Both, because a 4 km gap on a 20 km round is a different thing from a 4 km gap on a 350 km
+    /// one. Expect the vehicle to read slightly higher as a matter of course — it accumulates
+    /// metres while the rep subtracts two whole-kilometre readings.
+    /// </remarks>
+    public const int OdometerToleranceKm = 5;
+
+    /// <inheritdoc cref="OdometerToleranceKm"/>
+    public const int OdometerTolerancePercent = 10;
+
+    /// <summary>
+    /// What is worth knowing about a rep-day that is not a finding against the rep.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Gaps"/> and never counted into it. "Compliant" means
+    /// <c>Gaps == Gaps.None</c>, so a signal added to that enum would change who passes — and
+    /// none of these should. A truck nobody assigned is an administrator's omission; a vehicle
+    /// that disagrees with a handset is a question; a tracker in the workshop is a fact about
+    /// the fleet. A supervisor should see all three and none of them should mark a rep.
+    /// </remarks>
+    public static Signals SignalsOf(DepartureComplianceDay day)
+    {
+        var signals = Signals.None;
+        var vehicle = day.Telematics;
+
+        if (vehicle is null)
+        {
+            return signals;
+        }
+
+        if (day.DepartureIsVerified)
+        {
+            signals |= Signals.DepartureVerified;
+        }
+
+        switch (vehicle.Match)
+        {
+            case TelematicsMatch.NoRegistration:
+                signals |= Signals.VehicleNoRegistration;
+                break;
+
+            case TelematicsMatch.NotInFleet:
+                signals |= Signals.VehicleUnmatched;
+                break;
+
+            case TelematicsMatch.Matched when !vehicle.HasRollup:
+                signals |= Signals.NoTelematics;
+                break;
+
+            case TelematicsMatch.Matched when vehicle.DidNotMove:
+                // Not a gap. A van that never started is as likely to be a dead tracker as an
+                // idle driver, and the report must not decide which on the rep's behalf.
+                signals |= Signals.VehicleDidNotMove;
+                break;
+        }
+
+        if (day.DepartureDiscrepancyMinutes is { } delta
+            && Math.Abs(delta) >= DiscrepancyToleranceMinutes)
+        {
+            signals |= Signals.DepartureDiscrepancy;
+        }
+
+        if (vehicle.DistanceKm is not null && day.KilometresTravelled is null)
+        {
+            signals |= Signals.OdometerFromVehicle;
+        }
+
+        if (day.OdometerDivergenceKm is { } divergence
+            && day.KilometresTravelled is { } captured
+            && Math.Abs(divergence) >= OdometerToleranceKm
+            && Math.Abs(divergence) >= captured * OdometerTolerancePercent / 100)
+        {
+            signals |= Signals.OdometerDivergence;
+        }
+
+        if (vehicle.OdometerReset || vehicle.TerminalChanged)
+        {
+            signals |= Signals.OdometerUnreliable;
+        }
+
+        if (vehicle.VehicleStateLabel is not null)
+        {
+            signals |= Signals.VehicleOffRoad;
+        }
+
+        return signals;
     }
 
     /// <summary>The exception chips, in the order they are shown.</summary>
     public static readonly GapFilter[] Filters =
     [
         new(AllRepDays, "All rep-days", _ => true),
-        new("departure", "No departure record", gaps => gaps.HasFlag(Gaps.NoDeparture)),
+        new("departure", "No departure record", row => row.Gaps.HasFlag(Gaps.NoDeparture)),
         new("money", "Money not accounted for",
-            gaps => gaps.HasFlag(Gaps.NothingDeclared)
-                    || gaps.HasFlag(Gaps.ShortDeclaration)
-                    || gaps.HasFlag(Gaps.OverDeclaration)),
-        new("ccr", "CCR under target", gaps => gaps.HasFlag(Gaps.CcrUnderTarget)),
-        new("pcr", "PCR under target", gaps => gaps.HasFlag(Gaps.PcrUnderTarget)),
-        new("odometer", "No odometer", gaps => gaps.HasFlag(Gaps.NoOdometer))
+            row => row.Gaps.HasFlag(Gaps.NothingDeclared)
+                   || row.Gaps.HasFlag(Gaps.ShortDeclaration)
+                   || row.Gaps.HasFlag(Gaps.OverDeclaration)),
+        new("ccr", "CCR under target", row => row.Gaps.HasFlag(Gaps.CcrUnderTarget)),
+        new("pcr", "PCR under target", row => row.Gaps.HasFlag(Gaps.PcrUnderTarget)),
+        new("odometer", "No odometer", row => row.Gaps.HasFlag(Gaps.NoOdometer))
     ];
+
+    /// <summary>
+    /// The vehicle chips, shown as their own group.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from the exception chips above rather than appended to them, so a reader can
+    /// see at a glance which chips narrow to a finding against a rep and which narrow to
+    /// something about the data. None of these affects whether a day counts as compliant.
+    /// </remarks>
+    public static readonly GapFilter[] VehicleFilters =
+    [
+        new("unverified", "Departure not verified",
+            row => row.Signals.HasFlag(Signals.NoTelematics)
+                   || row.Signals.HasFlag(Signals.VehicleUnmatched)
+                   || row.Signals.HasFlag(Signals.VehicleNoRegistration)),
+        new("disputed", "Out earlier or later than recorded",
+            row => row.Signals.HasFlag(Signals.DepartureDiscrepancy)),
+        new("didnotmove", "Vehicle never moved",
+            row => row.Signals.HasFlag(Signals.VehicleDidNotMove)),
+        new("mileage", "Mileage disagrees",
+            row => row.Signals.HasFlag(Signals.OdometerDivergence))
+    ];
+
+    /// <summary>Every chip, in the order the page renders them.</summary>
+    public static IEnumerable<GapFilter> AllFilters => Filters.Concat(VehicleFilters);
 
     /// <summary>Every gap on a row, for the export's one column. Blank when the row is clean.</summary>
     public static string FlagList(Gaps gaps)
@@ -173,13 +308,106 @@ public static class DepartureComplianceClassifier
 
         return string.Join("; ", names);
     }
+
+    /// <summary>
+    /// Every signal on a row, for the export's own column — kept separate from
+    /// <see cref="FlagList"/> so "Flags" keeps meaning compliance findings.
+    /// </summary>
+    public static string SignalList(Signals signals)
+    {
+        if (signals == Signals.None)
+        {
+            return string.Empty;
+        }
+
+        var names = new List<string>();
+
+        if (signals.HasFlag(Signals.DepartureVerified)) names.Add("Verified by vehicle");
+        if (signals.HasFlag(Signals.DepartureDiscrepancy)) names.Add("Departure disputed");
+        if (signals.HasFlag(Signals.VehicleDidNotMove)) names.Add("Vehicle never moved");
+        if (signals.HasFlag(Signals.NoTelematics)) names.Add("No telematics");
+        if (signals.HasFlag(Signals.VehicleUnmatched)) names.Add("Truck not in fleet");
+        if (signals.HasFlag(Signals.VehicleNoRegistration)) names.Add("No truck assigned");
+        if (signals.HasFlag(Signals.VehicleOffRoad)) names.Add("Vehicle off road");
+        if (signals.HasFlag(Signals.OdometerFromVehicle)) names.Add("Mileage from vehicle only");
+        if (signals.HasFlag(Signals.OdometerDivergence)) names.Add("Mileage disagrees");
+        if (signals.HasFlag(Signals.OdometerUnreliable)) names.Add("Odometer unreliable");
+
+        return string.Join("; ", names);
+    }
 }
 
-/// <summary>A rep-day with its gaps worked out once.</summary>
-public sealed record ComplianceRow(DepartureComplianceDay Day, Gaps Gaps);
+/// <summary>A rep-day with its findings worked out once.</summary>
+public sealed record ComplianceRow(DepartureComplianceDay Day, Gaps Gaps, Signals Signals);
 
-/// <summary>One exception chip: its key in the query, its label, and what it keeps.</summary>
-public sealed record GapFilter(string Key, string Label, Func<Gaps, bool> Test);
+/// <summary>
+/// One chip: its key in the query, its label, and what it keeps.
+/// </summary>
+/// <remarks>
+/// Takes the whole row rather than just the gaps, so a chip can narrow on a signal as easily as
+/// on a finding. The alternative was a second chip type with its own plumbing, for no gain.
+/// </remarks>
+public sealed record GapFilter(string Key, string Label, Func<ComplianceRow, bool> Test);
+
+/// <summary>
+/// How loudly a badge is drawn. A finding against a rep is not the same as a note about the data,
+/// and they must not look the same.
+/// </summary>
+public enum FlagTone
+{
+    /// <summary>A finding worth acting on today — money, or a day with no record at all.</summary>
+    Strong,
+
+    /// <summary>A finding, but a softer one: late out, no odometer.</summary>
+    Warn,
+
+    /// <summary>Not a finding. Something about the data, or about the vehicle.</summary>
+    Info
+}
+
+/// <summary>
+/// What is worth knowing about a rep-day that is not a finding against the rep.
+/// </summary>
+/// <remarks>
+/// Deliberately a separate enum from <see cref="Gaps"/>. "Compliant" is
+/// <c>Gaps == Gaps.None</c>, so anything added there changes who passes — and none of these
+/// should. They are shown, and they are filterable, and they mark nobody.
+/// </remarks>
+[Flags]
+public enum Signals
+{
+    None = 0,
+
+    /// <summary>A vehicle, not a handset, answered for this departure.</summary>
+    DepartureVerified = 1,
+
+    /// <summary>The vehicle and the handset disagree about when the van left.</summary>
+    DepartureDiscrepancy = 2,
+
+    /// <summary>Matched to a vehicle, which has no data for this day.</summary>
+    NoTelematics = 4,
+
+    /// <summary>A truck is named but the fleet does not hold it — a typo, or a vehicle sold.</summary>
+    VehicleUnmatched = 8,
+
+    /// <summary>No truck is named on the day or on the rep's route.</summary>
+    VehicleNoRegistration = 16,
+
+    /// <summary>The vehicle reported and never left the depot.</summary>
+    VehicleDidNotMove = 32,
+
+    /// <summary>The rep recorded no mileage, but the vehicle has a distance.</summary>
+    OdometerFromVehicle = 64,
+
+    /// <summary>The rep's distance and the vehicle's differ by more than the tolerance.</summary>
+    OdometerDivergence = 128,
+
+    /// <summary>The odometer was reset or the tracker swapped, so the distance means little.</summary>
+    OdometerUnreliable = 256,
+
+    /// <summary>In the workshop, or the tracker is — which is why it may report nothing.</summary>
+    VehicleOffRoad = 512
+}
 
 /// <summary>
 /// The findings a rep-day can carry. A day with none of them is what the page counts as compliant,

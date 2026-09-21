@@ -1,4 +1,6 @@
-﻿namespace ShopInventory.Web.Models;
+﻿using System.Text.Json.Serialization;
+
+namespace ShopInventory.Web.Models;
 
 /// <summary>
 /// The departure compliance report, mirroring the API's <c>DepartureComplianceReportResult</c>.
@@ -16,6 +18,81 @@ public class DepartureComplianceReportResponse
     public DateTime ToDate { get; set; }
     public List<DepartureComplianceDay> Days { get; set; } = [];
     public DepartureComplianceSummary Summary { get; set; } = new();
+
+    /// <summary>
+    /// Whether the vehicle figures can be trusted. Never null from the API, but defaulted here so
+    /// a response from an older API — or a stubbed one — does not null-reference the page.
+    /// </summary>
+    public DepartureComplianceTelematicsStatus Telematics { get; set; } = new();
+}
+
+/// <summary>Whether the vehicle figures on this report can be trusted, and why not when they cannot.</summary>
+/// <remarks>
+/// <c>Reason</c> is printed verbatim. The page does not compose its own explanation, because an
+/// absent vehicle column has four causes and each needs a different thing done about it.
+/// </remarks>
+public class DepartureComplianceTelematicsStatus
+{
+    public bool Enabled { get; set; }
+    public bool Configured { get; set; }
+    public bool Ready { get; set; }
+    public DateTime? LastSyncedAt { get; set; }
+    public DateTime? CoveredFrom { get; set; }
+    public DateTime? CoveredThrough { get; set; }
+    public string? Reason { get; set; }
+}
+
+/// <summary>How a day's truck matched the telematics fleet.</summary>
+/// <remarks>
+/// Carries the same <see cref="JsonStringEnumConverter"/> as the API's copy. Without it the value
+/// crosses the wire as an integer and the two enums drift apart the first time a member is
+/// reordered — silently, because an integer always deserializes into something.
+/// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TelematicsMatch
+{
+    NoRegistration,
+    NotInFleet,
+    Matched
+}
+
+/// <summary>What the vehicle did on this day, beside what the rep recorded.</summary>
+/// <remarks>
+/// Null if and only if telematics is off for the whole report. Every other empty state — no
+/// truck named, a truck the fleet does not hold, a truck that reported nothing — arrives as a
+/// record with <see cref="Match"/> and <see cref="HasRollup"/> saying which.
+/// </remarks>
+public class DepartureComplianceTelematicsDay
+{
+    public string? Registration { get; set; }
+    public TelematicsMatch Match { get; set; }
+    public bool HasRollup { get; set; }
+    public bool MovementRead { get; set; }
+    public bool OdometerRead { get; set; }
+
+    public DateTime? FirstIgnitionOn { get; set; }
+    public DateTime? FirstDeparture { get; set; }
+    public DateTime? LastIgnitionOff { get; set; }
+    public double? DepartureLatitude { get; set; }
+    public double? DepartureLongitude { get; set; }
+
+    public int? IgnitionCycleCount { get; set; }
+    public int? DrivingMinutes { get; set; }
+    public int? IdleMinutes { get; set; }
+    public int? DistanceKm { get; set; }
+    public bool OdometerReset { get; set; }
+    public bool TerminalChanged { get; set; }
+
+    /// <summary>Why this vehicle may report nothing — workshop, tracker repair, retired.</summary>
+    public string? VehicleStateLabel { get; set; }
+
+    /// <summary>First movement where there is one, falling back to the first ignition.</summary>
+    public DateTime? VerifiedDeparture => FirstDeparture ?? FirstIgnitionOn;
+
+    public bool IsVerified => VerifiedDeparture is not null;
+
+    /// <summary>The vehicle reported, and it never left the depot.</summary>
+    public bool DidNotMove => HasRollup && MovementRead && FirstDeparture is null;
 }
 
 public class DepartureComplianceDay
@@ -114,6 +191,35 @@ public class DepartureComplianceDay
         RtiOut is { } issued && RtiReturned is { } returned ? issued - returned : null;
 
     public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName;
+
+    /// <summary>
+    /// What the vehicle did, or null when telematics is off for the whole report.
+    /// </summary>
+    public DepartureComplianceTelematicsDay? Telematics { get; set; }
+
+    /// <summary>
+    /// The departure the day is judged on: the vehicle's where there is one, the handset's where
+    /// there is not. Mirrors the API's own computed member — a fact about the data, not policy.
+    /// </summary>
+    public DateTime? EffectiveDeparture => Telematics?.VerifiedDeparture ?? TimeOut;
+
+    /// <summary>Whether a vehicle, rather than a handset, answered for this departure.</summary>
+    public bool DepartureIsVerified => Telematics?.VerifiedDeparture is not null;
+
+    /// <summary>
+    /// How far the vehicle and the handset disagree about when the van left, in minutes.
+    /// Positive means the van left after the rep said it did.
+    /// </summary>
+    public int? DepartureDiscrepancyMinutes =>
+        Telematics?.VerifiedDeparture is { } vehicle && TimeOut is { } handset
+            ? (int)Math.Round((vehicle - handset).TotalMinutes)
+            : null;
+
+    /// <summary>The vehicle's distance less the rep's, in kilometres.</summary>
+    public int? OdometerDivergenceKm =>
+        Telematics?.DistanceKm is { } vehicle && KilometresTravelled is { } captured
+            ? vehicle - captured
+            : null;
 }
 
 public class DepartureComplianceSummary

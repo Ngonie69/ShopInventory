@@ -66,20 +66,30 @@ public class CartrackRollupTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>The read side, which is what the report holds. Same settings as the writer.</summary>
+    private CartrackReadService Reader(Action<CartrackSettings>? tune = null)
+    {
+        var settings = Settings();
+        tune?.Invoke(settings);
+
+        return new CartrackReadService(_context, Options.Create(settings));
+    }
+
+    private static CartrackSettings Settings() => new()
+    {
+        Enabled = true,
+        Username = "u",
+        Password = "p",
+        BackfillDays = 3,
+        MaxBackfillDaysPerRun = 2,
+        ReconciliationWindowDays = 3,
+        DepotRadiusMetres = 250,
+        RollupReadyMaxAgeHours = 36
+    };
+
     private CartrackRollupService Service(StubClient client, Action<CartrackSettings>? tune = null)
     {
-        var settings = new CartrackSettings
-        {
-            Enabled = true,
-            Username = "u",
-            Password = "p",
-            BackfillDays = 3,
-            MaxBackfillDaysPerRun = 2,
-            ReconciliationWindowDays = 3,
-            DepotRadiusMetres = 250,
-            RollupReadyMaxAgeHours = 36
-        };
-
+        var settings = Settings();
         tune?.Invoke(settings);
 
         return new CartrackRollupService(
@@ -576,31 +586,36 @@ public class CartrackRollupTests : IDisposable
         // never moved" reads as a finding, which is worse than showing nothing.
         await Service(new StubClient()).SyncAsync(CancellationToken.None);
 
-        var status = await Service(new StubClient()).GetStatusAsync(
+        var status = await Reader().GetStatusAsync(
             new DateTime(2026, 7, 1), new DateTime(2026, 7, 31), CancellationToken.None);
 
         Assert.False(status.Ready);
         Assert.NotNull(status.Reason);
         Assert.Contains("cannot speak for this whole period", status.Reason);
+
+        // Read it as a sentence, not as a template. An earlier draft produced "Fleet telematics
+        // has back to 18 Sept 2026" and shipped it to the screen.
+        Assert.DoesNotContain("has back to", status.Reason);
+        Assert.Contains("only reaches back to", status.Reason);
     }
 
     [Fact]
     public async Task The_gate_explains_being_switched_off_differently_from_being_empty()
     {
-        var off = await Service(new StubClient(), s => s.Enabled = false)
+        var off = await Reader(s => s.Enabled = false)
             .GetStatusAsync(Day, Day, CancellationToken.None);
 
         Assert.False(off.Enabled);
         Assert.Contains("switched off", off.Reason);
 
-        var uncredentialed = await Service(new StubClient(), s => s.Password = string.Empty)
+        var uncredentialed = await Reader(s => s.Password = string.Empty)
             .GetStatusAsync(Day, Day, CancellationToken.None);
 
         Assert.True(uncredentialed.Enabled);
         Assert.False(uncredentialed.Configured);
         Assert.Contains("no credentials", uncredentialed.Reason);
 
-        var neverRun = await Service(new StubClient()).GetStatusAsync(Day, Day, CancellationToken.None);
+        var neverRun = await Reader().GetStatusAsync(Day, Day, CancellationToken.None);
 
         Assert.True(neverRun.Configured);
         Assert.Contains("has not run yet", neverRun.Reason);
@@ -615,7 +630,7 @@ public class CartrackRollupTests : IDisposable
         state.LastSyncedAt = DateTime.UtcNow.AddDays(-4);
         await _context.SaveChangesAsync();
 
-        var status = await Service(new StubClient()).GetStatusAsync(Day, Day, CancellationToken.None);
+        var status = await Reader().GetStatusAsync(Day, Day, CancellationToken.None);
 
         Assert.False(status.Ready);
         Assert.Contains("may be out of date", status.Reason);

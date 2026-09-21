@@ -20,10 +20,6 @@ public interface ICartrackRollupService
 
     /// <summary>Rebuilds exactly one vehicle-day, for a retry or a test.</summary>
     Task<bool> BuildDayAsync(string registration, DateTime tradingDate, CancellationToken cancellationToken);
-
-    /// <summary>Whether the rollup can speak for this period, and why not when it cannot.</summary>
-    Task<CartrackRollupStatus> GetStatusAsync(
-        DateTime fromDate, DateTime toDate, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -59,7 +55,8 @@ public sealed class CartrackRollupService(
 {
     public const string CacheKey = "CartrackRollup";
 
-    private const string CheckpointConfigKey = "Cartrack.Rollup.Checkpoint";
+    /// <summary>The SystemConfigs key the checkpoint is stored under. Read by the read service too.</summary>
+    public const string CheckpointConfigKey = "Cartrack.Rollup.Checkpoint";
     private const string DisplayName = "Fleet telematics rollup";
     private const int MaxErrorLength = 1000;
 
@@ -184,70 +181,6 @@ public sealed class CartrackRollupService(
         var context = await LoadDayContextAsync(tradingDate, [key], cancellationToken);
 
         return await BuildOneAsync(key, tradingDate, context, cancellationToken);
-    }
-
-    public async Task<CartrackRollupStatus> GetStatusAsync(
-        DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
-    {
-        if (!_settings.Enabled)
-        {
-            return new CartrackRollupStatus(false, false, false, null, null, null,
-                "Fleet telematics is switched off, so no vehicle data is available.");
-        }
-
-        if (!_settings.HasCredentials)
-        {
-            return new CartrackRollupStatus(true, false, false, null, null, null,
-                "Fleet telematics is on but has no credentials, so no vehicle data is available.");
-        }
-
-        var lastSynced = await db.CacheSyncStates
-            .AsNoTracking()
-            .Where(state => state.CacheKey == CacheKey)
-            .Select(state => state.LastSyncedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var checkpoint = TryReadCheckpoint(await db.SystemConfigs
-            .AsNoTracking()
-            .Where(config => config.Key == CheckpointConfigKey)
-            .Select(config => config.Value)
-            .FirstOrDefaultAsync(cancellationToken));
-
-        var from = checkpoint?.BackfillThroughDate;
-        var through = checkpoint?.LastBuiltDate;
-
-        if (lastSynced is null || checkpoint is null)
-        {
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                "Fleet telematics has not run yet, so no vehicle data is available.");
-        }
-
-        var staleAfter = TimeSpan.FromHours(Math.Max(1, _settings.RollupReadyMaxAgeHours));
-
-        if (DateTime.UtcNow - lastSynced.Value > staleAfter)
-        {
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                $"Fleet telematics last ran {AuditService.ToCAT(lastSynced.Value):dd MMM HH:mm}, "
-                + "so the vehicle figures below may be out of date.");
-        }
-
-        // A backfill that has reached 1 August cannot speak for July. Showing July as "the van
-        // never moved" is worse than showing nothing, because it reads as a finding.
-        if (!checkpoint.BackfillCompleted || from is null || fromDate.Date < from.Value.Date)
-        {
-            var reached = from is { } f ? $"back to {f:dd MMM yyyy}" : "no history yet";
-
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                $"Fleet telematics has {reached}, so it cannot speak for this whole period.");
-        }
-
-        if (through is null || toDate.Date > through.Value.Date)
-        {
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                "Fleet telematics has not built the most recent day in this period yet.");
-        }
-
-        return new CartrackRollupStatus(true, true, true, lastSynced, from, through, null);
     }
 
     // — The passes ————————————————————————————————————————————————————
@@ -621,7 +554,7 @@ public sealed class CartrackRollupService(
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        var checkpoint = TryReadCheckpoint(row.Value);
+        var checkpoint = CartrackRollupCheckpointReader.TryRead(row.Value);
 
         if (checkpoint is null)
         {
@@ -636,24 +569,6 @@ public sealed class CartrackRollupService(
         }
 
         return (row, checkpoint);
-    }
-
-    private static CartrackRollupCheckpoint? TryReadCheckpoint(string? stored)
-    {
-        if (string.IsNullOrWhiteSpace(stored))
-        {
-            return new CartrackRollupCheckpoint();
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<CartrackRollupCheckpoint>(stored)
-                   ?? new CartrackRollupCheckpoint();
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 
     private async Task SaveCheckpointAsync(

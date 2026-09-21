@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ErrorOr;
 using MediatR;
 
@@ -22,8 +23,93 @@ public sealed record DepartureComplianceReportResult(
     DateTime FromDate,
     DateTime ToDate,
     List<DepartureComplianceDayDto> Days,
-    DepartureComplianceSummary Summary
+    DepartureComplianceSummary Summary,
+    DepartureComplianceTelematicsStatusDto Telematics
 );
+
+/// <summary>
+/// Whether the vehicle figures on this report can be trusted, and why not when they cannot.
+/// </summary>
+/// <remarks>
+/// <c>Reason</c> is a sentence the page prints verbatim and is null when everything is in order.
+/// An absent vehicle column has four different causes — telematics switched off, no credentials,
+/// the history does not reach this far back, the sync is stale — and each needs a different thing
+/// done about it, so the page is told which rather than left to invent an explanation.
+/// </remarks>
+public sealed record DepartureComplianceTelematicsStatusDto(
+    bool Enabled,
+    bool Configured,
+    bool Ready,
+    DateTime? LastSyncedAt,
+    DateTime? CoveredFrom,
+    DateTime? CoveredThrough,
+    string? Reason);
+
+/// <summary>How a day's truck matched the telematics fleet.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TelematicsMatch
+{
+    /// <summary>Neither the day nor the route names a truck, so there is nothing to look up.</summary>
+    NoRegistration,
+
+    /// <summary>A truck is named but the provider does not know it — a typo, or a vehicle sold.</summary>
+    NotInFleet,
+
+    /// <summary>Matched to a vehicle. Whether it reported anything is a separate question.</summary>
+    Matched
+}
+
+/// <summary>
+/// What the vehicle did on this day, beside what the rep recorded.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Nested rather than twenty more properties on a row DTO that already has forty, and hand-copied
+/// into the portal like everything else here.
+/// </para>
+/// <para>
+/// <b>Null if and only if telematics is unavailable for the whole report.</b> Whenever the feature
+/// is on, every row carries one of these — including rows whose truck is unknown, which arrive as
+/// <see cref="TelematicsMatch.NoRegistration"/>. That makes "the feature is off" and "this van has
+/// no data" structurally different rather than a convention someone has to remember.
+/// </para>
+/// </remarks>
+public sealed record DepartureComplianceTelematicsDto(
+    string? Registration,
+    TelematicsMatch Match,
+    bool HasRollup,
+    bool MovementRead,
+    bool OdometerRead,
+    DateTime? FirstIgnitionOn,
+    DateTime? FirstDeparture,
+    DateTime? LastIgnitionOff,
+    double? DepartureLatitude,
+    double? DepartureLongitude,
+    int? IgnitionCycleCount,
+    int? DrivingMinutes,
+    int? IdleMinutes,
+    int? DistanceKm,
+    bool OdometerReset,
+    bool TerminalChanged,
+    string? VehicleStateLabel)
+{
+    /// <summary>
+    /// The vehicle's own answer to "when did this van leave", or null when it did not.
+    /// </summary>
+    /// <remarks>
+    /// First movement where there is one, falling back to the first ignition. They are different
+    /// questions and the gap between them is real: across five days on one truck it ran from
+    /// eighteen minutes to five and a half hours, because a driver warming a diesel or pulling a
+    /// fridge down to temperature turns the key long before the van goes anywhere.
+    /// </remarks>
+    public DateTime? VerifiedDeparture => FirstDeparture ?? FirstIgnitionOn;
+
+    /// <summary>Whether the vehicle can speak for this day at all.</summary>
+    public bool IsVerified => VerifiedDeparture is not null;
+
+    /// <summary>The vehicle reported, and it never left the depot.</summary>
+    public bool DidNotMove => HasRollup && MovementRead && FirstDeparture is null;
+}
 
 /// <summary>
 /// One rep's trading day, laid out as the departure compliance sheet reads.
@@ -72,7 +158,9 @@ public sealed record DepartureComplianceDayDto(
 
     bool HasDayRecord,
     bool IsClosed,
-    string? Notes
+    string? Notes,
+
+    DepartureComplianceTelematicsDto? Telematics = null
 )
 {
     /// <summary>
@@ -154,6 +242,43 @@ public sealed record DepartureComplianceDayDto(
 
     public int? RtiOutstanding =>
         RtiOut is { } issued && RtiReturned is { } returned ? issued - returned : null;
+
+    /// <summary>
+    /// The departure the day is actually judged on: the vehicle's where there is one, the
+    /// handset's where there is not.
+    /// </summary>
+    /// <remarks>
+    /// A fact about the data rather than a policy, which is why it lives here with the other
+    /// computed members and not in the page's rulebook. Whether being late by it counts against
+    /// the rep is the policy, and that stays where the other thresholds are.
+    /// </remarks>
+    public DateTime? EffectiveDeparture => Telematics?.VerifiedDeparture ?? TimeOut;
+
+    /// <summary>Whether a vehicle, rather than a handset, answered for this departure.</summary>
+    public bool DepartureIsVerified => Telematics?.VerifiedDeparture is not null;
+
+    /// <summary>
+    /// How far the vehicle and the handset disagree about when the van left, in minutes.
+    /// Positive means the van left after the rep said it did.
+    /// </summary>
+    public int? DepartureDiscrepancyMinutes =>
+        Telematics?.VerifiedDeparture is { } vehicle && TimeOut is { } handset
+            ? (int)Math.Round((vehicle - handset).TotalMinutes)
+            : null;
+
+    /// <summary>
+    /// The vehicle's distance less the rep's, in kilometres. Positive means the vehicle recorded
+    /// more than the rep wrote down.
+    /// </summary>
+    /// <remarks>
+    /// Expect a small positive number as a matter of course: the tracker accumulates metres while
+    /// the rep subtracts two whole-kilometre readings. The tolerance that decides when a gap is
+    /// worth showing is policy and lives with the other thresholds.
+    /// </remarks>
+    public int? OdometerDivergenceKm =>
+        Telematics?.DistanceKm is { } vehicle && KilometresTravelled is { } captured
+            ? vehicle - captured
+            : null;
 }
 
 /// <summary>

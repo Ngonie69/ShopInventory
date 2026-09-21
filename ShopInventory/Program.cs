@@ -913,6 +913,10 @@ try
     builder.Services.AddScoped<ICartrackFleetSyncService, CartrackFleetSyncService>();
     builder.Services.AddScoped<ICartrackRollupService, CartrackRollupService>();
 
+    // Read-side, and separate from the rollup service on purpose: the compliance report has no
+    // business holding a handle that can call an external API and write rows.
+    builder.Services.AddScoped<ICartrackReadService, CartrackReadService>();
+
     // Register the Fiscalisation platform client
     builder.Services.Configure<FiscalisationSettings>(
         builder.Configuration.GetSection(FiscalisationSettings.SectionName));
