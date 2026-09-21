@@ -34,6 +34,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// <summary>Which UDFs carry the mobile invoice number and the sale's own reference.</summary>
     private readonly Configuration.FiscalisationUdfSettings _fiscalisationUdf;
     private readonly TimeProvider _timeProvider;
+    private readonly WebhookEventPublisher? _webhookEventPublisher;
 
     // Session state is static so all transient instances share a single SAP session
     // instead of each injected instance creating its own login.
@@ -175,7 +176,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         // default is dormant: with no UDF named, nothing is written and behaviour is exactly as before.
         IOptions<FiscalisationSettings>? fiscalisationSettings = null,
         // Runs the per-call SAP budgets, so a test can expire one without waiting it out.
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        // Optional for the same reason as the two above: some twenty tests build this client directly.
+        // Null publishes nothing, which is what every one of those tests expects.
+        WebhookEventPublisher? webhookEventPublisher = null)
     {
         _httpClient = httpClient;
         _httpClientFactory = httpClientFactory;
@@ -190,6 +194,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             InvoiceNumberField = string.Empty
         };
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _webhookEventPublisher = webhookEventPublisher;
     }
 
     /// <summary>
@@ -9518,7 +9523,8 @@ ORDER BY T0."DocEntry", T1."LineNum"
                     CacheStatusKeys.Warehouses,
                     result.Count,
                     DateTime.UtcNow,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    publishSyncEvent: true);
                 return result;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -9528,7 +9534,8 @@ ORDER BY T0."DocEntry", T1."LineNum"
                     CacheStatusKeys.Warehouses,
                     ex.Message,
                     DateTime.UtcNow,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    publishSyncEvent: true);
                 throw;
             }
         }
@@ -9814,7 +9821,8 @@ ORDER BY T0."DocEntry", T1."LineNum"
                     CacheStatusKeys.BusinessPartners,
                     result.Count,
                     DateTime.UtcNow,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    publishSyncEvent: true);
                 return result;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -9824,7 +9832,8 @@ ORDER BY T0."DocEntry", T1."LineNum"
                     CacheStatusKeys.BusinessPartners,
                     ex.Message,
                     DateTime.UtcNow,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    publishSyncEvent: true);
                 throw;
             }
         }
@@ -11724,6 +11733,29 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         _logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}",
             createdTransfer?.DocEntry, createdTransfer?.DocNum);
 
+        // Published here, at the one method every transfer goes through, rather than from the callers:
+        // desktop integration, market breakages, the posting job, the pending-transfer poster and
+        // request conversion all create transfers, and publishing from any one of them would have
+        // described a fifth of the stock that moves.
+        //
+        // After the success branch only. A transfer SAP refused moved nothing, and the throws above
+        // have already left this method by then.
+        if (createdTransfer != null && _webhookEventPublisher != null)
+        {
+            await _webhookEventPublisher.PublishAsync(
+                WebhookEventTypes.StockTransfer,
+                new
+                {
+                    docEntry = createdTransfer.DocEntry,
+                    docNum = createdTransfer.DocNum,
+                    docDate = createdTransfer.DocDate,
+                    fromWarehouse = createdTransfer.FromWarehouse,
+                    toWarehouse = createdTransfer.ToWarehouse,
+                    lineCount = createdTransfer.StockTransferLines?.Count ?? 0,
+                    comments = createdTransfer.Comments
+                });
+        }
+
         return createdTransfer ?? throw new Exception("Failed to deserialize created inventory transfer");
     }
 
@@ -12666,7 +12698,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                     CacheStatusKeys.GLAccounts,
                     result.Count,
                     DateTime.UtcNow,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    publishSyncEvent: true);
                 return result;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -12676,7 +12709,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                     CacheStatusKeys.GLAccounts,
                     ex.Message,
                     DateTime.UtcNow,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    publishSyncEvent: true);
                 throw;
             }
         }

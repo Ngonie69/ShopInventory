@@ -50,7 +50,7 @@ internal static class InvoiceCancellationNotificationFactory
             ["reasonDescription"] = reason.Description
         };
 
-        return ModuleNotificationFactory.CreateBroadcastNotification(
+        var request = ModuleNotificationFactory.CreateBroadcastNotification(
             $"Invoice Cancelled: {invoice.DocNum}",
             message,
             "Warning",
@@ -59,5 +59,10 @@ internal static class InvoiceCancellationNotificationFactory
             invoice.DocEntry.ToString(CultureInfo.InvariantCulture),
             ActionUrl,
             payload);
+
+        // Filed under the CreditNote category for the bell, but the event is about the invoice. That
+        // split is the reason the event is named explicitly rather than read off the category.
+        request.WebhookEvent = WebhookEventTypes.InvoiceCancelled;
+        return request;
     }
 }

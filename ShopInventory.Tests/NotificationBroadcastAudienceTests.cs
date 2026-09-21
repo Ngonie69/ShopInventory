@@ -51,7 +51,8 @@ public sealed class NotificationBroadcastAudienceTests : IDisposable
             _context,
             NullLogger<NotificationService>.Instance,
             new SilentHubContext(),
-            _push);
+            _push,
+            new RecordingWebhookService());
     }
 
     public void Dispose()

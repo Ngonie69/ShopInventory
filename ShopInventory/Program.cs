@@ -610,6 +610,8 @@ try
 
     // Register webhook service
     builder.Services.AddScoped<IWebhookService, WebhookService>();
+    // For publishing from code that cannot hold the scoped service above: the SAP client, jobs.
+    builder.Services.AddSingleton<WebhookEventPublisher>();
 
     // Register payment gateway service
     builder.Services.Configure<PaymentGatewaySettings>(builder.Configuration.GetSection("PaymentGateways"));

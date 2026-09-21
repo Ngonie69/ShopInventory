@@ -28,6 +28,11 @@ public sealed class SystemFailureAlertJob : IJob
     private const string PendingConditionFingerprintKey = "pendingConditionFingerprint";
     private const string PendingConditionCountKey = "pendingConditionCount";
 
+    // The SAP connection's own state, kept apart from the overall status above. The overall status is
+    // the worst of every check, so it cannot say when SAP in particular went away: with the database
+    // already unhealthy, SAP dropping changes nothing about the worst case and no edge appears.
+    private const string SapLastPublishedKey = "sapLastPublishedStatus";
+
     /// <summary>
     /// Cooldown ladder, as multiples of <see cref="SystemHealthAlertSettings.AlertCooldownMinutes"/>.
     /// A condition that persists unchanged backs off instead of repeating at a fixed interval —
@@ -99,6 +104,10 @@ public sealed class SystemFailureAlertJob : IJob
             context.CancellationToken);
 
         var currentStatus = report.Status;
+
+        // First, and independent of everything below: the branches that follow return early on
+        // conditions about the whole report, and none of them is about SAP.
+        await PublishSapConnectionTransitionAsync(scope, report, dataMap);
 
         // Recovery: was bad, now healthy — send all-clear once
         if (lastNotifiedStatus != HealthStatus.Healthy && currentStatus == HealthStatus.Healthy)
@@ -263,6 +272,97 @@ public sealed class SystemFailureAlertJob : IJob
     /// actually going out — so consecutive means consecutive. Leaving it behind would let a
     /// condition that shows up once an hour accumulate its way to a confirmation it never earned.
     /// </remarks>
+    /// <summary>
+    /// Publishes <c>sap.connection.lost</c> or <c>sap.connection.restored</c> when the SAP health
+    /// check has changed state since subscribers were last told.
+    /// </summary>
+    /// <remarks>
+    /// Runs only while this job runs, which is only while <c>SystemHealthAlert:Enabled</c> is true —
+    /// the job is not even registered otherwise. That is a real limit on these two events and it is
+    /// stated in their descriptions rather than worked around here: turning on the job also turns on
+    /// a SAP connection probe every few minutes, and that is a decision about SAP load, not webhooks.
+    /// </remarks>
+    private static async Task PublishSapConnectionTransitionAsync(
+        IServiceScope scope,
+        HealthReport report,
+        JobDataMap dataMap)
+    {
+        if (!report.Entries.TryGetValue("sap", out var sapEntry))
+        {
+            return;
+        }
+
+        var lastPublished = dataMap.TryGetString(SapLastPublishedKey, out var lastPublishedValue)
+            ? lastPublishedValue
+            : null;
+
+        var (eventType, nowPublished) = EvaluateSapTransition(sapEntry.Status, lastPublished);
+        dataMap[SapLastPublishedKey] = nowPublished;
+
+        if (eventType is null)
+        {
+            return;
+        }
+
+        var publisher = scope.ServiceProvider.GetService<WebhookEventPublisher>();
+        if (publisher != null)
+        {
+            await publisher.PublishAsync(
+                eventType,
+                new
+                {
+                    status = nowPublished,
+                    description = sapEntry.Description,
+                    details = sapEntry.Data,
+                    observedAtUtc = DateTime.UtcNow
+                });
+        }
+    }
+
+    /// <summary>
+    /// Decides whether the SAP check's current status is news: the event to publish, if any, and the
+    /// state to remember as last told.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Up and down are the whole vocabulary because <c>SapDependencyHealthCheck</c> answers Healthy or
+    /// Unhealthy and never Degraded.
+    /// </para>
+    /// <para>
+    /// No confirmation poll either way, on the same terms as this job's own rule: Unhealthy is not a
+    /// blip, and waiting a poll to confirm it costs real minutes. The circuit-breaker half of the
+    /// check is already debounced by the breaker. The direct probe is not, so one timed-out probe can
+    /// send a lost/restored pair a poll apart — that is the accepted cost of reporting a real outage
+    /// promptly.
+    /// </para>
+    /// <para>
+    /// Nothing remembered reads as up, as the overall status defaults to Healthy: a SAP that is down
+    /// the first time this runs is then reported, which is the true thing to say.
+    /// </para>
+    /// <para>
+    /// A pure function for the same reason as <see cref="EvaluateConfirmation"/>: the job and its tests
+    /// share the one implementation.
+    /// </para>
+    /// </remarks>
+    internal static (string? EventType, string LastPublished) EvaluateSapTransition(
+        HealthStatus sapStatus,
+        string? lastPublished)
+    {
+        var observed = sapStatus == HealthStatus.Healthy ? "up" : "down";
+        var previous = string.IsNullOrEmpty(lastPublished) ? "up" : lastPublished;
+
+        if (observed == previous)
+        {
+            return (null, observed);
+        }
+
+        return (
+            observed == "up"
+                ? Models.WebhookEventTypes.SapConnectionRestored
+                : Models.WebhookEventTypes.SapConnectionLost,
+            observed);
+    }
+
     private static void ClearPendingCondition(JobDataMap dataMap)
     {
         dataMap[PendingConditionFingerprintKey] = string.Empty;

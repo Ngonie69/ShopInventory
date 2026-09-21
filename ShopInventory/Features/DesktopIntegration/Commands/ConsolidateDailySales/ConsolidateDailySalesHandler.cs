@@ -722,6 +722,12 @@ public sealed class ConsolidateDailySalesHandler(
             CardName = cardName
         };
 
+        // One invoice, one webhook event. The notification below is deliberately per person -- each
+        // van-sales user is told their sales were invoiced -- but the event describes the invoice, and
+        // a consolidated invoice covering three sellers is still one invoice. Without this, a
+        // subscriber would see invoice.created three times for the same DocNum.
+        var eventPublished = false;
+
         foreach (var createdBy in createdByValues)
         {
             var (targetUserId, targetUsername) = await ResolveNotificationRecipientAsync(createdBy!, cancellationToken);
@@ -740,7 +746,16 @@ public sealed class ConsolidateDailySalesHandler(
                     "/mobile-drafts",
                     null);
 
+                if (eventPublished)
+                {
+                    notification.WebhookEvent = null;
+                }
+
                 await notificationService.CreateNotificationAsync(notification, cancellationToken);
+
+                // After the await on purpose: a notification that threw published nothing, so the
+                // next recipient should still carry the event.
+                eventPublished = true;
             }
             catch (Exception ex)
             {

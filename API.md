@@ -169,7 +169,6 @@ Endpoints may require specific permissions checked via the `[RequirePermission]`
 | **Users** | `users.view`, `users.create`, `users.edit`, `users.delete`, `users.manage_roles`, `users.manage_permissions` |
 | **Settings** | `settings.view`, `settings.edit`, `settings.manage`, `settings.integrations` |
 | **Audit** | `audit.view`, `audit.export` |
-| **Webhooks** | `webhooks.view`, `webhooks.manage` |
 | **System** | `sync.view`, `sync.manage`, `system.admin`, `backups.view`, `backups.create`, `backups.restore`, `backups.delete` |
 
 ---
@@ -2430,25 +2429,43 @@ Pass `null` for `notificationIds` to mark all as read.
 `GET /api/Webhook/event-types` is the one route here outside the Admin role — it is a static
 vocabulary, and a subscriber needs it before it has anything to authenticate with.
 
-**Supported Event Types:**
+There is no separate webhook permission to delegate. Managing a webhook decides where company data
+is sent, so it stays with `system.admin`.
 
-| Category | Events |
-|----------|--------|
-| **Invoice** | `invoice.created`, `invoice.paid`, `invoice.cancelled` |
-| **Payment** | `payment.received`, `payment.failed`, `payment.refunded` |
-| **Stock** | `stock.low`, `stock.out`, `stock.replenished`, `stock.transfer` |
-| **Inventory** | `inventory.adjusted`, `inventory.received` |
-| **Customer** | `customer.created`, `customer.updated` |
-| **SAP** | `sap.sync.success`, `sap.sync.failed`, `sap.connection.lost`, `sap.connection.restored` |
+**Event types.** Every type below is accepted in a subscription, but not every type is published.
+A subscription to one marked *Not published* is stored and looks healthy, and receives nothing —
+check this table before relying on an event. `GET /api/Webhook/event-types` returns the same
+information in each type's `description`.
+
+| Event | Status | Published when |
+|-------|--------|----------------|
+| `invoice.created` | Live | An invoice is created in SAP by a known user: through the API, desktop sales consolidation or a stock reservation. An invoice no user can be attributed to raises nothing. |
+| `invoice.cancelled` | Live | An invoice is cancelled and reversed by a credit note. |
+| `stock.transfer` | Live | SAP accepts an inventory transfer created by this system, by any route — market breakages moving to the returns warehouse included. |
+| `inventory.received` | Live | A goods receipt PO is created in SAP. Receiving against this system's own purchase orders does not raise it; those never reach SAP. |
+| `inventory.adjusted` | Live | A stock write-off posts to SAP as a goods issue. |
+| `sap.sync.success` | Live | A SAP-backed cache (warehouses, business partners, G/L accounts) refills. Fires on every refill — several times an hour under normal load. |
+| `sap.sync.failed` | Live | A SAP-backed cache refill fails. |
+| `sap.connection.lost` | Conditional | The SAP health check goes from reachable to unreachable. Only while `SystemHealthAlert:Enabled` is true. |
+| `sap.connection.restored` | Conditional | The SAP health check is reachable again after a `lost`. Only while `SystemHealthAlert:Enabled` is true. |
+| `payment.received` | Conditional | A payment gateway confirms a payment. Only while a gateway (PayNow, Innbucks, Ecocash) is enabled. |
+| `payment.failed` | Conditional | A payment gateway reports a failed payment. Same condition. |
+| `payment.refunded` | Conditional | A payment is refunded through a gateway. Same condition. |
+| `invoice.paid` | Not published | — |
+| `stock.low` | Not published | — |
+| `stock.out` | Not published | — |
+| `stock.replenished` | Not published | — |
+| `customer.created` | Not published | — |
+| `customer.updated` | Not published | — |
 
 **Create Webhook Request:**
 
 ```json
 {
-  "name": "Stock Alerts",
-  "url": "https://hooks.example.com/stock",
+  "name": "Invoice feed",
+  "url": "https://hooks.example.com/invoices",
   "secret": "whsec_abc123",
-  "events": ["stock.low", "stock.out"],
+  "events": ["invoice.created", "invoice.cancelled"],
   "retryCount": 3,
   "timeoutSeconds": 30,
   "customHeaders": {
@@ -2457,18 +2474,36 @@ vocabulary, and a subscriber needs it before it has anything to authenticate wit
 }
 ```
 
-**Webhook Delivery Payload:**
+**Delivery.** Each delivery is a `POST` of this body:
 
 ```json
 {
-  "event": "stock.low",
-  "timestamp": "2026-04-01T10:30:00Z",
-  "data": { ... },
-  "signature": "sha256=..."
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "event": "invoice.created",
+  "timestamp": "2026-09-21T10:30:00Z",
+  "data": { }
 }
 ```
 
-The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
+`data` carries the event's own fields. With these headers:
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `application/json` |
+| `X-Webhook-Event` | The event type |
+| `X-Webhook-Delivery-Id` | A new GUID for **each attempt** |
+| `X-Webhook-Signature` | `sha256=<hex>`: HMAC-SHA256 of the raw body, keyed with the webhook's secret. Sent only when a secret is set. |
+
+The signature is a header, not a body field. Verify it against the raw bytes received, before
+parsing.
+
+**Retries and duplicates.** A response outside 2xx, or no answer within `timeoutSeconds`, is retried
+after 2, 4, 8… seconds, up to `retryCount` attempts in all. So a receiver can see the same event more
+than once. Deduplicate on the body's `id`: it is fixed per event and repeated on every retry and to
+every subscriber. `X-Webhook-Delivery-Id` changes per attempt and cannot be used for that.
+
+Every attempt is logged, and `GET /api/Webhook/deliveries` returns the log with each attempt's
+response code and error.
 
 ---
 
@@ -4942,9 +4977,9 @@ Returned when stock is insufficient for an operation:
 
 ```json
 {
-  "eventType": "stock.low",
-  "category": "Stock",
-  "description": "Triggered when stock falls below reorder level"
+  "eventType": "invoice.cancelled",
+  "category": "Invoice",
+  "description": "An invoice was cancelled and reversed by a credit note."
 }
 ```
 

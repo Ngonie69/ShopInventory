@@ -43,7 +43,9 @@ public sealed class CreateStockWriteOffHandler(
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
     IOptions<StockWriteOffSettings> writeOffSettings,
-    ILogger<CreateStockWriteOffHandler> logger)
+    ILogger<CreateStockWriteOffHandler> logger,
+    // Optional so the tests that build this handler directly are unaffected; null publishes nothing.
+    WebhookEventPublisher? webhookEventPublisher = null)
     : IRequestHandler<CreateStockWriteOffCommand, ErrorOr<StockWriteOffResultDto>>
 {
     public const string IdempotencyScope = "stock-write-off-post";
@@ -228,6 +230,32 @@ public sealed class CreateStockWriteOffHandler(
                 writeOff.Id, writeOff.WarehouseCode, issued.DocEntry, issued.DocNum);
 
             await AuditAsync(writeOff, issued.DocNum);
+
+            // Through the publisher, which never throws, and not IWebhookService directly. Anything
+            // thrown from here lands in the catch below, which marks this write-off PostFailed — and a
+            // posted write-off marked failed invites the second post that writes the stock off twice.
+            //
+            // Only here, on the path that actually issued. A resend answers from AlreadyPostedAsync and
+            // never reaches this line, so a replayed request does not announce the adjustment again.
+            if (webhookEventPublisher != null)
+            {
+                await webhookEventPublisher.PublishAsync(
+                    WebhookEventTypes.InventoryAdjusted,
+                    new
+                    {
+                        writeOffId = writeOff.Id,
+                        docEntry = issued.DocEntry,
+                        docNum = issued.DocNum,
+                        warehouseCode = writeOff.WarehouseCode,
+                        reason = writeOff.Reason,
+                        direction = "out",
+                        lines = writeOff.Lines
+                            .OrderBy(line => line.LineNum)
+                            .Select(line => new { line.ItemCode, line.Quantity, line.UoMCode, line.BatchNumber })
+                            .ToList(),
+                        postedAtUtc = writeOff.PostedAtUtc
+                    });
+            }
 
             return new StockWriteOffResultDto
             {

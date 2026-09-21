@@ -96,9 +96,10 @@ public static class Permissions
     public const string ViewAuditLogs = "audit.view";
     public const string ExportAuditLogs = "audit.export";
 
-    // Webhooks
-    public const string ViewWebhooks = "webhooks.view";
-    public const string ManageWebhooks = "webhooks.manage";
+    // No webhook permissions, on purpose. webhooks.view and webhooks.manage were here until
+    // 2026-09-21 and were never checked: an admin could grant them and nothing changed. They were
+    // removed rather than wired, because managing a webhook decides where company data is sent,
+    // and that stays with SystemAdmin (the AdminOnly policy on WebhookController).
 
     // Sales Orders
     public const string ViewSalesOrders = "salesorders.view";
@@ -260,11 +261,6 @@ public static class Permissions
             {
                 new(ViewAuditLogs, "View Audit Logs", "Access audit trail"),
                 new(ExportAuditLogs, "Export Audit Logs", "Export audit data")
-            },
-            ["Webhooks"] = new()
-            {
-                new(ViewWebhooks, "View Webhooks", "View webhook configurations"),
-                new(ManageWebhooks, "Manage Webhooks", "Create/edit/delete webhooks")
             },
             ["Sales Orders"] = new()
             {
@@ -595,10 +591,6 @@ public static class Permission
     // Audit
     public const string ViewAuditLogs = Permissions.ViewAuditLogs;
     public const string ExportAuditLogs = Permissions.ExportAuditLogs;
-
-    // Webhooks
-    public const string ViewWebhooks = Permissions.ViewWebhooks;
-    public const string ManageWebhooks = Permissions.ManageWebhooks;
 
     // Sync & System
     public const string ViewSyncStatus = Permissions.ViewSyncStatus;

@@ -1,6 +1,7 @@
 using ErrorOr;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
@@ -149,6 +150,68 @@ public sealed class StockWriteOffTests : IDisposable
         Assert.Empty(sap.Requests);
 
         Assert.Equal(StockWriteOffStatuses.PostFailed, (await ReloadAsync(1)).Status);
+    }
+
+    /// <summary>
+    /// A posted write-off is the one thing in this app that takes stock out of SAP by adjustment, so it
+    /// is what <c>inventory.adjusted</c> announces. Market breakages are not: they move stock to the
+    /// returns warehouse as a transfer, and already say so as <c>stock.transfer</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_posted_write_off_publishes_inventory_adjusted_with_its_warehouse_and_reason()
+    {
+        var sap = new FakeSap();
+        var webhooks = new RecordingWebhookService();
+
+        var result = await WriteOff(sap, Request("wo-webhook-1", ("BATCHED01", 4m, "B-0099")), webhooks: webhooks);
+
+        Assert.False(result.IsError);
+        var published = Assert.Single(webhooks.Published);
+        Assert.Equal(WebhookEventTypes.InventoryAdjusted, published.EventType);
+
+        var payload = System.Text.Json.JsonSerializer.Serialize(published.Payload);
+        Assert.Contains("\"warehouseCode\":\"RETURNS\"", payload);
+        Assert.Contains("\"reason\":\"Breakage\"", payload);
+        Assert.Contains($"\"docNum\":{FakeSap.DocNum}", payload);
+        Assert.Contains("\"direction\":\"out\"", payload);
+    }
+
+    [Fact]
+    public async Task A_write_off_that_never_reached_SAP_publishes_nothing()
+    {
+        var sap = new FakeSap();
+        var webhooks = new RecordingWebhookService();
+        var short_ = StockValidationResult.Failure([new StockValidationError
+        {
+            LineNumber = 1,
+            ItemCode = "BATCHED01",
+            WarehouseCode = "RETURNS",
+            BatchNumber = "B-0099",
+            RequestedQuantity = 4m,
+            AvailableQuantity = 1m
+        }]);
+
+        var result = await WriteOff(sap, Request("wo-webhook-2", ("BATCHED01", 4m, "B-0099")),
+            stock: new RecordingStockValidation(short_), webhooks: webhooks);
+
+        Assert.True(result.IsError);
+        Assert.Empty(sap.Requests);
+        Assert.Empty(webhooks.Published);
+    }
+
+    [Fact]
+    public async Task Resending_a_posted_write_off_does_not_announce_it_again()
+    {
+        var sap = new FakeSap();
+        var webhooks = new RecordingWebhookService();
+
+        await WriteOff(sap, Request("wo-webhook-3", ("BATCHED01", 4m, "B-0099")), webhooks: webhooks);
+        var second = await WriteOff(sap, Request("wo-webhook-3", ("BATCHED01", 4m, "B-0099")), webhooks: webhooks);
+
+        Assert.True(second.Value.AlreadyPosted);
+
+        // The stock left once, so it is announced once.
+        Assert.Single(webhooks.Published);
     }
 
     [Fact]
@@ -303,8 +366,19 @@ public sealed class StockWriteOffTests : IDisposable
         CreateStockWriteOffRequestDto request,
         RecordingStockValidation? stock = null,
         Guid? userId = null,
-        bool sapEnabled = true)
+        bool sapEnabled = true,
+        RecordingWebhookService? webhooks = null)
     {
+        WebhookEventPublisher? publisher = null;
+        if (webhooks != null)
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IWebhookService>(webhooks);
+            publisher = new WebhookEventPublisher(
+                services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+                NullLogger<WebhookEventPublisher>.Instance);
+        }
+
         var handler = new CreateStockWriteOffHandler(
             _context,
             sap.AsClient(),
@@ -313,7 +387,8 @@ public sealed class StockWriteOffTests : IDisposable
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
             Options.Create(new SAPSettings { Enabled = sapEnabled }),
             Options.Create(new StockWriteOffSettings()),
-            NullLogger<CreateStockWriteOffHandler>.Instance);
+            NullLogger<CreateStockWriteOffHandler>.Instance,
+            publisher);
 
         return handler.Handle(new CreateStockWriteOffCommand(request, userId ?? Clerk), default);
     }
