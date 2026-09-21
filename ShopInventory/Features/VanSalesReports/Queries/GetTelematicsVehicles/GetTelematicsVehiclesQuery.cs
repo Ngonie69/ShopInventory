@@ -28,18 +28,14 @@ public sealed record TelematicsVehiclesResult(
     string? Reason,
     List<TelematicsVehicleDto> Vehicles);
 
-/// <param name="Registration">The plate as the provider spells it.</param>
-/// <param name="RegistrationNormalized">
-/// Letters and digits only, upper case — what the report joins on.
-/// </param>
-/// <param name="ClientVehicleName">
-/// The fleet's own name for it, which on this account is a number joined to the plate
-/// ("306_AFQ9644"). Shown as a hint beside the registration, never matched on.
-/// </param>
-/// <param name="StateLabel">
-/// Why a vehicle may report nothing — in the workshop, tracker being repaired, or retired from
-/// the fleet. Null when there is nothing to say.
-/// </param>
+/// <remarks>
+/// <c>Registration</c> is the plate as the provider spells it; <c>RegistrationNormalized</c> is
+/// letters and digits only, upper case, and is what the report joins on.
+/// <c>ClientVehicleName</c> is the fleet's own name for the vehicle, which on this account is a
+/// yard number joined to the plate ("306_AFQ9644") — shown as a hint, never matched on.
+/// <c>StateLabel</c> says why a vehicle may report nothing (in the workshop, tracker being
+/// repaired, retired from the fleet) and is null when there is nothing to say.
+/// </remarks>
 public sealed record TelematicsVehicleDto(
     string Registration,
     string RegistrationNormalized,

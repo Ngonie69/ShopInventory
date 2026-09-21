@@ -127,6 +127,22 @@ public static class QuartzConfiguration
                     CartrackFleetSyncJob.JobName,
                     CartrackFleetSyncJob.StartupTriggerName,
                     CartrackFleetSyncJob.StartupDelay);
+
+                // The day rollup: yesterday and today every pass, a slice of backfill until the
+                // history is in, and a reconciliation window once a day. Nightly at 02:30 so a
+                // complete yesterday is waiting when somebody opens the report in the morning.
+                AddCronJob<CartrackDayRollupJob>(q, CartrackDayRollupJob.JobName, "0 30 2 * * ?");
+
+                // And hourly through the day, so today's row is warm rather than a day behind.
+                // Same job key as the nightly pass, deliberately: DisallowConcurrentExecution is
+                // enforced per key, so on a separate key the two would build the same date at the
+                // same time and race to upsert the same rows.
+                AddIntervalTriggerForJob<CartrackDayRollupJob>(
+                    q,
+                    CartrackDayRollupJob.JobName,
+                    CartrackDayRollupJob.HourlyTriggerName,
+                    TimeSpan.FromHours(1),
+                    startDelay: TimeSpan.FromMinutes(6));
             }
 
             if (dailyStock.EnableAutoStockFetch)

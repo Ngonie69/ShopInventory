@@ -911,6 +911,7 @@ try
     });
 
     builder.Services.AddScoped<ICartrackFleetSyncService, CartrackFleetSyncService>();
+    builder.Services.AddScoped<ICartrackRollupService, CartrackRollupService>();
 
     // Register the Fiscalisation platform client
     builder.Services.Configure<FiscalisationSettings>(
