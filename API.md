@@ -3430,6 +3430,8 @@ handlers and are not recorded twice.
 | DELETE | `/api/van-sales/route-stops/{id}` | `users.edit` or `vansales.routes.manage` | Drop an area from a route's plan |
 | POST | `/api/van-sales/route-stops/reorder` | `users.edit` or `vansales.routes.manage` | Put one weekday's or cycle week's stops in order |
 | GET | `/api/van-sales/telematics/vehicles` | `users.edit` or `vansales.routes.manage` | The fleet telematics vehicles, for assigning one to a route |
+| GET | `/api/van-sales/fleet-audit` | `vansales.attendance.view` | The fleet over a period: a row per vehicle, each carrying its own days |
+| PUT | `/api/van-sales/fleet/{registration}/business-partner` | `users.edit` or `vansales.routes.manage` | Link a vehicle to the van sales account whose takings it carries |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 | GET | `/api/van-sales/invoices` | `invoices.view` | Invoices the van sales app created, with their ZIMRA and SAP state, newest first |
@@ -3463,6 +3465,36 @@ performance and replenishment, 90 for coverage, 14 for stock.
 **Response:** `DepartureComplianceReportResult`. Rates are fractions (0.97), not percentages, and are
 **null rather than zero** where the day has no denominator — a CCR of 0% and "we cannot say" are
 different findings. Summary rates are recomputed from the period's totals, not averaged across days.
+
+Each day also carries `telematics` — what the vehicle did, beside what the rep recorded. It is
+**null if and only if fleet telematics is switched off for the whole report**; when the feature is
+on, every day carries one, including days whose truck could not be looked up. That makes "the
+feature is off" and "this van has no data" structurally different rather than a convention:
+
+| `match` | Meaning |
+|---|---|
+| `NoRegistration` | Neither the day nor the rep's route names a truck |
+| `NotInFleet` | A truck is named but the provider does not hold it — a typo, or a vehicle sold |
+| `Matched` | Looked up. Whether it reported is `hasRollup`, and whether the read succeeded is `movementRead` |
+
+`firstIgnitionOn` and `firstDeparture` are **different questions** and both are given.
+`verifiedDeparture` is the second falling back to the first, and `effectiveDeparture` is that
+falling back to the rep's own `timeOut` — which is the time a late departure is judged against.
+The gap between ignition and departure is real: measured across five days on one truck it ran from
+eighteen minutes to five and a half hours, because a driver warming a diesel or pulling a fridge
+down to temperature turns the key long before the van goes anywhere.
+
+`distanceKm` is the provider's own figure, never the difference of the two odometer readings —
+a vehicle can report a distance of zero with an end reading below its start. Treat it as
+meaningless when `odometerReset` or `terminalChanged` is true.
+
+The result carries a `telematics` status of its own — `enabled`, `configured`, `ready`,
+`lastSyncedAt`, `coveredFrom`, `coveredThrough` and `reason`. **`reason` is a sentence to print
+verbatim** and is null when everything is in order: an absent vehicle column has four different
+causes and each needs a different thing done about it, so the caller is told which rather than
+left to compose an explanation. When `ready` is false the per-day `telematics` records are still
+present but carry no figures, because a projection that has only backfilled to September must not
+answer for July — rendering July as "the van never moved" reads as a finding.
 
 ```json
 {
@@ -3511,7 +3543,33 @@ different findings. Summary rates are recomputed from the period's totals, not a
       "declaredVariance": 5.00,
       "declaredShortfall": null,
       "declaredOverage": null,
-      "rtiOutstanding": 2
+      "rtiOutstanding": 2,
+      "telematics": {
+        "registration": "AEK4471",
+        "match": "Matched",
+        "hasRollup": true,
+        "movementRead": true,
+        "odometerRead": true,
+        "firstIgnitionOn": "2026-08-15T06:12:00",
+        "firstDeparture": "2026-08-15T07:05:00",
+        "lastIgnitionOff": "2026-08-15T17:08:00",
+        "departureLatitude": -17.79,
+        "departureLongitude": 31.03,
+        "ignitionCycleCount": 11,
+        "drivingMinutes": 264,
+        "idleMinutes": 91,
+        "distanceKm": 151,
+        "odometerReset": false,
+        "terminalChanged": false,
+        "vehicleStateLabel": null,
+        "verifiedDeparture": "2026-08-15T07:05:00",
+        "isVerified": true,
+        "didNotMove": false
+      },
+      "effectiveDeparture": "2026-08-15T07:05:00",
+      "departureIsVerified": true,
+      "departureDiscrepancyMinutes": 25,
+      "odometerDivergenceKm": 4
     }
   ],
   "summary": {
@@ -3679,6 +3737,96 @@ a registration — this account names one "306_AFQ9644" — so it must never be 
 `hasTemperatureProbe` is null until a sync has looked, and is inferred from readings actually
 arriving rather than declared: the provider publishes capability flags for fuel and electric and
 nothing at all for the four temperature channels.
+
+##### GET `/api/van-sales/fleet-audit`
+
+The same period the compliance report covers, read from the other side: what did each **truck**
+do. A fleet manager is looking for the vehicle that is barely moving or barely reporting, and a
+rep-day grid buries both.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `registration` | — | One vehicle, in any spelling; the whole fleet when omitted |
+
+**Response:** `FleetAuditResult` — `fromDate`, `toDate`, `vehicles`, and the same `telematics`
+status block the compliance report carries, whose `reason` is printed verbatim.
+
+Each vehicle gives what it is (`registration`, `vehicleName`, `description`, `stateLabel`), what
+it can measure (`hasAnyFuelSensor`, `hasTemperatureProbe`), the account it carries
+(`businessPartnerCode`, `businessPartnerName`), period totals, and a `days` array holding **every
+trading day in the period** — not only the days it reported.
+
+That last point is the shape worth knowing. A truck that said nothing for a fortnight returns a
+fortnight of days with `hasRollup: false`, because an empty array reads as a short period rather
+than as a dead tracker. `daysWithData` and `daysSilent` are the pair to read together, and
+`neverReported` is true when a vehicle reported on no day at all — a tracker to look at rather
+than a van to ask about.
+
+Each day carries `movementRead` and `odometerRead` separately from the figures, because a null
+distance on a day nobody could read is a different finding from a null distance on a day the van
+sat still. `didNotMove` distinguishes the second.
+
+**Fuel and cold chain.** Each day carries a `fuel` and a `temperature` object, either of which is
+null when that read has not succeeded. A null `fuel` on a vehicle whose `hasAnyFuelSensor` is false
+means no sensor is fitted; on one where it is true it means the fuel read failed. Those are
+different findings, and the page says which.
+
+`fuel` gives the tank level at each end of the day, `usedLitres` (the provider's estimate, which
+accounts for fills — the difference of the two levels does not), `consumedLitres` (engine-reported,
+CAN vehicles only), `isCalibrated`, `readingsSettled`, `fillCount` and `filledLitres`. `trustworthy`
+is true only when the sender is calibrated **and** both levels and every fill are settled; recent
+readings never are, so today's figure is provisional by construction. Fills the provider lists
+twice are counted once.
+
+`temperature` gives the judged probe `channel`, `sampleCount`, `minC`/`maxC`/`avgC`, the first and
+last reading, and the `limitMinC`/`limitMaxC` the day was judged against. Those limits are copied
+from the route when the day is first judged and **never loosened afterwards**, so widening a
+route's range cannot erase an earlier breach. `minutesAboveMax`/`minutesBelowMin` are null on a
+round with no limits and zero on one that stayed in range; `breached` is true when limits were set
+and the probe spent time outside them. A reading is taken to hold until the next one, capped at
+`Cartrack:TemperatureSampleGapCapMinutes` (default 30), so a reporting gap is never counted as time
+spent warm. `sampleCount: 0` on a judged round is the cold-chain blind spot — nobody can say the
+load stayed cold — and is not collapsed into null.
+
+The vehicle totals add `daysWithFuel`, `fuelUsedLitres` (null when no day gave a figure),
+`fuelAllTrustworthy`, `fuelFillCount`, `fuelFilledLitres`, `daysWithTemperature` (days asked),
+`daysWithReadings` (days the probe answered), `daysBreached`, `minutesOutsideLimits` (null when no
+day was judged) and the period's `temperatureMinC`/`temperatureMaxC`.
+
+Every reading is also kept in `VehicleTemperatureSamples` as cold-chain evidence, because the
+provider retains temperature for about two months. A weekly job removes readings older than
+`Cartrack:TemperatureSampleRetentionDays` (default 730, never less than 365).
+
+**Money is only present where it can be attributed.** `sales`, `saleCount`, `totalSales`,
+`salesPerKm` and `kmPerSale` are null on a vehicle with no `businessPartnerCode` — a van nobody
+has linked has not sold nothing, it has simply not been mapped. Takings come through the shared
+van sales fact reader, so an online sale that posted straight to SAP and left only a confirmed
+stock reservation is counted alongside the offline ones.
+
+##### PUT `/api/van-sales/fleet/{registration}/business-partner`
+
+Links a vehicle to the van sales account whose takings and stock it carries. This is what lets a
+truck's kilometres be read beside the money its van moved.
+
+**Body:** `LinkVehicleBusinessPartnerRequest`. An empty or omitted code unlinks.
+
+```json
+{
+  "businessPartnerCode": "VAN010",
+  "businessPartnerName": "Van Sales CBD"
+}
+```
+
+The name is a label carried so the fleet list reads without a second lookup; everything joins on
+the code.
+
+**Response:** `TelematicsVehicleDto`. `404` when the registration is not in the telematics fleet.
+`400` when the code is not one of the van sales accounts — linking a truck to an ordinary
+customer would report that customer's entire trade as this van's takings, which is a wrong figure
+that looks entirely plausible. `409` when another vehicle already holds that account, because two
+trucks sharing one would each report its full takings and the same money would be counted twice.
 
 ##### GET `/api/van-sales/route-stops`
 

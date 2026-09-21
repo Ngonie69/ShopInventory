@@ -117,6 +117,7 @@ Tills & Vending
     Vending Sales  /vending/sales
 Van Sales
     Routes  /van-sales/routes
+    Fleet  /van-sales/fleet
     Customer Orders  /van-sales-customer-orders
     Market Breakages  /market-breakages
     Van Invoices  /van-sales/invoices
@@ -315,6 +316,7 @@ Tills & Vending
     Vending Sales  /vending/sales
 Van Sales
     Routes  /van-sales/routes
+    Fleet  /van-sales/fleet
     Route Customers  /route-customers
     Van Orders  /van-sales-orders
     Customer Orders  /van-sales-customer-orders

@@ -143,6 +143,12 @@ public static class QuartzConfiguration
                     CartrackDayRollupJob.HourlyTriggerName,
                     TimeSpan.FromHours(1),
                     startDelay: TimeSpan.FromMinutes(6));
+
+                // Temperature readings are the one telematics table that is evidence rather than a
+                // projection, so it grows until something trims it. Weekly, Sunday 03:45, clear of
+                // the fleet sync and the nightly rollup.
+                AddCronJob<CartrackTemperatureRetentionJob>(
+                    q, CartrackTemperatureRetentionJob.JobName, "0 45 3 ? * SUN");
             }
 
             if (dailyStock.EnableAutoStockFetch)

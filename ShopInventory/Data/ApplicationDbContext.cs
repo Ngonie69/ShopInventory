@@ -1870,6 +1870,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.ClientVehicleName).HasMaxLength(100);
       entity.Property(e => e.Manufacturer).HasMaxLength(60);
       entity.Property(e => e.Model).HasMaxLength(60);
+
+      // The van account this truck runs for. Indexed because the fleet audit joins the day
+      // rollups to that account's sales, and a report that reads every vehicle to find one
+      // account's is the shape that stops scaling the moment the fleet grows.
+      entity.Property(e => e.BusinessPartnerCode).HasMaxLength(100);
+      entity.Property(e => e.BusinessPartnerName).HasMaxLength(200);
+      entity.HasIndex(e => e.BusinessPartnerCode);
     });
 
     modelBuilder.Entity<VehicleDayRollupEntity>(entity =>

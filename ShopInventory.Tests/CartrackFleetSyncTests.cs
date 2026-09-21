@@ -130,6 +130,26 @@ public class CartrackFleetSyncTests : IDisposable
     }
 
     [Fact]
+    public async Task A_sync_never_erases_the_van_account_a_truck_was_linked_to()
+    {
+        // The same rule as the temperature columns, for the same reason: the provider knows
+        // nothing about this company's selling accounts, so a sync that wrote the whole row
+        // would unlink every truck from its van every night.
+        await Service([Vehicle("AFQ9644")]).SyncAsync(CancellationToken.None);
+
+        var row = _context.TelematicsVehicles.Single();
+        row.BusinessPartnerCode = "VAN010";
+        row.BusinessPartnerName = "Van 010 — Harare North";
+        await _context.SaveChangesAsync();
+
+        await Service([Vehicle("AFQ9644")]).SyncAsync(CancellationToken.None);
+
+        var after = _context.TelematicsVehicles.Single();
+        Assert.Equal("VAN010", after.BusinessPartnerCode);
+        Assert.Equal("Van 010 — Harare North", after.BusinessPartnerName);
+    }
+
+    [Fact]
     public async Task A_vehicle_that_leaves_the_fleet_is_retired_not_deleted()
     {
         await Service([Vehicle("AFQ9644"), Vehicle("ACQ3455")]).SyncAsync(CancellationToken.None);

@@ -291,22 +291,39 @@ public sealed class CartrackFuelLevelReading
 }
 
 /// <summary>A fill: how much, when, where, and at what odometer.</summary>
+/// <remarks>
+/// <para>
+/// A sixth place the published spec is wrong. It documents <c>fuel_filled</c>, <c>event_ts</c>,
+/// <c>odometer</c> and <c>location</c>; the server sends <c>fill_amount_litres</c>,
+/// <c>fill_timestamp</c>, <c>fill_odometer</c> and <c>fill_location</c>. Bound to the spec's names,
+/// every fill arrived with no litres, which read as a fill of nothing.
+/// </para>
+/// <para>
+/// The server also returns the same fill more than once — observed on 2026-09-14, one 121.9 L
+/// fill listed twice with identical timestamps and amounts. Callers de-duplicate.
+/// </para>
+/// </remarks>
 public sealed class CartrackFuelFill
 {
     [JsonPropertyName("registration")]
     public string? Registration { get; set; }
 
-    [JsonPropertyName("fuel_filled")]
+    [JsonPropertyName("fill_amount_litres")]
     public decimal? Litres { get; set; }
 
-    [JsonPropertyName("event_ts")]
+    [JsonPropertyName("fill_timestamp")]
     public string? EventTs { get; set; }
 
-    [JsonPropertyName("odometer")]
-    public decimal? OdometerKm { get; set; }
+    /// <summary>In metres, like every other odometer figure this API returns.</summary>
+    [JsonPropertyName("fill_odometer")]
+    public long? OdometerMetres { get; set; }
 
-    [JsonPropertyName("location")]
+    [JsonPropertyName("fill_location")]
     public string? Location { get; set; }
+
+    /// <summary>Provisional until the provider reprocesses it, like the tank levels.</summary>
+    [JsonPropertyName("accurate")]
+    public bool? IsAccurate { get; set; }
 
     [JsonPropertyName("latitude")]
     public double? Latitude { get; set; }

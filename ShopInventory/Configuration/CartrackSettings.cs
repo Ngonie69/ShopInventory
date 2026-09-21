@@ -152,6 +152,13 @@ public class CartrackSettings
     public int TemperatureSampleRetentionDays { get; set; } = 730;
 
     /// <summary>
+    /// The longest a single probe reading is taken to hold. A silence longer than this is a gap
+    /// in the evidence, not time spent warm, so it cannot stretch one bad reading into a long
+    /// breach. See <see cref="Services.Telematics.ColdChainEvaluator"/>.
+    /// </summary>
+    public int TemperatureSampleGapCapMinutes { get; set; } = 30;
+
+    /// <summary>
     /// Which time decides <c>LateOut</c>. See <see cref="Configuration.DepartureVerdictSource"/>
     /// — this is the one setting that changes whose day is marked late.
     /// </summary>

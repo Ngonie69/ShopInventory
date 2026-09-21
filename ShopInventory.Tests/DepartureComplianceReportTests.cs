@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.Services.Telematics;
+using ShopInventory.Configuration;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -371,7 +373,7 @@ public sealed class DepartureComplianceReportTests : IDisposable
 
     private async Task<DepartureComplianceReportResult> RunAsync()
     {
-        var handler = new GetDepartureComplianceReportHandler(_context);
+        var handler = new GetDepartureComplianceReportHandler(_context, Telematics());
 
         var result = await handler.Handle(
             new GetDepartureComplianceReportQuery(Day, Day),
@@ -472,4 +474,12 @@ public sealed class DepartureComplianceReportTests : IDisposable
             CreatedBy = Rep.ToString()
         });
     }
+    /// <summary>
+    /// The read side with telematics switched off, which is the state every one of these tests
+    /// is about: they predate the vehicle half and assert the handset's own behaviour, which
+    /// must not change because a fleet integration exists.
+    /// </summary>
+    private CartrackReadService Telematics() =>
+        new(_context, Microsoft.Extensions.Options.Options.Create(new CartrackSettings()));
+
 }

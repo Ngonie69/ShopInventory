@@ -104,9 +104,11 @@ public sealed class CartrackFleetSyncService(
                     added++;
                 }
 
-                // Provider-owned columns only. HasTemperatureProbe and LastTemperatureSeenAtUtc
-                // are deliberately absent: they are inferred from readings and this would erase
-                // them every night.
+                // Provider-owned columns only. Four are deliberately absent and must stay so:
+                // HasTemperatureProbe and LastTemperatureSeenAtUtc are inferred from readings,
+                // and BusinessPartnerCode with BusinessPartnerName are this company's own
+                // mapping of truck to van account. Writing the whole row would erase all four
+                // every night, and the provider could not supply any of them.
                 row.Registration = vehicle.Registration?.Trim();
                 row.CartrackVehicleId = vehicle.VehicleId;
                 row.TerminalSerial = vehicle.TerminalSerial?.Trim();

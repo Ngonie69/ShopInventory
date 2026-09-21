@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace ShopInventory.Services.Telematics;
 
 /// <summary>
@@ -50,3 +52,33 @@ public sealed record CartrackRollupStatus(
     DateTime? CoveredFrom,
     DateTime? CoveredThrough,
     string? Reason);
+
+/// <summary>
+/// Reads a stored checkpoint. Shared, so the service that writes it and the one that reports on
+/// it cannot drift about what an unreadable value means.
+/// </summary>
+public static class CartrackRollupCheckpointReader
+{
+    /// <summary>
+    /// The stored checkpoint, an empty one when nothing is stored, or <b>null</b> when the stored
+    /// value cannot be read — which the writer treats as "reset it" and the reader as "we do not
+    /// know how far this has got".
+    /// </summary>
+    public static CartrackRollupCheckpoint? TryRead(string? stored)
+    {
+        if (string.IsNullOrWhiteSpace(stored))
+        {
+            return new CartrackRollupCheckpoint();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<CartrackRollupCheckpoint>(stored)
+                   ?? new CartrackRollupCheckpoint();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+}

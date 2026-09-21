@@ -20,10 +20,6 @@ public interface ICartrackRollupService
 
     /// <summary>Rebuilds exactly one vehicle-day, for a retry or a test.</summary>
     Task<bool> BuildDayAsync(string registration, DateTime tradingDate, CancellationToken cancellationToken);
-
-    /// <summary>Whether the rollup can speak for this period, and why not when it cannot.</summary>
-    Task<CartrackRollupStatus> GetStatusAsync(
-        DateTime fromDate, DateTime toDate, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -59,7 +55,8 @@ public sealed class CartrackRollupService(
 {
     public const string CacheKey = "CartrackRollup";
 
-    private const string CheckpointConfigKey = "Cartrack.Rollup.Checkpoint";
+    /// <summary>The SystemConfigs key the checkpoint is stored under. Read by the read service too.</summary>
+    public const string CheckpointConfigKey = "Cartrack.Rollup.Checkpoint";
     private const string DisplayName = "Fleet telematics rollup";
     private const int MaxErrorLength = 1000;
 
@@ -184,70 +181,6 @@ public sealed class CartrackRollupService(
         var context = await LoadDayContextAsync(tradingDate, [key], cancellationToken);
 
         return await BuildOneAsync(key, tradingDate, context, cancellationToken);
-    }
-
-    public async Task<CartrackRollupStatus> GetStatusAsync(
-        DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
-    {
-        if (!_settings.Enabled)
-        {
-            return new CartrackRollupStatus(false, false, false, null, null, null,
-                "Fleet telematics is switched off, so no vehicle data is available.");
-        }
-
-        if (!_settings.HasCredentials)
-        {
-            return new CartrackRollupStatus(true, false, false, null, null, null,
-                "Fleet telematics is on but has no credentials, so no vehicle data is available.");
-        }
-
-        var lastSynced = await db.CacheSyncStates
-            .AsNoTracking()
-            .Where(state => state.CacheKey == CacheKey)
-            .Select(state => state.LastSyncedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var checkpoint = TryReadCheckpoint(await db.SystemConfigs
-            .AsNoTracking()
-            .Where(config => config.Key == CheckpointConfigKey)
-            .Select(config => config.Value)
-            .FirstOrDefaultAsync(cancellationToken));
-
-        var from = checkpoint?.BackfillThroughDate;
-        var through = checkpoint?.LastBuiltDate;
-
-        if (lastSynced is null || checkpoint is null)
-        {
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                "Fleet telematics has not run yet, so no vehicle data is available.");
-        }
-
-        var staleAfter = TimeSpan.FromHours(Math.Max(1, _settings.RollupReadyMaxAgeHours));
-
-        if (DateTime.UtcNow - lastSynced.Value > staleAfter)
-        {
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                $"Fleet telematics last ran {AuditService.ToCAT(lastSynced.Value):dd MMM HH:mm}, "
-                + "so the vehicle figures below may be out of date.");
-        }
-
-        // A backfill that has reached 1 August cannot speak for July. Showing July as "the van
-        // never moved" is worse than showing nothing, because it reads as a finding.
-        if (!checkpoint.BackfillCompleted || from is null || fromDate.Date < from.Value.Date)
-        {
-            var reached = from is { } f ? $"back to {f:dd MMM yyyy}" : "no history yet";
-
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                $"Fleet telematics has {reached}, so it cannot speak for this whole period.");
-        }
-
-        if (through is null || toDate.Date > through.Value.Date)
-        {
-            return new CartrackRollupStatus(true, true, false, lastSynced, from, through,
-                "Fleet telematics has not built the most recent day in this period yet.");
-        }
-
-        return new CartrackRollupStatus(true, true, true, lastSynced, from, through, null);
     }
 
     // — The passes ————————————————————————————————————————————————————
@@ -412,8 +345,88 @@ public sealed class CartrackRollupService(
                 TelematicsRegistration.Comparer,
                 cancellationToken);
 
+        context.Vehicles = await db.TelematicsVehicles
+            .AsTracking()
+            .Where(vehicle => registrations.Contains(vehicle.RegistrationNormalized))
+            .ToDictionaryAsync(
+                vehicle => vehicle.RegistrationNormalized,
+                TelematicsRegistration.Comparer,
+                cancellationToken);
+
+        context.Limits = await LoadColdChainLimitsAsync(tradingDate, cancellationToken);
+
         return context;
     }
+
+    /// <summary>
+    /// The cold-chain limits each truck ran under on a date: the route it was recorded on that
+    /// day, else the route whose default truck it is.
+    /// </summary>
+    /// <remarks>
+    /// Where two routes claim one truck, the first one that has limits set wins, in route-code
+    /// order so the choice is the same on every rebuild. A truck judged against no limits at all
+    /// because the wrong route was picked would be the worse mistake.
+    /// </remarks>
+    private async Task<Dictionary<string, ColdChainLimits>> LoadColdChainLimitsAsync(
+        DateTime tradingDate, CancellationToken cancellationToken)
+    {
+        var onTheDay = await db.VanRouteDays
+            .AsNoTracking()
+            .Where(day => day.TradingDate == tradingDate.Date
+                          && day.TruckRegNo != null
+                          && day.Route != null)
+            .Select(day => new RouteLimitsRow(
+                day.TruckRegNo!,
+                day.Route!.Code,
+                day.Route.TemperatureMinC,
+                day.Route.TemperatureMaxC,
+                day.Route.TemperatureProbeChannel))
+            .ToListAsync(cancellationToken);
+
+        var routeDefaults = await db.Routes
+            .AsNoTracking()
+            .Where(route => route.IsActive && route.TruckRegNo != null)
+            .Select(route => new RouteLimitsRow(
+                route.TruckRegNo!,
+                route.Code,
+                route.TemperatureMinC,
+                route.TemperatureMaxC,
+                route.TemperatureProbeChannel))
+            .ToListAsync(cancellationToken);
+
+        var limits = new Dictionary<string, ColdChainLimits>(TelematicsRegistration.Comparer);
+
+        // The day's own route first, so a truck that ran a different round from its usual one is
+        // judged by the round it actually ran.
+        foreach (var source in new[] { onTheDay, routeDefaults })
+        {
+            var byTruck = source
+                .Select(row => (Key: TelematicsRegistration.Normalize(row.TruckRegNo), Row: row))
+                .Where(entry => entry.Key is not null)
+                .GroupBy(entry => entry.Key!, TelematicsRegistration.Comparer);
+
+            foreach (var truck in byTruck)
+            {
+                if (limits.ContainsKey(truck.Key))
+                {
+                    continue;
+                }
+
+                var chosen = truck
+                    .Select(entry => entry.Row)
+                    .OrderBy(row => row.MinC is null && row.MaxC is null)
+                    .ThenBy(row => row.RouteCode, StringComparer.Ordinal)
+                    .First();
+
+                limits[truck.Key] = new ColdChainLimits(chosen.MinC, chosen.MaxC, chosen.Channel);
+            }
+        }
+
+        return limits;
+    }
+
+    private sealed record RouteLimitsRow(
+        string TruckRegNo, string RouteCode, decimal? MinC, decimal? MaxC, byte? Channel);
 
     private async Task<bool> BuildOneAsync(
         string registration, DateTime tradingDate, DayContext context, CancellationToken cancellationToken)
@@ -441,6 +454,8 @@ public sealed class CartrackRollupService(
 
         ApplyMovement(row, registration, context);
         await ApplyOdometerAsync(row, registration, context, cancellationToken);
+        await ApplyFuelAsync(row, registration, context, cancellationToken);
+        await ApplyTemperatureAsync(row, registration, context, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -579,6 +594,275 @@ public sealed class CartrackRollupService(
     }
 
     /// <summary>
+    /// Tank level, burn and fills — asked for only where a sensor that could answer is fitted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A vehicle with no fuel sensor is not asked at all and keeps <c>HasFuel</c> false, so the
+    /// report can say "no fuel sensor" from the vehicle rather than "fuel not reported" from the
+    /// day. Those are different sentences: one is a fitting, the other is a fault.
+    /// </para>
+    /// <para>
+    /// Each call is gated on the sensor that answers it. On this fleet no vehicle has a CAN read,
+    /// and the consumption endpoint answers an empty object for all of them, so asking would buy
+    /// a request per vehicle per day for a null.
+    /// </para>
+    /// </remarks>
+    private async Task ApplyFuelAsync(
+        VehicleDayRollupEntity row, string registration, DayContext context, CancellationToken cancellationToken)
+    {
+        if (!context.Vehicles.TryGetValue(registration, out var vehicle) || !vehicle.HasAnyFuelSensor)
+        {
+            return;
+        }
+
+        try
+        {
+            var consumed = vehicle.HasFuelCanbusConsumed
+                ? await client.GetFuelConsumedAsync(registration, context.FromUtc, context.ToUtc, cancellationToken)
+                : null;
+
+            var level = vehicle.HasFuelCanbusLevel || vehicle.HasFuelAnalogLevel
+                ? await client.GetFuelLevelAsync(registration, context.FromUtc, context.ToUtc, cancellationToken)
+                : null;
+
+            // De-duplicated on when and how much: the provider lists the same fill twice at times
+            // (seen live on 2026-09-14), and counting both would double the day's litres.
+            var fills = (await client.GetFuelFillsAsync(
+                    registration, context.FromUtc, context.ToUtc, cancellationToken))
+                .DistinctBy(fill => (CartrackTime.ToUtc(fill.EventTs), fill.Litres))
+                .ToList();
+
+            row.FuelConsumedLitres = consumed?.FuelConsumedLitres;
+            row.FuelLevelStartLitres = level?.Start?.Litres;
+            row.FuelLevelEndLitres = level?.End?.Litres;
+            row.EstimatedFuelUsedLitres = level?.EstimatedFuelUsedLitres;
+            // Only a response with readings speaks for calibration. Before a van has run, the
+            // level endpoint answers with no readings and "calibrated": false — seen live on the
+            // morning of 2026-09-21 on a sender calibrated on every day it had readings — and
+            // storing that would mark a working sensor as broken until the day was rebuilt.
+            row.FuelIsCalibrated = level?.Start is null && level?.End is null
+                ? null
+                : level.IsCalibrated;
+
+            // Settled only when both ends are, and every fill between them. One provisional
+            // reading makes the day's estimate provisional too, because the estimate is built
+            // from the levels and the fills together.
+            row.FuelReadingsAccurate = level is null
+                ? null
+                : level.Start?.IsAccurate == true
+                  && level.End?.IsAccurate == true
+                  && fills.All(fill => fill.IsAccurate != false);
+
+            row.FuelFillCount = fills.Count;
+            row.FuelFilledLitres = fills.Sum(fill => fill.Litres ?? 0m);
+            row.HasFuel = true;
+        }
+        catch (CartrackRateLimitedException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Leaves HasFuel as it stands, for the reason ApplyMovement gives.
+            logger.LogWarning(ex,
+                "Fleet telematics could not read fuel for {Registration} on "
+                + "{TradingDate:yyyy-MM-dd}; the rest of the day is kept.",
+                registration, context.TradingDate);
+
+            row.LastError = Truncate(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// The day's probe readings: every one kept as evidence, and one channel judged against the
+    /// limits the round carried.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The limits are snapshotted, and a snapshot is never loosened.</b> A day already judged
+    /// keeps the limits it was judged against, so widening a route's range this morning cannot
+    /// erase last month's breach. A day built before its route had any limits takes them up on
+    /// the next rebuild, which is what lets a newly configured route judge the days the
+    /// reconciliation window still revisits.
+    /// </para>
+    /// <para>
+    /// Every vehicle on the day is asked, not only the ones known to have a probe. The provider
+    /// does not say whether one is fitted, so the only way to learn is to ask — and the only
+    /// way the report can say "limits set, no probe readings" is to have asked and been told
+    /// nothing.
+    /// </para>
+    /// </remarks>
+    private async Task ApplyTemperatureAsync(
+        VehicleDayRollupEntity row, string registration, DayContext context, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<CartrackTemperatureReading> readings;
+
+        try
+        {
+            // Clamped to now. Unlike the events and odometer calls, the temperature endpoint
+            // refuses a window that ends in the future — a 422, "The end_timestamp must be a date
+            // before or equal to now" — so today's day, whose window closes at 22:00Z tonight,
+            // would never be read at all while it was still today.
+            var toUtc = context.ToUtc < DateTime.UtcNow ? context.ToUtc : DateTime.UtcNow;
+
+            readings = await client.GetTemperaturesAsync(
+                context.FromUtc, toUtc, registration, cancellationToken);
+        }
+        catch (CartrackRateLimitedException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Fleet telematics could not read temperatures for {Registration} on "
+                + "{TradingDate:yyyy-MM-dd}; the rest of the day is kept.",
+                registration, context.TradingDate);
+
+            row.LastError = Truncate(ex.Message);
+            return;
+        }
+
+        var samples = SamplesOf(readings, registration, context);
+        await StoreSamplesAsync(registration, samples, context, cancellationToken);
+
+        context.Limits.TryGetValue(registration, out var limits);
+
+        if (row.LimitMinC is null && row.LimitMaxC is null)
+        {
+            row.LimitMinC = limits.MinC;
+            row.LimitMaxC = limits.MaxC;
+        }
+
+        // The route names the channel when a vehicle has more than one probe; otherwise the
+        // lowest-numbered one that reported is the fridge, which is what it is on this fleet.
+        var channel = limits.Channel
+                      ?? (samples.Count > 0 ? samples.Min(sample => sample.Channel) : null);
+
+        var summary = ColdChainEvaluator.Evaluate(
+            samples
+                .Where(sample => sample.Channel == channel)
+                .Select(sample => new TemperaturePoint(sample.EventAtUtc, sample.TemperatureC))
+                .ToList(),
+            row.LimitMinC,
+            row.LimitMaxC,
+            TimeSpan.FromMinutes(Math.Max(1, _settings.TemperatureSampleGapCapMinutes)));
+
+        row.TemperatureChannel = channel;
+        row.TemperatureSampleCount = summary.SampleCount;
+        row.TemperatureMinC = summary.MinC;
+        row.TemperatureMaxC = summary.MaxC;
+        row.TemperatureAvgC = summary.AvgC;
+        row.TemperatureFirstSampleUtc = summary.FirstSampleUtc;
+        row.TemperatureLastSampleUtc = summary.LastSampleUtc;
+        row.MinutesAboveMaxLimit = summary.MinutesAboveMax;
+        row.MinutesBelowMinLimit = summary.MinutesBelowMin;
+        row.HasTemperature = true;
+
+        if (context.Vehicles.TryGetValue(registration, out var vehicle))
+        {
+            if (samples.Count > 0)
+            {
+                // Inferred, because the provider has no capability flag for a probe. Once one has
+                // reported it has a probe; a silent day later means the fridge was off, not that
+                // the probe came out.
+                var last = samples.Max(sample => sample.EventAtUtc);
+
+                vehicle.HasTemperatureProbe = true;
+
+                if (vehicle.LastTemperatureSeenAtUtc is null || last > vehicle.LastTemperatureSeenAtUtc)
+                {
+                    vehicle.LastTemperatureSeenAtUtc = last;
+                }
+            }
+            else
+            {
+                vehicle.HasTemperatureProbe ??= false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The readings as samples, one per reporting channel. Only channels that carry a value are
+    /// kept — on this fleet three of the four never do, and storing their nulls would quadruple
+    /// the table for nothing.
+    /// </summary>
+    private static List<VehicleTemperatureSampleEntity> SamplesOf(
+        IReadOnlyList<CartrackTemperatureReading> readings, string registration, DayContext context)
+    {
+        var samples = new List<VehicleTemperatureSampleEntity>();
+        var seen = new HashSet<(byte, DateTime)>();
+
+        foreach (var reading in readings)
+        {
+            if (!TelematicsRegistration.AreSame(reading.Registration, registration)
+                || CartrackTime.ToUtc(reading.EventTs) is not { } at
+                || at < context.FromUtc
+                || at >= context.ToUtc)
+            {
+                continue;
+            }
+
+            var received = CartrackTime.ToUtc(reading.ReceivedTs);
+
+            foreach (var (channel, value) in new (byte, decimal?)[]
+                     {
+                         (1, reading.Temp1), (2, reading.Temp2), (3, reading.Temp3), (4, reading.Temp4)
+                     })
+            {
+                if (value is not { } celsius || !seen.Add((channel, at)))
+                {
+                    continue;
+                }
+
+                samples.Add(new VehicleTemperatureSampleEntity
+                {
+                    RegistrationNormalized = registration,
+                    TradingDate = CartrackTime.TradingDateOf(at),
+                    Channel = channel,
+                    EventAtUtc = at,
+                    ReceivedAtUtc = received,
+                    TemperatureC = celsius
+                });
+            }
+        }
+
+        return samples;
+    }
+
+    /// <summary>
+    /// Adds the readings not already held. Existing ones are left exactly as they are: this table
+    /// is evidence rather than a projection, and a reading is not revised by being read again.
+    /// </summary>
+    private async Task StoreSamplesAsync(
+        string registration,
+        List<VehicleTemperatureSampleEntity> samples,
+        DayContext context,
+        CancellationToken cancellationToken)
+    {
+        if (samples.Count == 0)
+        {
+            return;
+        }
+
+        var held = await db.VehicleTemperatureSamples
+            .AsNoTracking()
+            .Where(sample => sample.RegistrationNormalized == registration
+                             && sample.EventAtUtc >= context.FromUtc
+                             && sample.EventAtUtc < context.ToUtc)
+            .Select(sample => new { sample.Channel, sample.EventAtUtc })
+            .ToListAsync(cancellationToken);
+
+        var existing = held
+            .Select(sample => (sample.Channel, sample.EventAtUtc))
+            .ToHashSet();
+
+        db.VehicleTemperatureSamples.AddRange(
+            samples.Where(sample => !existing.Contains((sample.Channel, sample.EventAtUtc))));
+    }
+
+    /// <summary>
     /// Great-circle distance in metres. Good to well under a metre at these ranges, which is far
     /// finer than a depot radius needs.
     /// </summary>
@@ -621,7 +905,7 @@ public sealed class CartrackRollupService(
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        var checkpoint = TryReadCheckpoint(row.Value);
+        var checkpoint = CartrackRollupCheckpointReader.TryRead(row.Value);
 
         if (checkpoint is null)
         {
@@ -636,24 +920,6 @@ public sealed class CartrackRollupService(
         }
 
         return (row, checkpoint);
-    }
-
-    private static CartrackRollupCheckpoint? TryReadCheckpoint(string? stored)
-    {
-        if (string.IsNullOrWhiteSpace(stored))
-        {
-            return new CartrackRollupCheckpoint();
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<CartrackRollupCheckpoint>(stored)
-                   ?? new CartrackRollupCheckpoint();
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 
     private async Task SaveCheckpointAsync(
@@ -695,6 +961,9 @@ public sealed class CartrackRollupService(
     private static string? Truncate(string? value) =>
         value is null || value.Length <= MaxErrorLength ? value : value[..MaxErrorLength];
 
+    /// <summary>The limits one truck's round carried, and which probe channel is its fridge. All null when unset.</summary>
+    private readonly record struct ColdChainLimits(decimal? MinC, decimal? MaxC, byte? Channel);
+
     /// <summary>The two fleet-wide reads for one date, plus where each van's day was recorded from.</summary>
     private sealed class DayContext(DateTime tradingDate, DateTime fromUtc, DateTime toUtc)
     {
@@ -709,6 +978,11 @@ public sealed class CartrackRollupService(
         public bool MovementLoaded { get; set; }
 
         public Dictionary<string, (double, double)> Departures { get; set; } = new(TelematicsRegistration.Comparer);
+
+        /// <summary>Each vehicle's fleet record — which sensors it has — tracked so the probe inference is saved.</summary>
+        public Dictionary<string, TelematicsVehicleEntity> Vehicles { get; set; } = new(TelematicsRegistration.Comparer);
+
+        public Dictionary<string, ColdChainLimits> Limits { get; set; } = new(TelematicsRegistration.Comparer);
 
         public string? Error { get; set; }
     }

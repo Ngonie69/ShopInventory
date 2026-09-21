@@ -10,6 +10,8 @@ using ShopInventory.Features.VanSalesReports.Commands.SaveRouteStop;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRouteStops;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
+using ShopInventory.Features.VanSalesReports.Commands.LinkVehicleBusinessPartner;
+using ShopInventory.Features.VanSalesReports.Queries.GetFleetAudit;
 using ShopInventory.Features.VanSalesReports.Queries.GetTelematicsVehicles;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
@@ -303,6 +305,73 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The fleet over a period: one row per vehicle, each carrying its own days.
+    /// </summary>
+    /// <remarks>
+    /// The compliance report asks how each rep did; this asks what each truck did. Gated on van
+    /// sales attendance like the other reports rather than on the route writes, because reading
+    /// it changes nothing.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days ago.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="registration">One vehicle; the whole fleet when omitted.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("fleet-audit")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(FleetAuditResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetFleetAudit(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? registration = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetFleetAuditQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                registration),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Links a vehicle to the van sales business partner whose takings it carries, or clears the
+    /// link when the code is omitted.
+    /// </summary>
+    /// <remarks>
+    /// A write, so gated like the route writes rather than like the reports. The code is checked
+    /// against the canonical van account list — linking a truck to an ordinary customer would
+    /// report that customer's whole trade as this van's takings.
+    /// </remarks>
+    /// <param name="registration">The vehicle's registration, in any spelling.</param>
+    /// <param name="request">The van account code and its name, or an empty code to unlink.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpPut("fleet/{registration}/business-partner")]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
+    [ProducesResponseType(typeof(TelematicsVehicleDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> LinkVehicleBusinessPartner(
+        string registration,
+        [FromBody] LinkVehicleBusinessPartnerRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new LinkVehicleBusinessPartnerCommand(
+                registration, request.BusinessPartnerCode, request.BusinessPartnerName),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
     /// <summary>Creates a route.</summary>
     /// <param name="request">The route's code, name, territory and truck.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -529,6 +598,13 @@ public record ReorderRouteStopsRequest(
     DayOfWeek? DayOfWeek = null,
     int? WeekNumber = null,
     int AlternateSet = 0);
+
+/// <summary>
+/// The van account a vehicle carries, as the portal submits it. An empty code unlinks.
+/// </summary>
+public record LinkVehicleBusinessPartnerRequest(
+    string? BusinessPartnerCode,
+    string? BusinessPartnerName);
 
 /// <summary>A route as the portal submits it. There is no delete: a route names historical days.</summary>
 public record SaveRouteRequest(

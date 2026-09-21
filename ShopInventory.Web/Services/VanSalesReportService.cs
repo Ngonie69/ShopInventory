@@ -42,6 +42,18 @@ public interface IVanSalesReportService
     /// <summary>The telematics fleet, for the truck registration picker on the route editor.</summary>
     Task<TelematicsVehiclesResponse> GetTelematicsVehiclesAsync(bool includeRetired = false);
 
+    /// <summary>The fleet audit: one row per vehicle over a period, each carrying its own days.</summary>
+    Task<FleetAuditResponse?> GetFleetAuditAsync(
+        DateTime? fromDate = null, DateTime? toDate = null, string? registration = null);
+
+    /// <summary>
+    /// Links a vehicle to a van sales account, or clears the link with a null code. Returns the
+    /// server's refusal rather than swallowing it: a duplicate account and a vehicle that is not
+    /// in the fleet are both things a person can act on.
+    /// </summary>
+    Task<string?> LinkVehicleBusinessPartnerAsync(
+        string registration, string? businessPartnerCode, string? businessPartnerName);
+
     /// <summary>Creates or updates a route. Returns the saved route, or the server's refusal.</summary>
     Task<(RouteDto? Route, string? Error)> SaveRouteAsync(RouteDto route);
 
@@ -77,8 +89,9 @@ public interface IVanSalesReportService
 /// <c>api/van-sales/performance-report</c>, <c>api/van-sales/coverage-report</c>,
 /// <c>api/van-sales/replenishment-report</c>, <c>api/van-sales/stock-report</c> and
 /// <c>api/van-sales/routes</c>, <c>api/van-sales/route-stops</c>,
-/// <c>api/van-sales/route-stops/reorder</c> and <c>api/van-sales/telematics/vehicles</c> — and
-/// the exception is logged rather than only returned as null, so a wrong URL leaves a trail.
+/// <c>api/van-sales/route-stops/reorder</c>, <c>api/van-sales/telematics/vehicles</c>,
+/// <c>api/van-sales/fleet-audit</c> and <c>api/van-sales/fleet/{registration}/business-partner</c>
+/// — and the exception is logged rather than only returned as null, so a wrong URL leaves a trail.
 /// </remarks>
 public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReportService> logger)
     : IVanSalesReportService
@@ -264,6 +277,62 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
             {
                 Reason = "The vehicle list could not be fetched. Type the registration instead."
             };
+        }
+    }
+
+    public async Task<FleetAuditResponse?> GetFleetAuditAsync(
+        DateTime? fromDate = null, DateTime? toDate = null, string? registration = null)
+    {
+        try
+        {
+            // Dates only: these are CAT trading days, not instants, for the reason the
+            // compliance report gives above.
+            var query = new List<string>();
+
+            if (fromDate.HasValue) query.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) query.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (!string.IsNullOrWhiteSpace(registration))
+                query.Add($"registration={Uri.EscapeDataString(registration)}");
+
+            var url = query.Count > 0
+                ? $"api/van-sales/fleet-audit?{string.Join("&", query)}"
+                : "api/van-sales/fleet-audit";
+
+            return await httpClient.GetFromJsonAsync<FleetAuditResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the fleet audit");
+            return null;
+        }
+    }
+
+    public async Task<string?> LinkVehicleBusinessPartnerAsync(
+        string registration, string? businessPartnerCode, string? businessPartnerName)
+    {
+        try
+        {
+            var response = await httpClient.PutAsJsonAsync(
+                $"api/van-sales/fleet/{Uri.EscapeDataString(registration)}/business-partner",
+                new { businessPartnerCode, businessPartnerName });
+
+            if (response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var problem = await ReadProblemDetailAsync(response);
+
+            logger.LogWarning(
+                "Linking {Registration} to {Account} failed with {Status}: {Detail}",
+                registration, businessPartnerCode ?? "(none)", (int)response.StatusCode, problem);
+
+            return problem;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error linking {Registration}", registration);
+            return $"The link could not be saved: {ex.Message}";
         }
     }
 
