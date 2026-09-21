@@ -1,7 +1,9 @@
 using System.Globalization;
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -11,9 +13,13 @@ namespace ShopInventory.Features.SapConfiguration.Commands.UpdateSAPSettings;
 public sealed class UpdateSAPSettingsHandler(
     ISAPServiceLayerClient sapClient,
     IAuditService auditService,
+    IOptionsMonitor<SAPSettings> sapSettings,
     ILogger<UpdateSAPSettingsHandler> logger
 ) : IRequestHandler<UpdateSAPSettingsCommand, ErrorOr<UpdateSAPSettingsResult>>
 {
+    /// <summary>The web.config the settings are written to. Settable so tests can point it at a temp file.</summary>
+    internal string WebConfigPath { get; init; } = Path.Combine(AppContext.BaseDirectory, "web.config");
+
     public async Task<ErrorOr<UpdateSAPSettingsResult>> Handle(
         UpdateSAPSettingsCommand command,
         CancellationToken cancellationToken)
@@ -24,7 +30,7 @@ public sealed class UpdateSAPSettingsHandler(
 
             var request = command.Request;
 
-            var webConfigPath = Path.Combine(AppContext.BaseDirectory, "web.config");
+            var webConfigPath = WebConfigPath;
             if (!File.Exists(webConfigPath))
                 return Errors.SAPSettings.UpdateFailed("web.config not found. Settings can only be updated on IIS deployments.");
 
@@ -38,7 +44,13 @@ public sealed class UpdateSAPSettingsHandler(
             SetEnvironmentVariable(envVarsNode, xml, "SAP__ServiceLayerUrl", request.ServiceLayerUrl);
             SetEnvironmentVariable(envVarsNode, xml, "SAP__CompanyDB", request.CompanyDB);
             SetEnvironmentVariable(envVarsNode, xml, "SAP__Username", request.UserName);
-            SetEnvironmentVariable(envVarsNode, xml, "SAP__Password", request.Password);
+
+            // The Settings page never pre-fills the password and says "leave blank to keep the current
+            // password", so a blank one means keep it. Writing it would blank SAP__Password and break
+            // the SAP login at the next app pool restart.
+            var passwordSupplied = !string.IsNullOrWhiteSpace(request.Password);
+            if (passwordSupplied)
+                SetEnvironmentVariable(envVarsNode, xml, "SAP__Password", request.Password!);
 
             if (request.InvoiceSeries.HasValue)
             {
@@ -67,8 +79,11 @@ public sealed class UpdateSAPSettingsHandler(
             {
                 try
                 {
+                    // The running process still holds the configured password; web.config edits only
+                    // reach IOptionsMonitor after a restart, which is the value we just kept.
+                    var testPassword = passwordSupplied ? request.Password! : sapSettings.CurrentValue.Password;
                     var connected = await sapClient.TestConnectionWithCredentialsAsync(
-                        request.ServiceLayerUrl, request.CompanyDB, request.UserName, request.Password,
+                        request.ServiceLayerUrl, request.CompanyDB, request.UserName, testPassword,
                         cancellationToken);
                     return new UpdateSAPSettingsResult(
                         connected
