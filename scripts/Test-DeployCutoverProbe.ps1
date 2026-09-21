@@ -242,6 +242,69 @@ function Stop-TinyHttpServer {
     $Server.Runspace.Dispose()
 }
 
+# Holds a phase open until the probe has taken Count samples in it, then some. Each phase of these
+# tests lasts at least MinimumMilliseconds. Past that it lasts as long as the probe needs to show it
+# was watching. A fixed window, "8 probes in 1.3 seconds", works on a fast machine and fails on a slow
+# GitHub runner where each request takes 150ms. What the tests need to know is that the probe kept
+# sampling through every phase, not how fast it did so. A probe that has stalled or never ran still
+# fails, at the deadline, and the message says how many samples it did take.
+function Wait-ProbeSamples {
+    param(
+        [object]$Probe,
+        [DateTime]$Since,
+        [int]$Count,
+        # $true or $false to count only answered or only failed probes; left out, every probe counts.
+        [object]$Ok = $null,
+        [int]$MinimumMilliseconds = 0,
+        [int]$TimeoutSeconds = 20
+    )
+
+    $floor = $Since.AddMilliseconds($MinimumMilliseconds)
+    $deadline = $Since.AddSeconds($TimeoutSeconds)
+    $samples = $Probe.Shared.Samples
+
+    while ($true) {
+        # By index up to a Count read once: the probe's runspace goes on appending while this reads,
+        # and an element already added never changes.
+        $seen = 0
+        $total = $samples.Count
+        for ($i = 0; $i -lt $total; $i++) {
+            $sample = $samples[$i]
+            if ($sample.At -ge $Since -and ($null -eq $Ok -or $sample.Ok -eq $Ok)) { $seen++ }
+        }
+
+        $now = [DateTime]::UtcNow
+        if ($seen -ge $Count -and $now -ge $floor) { return }
+        if ($now -ge $deadline) {
+            $kind = if ($null -eq $Ok) { '' } elseif ($Ok) { 'answered ' } else { 'failed ' }
+            throw "Only $seen ${kind}probes in ${TimeoutSeconds}s, where $Count were expected: the probe was barely running."
+        }
+
+        Start-Sleep -Milliseconds 20
+    }
+}
+
+# The first HttpWebRequest in a process pays for JIT and for setting up the networking stack. On a
+# loaded machine that took 3.6 seconds, against the probe's 300ms timeout, while every request after it
+# took 6-200ms. Unwarmed, the first probe of the first test below fails against a healthy port, and the
+# check for false positives flakes on a slow runner for a reason that has nothing to do with the port.
+# One request with a generous timeout, before any of them start, pays that cost for the whole process.
+$warmupPort = Get-FreeLoopbackPort
+$warmupServer = Start-TinyHttpServer -Port $warmupPort
+try {
+    $warmup = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$warmupPort/health/live")
+    $warmup.Timeout = 30000
+    $warmup.Proxy = $null
+    $warmup.KeepAlive = $false
+    $warmup.GetResponse().Close()
+}
+catch {
+    Write-Host "  Note: the warm-up request failed, so the first probe may pay the start-up cost: $($_.Exception.Message)" -ForegroundColor DarkGray
+}
+finally {
+    Stop-TinyHttpServer -Server $warmupServer
+}
+
 Check "A port that answers throughout is reported as no outage at all" {
     # The false positive that matters: if the probe cried wolf, every deployment would look like it
     # dropped requests and the number would stop meaning anything.
@@ -249,9 +312,10 @@ Check "A port that answers throughout is reported as no outage at all" {
     $server = Start-TinyHttpServer -Port $port
 
     try {
+        $startedAt = [DateTime]::UtcNow
         $probe = Start-PublicPortProbe -Url "http://127.0.0.1:$port/health/live" -IntervalMilliseconds 40
         Assert ($null -ne $probe) "The probe did not start."
-        Start-Sleep -Milliseconds 600
+        Wait-ProbeSamples -Probe $probe -Since $startedAt -Count 5 -Ok $true -MinimumMilliseconds 600
         $outage = Stop-PublicPortProbe -Probe $probe
     }
     finally {
@@ -259,7 +323,7 @@ Check "A port that answers throughout is reported as no outage at all" {
     }
 
     Assert ($null -ne $outage) "The probe collected no samples."
-    Assert ($outage.Probes -ge 5) "Only $($outage.Probes) probes in 600ms."
+    Assert ($outage.Probes -ge 5) "Only $($outage.Probes) probes."
     Assert ($outage.Failures -eq 0) "$($outage.Failures) of $($outage.Probes) probes failed against a port that never stopped."
     Assert ($outage.LongestOutageMs -eq 0) "Reported $($outage.LongestOutageMs)ms against a port that never stopped."
 }
@@ -272,11 +336,16 @@ Check "A port that stops answering and comes back is measured" {
         $probe = Start-PublicPortProbe -Url "http://127.0.0.1:$port/health/live" -IntervalMilliseconds 40
         Assert ($null -ne $probe) "The probe did not start."
 
-        Start-Sleep -Milliseconds 300
+        Assert ($probe.Shared.Samples.Count -ge 1) "The probe returned before taking its first sample, so it could miss the start of a cutover."
+        Wait-ProbeSamples -Probe $probe -Since $probe.Shared.Samples[0].At -Count 3 -Ok $true -MinimumMilliseconds 300
+        $downAt = [DateTime]::UtcNow
         $server.Shared.Refusing = $true     # the cutover
-        Start-Sleep -Milliseconds 600
+        # Samples of any kind, as below for the 404s: waiting for failures would turn a probe that
+        # never notices the refusal into a timeout, and hide the assertion that says so.
+        Wait-ProbeSamples -Probe $probe -Since $downAt -Count 2 -MinimumMilliseconds 600
+        $upAt = [DateTime]::UtcNow
         $server.Shared.Refusing = $false    # and the far side of it
-        Start-Sleep -Milliseconds 400
+        Wait-ProbeSamples -Probe $probe -Since $upAt -Count 3 -Ok $true -MinimumMilliseconds 400
 
         $outage = Stop-PublicPortProbe -Probe $probe
     }
@@ -284,15 +353,18 @@ Check "A port that stops answering and comes back is measured" {
         Stop-TinyHttpServer -Server $server
     }
 
+    # At least 600ms, and longer when a slow runner needed longer to see two failures.
+    $gapMs = [int]($upAt - $downAt).TotalMilliseconds
+
     Assert ($null -ne $outage) "The probe collected no samples."
-    Assert ($outage.Probes -ge 8) "Only $($outage.Probes) probes across 1.3 seconds: the probe was barely running."
+    Assert ($outage.Probes -ge 8) "Only $($outage.Probes) probes across three phases: the probe was barely running."
     # The one that matters. A probe that starts late sees only the port coming back and reports a
     # clean cutover, which is the worst thing this measurement could do - it would say a deploy
     # dropped nothing when it dropped everything. Start-PublicPortProbe waits for its first sample
     # before returning, and these two hold it to that.
-    Assert ($outage.Failures -ge 1) "The probe saw no failure across a 600ms gap: it was not watching."
-    Assert ($outage.LongestOutageMs -ge 300) "Reported $($outage.LongestOutageMs)ms for a gap of about 600ms."
-    Assert ($outage.LongestOutageMs -le 3000) "Reported $($outage.LongestOutageMs)ms for a gap of about 600ms."
+    Assert ($outage.Failures -ge 1) "The probe saw no failure across a ${gapMs}ms gap: it was not watching."
+    Assert ($outage.LongestOutageMs -ge 300) "Reported $($outage.LongestOutageMs)ms for a gap of ${gapMs}ms."
+    Assert ($outage.LongestOutageMs -le ($gapMs + 2400)) "Reported $($outage.LongestOutageMs)ms for a gap of ${gapMs}ms."
 }
 
 Check "A 404 from a port that is still bound counts as an outage, not as an answer" {
@@ -307,11 +379,17 @@ Check "A 404 from a port that is still bound counts as an outage, not as an answ
         $probe = Start-PublicPortProbe -Url "http://127.0.0.1:$port/health/live" -IntervalMilliseconds 40
         Assert ($null -ne $probe) "The probe did not start."
 
-        Start-Sleep -Milliseconds 300
+        Assert ($probe.Shared.Samples.Count -ge 1) "The probe returned before taking its first sample, so it could miss the start of a cutover."
+        Wait-ProbeSamples -Probe $probe -Since $probe.Shared.Samples[0].At -Count 3 -Ok $true -MinimumMilliseconds 300
+        $downAt = [DateTime]::UtcNow
         $server.Shared.StatusLine = '404 Not Found'
-        Start-Sleep -Milliseconds 600
+        # Waiting for failures would turn a probe that counts 404s as answers into a timeout,
+        # hiding the message below. So the wait is for samples of any kind, which is the only way to
+        # know the run of 404s was long enough to be seen.
+        Wait-ProbeSamples -Probe $probe -Since $downAt -Count 2 -MinimumMilliseconds 600
+        $upAt = [DateTime]::UtcNow
         $server.Shared.StatusLine = '200 OK'
-        Start-Sleep -Milliseconds 400
+        Wait-ProbeSamples -Probe $probe -Since $upAt -Count 3 -Ok $true -MinimumMilliseconds 400
 
         $outage = Stop-PublicPortProbe -Probe $probe
     }
@@ -319,10 +397,12 @@ Check "A 404 from a port that is still bound counts as an outage, not as an answ
         Stop-TinyHttpServer -Server $server
     }
 
+    $gapMs = [int]($upAt - $downAt).TotalMilliseconds
+
     Assert ($null -ne $outage) "The probe collected no samples."
     Assert ($outage.Failures -ge 1) "The probe counted 404s as answers, so an outage like 14 September would read as a clean cutover."
-    Assert ($outage.LongestOutageMs -ge 300) "Reported $($outage.LongestOutageMs)ms for a 600ms run of 404s."
-    Assert ($outage.LongestOutageMs -le 3000) "Reported $($outage.LongestOutageMs)ms for a 600ms run of 404s."
+    Assert ($outage.LongestOutageMs -ge 300) "Reported $($outage.LongestOutageMs)ms for a ${gapMs}ms run of 404s."
+    Assert ($outage.LongestOutageMs -le ($gapMs + 2400)) "Reported $($outage.LongestOutageMs)ms for a ${gapMs}ms run of 404s."
 }
 
 Write-Host ""
