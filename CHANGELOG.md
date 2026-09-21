@@ -40,6 +40,16 @@ otherwise be surprised.
   `ConfirmReservationResponseDto` gains `alreadyPosted`, true when the confirm found the invoice in
   SAP rather than creating it. Additive.
 
+- **`GET /api/DesktopIntegration/sales/analysis` breaks each currency's takings down by business partner.**
+
+  Every currency section now carries `byBusinessPartner` beside `byWarehouse`: one row per CardCode the
+  sales were made as, labelled by the name those sales carried (the code where none did), with the same
+  sales count, takings, share and split by payment method as the other breakdowns. Nothing existing
+  moved. It backs the new "Business partner" view of "Who took it" on `/reports/desktop-sales`, the
+  "By Business Partner" sheet of that page's Excel export — the partner's name with its card code
+  beside it — and `/desktop-sales`, whose "Largest on the device" card now names the customers rather
+  than listing their codes.
+
 - **SAP user accounts can be unlocked and given a new password from the back office.**
 
   `GET /api/sap-users`, `POST /api/sap-users/{internalKey}/unlock` and

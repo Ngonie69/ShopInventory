@@ -1,6 +1,6 @@
 namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 
-/// <summary>The takings of one shop, one source or one operator, split by payment method.</summary>
+/// <summary>The takings of one shop, one business partner, one source or one operator, split by payment method.</summary>
 public sealed class DesktopSalesBreakdownRow
 {
     public string Key { get; set; } = string.Empty;

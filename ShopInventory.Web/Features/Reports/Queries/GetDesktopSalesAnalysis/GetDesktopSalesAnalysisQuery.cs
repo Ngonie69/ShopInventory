@@ -4,7 +4,8 @@ using MediatR;
 namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 
 /// <summary>
-/// A period's till takings broken down by payment method, day, hour, shop, operator and item.
+/// A period's till takings broken down by payment method, day, hour, shop, business partner, operator
+/// and item.
 /// </summary>
 /// <remarks>
 /// The API decides whose shops the signed-in account may read, so the warehouse is a filter and a

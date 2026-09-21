@@ -7924,6 +7924,16 @@ public partial class ReportExportService : IReportExportService
             section => section.ByWarehouse.Select(DesktopAnalysisBreakdownRow),
             WithShare: true));
 
+        // By name, with the code beside it: the reader knows the customer as "Farm Counter Sales" and SAP
+        // knows it as CIS006, and reconciling the sheet needs both.
+        WriteDesktopAnalysisMatrix(workbook, context, new DesktopAnalysisMatrixSheet(
+            "By Business Partner", "DESKTOP SALES BY BUSINESS PARTNER",
+            "Takings from each business partner the sales were made as, split by payment method",
+            "Business Partner", 34, "Top Partner", "Partners", "business partner", "business partners",
+            section => section.ByBusinessPartner.Select(DesktopAnalysisBreakdownRow),
+            WithShare: true,
+            CodeHeading: "Card Code"));
+
         WriteDesktopAnalysisMatrix(workbook, context, new DesktopAnalysisMatrixSheet(
             "By Operator", "DESKTOP SALES BY OPERATOR", "Takings rung up by each operator, split by payment method",
             "Operator", 26, "Top Operator", "Operators", "operator", "operators",
@@ -7955,6 +7965,10 @@ public partial class ReportExportService : IReportExportService
         string Scope,
         DateTime GeneratedAt);
 
+    /// <remarks>
+    /// <c>CodeHeading</c>, when set, adds a column after the label carrying each row's key — for a sheet
+    /// whose rows are named, such as business partners, where the code is what SAP is searched by.
+    /// </remarks>
     private sealed record DesktopAnalysisMatrixSheet(
         string SheetName,
         string Title,
@@ -7966,7 +7980,8 @@ public partial class ReportExportService : IReportExportService
         string Singular,
         string Plural,
         Func<DesktopSalesCurrencyAnalysis, IEnumerable<DesktopAnalysisMatrixRow>> Rows,
-        bool WithShare);
+        bool WithShare,
+        string? CodeHeading = null);
 
     private sealed record DesktopAnalysisMatrixRow(
         string Key,
@@ -8250,14 +8265,18 @@ public partial class ReportExportService : IReportExportService
         var report = context.Report;
         var methods = report.PaymentMethods;
 
-        var headers = new List<string> { "Currency", sheet.Heading, "Sales" };
+        var headers = new List<string> { "Currency", sheet.Heading };
+        if (sheet.CodeHeading is not null)
+            headers.Add(sheet.CodeHeading);
+        headers.Add("Sales");
         headers.AddRange(methods.Select(DesktopAnalysisTenderName));
         headers.Add("Takings");
         if (sheet.WithShare)
             headers.Add("Share of Takings");
 
         var lastCol = headers.Count;
-        var takingsCol = 4 + methods.Count;
+        var salesCol = sheet.CodeHeading is null ? 3 : 4;
+        var takingsCol = salesCol + 1 + methods.Count;
         var sections = report.Currencies
             .Select(section => (Section: section, Rows: sheet.Rows(section).ToList()))
             .ToList();
@@ -8319,9 +8338,15 @@ public partial class ReportExportService : IReportExportService
                 if (ReferenceEquals(line, top))
                     labelCell.Style.Font.FontColor = PodGreen;
 
-                DesktopAnalysisCountCell(ws.Cell(row, 3), line.SalesCount);
+                if (sheet.CodeHeading is not null)
+                {
+                    ws.Cell(row, 3).Value = line.Key;
+                    ws.Cell(row, 3).Style.Font.FontColor = PodTextMuted;
+                }
 
-                var col = 4;
+                DesktopAnalysisCountCell(ws.Cell(row, salesCol), line.SalesCount);
+
+                var col = salesCol + 1;
                 foreach (var method in methods)
                 {
                     DesktopAnalysisMoneyCell(ws.Cell(row, col++),
@@ -8345,11 +8370,11 @@ public partial class ReportExportService : IReportExportService
             var (section, rows) = sections[index];
             DesktopAnalysisSummaryRow(ws, row, lastCol, section.Currency,
                 $"TOTAL · {FormatPodCount(rows.Count, sheet.Singular, sheet.Plural)}", isFollowOn: index > 0);
-            ws.Cell(row, 3).Value = section.SalesCount;
-            ws.Cell(row, 3).Style.NumberFormat.Format = FormatCount;
-            ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, salesCol).Value = section.SalesCount;
+            ws.Cell(row, salesCol).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, salesCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            var col = 4;
+            var col = salesCol + 1;
             foreach (var method in methods)
             {
                 DesktopAnalysisSummaryNumber(ws.Cell(row, col++),
@@ -8364,7 +8389,10 @@ public partial class ReportExportService : IReportExportService
             row++;
         }
 
-        var widths = new List<double> { 12, sheet.HeadingWidth, 10 };
+        var widths = new List<double> { 12, sheet.HeadingWidth };
+        if (sheet.CodeHeading is not null)
+            widths.Add(14);
+        widths.Add(10);
         widths.AddRange(methods.Select(_ => 14d));
         widths.Add(16);
         if (sheet.WithShare)

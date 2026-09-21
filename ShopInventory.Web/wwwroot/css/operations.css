@@ -2988,6 +2988,20 @@
     color: var(--ops-mute-2);
 }
 
+/* The same fixed column, for a row named rather than coded: /desktop-sales
+   lists what is still on the device by the customer's name, with the code in
+   the row's `title`. Wider, because a name is, and in the page's own face; the
+   cap keeps the five bars comparable on a narrow card. */
+.ops-ds .ops-ds-break-name {
+    flex: none;
+    width: clamp(96px, 40%, 160px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--ops-ink);
+}
+
 .ops-ds .ops-ds-break-track {
     flex: 1 1 0;
     height: 3px;

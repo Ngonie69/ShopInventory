@@ -10,6 +10,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// <para><c>DaysTraded</c>: Days in the period with at least one sale.</para>
 /// <para><c>DistinctItems</c>: How many different items sold, of which <paramref name="TopItems"/> is
 /// the head.</para>
+/// <para><c>ByBusinessPartner</c>: The same takings by the business partner each sale was made as, keyed
+/// by CardCode and labelled by the partner's name. One shop can sell as several partners, so this is
+/// not <c>ByWarehouse</c> renamed.</para>
 /// <para><c>PreviousSalesCount</c>/<c>PreviousTotalAmount</c>: The same currency's sales over the same
 /// number of days just before the period. Zero means none, which a page must not state as a change.</para>
 /// </remarks>
@@ -27,6 +30,7 @@ public sealed record DesktopSalesCurrencyAnalysis(
     List<DesktopSalesDayRow> ByDay,
     List<DesktopSalesHourRow> ByHour,
     List<DesktopSalesBreakdownRow> ByWarehouse,
+    List<DesktopSalesBreakdownRow> ByBusinessPartner,
     List<DesktopSalesBreakdownRow> BySource,
     List<DesktopSalesBreakdownRow> ByOperator,
     List<DesktopSalesItemRow> TopItems,
