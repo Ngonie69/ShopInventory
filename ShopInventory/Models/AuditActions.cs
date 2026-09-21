@@ -174,6 +174,7 @@ public static class AuditActions
 
     // Settings actions
     public const string UpdateSAPSettings = "UpdateSAPSettings";
+    public const string UpdateSAPConnectionSwitch = "UpdateSAPConnectionSwitch";
     public const string UpdateMobileVersionPolicy = "UpdateMobileVersionPolicy";
     public const string UpdateFiscalisationSettings = "UpdateFiscalisationSettings";
     public const string UpdateDailyIncomingPaymentSettings = "UpdateDailyIncomingPaymentSettings";

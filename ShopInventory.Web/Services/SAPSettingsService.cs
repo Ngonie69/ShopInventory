@@ -7,6 +7,11 @@ public interface ISAPSettingsService
     Task<SAPSettingsResponse?> GetSettingsAsync();
     Task<SAPUpdateResult> UpdateSettingsAsync(SAPSettingsUpdateRequest request);
     Task<SAPTestConnectionResult> TestConnectionAsync(SAPTestConnectionRequest? request = null);
+
+    /// <summary>Whether the API may send requests to SAP. Null when the API could not be asked.</summary>
+    Task<SapConnectionSwitchSettings?> GetConnectionSwitchAsync();
+
+    Task<SapConnectionSwitchResult> SetConnectionEnabledAsync(bool enabled);
 }
 
 public class SAPSettingsService : ISAPSettingsService
@@ -106,7 +111,53 @@ public class SAPSettingsService : ISAPSettingsService
             };
         }
     }
+
+    public async Task<SapConnectionSwitchSettings?> GetConnectionSwitchAsync()
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<SapConnectionSwitchSettings>("api/sap-settings/connection");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching the SAP connection switch");
+            return null;
+        }
+    }
+
+    public async Task<SapConnectionSwitchResult> SetConnectionEnabledAsync(bool enabled)
+    {
+        const string fallback = "We couldn't change the SAP connection setting right now. Please try again.";
+
+        try
+        {
+            var response = await _httpClient.PutAsJsonAsync("api/sap-settings/connection", new { enabled });
+            if (response.IsSuccessStatusCode)
+            {
+                return new SapConnectionSwitchResult(
+                    true, await response.Content.ReadFromJsonAsync<SapConnectionSwitchSettings>(), null);
+            }
+
+            var error = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to set the SAP connection switch: {StatusCode} - {Error}", response.StatusCode, error);
+            return new SapConnectionSwitchResult(
+                false, null, ApiErrorResponse.GetFriendlyMessage(response.StatusCode, error, fallback));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting the SAP connection switch");
+            return new SapConnectionSwitchResult(false, null, ApiErrorResponse.GetFriendlyMessage(ex, fallback));
+        }
+    }
 }
+
+public class SapConnectionSwitchSettings
+{
+    public bool Enabled { get; set; }
+    public DateTime? UpdatedAtUtc { get; set; }
+}
+
+public sealed record SapConnectionSwitchResult(bool Success, SapConnectionSwitchSettings? Settings, string? Error);
 
 public class SAPSettingsResponse
 {

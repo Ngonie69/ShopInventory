@@ -742,6 +742,49 @@
                         }
                         else
                         {
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>SAP Connection</span></div>
+                                    <span class="stg-row-desc">
+                                        On: the app reads from and posts to SAP as normal. Off: <strong>nothing is sent to SAP</strong>.
+                                        Invoices, transfers and payments stay queued and post by themselves when it is turned back on.
+                                        Takes effect within 15 seconds on every server, no restart needed.
+                                    </span>
+                                    @if (sapConnectionSwitch is null)
+                                    {
+                                        <span class="stg-row-meta"><i class="ph ph-warning"></i>Couldn't read the current setting from the API</span>
+                                    }
+                                    else if (sapConnectionSwitch.UpdatedAtUtc is DateTime sapSwitchedAt)
+                                    {
+                                        <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last changed @sapSwitchedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="stg-row-meta"><i class="ph ph-gear"></i>On by default</span>
+                                    }
+                                </div>
+                                <div class="stg-row-control">
+                                    @if (confirmingSapConnectionOff)
+                                    {
+                                        <span class="stg-sched-confirm">Stop all traffic to SAP?</span>
+                                        <button type="button" class="stg-btn stg-btn-danger stg-btn-sm" disabled="@savingSapConnection"
+                                                @onclick="() => SetSapConnectionAsync(false)">Turn off</button>
+                                        <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" disabled="@savingSapConnection"
+                                                @onclick="() => confirmingSapConnectionOff = false">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <label class="stg-switch" @key="sapConnectionToggleKey">
+                                            <input type="checkbox" checked="@(sapConnectionSwitch?.Enabled == true)"
+                                                   disabled="@(sapConnectionSwitch is null || savingSapConnection)"
+                                                   @onchange="OnSapConnectionToggled" />
+                                            <span class="stg-switch-track"></span>
+                                            <span class="stg-switch-text">@(sapConnectionSwitch?.Enabled == true ? "On" : "Off")</span>
+                                        </label>
+                                    }
+                                </div>
+                            </div>
+
                             @if (sapConnectionTested)
                             {
                                 <div class="stg-alert @(sapConnectionSuccess ? "stg-alert-success" : "stg-alert-error")">
@@ -1974,6 +2017,11 @@
     private string sapPassword = string.Empty;
     private bool showSAPPassword = false;
     private bool sapTestOnSave = true;
+    private SapConnectionSwitchSettings? sapConnectionSwitch;
+    private bool confirmingSapConnectionOff;
+    private bool savingSapConnection;
+    // Rebuilds the checkbox from sapConnectionSwitch after a refused or cancelled change; see dailyPaymentToggleKey.
+    private int sapConnectionToggleKey;
     private bool isLoadingSAPSettings = false;
     private bool isSAPSaving = false;
     private bool isSAPTesting = false;
@@ -2971,6 +3019,8 @@
                 sapUsername = settings.UserName ?? string.Empty;
                 sapPassword = string.Empty; // Never pre-fill password
             }
+
+            sapConnectionSwitch = await SAPSettingsService.GetConnectionSwitchAsync();
         }
         catch (Exception ex)
         {
@@ -2979,6 +3029,49 @@
         finally
         {
             isLoadingSAPSettings = false;
+        }
+    }
+
+    private async Task OnSapConnectionToggled(ChangeEventArgs e)
+    {
+        if (e.Value is false)
+        {
+            // Turning off stops every posting in the app, so it takes a second click. The checkbox is
+            // re-rendered from sapConnectionSwitch, which has not changed, so it springs back to on.
+            confirmingSapConnectionOff = true;
+            return;
+        }
+
+        await SetSapConnectionAsync(true);
+    }
+
+    private async Task SetSapConnectionAsync(bool enabled)
+    {
+        savingSapConnection = true;
+        successMessage = null;
+        errorMessage = null;
+
+        try
+        {
+            var result = await SAPSettingsService.SetConnectionEnabledAsync(enabled);
+            if (result.Success && result.Settings is not null)
+            {
+                sapConnectionSwitch = result.Settings;
+                successMessage = enabled
+                    ? "SAP connection is on. Queued invoices, transfers and payments post on the next job run."
+                    : "SAP connection is off. Nothing is sent to SAP; documents stay queued until it is turned back on.";
+                await LogAudit(AuditActions.UpdateSettings, $"Switched the SAP connection {(enabled ? "on" : "off")}");
+            }
+            else
+            {
+                errorMessage = result.Error ?? "We couldn't change the SAP connection setting.";
+            }
+        }
+        finally
+        {
+            confirmingSapConnectionOff = false;
+            savingSapConnection = false;
+            sapConnectionToggleKey++;
         }
     }
 

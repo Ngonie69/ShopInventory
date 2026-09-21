@@ -15,6 +15,12 @@ public sealed class SapDependencyHealthCheck(
             return HealthCheckResult.Healthy("SAP dependency is disabled.");
         }
 
+        // Turned off on purpose, and the same on every node, so it must not take nodes out of rotation.
+        if (circuitSnapshot.IsSwitchedOff)
+        {
+            return HealthCheckResult.Degraded("SAP connection is turned off in Settings.");
+        }
+
         if (circuitSnapshot.IsOpen)
         {
             return HealthCheckResult.Unhealthy(

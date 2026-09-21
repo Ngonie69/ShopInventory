@@ -235,6 +235,9 @@ try
         .SetApplicationName("ShopInventory.Api");
     builder.Services.AddSingleton<StartupReadinessSignal>();
     builder.Services.AddSingleton<RuntimeInstanceIdentity>();
+    // Registered ahead of the Quartz scheduler, so a node reads the SAP switch before any job can post.
+    builder.Services.AddSingleton<SapConnectionSwitch>();
+    builder.Services.AddHostedService<SapConnectionSwitchRefresher>();
     builder.Services.AddSingleton<SapCircuitBreakerState>();
     // Retained as a Postgres advisory-lock primitive used by the price-catalog sync command
     // handlers to prevent concurrent syncs (a scheduled Quartz run vs a manual trigger).

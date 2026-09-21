@@ -3,18 +3,42 @@ using ShopInventory.Configuration;
 
 namespace ShopInventory.Services;
 
-public sealed class SapCircuitBreakerState(IOptions<SAPSettings> settings)
+/// <remarks>
+/// Also answers for <see cref="SapConnectionSwitch"/>. When an admin turns SAP off, the circuit reads
+/// as open, so every caller that already holds work back while the circuit is open (the posting jobs,
+/// and the desktop invoice, transfer and payment endpoints that queue instead of posting) does the same
+/// while SAP is off. The connection switch is optional so that code built without it, such as a test,
+/// keeps the breaker's own behaviour.
+/// </remarks>
+public sealed class SapCircuitBreakerState(
+    IOptions<SAPSettings> settings,
+    SapConnectionSwitch? connectionSwitch = null)
 {
+    /// <summary>
+    /// The wait reported to callers while SAP is switched off. It is not a promise that SAP comes back
+    /// on then. It only has to be longer than the client's transient retries, so they give up at once
+    /// instead of sleeping on a refusal that cannot clear. It is finite because callers do arithmetic on it.
+    /// </summary>
+    public static readonly TimeSpan SwitchedOffRetryAfter = TimeSpan.FromMinutes(1);
+
     private readonly object _gate = new();
     private int _consecutiveFailures;
     private DateTime? _lastFailureUtc;
     private DateTime? _openUntilUtc;
     private string? _lastFailure;
 
+    /// <summary>Whether an admin has turned the SAP connection off in Settings.</summary>
+    public bool IsSwitchedOff => connectionSwitch is { IsEnabled: false };
+
     public bool IsOpen
     {
         get
         {
+            if (IsSwitchedOff)
+            {
+                return true;
+            }
+
             lock (_gate)
             {
                 return _openUntilUtc.HasValue && _openUntilUtc.Value > DateTime.UtcNow;
@@ -48,6 +72,12 @@ public sealed class SapCircuitBreakerState(IOptions<SAPSettings> settings)
 
     public bool ShouldShortCircuit(out TimeSpan retryAfter)
     {
+        if (IsSwitchedOff)
+        {
+            retryAfter = SwitchedOffRetryAfter;
+            return true;
+        }
+
         var snapshot = GetSnapshot();
         if (snapshot.IsOpen && snapshot.OpenUntilUtc.HasValue)
         {
@@ -69,6 +99,7 @@ public sealed class SapCircuitBreakerState(IOptions<SAPSettings> settings)
 
             return new SapCircuitSnapshot(
                 settings.Value.Enabled,
+                IsSwitchedOff,
                 isOpen,
                 _consecutiveFailures,
                 _lastFailure,
@@ -85,6 +116,7 @@ public sealed class SapCircuitBreakerState(IOptions<SAPSettings> settings)
 
     public sealed record SapCircuitSnapshot(
         bool IsEnabled,
+        bool IsSwitchedOff,
         bool IsOpen,
         int ConsecutiveFailures,
         string? LastFailure,

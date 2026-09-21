@@ -28,6 +28,13 @@ public sealed class SAPCircuitBreakerHandler(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
+        if (circuitBreakerState.IsSwitchedOff)
+        {
+            throw new SapCircuitOpenException(
+                "The SAP connection is turned off in Settings → SAP Connection. Nothing was sent to SAP.",
+                SapCircuitBreakerState.SwitchedOffRetryAfter);
+        }
+
         if (circuitBreakerState.ShouldShortCircuit(out var retryAfter))
         {
             throw new SapCircuitOpenException(
