@@ -126,6 +126,7 @@ Van Sales
 Van Reports
     Van Activity  /van-sales/activity
     Sales Performance  /van-sales/reports/performance
+    Sales Breakdown  /van-sales/reports/sales-breakdown
     Coverage & Outlets  /van-sales/reports/coverage
     Van Stock  /van-sales/reports/stock
     Replenishment  /van-sales/reports/replenishment
@@ -327,6 +328,7 @@ Van Sales
 Van Reports
     Van Activity  /van-sales/activity
     Sales Performance  /van-sales/reports/performance
+    Sales Breakdown  /van-sales/reports/sales-breakdown
     Coverage & Outlets  /van-sales/reports/coverage
     Van Stock  /van-sales/reports/stock
     Replenishment  /van-sales/reports/replenishment
