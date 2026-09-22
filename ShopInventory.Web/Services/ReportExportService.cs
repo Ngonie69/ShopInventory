@@ -6097,6 +6097,7 @@ public partial class ReportExportService : IReportExportService
 
         BuildVanStockOverviewSheet(workbook, report, now);
         BuildVanStockVarianceSheet(workbook, report, now);
+        BuildVanStockItemDifferenceSheet(workbook, report, now);
         BuildVanStockDaySheet(workbook, report, now);
         BuildVanStockItemSheet(workbook, report, now);
         BuildVanStockExpirySheet(workbook, report, now);
@@ -6136,10 +6137,16 @@ public partial class ReportExportService : IReportExportService
 
         var summary = report.Summary;
 
+        // Mornings, not quantities: a van carries cases, kilograms and singles, and a sell-through
+        // taken over their sum is a ratio of figures in no unit.
+        var comparable = report.Variances.Count(v => !v.HasGap);
+        var balanced = report.Variances.Count(v => v.Balanced);
+        var balancedText = comparable > 0 ? $"{balanced:N0} of {comparable:N0}" : "—";
+
         row = TsKpiStrip(ws, row, lastCol,
             ("Vans", summary.VanCount.ToString("N0"), null),
-            ("Sell-Through", RateText(summary.SellThroughRate), null),
-            ("Dead Lines", summary.DeadItemCount.ToString("N0"),
+            ("Mornings Balanced", balancedText, balanced < comparable ? TsRed : null),
+            ("Idle Items", summary.DeadItemCount.ToString("N0"),
                 summary.DeadItemCount > 0 ? TsOrange : null),
             ("Items Seen", summary.ItemCount.ToString("N0"), null),
             ("Van-Days", summary.SnapshotDayCount.ToString("N0"), null),
@@ -6179,10 +6186,109 @@ public partial class ReportExportService : IReportExportService
         int row = TsTitleBar(ws, "MORNING TO MORNING", lastCol, now);
 
         ws.Cell(row, 1).Value =
-            "Yesterday's load, less what sold off it, plus anything that arrived, is what this morning "
-            + "should have found. Only computable across two CONSECUTIVE snapshots — where a day is "
-            + "missing the pair is shown as a break rather than reached over, because two days of "
-            + "difference reported as one reads as a single large discrepancy on the wrong date.";
+            "For every item, yesterday's count less what sold plus what was transferred on is what this "
+            + "morning should have found. A morning is judged by how many items were off — never by a "
+            + "quantity summed across items, which would add cases, kilograms and singles together. Only "
+            + "computable across two CONSECUTIVE counts: where a day is missing the pair is shown as a "
+            + "break rather than reached over, because two days of difference reported as one reads as a "
+            + "single large discrepancy on the wrong date.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 44;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Van", "Morning", "Compared With", "Gap", "Items", "Matched", "Missing", "Found",
+            "Biggest Difference", "Difference"
+        ]);
+
+        int index = 0;
+        foreach (var variance in report.Variances)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = variance.VanWarehouseCode;
+            WriteVanPerformanceDate(ws.Cell(row, 2), variance.ToSnapshot);
+            WriteVanPerformanceDate(ws.Cell(row, 3), variance.FromSnapshot);
+            ws.Cell(row, 4).Value = variance.HasGap ? $"{variance.GapDays:N0} days" : "";
+
+            // Across a gap there is nothing to expect and nothing to compare, so every count reads as
+            // unavailable rather than as a morning that balanced.
+            if (variance.HasGap)
+            {
+                for (var col = 5; col <= lastCol; col++)
+                {
+                    ws.Cell(row, col).Value = "—";
+                }
+            }
+            else
+            {
+                if (variance.ItemCount > 0)
+                {
+                    ws.Cell(row, 5).Value = variance.ItemCount;
+                    ws.Cell(row, 6).Value = variance.ItemsMatched;
+                }
+                else
+                {
+                    ws.Cell(row, 5).Value = "—";
+                    ws.Cell(row, 6).Value = "—";
+                }
+
+                ws.Cell(row, 7).Value = variance.ItemsShort;
+                ws.Cell(row, 8).Value = variance.ItemsOver;
+
+                if (variance.ItemsShort > 0)
+                {
+                    ws.Cell(row, 7).Style.Font.FontColor = TsRed;
+                    ws.Cell(row, 7).Style.Font.Bold = true;
+                }
+
+                if (variance.TopVariances.FirstOrDefault() is { } biggest)
+                {
+                    ws.Cell(row, 9).Value = biggest.DisplayName;
+                    ws.Cell(row, 10).Value = biggest.Variance;
+
+                    if (biggest.Variance < 0)
+                    {
+                        ws.Cell(row, 10).Style.Font.FontColor = TsRed;
+                        ws.Cell(row, 10).Style.Font.Bold = true;
+                    }
+                }
+                else
+                {
+                    ws.Cell(row, 9).Value = "Balanced";
+                }
+            }
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    /// <summary>
+    /// The items behind each morning that did not balance, each in its own stock unit, with the
+    /// arithmetic written out so a reader can see which term is wrong.
+    /// </summary>
+    private static void BuildVanStockItemDifferenceSheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 10;
+        var ws = workbook.Worksheets.Add("Item Differences");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "WHICH ITEMS WERE OFF", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "Each item in its own stock unit: yesterday's count, less sold, plus transferred on, is what "
+            + "should have been found. Up to the ten largest differences per morning; the Reconciliation "
+            + "sheet has how many there were in all.";
         ws.Range(row, 1, row, lastCol).Merge();
         ws.Cell(row, 1).Style.Font.FontSize = 9;
         ws.Cell(row, 1).Style.Font.Italic = true;
@@ -6193,44 +6299,32 @@ public partial class ReportExportService : IReportExportService
 
         row = TsColumnHeaders(ws, row, lastCol,
         [
-            "Van", "From", "To", "Gap", "Opened", "Sold", "Arrived", "Expected", "Found", "Variance"
+            "Van", "Morning", "Item Code", "Item", "Yesterday", "Sold", "Transferred On",
+            "Should Find", "Found", "Difference"
         ]);
 
         int index = 0;
-        foreach (var variance in report.Variances)
+        foreach (var variance in report.Variances.Where(v => !v.HasGap))
         {
-            TsDataRow(ws, row, lastCol, index % 2 == 1);
-            ws.Cell(row, 1).Value = variance.VanWarehouseCode;
-            WriteVanPerformanceDate(ws.Cell(row, 2), variance.FromSnapshot);
-            WriteVanPerformanceDate(ws.Cell(row, 3), variance.ToSnapshot);
-            ws.Cell(row, 4).Value = variance.HasGap ? $"{variance.GapDays:N0} days" : "";
-            ws.Cell(row, 5).Value = variance.OpeningQuantity;
-            ws.Cell(row, 6).Value = variance.SoldQuantity;
-            ws.Cell(row, 7).Value = variance.AdjustmentQuantity;
-
-            // Across a gap there is nothing to expect and nothing to compare, so both read as
-            // unavailable rather than as a zero difference.
-            if (variance.ExpectedQuantity is { } expected)
+            foreach (var line in variance.TopVariances)
             {
-                ws.Cell(row, 8).Value = expected;
-                ws.Cell(row, 9).Value = variance.ClosingQuantity;
-                ws.Cell(row, 10).Value = variance.Variance!.Value;
+                TsDataRow(ws, row, lastCol, index % 2 == 1);
+                ws.Cell(row, 1).Value = variance.VanWarehouseCode;
+                WriteVanPerformanceDate(ws.Cell(row, 2), variance.ToSnapshot);
+                ws.Cell(row, 3).Value = line.ItemCode;
+                ws.Cell(row, 4).Value = line.DisplayName;
+                ws.Cell(row, 5).Value = line.Opening;
+                ws.Cell(row, 6).Value = line.Sold;
+                ws.Cell(row, 7).Value = line.Adjustment;
+                ws.Cell(row, 8).Value = line.Expected;
+                ws.Cell(row, 9).Value = line.Actual;
+                ws.Cell(row, 10).Value = line.Variance;
+                ws.Cell(row, 10).Style.Font.Bold = true;
+                ws.Cell(row, 10).Style.Font.FontColor = line.Variance < 0 ? TsRed : TsTextMuted;
 
-                if (variance.Variance < 0)
-                {
-                    ws.Cell(row, 10).Style.Font.FontColor = TsRed;
-                    ws.Cell(row, 10).Style.Font.Bold = true;
-                }
+                row++;
+                index++;
             }
-            else
-            {
-                ws.Cell(row, 8).Value = "—";
-                ws.Cell(row, 9).Value = variance.ClosingQuantity;
-                ws.Cell(row, 10).Value = "—";
-            }
-
-            row++;
-            index++;
         }
 
         TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);

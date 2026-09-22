@@ -83,7 +83,7 @@ public class VanStockWorkbookTests
         using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
 
         Assert.Equal(
-            ["Overview", "Reconciliation", "Load & Sell-Through", "What Is Worth Carrying", "Expiry"],
+            ["Overview", "Reconciliation", "Item Differences", "Load & Sell-Through", "What Is Worth Carrying", "Expiry"],
             workbook.Worksheets.Select(s => s.Name).ToArray());
     }
 
@@ -115,8 +115,8 @@ public class VanStockWorkbookTests
     }
 
     /// <summary>
-    /// Across a break in the snapshots there is nothing to expect and nothing to compare. Both cells
-    /// read as unavailable — a zero variance would claim the van reconciled perfectly.
+    /// Across a break in the snapshots there is nothing to expect and nothing to compare. The counts
+    /// read as unavailable — a zero would claim the van reconciled perfectly.
     /// </summary>
     [Fact]
     public void A_variance_across_a_gap_is_written_as_unavailable_not_zero()
@@ -128,29 +128,50 @@ public class VanStockWorkbookTests
         using var workbook = Open(_service.ExportVanStockToExcel(report));
         var sheet = workbook.Worksheet("Reconciliation");
 
-        var expected = sheet.CellsUsed().First(cell => cell.GetString() == "Expected").Address;
-        var variance = sheet.CellsUsed().First(cell => cell.GetString() == "Variance").Address;
-
-        Assert.Equal("—", sheet.Cell(expected.RowNumber + 1, expected.ColumnNumber).GetFormattedString());
-        Assert.Equal("—", sheet.Cell(variance.RowNumber + 1, variance.ColumnNumber).GetFormattedString());
+        Assert.Equal("—", CellBelow(sheet, "Missing").GetFormattedString());
+        Assert.Equal("—", CellBelow(sheet, "Difference").GetFormattedString());
         Assert.Contains("2 days", TextOf(sheet));
     }
 
     /// <summary>
-    /// A real variance is a number, so the column can be sorted and totalled. Only the gap rows are
-    /// text.
+    /// A morning is judged in counts of items, never in a quantity summed across units, and the
+    /// counts are numbers so the columns can be sorted and totalled.
     /// </summary>
     [Fact]
-    public void A_real_variance_is_written_as_a_number()
+    public void A_morning_is_written_as_counts_of_items()
     {
         using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
         var sheet = workbook.Worksheet("Reconciliation");
 
-        var header = sheet.CellsUsed().First(cell => cell.GetString() == "Variance").Address;
-        var cell = sheet.Cell(header.RowNumber + 1, header.ColumnNumber);
+        Assert.Equal(2, CellBelow(sheet, "Items").GetDouble());
+        Assert.Equal(1, CellBelow(sheet, "Matched").GetDouble());
+        Assert.Equal(1, CellBelow(sheet, "Missing").GetDouble());
+        Assert.Equal(XLDataType.Number, CellBelow(sheet, "Difference").DataType);
+        Assert.Equal(-9, CellBelow(sheet, "Difference").GetDouble());
 
-        Assert.Equal(XLDataType.Number, cell.DataType);
-        Assert.Equal(-9, cell.GetDouble());
+        // The old summed-quantity columns are gone.
+        Assert.DoesNotContain(sheet.CellsUsed(), cell => cell.GetString() is "Opened" or "Expected");
+    }
+
+    /// <summary>Each off item's arithmetic travels with the file, in that item's own unit.</summary>
+    [Fact]
+    public void The_item_sheet_writes_out_each_differences_arithmetic()
+    {
+        using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
+        var sheet = workbook.Worksheet("Item Differences");
+
+        Assert.Equal("CHE011", CellBelow(sheet, "Item Code").GetString());
+        Assert.Equal(100, CellBelow(sheet, "Yesterday").GetDouble());
+        Assert.Equal(60, CellBelow(sheet, "Sold").GetDouble());
+        Assert.Equal(40, CellBelow(sheet, "Should Find").GetDouble());
+        Assert.Equal(31, CellBelow(sheet, "Found").GetDouble());
+        Assert.Equal(-9, CellBelow(sheet, "Difference").GetDouble());
+    }
+
+    private static IXLCell CellBelow(IXLWorksheet sheet, string header)
+    {
+        var address = sheet.CellsUsed().First(cell => cell.GetString() == header).Address;
+        return sheet.Cell(address.RowNumber + 1, address.ColumnNumber);
     }
 
     /// <summary>
@@ -199,7 +220,7 @@ public class VanStockWorkbookTests
 
         using var workbook = Open(bytes);
 
-        Assert.Equal(5, workbook.Worksheets.Count);
+        Assert.Equal(6, workbook.Worksheets.Count);
         Assert.Contains("VAN STOCK", TextOf(workbook.Worksheet("Overview")));
     }
 
@@ -309,12 +330,13 @@ public class VanStockWorkbookTests
                 ClosingQuantity = 31m,
                 ItemsShort = 1,
                 ItemsOver = 0,
+                ItemCount = 2,
                 TopVariances =
                 [
                     new VanStockItemVariance
                     {
                         ItemCode = "CHE011", ItemDescription = "Cheddar 1kg",
-                        Expected = 40m, Actual = 31m
+                        Expected = 40m, Actual = 31m, Opening = 100m, Sold = 60m, Adjustment = 0m
                     }
                 ]
             }
