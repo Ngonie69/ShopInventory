@@ -1,7 +1,7 @@
 namespace ShopInventory.Configuration;
 
 /// <summary>
-/// Settings for market breakages: stock a van collected back from shops, confirmed at the office
+/// Settings for market breakages: stock broken in transit on a van, confirmed at the office
 /// into a transfer from the van to the returns warehouse.
 /// </summary>
 public sealed class MarketBreakageSettings

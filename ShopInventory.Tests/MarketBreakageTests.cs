@@ -19,7 +19,7 @@ using ShopInventory.Services;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// A van rep reports broken stock collected from shops; the office counts it and confirms it into a
+/// A van rep reports stock broken in transit; the office counts it and confirms it into a
 /// SAP transfer from the van to RETURNS. The report moves nothing, the count is what moves, and a
 /// report is transferred at most once however many people press Confirm.
 /// </summary>

@@ -13,8 +13,8 @@ using ShopInventory.Models;
 namespace ShopInventory.Controllers;
 
 /// <summary>
-/// The office's side of market breakages: broken stock van reps collected back from shops and
-/// reported from the handset (<c>POST /api/vansales/breakages</c>). Count it, then confirm it into a
+/// The office's side of market breakages: stock broken in transit, reported by
+/// van reps from the handset (<c>POST /api/vansales/breakages</c>). Count it, then confirm it into a
 /// SAP transfer from the van to the returns warehouse, or reject it.
 /// </summary>
 [Route("api/market-breakages")]
