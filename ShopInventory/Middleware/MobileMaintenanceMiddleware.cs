@@ -1,5 +1,6 @@
 using System.Globalization;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Security;
 using ShopInventory.Features.AppVersion;
 using ShopInventory.Features.Maintenance;
 
@@ -56,14 +57,19 @@ public sealed class MobileMaintenanceMiddleware(
             return;
         }
 
+        // Every value here but the scope comes off the request, and a refused request is by
+        // definition one somebody may be probing with. Newlines in a header would otherwise let a
+        // caller write whole lines of their own into the log this feature is read through during an
+        // incident. PolicyKey is already a catalogue value, but AppId behind it is not.
         logger.LogInformation(
             "Refused {Method} {Path} from {App}: mobile maintenance lockout is on ({Scope}). Version={Version}, Device={Device}",
-            context.Request.Method,
-            context.Request.Path,
-            client.PolicyKey ?? client.AppId ?? "an unidentified app",
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Path),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(
+                client.PolicyKey ?? client.AppId ?? "an unidentified app"),
             decision.Scope,
-            client.Version,
-            client.DeviceModel);
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(client.Version),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(client.DeviceModel));
 
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
         context.Response.Headers.RetryAfter =

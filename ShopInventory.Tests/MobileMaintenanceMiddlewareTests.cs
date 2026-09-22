@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using ShopInventory.Features.Maintenance;
 using ShopInventory.Middleware;
 
@@ -124,6 +124,35 @@ public sealed class MobileMaintenanceMiddlewareTests
         Assert.True(result.ReachedTheApi);
     }
 
+    [Fact]
+    public async Task A_header_full_of_newlines_cannot_write_its_own_lines_into_the_log()
+    {
+        // Every value logged on a refusal comes off the request, and a refused request is by
+        // definition one somebody may be probing with. Without sanitising, a caller could forge
+        // whole log entries in the file this feature is read through during an incident.
+        const string forged = "[00:00:00 INF] Refused nothing: lockout is off";
+
+        var headers = Phone();
+        headers["X-Device-Model"] = "Pixel\r\n" + forged;
+        headers["X-App-Version"] = "2.0.1\nfabricated";
+
+        var result = await InvokeAsync(Lockout(), headers, method: "POST", path: "/api/vansales/sales");
+
+        Assert.False(result.ReachedTheApi);
+        var logged = Assert.Single(result.Logged);
+
+        // The point is not that the attacker's text disappears — it is theirs, and a reader should
+        // see what they sent. It is that it cannot start a line. One refused request writes exactly
+        // one line, so nothing a caller sends can be read later as a separate entry.
+        Assert.DoesNotContain('\n', logged);
+        Assert.DoesNotContain('\r', logged);
+        Assert.Single(logged.Split('\n'));
+
+        // Still readable: sanitising replaces the control characters rather than dropping the value.
+        Assert.Contains("Pixel", logged, StringComparison.Ordinal);
+        Assert.Contains(forged, logged, StringComparison.Ordinal);
+    }
+
     private static Dictionary<string, string> Phone(string appId = "com.kefalos.vansales") => new()
     {
         ["X-App-Id"] = appId,
@@ -144,7 +173,8 @@ public sealed class MobileMaintenanceMiddlewareTests
             EndsAtUtc: endsAtUtc,
             UpdatedBy: "ngoni");
 
-    private sealed record Result(bool ReachedTheApi, int StatusCode, string? RetryAfter, JsonElement Body);
+    private sealed record Result(
+        bool ReachedTheApi, int StatusCode, string? RetryAfter, JsonElement Body, IReadOnlyList<string> Logged);
 
     private static async Task<Result> InvokeAsync(
         MobileMaintenanceState state,
@@ -164,13 +194,14 @@ public sealed class MobileMaintenanceMiddlewareTests
         context.Response.Body = responseBody;
 
         var reachedTheApi = false;
+        var logger = new CapturingLogger();
         var middleware = new MobileMaintenanceMiddleware(
             _ =>
             {
                 reachedTheApi = true;
                 return Task.CompletedTask;
             },
-            NullLogger<MobileMaintenanceMiddleware>.Instance,
+            logger,
             new StubStore(state),
             new FixedClock(Now));
 
@@ -185,7 +216,29 @@ public sealed class MobileMaintenanceMiddlewareTests
             reachedTheApi,
             context.Response.StatusCode,
             context.Response.Headers.RetryAfter.FirstOrDefault(),
-            body);
+            body,
+            logger.Messages);
+    }
+
+    /// <summary>Keeps the rendered log messages so a test can assert on what was written.</summary>
+    private sealed class CapturingLogger : ILogger<MobileMaintenanceMiddleware>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Messages.Add(formatter(state, exception));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+
+            public void Dispose() { }
+        }
     }
 
     private sealed class StubStore(MobileMaintenanceState state) : IMobileMaintenanceStore
