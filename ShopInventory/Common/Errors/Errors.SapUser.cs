@@ -34,10 +34,28 @@ public static partial class Errors
         public static Error Rejected(string message)
         {
             var defaults = UserDefaultsMismatch.Match(message);
-            return defaults.Success
-                ? DefaultsMismatch(defaults.Groups["setting"].Value)
+            if (defaults.Success)
+            {
+                return DefaultsMismatch(defaults.Groups["setting"].Value);
+            }
+
+            return BareInternalError.IsMatch(message)
+                ? Unexplained(message.Trim())
                 : Error.Failure("SapUser.Rejected", message);
         }
+
+        /// <summary>
+        /// SAP refused and gave no reason at all: <c>Internal error (-5002) occurred</c> with empty
+        /// details. Passing that through tells the operator nothing they can act on. The SAP client
+        /// runs the same validation as the Service Layer, but it names the field it objects to, so
+        /// the sentence sends them there.
+        /// </summary>
+        public static Error Unexplained(string sapMessage) =>
+            Error.Failure(
+                "SapUser.Unexplained",
+                $"SAP refused this without saying why (it answered only \"{sapMessage}\"), so nothing was changed. " +
+                "Make the change in the SAP client instead: Administration → Setup → General → Users - Setup, " +
+                "find the user, untick Locked or set the password there, and click Update. If SAP refuses there too, it names what it objects to.");
 
         /// <summary>
         /// The one refusal whose own sentence is not enough. SAP re-validates the whole user on any
@@ -55,6 +73,10 @@ public static partial class Errors
 
         private static readonly System.Text.RegularExpressions.Regex UserDefaultsMismatch = new(
             """^Checkbox "(?<setting>.+)" in "Users - Setup" is different to "User Defaults"\s*$""",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        private static readonly System.Text.RegularExpressions.Regex BareInternalError = new(
+            @"^\s*Internal error \(-?\d+\) occurred\.?\s*$",
             System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
         public static readonly Error Unreachable =
