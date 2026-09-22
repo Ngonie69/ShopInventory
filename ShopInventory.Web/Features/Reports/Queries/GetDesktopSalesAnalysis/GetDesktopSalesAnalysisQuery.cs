@@ -12,11 +12,15 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 /// shop-confined account naming another shop is refused rather than rescoped. The payment method, when
 /// given, confines every figure to that tender, and the source system to one channel — "KefalosVending"
 /// for the depots.
+///
+/// <c>Vans</c> asks the van sales analysis instead, in the same shape: the warehouse is then a van, and the
+/// source system is ignored. It reads online van sales too, which never become desktop sales.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     DateTime? FromDate,
     DateTime? ToDate,
     string? WarehouseCode,
     string? PaymentMethod = null,
-    string? SourceSystem = null
+    string? SourceSystem = null,
+    bool Vans = false
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;

@@ -112,6 +112,21 @@ public sealed record VanSaleFact(
     public VanSalesOutletKey? Outlet => RouteCustomerCode is null
         ? null
         : new VanSalesOutletKey(VanAccountCode, RouteCustomerCode);
+
+    /// <summary>
+    /// When the sale was made, on the CAT wall clock: the signed receipt's time on an offline sale, the
+    /// moment the invoice was requested on an online one.
+    /// </summary>
+    public DateTime? SoldAtCat { get; init; }
+
+    /// <summary>
+    /// The VAT the fiscal receipt carried. Null on an online sale, whose VAT split lives only on the SAP
+    /// invoice — null meaning not recorded, not zero.
+    /// </summary>
+    public decimal? VatAmount { get; init; }
+
+    /// <summary>The wallet or card reference the handset recorded. Only the offline path carries one.</summary>
+    public string? PaymentReference { get; init; }
 }
 
 /// <summary>

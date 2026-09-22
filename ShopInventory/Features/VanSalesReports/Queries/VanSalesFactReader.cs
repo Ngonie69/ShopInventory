@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesReports.Queries;
 
@@ -55,8 +56,12 @@ public static class VanSalesFactReader
                 sale.RouteCustomerName,
                 sale.PaymentMethod,
                 sale.TotalAmount,
+                sale.VatAmount,
+                sale.PaymentReference,
                 sale.Currency,
-                sale.WarehouseCode
+                sale.WarehouseCode,
+                sale.ReceiptDate,
+                sale.CreatedAt
             })
             .ToListAsync(cancellationToken);
 
@@ -80,7 +85,11 @@ public static class VanSalesFactReader
                 reservation.RouteCustomerName,
                 reservation.PaymentMethod,
                 reservation.TotalValue,
-                reservation.Currency
+                reservation.Currency,
+                WarehouseCode = reservation.Lines
+                    .OrderBy(line => line.LineNum)
+                    .Select(line => line.WarehouseCode)
+                    .FirstOrDefault()
             })
             .ToListAsync(cancellationToken);
 
@@ -105,7 +114,14 @@ public static class VanSalesFactReader
                 PaymentMethod: sale.PaymentMethod,
                 TotalAmount: sale.TotalAmount,
                 Currency: sale.Currency,
-                WarehouseCode: sale.WarehouseCode));
+                WarehouseCode: sale.WarehouseCode)
+            {
+                // The receipt's own wall clock where the handset signed one: CreatedAt is when the batch
+                // was uploaded, which can be hours after the sale.
+                SoldAtCat = sale.ReceiptDate ?? AuditService.ToCAT(sale.CreatedAt),
+                VatAmount = sale.VatAmount,
+                PaymentReference = sale.PaymentReference
+            });
         }
 
         foreach (var reservation in online)
@@ -129,8 +145,12 @@ public static class VanSalesFactReader
                 PaymentMethod: reservation.PaymentMethod,
                 TotalAmount: reservation.TotalValue,
                 Currency: reservation.Currency,
-                // A reservation carries its warehouse on the line, not the header.
-                WarehouseCode: null));
+                // A reservation carries its warehouse on the line, not the header; a van sells from one
+                // warehouse, so the first line's is the van's.
+                WarehouseCode: reservation.WarehouseCode)
+            {
+                SoldAtCat = AuditService.ToCAT(reservation.CreatedAt)
+            });
         }
 
         return Order(facts, fact => fact.TradingDate, fact => fact.ExternalReferenceId);

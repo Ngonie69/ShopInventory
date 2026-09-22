@@ -44,7 +44,7 @@ public partial class DesktopSalesReport : IDisposable
         (PeriodCustom, "Range")
     ];
 
-    private static readonly (string Key, string Label)[] BreakdownOptions =
+    private static readonly (string Key, string Label)[] ShopBreakdownOptions =
     [
         (BreakdownShop, "Shop"),
         (BreakdownPartner, "Business partner"),
@@ -52,11 +52,29 @@ public partial class DesktopSalesReport : IDisposable
         (BreakdownSource, "Source")
     ];
 
+    /// <summary>
+    /// The same four cuts as the van analysis answers them: the warehouse is the van, the partner the route
+    /// customer it sold to, the operator the rep and the source whether it was invoiced live or uploaded.
+    /// </summary>
+    private static readonly (string Key, string Label)[] VanBreakdownOptions =
+    [
+        (BreakdownShop, "Van"),
+        (BreakdownPartner, "Customer"),
+        (BreakdownOperator, "Rep"),
+        (BreakdownSource, "Channel")
+    ];
+
     private static readonly (string Key, string Label)[] MeasureOptions =
     [
         (MeasureTakings, "Takings"),
         (MeasureSales, "Sales")
     ];
+
+    /// <summary>
+    /// The vans' takings rather than the counters': the same page over the van sales analysis, reached from
+    /// /van-sales/reports/sales-breakdown.
+    /// </summary>
+    [Parameter] public bool Vans { get; set; }
 
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private IMasterDataCacheService MasterDataCache { get; set; } = default!;
@@ -75,6 +93,13 @@ public partial class DesktopSalesReport : IDisposable
     private Shown? shown;
 
     private List<WarehouseDto> warehouses = [];
+
+    /// <summary>
+    /// Every van seen selling in anything loaded so far. Nothing in the portal's warehouse list says which
+    /// warehouses are vans, so the van picker offers the ones that traded — and never forgets one, or picking
+    /// a van would take every other van off the list.
+    /// </summary>
+    private readonly SortedSet<string> vanCodes = new(StringComparer.OrdinalIgnoreCase);
 
     private string warehouse = "";
     private string period = PeriodThirtyDays;
@@ -123,20 +148,34 @@ public partial class DesktopSalesReport : IDisposable
         string? Method);
 
     private IEnumerable<NocturneSelectOption<string>> WarehouseOptions =>
-        warehouses
-            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
-            .Select(w => new NocturneSelectOption<string>(
-                w.WarehouseCode!,
-                string.IsNullOrWhiteSpace(w.WarehouseName) ? w.WarehouseCode! : w.WarehouseName!)
-            {
-                Hint = string.IsNullOrWhiteSpace(w.WarehouseName) ? null : w.WarehouseCode
-            })
-            .Prepend(NocturneSelectOption.All("All shops"));
+        Vans
+            ? vanCodes
+                .Select(code => new NocturneSelectOption<string>(code, WarehouseName(code) ?? code)
+                {
+                    Hint = WarehouseName(code) is null ? null : code
+                })
+                .Prepend(NocturneSelectOption.All("All vans"))
+            : warehouses
+                .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
+                .Select(w => new NocturneSelectOption<string>(
+                    w.WarehouseCode!,
+                    string.IsNullOrWhiteSpace(w.WarehouseName) ? w.WarehouseCode! : w.WarehouseName!)
+                {
+                    Hint = string.IsNullOrWhiteSpace(w.WarehouseName) ? null : w.WarehouseCode
+                })
+                .Prepend(NocturneSelectOption.All("All shops"));
+
+    private (string Key, string Label)[] BreakdownOptions => Vans ? VanBreakdownOptions : ShopBreakdownOptions;
+
+    /// <summary>What one warehouse is called on this page: a shop, or a van.</summary>
+    private string Place => Vans ? "van" : "shop";
 
     protected override async Task OnInitializedAsync()
     {
         var warehouseList = await MasterDataCache.GetWarehousesAsync();
-        warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? [];
+        // Inactive ones too on the van page: it only names the vans that sold, and a van retired since
+        // still sold.
+        warehouses = warehouseList?.Where(w => Vans || w.IsActive).ToList() ?? [];
 
         await LoadAsync();
     }
@@ -181,7 +220,8 @@ public partial class DesktopSalesReport : IDisposable
                         key.From,
                         key.To,
                         key.Warehouse == "" ? null : key.Warehouse,
-                        key.Method),
+                        key.Method,
+                        Vans: Vans),
                     cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested || isDisposed)
@@ -197,6 +237,14 @@ public partial class DesktopSalesReport : IDisposable
                 }
 
                 loaded[key] = response.Value;
+
+                if (Vans)
+                {
+                    vanCodes.UnionWith(response.Value.Currencies
+                        .SelectMany(section => section.ByWarehouse)
+                        .Select(row => row.Key)
+                        .Where(code => code != ""));
+                }
             }
 
             shown = new Shown(loaded[contextKey], loaded[focusKey], loaded[paymentsKey], day, method);
@@ -210,7 +258,8 @@ public partial class DesktopSalesReport : IDisposable
             if (!hasLoggedView)
             {
                 hasLoggedView = true;
-                await AuditService.LogAsync(AuditActions.ViewReports, "Report", nameof(DesktopSalesReport));
+                await AuditService.LogAsync(
+                    AuditActions.ViewReports, "Report", Vans ? "VanSalesBreakdown" : nameof(DesktopSalesReport));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -362,7 +411,7 @@ public partial class DesktopSalesReport : IDisposable
             var bytes = ExportService.ExportDesktopSalesAnalysisToExcel(report);
             await JS.InvokeVoidAsync(
                 "downloadFile",
-                $"Desktop_Sales_Analysis_{report.FromDate:yyyyMMdd}_{report.ToDate:yyyyMMdd}.xlsx",
+                $"{(Vans ? "Van" : "Desktop")}_Sales_Analysis_{report.FromDate:yyyyMMdd}_{report.ToDate:yyyyMMdd}.xlsx",
                 Convert.ToBase64String(bytes));
 
             ShowToast("Workbook downloaded");
@@ -573,13 +622,7 @@ public partial class DesktopSalesReport : IDisposable
         };
     }
 
-    private string BreakdownHeading => breakdown switch
-    {
-        BreakdownPartner => "Business partner",
-        BreakdownOperator => "Operator",
-        BreakdownSource => "Source",
-        _ => "Shop"
-    };
+    private string BreakdownHeading => BreakdownOptions.First(option => option.Key == breakdown).Label;
 
     /// <summary>
     /// A shop by its code, which is what the tills and the sale list call it; a business partner by the
@@ -612,7 +655,7 @@ public partial class DesktopSalesReport : IDisposable
 
         // The API's word on the shop, not the filter's: a shop-confined account is narrowed to its own
         // shop without choosing one.
-        return context.WarehouseCode is { Length: > 0 } shop ? $"{dates} · {shop}" : $"{dates} · all shops";
+        return context.WarehouseCode is { Length: > 0 } shop ? $"{dates} · {shop}" : $"{dates} · all {Place}s";
     }
 
     private string ShopChip => WarehouseName(warehouse) is { Length: > 0 } name ? name : warehouse;

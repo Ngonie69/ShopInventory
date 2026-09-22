@@ -38,14 +38,13 @@ public sealed class GetDesktopSalesAnalysisHandler(
             queryParts.Add($"paymentMethod={Uri.EscapeDataString(request.PaymentMethod.Trim())}");
         }
 
-        if (!string.IsNullOrWhiteSpace(request.SourceSystem))
+        if (!string.IsNullOrWhiteSpace(request.SourceSystem) && !request.Vans)
         {
             queryParts.Add($"sourceSystem={Uri.EscapeDataString(request.SourceSystem.Trim())}");
         }
 
-        var url = queryParts.Count == 0
-            ? "api/DesktopIntegration/sales/analysis"
-            : $"api/DesktopIntegration/sales/analysis?{string.Join("&", queryParts)}";
+        var path = request.Vans ? "api/van-sales/sales-analysis" : "api/DesktopIntegration/sales/analysis";
+        var url = queryParts.Count == 0 ? path : $"{path}?{string.Join("&", queryParts)}";
 
         try
         {

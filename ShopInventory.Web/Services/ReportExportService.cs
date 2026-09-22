@@ -7895,56 +7895,88 @@ public partial class ReportExportService : IReportExportService
     /// </remarks>
     public byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report)
     {
-        using var workbook = NewWorkbook("Desktop Sales Analysis");
+        var vans = report.SourceSystem == DesktopAnalysisVanSource;
+        using var workbook = NewWorkbook(vans ? "Van Sales Analysis" : "Desktop Sales Analysis");
         var context = new DesktopAnalysisContext(
             report,
             report.FromDate.Date == report.ToDate.Date
                 ? report.FromDate.ToString("dd MMM yyyy")
                 : $"{report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
-            (string.IsNullOrWhiteSpace(report.WarehouseCode) ? "All shops" : $"Shop: {report.WarehouseCode}")
+            (string.IsNullOrWhiteSpace(report.WarehouseCode)
+                ? (vans ? "All vans" : "All shops")
+                : $"{(vans ? "Van" : "Shop")}: {report.WarehouseCode}")
                 // A workbook confined to one tender says so, or its takings read as the whole period's.
                 + (string.IsNullOrWhiteSpace(report.PaymentMethod)
                     ? ""
                     : $" · Paid by {DesktopAnalysisTenderName(report.PaymentMethod)} only"),
-            report.GeneratedAtUtc == default ? CurrentCatNow() : IAuditService.ToCAT(EnsureUtc(report.GeneratedAtUtc)));
+            report.GeneratedAtUtc == default ? CurrentCatNow() : IAuditService.ToCAT(EnsureUtc(report.GeneratedAtUtc)),
+            vans);
 
         WriteDesktopAnalysisPaymentMethods(workbook, context);
 
         WriteDesktopAnalysisMatrix(workbook, context, new DesktopAnalysisMatrixSheet(
-            "By Day", "DESKTOP SALES BY DAY", "Takings for each trading day, split by payment method",
+            "By Day", $"{context.Title} BY DAY", "Takings for each trading day, split by payment method",
             "Day", 20, "Best Day", "Days Traded", "day", "days",
             section => section.ByDay.Select(day => new DesktopAnalysisMatrixRow(
                 day.Date.ToString("yyyy-MM-dd"), day.Date, day.Date.ToString("ddd dd MMM"),
                 day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod)),
             WithShare: false));
 
-        WriteDesktopAnalysisMatrix(workbook, context, new DesktopAnalysisMatrixSheet(
-            "By Shop", "DESKTOP SALES BY SHOP", "Takings for each shop, split by payment method",
-            "Shop", 30, "Top Shop", "Shops", "shop", "shops",
-            section => section.ByWarehouse.Select(DesktopAnalysisBreakdownRow),
-            WithShare: true));
+        WriteDesktopAnalysisMatrix(workbook, context, vans
+            ? new DesktopAnalysisMatrixSheet(
+                "By Van", $"{context.Title} BY VAN", "Takings from each van, split by payment method",
+                "Van", 30, "Top Van", "Vans", "van", "vans",
+                section => section.ByWarehouse.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true)
+            : new DesktopAnalysisMatrixSheet(
+                "By Shop", $"{context.Title} BY SHOP", "Takings for each shop, split by payment method",
+                "Shop", 30, "Top Shop", "Shops", "shop", "shops",
+                section => section.ByWarehouse.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true));
 
         // By name, with the code beside it: the reader knows the customer as "Farm Counter Sales" and SAP
         // knows it as CIS006, and reconciling the sheet needs both.
-        WriteDesktopAnalysisMatrix(workbook, context, new DesktopAnalysisMatrixSheet(
-            "By Business Partner", "DESKTOP SALES BY BUSINESS PARTNER",
-            "Takings from each business partner the sales were made as, split by payment method",
-            "Business Partner", 34, "Top Partner", "Partners", "business partner", "business partners",
-            section => section.ByBusinessPartner.Select(DesktopAnalysisBreakdownRow),
-            WithShare: true,
-            CodeHeading: "Card Code"));
+        // On the van analysis the partner is the route customer the van sold to — the document's card is
+        // the van's own account on every sale — and the source is whether it was invoiced live or uploaded.
+        WriteDesktopAnalysisMatrix(workbook, context, vans
+            ? new DesktopAnalysisMatrixSheet(
+                "By Customer", $"{context.Title} BY CUSTOMER",
+                "Takings from each route customer the vans sold to, split by payment method",
+                "Customer", 34, "Top Customer", "Customers", "customer", "customers",
+                section => section.ByBusinessPartner.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true,
+                CodeHeading: "Customer Code")
+            : new DesktopAnalysisMatrixSheet(
+                "By Business Partner", $"{context.Title} BY BUSINESS PARTNER",
+                "Takings from each business partner the sales were made as, split by payment method",
+                "Business Partner", 34, "Top Partner", "Partners", "business partner", "business partners",
+                section => section.ByBusinessPartner.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true,
+                CodeHeading: "Card Code"));
 
-        WriteDesktopAnalysisMatrix(workbook, context, new DesktopAnalysisMatrixSheet(
-            "By Operator", "DESKTOP SALES BY OPERATOR", "Takings rung up by each operator, split by payment method",
-            "Operator", 26, "Top Operator", "Operators", "operator", "operators",
-            section => section.ByOperator.Select(DesktopAnalysisBreakdownRow),
-            WithShare: true));
+        WriteDesktopAnalysisMatrix(workbook, context, vans
+            ? new DesktopAnalysisMatrixSheet(
+                "By Rep", $"{context.Title} BY REP", "Takings sold by each rep, split by payment method",
+                "Rep", 26, "Top Rep", "Reps", "rep", "reps",
+                section => section.ByOperator.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true)
+            : new DesktopAnalysisMatrixSheet(
+                "By Operator", $"{context.Title} BY OPERATOR", "Takings rung up by each operator, split by payment method",
+                "Operator", 26, "Top Operator", "Operators", "operator", "operators",
+                section => section.ByOperator.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true));
 
-        WriteDesktopAnalysisMatrix(workbook, context, new DesktopAnalysisMatrixSheet(
-            "By Source", "DESKTOP SALES BY SOURCE", "Takings from each till system, split by payment method",
-            "Source", 24, "Top Source", "Sources", "source", "sources",
-            section => section.BySource.Select(DesktopAnalysisBreakdownRow),
-            WithShare: true));
+        WriteDesktopAnalysisMatrix(workbook, context, vans
+            ? new DesktopAnalysisMatrixSheet(
+                "By Channel", $"{context.Title} BY CHANNEL", "Takings invoiced live against those uploaded offline",
+                "Channel", 24, "Top Channel", "Channels", "channel", "channels",
+                section => section.BySource.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true)
+            : new DesktopAnalysisMatrixSheet(
+                "By Source", $"{context.Title} BY SOURCE", "Takings from each till system, split by payment method",
+                "Source", 24, "Top Source", "Sources", "source", "sources",
+                section => section.BySource.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true));
 
         WriteDesktopAnalysisHours(workbook, context);
         WriteDesktopAnalysisItems(workbook, context);
@@ -7952,9 +7984,8 @@ public partial class ReportExportService : IReportExportService
         return WorkbookToBytes(workbook);
     }
 
-    private const string DesktopAnalysisNoSales = "No desktop sales fell in this period.";
-
-    private const string DesktopAnalysisDataSource = "the shop tills' desktop sales records";
+    /// <summary>What the van sales analysis states as its source system, which is how its workbook knows.</summary>
+    private const string DesktopAnalysisVanSource = "KefalosVanSales";
 
     // Zero reads as a dash, so a matrix of mostly-unused tenders shows where the money actually went.
     private const string FormatMoneyDashZero = "#,##0.00;[Red](#,##0.00);\"-\"";
@@ -7963,7 +7994,17 @@ public partial class ReportExportService : IReportExportService
         DesktopSalesAnalysisResult Report,
         string Period,
         string Scope,
-        DateTime GeneratedAt);
+        DateTime GeneratedAt,
+        bool Vans = false)
+    {
+        public string Title => Vans ? "VAN SALES" : "DESKTOP SALES";
+
+        public string NoSales => Vans ? "No van sales fell in this period." : "No desktop sales fell in this period.";
+
+        public string DataSource => Vans
+            ? "the vans' uploaded sales and live invoices"
+            : "the shop tills' desktop sales records";
+    }
 
     /// <remarks>
     /// <c>CodeHeading</c>, when set, adds a column after the label carrying each row's key — for a sheet
@@ -8131,7 +8172,7 @@ public partial class ReportExportService : IReportExportService
         IXLWorksheet ws, int disclaimerRow, int lastCol, DesktopAnalysisContext context,
         int headerRow, int freezeCol, int lastDataRow, params double[] widths)
     {
-        PodDisclaimerRow(ws, disclaimerRow, lastCol, context.GeneratedAt, DesktopAnalysisDataSource);
+        PodDisclaimerRow(ws, disclaimerRow, lastCol, context.GeneratedAt, context.DataSource);
         PodFinalize(ws, lastCol, headerRow, freezeCol, lastDataRow);
 
         var titleWidth = ws.Cell(1, 1).GetString().Length * 1.35;
@@ -8181,7 +8222,7 @@ public partial class ReportExportService : IReportExportService
             "Average Sale", "Without Reference"
         ];
 
-        var row = PodTitleBar(ws, $"DESKTOP SALES BY PAYMENT METHOD - {context.Period}", lastCol, context.GeneratedAt);
+        var row = PodTitleBar(ws, $"{context.Title} BY PAYMENT METHOD - {context.Period}", lastCol, context.GeneratedAt);
         row = DesktopAnalysisKpiStrip(ws, row, lastCol,
             ("Sales", report.Currencies.Sum(section => section.SalesCount), PodNavy),
             ("Takings", DesktopAnalysisPerCurrency(report.Currencies, section => section.TotalAmount.ToString("N2")), PodNavy),
@@ -8192,7 +8233,7 @@ public partial class ReportExportService : IReportExportService
         {
             PodSectionTitle(ws, row, lastCol, $"Takings by payment method · {context.Scope}");
             row = PodColumnHeaders(ws, row + 1, lastCol, headers);
-            row = PodEmptyRow(ws, row, lastCol, DesktopAnalysisNoSales) + 1;
+            row = PodEmptyRow(ws, row, lastCol, context.NoSales) + 1;
         }
 
         foreach (var section in report.Currencies)
@@ -8362,7 +8403,7 @@ public partial class ReportExportService : IReportExportService
         }
 
         if (rowIndex == 0)
-            row = PodEmptyRow(ws, row, lastCol, DesktopAnalysisNoSales);
+            row = PodEmptyRow(ws, row, lastCol, context.NoSales);
 
         var lastDataRow = row - 1;
         for (var index = 0; index < sections.Count; index++)
@@ -8410,7 +8451,7 @@ public partial class ReportExportService : IReportExportService
 
         static string HourLabel(DesktopSalesHourRow hour) => $"{hour.Hour:00}:00–{(hour.Hour + 1) % 24:00}:00";
 
-        var row = PodTitleBar(ws, $"DESKTOP SALES BY HOUR (CAT) - {context.Period}", lastCol, context.GeneratedAt);
+        var row = PodTitleBar(ws, $"{context.Title} BY HOUR (CAT) - {context.Period}", lastCol, context.GeneratedAt);
         row = DesktopAnalysisKpiStrip(ws, row, lastCol,
             ("Hours Traded", report.Currencies.SelectMany(section => section.ByHour).Select(hour => hour.Hour).Distinct().Count(), PodNavy),
             ("Busiest Hour", DesktopAnalysisPerCurrency(report.Currencies,
@@ -8457,7 +8498,7 @@ public partial class ReportExportService : IReportExportService
         }
 
         if (rowIndex == 0)
-            row = PodEmptyRow(ws, row, lastCol, DesktopAnalysisNoSales);
+            row = PodEmptyRow(ws, row, lastCol, context.NoSales);
 
         var lastDataRow = row - 1;
         for (var index = 0; index < report.Currencies.Count; index++)
@@ -8485,7 +8526,7 @@ public partial class ReportExportService : IReportExportService
         var ws = workbook.Worksheets.Add("Best Sellers");
         PodApplyDefaults(ws);
 
-        var row = PodTitleBar(ws, $"DESKTOP SALES BEST SELLERS - {context.Period}", lastCol, context.GeneratedAt);
+        var row = PodTitleBar(ws, $"{context.Title} BEST SELLERS - {context.Period}", lastCol, context.GeneratedAt);
         row = DesktopAnalysisKpiStrip(ws, row, lastCol,
             ("Items Sold", DesktopAnalysisPerCurrency(report.Currencies, section => section.DistinctItems.ToString("N0")), PodNavy),
             ("Top Seller", DesktopAnalysisPerCurrency(report.Currencies,
