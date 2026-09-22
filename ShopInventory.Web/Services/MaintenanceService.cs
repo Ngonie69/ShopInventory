@@ -7,21 +7,21 @@ namespace ShopInventory.Web.Services;
 /// <summary>
 /// The mobile maintenance lockout, as the settings screen reads and writes it.
 /// </summary>
-public interface IMobileMaintenanceService
+public interface IMaintenanceService
 {
-    Task<MobileMaintenanceSettingsResponse?> GetSettingsAsync();
-    Task<MobileMaintenanceUpdateResult> SetAsync(SetMobileMaintenanceApiRequest request);
+    Task<MaintenanceSettingsResponse?> GetSettingsAsync();
+    Task<MaintenanceUpdateResult> SetAsync(SetMaintenanceApiRequest request);
 }
 
-public class MobileMaintenanceService(
+public class MaintenanceService(
     HttpClient httpClient,
-    ILogger<MobileMaintenanceService> logger) : IMobileMaintenanceService
+    ILogger<MaintenanceService> logger) : IMaintenanceService
 {
-    public async Task<MobileMaintenanceSettingsResponse?> GetSettingsAsync()
+    public async Task<MaintenanceSettingsResponse?> GetSettingsAsync()
     {
         try
         {
-            return await httpClient.GetFromJsonAsync<MobileMaintenanceSettingsResponse>("api/maintenance/mobile");
+            return await httpClient.GetFromJsonAsync<MaintenanceSettingsResponse>("api/maintenance/mobile");
         }
         catch (Exception ex)
         {
@@ -30,15 +30,15 @@ public class MobileMaintenanceService(
         }
     }
 
-    public async Task<MobileMaintenanceUpdateResult> SetAsync(SetMobileMaintenanceApiRequest request)
+    public async Task<MaintenanceUpdateResult> SetAsync(SetMaintenanceApiRequest request)
     {
         try
         {
             var response = await httpClient.PutAsJsonAsync("api/maintenance/mobile", request);
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<SetMobileMaintenanceApiResponse>();
-                return new MobileMaintenanceUpdateResult
+                var result = await response.Content.ReadFromJsonAsync<SetMaintenanceApiResponse>();
+                return new MaintenanceUpdateResult
                 {
                     Success = true,
                     Message = result?.Message ?? "Maintenance mode updated.",
@@ -53,12 +53,12 @@ public class MobileMaintenanceService(
                 response.StatusCode,
                 message);
 
-            return new MobileMaintenanceUpdateResult { Success = false, Message = message };
+            return new MaintenanceUpdateResult { Success = false, Message = message };
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error setting the mobile maintenance lockout");
-            return new MobileMaintenanceUpdateResult
+            return new MaintenanceUpdateResult
             {
                 Success = false,
                 Message = ApiErrorResponse.GetFriendlyMessage(
@@ -120,13 +120,13 @@ public class MobileMaintenanceService(
 }
 
 /// <summary>
-/// Mirrors the API's <c>MobileMaintenanceSettingsDto</c>.
+/// Mirrors the API's <c>MaintenanceSettingsDto</c>.
 /// </summary>
 /// <remarks>
 /// Hand-mirrored, like every other DTO on this side. The nullability has to match the API's or a
 /// field arrives null and the page renders an empty control over a setting that is in fact set.
 /// </remarks>
-public class MobileMaintenanceSettingsResponse
+public class MaintenanceSettingsResponse
 {
     public bool Enabled { get; set; }
     public bool IsActive { get; set; }
@@ -134,20 +134,20 @@ public class MobileMaintenanceSettingsResponse
     public string Message { get; set; } = string.Empty;
     public string DefaultMessage { get; set; } = string.Empty;
     public List<string> AppIds { get; set; } = [];
-    public List<MobileMaintenanceAppResponse> CoveredApps { get; set; } = [];
-    public List<MobileMaintenanceAppResponse> AvailableApps { get; set; } = [];
+    public List<MaintenanceAppResponse> CoveredApps { get; set; } = [];
+    public List<MaintenanceAppResponse> AvailableApps { get; set; } = [];
     public DateTime? StartedAtUtc { get; set; }
     public DateTime? EndsAtUtc { get; set; }
     public string UpdatedBy { get; set; } = string.Empty;
 }
 
-public class MobileMaintenanceAppResponse
+public class MaintenanceAppResponse
 {
     public string AppId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
 }
 
-public class SetMobileMaintenanceApiRequest
+public class SetMaintenanceApiRequest
 {
     public bool Enabled { get; set; }
     public string? Scope { get; set; }
@@ -156,15 +156,15 @@ public class SetMobileMaintenanceApiRequest
     public DateTime? EndsAtUtc { get; set; }
 }
 
-public class SetMobileMaintenanceApiResponse
+public class SetMaintenanceApiResponse
 {
     public string? Message { get; set; }
-    public MobileMaintenanceSettingsResponse? Settings { get; set; }
+    public MaintenanceSettingsResponse? Settings { get; set; }
 }
 
-public class MobileMaintenanceUpdateResult
+public class MaintenanceUpdateResult
 {
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
-    public MobileMaintenanceSettingsResponse? Settings { get; set; }
+    public MaintenanceSettingsResponse? Settings { get; set; }
 }

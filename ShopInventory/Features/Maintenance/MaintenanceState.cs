@@ -17,9 +17,9 @@ namespace ShopInventory.Features.Maintenance;
 /// When it lifts on its own, if an operator set an end. See <see cref="IsActiveAt"/>.
 /// </param>
 /// <param name="UpdatedBy">Who last touched the switch.</param>
-public sealed record MobileMaintenanceState(
+public sealed record MaintenanceState(
     bool Enabled,
-    MobileMaintenanceScope Scope,
+    MaintenanceScope Scope,
     string? Message,
     IReadOnlyList<string> AppIds,
     DateTime? StartedAtUtc,
@@ -32,9 +32,9 @@ public sealed record MobileMaintenanceState(
         + "please try again shortly.";
 
     /// <summary>A deployment that has never had the switch touched.</summary>
-    public static readonly MobileMaintenanceState Off = new(
+    public static readonly MaintenanceState Off = new(
         Enabled: false,
-        Scope: MobileMaintenanceScope.Transactions,
+        Scope: MaintenanceScope.Transactions,
         Message: null,
         AppIds: [],
         StartedAtUtc: null,

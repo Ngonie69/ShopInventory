@@ -2,16 +2,16 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.DTOs;
 
-namespace ShopInventory.Features.Maintenance.Queries.GetMobileMaintenanceSettings;
+namespace ShopInventory.Features.Maintenance.Queries.GetMaintenanceSettings;
 
-public sealed class GetMobileMaintenanceSettingsHandler(
-    IMobileMaintenanceStore store,
+public sealed class GetMaintenanceSettingsHandler(
+    IMaintenanceStore store,
     TimeProvider timeProvider,
-    ILogger<GetMobileMaintenanceSettingsHandler> logger
-) : IRequestHandler<GetMobileMaintenanceSettingsQuery, ErrorOr<MobileMaintenanceSettingsDto>>
+    ILogger<GetMaintenanceSettingsHandler> logger
+) : IRequestHandler<GetMaintenanceSettingsQuery, ErrorOr<MaintenanceSettingsDto>>
 {
-    public async Task<ErrorOr<MobileMaintenanceSettingsDto>> Handle(
-        GetMobileMaintenanceSettingsQuery request,
+    public async Task<ErrorOr<MaintenanceSettingsDto>> Handle(
+        GetMaintenanceSettingsQuery request,
         CancellationToken cancellationToken)
     {
         // Read through rather than off the snapshot: a screen that exists to show what the switch
@@ -29,8 +29,8 @@ public sealed class GetMobileMaintenanceSettingsHandler(
             logger.LogWarning(ex, "Could not reload the mobile maintenance switch; showing the last known state.");
         }
 
-        ErrorOr<MobileMaintenanceSettingsDto> result =
-            MobileMaintenanceMapper.ToSettings(store.Current, timeProvider.GetUtcNow().UtcDateTime);
+        ErrorOr<MaintenanceSettingsDto> result =
+            MaintenanceMapper.ToSettings(store.Current, timeProvider.GetUtcNow().UtcDateTime);
 
         return result;
     }

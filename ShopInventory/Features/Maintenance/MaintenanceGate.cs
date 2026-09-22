@@ -9,7 +9,7 @@ namespace ShopInventory.Features.Maintenance;
 /// that matter (a phone during a lockout, a phone reading during a lockout, the Web during a
 /// lockout, a phone once the window has passed) are unit tests rather than a deployment.
 /// </remarks>
-public static class MobileMaintenanceGate
+public static class MaintenanceGate
 {
     /// <summary>
     /// What a phone may still reach while the lockout is on, whatever its scope.
@@ -47,13 +47,13 @@ public static class MobileMaintenanceGate
     /// <para>
     /// Without this list the transaction lockout would take away the van app's order and invoice
     /// history, which are searches with a date range in the body and change nothing — and taking
-    /// reads away is the thing the <see cref="MobileMaintenanceScope.Transactions"/> scope exists
+    /// reads away is the thing the <see cref="MaintenanceScope.Transactions"/> scope exists
     /// to avoid. Verb is otherwise a good proxy for "changes something"; these are the exceptions,
     /// and they are an allowlist so that a new POST counts as a transaction until somebody decides
     /// otherwise.
     /// </para>
     /// <para>
-    /// <c>MobileMaintenanceRouteClassificationTests</c> sweeps the controllers and fails if an
+    /// <c>MaintenanceRouteClassificationTests</c> sweeps the controllers and fails if an
     /// entry here stops being a POST route or stops dispatching a query, so the list cannot quietly
     /// rot into something that waves writes through.
     /// </para>
@@ -70,8 +70,8 @@ public static class MobileMaintenanceGate
     /// <summary>How long a phone is told to wait when no end time was set.</summary>
     public static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromMinutes(5);
 
-    public static MobileMaintenanceDecision Evaluate(
-        MobileMaintenanceState state,
+    public static MaintenanceDecision Evaluate(
+        MaintenanceState state,
         DateTime nowUtc,
         bool isMobileApp,
         string? policyKey,
@@ -82,31 +82,31 @@ public static class MobileMaintenanceGate
         // driven by people who can be told maintenance is running; the phones are in vans.
         if (!isMobileApp)
         {
-            return MobileMaintenanceDecision.Allowed;
+            return MaintenanceDecision.Allowed;
         }
 
         if (!state.IsActiveAt(nowUtc))
         {
-            return MobileMaintenanceDecision.Allowed;
+            return MaintenanceDecision.Allowed;
         }
 
         if (!state.CoversApp(policyKey))
         {
-            return MobileMaintenanceDecision.Allowed;
+            return MaintenanceDecision.Allowed;
         }
 
         var normalizedPath = Normalize(path);
         if (IsAlwaysAllowed(normalizedPath))
         {
-            return MobileMaintenanceDecision.Allowed;
+            return MaintenanceDecision.Allowed;
         }
 
-        if (state.Scope == MobileMaintenanceScope.Transactions && IsRead(method, normalizedPath))
+        if (state.Scope == MaintenanceScope.Transactions && IsRead(method, normalizedPath))
         {
-            return MobileMaintenanceDecision.Allowed;
+            return MaintenanceDecision.Allowed;
         }
 
-        return MobileMaintenanceDecision.Blocked(state, RetryAfter(state, nowUtc));
+        return MaintenanceDecision.Blocked(state, RetryAfter(state, nowUtc));
     }
 
     /// <summary>
@@ -145,7 +145,7 @@ public static class MobileMaintenanceGate
     /// enough that a van full of handsets is not hammering an API that is mid-maintenance, short
     /// enough that trading resumes promptly once the switch goes back.
     /// </remarks>
-    private static TimeSpan RetryAfter(MobileMaintenanceState state, DateTime nowUtc)
+    private static TimeSpan RetryAfter(MaintenanceState state, DateTime nowUtc)
     {
         if (state.EndsAtUtc is not { } endsAt || endsAt <= nowUtc)
         {

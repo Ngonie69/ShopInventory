@@ -389,8 +389,8 @@ try
 
     // The mobile maintenance lockout. A singleton for the same reason the rate limit store is: it
     // is read on the path of every request and must answer without touching the database. See
-    // IMobileMaintenanceStore for why this lives in SystemConfigs and not in configuration.
-    builder.Services.AddSingleton<IMobileMaintenanceStore, MobileMaintenanceStore>();
+    // IMaintenanceStore for why this lives in SystemConfigs and not in configuration.
+    builder.Services.AddSingleton<IMaintenanceStore, MaintenanceStore>();
 
     var securitySettings = builder.Configuration.GetSection("Security").Get<SecuritySettings>()
         ?? new SecuritySettings();
@@ -1183,7 +1183,7 @@ try
             // the switch was on would accept transactions for its first few seconds.
             try
             {
-                await services.GetRequiredService<IMobileMaintenanceStore>().ReloadAsync(CancellationToken.None);
+                await services.GetRequiredService<IMaintenanceStore>().ReloadAsync(CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -1330,7 +1330,7 @@ try
 
     // Before authentication, so that a lockout applies to every request from a phone rather than
     // only to the ones that get as far as presenting a token.
-    app.UseMobileMaintenance();
+    app.UseMaintenance();
 
     // Authentication must run before rate limiting so authenticated users get per-user quotas.
     app.UseAuthentication();

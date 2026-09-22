@@ -15,14 +15,14 @@ namespace ShopInventory.Tests;
 /// headers, not touching anything else, and writing a body the apps' hand-written error readers
 /// can actually parse.
 /// </summary>
-public sealed class MobileMaintenanceMiddlewareTests
+public sealed class MaintenanceMiddlewareTests
 {
     private static readonly DateTime Now = new(2026, 9, 22, 18, 0, 0, DateTimeKind.Utc);
 
     [Fact]
     public async Task With_the_switch_off_nothing_is_touched()
     {
-        var result = await InvokeAsync(MobileMaintenanceState.Off, headers: Phone());
+        var result = await InvokeAsync(MaintenanceState.Off, headers: Phone());
 
         Assert.True(result.ReachedTheApi);
         Assert.Equal(StatusCodes.Status200OK, result.StatusCode);
@@ -64,7 +64,7 @@ public sealed class MobileMaintenanceMiddlewareTests
         // The Web calls the API with none of the app headers. If this ever stops holding, throwing
         // the switch takes the office down with the vans.
         var result = await InvokeAsync(
-            Lockout(MobileMaintenanceScope.All),
+            Lockout(MaintenanceScope.All),
             headers: new Dictionary<string, string>(),
             method: "POST",
             path: "/api/invoice");
@@ -76,7 +76,7 @@ public sealed class MobileMaintenanceMiddlewareTests
     public async Task A_caller_naming_a_platform_that_is_not_android_is_not_a_phone()
     {
         var result = await InvokeAsync(
-            Lockout(MobileMaintenanceScope.All),
+            Lockout(MaintenanceScope.All),
             headers: new Dictionary<string, string> { ["X-App-Platform"] = "windows", ["X-App-Version"] = "3.1.0" },
             method: "POST",
             path: "/api/desktopintegration/sales");
@@ -160,8 +160,8 @@ public sealed class MobileMaintenanceMiddlewareTests
         ["X-App-Version"] = "2.0.1"
     };
 
-    private static MobileMaintenanceState Lockout(
-        MobileMaintenanceScope scope = MobileMaintenanceScope.Transactions,
+    private static MaintenanceState Lockout(
+        MaintenanceScope scope = MaintenanceScope.Transactions,
         IReadOnlyList<string>? apps = null,
         DateTime? endsAtUtc = null) =>
         new(
@@ -177,7 +177,7 @@ public sealed class MobileMaintenanceMiddlewareTests
         bool ReachedTheApi, int StatusCode, string? RetryAfter, JsonElement Body, IReadOnlyList<string> Logged);
 
     private static async Task<Result> InvokeAsync(
-        MobileMaintenanceState state,
+        MaintenanceState state,
         IDictionary<string, string> headers,
         string method = "GET",
         string path = "/api/product")
@@ -195,7 +195,7 @@ public sealed class MobileMaintenanceMiddlewareTests
 
         var reachedTheApi = false;
         var logger = new CapturingLogger();
-        var middleware = new MobileMaintenanceMiddleware(
+        var middleware = new MaintenanceMiddleware(
             _ =>
             {
                 reachedTheApi = true;
@@ -221,7 +221,7 @@ public sealed class MobileMaintenanceMiddlewareTests
     }
 
     /// <summary>Keeps the rendered log messages so a test can assert on what was written.</summary>
-    private sealed class CapturingLogger : ILogger<MobileMaintenanceMiddleware>
+    private sealed class CapturingLogger : ILogger<MaintenanceMiddleware>
     {
         public List<string> Messages { get; } = [];
 
@@ -241,11 +241,11 @@ public sealed class MobileMaintenanceMiddlewareTests
         }
     }
 
-    private sealed class StubStore(MobileMaintenanceState state) : IMobileMaintenanceStore
+    private sealed class StubStore(MaintenanceState state) : IMaintenanceStore
     {
-        public MobileMaintenanceState Current { get; } = state;
+        public MaintenanceState Current { get; } = state;
 
-        public Task UpdateAsync(MobileMaintenanceState newState, CancellationToken cancellationToken = default) =>
+        public Task UpdateAsync(MaintenanceState newState, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
         public Task ReloadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

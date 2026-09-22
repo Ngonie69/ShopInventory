@@ -2,9 +2,9 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
-using ShopInventory.Features.Maintenance.Commands.SetMobileMaintenance;
-using ShopInventory.Features.Maintenance.Queries.GetMobileMaintenanceSettings;
-using ShopInventory.Features.Maintenance.Queries.GetMobileMaintenanceStatus;
+using ShopInventory.Features.Maintenance.Commands.SetMaintenance;
+using ShopInventory.Features.Maintenance.Queries.GetMaintenanceSettings;
+using ShopInventory.Features.Maintenance.Queries.GetMaintenanceStatus;
 
 namespace ShopInventory.Controllers;
 
@@ -23,13 +23,13 @@ public class MaintenanceController(IMediator mediator) : ApiControllerBase
     /// </remarks>
     [HttpGet("mobile/status")]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(MobileMaintenanceStatusDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetMobileMaintenanceStatus(
+    [ProducesResponseType(typeof(MaintenanceStatusDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMaintenanceStatus(
         [FromHeader(Name = "X-App-Id")] string? appIdHeader,
         [FromQuery] string? appId,
         CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetMobileMaintenanceStatusQuery(appId ?? appIdHeader), cancellationToken);
+        var result = await mediator.Send(new GetMaintenanceStatusQuery(appId ?? appIdHeader), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -38,10 +38,10 @@ public class MaintenanceController(IMediator mediator) : ApiControllerBase
     /// </summary>
     [HttpGet("mobile")]
     [Authorize(Policy = "AdminOnly")]
-    [ProducesResponseType(typeof(MobileMaintenanceSettingsDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetMobileMaintenanceSettings(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(MaintenanceSettingsDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMaintenanceSettings(CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetMobileMaintenanceSettingsQuery(), cancellationToken);
+        var result = await mediator.Send(new GetMaintenanceSettingsQuery(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -50,14 +50,14 @@ public class MaintenanceController(IMediator mediator) : ApiControllerBase
     /// </summary>
     [HttpPut("mobile")]
     [Authorize(Policy = "AdminOnly")]
-    [ProducesResponseType(typeof(SetMobileMaintenanceResponse), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SetMobileMaintenance(
-        [FromBody] SetMobileMaintenanceRequest request,
+    [ProducesResponseType(typeof(SetMaintenanceResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SetMaintenance(
+        [FromBody] SetMaintenanceRequest request,
         CancellationToken cancellationToken)
     {
         var userName = User.Identity?.Name ?? "Unknown";
         var result = await mediator.Send(
-            new SetMobileMaintenanceCommand(request, userName), cancellationToken);
+            new SetMaintenanceCommand(request, userName), cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

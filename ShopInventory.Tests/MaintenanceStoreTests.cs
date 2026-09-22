@@ -15,12 +15,12 @@ namespace ShopInventory.Tests;
 /// never be the thing that fails: it sits on the path of every request, during maintenance, on a
 /// system whose database may be exactly what is being worked on.
 /// </summary>
-public sealed class MobileMaintenanceStoreTests : IDisposable
+public sealed class MaintenanceStoreTests : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly ServiceProvider _provider;
 
-    public MobileMaintenanceStoreTests()
+    public MaintenanceStoreTests()
     {
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
@@ -45,13 +45,13 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
         new SqliteApplicationDbContext(
             new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options);
 
-    private MobileMaintenanceStore NewStore(TimeProvider? clock = null) =>
+    private MaintenanceStore NewStore(TimeProvider? clock = null) =>
         new(_provider.GetRequiredService<IServiceScopeFactory>(),
-            NullLogger<MobileMaintenanceStore>.Instance,
+            NullLogger<MaintenanceStore>.Instance,
             clock);
 
-    private static MobileMaintenanceState Lockout(
-        MobileMaintenanceScope scope = MobileMaintenanceScope.Transactions,
+    private static MaintenanceState Lockout(
+        MaintenanceScope scope = MaintenanceScope.Transactions,
         IReadOnlyList<string>? apps = null,
         DateTime? endsAtUtc = null) =>
         new(
@@ -88,13 +88,13 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
     public async Task Every_field_survives_the_round_trip()
     {
         var endsAt = new DateTime(2026, 9, 22, 22, 30, 0, DateTimeKind.Utc);
-        await NewStore().UpdateAsync(Lockout(MobileMaintenanceScope.All, ["kefalos-vansales"], endsAt));
+        await NewStore().UpdateAsync(Lockout(MaintenanceScope.All, ["kefalos-vansales"], endsAt));
 
         var reloaded = NewStore();
         await reloaded.ReloadAsync();
         var state = reloaded.Current;
 
-        Assert.Equal(MobileMaintenanceScope.All, state.Scope);
+        Assert.Equal(MaintenanceScope.All, state.Scope);
         Assert.Equal(["kefalos-vansales"], state.AppIds);
         Assert.Equal(endsAt, state.EndsAtUtc);
         Assert.Equal(DateTimeKind.Utc, state.EndsAtUtc!.Value.Kind);
@@ -105,7 +105,7 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
     {
         var store = NewStore();
         await store.UpdateAsync(Lockout());
-        await store.UpdateAsync(MobileMaintenanceState.Off);
+        await store.UpdateAsync(MaintenanceState.Off);
 
         var reloaded = NewStore();
         await reloaded.ReloadAsync();
@@ -148,13 +148,13 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
     {
         // A bad row must not take the API down, and must not silently become the strictest lockout
         // either — Transactions is what an operator who typed something wrong most likely meant.
-        await NewStore().UpdateAsync(Lockout(MobileMaintenanceScope.All));
-        await PoisonAsync(MobileMaintenanceStore.ScopeKey, "Everything");
+        await NewStore().UpdateAsync(Lockout(MaintenanceScope.All));
+        await PoisonAsync(MaintenanceStore.ScopeKey, "Everything");
 
         var store = NewStore();
         await store.ReloadAsync();
 
-        Assert.Equal(MobileMaintenanceScope.Transactions, store.Current.Scope);
+        Assert.Equal(MaintenanceScope.Transactions, store.Current.Scope);
         Assert.True(store.Current.Enabled);
     }
 
@@ -162,7 +162,7 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
     public async Task A_stored_enabled_flag_that_is_nonsense_reads_as_off()
     {
         await NewStore().UpdateAsync(Lockout());
-        await PoisonAsync(MobileMaintenanceStore.EnabledKey, "perhaps");
+        await PoisonAsync(MaintenanceStore.EnabledKey, "perhaps");
 
         var store = NewStore();
         await store.ReloadAsync();
@@ -176,7 +176,7 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
         // A key that cannot match would read on the screen as "maintenance is on" while every
         // handset kept trading. Dropping it leaves the list empty, and empty covers everything.
         await NewStore().UpdateAsync(Lockout(apps: ["kefalos-vansales"]));
-        await PoisonAsync(MobileMaintenanceStore.AppsKey, """["app-that-was-retired"]""");
+        await PoisonAsync(MaintenanceStore.AppsKey, """["app-that-was-retired"]""");
 
         var store = NewStore();
         await store.ReloadAsync();
@@ -189,7 +189,7 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
     public async Task A_stored_end_time_that_is_nonsense_leaves_the_lockout_open_ended()
     {
         await NewStore().UpdateAsync(Lockout(endsAtUtc: new DateTime(2026, 9, 22, 22, 0, 0, DateTimeKind.Utc)));
-        await PoisonAsync(MobileMaintenanceStore.EndsAtKey, "half past eight");
+        await PoisonAsync(MaintenanceStore.EndsAtKey, "half past eight");
 
         var store = NewStore();
         await store.ReloadAsync();
@@ -203,9 +203,9 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
     {
         // An operator cannot edit a row that does not exist, and the row that exists must not be
         // one that locks anybody out.
-        var rows = MobileMaintenanceStore.DescribeDefaultRows(new DateTime(2026, 9, 22, 18, 0, 0, DateTimeKind.Utc));
+        var rows = MaintenanceStore.DescribeDefaultRows(new DateTime(2026, 9, 22, 18, 0, 0, DateTimeKind.Utc));
 
-        Assert.Equal("false", rows.Single(row => row.Key == MobileMaintenanceStore.EnabledKey).Value);
+        Assert.Equal("false", rows.Single(row => row.Key == MaintenanceStore.EnabledKey).Value);
         Assert.All(rows, row => Assert.False(string.IsNullOrWhiteSpace(row.Description)));
 
         await Task.CompletedTask;
@@ -229,12 +229,12 @@ public sealed class MobileMaintenanceStoreTests : IDisposable
     /// update landed reads the old value and stamps itself fresh — so picking the change up can
     /// take another interval. Same reasoning as <c>RateLimitConfigStoreTests.SettleAsync</c>.
     /// </remarks>
-    private static async Task SettleAsync(MobileMaintenanceStore store, TestClock clock)
+    private static async Task SettleAsync(MaintenanceStore store, TestClock clock)
     {
         var deadline = DateTime.UtcNow.AddSeconds(30);
         while (!store.Current.Enabled && DateTime.UtcNow < deadline)
         {
-            clock.Advance(MobileMaintenanceStore.RefreshInterval);
+            clock.Advance(MaintenanceStore.RefreshInterval);
             await Task.Delay(25);
         }
     }

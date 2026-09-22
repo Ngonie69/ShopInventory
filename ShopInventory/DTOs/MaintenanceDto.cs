@@ -3,7 +3,7 @@ namespace ShopInventory.DTOs;
 /// <summary>
 /// The mobile maintenance lockout as the settings screen sees it.
 /// </summary>
-public class MobileMaintenanceSettingsDto
+public class MaintenanceSettingsDto
 {
     /// <summary>Whether an operator has the lockout switched on.</summary>
     public bool Enabled { get; set; }
@@ -18,7 +18,7 @@ public class MobileMaintenanceSettingsDto
     public bool IsActive { get; set; }
 
     /// <summary>"Transactions" or "All".</summary>
-    public string Scope { get; set; } = nameof(Features.Maintenance.MobileMaintenanceScope.Transactions);
+    public string Scope { get; set; } = nameof(Features.Maintenance.MaintenanceScope.Transactions);
 
     /// <summary>What the apps are shown. Blank means the built-in wording.</summary>
     public string Message { get; set; } = string.Empty;
@@ -30,10 +30,10 @@ public class MobileMaintenanceSettingsDto
     public List<string> AppIds { get; set; } = [];
 
     /// <summary>The app keys covered, spelled out even when <see cref="AppIds"/> is empty.</summary>
-    public List<MobileMaintenanceAppDto> CoveredApps { get; set; } = [];
+    public List<MaintenanceAppDto> CoveredApps { get; set; } = [];
 
     /// <summary>Every app the lockout could name, for the screen to offer.</summary>
-    public List<MobileMaintenanceAppDto> AvailableApps { get; set; } = [];
+    public List<MaintenanceAppDto> AvailableApps { get; set; } = [];
 
     public DateTime? StartedAtUtc { get; set; }
 
@@ -43,7 +43,7 @@ public class MobileMaintenanceSettingsDto
 }
 
 /// <summary>One mobile app, by its catalogue key and the name people call it.</summary>
-public class MobileMaintenanceAppDto
+public class MaintenanceAppDto
 {
     public string AppId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -53,13 +53,13 @@ public class MobileMaintenanceAppDto
 /// What an app gets from the status endpoint, which stays reachable during a lockout so the phone
 /// can show a banner and grey out its buttons instead of discovering the lockout by being refused.
 /// </summary>
-public class MobileMaintenanceStatusDto
+public class MaintenanceStatusDto
 {
     /// <summary>Whether this caller is currently locked out.</summary>
     public bool IsActive { get; set; }
 
     /// <summary>"Transactions" or "All". Only meaningful while active.</summary>
-    public string Scope { get; set; } = nameof(Features.Maintenance.MobileMaintenanceScope.Transactions);
+    public string Scope { get; set; } = nameof(Features.Maintenance.MaintenanceScope.Transactions);
 
     /// <summary>What to show the user. Blank when nothing is running.</summary>
     public string Message { get; set; } = string.Empty;
@@ -76,7 +76,7 @@ public class MobileMaintenanceStatusDto
 }
 
 /// <summary>Set or clear the lockout.</summary>
-public class SetMobileMaintenanceRequest
+public class SetMaintenanceRequest
 {
     public bool Enabled { get; set; }
 
@@ -100,8 +100,8 @@ public class SetMobileMaintenanceRequest
 }
 
 /// <summary>The outcome of setting the lockout.</summary>
-public class SetMobileMaintenanceResponse
+public class SetMaintenanceResponse
 {
     public string Message { get; set; } = string.Empty;
-    public MobileMaintenanceSettingsDto Settings { get; set; } = new();
+    public MaintenanceSettingsDto Settings { get; set; } = new();
 }

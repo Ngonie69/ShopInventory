@@ -1,10 +1,10 @@
 namespace ShopInventory.Features.Maintenance;
 
 /// <summary>
-/// The outcome of <see cref="MobileMaintenanceGate.Evaluate"/>: let it through, or refuse it and
+/// The outcome of <see cref="MaintenanceGate.Evaluate"/>: let it through, or refuse it and
 /// say so in these terms.
 /// </summary>
-public sealed record MobileMaintenanceDecision
+public sealed record MaintenanceDecision
 {
     public required bool IsBlocked { get; init; }
 
@@ -18,11 +18,11 @@ public sealed record MobileMaintenanceDecision
     public TimeSpan RetryAfter { get; init; }
 
     /// <summary>The scope in force, so the app can tell a full stop from a read-only window.</summary>
-    public MobileMaintenanceScope Scope { get; init; }
+    public MaintenanceScope Scope { get; init; }
 
-    public static readonly MobileMaintenanceDecision Allowed = new() { IsBlocked = false };
+    public static readonly MaintenanceDecision Allowed = new() { IsBlocked = false };
 
-    public static MobileMaintenanceDecision Blocked(MobileMaintenanceState state, TimeSpan retryAfter) => new()
+    public static MaintenanceDecision Blocked(MaintenanceState state, TimeSpan retryAfter) => new()
     {
         IsBlocked = true,
         Message = state.ResolveMessage(),

@@ -8,7 +8,7 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Features.Maintenance;
 
 /// <inheritdoc />
-public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
+public sealed class MaintenanceStore : IMaintenanceStore
 {
     /// <summary>How long a snapshot is served before a read triggers a refresh.</summary>
     /// <remarks>
@@ -36,17 +36,17 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
     ];
 
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<MobileMaintenanceStore> _logger;
+    private readonly ILogger<MaintenanceStore> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     private volatile Snapshot _snapshot;
 
-    private sealed record Snapshot(MobileMaintenanceState State, DateTimeOffset LoadedAt);
+    private sealed record Snapshot(MaintenanceState State, DateTimeOffset LoadedAt);
 
-    public MobileMaintenanceStore(
+    public MaintenanceStore(
         IServiceScopeFactory scopeFactory,
-        ILogger<MobileMaintenanceStore> logger,
+        ILogger<MaintenanceStore> logger,
         TimeProvider? timeProvider = null)
     {
         _scopeFactory = scopeFactory;
@@ -56,11 +56,11 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
         // Off until the database says otherwise. Starting from "locked out" would mean a database
         // that cannot be reached takes the phones down with it, which is the opposite of what an
         // operator wants from a switch they did not throw.
-        _snapshot = new Snapshot(MobileMaintenanceState.Off, DateTimeOffset.MinValue);
+        _snapshot = new Snapshot(MaintenanceState.Off, DateTimeOffset.MinValue);
     }
 
     /// <inheritdoc />
-    public MobileMaintenanceState Current
+    public MaintenanceState Current
     {
         get
         {
@@ -75,7 +75,7 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
     }
 
     /// <inheritdoc />
-    public async Task UpdateAsync(MobileMaintenanceState state, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(MaintenanceState state, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(state);
 
@@ -159,7 +159,7 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
         });
     }
 
-    private async Task<MobileMaintenanceState> LoadAsync(CancellationToken cancellationToken)
+    private async Task<MaintenanceState> LoadAsync(CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -172,7 +172,7 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
 
         var values = rows.ToDictionary(row => row.Key, row => row.Value, StringComparer.OrdinalIgnoreCase);
 
-        return new MobileMaintenanceState(
+        return new MaintenanceState(
             Enabled: ReadBool(values, EnabledKey),
             Scope: ReadScope(values),
             Message: ReadString(values, MessageKey),
@@ -182,7 +182,7 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
             UpdatedBy: ReadString(values, UpdatedByKey));
     }
 
-    private static IEnumerable<(string Key, string Value, string Type)> Describe(MobileMaintenanceState state) =>
+    private static IEnumerable<(string Key, string Value, string Type)> Describe(MaintenanceState state) =>
     [
         (EnabledKey, state.Enabled ? "true" : "false", "bool"),
         (ScopeKey, state.Scope.ToString(), "string"),
@@ -244,20 +244,20 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
         return parsed;
     }
 
-    private MobileMaintenanceScope ReadScope(IReadOnlyDictionary<string, string?> values)
+    private MaintenanceScope ReadScope(IReadOnlyDictionary<string, string?> values)
     {
         if (!values.TryGetValue(ScopeKey, out var raw) || string.IsNullOrWhiteSpace(raw))
         {
-            return MobileMaintenanceScope.Transactions;
+            return MaintenanceScope.Transactions;
         }
 
-        if (!Enum.TryParse<MobileMaintenanceScope>(raw.Trim(), ignoreCase: true, out var parsed)
+        if (!Enum.TryParse<MaintenanceScope>(raw.Trim(), ignoreCase: true, out var parsed)
             || !Enum.IsDefined(parsed))
         {
             _logger.LogWarning(
                 "{Key} is {Value}, which is not a known scope. Falling back to {Fallback}.",
-                ScopeKey, raw, MobileMaintenanceScope.Transactions);
-            return MobileMaintenanceScope.Transactions;
+                ScopeKey, raw, MaintenanceScope.Transactions);
+            return MaintenanceScope.Transactions;
         }
 
         return parsed;
@@ -341,5 +341,5 @@ public sealed class MobileMaintenanceStore : IMobileMaintenanceStore
     /// key they have to guess. Same reasoning as <c>VanSalesOrderingPolicy.DescribeDefaultRows</c>.
     /// </summary>
     public static IReadOnlyList<SystemConfigEntity> DescribeDefaultRows(DateTime nowUtc) =>
-        [.. Describe(MobileMaintenanceState.Off).Select(row => NewRow(row.Key, row.Value, row.Type, nowUtc))];
+        [.. Describe(MaintenanceState.Off).Select(row => NewRow(row.Key, row.Value, row.Type, nowUtc))];
 }

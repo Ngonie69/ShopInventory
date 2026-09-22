@@ -11,12 +11,12 @@ namespace ShopInventory.Tests;
 /// a driver who cannot look up a price for the next four hours is a field outage, not maintenance.
 /// Most of what follows is one or the other.
 /// </summary>
-public sealed class MobileMaintenanceGateTests
+public sealed class MaintenanceGateTests
 {
     private static readonly DateTime Now = new(2026, 9, 22, 18, 0, 0, DateTimeKind.Utc);
 
-    private static MobileMaintenanceState On(
-        MobileMaintenanceScope scope = MobileMaintenanceScope.Transactions,
+    private static MaintenanceState On(
+        MaintenanceScope scope = MaintenanceScope.Transactions,
         IReadOnlyList<string>? apps = null,
         DateTime? endsAtUtc = null) =>
         new(
@@ -28,19 +28,19 @@ public sealed class MobileMaintenanceGateTests
             EndsAtUtc: endsAtUtc,
             UpdatedBy: "ngoni");
 
-    private static MobileMaintenanceDecision Evaluate(
-        MobileMaintenanceState state,
+    private static MaintenanceDecision Evaluate(
+        MaintenanceState state,
         string method,
         string path,
         bool isMobileApp = true,
         string? policyKey = "kefalos-vansales",
         DateTime? nowUtc = null) =>
-        MobileMaintenanceGate.Evaluate(state, nowUtc ?? Now, isMobileApp, policyKey, method, path);
+        MaintenanceGate.Evaluate(state, nowUtc ?? Now, isMobileApp, policyKey, method, path);
 
     [Fact]
     public void With_the_switch_off_a_phone_transacts_as_usual()
     {
-        var decision = Evaluate(MobileMaintenanceState.Off, "POST", "/api/vansales/sales");
+        var decision = Evaluate(MaintenanceState.Off, "POST", "/api/vansales/sales");
 
         Assert.False(decision.IsBlocked);
     }
@@ -114,20 +114,20 @@ public sealed class MobileMaintenanceGateTests
     {
         // Including under the strictest scope. An app that cannot sign in shows the user a failed
         // login, and they read that as their password being wrong rather than as maintenance.
-        Assert.False(Evaluate(On(MobileMaintenanceScope.All), method, path).IsBlocked);
+        Assert.False(Evaluate(On(MaintenanceScope.All), method, path).IsBlocked);
     }
 
     [Fact]
     public void The_all_scope_refuses_reads_too()
     {
-        Assert.True(Evaluate(On(MobileMaintenanceScope.All), "GET", "/api/product").IsBlocked);
+        Assert.True(Evaluate(On(MaintenanceScope.All), "GET", "/api/product").IsBlocked);
     }
 
     [Fact]
     public void The_web_and_the_desktop_till_are_never_locked_out()
     {
         // This switch is for handsets in vans. The people at desks can be told.
-        var decision = Evaluate(On(MobileMaintenanceScope.All), "POST", "/api/vansales/sales", isMobileApp: false);
+        var decision = Evaluate(On(MaintenanceScope.All), "POST", "/api/vansales/sales", isMobileApp: false);
 
         Assert.False(decision.IsBlocked);
     }
@@ -184,7 +184,7 @@ public sealed class MobileMaintenanceGateTests
     {
         // Long enough that a van full of handsets is not hammering an API mid-maintenance, short
         // enough that trading resumes promptly once the switch goes back.
-        Assert.Equal(MobileMaintenanceGate.DefaultRetryAfter, Evaluate(On(), "POST", "/api/vansales/sales").RetryAfter);
+        Assert.Equal(MaintenanceGate.DefaultRetryAfter, Evaluate(On(), "POST", "/api/vansales/sales").RetryAfter);
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public sealed class MobileMaintenanceGateTests
     {
         var state = On() with { Message = "   " };
 
-        Assert.Equal(MobileMaintenanceState.DefaultMessage, Evaluate(state, "POST", "/api/vansales/sales").Message);
+        Assert.Equal(MaintenanceState.DefaultMessage, Evaluate(state, "POST", "/api/vansales/sales").Message);
     }
 
     [Theory]

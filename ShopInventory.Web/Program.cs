@@ -335,7 +335,7 @@ try
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
-    builder.Services.AddScoped<IMobileMaintenanceService, MobileMaintenanceService>();
+    builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IFiscalisationSettingsService, FiscalisationSettingsService>();
     builder.Services.AddScoped<IDailyIncomingPaymentSettingsService, DailyIncomingPaymentSettingsService>();

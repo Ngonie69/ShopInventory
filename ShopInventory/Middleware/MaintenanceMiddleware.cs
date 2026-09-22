@@ -24,10 +24,10 @@ namespace ShopInventory.Middleware;
 /// clients in the apps already honour.
 /// </para>
 /// </remarks>
-public sealed class MobileMaintenanceMiddleware(
+public sealed class MaintenanceMiddleware(
     RequestDelegate next,
-    ILogger<MobileMaintenanceMiddleware> logger,
-    IMobileMaintenanceStore store,
+    ILogger<MaintenanceMiddleware> logger,
+    IMaintenanceStore store,
     TimeProvider timeProvider)
 {
     public async Task InvokeAsync(HttpContext context)
@@ -43,7 +43,7 @@ public sealed class MobileMaintenanceMiddleware(
         }
 
         var client = MobileClientRequest.FromHeaders(context.Request.Headers);
-        var decision = MobileMaintenanceGate.Evaluate(
+        var decision = MaintenanceGate.Evaluate(
             state,
             timeProvider.GetUtcNow().UtcDateTime,
             client.IsMobileApp,
@@ -88,8 +88,8 @@ public sealed class MobileMaintenanceMiddleware(
     }
 }
 
-public static class MobileMaintenanceMiddlewareExtensions
+public static class MaintenanceMiddlewareExtensions
 {
-    public static IApplicationBuilder UseMobileMaintenance(this IApplicationBuilder app) =>
-        app.UseMiddleware<MobileMaintenanceMiddleware>();
+    public static IApplicationBuilder UseMaintenance(this IApplicationBuilder app) =>
+        app.UseMiddleware<MaintenanceMiddleware>();
 }

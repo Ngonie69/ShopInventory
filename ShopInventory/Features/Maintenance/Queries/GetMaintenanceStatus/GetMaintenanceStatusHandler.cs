@@ -3,15 +3,15 @@ using MediatR;
 using ShopInventory.DTOs;
 using ShopInventory.Features.AppVersion;
 
-namespace ShopInventory.Features.Maintenance.Queries.GetMobileMaintenanceStatus;
+namespace ShopInventory.Features.Maintenance.Queries.GetMaintenanceStatus;
 
-public sealed class GetMobileMaintenanceStatusHandler(
-    IMobileMaintenanceStore store,
+public sealed class GetMaintenanceStatusHandler(
+    IMaintenanceStore store,
     TimeProvider timeProvider
-) : IRequestHandler<GetMobileMaintenanceStatusQuery, ErrorOr<MobileMaintenanceStatusDto>>
+) : IRequestHandler<GetMaintenanceStatusQuery, ErrorOr<MaintenanceStatusDto>>
 {
-    public Task<ErrorOr<MobileMaintenanceStatusDto>> Handle(
-        GetMobileMaintenanceStatusQuery request,
+    public Task<ErrorOr<MaintenanceStatusDto>> Handle(
+        GetMaintenanceStatusQuery request,
         CancellationToken cancellationToken)
     {
         // Off the snapshot, not the database. Every handset polls this, and it has to keep
@@ -20,7 +20,7 @@ public sealed class GetMobileMaintenanceStatusHandler(
             ? resolved
             : null;
 
-        ErrorOr<MobileMaintenanceStatusDto> result = MobileMaintenanceMapper.ToStatus(
+        ErrorOr<MaintenanceStatusDto> result = MaintenanceMapper.ToStatus(
             store.Current, policyKey, timeProvider.GetUtcNow().UtcDateTime);
 
         return Task.FromResult(result);

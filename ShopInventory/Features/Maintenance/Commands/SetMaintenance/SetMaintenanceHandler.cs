@@ -7,17 +7,17 @@ using ShopInventory.Features.AppVersion;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
-namespace ShopInventory.Features.Maintenance.Commands.SetMobileMaintenance;
+namespace ShopInventory.Features.Maintenance.Commands.SetMaintenance;
 
-public sealed class SetMobileMaintenanceHandler(
-    IMobileMaintenanceStore store,
+public sealed class SetMaintenanceHandler(
+    IMaintenanceStore store,
     IAuditService auditService,
     TimeProvider timeProvider,
-    ILogger<SetMobileMaintenanceHandler> logger
-) : IRequestHandler<SetMobileMaintenanceCommand, ErrorOr<SetMobileMaintenanceResponse>>
+    ILogger<SetMaintenanceHandler> logger
+) : IRequestHandler<SetMaintenanceCommand, ErrorOr<SetMaintenanceResponse>>
 {
-    public async Task<ErrorOr<SetMobileMaintenanceResponse>> Handle(
-        SetMobileMaintenanceCommand command,
+    public async Task<ErrorOr<SetMaintenanceResponse>> Handle(
+        SetMaintenanceCommand command,
         CancellationToken cancellationToken)
     {
         var request = command.Request;
@@ -39,7 +39,7 @@ public sealed class SetMobileMaintenanceHandler(
             return appIds.Errors;
         }
 
-        var state = new MobileMaintenanceState(
+        var state = new MaintenanceState(
             Enabled: request.Enabled,
             Scope: ResolveScope(request.Scope),
             Message: string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim(),
@@ -65,10 +65,10 @@ public sealed class SetMobileMaintenanceHandler(
 
         await LogAuditAsync(state);
 
-        return new SetMobileMaintenanceResponse
+        return new SetMaintenanceResponse
         {
             Message = DescribeOutcome(state),
-            Settings = MobileMaintenanceMapper.ToSettings(state, nowUtc)
+            Settings = MaintenanceMapper.ToSettings(state, nowUtc)
         };
     }
 
@@ -89,10 +89,10 @@ public sealed class SetMobileMaintenanceHandler(
         var unspecified => DateTime.SpecifyKind(unspecified.Value, DateTimeKind.Utc)
     };
 
-    private static MobileMaintenanceScope ResolveScope(string? scope) =>
-        Enum.TryParse<MobileMaintenanceScope>(scope?.Trim(), ignoreCase: true, out var parsed) && Enum.IsDefined(parsed)
+    private static MaintenanceScope ResolveScope(string? scope) =>
+        Enum.TryParse<MaintenanceScope>(scope?.Trim(), ignoreCase: true, out var parsed) && Enum.IsDefined(parsed)
             ? parsed
-            : MobileMaintenanceScope.Transactions;
+            : MaintenanceScope.Transactions;
 
     /// <summary>
     /// The requested apps as catalogue keys. Empty stays empty, and empty means every app.
@@ -127,13 +127,13 @@ public sealed class SetMobileMaintenanceHandler(
             : ErrorOrFactory.From<IReadOnlyList<string>>(resolved);
     }
 
-    private async Task LogAuditAsync(MobileMaintenanceState state)
+    private async Task LogAuditAsync(MaintenanceState state)
     {
         try
         {
             await auditService.LogAsync(
-                AuditActions.SetMobileMaintenance,
-                "MobileMaintenance",
+                AuditActions.SetMaintenance,
+                "Maintenance",
                 state.Enabled ? "on" : "off",
                 DescribeForAudit(state),
                 true);
@@ -146,7 +146,7 @@ public sealed class SetMobileMaintenanceHandler(
         }
     }
 
-    private static string DescribeForAudit(MobileMaintenanceState state)
+    private static string DescribeForAudit(MaintenanceState state)
     {
         if (!state.Enabled)
         {
@@ -164,7 +164,7 @@ public sealed class SetMobileMaintenanceHandler(
         return $"Mobile maintenance lockout ({state.Scope}) turned on for {apps}{until} by {state.UpdatedBy}";
     }
 
-    private static string DescribeOutcome(MobileMaintenanceState state)
+    private static string DescribeOutcome(MaintenanceState state)
     {
         if (!state.Enabled)
         {
@@ -175,7 +175,7 @@ public sealed class SetMobileMaintenanceHandler(
             ? "All mobile apps"
             : string.Join(", ", state.AppIds.Select(MobileVersionPolicyAppCatalog.GetDisplayName));
 
-        var withheld = state.Scope == MobileMaintenanceScope.All
+        var withheld = state.Scope == MaintenanceScope.All
             ? "cannot reach the system at all"
             : "cannot transact, but can still read";
 

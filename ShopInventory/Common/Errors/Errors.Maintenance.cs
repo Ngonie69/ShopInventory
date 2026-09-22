@@ -19,7 +19,7 @@ public static partial class Errors
         public static readonly Error MobileTransactionsSuspended =
             Error.Failure(
                 "Maintenance.MobileTransactionsSuspended",
-                MobileMaintenanceState.DefaultMessage);
+                MaintenanceState.DefaultMessage);
 
         public static Error UpdateFailed(string message) =>
             Error.Failure("Maintenance.UpdateFailed", message);

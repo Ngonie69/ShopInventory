@@ -11,7 +11,7 @@ namespace ShopInventory.Tests;
 /// lockout that quietly only applies to requests that already authenticated.
 /// </para>
 /// </summary>
-public sealed class MobileMaintenancePipelineTests
+public sealed class MaintenancePipelineTests
 {
     [Fact]
     public void The_lockout_runs_before_authentication()
@@ -21,14 +21,14 @@ public sealed class MobileMaintenancePipelineTests
         // app's headers and the operator's switch, not on who is holding the handset.
         var program = ReadProgram();
 
-        var lockout = program.IndexOf("app.UseMobileMaintenance()", StringComparison.Ordinal);
+        var lockout = program.IndexOf("app.UseMaintenance()", StringComparison.Ordinal);
         var authentication = program.IndexOf("app.UseAuthentication()", StringComparison.Ordinal);
 
         Assert.True(lockout >= 0, "Program.cs no longer registers the mobile maintenance lockout.");
         Assert.True(authentication >= 0, "Program.cs no longer calls UseAuthentication.");
         Assert.True(
             lockout < authentication,
-            "UseMobileMaintenance must run before UseAuthentication, or the lockout only applies to "
+            "UseMaintenance must run before UseAuthentication, or the lockout only applies to "
             + "requests that already carry a valid token.");
     }
 
@@ -40,10 +40,10 @@ public sealed class MobileMaintenancePipelineTests
         var program = ReadProgram();
 
         var cors = program.IndexOf("app.UseCors(", StringComparison.Ordinal);
-        var lockout = program.IndexOf("app.UseMobileMaintenance()", StringComparison.Ordinal);
+        var lockout = program.IndexOf("app.UseMaintenance()", StringComparison.Ordinal);
 
         Assert.True(cors >= 0, "Program.cs no longer calls UseCors.");
-        Assert.True(cors < lockout, "UseMobileMaintenance must run after UseCors.");
+        Assert.True(cors < lockout, "UseMaintenance must run after UseCors.");
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class MobileMaintenancePipelineTests
         // seconds, which is exactly the window somebody is running a migration in.
         var program = ReadProgram();
 
-        Assert.Contains("IMobileMaintenanceStore>().ReloadAsync(", program, StringComparison.Ordinal);
+        Assert.Contains("IMaintenanceStore>().ReloadAsync(", program, StringComparison.Ordinal);
     }
 
     private static string ReadProgram()
