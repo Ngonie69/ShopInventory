@@ -97,7 +97,7 @@ public static class DbInitializer
     }
 
     /// <summary>
-    /// Loads the published van sales schedule — the four upcountry routes and the four town trucks,
+    /// Loads the published van sales schedule — the upcountry routes and the four town trucks,
     /// with the areas each works — for any route or stop it has not placed before.
     /// </summary>
     /// <remarks>

@@ -3,8 +3,9 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Data;
 
 /// <summary>
-/// The published van sales schedule: four upcountry routes running a two-week cycle, four Harare town
-/// trucks running a weekday round, and the Bulawayo ADR round.
+/// The published van sales schedule: four upcountry routes running a two-week cycle, the Bulawayo
+/// upcountry route running a four-week one, four Harare town trucks running a weekday round, and the
+/// Bulawayo ADR round.
 /// </summary>
 /// <remarks>
 /// The single source of truth for the plan. <see cref="DbInitializer"/> applies it insert-only — a
@@ -52,6 +53,13 @@ public static class VanSalesRouteSeedData
     public const string TownTerritory = "Harare";
 
     /// <summary>
+    /// The territory of the upcountry route worked out of Bulawayo. Kept apart from
+    /// <see cref="UpcountryTerritory"/> because it is a different depot's run on a different cycle, and
+    /// grouping it with Harare's four would fold two operations into one line on every territory report.
+    /// </summary>
+    public const string BulawayoUpcountryTerritory = "Bulawayo UPC";
+
+    /// <summary>
     /// The territory of the Bulawayo local round, which is run from the Bulawayo depot and must not
     /// be counted among the Harare trucks.
     /// </summary>
@@ -86,6 +94,27 @@ public static class VanSalesRouteSeedData
         Upcountry("UPC4", "Upc 4",
             week1: ["Mapinga", "Chinhoyi", "Karoi", "Magunje", "Kariba"],
             week2: ["Macheke", "Headlands", "Nyanga", "Watsomba", "Hauna", "Mutare"]),
+
+        // Bulawayo UPC Route List
+        // Week 1: Matebeleland North - Victoria Falls, Dete, Hwange, Lupane, Insuza,
+        //         Tursthurst Nyamandhlovu, Binga
+        // Week 2: Midlands - Shangani, Gweru, Gokwe, Zhombe, Shurugwi, Ntabazinduna
+        // Week 3: Matebeleland South - Esigodini, Filabusi, Mberengwa, Gwanda, Beitbridge, Maphisa,
+        //         Plumtree
+        // Week 4: Midlands - Shangani, Gweru, Gokwe, Zhombe, Shurugwi, Ntabazinduna, Nkayi
+        //
+        // NOT a split: "Tursthurst Nyamandhlovu" is kept as the one entry the list gives it, for the
+        // reason "Domboshava Showgrounds" below was — a two-word entry cannot be split on geography
+        // alone. The office can split it on the routes page if it is two stops.
+        //
+        // The Midlands run twice in the cycle and Week 4 adds Nkayi. The two Midlands weeks are kept
+        // as separate stops rather than folded into one "every other week" list, because the cycle
+        // has no such notion and a visit in week 4 must not count against week 2's plan.
+        Cycle("BYOUPC", "Bulawayo UPC", BulawayoUpcountryTerritory,
+            ["Victoria Falls", "Dete", "Hwange", "Lupane", "Insuza", "Tursthurst Nyamandhlovu", "Binga"],
+            ["Shangani", "Gweru", "Gokwe", "Zhombe", "Shurugwi", "Ntabazinduna"],
+            ["Esigodini", "Filabusi", "Mberengwa", "Gwanda", "Beitbridge", "Maphisa", "Plumtree"],
+            ["Shangani", "Gweru", "Gokwe", "Zhombe", "Shurugwi", "Ntabazinduna", "Nkayi"]),
 
         // East Truck
         // Monday-Waterfalls,Sunningdale,Hatfield
@@ -261,11 +290,16 @@ public static class VanSalesRouteSeedData
     }
 
     private static RouteSeed Upcountry(string code, string name, string[] week1, string[] week2)
+        => Cycle(code, name, UpcountryTerritory, week1, week2);
+
+    /// <summary>A route worked by cycle week, one list of areas per week, week 1 first.</summary>
+    private static RouteSeed Cycle(string code, string name, string territory, params string[][] weeks)
     {
         var stops = new List<StopSeed>();
 
-        foreach (var (week, areas) in new[] { (1, week1), (2, week2) })
+        foreach (var (areas, index) in weeks.Select((areas, index) => (areas, index)))
         {
+            var week = index + 1;
             var sequence = 1;
 
             foreach (var area in areas)
@@ -277,7 +311,7 @@ public static class VanSalesRouteSeedData
             }
         }
 
-        return new RouteSeed(code, name, UpcountryTerritory, stops);
+        return new RouteSeed(code, name, territory, stops);
     }
 
     /// <summary>

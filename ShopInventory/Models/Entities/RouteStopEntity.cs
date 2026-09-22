@@ -30,8 +30,9 @@ namespace ShopInventory.Models.Entities;
 /// null.
 /// </item>
 /// <item>
-/// An upcountry route runs a two-week cycle with no fixed weekday — the whole trip is the unit:
-/// <see cref="DayOfWeek"/> null, <see cref="WeekNumber"/> 1 or 2.
+/// An upcountry route runs a multi-week cycle with no fixed weekday — the whole trip is the unit:
+/// <see cref="DayOfWeek"/> null, <see cref="WeekNumber"/> 1 or 2 on Harare's routes, 1 to 4 on
+/// Bulawayo's.
 /// </item>
 /// <item>
 /// A day with a published alternative — West 2's Wednesday is Dzivarasekwa and Whitehouse
