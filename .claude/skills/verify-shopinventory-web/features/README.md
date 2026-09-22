@@ -17,6 +17,7 @@ approval and the request flow are both in scope.
 | Credit note approvals (SAP) | `/credit-notes/approvals` | [credit-note-approvals.md](credit-note-approvals.md) |
 | Reports and Excel export | `/reports`, `/reports/*` | [reports-and-export.md](reports-and-export.md) |
 | Customer portal | `/customer-portal/*` | [customer-portal.md](customer-portal.md) |
+| Maintenance mode | `/settings` (General) | [maintenance-mode.md](maintenance-mode.md) |
 
 Seeded from the five surfaces with the heaviest change traffic. The app has 112
 routes; add a file when you verify a feature this map does not cover yet.
