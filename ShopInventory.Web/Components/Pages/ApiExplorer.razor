@@ -1684,6 +1684,21 @@ new("GET", "/api/fiscalisation-console/work-queue", "Get work queue")
 },
 new ApiModule
 {
+Name = "Maintenance",
+BasePath = "/api/Maintenance",
+Description = "3 endpoints under /api/Maintenance.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Primary,
+Methods = new[] { "GET", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Maintenance/mobile", "Get mobile maintenance settings"),
+new("GET", "/api/Maintenance/mobile/status", "Get mobile maintenance status"),
+new("PUT", "/api/Maintenance/mobile", "Set mobile maintenance")
+}
+},
+new ApiModule
+{
 Name = "SAP Users",
 BasePath = "/api/sap-users",
 Description = "The user accounts inside SAP Business One — not this application's, which are under User Management. Unlock one, or set its password. Administrator only.",

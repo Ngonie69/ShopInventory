@@ -1,0 +1,207 @@
+namespace ShopInventory.Features.Maintenance;
+
+/// <summary>
+/// The decision the lockout comes down to: may this one request through?
+/// </summary>
+/// <remarks>
+/// Pure, static and free of <c>HttpContext</c> so that the rule can be tested as a rule. The
+/// middleware is then only plumbing — read the headers, ask this, write the 503 — and the cases
+/// that matter (a phone during a lockout, a phone reading during a lockout, the Web during a
+/// lockout, a phone once the window has passed) are unit tests rather than a deployment.
+/// </remarks>
+public static class MobileMaintenanceGate
+{
+    /// <summary>
+    /// What a phone may still reach while the lockout is on, whatever its scope.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these is something an app needs in order to behave well *during* a lockout.
+    /// Signing in stays open so a driver opening the app sees the maintenance notice rather than a
+    /// login failure they will read as their password being wrong; the version and status checks
+    /// stay open so the app can find out that it is a lockout and when it lifts; push registration
+    /// stays open so the phone can still be told when it is over; health stays open because it is
+    /// not the app's to be refused.
+    /// </remarks>
+    private static readonly string[] AlwaysAllowedPrefixes =
+    [
+        "/api/auth",
+        "/api/twofactor",
+        "/api/password",
+        "/api/van-sales-customer/auth",
+        "/api/vansales/auth",
+        "/api/appversion",
+        "/api/maintenance/mobile/status",
+        "/api/pushnotification/register",
+        "/api/pushnotification/unregister",
+        "/api/health",
+        "/health",
+        "/hubs/notifications",
+        "/api/hubs/notifications",
+        "/swagger"
+    ];
+
+    /// <summary>
+    /// Reads that this API happens to expose as POSTs, because their filter is a body.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without this list the transaction lockout would take away the van app's order and invoice
+    /// history, which are searches with a date range in the body and change nothing — and taking
+    /// reads away is the thing the <see cref="MobileMaintenanceScope.Transactions"/> scope exists
+    /// to avoid. Verb is otherwise a good proxy for "changes something"; these are the exceptions,
+    /// and they are an allowlist so that a new POST counts as a transaction until somebody decides
+    /// otherwise.
+    /// </para>
+    /// <para>
+    /// <c>MobileMaintenanceRouteClassificationTests</c> sweeps the controllers and fails if an
+    /// entry here stops being a POST route or stops dispatching a query, so the list cannot quietly
+    /// rot into something that waves writes through.
+    /// </para>
+    /// </remarks>
+    public static readonly string[] ReadOnlyPostRoutes =
+    [
+        "/api/vansales/sales-order/history",
+        "/api/vansales/order/history",
+        "/api/stock/warehouse/{warehouseCode}/sales",
+        "/api/crates/pods/validate-bulk",
+        "/api/invoice/pods/validate-bulk"
+    ];
+
+    /// <summary>How long a phone is told to wait when no end time was set.</summary>
+    public static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromMinutes(5);
+
+    public static MobileMaintenanceDecision Evaluate(
+        MobileMaintenanceState state,
+        DateTime nowUtc,
+        bool isMobileApp,
+        string? policyKey,
+        string method,
+        string path)
+    {
+        // The Web, the desktop till and the integrations are not what this switch is for. They are
+        // driven by people who can be told maintenance is running; the phones are in vans.
+        if (!isMobileApp)
+        {
+            return MobileMaintenanceDecision.Allowed;
+        }
+
+        if (!state.IsActiveAt(nowUtc))
+        {
+            return MobileMaintenanceDecision.Allowed;
+        }
+
+        if (!state.CoversApp(policyKey))
+        {
+            return MobileMaintenanceDecision.Allowed;
+        }
+
+        var normalizedPath = Normalize(path);
+        if (IsAlwaysAllowed(normalizedPath))
+        {
+            return MobileMaintenanceDecision.Allowed;
+        }
+
+        if (state.Scope == MobileMaintenanceScope.Transactions && IsRead(method, normalizedPath))
+        {
+            return MobileMaintenanceDecision.Allowed;
+        }
+
+        return MobileMaintenanceDecision.Blocked(state, RetryAfter(state, nowUtc));
+    }
+
+    /// <summary>
+    /// Whether the request only reads.
+    /// </summary>
+    public static bool IsRead(string method, string path)
+    {
+        if (HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method))
+        {
+            return true;
+        }
+
+        if (!HttpMethods.IsPost(method))
+        {
+            return false;
+        }
+
+        var normalizedPath = Normalize(path);
+        return ReadOnlyPostRoutes.Any(route => Matches(route, normalizedPath));
+    }
+
+    /// <summary>Whether the path stays reachable no matter what the lockout says.</summary>
+    public static bool IsAlwaysAllowed(string path)
+    {
+        var normalizedPath = Normalize(path);
+        return AlwaysAllowedPrefixes.Any(prefix =>
+            normalizedPath.Equals(prefix, StringComparison.Ordinal)
+            || normalizedPath.StartsWith(prefix + "/", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// How long to tell the phone to wait, so it backs off instead of retrying in a loop.
+    /// </summary>
+    /// <remarks>
+    /// An end time in the future gives the real answer. Without one, a flat five minutes: long
+    /// enough that a van full of handsets is not hammering an API that is mid-maintenance, short
+    /// enough that trading resumes promptly once the switch goes back.
+    /// </remarks>
+    private static TimeSpan RetryAfter(MobileMaintenanceState state, DateTime nowUtc)
+    {
+        if (state.EndsAtUtc is not { } endsAt || endsAt <= nowUtc)
+        {
+            return DefaultRetryAfter;
+        }
+
+        var remaining = endsAt - nowUtc;
+        return remaining < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remaining;
+    }
+
+    /// <summary>Lower-cased, query-stripped, with no trailing slash, so comparisons are literal.</summary>
+    private static string Normalize(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "/";
+        }
+
+        var trimmed = path.Trim();
+        var queryStart = trimmed.IndexOf('?', StringComparison.Ordinal);
+        if (queryStart >= 0)
+        {
+            trimmed = trimmed[..queryStart];
+        }
+
+        trimmed = trimmed.ToLowerInvariant();
+        return trimmed.Length > 1 ? trimmed.TrimEnd('/') : trimmed;
+    }
+
+    /// <summary>
+    /// Segment-wise match, where a <c>{placeholder}</c> in the route stands for exactly one segment.
+    /// </summary>
+    private static bool Matches(string routeTemplate, string path)
+    {
+        var routeSegments = Normalize(routeTemplate).Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var pathSegments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        if (routeSegments.Length != pathSegments.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < routeSegments.Length; i++)
+        {
+            var routeSegment = routeSegments[i];
+            if (routeSegment.StartsWith('{') && routeSegment.EndsWith('}'))
+            {
+                continue;
+            }
+
+            if (!routeSegment.Equals(pathSegments[i], StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
