@@ -557,6 +557,7 @@ public class InvoiceQueueService : IInvoiceQueueService
             ExternalReference = entry.ExternalReference,
             ReservationId = entry.ReservationId,
             CustomerCode = entry.CustomerCode,
+            SalesOrderId = entry.SalesOrderId,
             Status = entry.Status.ToString(),
             StatusCode = (int)entry.Status,
             RetryCount = entry.RetryCount,
@@ -605,6 +606,8 @@ public class InvoiceQueueStatusDto
     public string ExternalReference { get; set; } = string.Empty;
     public string ReservationId { get; set; } = string.Empty;
     public string CustomerCode { get; set; } = string.Empty;
+    /// <summary>The local sales order this invoice was converted from, if any.</summary>
+    public int? SalesOrderId { get; set; }
     public string Status { get; set; } = string.Empty;
     public int StatusCode { get; set; }
     public int RetryCount { get; set; }
