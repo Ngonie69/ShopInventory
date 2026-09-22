@@ -204,30 +204,48 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     }
 
     /// <summary>
-    /// The one case where the server still fiscalises — and it now does so <b>before</b> SAP. A handset that
-    /// did not stamp owns no chain, so there is nothing to fork; and the customer's receipt has to exist
-    /// before the invoice does, or the rep hands over a slip with no verification code on it.
+    /// The one case where the server still fiscalises — and it does so <b>before</b> SAP, and then leaves SAP
+    /// to the queue. A handset that did not stamp owns no chain, so there is nothing to fork; the customer's
+    /// receipt has to exist before the invoice does; and the rep waits for the device, not for SAP as well.
     /// </summary>
     [Fact]
-    public async Task The_server_fiscalises_an_unstamped_sale_before_posting_it()
+    public async Task The_server_fiscalises_an_unstamped_sale_and_queues_its_invoice()
     {
         var response = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
 
-        Assert.Equal(["sign", "post"], _calls);
+        // Signed in the request, and SAP not asked in it.
+        Assert.Equal(["sign"], _calls);
 
         // Not through the post-then-fiscalise route at all.
         Assert.Empty(_mediator.Sent);
 
         Assert.True(response.Success);
-        Assert.False(response.WasQueued);
-        Assert.Equal(ReservationStub.DocNum, response.SapDocNum);
+        Assert.True(response.WasQueued);
+        Assert.Null(response.SapDocNum);
+        Assert.Empty(response.Errors);
         Assert.Equal("vc-server", response.VerificationCode);
         Assert.Equal("qr-server", response.QrCode);
 
         var sale = await _context.DesktopSales.SingleAsync();
         Assert.Equal(SaleSourceSystems.VanSalesOnline, sale.SourceSystem);
         Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
-        Assert.Equal(ReservationStub.DocNum, sale.SapDocNum);
+        Assert.Null(sale.SapDocNum);
+
+        // The number the handset prints: the platform's own, there before SAP has the invoice.
+        Assert.Equal(DesktopSaleNumber.Format(sale.Id), response.SaleNumber);
+        Assert.StartsWith("INV", response.SaleNumber);
+
+        // Handed over already Fiscalized, carrying its receipt, so PostQueuedVanInvoices posts it and nothing
+        // offers it to the device again.
+        var queued = await _context.InvoiceQueue.SingleAsync();
+        Assert.Equal("VAN006-INV-20260810-BBB222", queued.ExternalReference);
+        Assert.Equal(SaleSourceSystems.VanSales, queued.SourceSystem);
+        Assert.Equal(InvoiceQueueStatus.Fiscalized, queued.Status);
+        Assert.True(queued.FiscalizationSuccess);
+        Assert.Equal("900", queued.FiscalReceiptNumber);
+        Assert.NotNull(queued.ProcessingStartedAt);
+        Assert.Null(queued.LastError);
+        Assert.Equal(response.QueueId, queued.Id);
     }
 
     /// <summary>
@@ -250,32 +268,21 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     }
 
     /// <summary>
-    /// Once signed, the sale stands. SAP being down is answered with the receipt so the rep can print it,
-    /// and the invoice goes on the queue that posts it.
+    /// SAP being down no longer reaches the rep at all: the request never asks it, so the sale is answered
+    /// with its receipt exactly as on a good day, and the queue waits SAP out.
     /// </summary>
     [Fact]
-    public async Task A_SAP_outage_after_signing_answers_with_the_receipt_and_queues_the_invoice()
+    public async Task A_SAP_outage_does_not_touch_the_sale()
     {
         _reservations.SapDown = true;
 
         var response = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
 
-        Assert.Equal(["sign", "post"], _calls);
+        Assert.Equal(["sign"], _calls);
         Assert.True(response.Success);
         Assert.True(response.WasQueued);
-        Assert.Null(response.SapDocNum);
         Assert.Equal("vc-server", response.VerificationCode);
-
-        // Handed over already Fiscalized, carrying its receipt, so PostQueuedVanInvoices posts it and nothing
-        // offers it to the device again.
-        var queued = await _context.InvoiceQueue.SingleAsync();
-        Assert.Equal("VAN006-INV-20260810-BBB222", queued.ExternalReference);
-        Assert.Equal(SaleSourceSystems.VanSales, queued.SourceSystem);
-        Assert.Equal(InvoiceQueueStatus.Fiscalized, queued.Status);
-        Assert.True(queued.FiscalizationSuccess);
-        Assert.Equal("900", queued.FiscalReceiptNumber);
-        Assert.NotNull(queued.ProcessingStartedAt);
-        Assert.Equal(response.QueueId, queued.Id);
+        Assert.Equal(InvoiceQueueStatus.Fiscalized, (await _context.InvoiceQueue.SingleAsync()).Status);
     }
 
     /// <summary>

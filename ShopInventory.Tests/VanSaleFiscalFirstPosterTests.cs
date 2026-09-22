@@ -372,6 +372,55 @@ public sealed class VanSaleFiscalFirstPosterTests : IDisposable
         Assert.Equal(1, sale.PostingAttempts);
     }
 
+    /// <summary>
+    /// The handset route signs and stops: SAP is not asked in the request, so the rep waits for the device
+    /// alone, and the stock stays held for the queue to post.
+    /// </summary>
+    [Fact]
+    public async Task A_deferred_post_signs_without_asking_SAP_and_holds_the_stock()
+    {
+        var reservation = SeedReservation();
+
+        var outcome = await BuildPoster()
+            .FiscaliseThenPostAsync(Request(reservation.ReservationId) with { PostToSapNow = false }, default);
+
+        Assert.Equal(VanSaleFiscalFirstStatus.AwaitingSap, outcome.Status);
+        Assert.True(outcome.Deferred);
+        Assert.True(outcome.IsFiscalised);
+        Assert.Null(outcome.Error);
+        Assert.Equal(["sign"], _calls);
+
+        var stored = StoredReservation();
+        Assert.Equal(ReservationStatus.Pending, stored.Status);
+        Assert.True(stored.ExpiresAt > DateTime.UtcNow.AddMinutes(30));
+
+        // Deferred is not a failed attempt: nothing is counted against the sale.
+        var sale = StoredSale();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+        Assert.Null(sale.SapDocNum);
+        Assert.Equal(0, sale.PostingAttempts);
+        Assert.Null(sale.LastPostingError);
+    }
+
+    /// <summary>
+    /// A resend of a sale the queue has already posted answers with that invoice, and neither signs nor posts.
+    /// </summary>
+    [Fact]
+    public async Task A_deferred_resend_of_a_posted_sale_answers_with_its_invoice()
+    {
+        var reservation = SeedReservation();
+
+        await BuildPoster().FiscaliseThenPostAsync(Request(reservation.ReservationId), default);
+
+        var resent = await BuildPoster().FiscaliseThenPostAsync(
+            Request(reservation.ReservationId, mayAlreadyBeFiscalised: true) with { PostToSapNow = false },
+            default);
+
+        Assert.Equal(VanSaleFiscalFirstStatus.Posted, resent.Status);
+        Assert.Equal(5001, resent.SapDocNum);
+        Assert.Equal(["sign", "post"], _calls);
+    }
+
     [Fact]
     public async Task A_retry_after_SAP_refused_posts_without_signing_again()
     {

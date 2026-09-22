@@ -22,6 +22,14 @@ public class VanSalesDirectInvoiceResponse
     [JsonPropertyName("sap_doc_num")]
     public int? SapDocNum { get; set; }
 
+    /// <summary>
+    /// The platform's number for the sale, <c>INV10427</c> — the one the handset prints on the slip and
+    /// the console and the invoice history show. Assigned before SAP is asked, so it is there on a queued
+    /// sale too. See <see cref="Common.Sales.DesktopSaleNumber"/>.
+    /// </summary>
+    [JsonPropertyName("sale_number")]
+    public string? SaleNumber { get; set; }
+
     [JsonPropertyName("was_queued")]
     public bool WasQueued { get; set; }
 
