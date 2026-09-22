@@ -92,7 +92,8 @@ public sealed class GetVanStockReportHandler(
             Variances: variances,
             Items: items,
             Expiring: BuildExpiring(snapshots, todayCat),
-            Quality: BuildQuality(vans, days, snapshots, variances, lines, latest, todayCat));
+            Quality: BuildQuality(vans, days, snapshots, variances, lines, latest, todayCat),
+            Vans: BuildVans(vans, snapshots, days, sold, query.DeadStockDays));
     }
 
     // ── Reads ───────────────────────────────────────────────────────────────────
@@ -273,9 +274,13 @@ public sealed class GetVanStockReportHandler(
                             ? q
                             : 0m;
 
+                    var carried = openingByItem.Keys
+                        .Union(closingByItem.Keys, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
                     var itemVariances = hasGap
                         ? []
-                        : openingByItem.Keys.Union(closingByItem.Keys, StringComparer.OrdinalIgnoreCase)
+                        : carried
                             .Select(item =>
                             {
                                 openingByItem.TryGetValue(item, out var open);
@@ -285,7 +290,10 @@ public sealed class GetVanStockReportHandler(
                                     ItemCode: item,
                                     ItemDescription: DescriptionOf(opening, closing, item),
                                     Expected: open - Sold(item) + Adjustment(item),
-                                    Actual: close);
+                                    Actual: close,
+                                    Opening: open,
+                                    Sold: Sold(item),
+                                    Adjustment: Adjustment(item));
                             })
                             .Where(variance => Math.Abs(variance.Variance) > VarianceEpsilon)
                             .OrderByDescending(variance => Math.Abs(variance.Variance))
@@ -303,13 +311,63 @@ public sealed class GetVanStockReportHandler(
                         ClosingQuantity: closingByItem.Values.Sum(),
                         ItemsShort: itemVariances.Count(variance => variance.Variance < 0),
                         ItemsOver: itemVariances.Count(variance => variance.Variance > 0),
-                        TopVariances: itemVariances.Take(TopVariancesPerPair).ToList()));
+                        TopVariances: itemVariances.Take(TopVariancesPerPair).ToList(),
+                        ItemCount: carried.Count));
                 }
 
                 return pairs;
             })
             .OrderBy(variance => variance.VanWarehouseCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(variance => variance.FromSnapshot)
+            .ToList();
+
+    // ── Per van ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// One row per van, every van included — one with no snapshot in the period still gets a row, so
+    /// the page can say it was never counted rather than leaving it out.
+    /// </summary>
+    private static List<VanStockVanResult> BuildVans(
+        HashSet<string> vans,
+        List<SnapshotRow> snapshots,
+        List<VanStockDayResult> days,
+        Dictionary<StockKey, decimal> sold,
+        int deadStockDays) =>
+        vans
+            .Select(van =>
+            {
+                var own = snapshots
+                    .Where(snapshot => string.Equals(snapshot.WarehouseCode, van, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var itemMornings = own
+                    .SelectMany(snapshot => SumByItem(snapshot).Keys
+                        .Select(item => new
+                        {
+                            Item = item,
+                            Sold = sold.TryGetValue(
+                                new StockKey(snapshot.WarehouseCode, snapshot.SnapshotDate, item), out var q)
+                                ? q
+                                : 0m
+                        }))
+                    .ToList();
+
+                var ownDays = days
+                    .Where(day => string.Equals(day.VanWarehouseCode, van, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                return new VanStockVanResult(
+                    VanWarehouseCode: own.FirstOrDefault()?.WarehouseCode ?? van,
+                    DaysCounted: ownDays.Count,
+                    DaysWithSales: ownDays.Count(day => day.SoldQuantity > 0),
+                    ItemCount: itemMornings.Select(row => row.Item).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    ItemDays: itemMornings.Count,
+                    SoldItemDays: itemMornings.Count(row => row.Sold > 0),
+                    DeadItemCount: itemMornings
+                        .GroupBy(row => row.Item, StringComparer.OrdinalIgnoreCase)
+                        .Count(item => item.Count() >= deadStockDays && item.All(row => row.Sold == 0)));
+            })
+            .OrderBy(van => van.VanWarehouseCode, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     // ── C3 / C4: sell-through and dead stock ────────────────────────────────────

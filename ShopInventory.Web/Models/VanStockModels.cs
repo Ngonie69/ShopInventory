@@ -152,6 +152,25 @@ public class VanStockReportResponse
     public List<VanStockItem> Items { get; set; } = [];
     public List<VanStockExpiry> Expiring { get; set; } = [];
     public VanStockQuality Quality { get; set; } = new();
+    public List<VanStockVan> Vans { get; set; } = [];
+}
+
+/// <summary>
+/// One van across the period, in counts of items: a van carries cases, kilograms and singles, and
+/// a sum across them is a figure in no unit.
+/// </summary>
+public class VanStockVan
+{
+    public string VanWarehouseCode { get; set; } = string.Empty;
+    public int DaysCounted { get; set; }
+    public int DaysWithSales { get; set; }
+    public int ItemCount { get; set; }
+    public int ItemDays { get; set; }
+    public int SoldItemDays { get; set; }
+    public int DeadItemCount { get; set; }
+
+    /// <summary>Of the item-mornings carried, the share on which the item sold. Null when nothing was carried.</summary>
+    public double? ItemsSellingRate => ItemDays > 0 ? (double)SoldItemDays / ItemDays : null;
 }
 
 public class VanStockSummary
@@ -207,6 +226,13 @@ public class VanStockVariance
     public int ItemsOver { get; set; }
     public List<VanStockItemVariance> TopVariances { get; set; } = [];
 
+    /// <summary>Items on the van either morning. Zero from an API that predates it.</summary>
+    public int ItemCount { get; set; }
+
+    public int ItemsMatched => Math.Max(0, ItemCount - ItemsShort - ItemsOver);
+
+    public bool Balanced => !HasGap && ItemsShort == 0 && ItemsOver == 0;
+
     public decimal? ExpectedQuantity =>
         HasGap ? null : OpeningQuantity - SoldQuantity + AdjustmentQuantity;
 
@@ -225,6 +251,9 @@ public class VanStockItemVariance
     public string? ItemDescription { get; set; }
     public decimal Expected { get; set; }
     public decimal Actual { get; set; }
+    public decimal Opening { get; set; }
+    public decimal Sold { get; set; }
+    public decimal Adjustment { get; set; }
 
     public decimal Variance => decimal.Round(Actual - Expected, 3);
 

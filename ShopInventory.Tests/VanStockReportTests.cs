@@ -210,6 +210,73 @@ public sealed class VanStockReportTests : IDisposable
         Assert.False(report.Quality.IsClean);
     }
 
+    /// <summary>
+    /// The page judges a morning by how many items were off, not by a quantity summed across units,
+    /// so it needs the count of items on the van to say how many matched — and each item's own
+    /// arithmetic to show why it did not.
+    /// </summary>
+    [Fact]
+    public async Task A_morning_carries_its_item_count_and_each_items_arithmetic()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m), ("NRI049", 50m), ("PIC003", 20m));
+        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
+        AddAdjustment(new DateTime(2026, 8, 4), "CHE011", 5m);
+        // CHE011 should be 45, found 31. NRI049 matches. PIC003 found 8 more than loaded.
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 31m), ("NRI049", 50m), ("PIC003", 28m));
+        await _context.SaveChangesAsync();
+
+        var variance = Assert.Single((await RunAsync()).Variances);
+
+        Assert.Equal(3, variance.ItemCount);
+        Assert.Equal(1, variance.ItemsShort);
+        Assert.Equal(1, variance.ItemsOver);
+
+        var short_ = variance.TopVariances.Single(v => v.ItemCode == "CHE011");
+        Assert.Equal(100m, short_.Opening);
+        Assert.Equal(60m, short_.Sold);
+        Assert.Equal(5m, short_.Adjustment);
+        Assert.Equal(45m, short_.Expected);
+        Assert.Equal(31m, short_.Actual);
+        Assert.Equal(-14m, short_.Variance);
+    }
+
+    /// <summary>
+    /// One row per van, in counts of items. Item-mornings are what "items selling" is taken from,
+    /// and a van's idle items are only those it carried itself for the threshold without a sale.
+    /// </summary>
+    [Fact]
+    public async Task Each_van_gets_its_own_counts_of_items_and_selling_days()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m), ("PIC003", 20m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 40m), ("PIC003", 20m));
+        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
+        await _context.SaveChangesAsync();
+
+        var van = Assert.Single((await RunAsync(deadStockDays: 2)).Vans!);
+
+        Assert.Equal(Van, van.VanWarehouseCode);
+        Assert.Equal(2, van.DaysCounted);
+        Assert.Equal(1, van.DaysWithSales);
+        Assert.Equal(2, van.ItemCount);
+        Assert.Equal(4, van.ItemDays);
+        Assert.Equal(1, van.SoldItemDays);
+        // PIC003 rode both mornings and never sold; CHE011 sold on the 4th.
+        Assert.Equal(1, van.DeadItemCount);
+    }
+
+    /// <summary>A van with no count in the period still gets a row, so the page can say so.</summary>
+    [Fact]
+    public async Task A_van_with_no_count_still_gets_a_row()
+    {
+        await _context.SaveChangesAsync();
+
+        var van = Assert.Single((await RunAsync()).Vans!);
+
+        Assert.Equal(Van, van.VanWarehouseCode);
+        Assert.Equal(0, van.DaysCounted);
+        Assert.Equal(0, van.ItemDays);
+    }
+
     // --- C3 / C4: sell-through and dead stock ---
 
     /// <summary>

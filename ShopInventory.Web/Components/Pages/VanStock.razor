@@ -10,40 +10,53 @@
 
 <PageTitle>Van Stock - Shop Inventory</PageTitle>
 
-@* What went onto each van, what sold off it, and what the next morning found.
+@* Is every van's stock accounted for?
 
    Carried by wwwroot/css/van-sales.css: the shared `vs-` chrome plus `vst-`.
 
-   The staleness banner is the first thing on this page and is not decoration.
-   Every figure here is read from the morning stock snapshot, and if the job that
-   writes it stops, the whole report quietly describes an older morning. Nothing
-   else on the page would say so, and a reconciliation that is silently three days
-   out is worse than none.
+   The page answers that one question, first for the fleet and then for one van.
+   Each morning's count should equal yesterday's count, less what sold, plus what
+   was transferred on; a morning that does not is a gap somebody has to explain.
 
-   The reconciliation is morning to morning: yesterday's load, less what sold off
-   it, plus anything that arrived, against what this morning actually found. That
-   is only computable across two consecutive snapshots, so a missing day shows as
-   a break rather than being bridged — reaching over a gap would report two days
-   of difference as one, which reads as a single large discrepancy on the wrong
-   date.
+   Everything is judged in counts of items, never in summed quantities. A van
+   carries cases, kilograms and singles, and a total across them is a figure in
+   no unit — the old "opened 753, found 1,290" rows read as a 537-unit
+   discrepancy when they were a few dozen items off by amounts in three different
+   units. Quantities appear only item by item, each in that item's own unit.
 
-   One column that is deliberately absent: what the snapshot calls "available".
-   No van sales path decrements it, so on a van it is inert, and showing it would
-   make every van look like it sold nothing. *@
+   The two directions are kept apart because they mean different things. Items
+   missing is stock that left without a sale; items found is stock that arrived
+   without a transfer. A van that shows both on neighbouring mornings is almost
+   always stock loaded and taken off again with no paperwork, not a loss.
+
+   The staleness banner still leads when the snapshot is old: every figure here is
+   read from the morning stock snapshot, and if the job that writes it stops, the
+   whole report quietly describes an older morning.
+
+   A missing day is still shown as a break rather than reached over: two days of
+   difference reported as one reads as a single large discrepancy on the wrong
+   date. *@
 
 <div class="vs vst">
 
     <div class="vs-head">
         <div>
             <h2 class="vs-title">Van stock</h2>
-            <p class="vs-subtitle">
-                What each van was loaded with, what sold off it, what the next morning found, and what
-                is riding the round without selling.
+            <p class="vs-subtitle vst-question">
+                Is every van's stock accounted for? Each morning's count should equal yesterday's
+                count, minus what sold, plus what was transferred on. Anything else is a gap to explain.
             </p>
         </div>
         <div class="vs-actions">
+            @if (report?.Summary.LatestSnapshotDate is { } latest)
+            {
+                <span class="vst-fresh @(report.Summary.IsStale ? "vst-fresh-stale" : null)">
+                    <span class="vst-fresh-dot"></span>
+                    Latest count: @FreshnessLabel(latest, report.Summary.SnapshotAgeDays)
+                </span>
+            }
             <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
-                Export
+                Export to Excel
             </button>
         </div>
     </div>
@@ -59,11 +72,11 @@
                 <NocturneDateField Id="vst-to" @bind-Date="toDate" AriaLabel="To date" />
             </div>
             <div class="col-md-3">
-                <label class="vs-filter-label" for="vst-dead">Dead after</label>
+                <label class="vs-filter-label" for="vst-dead">Call an item idle after</label>
                 <NocturneSelect Id="vst-dead" Class="nsel-block" TValue="string"
                                 Options="DeadStockOptions" @bind-Value="selectedDeadStockDays"
                                 OnChanged="LoadAsync"
-                                AriaLabel="Days carried without a sale before a line counts as dead" />
+                                AriaLabel="Days carried without a sale before an item counts as idle" />
             </div>
             <div class="col-md-3 vs-actions">
                 <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
@@ -82,7 +95,7 @@
     {
         <div class="vs-loading">
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-            <span>Reading the snapshots…</span>
+            <span>Reading the morning counts…</span>
         </div>
     }
     else if (report is null)
@@ -101,365 +114,579 @@
         {
             <div class="vst-stale">
                 <strong>These figures are @summary.SnapshotAgeDays day(s) old.</strong>
-                The newest stock snapshot is from
+                The newest stock count is from
                 @(summary.LatestSnapshotDate?.ToString("dddd dd MMM yyyy") ?? "an unknown date"),
-                so everything below describes the vans as they stood then. If the snapshot job has
+                so everything below describes the vans as they stood then. If the count job has
                 stopped, nothing on this page will improve until it runs again.
             </div>
         }
 
-        <div class="vst-kpis">
-            <div class="vst-kpi">
-                <div class="vst-kpi-value">@summary.VanCount.ToString("N0")</div>
-                <div class="vst-kpi-label">Vans</div>
-                <div class="vst-kpi-sub">@summary.SnapshotDayCount.ToString("N0") van-days snapshotted</div>
+        var selected = selectedVan is null
+            ? null
+            : vanViews.FirstOrDefault(v => string.Equals(v.Code, selectedVan, StringComparison.OrdinalIgnoreCase));
+
+        @if (selected is null)
+        {
+            @* ── The fleet ─────────────────────────────────────────────────── *@
+
+            <div class="vst-answers">
+                @{
+                    var comparable = vanViews.Sum(v => v.Comparable);
+                    var unbalanced = vanViews.Sum(v => v.Comparable - v.Balanced);
+                    var vansOff = vanViews.Count(v => v.Comparable > v.Balanced);
+                    var worstVan = vanViews.OrderByDescending(v => v.Comparable - v.Balanced).FirstOrDefault();
+                }
+                @if (comparable == 0)
+                {
+                    <div class="vst-answer">
+                        <div class="vst-answer-kicker">Stock accounted for</div>
+                        <div class="vst-answer-value">Not enough counts</div>
+                        <div class="vst-answer-text">Two mornings in a row are needed on a van before they can be compared.</div>
+                    </div>
+                }
+                else if (unbalanced == 0)
+                {
+                    <div class="vst-answer vst-answer-good">
+                        <div class="vst-answer-kicker">Stock accounted for</div>
+                        <div class="vst-answer-value">Every morning balanced</div>
+                        <div class="vst-answer-text">@Plural(comparable, "morning") across @Plural(vanViews.Count, "van") matched what sales and transfers explain.</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="vst-answer vst-answer-bad">
+                        <div class="vst-answer-kicker">Stock unaccounted for</div>
+                        <div class="vst-answer-value">@unbalanced.ToString("N0") of @Plural(comparable, "morning")</div>
+                        <div class="vst-answer-text">
+                            didn't balance, on @vansOff of @Plural(vanViews.Count, "van").
+                            @if (vansOff > 1 && worstVan is not null)
+                            {
+                                @($"{worstVan.Code} accounts for {worstVan.Comparable - worstVan.Balanced} of them.")
+                            }
+                        </div>
+                    </div>
+                }
+
+                @{
+                    var silent = vanViews.Where(v => v.Stats is { DaysCounted: > 0, DaysWithSales: 0 }).ToList();
+                    var itemDays = vanViews.Sum(v => v.Stats?.ItemDays ?? 0);
+                    var soldItemDays = vanViews.Sum(v => v.Stats?.SoldItemDays ?? 0);
+                }
+                @if (silent.Count > 0)
+                {
+                    <div class="vst-answer vst-answer-warn">
+                        <div class="vst-answer-kicker">Check sales are posting</div>
+                        <div class="vst-answer-value">
+                            @(silent.Count == 1 ? $"{silent[0].Code} sold nothing" : $"{silent.Count} vans sold nothing")
+                        </div>
+                        <div class="vst-answer-text">
+                            in @Plural(silent.Max(v => v.Stats!.DaysCounted), "counted morning") — no sale was booked
+                            against the load. Either the van was parked or its sales are not reaching the report.
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="vst-answer">
+                        <div class="vst-answer-kicker">Selling</div>
+                        <div class="vst-answer-value">@Rate(itemDays > 0 ? (double)soldItemDays / itemDays : null) of items</div>
+                        <div class="vst-answer-text">on a van sold at least once on a typical day. Every van booked sales in the period.</div>
+                    </div>
+                }
+
+                <div class="vst-answer">
+                    <div class="vst-answer-kicker">Riding without selling</div>
+                    @if (summary.DeadItemCount == 0)
+                    {
+                        <div class="vst-answer-value">Nothing idle</div>
+                        <div class="vst-answer-text">No item was carried @report.DeadStockDays+ days without selling.</div>
+                    }
+                    else
+                    {
+                        <div class="vst-answer-value">@Plural(summary.DeadItemCount, "item")</div>
+                        <div class="vst-answer-text">were carried @report.DeadStockDays+ days and never sold. Candidates to take off the load list.</div>
+                    }
+                </div>
+
+                @{
+                    var expired = report.Expiring.Count(e => e.HasExpired);
+                    var soonest = report.Expiring.FirstOrDefault(e => !e.HasExpired);
+                }
+                @if (expired > 0)
+                {
+                    <div class="vst-answer vst-answer-bad">
+                        <div class="vst-answer-kicker">Expiry</div>
+                        <div class="vst-answer-value">@Plural(expired, "batch", "batches") past expiry</div>
+                        <div class="vst-answer-text">still on a van this morning. @(report.Expiring.Count - expired) more expire within 60 days.</div>
+                    </div>
+                }
+                else if (soonest is not null)
+                {
+                    <div class="vst-answer vst-answer-warn">
+                        <div class="vst-answer-kicker">Expiry</div>
+                        <div class="vst-answer-value">@Plural(report.Expiring.Count, "batch", "batches")</div>
+                        <div class="vst-answer-text">expire within 60 days. The first, on @soonest.VanWarehouseCode, has @Plural(soonest.DaysToExpiry, "day") left.</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="vst-answer vst-answer-good">
+                        <div class="vst-answer-kicker">Expiry</div>
+                        <div class="vst-answer-value">Nothing close</div>
+                        <div class="vst-answer-text">No batch on any van expires in the next 60 days, and none has passed.</div>
+                    </div>
+                }
             </div>
 
-            <div class="vst-kpi">
-                <div class="vst-kpi-value">@Rate(summary.SellThroughRate)</div>
-                <div class="vst-kpi-label">Sell-through</div>
-                <div class="vst-kpi-sub">of everything loaded</div>
-            </div>
+            @if (!report.Quality.IsClean)
+            {
+                <div class="vst-caveats">
+                    <div class="vst-caveats-head">What this period could not answer</div>
+                    <ul class="vst-caveats-list">
+                        @foreach (var caveat in report.Quality.Caveats)
+                        {
+                            <li>@caveat</li>
+                        }
+                    </ul>
+                </div>
+            }
 
-            <div class="vst-kpi @(summary.DeadItemCount > 0 ? "vst-kpi-warn" : null)">
-                <div class="vst-kpi-value">@summary.DeadItemCount.ToString("N0")</div>
-                <div class="vst-kpi-label">Dead lines</div>
-                <div class="vst-kpi-sub">carried @report.DeadStockDays+ days, never sold</div>
-            </div>
-
-            <div class="vst-kpi">
-                <div class="vst-kpi-value">@summary.ItemCount.ToString("N0")</div>
-                <div class="vst-kpi-label">Distinct items</div>
-                <div class="vst-kpi-sub">seen on a van</div>
-            </div>
-
-            <div class="vst-kpi @(report.Expiring.Any(e => e.HasExpired) ? "vst-kpi-warn" : null)">
-                <div class="vst-kpi-value">@report.Expiring.Count.ToString("N0")</div>
-                <div class="vst-kpi-label">Batches near expiry</div>
-                <div class="vst-kpi-sub">
-                    @report.Expiring.Count(e => e.HasExpired).ToString("N0") already past
+            <div class="vst-section-head">
+                <div>
+                    <h3 class="vst-heading">Van by van</h3>
+                    <p class="vst-note">One square per morning. Open a van to see which items were off and by how much.</p>
+                </div>
+                <div class="vst-legend">
+                    <span><i class="vst-sq vst-sq-ok"></i>Balanced</span>
+                    <span><i class="vst-sq vst-sq-short"></i>Items missing</span>
+                    <span><i class="vst-sq vst-sq-over"></i>Items found, no transfer</span>
+                    <span><i class="vst-sq vst-sq-gap"></i>Not counted</span>
                 </div>
             </div>
 
-            <div class="vst-kpi @(summary.MissingSnapshotDays > 0 ? "vst-kpi-warn" : null)">
-                <div class="vst-kpi-value">@summary.MissingSnapshotDays.ToString("N0")</div>
-                <div class="vst-kpi-label">Missing van-days</div>
-                <div class="vst-kpi-sub">no snapshot taken</div>
+            <div class="vst-vans">
+                <div class="vst-vans-head" aria-hidden="true">
+                    <div>Van</div>
+                    <div>@report.FromDate.ToString("dd MMM") → @report.ToDate.ToString("dd MMM")</div>
+                    <div>Balanced</div>
+                    <div>Worst morning</div>
+                    <div>Items selling</div>
+                    <div>Idle items</div>
+                    <div>What to do</div>
+                    <div></div>
+                </div>
+                @foreach (var van in vanViews)
+                {
+                    <button type="button" class="vst-van" @onclick="() => OpenVan(van.Code)"
+                            aria-label="Open @van.Code">
+                        <div class="vst-van-id">
+                            <span class="vst-van-code">@van.Code</span>
+                            <span class="vst-pill vst-pill-@van.Tone">@van.Status</span>
+                        </div>
+                        <div class="vst-strip">
+                            @foreach (var morning in van.Strip)
+                            {
+                                <i class="vst-sq vst-sq-@morning.Kind" title="@morning.Tip"></i>
+                            }
+                        </div>
+                        <div>
+                            @if (van.Comparable > 0)
+                            {
+                                <strong>@van.Balanced</strong><span class="vst-mute"> of @van.Comparable</span>
+                            }
+                            else
+                            {
+                                <span class="vst-mute">—</span>
+                            }
+                        </div>
+                        <div class="vst-stack">
+                            @if (van.Worst is { } worst && !worst.Balanced)
+                            {
+                                <span>@OffLabel(worst)</span>
+                                <span class="vst-mute vst-small">@worst.ToSnapshot.ToString("ddd dd MMM")</span>
+                            }
+                            else
+                            {
+                                <span class="vst-mute">—</span>
+                            }
+                        </div>
+                        <div class="@(van.Stats is { DaysCounted: > 0, DaysWithSales: 0 } ? "vst-warn-ink" : null)">
+                            @Rate(van.Stats?.ItemsSellingRate)
+                        </div>
+                        <div>@(van.Stats?.DeadItemCount.ToString("N0") ?? "—")</div>
+                        <div class="vst-action">@van.Action</div>
+                        <svg class="vst-chev" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                            <path d="M7 4l5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                        </svg>
+                    </button>
+                }
+                <div class="vst-vans-foot">
+                    Counted in items, not units. A van carries cases, kilograms and singles, and those don't
+                    add up to one meaningful total — so a morning is judged by how many items were off, and
+                    units appear only item by item. "Items selling" is the share of items on a van that sold
+                    at least once on a typical day.
+                </div>
             </div>
-        </div>
 
-        @if (!report.Quality.IsClean)
-        {
-            <div class="vst-caveats">
-                <div class="vst-caveats-head">What this period could not answer</div>
-                <ul class="vst-caveats-list">
-                    @foreach (var caveat in report.Quality.Caveats)
-                    {
-                        <li>@caveat</li>
+            <div class="vst-pair">
+                <section class="vst-panel">
+                    @{
+                        var idle = report.Items
+                            .Where(i => i.IsDead && i.DaysOnVanWithoutSelling >= report.DeadStockDays)
+                            .ToList();
                     }
-                </ul>
+                    <div class="vst-panel-head">
+                        <h3 class="vst-heading">Carried, never sold</h3>
+                        @if (idle.Count > IdlePreview)
+                        {
+                            <button type="button" class="vst-link" @onclick="() => showAllIdle = !showAllIdle">
+                                @(showAllIdle ? "Show fewer" : $"All {idle.Count} items")
+                            </button>
+                        }
+                    </div>
+                    <p class="vst-note">Longest ride first. Each one is van space that could carry something that moves.</p>
+                    @if (idle.Count == 0)
+                    {
+                        <div class="vst-quiet">Every item carried @report.DeadStockDays+ days sold at least once.</div>
+                    }
+                    else
+                    {
+                        <table class="vst-table">
+                            <thead>
+                                <tr><th>Item</th><th class="vs-num">On vans</th><th class="vs-num">Days carried</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in showAllIdle ? idle : idle.Take(IdlePreview))
+                                {
+                                    <tr>
+                                        <td>@item.DisplayName<span class="vst-sub">@item.ItemCode</span></td>
+                                        <td class="vs-num">@item.VanCount.ToString("N0")</td>
+                                        <td class="vs-num">@item.DaysOnVan.ToString("N0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </section>
+
+                <section class="vst-panel">
+                    <div class="vst-panel-head">
+                        <h3 class="vst-heading">Close to expiry</h3>
+                    </div>
+                    <p class="vst-note">Batches on each van as of its latest count, soonest first.</p>
+                    @if (report.Expiring.Count == 0)
+                    {
+                        <div class="vst-quiet">
+                            <strong>Nothing to move</strong>
+                            No batch on any van expires within 60 days.
+                        </div>
+                    }
+                    else
+                    {
+                        <table class="vst-table">
+                            <thead>
+                                <tr><th>Van</th><th>Item</th><th>Batch</th><th class="vs-num">Days left</th><th class="vs-num">Quantity</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var batch in report.Expiring)
+                                {
+                                    <tr class="@(batch.HasExpired ? "vst-expired" : null)">
+                                        <td>@batch.VanWarehouseCode</td>
+                                        <td>@batch.DisplayName<span class="vst-sub">@batch.ItemCode</span></td>
+                                        <td>@batch.BatchNumber<span class="vst-sub">@batch.ExpiryDate.ToString("dd MMM yyyy")</span></td>
+                                        <td class="vs-num @(batch.HasExpired ? "vst-bad" : null)">
+                                            @(batch.HasExpired ? $"{-batch.DaysToExpiry:N0} past" : batch.DaysToExpiry.ToString("N0"))
+                                        </td>
+                                        <td class="vs-num">@batch.Quantity.ToString("N0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </section>
             </div>
         }
-
-        <div class="vst-sections">
-            @foreach (var option in Sections)
-            {
-                <button type="button"
-                        class="vs-chip @(activeSection == option.Key ? "vs-chip-info" : "vs-chip-quiet")"
-                        @onclick="() => activeSection = option.Key">
-                    @option.Label
-                    <span class="vst-section-count">@option.Count(report)</span>
-                </button>
-            }
-        </div>
-
-        @if (activeSection == SectionVariance)
+        else
         {
-            <h3 class="vst-heading">Morning to morning</h3>
-            <p class="vst-note">
-                Yesterday's load, less what sold off it, plus anything that arrived, is what this
-                morning should have found. Only computable across two consecutive snapshots — where a
-                day is missing the pair is shown as a break rather than reached over, because two
-                days of difference reported as one reads as a single large discrepancy on the wrong
-                date.
-            </p>
-            @if (report.Variances.Count == 0)
+            @* ── One van ───────────────────────────────────────────────────── *@
+
+            <button type="button" class="vst-back" @onclick="CloseVan">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                </svg>
+                All vans
+            </button>
+
+            <div class="vst-verdict">
+                <div class="vst-verdict-title">
+                    <h3>@selected.Code</h3>
+                    <span class="vst-pill vst-pill-@selected.Tone">@selected.Status</span>
+                    <span class="vst-mute">
+                        @report.FromDate.ToString("dd MMM") – @report.ToDate.ToString("dd MMM")
+                        @if (selected.Stats is { ItemCount: > 0 } stats)
+                        {
+                            @($" · {stats.ItemCount:N0} items carried")
+                        }
+                    </span>
+                </div>
+                <p class="vst-verdict-text">
+                    @if (selected.Comparable > 0)
+                    {
+                        @($"Balanced on {selected.Balanced} of {Plural(selected.Comparable, "morning")}. ")
+                    }
+                    @selected.Action
+                </p>
+            </div>
+
+            <div class="vst-rule">
+                <span class="vst-rule-label">For every item</span>
+                <span class="vst-rule-term">Yesterday's count</span><span class="vst-mute">−</span>
+                <span class="vst-rule-term">Sold</span><span class="vst-mute">+</span>
+                <span class="vst-rule-term">Transferred on</span><span class="vst-mute">=</span>
+                <span class="vst-rule-term vst-rule-result">Should find this morning</span>
+                <span class="vst-mute">A morning balances when every item's count matches.</span>
+            </div>
+
+            <div class="vst-figures">
+                <div class="vst-figure">
+                    <div class="vst-figure-label">Mornings that balanced</div>
+                    <div class="vst-figure-value">
+                        @if (selected.Comparable > 0)
+                        {
+                            @selected.Balanced<span class="vst-mute"> of @selected.Comparable</span>
+                        }
+                        else
+                        {
+                            <span class="vst-mute">—</span>
+                        }
+                    </div>
+                </div>
+                <div class="vst-figure">
+                    <div class="vst-figure-label">Worst morning</div>
+                    @if (selected.Worst is { } worstPair && !worstPair.Balanced)
+                    {
+                        <div class="vst-figure-value @(worstPair.ItemsShort > 0 ? "vst-bad" : "vst-info-ink")">@OffLabel(worstPair)</div>
+                        <div class="vst-figure-sub">@worstPair.ToSnapshot.ToString("ddd dd MMM")</div>
+                    }
+                    else
+                    {
+                        <div class="vst-figure-value vst-mute">None off</div>
+                    }
+                </div>
+                <div class="vst-figure">
+                    <div class="vst-figure-label">Items selling on a typical day</div>
+                    <div class="vst-figure-value">@Rate(selected.Stats?.ItemsSellingRate)</div>
+                    @if (selected.Stats is { } s)
+                    {
+                        <div class="vst-figure-sub">sales on @s.DaysWithSales of @Plural(s.DaysCounted, "counted day")</div>
+                    }
+                </div>
+                <div class="vst-figure">
+                    <div class="vst-figure-label">Carried @report.DeadStockDays+ days, never sold</div>
+                    <div class="vst-figure-value">@Plural(selected.Stats?.DeadItemCount ?? 0, "item")</div>
+                </div>
+            </div>
+
+            <div class="vst-section-head">
+                <h3 class="vst-heading">Morning by morning</h3>
+                <div class="vst-legend">
+                    <span><i class="vst-sq vst-sq-short"></i>Items missing</span>
+                    <span><i class="vst-sq vst-sq-over"></i>Items found, no transfer</span>
+                </div>
+            </div>
+
+            @if (selected.Pairs.Count == 0)
             {
                 <div class="vs-empty">
-                    <div class="vs-empty-title">Nothing to reconcile</div>
-                    <div>Two consecutive snapshots of the same van are needed to compare mornings.</div>
+                    <div class="vs-empty-title">Nothing to compare</div>
+                    <div>Two consecutive counts of this van are needed to compare mornings.</div>
                 </div>
             }
             else
             {
-                <div class="vs-table-wrap">
-                    <table class="vs-table">
-                        <thead>
-                            <tr>
-                                <th>Van</th>
-                                <th>Mornings</th>
-                                <th class="vs-num">Opened</th>
-                                <th class="vs-num">Sold</th>
-                                <th class="vs-num">Arrived</th>
-                                <th class="vs-num">Expected</th>
-                                <th class="vs-num">Found</th>
-                                <th class="vs-num">Variance</th>
-                                <th class="vs-num">Lines short</th>
-                                <th>Biggest gap</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var variance in report.Variances)
+                var scale = Math.Max(1, selected.Pairs.Max(p => Math.Max(p.ItemsShort, p.ItemsOver)));
+                var opened = OpenedMorning(selected);
+
+                <div class="vst-ledger">
+                    <div class="vst-ledger-head" aria-hidden="true">
+                        <div>Morning</div>
+                        <div class="vst-split-head"><span>Missing</span><span>Found</span></div>
+                        <div>Matched</div>
+                        <div>Biggest difference</div>
+                        <div>Sold the day before</div>
+                    </div>
+                    @foreach (var pair in selected.Pairs)
+                    {
+                        var isOpen = ReferenceEquals(pair, opened);
+                        var biggest = pair.TopVariances.FirstOrDefault();
+                        var dayBefore = report.Days.FirstOrDefault(d =>
+                            string.Equals(d.VanWarehouseCode, selected.Code, StringComparison.OrdinalIgnoreCase)
+                            && d.SnapshotDate == pair.FromSnapshot);
+
+                        <button type="button"
+                                class="vst-morning @(isOpen ? "vst-morning-open" : null) @(pair.HasGap ? "vst-morning-gap" : pair.Balanced ? "vst-morning-ok" : null)"
+                                disabled="@(pair.HasGap || pair.Balanced)"
+                                @onclick="() => openedMorning = pair.ToSnapshot">
+                            <div class="vst-morning-date">@pair.ToSnapshot.ToString("ddd dd MMM")</div>
+                            @if (pair.HasGap)
                             {
-                                var worst = variance.TopVariances.FirstOrDefault();
-                                <tr class="@(variance.HasGap ? "vst-gap" : null)">
-                                    <td>@variance.VanWarehouseCode</td>
-                                    <td>
-                                        @variance.FromSnapshot.ToString("dd MMM") →
-                                        @variance.ToSnapshot.ToString("dd MMM")
-                                        @if (variance.HasGap)
-                                        {
-                                            <span class="vs-chip vs-chip-warn vst-inline-chip">
-                                                @variance.GapDays-day gap
-                                            </span>
-                                        }
-                                    </td>
-                                    <td class="vs-num">@variance.OpeningQuantity.ToString("N0")</td>
-                                    <td class="vs-num">@variance.SoldQuantity.ToString("N0")</td>
-                                    <td class="vs-num">@variance.AdjustmentQuantity.ToString("N0")</td>
-                                    <td class="vs-num @(variance.ExpectedQuantity is null ? "vs-metric-none" : null)">
-                                        @Quantity(variance.ExpectedQuantity)
-                                    </td>
-                                    <td class="vs-num">@variance.ClosingQuantity.ToString("N0")</td>
-                                    <td class="vs-num @VarianceTone(variance.Variance)">
-                                        @Quantity(variance.Variance)
-                                    </td>
-                                    <td class="vs-num">@variance.ItemsShort.ToString("N0")</td>
-                                    <td>
-                                        @if (worst is null)
-                                        {
-                                            <span class="vs-metric-none">—</span>
-                                        }
-                                        else
-                                        {
-                                            @worst.DisplayName
-                                            <span class="vst-sub">@worst.Variance.ToString("N0")</span>
-                                        }
-                                    </td>
-                                </tr>
+                                <div class="vst-morning-span">
+                                    Can't compare — @Plural(pair.GapDays - 1, "day") not counted since @pair.FromSnapshot.ToString("dd MMM")
+                                </div>
                             }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        }
-        else if (activeSection == SectionDays)
-        {
-            <h3 class="vst-heading">Load and sell-through, day by day</h3>
-            <p class="vst-note">
-                The load is the morning snapshot; what sold comes from the sales themselves, because
-                the snapshot's running quantity is never decremented by a van sale.
-            </p>
-            <div class="vs-table-wrap">
-                <table class="vs-table">
-                    <thead>
-                        <tr>
-                            <th>Van</th>
-                            <th>Morning</th>
-                            <th class="vs-num">Items</th>
-                            <th class="vs-num">Loaded</th>
-                            <th class="vs-num">Sold</th>
-                            <th class="vs-num">Arrived</th>
-                            <th class="vs-num">Should be left</th>
-                            <th class="vs-num">Sell-through</th>
-                            <th class="vs-num">Untouched lines</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var day in report.Days)
-                        {
-                            <tr>
-                                <td>@day.VanWarehouseCode</td>
-                                <td>
-                                    @day.SnapshotDate.ToString("ddd dd MMM")
-                                    @if (!day.SnapshotComplete)
+                            else
+                            {
+                                <div class="vst-split">
+                                    <div class="vst-split-l">
+                                        @if (pair.ItemsShort > 0)
+                                        {
+                                            <span class="vst-split-n vst-bad">@pair.ItemsShort</span>
+                                            <span class="vst-bar vst-bar-short" style="width: @BarWidth(pair.ItemsShort, scale)"></span>
+                                        }
+                                    </div>
+                                    <div class="vst-split-r">
+                                        @if (pair.ItemsOver > 0)
+                                        {
+                                            <span class="vst-bar vst-bar-over" style="width: @BarWidth(pair.ItemsOver, scale)"></span>
+                                            <span class="vst-split-n vst-info-ink">@pair.ItemsOver</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="vst-mute">
+                                    @if (pair.ItemCount == 0)
                                     {
-                                        <span class="vs-chip vs-chip-warn vst-inline-chip">incomplete</span>
+                                        @("—")
                                     }
-                                </td>
-                                <td class="vs-num">@day.ItemCount.ToString("N0")</td>
-                                <td class="vs-num">@day.LoadedQuantity.ToString("N0")</td>
-                                <td class="vs-num">@day.SoldQuantity.ToString("N0")</td>
-                                <td class="vs-num">@day.AdjustmentQuantity.ToString("N0")</td>
-                                <td class="vs-num">
-                                    @day.ExpectedRemaining.ToString("N0")
-                                    @if (day.SoldBeyondLoad)
+                                    else if (pair.Balanced)
                                     {
-                                        @* Possible — stock can reach a van mid-round — but it means
-                                           the load did not cover the day. *@
-                                        <span class="vs-chip vs-chip-warn vst-inline-chip">over-sold</span>
-                                    }
-                                </td>
-                                <td class="vs-num @(day.SellThroughRate is null ? "vs-metric-none" : null)">
-                                    @Rate(day.SellThroughRate)
-                                </td>
-                                <td class="vs-num">@day.UnsoldItemCount.ToString("N0")</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-        else if (activeSection == SectionItems)
-        {
-            <h3 class="vst-heading">What is worth carrying</h3>
-            <p class="vst-note">
-                Deadest first: the lines carried most days and sold least. A line riding the round for
-                a fortnight is capital and shelf space that could be holding something that moves.
-            </p>
-            <div class="vs-table-wrap">
-                <table class="vs-table">
-                    <thead>
-                        <tr>
-                            <th>Item</th>
-                            <th class="vs-num">Vans</th>
-                            <th class="vs-num">Days carried</th>
-                            <th class="vs-num">Days sold</th>
-                            <th class="vs-num">Days idle</th>
-                            <th class="vs-num">Loaded</th>
-                            <th class="vs-num">Sold</th>
-                            <th class="vs-num">Sell-through</th>
-                            <th>Last sold</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in report.Items)
-                        {
-                            <tr class="@(item.IsDead ? "vst-dead" : null)">
-                                <td>
-                                    @item.DisplayName
-                                    <span class="vst-sub">@item.ItemCode</span>
-                                    @if (item.IsDead)
-                                    {
-                                        <span class="vs-chip vs-chip-bad vst-inline-chip">never sold</span>
-                                    }
-                                </td>
-                                <td class="vs-num">@item.VanCount.ToString("N0")</td>
-                                <td class="vs-num">@item.DaysOnVan.ToString("N0")</td>
-                                <td class="vs-num">@item.DaysSold.ToString("N0")</td>
-                                <td class="vs-num">@item.DaysOnVanWithoutSelling.ToString("N0")</td>
-                                <td class="vs-num">@item.LoadedQuantity.ToString("N0")</td>
-                                <td class="vs-num">@item.SoldQuantity.ToString("N0")</td>
-                                <td class="vs-num @(item.SellThroughRate is null ? "vs-metric-none" : null)">
-                                    @Rate(item.SellThroughRate)
-                                </td>
-                                <td>
-                                    @if (item.LastSoldOn is { } last)
-                                    {
-                                        @last.ToString("dd MMM")
+                                        @($"All {pair.ItemCount:N0}")
                                     }
                                     else
                                     {
-                                        <span class="vs-metric-none">never</span>
+                                        @($"{pair.ItemsMatched:N0} of {pair.ItemCount:N0}")
                                     }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-        else if (activeSection == SectionExpiry)
-        {
-            <h3 class="vst-heading">Running out of time</h3>
-            <p class="vst-note">
-                Batches on the newest snapshot of each van, soonest first. Read from the latest
-                snapshot only, because this is a question about what is on the van now rather than
-                what was on it every morning of the period.
-            </p>
-            @if (report.Expiring.Count == 0)
-            {
-                <div class="vs-empty">
-                    <div class="vs-empty-title">Nothing close to expiry</div>
-                    <div>No batch on any van is within the reporting horizon.</div>
-                </div>
-            }
-            else
-            {
-                <div class="vs-table-wrap">
-                    <table class="vs-table">
-                        <thead>
-                            <tr>
-                                <th>Van</th>
-                                <th>Item</th>
-                                <th>Batch</th>
-                                <th>Expires</th>
-                                <th class="vs-num">Days left</th>
-                                <th class="vs-num">Quantity</th>
-                                <th>As at</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var batch in report.Expiring)
-                            {
-                                <tr class="@(batch.HasExpired ? "vst-expired" : null)">
-                                    <td>@batch.VanWarehouseCode</td>
-                                    <td>
-                                        @batch.DisplayName
-                                        <span class="vst-sub">@batch.ItemCode</span>
-                                    </td>
-                                    <td>@batch.BatchNumber</td>
-                                    <td>@batch.ExpiryDate.ToString("dd MMM yyyy")</td>
-                                    <td class="vs-num @(batch.HasExpired ? "vst-bad" : null)">
-                                        @(batch.HasExpired
-                                            ? $"{-batch.DaysToExpiry:N0} past"
-                                            : batch.DaysToExpiry.ToString("N0"))
-                                    </td>
-                                    <td class="vs-num">@batch.Quantity.ToString("N0")</td>
-                                    <td>@batch.SnapshotDate.ToString("dd MMM")</td>
-                                </tr>
+                                </div>
+                                <div class="vst-biggest">
+                                    @if (biggest is null)
+                                    {
+                                        <span class="vst-mute">Balanced</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@biggest.DisplayName</span>
+                                        <strong class="@(biggest.Variance < 0 ? "vst-bad" : "vst-info-ink")">@Signed(biggest.Variance)</strong>
+                                    }
+                                </div>
                             }
-                        </tbody>
-                    </table>
+                            <div class="vst-mute">
+                                @if (dayBefore is null)
+                                {
+                                    @("—")
+                                }
+                                else if (dayBefore.SoldItemCount == 0)
+                                {
+                                    @("nothing sold")
+                                }
+                                else
+                                {
+                                    @Plural(dayBefore.SoldItemCount, "item")
+                                }
+                            </div>
+                        </button>
+                    }
                 </div>
+
+                @if (opened is not null)
+                {
+                    var offCount = opened.ItemsShort + opened.ItemsOver;
+
+                    <section class="vst-opened @(opened.ItemsShort > 0 ? "vst-opened-short" : "vst-opened-over")">
+                        <div class="vst-panel-head">
+                            <div>
+                                <h3 class="vst-heading">@opened.ToSnapshot.ToString("ddd dd MMM") — @OffLabel(opened)</h3>
+                                <p class="vst-note">
+                                    Each item in its own stock unit.
+                                    @if (offCount > opened.TopVariances.Count)
+                                    {
+                                        @($"The {opened.TopVariances.Count} largest of {offCount} differences.")
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                        <table class="vst-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th class="vs-num">@opened.FromSnapshot.ToString("dd MMM") count</th>
+                                    <th class="vs-num">Sold</th>
+                                    <th class="vs-num">Transferred on</th>
+                                    <th class="vs-num">Should find</th>
+                                    <th class="vs-num">Found</th>
+                                    <th class="vs-num">Difference</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in opened.TopVariances)
+                                {
+                                    <tr>
+                                        <td>@line.DisplayName<span class="vst-sub">@line.ItemCode</span></td>
+                                        <td class="vs-num">@Qty(line.Opening)</td>
+                                        <td class="vs-num">@Qty(line.Sold)</td>
+                                        <td class="vs-num">@Qty(line.Adjustment)</td>
+                                        <td class="vs-num vst-accent-ink">@Qty(line.Expected)</td>
+                                        <td class="vs-num">@Qty(line.Actual)</td>
+                                        <td class="vs-num @(line.Variance < 0 ? "vst-bad" : "vst-info-ink")"><strong>@Signed(line.Variance)</strong></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </section>
+                }
             }
         }
     }
 </div>
 
 @code {
-    private const string SectionVariance = "variance";
-    private const string SectionDays = "days";
-    private const string SectionItems = "items";
-    private const string SectionExpiry = "expiry";
-
-    private sealed record Section(string Key, string Label, Func<VanStockReportResponse, string> Count);
-
-    private static readonly Section[] Sections =
-    [
-        new(SectionVariance, "Reconciliation", r => r.Variances.Count.ToString("N0")),
-        new(SectionDays, "Load & sell-through", r => r.Days.Count.ToString("N0")),
-        new(SectionItems, "What is worth carrying", r => r.Items.Count.ToString("N0")),
-        new(SectionExpiry, "Expiry", r => r.Expiring.Count.ToString("N0"))
-    ];
+    private const int IdlePreview = 8;
 
     private VanStockReportResponse? report;
+    private List<VanView> vanViews = [];
 
     private DateTime? fromDate;
     private DateTime? toDate;
     private string selectedDeadStockDays = "14";
-    private string activeSection = SectionVariance;
+
+    private string? selectedVan;
+    private DateTime? openedMorning;
+    private bool showAllIdle;
 
     private bool isLoading;
     private string? loadError;
 
     private static IEnumerable<INocturneSelectOption<string>> DeadStockOptions =>
     [
-        new NocturneSelectOption<string>("7", "7 days"),
-        new NocturneSelectOption<string>("14", "14 days"),
-        new NocturneSelectOption<string>("21", "21 days"),
-        new NocturneSelectOption<string>("30", "30 days")
+        new NocturneSelectOption<string>("7", "7 days without a sale"),
+        new NocturneSelectOption<string>("14", "14 days without a sale"),
+        new NocturneSelectOption<string>("21", "21 days without a sale"),
+        new NocturneSelectOption<string>("30", "30 days without a sale")
     ];
+
+    /// <summary>One square of a van's strip: the morning it describes and how it came out.</summary>
+    private sealed record Morning(string Kind, string Tip);
+
+    /// <summary>A van as the page talks about it: its mornings, their verdict, and what to do next.</summary>
+    private sealed record VanView(
+        string Code,
+        VanStockVan? Stats,
+        List<VanStockVariance> Pairs,
+        List<Morning> Strip,
+        int Comparable,
+        int Balanced,
+        VanStockVariance? Worst,
+        string Status,
+        string Tone,
+        string Action);
 
     protected override async Task OnInitializedAsync()
     {
@@ -489,6 +716,12 @@
             if (report is null)
             {
                 loadError = "The stock report could not be loaded. Check that the API is reachable.";
+                vanViews = [];
+            }
+            else
+            {
+                vanViews = BuildVanViews(report);
+                openedMorning = null;
             }
         }
         catch (Exception ex)
@@ -501,6 +734,25 @@
             StateHasChanged();
         }
     }
+
+    private void OpenVan(string code)
+    {
+        selectedVan = code;
+        openedMorning = null;
+    }
+
+    private void CloseVan()
+    {
+        selectedVan = null;
+        openedMorning = null;
+    }
+
+    /// <summary>The morning whose items are listed: the one clicked, else the worst.</summary>
+    private VanStockVariance? OpenedMorning(VanView van) =>
+        (openedMorning is { } date
+            ? van.Pairs.FirstOrDefault(p => p.ToSnapshot == date && !p.HasGap && !p.Balanced)
+            : null)
+        ?? (van.Worst is { Balanced: false } worst ? worst : null);
 
     private async Task ExportAsync()
     {
@@ -522,20 +774,138 @@
         }
     }
 
-    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+    // ── The verdicts ────────────────────────────────────────────────────────────
 
-    private static string Quantity(decimal? quantity) =>
-        quantity is { } value ? value.ToString("N0") : "—";
-
-    /// <summary>
-    /// Short is the finding; over is odd but rarely urgent. Neither is coloured across a gap, where
-    /// there is no variance to have an opinion about.
-    /// </summary>
-    private static string? VarianceTone(decimal? variance) => variance switch
+    private static List<VanView> BuildVanViews(VanStockReportResponse report)
     {
-        null => "vs-metric-none",
-        < 0 => "vst-bad",
-        > 0 => "vst-over",
-        _ => null
+        // Every van the API knows of, plus any that only appear in the variances (an older API sends
+        // no per-van list).
+        var codes = report.Vans.Select(v => v.VanWarehouseCode)
+            .Concat(report.Variances.Select(v => v.VanWarehouseCode))
+            .Concat(report.Days.Select(d => d.VanWarehouseCode))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase);
+
+        return codes
+            .Select(code => BuildVanView(
+                code,
+                report.Vans.FirstOrDefault(v => string.Equals(v.VanWarehouseCode, code, StringComparison.OrdinalIgnoreCase)),
+                report.Variances
+                    .Where(v => string.Equals(v.VanWarehouseCode, code, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(v => v.ToSnapshot)
+                    .ToList()))
+            // The vans that need a person first, then the rest alphabetically.
+            .OrderBy(view => view.Tone switch { "bad" => 0, "warn" => 1, _ => 2 })
+            .ThenBy(view => view.Code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static VanView BuildVanView(string code, VanStockVan? stats, List<VanStockVariance> pairs)
+    {
+        var comparable = pairs.Where(p => !p.HasGap).ToList();
+        var balanced = comparable.Count(p => p.Balanced);
+        var missing = comparable.Where(p => p.ItemsShort > 0).ToList();
+        var foundOnly = comparable.Where(p => p.ItemsShort == 0 && p.ItemsOver > 0).ToList();
+
+        var worst = comparable
+            .OrderByDescending(p => p.ItemsShort)
+            .ThenByDescending(p => p.ItemsOver)
+            .FirstOrDefault();
+
+        var strip = new List<Morning>();
+        foreach (var pair in pairs)
+        {
+            // A gap covers the uncounted days between two counts, one square each.
+            for (var day = 1; pair.HasGap && day < pair.GapDays; day++)
+            {
+                strip.Add(new Morning("gap", $"{pair.FromSnapshot.AddDays(day):ddd dd MMM}: not counted"));
+            }
+
+            var kind = pair.HasGap ? "gap" : pair.ItemsShort > 0 ? "short" : pair.ItemsOver > 0 ? "over" : "ok";
+            var tip = pair.HasGap
+                ? $"{pair.ToSnapshot:ddd dd MMM}: counted, but the morning before was not"
+                : pair.Balanced
+                    ? $"{pair.ToSnapshot:ddd dd MMM}: balanced"
+                    : $"{pair.ToSnapshot:ddd dd MMM}: {OffLabel(pair)}";
+            strip.Add(new Morning(kind, tip));
+        }
+
+        string status, tone, action;
+        var worstDate = worst?.ToSnapshot.ToString("ddd dd MMM");
+
+        if (stats is { DaysCounted: 0 } || (stats is null && pairs.Count == 0))
+        {
+            (status, tone, action) = ("Not counted", "warn",
+                "No morning stock count was taken for this van in the period. Check it is on the count list.");
+        }
+        else if (comparable.Count == 0)
+        {
+            (status, tone, action) = ("Can't compare", "warn",
+                "No two consecutive mornings were counted, so nothing can be reconciled.");
+        }
+        else if (balanced == comparable.Count)
+        {
+            (status, tone, action) = stats is { DaysWithSales: 0 }
+                ? ("Balances · no sales", "warn",
+                    "The load never changed and no sale was booked. Either the van was parked or its sales are not posting.")
+                : ("Balances", "good",
+                    "Every morning matched what sales and transfers explain.");
+        }
+        else if (comparable.Count - balanced == 1)
+        {
+            (status, tone, action) = foundOnly.Count == 1
+                ? ("One odd morning", "warn",
+                    $"Stock arrived on {worstDate} with no transfer recorded. Find the transfer or record it.")
+                : ("One odd morning", "warn",
+                    $"{Plural(worst!.ItemsShort, "item")} came up short on {worstDate}. Check that day's sales and transfers.");
+        }
+        else if ((missing.Count > 0 && foundOnly.Count > 0) || missing.Any(p => p.ItemsOver > 0))
+        {
+            (status, tone, action) = ("Doesn't balance", "bad",
+                $"Items appear and vanish on different mornings — stock is moving on and off the van without a transfer. Start with {worstDate}.");
+        }
+        else if (missing.Count > 0)
+        {
+            (status, tone, action) = ("Losing stock", "bad",
+                $"Short on {Plural(missing.Count, "morning")} and never over — a steady loss rather than a paperwork gap. Count the van.");
+        }
+        else
+        {
+            (status, tone, action) = ("Unrecorded arrivals", "warn",
+                $"Stock turned up on {Plural(foundOnly.Count, "morning")} with no transfer recorded. Find the transfers or record them.");
+        }
+
+        return new VanView(code, stats, pairs, strip, comparable.Count, balanced, worst, status, tone, action);
+    }
+
+    // ── Formatting ──────────────────────────────────────────────────────────────
+
+    private static string OffLabel(VanStockVariance pair) => (pair.ItemsShort, pair.ItemsOver) switch
+    {
+        (> 0, > 0) => $"{Plural(pair.ItemsShort, "item")} missing, {pair.ItemsOver:N0} found",
+        (> 0, _) => $"{Plural(pair.ItemsShort, "item")} missing",
+        (_, > 0) => $"{Plural(pair.ItemsOver, "item")} found",
+        _ => "balanced"
     };
+
+    private static string FreshnessLabel(DateTime latest, int? ageDays) => ageDays switch
+    {
+        0 => $"this morning, {latest:ddd dd MMM}",
+        1 => $"yesterday, {latest:ddd dd MMM}",
+        _ => latest.ToString("ddd dd MMM")
+    };
+
+    private static string BarWidth(int count, int scale) =>
+        (count * 100.0 / scale).ToString("0.#", CultureInfo.InvariantCulture) + "%";
+
+    private static string Signed(decimal value) =>
+        value > 0 ? $"+{value:#,##0.##}" : $"−{-value:#,##0.##}";
+
+    /// <summary>A quantity in the item's own unit: whole where it is whole, kilograms keep their decimals.</summary>
+    private static string Qty(decimal value) => value.ToString("#,##0.##");
+
+    private static string Plural(int count, string one, string? many = null) =>
+        $"{count:N0} {(count == 1 ? one : many ?? one + "s")}";
+
+    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
 }

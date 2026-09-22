@@ -3686,6 +3686,14 @@ van sales path maintains the snapshot's running quantity. Reconciliation is morn
 only computed across **consecutive** snapshots — a missing day is reported as a break rather than
 bridged, so a gap reads as a gap instead of as a large one-day variance.
 
+Judge a morning by its **item counts**, not its quantity totals. `openingQuantity`, `closingQuantity`
+and the other quantity sums on a variance add cases, kilograms and singles together and are in no
+unit. Each variance carries `itemCount` (items on the van either morning) beside `itemsShort` and
+`itemsOver`, and each of its `topVariances` (the ten largest) carries `opening`, `sold` and
+`adjustment` so its `expected` can be shown as arithmetic in that item's own unit. `vans` has one row
+per van — including a van with no snapshot in the period — with `daysCounted`, `daysWithSales`,
+`itemDays`, `soldItemDays` and `deadItemCount`, all counts.
+
 ##### GET `/api/van-sales/routes`
 
 | Parameter | Default | Notes |

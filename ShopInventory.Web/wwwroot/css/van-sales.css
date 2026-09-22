@@ -2434,8 +2434,7 @@
    number on the page describes an older morning with nothing else to say so.
    ========================================================================== */
 
-.vs .vrp-kpis,
-.vs .vst-kpis {
+.vs .vrp-kpis {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 1px;
@@ -2446,8 +2445,7 @@
     overflow: hidden;
 }
 
-.vs .vrp-kpi,
-.vs .vst-kpi {
+.vs .vrp-kpi {
     background: var(--vs-surface);
     padding: 0.85rem 1rem 0.95rem;
     display: flex;
@@ -2456,13 +2454,11 @@
     min-width: 0;
 }
 
-.vs .vrp-kpi-warn,
-.vs .vst-kpi-warn {
+.vs .vrp-kpi-warn {
     box-shadow: inset 3px 0 0 var(--vs-warn);
 }
 
-.vs .vrp-kpi-value,
-.vs .vst-kpi-value {
+.vs .vrp-kpi-value {
     font-size: 1.3rem;
     font-weight: 500;
     line-height: 1.15;
@@ -2471,16 +2467,14 @@
     overflow-wrap: anywhere;
 }
 
-.vs .vrp-kpi-label,
-.vs .vst-kpi-label {
+.vs .vrp-kpi-label {
     font-size: 0.75rem;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--vs-mute-2);
 }
 
-.vs .vrp-kpi-sub,
-.vs .vst-kpi-sub {
+.vs .vrp-kpi-sub {
     font-size: 0.78rem;
     color: var(--vs-mute-3);
     overflow-wrap: anywhere;
@@ -2539,29 +2533,6 @@
     color: var(--vs-ink-2);
 }
 
-.vs .vst-sections {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    margin: 1.25rem 0 0.85rem;
-}
-
-.vs .vst-sections .vs-chip {
-    cursor: pointer;
-    border: 0;
-    font: inherit;
-    font-size: 0.82rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-}
-
-.vs .vst-section-count {
-    font-size: 0.72rem;
-    color: var(--vs-mute-3);
-    font-variant-numeric: tabular-nums;
-}
-
 .vs .vrp-heading,
 .vs .vst-heading {
     font-size: 0.95rem;
@@ -2591,28 +2562,20 @@
     color: var(--vs-bad);
 }
 
-.vs .vst-over {
-    color: var(--vs-warn);
-}
-
 .vs .vrp-failed td,
-.vs .vst-dead td,
 .vs .vst-expired td {
     background: rgba(var(--vs-bad-rgb), 0.05);
 }
 
-.vs .vrp-quiet td,
-.vs .vst-gap td {
+.vs .vrp-quiet td {
     color: var(--vs-mute-3);
 }
 
-.vs .vrp-quiet td:first-child,
-.vs .vst-gap td:first-child {
+.vs .vrp-quiet td:first-child {
     color: var(--vs-ink-2);
 }
 
-.vs .vrp-inline-chip,
-.vs .vst-inline-chip {
+.vs .vrp-inline-chip {
     margin-left: 0.4rem;
     font-size: 0.68rem;
     vertical-align: middle;
@@ -2635,16 +2598,641 @@
 }
 
 @media (max-width: 1240px) {
-    .vs .vrp-kpis,
-    .vs .vst-kpis {
+    .vs .vrp-kpis {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 720px) {
-    .vs .vrp-kpis,
-    .vs .vst-kpis {
+    .vs .vrp-kpis {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* ==========================================================================
+   `vst-` — /van-sales/reports/stock, "is every van's stock accounted for?"
+
+   Van stock redesign (claude.ai design canvas, 2026-09-21). The page is four
+   answers written as sentences, a row per van with one square per morning, and
+   a van opened into its mornings and the items that were off.
+
+   The two directions of a difference take two hues on purpose. Items missing
+   (bad) is stock that left without a sale; items found (info) is stock that
+   arrived without a transfer — a paperwork gap far more often than a fault, so
+   it is marked but not alarmed. Balanced is a quiet good, and an uncounted
+   morning is only an outline: there is nothing to have an opinion about.
+   ========================================================================== */
+
+.vs .vst-question {
+    max-width: 62ch;
+}
+
+.vs .vst-fresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.8rem;
+    border-radius: 999px;
+    background: rgba(var(--vs-good-rgb), 0.12);
+    color: var(--vs-good);
+    font-size: 0.82rem;
+    white-space: nowrap;
+}
+
+.vs .vst-fresh-stale {
+    background: rgba(var(--vs-bad-rgb), 0.12);
+    color: var(--vs-bad);
+}
+
+.vs .vst-fresh-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.vs .vst-mute { color: var(--vs-mute-3); }
+.vs .vst-small { font-size: 0.78rem; }
+.vs .vst-info-ink { color: var(--vs-info); }
+.vs .vst-warn-ink { color: var(--vs-warn); font-weight: 500; }
+.vs .vst-accent-ink { color: var(--vs-accent-text); }
+
+.vs .vst-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+/* — The four answers — */
+
+.vs .vst-answers {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1.25rem 0;
+}
+
+.vs .vst-answer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 1.1rem 1.2rem 1.2rem;
+    border-radius: 12px;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    min-width: 0;
+}
+
+.vs .vst-answer-kicker {
+    font-size: 0.74rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-2);
+}
+
+.vs .vst-answer-value {
+    font-size: 1.45rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.vs .vst-answer-text {
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: var(--vs-mute);
+}
+
+.vs .vst-answer-bad { border-color: rgba(var(--vs-bad-rgb), 0.4); }
+.vs .vst-answer-bad .vst-answer-kicker { color: var(--vs-bad); }
+.vs .vst-answer-warn { border-color: rgba(var(--vs-warn-rgb), 0.4); }
+.vs .vst-answer-warn .vst-answer-kicker { color: var(--vs-warn); }
+.vs .vst-answer-good .vst-answer-kicker { color: var(--vs-good); }
+
+/* — Section heads and the legend — */
+
+.vs .vst-section-head,
+.vs .vst-panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.vs .vst-section-head .vst-note { margin-bottom: 0.75rem; }
+
+.vs .vst-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    margin-bottom: 0.85rem;
+    font-size: 0.8rem;
+    color: var(--vs-mute);
+}
+
+.vs .vst-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* One morning. The legend reuses the same square. */
+.vs .vst-sq {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 3px;
+    box-sizing: border-box;
+}
+
+.vs .vst-strip .vst-sq {
+    width: 14px;
+    height: 24px;
+    flex: 0 0 auto;
+}
+
+.vs .vst-sq-ok { background: rgba(var(--vs-good-rgb), 0.55); }
+.vs .vst-sq-short { background: var(--vs-bad); }
+.vs .vst-sq-over { background: var(--vs-info); }
+.vs .vst-sq-gap { border: 1px dashed var(--vs-faint); }
+
+.vs .vst-pill {
+    align-self: flex-start;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.vs .vst-pill-bad { background: rgba(var(--vs-bad-rgb), 0.14); color: var(--vs-bad); }
+.vs .vst-pill-warn { background: rgba(var(--vs-warn-rgb), 0.14); color: var(--vs-warn); }
+.vs .vst-pill-good { background: rgba(var(--vs-good-rgb), 0.14); color: var(--vs-good); }
+
+/* — Van by van — */
+
+.vs .vst-vans,
+.vs .vst-ledger {
+    --vst-cols: 9rem minmax(12rem, 16rem) 6rem 9.5rem 6.5rem 5.5rem minmax(0, 1fr) 1.25rem;
+    border-radius: 12px;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    overflow: hidden;
+}
+
+.vs .vst-ledger {
+    --vst-cols: 7.5rem minmax(14rem, 20rem) 7.5rem minmax(0, 1fr) 8rem;
+}
+
+.vs .vst-vans-head,
+.vs .vst-ledger-head {
+    display: grid;
+    grid-template-columns: var(--vst-cols);
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+    border-bottom: 1px solid var(--vs-divider);
+}
+
+.vs .vst-van,
+.vs .vst-morning {
+    display: grid;
+    grid-template-columns: var(--vst-cols);
+    gap: 1rem;
+    align-items: center;
+    width: 100%;
+    min-height: 3.25rem;
+    padding: 0.75rem 1.25rem;
+    border: 0;
+    border-bottom: 1px solid var(--vs-rule);
+    background: transparent;
+    color: var(--vs-ink);
+    font: inherit;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+    text-align: left;
+    cursor: pointer;
+}
+
+.vs .vst-van { min-height: 4.75rem; }
+
+.vs .vst-van:hover,
+.vs .vst-morning:hover:not(:disabled) {
+    background: var(--vs-hover);
+}
+
+.vs .vst-van:focus-visible,
+.vs .vst-morning:focus-visible,
+.vs .vst-back:focus-visible,
+.vs .vst-link:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: -2px;
+}
+
+.vs .vst-van-id {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.vs .vst-van-code {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.vs .vst-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+
+.vs .vst-action {
+    font-size: 0.86rem;
+    line-height: 1.45;
+    color: var(--vs-mute);
+}
+
+.vs .vst-chev { color: var(--vs-mute-3); }
+
+.vs .vst-vans-foot {
+    padding: 0.8rem 1.25rem 0.9rem;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--vs-mute-3);
+}
+
+/* — Idle items and expiry — */
+
+.vs .vst-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.vs .vst-panel,
+.vs .vst-opened {
+    padding: 1.1rem 1.25rem 1.25rem;
+    border-radius: 12px;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    min-width: 0;
+}
+
+.vs .vst-panel .vst-heading,
+.vs .vst-opened .vst-heading {
+    margin-top: 0;
+}
+
+.vs .vst-link {
+    border: 0;
+    background: none;
+    padding: 0.4rem 0;
+    color: var(--vs-accent-text);
+    font: inherit;
+    font-size: 0.84rem;
+    cursor: pointer;
+}
+
+.vs .vst-quiet {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 1.5rem 1rem;
+    border: 1px dashed var(--vs-divider);
+    border-radius: 10px;
+    text-align: center;
+    font-size: 0.86rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vst-quiet strong {
+    color: var(--vs-ink);
+    font-weight: 500;
+}
+
+.vs .vst-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vst-table th {
+    padding: 0 0.6rem 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+    border-bottom: 1px solid var(--vs-divider);
+    text-align: left;
+    background: transparent;
+}
+
+.vs .vst-table td {
+    padding: 0.55rem 0.6rem;
+    border-bottom: 1px solid var(--vs-rule);
+    color: var(--vs-ink);
+    background: transparent;
+    vertical-align: top;
+}
+
+.vs .vst-table th:first-child,
+.vs .vst-table td:first-child { padding-left: 0; }
+
+.vs .vst-table th.vs-num,
+.vs .vst-table td.vs-num { text-align: right; }
+
+.vs .vst-table tr:last-child td { border-bottom: 0; }
+
+/* The table's cell ink is two classes and an element deep, so a tone has to match it to win. */
+.vs .vst-table td.vst-bad { color: var(--vs-bad); }
+.vs .vst-table td.vst-info-ink { color: var(--vs-info); }
+.vs .vst-table td.vst-accent-ink { color: var(--vs-accent-text); }
+
+/* — One van — */
+
+.vs .vst-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 2.75rem;
+    margin-top: 1rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--vs-accent-text);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.vs .vst-verdict {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin: 0.5rem 0 1.25rem;
+}
+
+.vs .vst-verdict-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.vs .vst-verdict-title h3 {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+}
+
+.vs .vst-verdict-title .vst-pill { align-self: center; }
+
+.vs .vst-verdict-text {
+    margin: 0;
+    max-width: 75ch;
+    font-size: 1.02rem;
+    line-height: 1.55;
+    color: var(--vs-ink-2);
+}
+
+.vs .vst-rule {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    padding: 0.8rem 1.1rem;
+    border-radius: 10px;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    font-size: 0.88rem;
+    color: var(--vs-mute);
+}
+
+.vs .vst-rule-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+    margin-right: 0.25rem;
+}
+
+.vs .vst-rule-term {
+    padding: 0.3rem 0.65rem;
+    border-radius: 6px;
+    background: var(--vs-field-bg);
+    color: var(--vs-ink-2);
+}
+
+.vs .vst-rule-result {
+    background: rgba(var(--vs-accent-rgb), 0.16);
+    color: var(--vs-accent-text);
+}
+
+.vs .vst-figures {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1.25rem 0 0.5rem;
+}
+
+.vs .vst-figure {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 1rem 1.15rem;
+    border-radius: 12px;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    min-width: 0;
+}
+
+.vs .vst-figure-label {
+    font-size: 0.82rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vst-figure-value {
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.vs .vst-figure-value .vst-mute { font-size: 1rem; }
+
+.vs .vst-figure-sub {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+}
+
+/* The ledger: one row per morning, missing to the left of the axis, found to the right. */
+
+.vs .vst-split-head {
+    display: flex;
+    justify-content: space-between;
+}
+
+.vs .vst-morning:disabled {
+    cursor: default;
+    opacity: 1;
+}
+
+.vs .vst-morning-ok { color: var(--vs-mute-2); }
+
+.vs .vst-morning-open {
+    background: rgba(var(--vs-bad-rgb), 0.08);
+    box-shadow: inset 3px 0 0 var(--vs-bad);
+}
+
+.vs .vst-morning-date { font-weight: 500; }
+
+.vs .vst-morning-span {
+    grid-column: 2 / span 3;
+    color: var(--vs-mute-3);
+    font-size: 0.84rem;
+}
+
+.vs .vst-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    height: 1.5rem;
+}
+
+.vs .vst-split-l,
+.vs .vst-split-r {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 100%;
+    min-width: 0;
+}
+
+.vs .vst-split-l {
+    justify-content: flex-end;
+    padding-right: 0.35rem;
+    border-right: 1px solid var(--vs-divider);
+}
+
+.vs .vst-split-r { padding-left: 0.35rem; }
+
+.vs .vst-split-n {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+}
+
+/* The bar shares its half with the count beside it, so it is capped short of the whole half. */
+.vs .vst-bar {
+    display: block;
+    height: 0.8rem;
+    max-width: calc(100% - 2rem);
+    min-width: 3px;
+}
+
+.vs .vst-bar-short {
+    background: var(--vs-bad);
+    border-radius: 3px 0 0 3px;
+}
+
+.vs .vst-bar-over {
+    background: var(--vs-info);
+    border-radius: 0 3px 3px 0;
+}
+
+.vs .vst-biggest {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.vs .vst-biggest span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vs .vst-opened { margin-top: 1rem; }
+.vs .vst-opened-short { border-color: rgba(var(--vs-bad-rgb), 0.4); }
+.vs .vst-opened-over { border-color: rgba(var(--vs-info-rgb), 0.4); }
+
+@media (max-width: 1240px) {
+    .vs .vst-answers,
+    .vs .vst-figures {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vs .vst-vans {
+        --vst-cols: 8rem minmax(10rem, 1fr) 5rem 8.5rem 1.25rem;
+    }
+
+    /* Selling, idle and the action move to the van's own page on a narrow screen. */
+    .vs .vst-vans-head > :nth-child(5),
+    .vs .vst-vans-head > :nth-child(6),
+    .vs .vst-vans-head > :nth-child(7),
+    .vs .vst-van > :nth-child(5),
+    .vs .vst-van > :nth-child(6),
+    .vs .vst-van > :nth-child(7) {
+        display: none;
+    }
+
+    .vs .vst-pair { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 720px) {
+    .vs .vst-answers,
+    .vs .vst-figures {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .vs .vst-vans {
+        --vst-cols: minmax(0, 1fr) 1.25rem;
+    }
+
+    .vs .vst-vans-head { display: none; }
+
+    .vs .vst-van > :nth-child(3),
+    .vs .vst-van > :nth-child(4) {
+        display: none;
+    }
+
+    .vs .vst-van-id { grid-column: 1; }
+    .vs .vst-strip { grid-column: 1; grid-row: 2; }
+    .vs .vst-chev { grid-column: 2; grid-row: 1 / span 2; }
+
+    .vs .vst-ledger { overflow-x: auto; }
+
+    .vs .vst-ledger-head,
+    .vs .vst-morning { min-width: 44rem; }
+
+    .vs .vst-opened,
+    .vs .vst-panel { overflow-x: auto; }
+
+    /* The shared head keeps its title and actions on one line; here the actions carry a pill
+       as well, so they go underneath rather than off the right edge. */
+    .vs.vst .vs-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .vs.vst .vs-head .vs-actions {
+        flex-wrap: wrap;
+        justify-content: flex-start;
     }
 }
 

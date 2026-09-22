@@ -38,8 +38,29 @@ public sealed record VanStockReportResult(
     List<VanStockVarianceResult> Variances,
     List<VanStockItemResult> Items,
     List<VanStockExpiryResult> Expiring,
-    VanStockQualityResult Quality
+    VanStockQualityResult Quality,
+    List<VanStockVanResult>? Vans = null
 );
+
+// ── Per van ─────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// One van across the period, in counts of items rather than quantities: a van carries cases,
+/// kilograms and singles, and a sum across them is a figure in no unit.
+/// </summary>
+/// <param name="DaysCounted">Mornings with a snapshot.</param>
+/// <param name="DaysWithSales">Of those, mornings whose trading day recorded at least one sale.</param>
+/// <param name="ItemDays">Item-mornings carried — each item counted once per morning it was on the van.</param>
+/// <param name="SoldItemDays">Of those, item-mornings on which the item sold.</param>
+/// <param name="DeadItemCount">Items carried the dead-stock threshold or longer on this van and never sold from it.</param>
+public sealed record VanStockVanResult(
+    string VanWarehouseCode,
+    int DaysCounted,
+    int DaysWithSales,
+    int ItemCount,
+    int ItemDays,
+    int SoldItemDays,
+    int DeadItemCount);
 
 // ── Summary ─────────────────────────────────────────────────────────────────────
 
@@ -122,7 +143,8 @@ public sealed record VanStockVarianceResult(
     decimal ClosingQuantity,
     int ItemsShort,
     int ItemsOver,
-    List<VanStockItemVarianceResult> TopVariances)
+    List<VanStockItemVarianceResult> TopVariances,
+    int ItemCount = 0)
 {
     /// <summary>What the second morning should have found, from the first morning's arithmetic.</summary>
     public decimal? ExpectedQuantity =>
@@ -145,7 +167,10 @@ public sealed record VanStockItemVarianceResult(
     string ItemCode,
     string? ItemDescription,
     decimal Expected,
-    decimal Actual)
+    decimal Actual,
+    decimal Opening = 0m,
+    decimal Sold = 0m,
+    decimal Adjustment = 0m)
 {
     public decimal Variance => decimal.Round(Actual - Expected, 3);
 
