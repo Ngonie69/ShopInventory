@@ -1826,7 +1826,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.ToTable("Routes");
       entity.HasKey(e => e.Id);
 
-      entity.HasIndex(e => e.Code).IsUnique();
+      // A deleted route keeps its row but gives up its code, so the office can reuse it.
+      entity.HasIndex(e => e.Code).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
       entity.HasIndex(e => e.IsActive);
       entity.HasIndex(e => e.SeedKey).IsUnique();
 

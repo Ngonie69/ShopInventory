@@ -17,7 +17,7 @@ namespace ShopInventory.Models.Entities;
 /// reader and three to a GROUP BY, and a compliance report that splits a route into three is worse than
 /// no report. A van points at a route; the route says these things once.
 /// </summary>
-[Index(nameof(Code), IsUnique = true)]
+[Index(nameof(Code), IsUnique = true)] // live routes only — filtered in ApplicationDbContext
 [Index(nameof(SeedKey), IsUnique = true)]
 public class RouteEntity
 {
@@ -85,6 +85,18 @@ public class RouteEntity
     public byte? TemperatureProbeChannel { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// When the route was deleted from the routes page, or null on a live one.
+    /// </summary>
+    /// <remarks>
+    /// A delete keeps the row. Trading days that already happened point at it, and a seeded route
+    /// whose row disappeared would be put straight back by the seeder on the next start — it matches
+    /// on <see cref="SeedKey"/>. A deleted route is left out of every list and refuses every write,
+    /// and its code is free for a new route: the unique index on <see cref="Code"/> covers live
+    /// routes only.
+    /// </remarks>
+    public DateTime? DeletedAt { get; set; }
 
     /// <summary>
     /// Which route of the published schedule this is, or null on one somebody created themselves.

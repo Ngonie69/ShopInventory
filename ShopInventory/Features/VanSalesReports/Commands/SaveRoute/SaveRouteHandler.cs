@@ -60,7 +60,9 @@ public sealed class SaveRouteHandler(
         var clash = await db.Routes
             .AsNoTracking()
             .AnyAsync(
-                route => route.Code == code && (command.Id == null || route.Id != command.Id.Value),
+                route => route.Code == code
+                    && route.DeletedAt == null
+                    && (command.Id == null || route.Id != command.Id.Value),
                 cancellationToken);
 
         if (clash)
@@ -72,7 +74,9 @@ public sealed class SaveRouteHandler(
 
         if (command.Id is { } id)
         {
-            var existing = await db.Routes.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+            var existing = await db.Routes.FirstOrDefaultAsync(
+                r => r.Id == id && r.DeletedAt == null,
+                cancellationToken);
 
             if (existing is null)
             {

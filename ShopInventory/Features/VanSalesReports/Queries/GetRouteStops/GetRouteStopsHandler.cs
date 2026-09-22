@@ -16,6 +16,7 @@ public sealed class GetRouteStopsHandler(
         var queryable = db.RouteStops
             .AsNoTracking()
             .Include(stop => stop.Route)
+            .Where(stop => stop.Route!.DeletedAt == null)
             .AsQueryable();
 
         if (query.RouteId is { } routeId)

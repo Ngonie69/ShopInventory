@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
+using ShopInventory.Features.VanSalesReports.Commands.DeleteRoute;
 using ShopInventory.Features.VanSalesReports.Commands.DeleteRouteStop;
 using ShopInventory.Features.VanSalesReports.Commands.ReorderRouteStops;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
@@ -447,6 +448,30 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
         CancellationToken cancellationToken)
     {
         return await SaveAsync(id, request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes a route. The row is kept, out of every list, so its trading days stay linked and the
+    /// seeder does not put it back; its code is free for reuse. Refused while vans are on it.
+    /// </summary>
+    /// <param name="id">The route to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpDelete("routes/{id:int}")]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteRoute(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new DeleteRouteCommand(id, UserClaimReader.GetUserId(User)),
+            cancellationToken);
+
+        return result.Match<IActionResult>(
+            _ => NoContent(),
+            errors => Problem(errors));
     }
 
     /// <summary>

@@ -17,10 +17,12 @@
    says these things once, so a report can group by them without free text
    fragmenting "Guruve" into three routes.
 
-   There is no delete. A route names trading days that have already happened, and
-   those days keep a snapshot of its code and name so a rename cannot rewrite
-   history — but removing the row would still orphan the live assignments. Retire
-   it instead, which the server refuses while vans are still on it.
+   Two ways to take a route out of service. Retiring keeps it on the page, marked
+   Retired, and it can be switched back on. Deleting takes it off the page for
+   good; the server keeps the row (DeletedAt) so its trading days stay linked and
+   the seeder does not put a seeded route back on the next start. Both are refused
+   while vans are still on the route, so the form says so instead of offering a
+   Delete that can only fail.
 
    Each row opens its own schedule in place — the areas it works, and when. A town
    truck keeps a weekday and no cycle week; an upcountry route keeps a cycle week
@@ -323,6 +325,47 @@
                                                     <input type="checkbox" @bind="editing!.IsActive" />
                                                     Active — retiring a route keeps it on its historical days but stops it taking new ones.
                                                 </label>
+
+                                                <div class="vsr-delete">
+                                                    @if (deleteError is not null)
+                                                    {
+                                                        <div class="vs-notice">@deleteError</div>
+                                                    }
+
+                                                    @if (editing!.AssignedUserCount > 0)
+                                                    {
+                                                        <p class="vsr-delete-note">
+                                                            @editing.AssignedUserCount @(editing.AssignedUserCount == 1 ? "van is" : "vans are") still on this route.
+                                                            Move @(editing.AssignedUserCount == 1 ? "it" : "them") to another route from the user account before deleting it.
+                                                        </p>
+                                                    }
+                                                    else if (confirmingDelete)
+                                                    {
+                                                        <p class="vsr-delete-note">
+                                                            Delete <b>@current.Name</b> (@current.Code)? It leaves this page@(StopCount(current) switch
+                                                            {
+                                                                0 => ".",
+                                                                1 => ", and its 1 stop goes with it.",
+                                                                var n => $", and its {n} stops go with it."
+                                                            })
+                                                            Days it has already run keep their record.
+                                                        </p>
+                                                        <div class="vs-actions">
+                                                            <button class="vs-btn vs-btn-danger" @onclick="() => DeleteAsync(current)" disabled="@isSaving">
+                                                                <i class="ph ph-trash" aria-hidden="true"></i>
+                                                                @(isSaving ? "Deleting…" : "Delete route")
+                                                            </button>
+                                                            <button class="vs-btn" @onclick="() => confirmingDelete = false" disabled="@isSaving">Keep it</button>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="vs-btn vsr-delete-open" @onclick="AskToDelete" disabled="@isSaving">
+                                                            <i class="ph ph-trash" aria-hidden="true"></i>
+                                                            Delete route
+                                                        </button>
+                                                    }
+                                                </div>
                                             </div>
                                         }
 
@@ -495,6 +538,17 @@
     private bool isLoading;
     private bool isSaving;
     private string? error;
+
+    // --- Deleting the route being edited ---
+
+    /// <summary>The second step of Delete. Reset whenever the form opens on a route or closes.</summary>
+    private bool confirmingDelete;
+
+    /// <summary>
+    /// The server's refusal, shown inside the form. The page-level notice sits above the list, out of
+    /// sight of a form opened on a row further down.
+    /// </summary>
+    private string? deleteError;
 
     // --- The list ---
 
@@ -945,6 +999,8 @@
     private void StartEdit(RouteDto route)
     {
         error = null;
+        confirmingDelete = false;
+        deleteError = null;
         editing = new RouteDto
         {
             Id = route.Id,
@@ -973,6 +1029,43 @@
     {
         editing = null;
         error = null;
+        confirmingDelete = false;
+        deleteError = null;
+    }
+
+    private void AskToDelete()
+    {
+        confirmingDelete = true;
+        deleteError = null;
+    }
+
+    private async Task DeleteAsync(RouteDto route)
+    {
+        isSaving = true;
+        deleteError = null;
+        StateHasChanged();
+
+        try
+        {
+            var failure = await VanSalesReportService.DeleteRouteAsync(route.Id);
+
+            if (failure is not null)
+            {
+                deleteError = failure;
+                return;
+            }
+
+            editing = null;
+            confirmingDelete = false;
+            scheduleRoute = null;
+            stopDraft = new RouteStopDto();
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
     }
 
     private async Task SaveAsync()
