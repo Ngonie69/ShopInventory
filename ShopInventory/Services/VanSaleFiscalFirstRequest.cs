@@ -14,6 +14,12 @@ namespace ShopInventory.Services;
 /// that was fiscalised before this path existed, for one. The device is then asked for an existing receipt
 /// before anything is sent, because a duplicate cannot be withdrawn.
 /// </param>
+/// <param name="PostToSapNow">
+/// Whether SAP is asked for the invoice in this call. False signs and stops: the sale comes back
+/// <see cref="VanSaleFiscalFirstStatus.AwaitingSap"/> with <see cref="VanSaleFiscalFirstOutcome.Deferred"/>
+/// set, for the caller to hand to the invoice queue. The handset route does this so a rep waits for the
+/// fiscal device and not for SAP as well; a person pressing Post on the console wants the post.
+/// </param>
 public sealed record VanSaleFiscalFirstRequest(
     string ReservationId,
     string? DocDate = null,
@@ -21,4 +27,5 @@ public sealed record VanSaleFiscalFirstRequest(
     string? NumAtCard = null,
     string? Comments = null,
     decimal AmountPaid = 0m,
-    bool MayAlreadyBeFiscalised = false);
+    bool MayAlreadyBeFiscalised = false,
+    bool PostToSapNow = true);

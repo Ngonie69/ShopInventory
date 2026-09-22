@@ -315,11 +315,14 @@ public static partial class VanSalesCompatibilityMapper
             // invoice follows without anyone doing anything.
             Message = posted
                 ? "Fiscalised and invoiced."
-                : "Fiscalised. SAP is not taking invoices right now, so the invoice will be posted automatically.",
+                : outcome.Deferred
+                    ? "Fiscalised. The invoice is being posted to SAP."
+                    : "Fiscalised. SAP is not taking invoices right now, so the invoice will be posted automatically.",
             ExternalReference = externalReference,
             ReservationId = reservationId,
             SapDocEntry = outcome.SapDocEntry,
             SapDocNum = outcome.SapDocNum,
+            SaleNumber = sale is { Id: > 0 } ? DesktopSaleNumber.Format(sale.Id) : null,
             WasQueued = !posted,
             QueueId = queued?.QueueId,
             QueueStatus = queued?.Status,

@@ -216,16 +216,20 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
             reservationId = existing.ReservationId;
         }
 
-        var outcome = await poster.FiscaliseThenPostAsync(
-            new VanSaleFiscalFirstRequest(
-                reservationId,
-                DocDate: invoiceRequest.DocDate,
-                DocDueDate: invoiceRequest.DocDueDate,
-                NumAtCard: invoiceRequest.NumAtCard,
-                Comments: invoiceRequest.Comments,
-                AmountPaid: SettledAmount(command.Request),
-                MayAlreadyBeFiscalised: existing is not null),
-            cancellationToken);
+        // Signed here, posted by the queue. The rep is waiting at the counter for the receipt, and the
+        // receipt and the sale number both exist before SAP is asked; waiting on SAP as well only made every
+        // sale slower. PostQueuedVanInvoices posts it within seconds through this same reservation.
+        var fiscalFirst = new VanSaleFiscalFirstRequest(
+            reservationId,
+            DocDate: invoiceRequest.DocDate,
+            DocDueDate: invoiceRequest.DocDueDate,
+            NumAtCard: invoiceRequest.NumAtCard,
+            Comments: invoiceRequest.Comments,
+            AmountPaid: SettledAmount(command.Request),
+            MayAlreadyBeFiscalised: existing is not null,
+            PostToSapNow: false);
+
+        var outcome = await poster.FiscaliseThenPostAsync(fiscalFirst, cancellationToken);
 
         // Nothing below may be cancelled by the handset going away: from a signed receipt on, it is the
         // record of a sale that happened.
@@ -249,6 +253,22 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
             {
                 var queued = await QueueForPostingAsync(
                     reservationRequest, reservationId, command.UserId, outcome, persist);
+
+                if (queued is null && outcome.Deferred)
+                {
+                    // The queue would not take it, so nothing would ever post it. Post it now, the way this
+                    // route did before the queue took over; the sale is signed, so the device is not asked.
+                    outcome = await poster.FiscaliseThenPostAsync(
+                        fiscalFirst with { MayAlreadyBeFiscalised = true, PostToSapNow = true },
+                        persist);
+
+                    if (outcome.Status == VanSaleFiscalFirstStatus.AwaitingSap)
+                    {
+                        queued = await QueueForPostingAsync(
+                            reservationRequest, reservationId, command.UserId, outcome, persist);
+                    }
+                }
+
                 return VanSalesCompatibilityMapper.MapFiscalFirstResponse(outcome, reference, reservationId, queued);
             }
 

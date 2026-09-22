@@ -20,6 +20,11 @@ namespace ShopInventory.Services;
 /// With <see cref="VanSaleFiscalFirstStatus.Posted"/>: SAP already held the invoice, so it was adopted
 /// rather than raised again. A person who pressed Post is told which of the two happened.
 /// </param>
+/// <param name="Deferred">
+/// With <see cref="VanSaleFiscalFirstStatus.AwaitingSap"/>: SAP was not asked, because the caller said
+/// not to (<see cref="VanSaleFiscalFirstRequest.PostToSapNow"/>) — not because it refused. Nothing is wrong
+/// with the sale; the queue posts it.
+/// </param>
 public sealed record VanSaleFiscalFirstOutcome(
     VanSaleFiscalFirstStatus Status,
     DesktopSaleEntity? Sale,
@@ -27,7 +32,8 @@ public sealed record VanSaleFiscalFirstOutcome(
     int? SapDocNum = null,
     string? Error = null,
     bool Transient = false,
-    bool Adopted = false)
+    bool Adopted = false,
+    bool Deferred = false)
 {
     /// <summary>Whether a fiscal receipt exists for this sale, so it can no longer be refused.</summary>
     public bool IsFiscalised =>

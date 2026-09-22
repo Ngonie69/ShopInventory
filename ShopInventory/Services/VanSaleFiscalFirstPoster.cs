@@ -134,7 +134,46 @@ public sealed class VanSaleFiscalFirstPoster(
 
         // A receipt exists. Past this line the sale stands, and no caller going away may stop the record
         // of it: the rest runs on CancellationToken.None, for the reason PersistSignedReceiptAsync gives.
-        return await PostAsync(reservation, sale, request);
+        return request.PostToSapNow
+            ? await PostAsync(reservation, sale, request)
+            : await DeferPostAsync(reservation, sale, request);
+    }
+
+    /// <summary>
+    /// Stops at the receipt and leaves the invoice to the queue, holding the stock until it posts.
+    /// </summary>
+    /// <remarks>
+    /// <para>The rep is standing at a shop counter while this runs. The receipt is what they hand over and
+    /// the sale's number is the platform's own (<see cref="DesktopSaleNumber"/>), so neither needs SAP; asking
+    /// SAP in the same request only added its time to every sale. <c>PostQueuedVanInvoices</c> posts it
+    /// within seconds, through the same reservation and with the same guards.</para>
+    ///
+    /// <para>A sale that has already posted — a resend of one the queue got to first — answers as posted,
+    /// and a cancelled reservation goes the way <see cref="PostAsync"/> sends it, to a person.</para>
+    /// </remarks>
+    private async Task<VanSaleFiscalFirstOutcome> DeferPostAsync(
+        StockReservationEntity reservation,
+        DesktopSaleEntity sale,
+        VanSaleFiscalFirstRequest request)
+    {
+        if (sale.SapDocNum.HasValue)
+        {
+            return new VanSaleFiscalFirstOutcome(
+                VanSaleFiscalFirstStatus.Posted,
+                sale,
+                sale.SapDocEntry,
+                sale.SapDocNum,
+                Adopted: true);
+        }
+
+        if (string.Equals(reservation.Status, ReservationStatus.Cancelled, StringComparison.Ordinal))
+        {
+            return await PostAsync(reservation, sale, request);
+        }
+
+        await HoldForPostingAsync(reservation);
+
+        return new VanSaleFiscalFirstOutcome(VanSaleFiscalFirstStatus.AwaitingSap, sale, Deferred: true);
     }
 
     private async Task<VanSaleFiscalFirstOutcome?> FiscaliseAsync(
