@@ -51,7 +51,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
     // --- The seed list ---
 
     /// <summary>
-    /// The schedule as published: four upcountry routes and four town trucks, and the stop counts
+    /// The schedule as published: five upcountry routes and four town trucks, and the stop counts
     /// the source lists for each.
     /// </summary>
     /// <remarks>
@@ -64,6 +64,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
     [InlineData("UPC2", "Upc 2", "UPC", 11)]
     [InlineData("UPC3", "Upc 3", "UPC", 12)]
     [InlineData("UPC4", "Upc 4", "UPC", 11)]
+    [InlineData("BYOUPC", "Bulawayo UPC", "Bulawayo UPC", 27)]
     [InlineData("EAST", "East Truck", "Harare", 13)]
     [InlineData("WEST1", "West 1 Truck", "Harare", 9)]
     [InlineData("WEST2", "West 2 Truck", "Harare", 9)]
@@ -80,8 +81,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
     [Fact]
     public void SeedList_HasEightRoutesAndNothingElse()
     {
-        Assert.Equal(8, VanSalesRouteSeedData.Routes.Count);
-        Assert.Equal(84, VanSalesRouteSeedData.Routes.Sum(route => route.Stops.Count));
+        Assert.Equal(9, VanSalesRouteSeedData.Routes.Count);
+        Assert.Equal(111, VanSalesRouteSeedData.Routes.Sum(route => route.Stops.Count));
     }
 
     /// <summary>
@@ -175,6 +176,36 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
     }
 
     /// <summary>
+    /// Bulawayo UPC runs a four-week cycle: North, Midlands, South, Midlands again with Nkayi added.
+    /// </summary>
+    /// <remarks>
+    /// The two Midlands weeks are separate stops. Folded into one list, a visit to Gweru in week 4
+    /// would count against week 2's plan and Nkayi would appear due every fortnight.
+    /// </remarks>
+    [Fact]
+    public void BulawayoUpc_RunsAFourWeekCycle()
+    {
+        var route = VanSalesRouteSeedData.Routes.Single(r => r.Code == "BYOUPC");
+
+        string[] Week(int week) => route.Stops
+            .Where(stop => stop.WeekNumber == week)
+            .OrderBy(stop => stop.Sequence)
+            .Select(stop => stop.Name)
+            .ToArray();
+
+        Assert.All(route.Stops, stop => Assert.Null(stop.DayOfWeek));
+
+        Assert.Equal(
+            new[] { "Victoria Falls", "Dete", "Hwange", "Lupane", "Insuza", "Tursthurst Nyamandhlovu", "Binga" },
+            Week(1));
+        Assert.Equal(new[] { "Shangani", "Gweru", "Gokwe", "Zhombe", "Shurugwi", "Ntabazinduna" }, Week(2));
+        Assert.Equal(
+            new[] { "Esigodini", "Filabusi", "Mberengwa", "Gwanda", "Beitbridge", "Maphisa", "Plumtree" },
+            Week(3));
+        Assert.Equal([.. Week(2), "Nkayi"], Week(4));
+    }
+
+    /// <summary>
     /// West 2's Wednesday is published as two alternatives — Dzivarasekwa and Whitehouse, <em>or</em>
     /// Hatcliff and Mungate — and both are the plan.
     /// </summary>
@@ -219,7 +250,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
             .SelectMany(route => route.Stops.Select(stop => VanSalesRouteSeedData.SeedKeyOf(route.Code, stop)))
             .ToList();
 
-        Assert.Equal(84, keys.Count);
+        Assert.Equal(111, keys.Count);
         Assert.Equal(keys.Count, keys.Distinct(StringComparer.Ordinal).Count());
 
         // And the repeat that is legitimate is still there, on three separate days.
@@ -235,8 +266,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
     {
         await SeedAsync();
 
-        Assert.Equal(8, await _context.Routes.CountAsync());
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(9, await _context.Routes.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
 
         var east = await _context.Routes.SingleAsync(route => route.Code == "EAST");
 
@@ -263,8 +294,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
         await SeedAsync();
 
-        Assert.Equal(8, await _context.Routes.CountAsync());
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(9, await _context.Routes.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -291,7 +322,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         Assert.Equal("AHF0218", after.TruckRegNo);
         Assert.Equal("Harare West", after.Territory);
         Assert.False(after.IsActive);
-        Assert.Equal(8, await _context.Routes.CountAsync());
+        Assert.Equal(9, await _context.Routes.CountAsync());
     }
 
     /// <summary>
@@ -313,8 +344,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
 
         await SeedAsync();
 
-        Assert.Equal(8, await _context.Routes.CountAsync());
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(9, await _context.Routes.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
         Assert.False(await _context.Routes.AnyAsync(r => r.Code == "WEST2"));
     }
 
@@ -335,8 +366,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
 
         await SeedAsync();
 
-        Assert.Equal(9, await _context.Routes.CountAsync());
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(10, await _context.Routes.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
 
         var seeded = await _context.Routes.SingleAsync(r => r.SeedKey == "EAST");
 
@@ -346,7 +377,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
 
         // And it settles: a second start adds nothing further.
         await SeedAsync();
-        Assert.Equal(9, await _context.Routes.CountAsync());
+        Assert.Equal(10, await _context.Routes.CountAsync());
     }
 
     /// <summary>
@@ -368,7 +399,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
 
         Assert.Single(epworth);
         Assert.False(epworth[0].IsActive);
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -386,7 +417,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await _context.SaveChangesAsync();
 
         // One fewer than the schedule places, which is the gap this is about.
-        Assert.Equal(83, await _context.RouteStops.CountAsync());
+        Assert.Equal(110, await _context.RouteStops.CountAsync());
 
         await SeedAsync();
 
@@ -395,13 +426,13 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         Assert.Equal(routeId, restored.RouteId);
         Assert.Equal(2, restored.WeekNumber);
         Assert.Null(restored.DayOfWeek);
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
     /// The upcountry stops survive a re-run. They are the ones a SQL-side duplicate check would miss,
     /// because their day and week comparison is <c>NULL = NULL</c> — the seeder would find no match
-    /// and insert all 42 of them again on every start.
+    /// and insert all 69 of them again on every start.
     /// </summary>
     [Fact]
     public async Task Seeder_DoesNotDuplicateStopsThatHaveNoWeekday()
@@ -413,7 +444,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
             .Where(stop => stop.DayOfWeek == null)
             .CountAsync();
 
-        Assert.Equal(42, upcountry);
+        Assert.Equal(69, upcountry);
         Assert.Equal(1, await _context.RouteStops.CountAsync(stop => stop.Name == "Chiredzi"));
     }
 
@@ -443,7 +474,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(0, await _context.RouteStops.CountAsync(s => s.Name == "Waterfalls"));
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -470,7 +501,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(1, await _context.RouteStops.CountAsync(s => s.Name == "Epworth"));
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -557,8 +588,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
         await SeedAsync();
 
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
-        Assert.Equal(84, await _context.RouteStops.CountAsync(stop => stop.IsActive));
+        Assert.Equal(112, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync(stop => stop.IsActive));
     }
 
     /// <summary>
@@ -702,7 +733,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         Assert.False(result.IsError);
         Assert.Equal(droppedId, result.Value.Id);
         Assert.True(result.Value.IsActive);
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -778,7 +809,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
             CancellationToken.None);
 
         Assert.False(result.IsError);
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
         Assert.False(await _context.RouteStops.Where(s => s.Id == stop.Id).Select(s => s.IsActive).SingleAsync());
     }
 
@@ -1014,7 +1045,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         var reread = await MondayAsync(route.Id);
 
         Assert.Equal(new[] { "Hatfield", "Sunningdale", "Waterfalls" }, reread.Select(s => s.Name));
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        Assert.Equal(111, await _context.RouteStops.CountAsync());
     }
 
     private async Task<List<RouteStopEntity>> MondayAsync(int routeId)
@@ -1044,8 +1075,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         var visible = await QueryHandler().Handle(new GetRouteStopsQuery(), CancellationToken.None);
         var all = await QueryHandler().Handle(new GetRouteStopsQuery(IncludeInactive: true), CancellationToken.None);
 
-        Assert.Equal(83, visible.Value.Count);
-        Assert.Equal(84, all.Value.Count);
+        Assert.Equal(110, visible.Value.Count);
+        Assert.Equal(111, all.Value.Count);
         Assert.DoesNotContain(visible.Value, dto => dto.Name == "Norton");
     }
 
