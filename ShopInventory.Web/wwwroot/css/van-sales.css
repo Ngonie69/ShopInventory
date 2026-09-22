@@ -3422,6 +3422,52 @@
     cursor: pointer;
 }
 
+/* Delete, at the foot of the route's form. Ruled off from the fields above so it is not read
+   as one more setting, and quiet until the confirm step, which holds the page's only red
+   button. */
+.vs .vsr-delete {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--vs-rule);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.vs .vsr-delete .vs-notice {
+    margin-bottom: 0;
+    align-self: stretch;
+}
+
+.vs .vsr-delete-note {
+    margin: 0;
+    font-size: 0.84rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsr-delete-note b {
+    color: var(--vs-ink);
+    font-weight: 500;
+}
+
+.vs .vsr-delete-open:hover:not(:disabled) {
+    color: var(--vs-bad);
+    border-color: rgba(var(--vs-bad-rgb), .4);
+}
+
+.vs .vs-btn-danger {
+    background: var(--vs-bad);
+    border-color: var(--vs-bad);
+    color: #fff;
+}
+
+.vs .vs-btn-danger:hover:not(:disabled) {
+    background: var(--vs-bad);
+    border-color: var(--vs-bad);
+    filter: brightness(1.08);
+}
+
 /* — Search, territory filter, count — */
 
 .vs .vsr-bar {

@@ -31,7 +31,7 @@ public sealed class ReorderRouteStopsHandler(
 
         var route = await db.Routes
             .AsNoTracking()
-            .FirstOrDefaultAsync(r => r.Id == command.RouteId, cancellationToken);
+            .FirstOrDefaultAsync(r => r.Id == command.RouteId && r.DeletedAt == null, cancellationToken);
 
         if (route is null)
         {

@@ -13,7 +13,9 @@ public sealed class GetRoutesHandler(
         GetRoutesQuery query,
         CancellationToken cancellationToken)
     {
-        var queryable = db.Routes.AsNoTracking();
+        // Deleted routes never list, even with the retired ones: they are gone from the page, not
+        // parked on it.
+        var queryable = db.Routes.AsNoTracking().Where(route => route.DeletedAt == null);
 
         if (!query.IncludeInactive)
         {

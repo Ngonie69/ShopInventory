@@ -3438,6 +3438,7 @@ handlers and are not recorded twice.
 | GET | `/api/van-sales/routes` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The selling routes |
 | POST | `/api/van-sales/routes` | `users.edit` or `vansales.routes.manage` | Create a route |
 | PUT | `/api/van-sales/routes/{id}` | `users.edit` or `vansales.routes.manage` | Update a route |
+| DELETE | `/api/van-sales/routes/{id}` | `users.edit` or `vansales.routes.manage` | Delete a route |
 | GET | `/api/van-sales/route-stops` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The areas each route works, and when |
 | POST | `/api/van-sales/route-stops` | `users.edit` or `vansales.routes.manage` | Add an area to a route's plan |
 | PUT | `/api/van-sales/route-stops/{id}` | `users.edit` or `vansales.routes.manage` | Edit an area on a route's plan |
@@ -3860,6 +3861,16 @@ the code.
 customer would report that customer's entire trade as this van's takings, which is a wrong figure
 that looks entirely plausible. `409` when another vehicle already holds that account, because two
 trucks sharing one would each report its full takings and the same money would be counted twice.
+
+##### DELETE `/api/van-sales/routes/{id}`
+
+Takes a route off the page for good — unlike retiring it (`isActive: false` on the `PUT`), which
+keeps it listed with `includeInactive`. The row is kept and stamped `DeletedAt`: trading days that
+already happened stay linked to it, and the seeder, which matches on the route's seed key, does not
+put a seeded route back on the next start. A deleted route is left out of `GET routes` and
+`GET route-stops` even with `includeInactive`, its stops are dropped with it, every later write to it
+answers `404`, and its code is free for a new route. `409` while vans are still assigned to it.
+Answers `204`, and `204` again on a repeat.
 
 ##### GET `/api/van-sales/route-stops`
 

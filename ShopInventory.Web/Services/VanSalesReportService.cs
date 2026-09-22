@@ -57,6 +57,9 @@ public interface IVanSalesReportService
     /// <summary>Creates or updates a route. Returns the saved route, or the server's refusal.</summary>
     Task<(RouteDto? Route, string? Error)> SaveRouteAsync(RouteDto route);
 
+    /// <summary>Deletes a route. Returns null on success, or the server's refusal.</summary>
+    Task<string?> DeleteRouteAsync(int id);
+
     /// <summary>The areas the routes work. <paramref name="routeId"/> narrows it to one route.</summary>
     Task<List<RouteStopDto>> GetRouteStopsAsync(int? routeId = null, bool includeInactive = false);
 
@@ -462,6 +465,32 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         {
             logger.LogError(ex, "Error saving route stop {Name}", stop.Name);
             return (null, $"The stop could not be saved: {ex.Message}");
+        }
+    }
+
+    public async Task<string?> DeleteRouteAsync(int id)
+    {
+        try
+        {
+            var response = await httpClient.DeleteAsync($"api/van-sales/routes/{id}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var problem = await ReadProblemDetailAsync(response);
+
+            logger.LogWarning(
+                "Deleting route {Id} failed with {Status}: {Detail}",
+                id, (int)response.StatusCode, problem);
+
+            return problem;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error deleting route {Id}", id);
+            return $"The route could not be deleted: {ex.Message}";
         }
     }
 
