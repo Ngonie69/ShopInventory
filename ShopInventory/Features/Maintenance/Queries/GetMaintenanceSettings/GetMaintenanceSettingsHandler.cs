@@ -26,7 +26,7 @@ public sealed class GetMaintenanceSettingsHandler(
             // The database being unreachable is not a reason to refuse this screen — it is very
             // likely the reason maintenance is running at all, and this is the screen somebody
             // opens to turn it back off. The snapshot is at worst a few seconds stale.
-            logger.LogWarning(ex, "Could not reload the mobile maintenance switch; showing the last known state.");
+            logger.LogWarning(ex, "Could not reload the maintenance switch; showing the last known state.");
         }
 
         ErrorOr<MaintenanceSettingsDto> result =

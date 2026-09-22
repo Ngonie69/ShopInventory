@@ -1686,15 +1686,18 @@ new ApiModule
 {
 Name = "Maintenance",
 BasePath = "/api/Maintenance",
-Description = "3 endpoints under /api/Maintenance.",
+Description = "6 endpoints under /api/Maintenance.",
 Icon = Icons.Material.Filled.Bolt,
 Color = Color.Primary,
 Methods = new[] { "GET", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/Maintenance/mobile", "Get mobile maintenance settings"),
-new("GET", "/api/Maintenance/mobile/status", "Get mobile maintenance status"),
-new("PUT", "/api/Maintenance/mobile", "Set mobile maintenance")
+new("GET", "/api/Maintenance", "Get maintenance settings"),
+new("GET", "/api/Maintenance/status", "Get maintenance status for the calling client"),
+new("PUT", "/api/Maintenance", "Turn the maintenance lockout on or off"),
+new("GET", "/api/Maintenance/mobile", "Get maintenance settings (name the Android builds call)"),
+new("GET", "/api/Maintenance/mobile/status", "Get maintenance status (name the Android builds call)"),
+new("PUT", "/api/Maintenance/mobile", "Turn the lockout on or off (name the Android builds call)")
 }
 },
 new ApiModule

@@ -39,9 +39,16 @@ public sealed class SetMaintenanceHandler(
             return appIds.Errors;
         }
 
+        var audiences = ResolveAudiences(request.Audiences);
+        if (audiences.IsError)
+        {
+            return audiences.Errors;
+        }
+
         var state = new MaintenanceState(
             Enabled: request.Enabled,
             Scope: ResolveScope(request.Scope),
+            Audiences: audiences.Value,
             Message: string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim(),
             AppIds: appIds.Value,
             // The clock starts when the lockout does. Re-saving a running lockout — to widen the
@@ -59,7 +66,7 @@ public sealed class SetMaintenanceHandler(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to set the mobile maintenance lockout");
+            logger.LogError(ex, "Failed to set the maintenance lockout");
             return Errors.Maintenance.UpdateFailed(ex.Message);
         }
 
@@ -93,6 +100,42 @@ public sealed class SetMaintenanceHandler(
         Enum.TryParse<MaintenanceScope>(scope?.Trim(), ignoreCase: true, out var parsed) && Enum.IsDefined(parsed)
             ? parsed
             : MaintenanceScope.Transactions;
+
+    /// <summary>
+    /// The requested audiences, or the phones when none were named.
+    /// </summary>
+    /// <remarks>
+    /// An empty list is read as the mobile apps rather than as "nobody", for two reasons. It is
+    /// what the switch covered before audiences existed, so an older caller — the settings screen
+    /// mid-deploy, a script, a hand-written PUT — keeps meaning what it used to mean. And a lockout
+    /// that is on and covers nobody is the one state worth never storing: the screen would say
+    /// maintenance is running while every client kept trading.
+    /// </remarks>
+    private static ErrorOr<IReadOnlyList<MaintenanceAudience>> ResolveAudiences(List<string>? requested)
+    {
+        if (requested is null || requested.Count == 0)
+        {
+            return ErrorOrFactory.From(MaintenanceAudiences.Default);
+        }
+
+        var resolved = new List<MaintenanceAudience>(requested.Count);
+        foreach (var entry in requested.Where(value => !string.IsNullOrWhiteSpace(value)))
+        {
+            if (!MaintenanceAudiences.TryParse(entry, out var audience))
+            {
+                return Errors.Maintenance.UnsupportedAudience(entry);
+            }
+
+            if (!resolved.Contains(audience))
+            {
+                resolved.Add(audience);
+            }
+        }
+
+        return resolved.Count == 0
+            ? ErrorOrFactory.From(MaintenanceAudiences.Default)
+            : ErrorOrFactory.From<IReadOnlyList<MaintenanceAudience>>(resolved);
+    }
 
     /// <summary>
     /// The requested apps as catalogue keys. Empty stays empty, and empty means every app.
@@ -142,7 +185,7 @@ public sealed class SetMaintenanceHandler(
         {
             // The switch has already been thrown and is already in force. Losing the audit row is
             // worth a warning, not a failed response that would have an operator throw it again.
-            logger.LogWarning(ex, "Could not write the audit entry for the mobile maintenance switch");
+            logger.LogWarning(ex, "Could not write the audit entry for the maintenance switch");
         }
     }
 
@@ -150,30 +193,22 @@ public sealed class SetMaintenanceHandler(
     {
         if (!state.Enabled)
         {
-            return $"Mobile maintenance lockout lifted by {state.UpdatedBy}";
+            return $"Maintenance lockout lifted by {state.UpdatedBy}";
         }
-
-        var apps = state.AppIds.Count == 0
-            ? "all mobile apps"
-            : string.Join(", ", state.AppIds.Select(MobileVersionPolicyAppCatalog.GetDisplayName));
 
         var until = state.EndsAtUtc is { } endsAt
             ? $" until {endsAt.ToString("u", CultureInfo.InvariantCulture)}"
             : " until turned off";
 
-        return $"Mobile maintenance lockout ({state.Scope}) turned on for {apps}{until} by {state.UpdatedBy}";
+        return $"Maintenance lockout ({state.Scope}) turned on for {DescribeAudiences(state)}{until} by {state.UpdatedBy}";
     }
 
     private static string DescribeOutcome(MaintenanceState state)
     {
         if (!state.Enabled)
         {
-            return "Maintenance mode is off. The mobile apps can transact again.";
+            return "Maintenance mode is off. Everything can transact again.";
         }
-
-        var apps = state.AppIds.Count == 0
-            ? "All mobile apps"
-            : string.Join(", ", state.AppIds.Select(MobileVersionPolicyAppCatalog.GetDisplayName));
 
         var withheld = state.Scope == MaintenanceScope.All
             ? "cannot reach the system at all"
@@ -183,6 +218,24 @@ public sealed class SetMaintenanceHandler(
             ? $" Lifts automatically at {endsAt.ToString("HH:mm", CultureInfo.InvariantCulture)} UTC."
             : " It stays on until you turn it off.";
 
-        return $"Maintenance mode is on. {apps} {withheld}.{until}";
+        var admins = state.CoversAudience(MaintenanceAudience.WebPortal)
+            ? " Admins can still use the web portal."
+            : string.Empty;
+
+        return $"Maintenance mode is on. {DescribeAudiences(state)} {withheld}.{until}{admins}";
+    }
+
+    /// <summary>
+    /// The audiences in the words an operator uses, with the mobile apps spelled out when the
+    /// lockout has been narrowed to some of them.
+    /// </summary>
+    private static string DescribeAudiences(MaintenanceState state)
+    {
+        var parts = state.ResolveAudiences().Select(audience =>
+            audience == MaintenanceAudience.MobileApps && state.AppIds.Count > 0
+                ? string.Join(", ", state.AppIds.Select(MobileVersionPolicyAppCatalog.GetDisplayName))
+                : MaintenanceAudiences.GetDisplayName(audience));
+
+        return string.Join(", ", parts);
     }
 }

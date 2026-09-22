@@ -1,7 +1,6 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.DTOs;
-using ShopInventory.Features.AppVersion;
 
 namespace ShopInventory.Features.Maintenance.Queries.GetMaintenanceStatus;
 
@@ -14,14 +13,11 @@ public sealed class GetMaintenanceStatusHandler(
         GetMaintenanceStatusQuery request,
         CancellationToken cancellationToken)
     {
-        // Off the snapshot, not the database. Every handset polls this, and it has to keep
-        // answering while the database is the thing being worked on.
-        var policyKey = MobileVersionPolicyAppCatalog.TryResolvePolicyKey(request.AppId, out var resolved)
-            ? resolved
-            : null;
-
+        // Off the snapshot, not the database. Every handset polls this, and so does every web
+        // portal circuit, and it has to keep answering while the database is the thing being
+        // worked on.
         ErrorOr<MaintenanceStatusDto> result = MaintenanceMapper.ToStatus(
-            store.Current, policyKey, timeProvider.GetUtcNow().UtcDateTime);
+            store.Current, request.Caller, timeProvider.GetUtcNow().UtcDateTime);
 
         return Task.FromResult(result);
     }

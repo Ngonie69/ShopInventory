@@ -5,12 +5,23 @@ using System.Text.Json;
 namespace ShopInventory.Web.Services;
 
 /// <summary>
-/// The mobile maintenance lockout, as the settings screen reads and writes it.
+/// The maintenance lockout, as the settings screen reads and writes it and the banner reads it.
 /// </summary>
 public interface IMaintenanceService
 {
     Task<MaintenanceSettingsResponse?> GetSettingsAsync();
     Task<MaintenanceUpdateResult> SetAsync(SetMaintenanceApiRequest request);
+
+    /// <summary>
+    /// Whether the portal itself is frozen right now, for the banner every page shows.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous and exempt from the lockout, so it answers whether or not the caller would be
+    /// refused — and it answers for the web portal audience, because the Web's clients name
+    /// themselves. A lockout aimed only at the phones therefore puts no banner on the office's
+    /// screens.
+    /// </remarks>
+    Task<MaintenanceStatusResponse?> GetStatusAsync(CancellationToken cancellationToken = default);
 }
 
 public class MaintenanceService(
@@ -25,7 +36,24 @@ public class MaintenanceService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error fetching the mobile maintenance settings");
+            logger.LogError(ex, "Error fetching the maintenance settings");
+            return null;
+        }
+    }
+
+    public async Task<MaintenanceStatusResponse?> GetStatusAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await httpClient.GetFromJsonAsync<MaintenanceStatusResponse>(
+                "api/maintenance/status", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Swallowed to a null rather than surfaced. This drives a banner, and a banner that
+            // could not be fetched must not become an error on a page that is otherwise fine —
+            // least of all during maintenance, when the API is exactly what may be unreachable.
+            logger.LogDebug(ex, "Could not read the maintenance status");
             return null;
         }
     }
@@ -49,7 +77,7 @@ public class MaintenanceService(
             var errorBody = await response.Content.ReadAsStringAsync();
             var message = ExtractErrorMessage(errorBody, response.StatusCode);
             logger.LogWarning(
-                "Failed to set the mobile maintenance lockout: {StatusCode} - {Message}",
+                "Failed to set the maintenance lockout: {StatusCode} - {Message}",
                 response.StatusCode,
                 message);
 
@@ -57,7 +85,7 @@ public class MaintenanceService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error setting the mobile maintenance lockout");
+            logger.LogError(ex, "Error setting the maintenance lockout");
             return new MaintenanceUpdateResult
             {
                 Success = false,
@@ -131,6 +159,8 @@ public class MaintenanceSettingsResponse
     public bool Enabled { get; set; }
     public bool IsActive { get; set; }
     public string Scope { get; set; } = "Transactions";
+    public List<string> Audiences { get; set; } = [];
+    public List<MaintenanceAudienceResponse> AvailableAudiences { get; set; } = [];
     public string Message { get; set; } = string.Empty;
     public string DefaultMessage { get; set; } = string.Empty;
     public List<string> AppIds { get; set; } = [];
@@ -147,10 +177,32 @@ public class MaintenanceAppResponse
     public string DisplayName { get; set; } = string.Empty;
 }
 
+public class MaintenanceAudienceResponse
+{
+    public string Audience { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Mirrors the API's <c>MaintenanceStatusDto</c>.
+/// </summary>
+public class MaintenanceStatusResponse
+{
+    public bool IsActive { get; set; }
+    public string Audience { get; set; } = string.Empty;
+    public string Scope { get; set; } = "Transactions";
+    public string Message { get; set; } = string.Empty;
+    public bool ReadsAllowed { get; set; } = true;
+    public DateTime? EndsAtUtc { get; set; }
+    public DateTime CheckedAtUtc { get; set; }
+}
+
 public class SetMaintenanceApiRequest
 {
     public bool Enabled { get; set; }
     public string? Scope { get; set; }
+    public List<string>? Audiences { get; set; }
     public string? Message { get; set; }
     public List<string>? AppIds { get; set; }
     public DateTime? EndsAtUtc { get; set; }

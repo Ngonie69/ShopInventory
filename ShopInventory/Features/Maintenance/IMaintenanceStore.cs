@@ -1,7 +1,7 @@
 namespace ShopInventory.Features.Maintenance;
 
 /// <summary>
-/// The mobile maintenance lockout: what it currently says, and how to change it.
+/// The maintenance lockout: what it currently says, and how to change it.
 /// </summary>
 /// <remarks>
 /// <para>

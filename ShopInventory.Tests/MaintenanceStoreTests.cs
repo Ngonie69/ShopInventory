@@ -53,10 +53,12 @@ public sealed class MaintenanceStoreTests : IDisposable
     private static MaintenanceState Lockout(
         MaintenanceScope scope = MaintenanceScope.Transactions,
         IReadOnlyList<string>? apps = null,
+        IReadOnlyList<MaintenanceAudience>? audiences = null,
         DateTime? endsAtUtc = null) =>
         new(
             Enabled: true,
             Scope: scope,
+            Audiences: audiences ?? [MaintenanceAudience.MobileApps],
             Message: "Down for the stock migration.",
             AppIds: apps ?? [],
             StartedAtUtc: new DateTime(2026, 9, 22, 18, 0, 0, DateTimeKind.Utc),
@@ -88,7 +90,11 @@ public sealed class MaintenanceStoreTests : IDisposable
     public async Task Every_field_survives_the_round_trip()
     {
         var endsAt = new DateTime(2026, 9, 22, 22, 30, 0, DateTimeKind.Utc);
-        await NewStore().UpdateAsync(Lockout(MaintenanceScope.All, ["kefalos-vansales"], endsAt));
+        await NewStore().UpdateAsync(Lockout(
+            MaintenanceScope.All,
+            ["kefalos-vansales"],
+            [MaintenanceAudience.WebPortal, MaintenanceAudience.OtherClients],
+            endsAt));
 
         var reloaded = NewStore();
         await reloaded.ReloadAsync();
@@ -96,8 +102,104 @@ public sealed class MaintenanceStoreTests : IDisposable
 
         Assert.Equal(MaintenanceScope.All, state.Scope);
         Assert.Equal(["kefalos-vansales"], state.AppIds);
+        Assert.Equal([MaintenanceAudience.WebPortal, MaintenanceAudience.OtherClients], state.Audiences);
         Assert.Equal(endsAt, state.EndsAtUtc);
         Assert.Equal(DateTimeKind.Utc, state.EndsAtUtc!.Value.Kind);
+    }
+
+    [Fact]
+    public async Task A_lockout_stored_before_audiences_existed_still_stops_the_phones()
+    {
+        // The upgrade case, and the one worth a test: the deployment that brings audiences in is
+        // quite likely to be the very thing the lockout was switched on for. Reading none of its
+        // keys, finding it off and letting the vans straight back in would be the worst possible
+        // moment to do it.
+        await WriteLegacyRows(
+            ("Mobile.Maintenance.Enabled", "true"),
+            ("Mobile.Maintenance.Scope", "All"),
+            ("Mobile.Maintenance.Message", "Down for the stock migration."),
+            ("Mobile.Maintenance.Apps", "[\"kefalos-vansales\"]"),
+            ("Mobile.Maintenance.UpdatedBy", "ngoni"));
+
+        var store = NewStore();
+        await store.ReloadAsync();
+        var state = store.Current;
+
+        Assert.True(state.Enabled);
+        Assert.Equal(MaintenanceScope.All, state.Scope);
+        Assert.Equal("Down for the stock migration.", state.Message);
+        Assert.Equal(["kefalos-vansales"], state.AppIds);
+        Assert.Equal("ngoni", state.UpdatedBy);
+
+        // And it means what it meant: the phones, not everybody. Widening it on upgrade would turn
+        // somebody's van lockout into a company-wide one without anybody asking for it.
+        Assert.Equal([MaintenanceAudience.MobileApps], state.Audiences);
+    }
+
+    [Fact]
+    public async Task A_new_row_wins_over_the_name_the_key_used_to_have()
+    {
+        // Both spellings can be present at once, because the legacy rows are read and never
+        // written — nothing deletes them. The current one has to be the answer, or the first save
+        // after an upgrade would appear not to take.
+        await WriteLegacyRows(("Mobile.Maintenance.Enabled", "true"));
+
+        var store = NewStore();
+        await store.UpdateAsync(MaintenanceState.Off);
+
+        var reloaded = NewStore();
+        await reloaded.ReloadAsync();
+
+        Assert.False(reloaded.Current.Enabled);
+    }
+
+    [Fact]
+    public async Task An_audiences_row_naming_nothing_this_build_knows_falls_back_to_the_phones()
+    {
+        await WriteLegacyRows(
+            ("Maintenance.Enabled", "true"),
+            ("Maintenance.Audiences", "[\"Telepathy\"]"));
+
+        var store = NewStore();
+        await store.ReloadAsync();
+
+        Assert.Equal([MaintenanceAudience.MobileApps], store.Current.Audiences);
+    }
+
+    [Fact]
+    public async Task An_audiences_row_that_is_not_json_falls_back_to_the_phones()
+    {
+        await WriteLegacyRows(
+            ("Maintenance.Enabled", "true"),
+            ("Maintenance.Audiences", "MobileApps, WebPortal"));
+
+        var store = NewStore();
+        await store.ReloadAsync();
+
+        Assert.Equal([MaintenanceAudience.MobileApps], store.Current.Audiences);
+    }
+
+    /// <summary>
+    /// Writes SystemConfigs rows straight, for the states only a hand-edit or an older build
+    /// produces.
+    /// </summary>
+    private async Task WriteLegacyRows(params (string Key, string Value)[] rows)
+    {
+        await using var context = NewContext();
+        foreach (var (key, value) in rows)
+        {
+            context.SystemConfigs.Add(new ShopInventory.Models.Entities.SystemConfigEntity
+            {
+                Key = key,
+                Value = value,
+                ValueType = "string",
+                Category = "Maintenance",
+                IsEditable = true,
+                UpdatedAt = new DateTime(2026, 9, 22, 18, 0, 0, DateTimeKind.Utc)
+            });
+        }
+
+        await context.SaveChangesAsync();
     }
 
     [Fact]

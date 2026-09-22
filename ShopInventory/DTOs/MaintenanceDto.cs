@@ -1,7 +1,7 @@
 namespace ShopInventory.DTOs;
 
 /// <summary>
-/// The mobile maintenance lockout as the settings screen sees it.
+/// The maintenance lockout as the settings screen sees it.
 /// </summary>
 public class MaintenanceSettingsDto
 {
@@ -26,6 +26,14 @@ public class MaintenanceSettingsDto
     /// <summary>The wording the apps get when <see cref="Message"/> is blank.</summary>
     public string DefaultMessage { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The audiences the lockout applies to: "MobileApps", "WebPortal", "OtherClients".
+    /// </summary>
+    public List<string> Audiences { get; set; } = [];
+
+    /// <summary>Every audience the lockout could name, with the wording the screen shows.</summary>
+    public List<MaintenanceAudienceDto> AvailableAudiences { get; set; } = [];
+
     /// <summary>The app keys covered. Empty means every app.</summary>
     public List<string> AppIds { get; set; } = [];
 
@@ -49,6 +57,14 @@ public class MaintenanceAppDto
     public string DisplayName { get; set; } = string.Empty;
 }
 
+/// <summary>One audience, with the wording the settings screen puts beside its tick box.</summary>
+public class MaintenanceAudienceDto
+{
+    public string Audience { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+}
+
 /// <summary>
 /// What an app gets from the status endpoint, which stays reachable during a lockout so the phone
 /// can show a banner and grey out its buttons instead of discovering the lockout by being refused.
@@ -57,6 +73,12 @@ public class MaintenanceStatusDto
 {
     /// <summary>Whether this caller is currently locked out.</summary>
     public bool IsActive { get; set; }
+
+    /// <summary>
+    /// The audience this caller was recognised as, so a client can show the right notice — and so
+    /// that "why is the portal not frozen" has an answer that does not need the API's logs.
+    /// </summary>
+    public string Audience { get; set; } = nameof(Features.Maintenance.MaintenanceAudience.OtherClients);
 
     /// <summary>"Transactions" or "All". Only meaningful while active.</summary>
     public string Scope { get; set; } = nameof(Features.Maintenance.MaintenanceScope.Transactions);
@@ -83,12 +105,19 @@ public class SetMaintenanceRequest
     /// <summary>"Transactions" (the default) or "All". Case-insensitive.</summary>
     public string? Scope { get; set; }
 
+    /// <summary>
+    /// Who the lockout applies to: "MobileApps", "WebPortal", "OtherClients". Case-insensitive.
+    /// Empty or absent means the mobile apps, which is what this switch covered before audiences
+    /// existed.
+    /// </summary>
+    public List<string>? Audiences { get; set; }
+
     /// <summary>Optional wording for the apps. Blank uses the built-in message.</summary>
     public string? Message { get; set; }
 
     /// <summary>
-    /// Optional app keys to narrow the lockout to. Empty or absent covers every app, which is what
-    /// "stop the phones" normally means.
+    /// Optional app keys to narrow the mobile audience to. Empty or absent covers every app, which
+    /// is what "stop the phones" normally means, and it has no bearing on the other audiences.
     /// </summary>
     public List<string>? AppIds { get; set; }
 

@@ -156,6 +156,202 @@
                 @* ── General ─────────────────────────────────────────── *@
                 @if (selectedCategory == SettingCategories.General)
                 {
+                    @* First on the first page. This is the control somebody comes to Settings in a
+                       hurry to find, and it now stops the whole system rather than only the phones,
+                       so it no longer belongs filed under Mobile App. *@
+                    <section class="stg-card">
+                        <div class="stg-section-head">
+                            <span class="stg-section-icon"><i class="ph ph-wrench"></i></span>
+                            <div class="stg-section-text">
+                                <h2>Maintenance Mode</h2>
+                                <p>Freeze transactions while the system is being worked on.</p>
+                            </div>
+                        </div>
+
+                        @if (isLoadingMaintenance)
+                        {
+                            <div class="stg-pane-loading"><span class="stg-spin"></span><span>Loading maintenance mode…</span></div>
+                        }
+                        else
+                        {
+                            @if (!string.IsNullOrWhiteSpace(maintenanceMessage))
+                            {
+                                <div class="stg-alert @(maintenanceSaveSucceeded ? "stg-alert-success" : "stg-alert-error")">
+                                    <i class="ph @(maintenanceSaveSucceeded ? "ph-check-circle" : "ph-warning-circle")"></i>
+                                    <span>@maintenanceMessage</span>
+                                    <button type="button" class="stg-alert-close" @onclick="() => maintenanceMessage = null"><i class="ph ph-x"></i></button>
+                                </div>
+                            }
+
+                            @if (MaintenanceIsLive)
+                            {
+                                <div class="stg-alert stg-alert-warn">
+                                    <i class="ph ph-warning"></i>
+                                    <span>@MaintenanceLiveSummary</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="stg-alert stg-alert-info">
+                                    <i class="ph ph-info"></i>
+                                    <span>
+                                        Everything is trading normally. Turning this on takes effect within a few
+                                        seconds on every API node — it does not need a deployment or an app pool restart.
+                                    </span>
+                                </div>
+                            }
+
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Freeze Transactions</span></div>
+                                    <span class="stg-row-desc">Whoever is ticked below is refused and shown your message.</span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <label class="stg-switch">
+                                        <input type="checkbox" @bind="maintenanceEnabled" />
+                                        <span class="stg-switch-track"></span>
+                                        <span class="stg-switch-text">@(maintenanceEnabled ? "On" : "Off")</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="stg-row stg-row-top">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Freeze These</span></div>
+                                    <span class="stg-row-desc">
+                                        Every request the API serves is one of these three, so ticking all of them
+                                        stops everything. Admins keep working in the web portal, so there is always
+                                        somebody who can fix what is wrong and turn this back off.
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <div class="stg-maint-apps">
+                                        @foreach (var audience in maintenanceAvailableAudiences)
+                                        {
+                                            var key = audience.Audience;
+                                            <label class="stg-check stg-check-block">
+                                                <input type="checkbox"
+                                                       checked="@maintenanceSelectedAudiences.Contains(key)"
+                                                       disabled="@(!maintenanceEnabled)"
+                                                       @onchange="e => ToggleMaintenanceAudience(key, e.Value is true)" />
+                                                <span>
+                                                    <strong>@audience.DisplayName</strong>
+                                                    <em>@audience.Description</em>
+                                                </span>
+                                            </label>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>What To Withhold</span></div>
+                                    <span class="stg-row-desc">
+                                        Transactions only lets a rep still look up a customer or a price mid-round,
+                                        and leaves the office able to read. Everything is for maintenance the reads
+                                        cannot survive either.
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <div class="stg-select-wrap">
+                                        <select class="stg-input stg-select" @bind="maintenanceScope" disabled="@(!maintenanceEnabled)">
+                                            <option value="Transactions">Transactions only</option>
+                                            <option value="All">Everything</option>
+                                        </select>
+                                        <i class="ph ph-caret-down stg-select-caret"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Lift Automatically After</span></div>
+                                    <span class="stg-row-desc">
+                                        So nobody is still locked out in the morning because whoever turned it on went
+                                        to bed. You can always lift it by hand before this.
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <div class="stg-select-wrap">
+                                        <select class="stg-input stg-select" @bind="maintenanceDurationMinutes" disabled="@(!maintenanceEnabled)">
+                                            @foreach (var window in MaintenanceWindows)
+                                            {
+                                                <option value="@window.Key">@window.Value</option>
+                                            }
+                                        </select>
+                                        <i class="ph ph-caret-down stg-select-caret"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stg-row stg-row-top">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Which Mobile Apps</span></div>
+                                    <span class="stg-row-desc">
+                                        Narrows the mobile apps only, and has no bearing on the portal or the tills.
+                                        Leave them all ticked unless the maintenance touches just one of them.
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <div class="stg-maint-apps">
+                                        @foreach (var mobileApp in maintenanceAvailableApps)
+                                        {
+                                            var appId = mobileApp.AppId;
+                                            <label class="stg-check">
+                                                <input type="checkbox"
+                                                       checked="@maintenanceSelectedApps.Contains(appId)"
+                                                       disabled="@(!maintenanceEnabled || !MaintenanceCoversMobileApps)"
+                                                       @onchange="e => ToggleMaintenanceApp(appId, e.Value is true)" />
+                                                <span>@mobileApp.DisplayName</span>
+                                            </label>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stg-row stg-row-top">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Message To Show</span></div>
+                                    <span class="stg-row-desc">
+                                        Say what is happening and when it ends. Somebody standing in front of a customer
+                                        can act on "back by 20:00"; they cannot act on "an error occurred".
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <textarea class="stg-input" rows="3" maxlength="500"
+                                              placeholder="@maintenanceDefaultMessage"
+                                              disabled="@(!maintenanceEnabled)"
+                                              @bind="maintenanceOperatorMessage"></textarea>
+                                </div>
+                            </div>
+
+                            <div class="stg-dialog-actions">
+                                <button type="button" class="stg-btn stg-btn-primary" @onclick="SaveMaintenance"
+                                        disabled="@isSavingMaintenance">
+                                    @if (isSavingMaintenance)
+                                    {
+                                        <span class="stg-spin"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="ph @(maintenanceEnabled ? "ph-pause-circle" : "ph-play-circle")"></i>
+                                    }
+                                    @(maintenanceEnabled ? "Turn maintenance mode on" : "Turn maintenance mode off")
+                                </button>
+                            </div>
+
+                            <div class="stg-footnote">
+                                <i class="ph ph-info"></i>
+                                <span>
+                                    Signing in, the version check and this screen stay reachable while maintenance
+                                    runs — so an app shows your message rather than a failed login, and the switch can
+                                    always be turned back off.
+                                </span>
+                            </div>
+                        }
+                    </section>
+
                     <section class="stg-card">
                         <div class="stg-section-head">
                             <span class="stg-section-icon"><i class="ph ph-sliders-horizontal"></i></span>
@@ -1063,167 +1259,6 @@
                 @* ── Mobile App ──────────────────────────────────────── *@
                 else if (selectedCategory == MobileAppCategory)
                 {
-                    @* Maintenance first: it is the control somebody comes to this page in a hurry
-                       to find, and the version policy below it is a considered, occasional edit. *@
-                    <section class="stg-card">
-                        <div class="stg-section-head">
-                            <span class="stg-section-icon"><i class="ph ph-wrench"></i></span>
-                            <div class="stg-section-text">
-                                <h2>Maintenance Mode</h2>
-                                <p>Stop the mobile apps transacting while the system is being worked on.</p>
-                            </div>
-                        </div>
-
-                        @if (isLoadingMaintenance)
-                        {
-                            <div class="stg-pane-loading"><span class="stg-spin"></span><span>Loading maintenance mode…</span></div>
-                        }
-                        else
-                        {
-                            @if (!string.IsNullOrWhiteSpace(maintenanceMessage))
-                            {
-                                <div class="stg-alert @(maintenanceSaveSucceeded ? "stg-alert-success" : "stg-alert-error")">
-                                    <i class="ph @(maintenanceSaveSucceeded ? "ph-check-circle" : "ph-warning-circle")"></i>
-                                    <span>@maintenanceMessage</span>
-                                    <button type="button" class="stg-alert-close" @onclick="() => maintenanceMessage = null"><i class="ph ph-x"></i></button>
-                                </div>
-                            }
-
-                            @if (MaintenanceIsLive)
-                            {
-                                <div class="stg-alert stg-alert-warn">
-                                    <i class="ph ph-warning"></i>
-                                    <span>@MaintenanceLiveSummary</span>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="stg-alert stg-alert-info">
-                                    <i class="ph ph-info"></i>
-                                    <span>
-                                        The mobile apps are trading normally. Turning this on takes effect within a few
-                                        seconds on every API node — it does not need a deployment or an app pool restart.
-                                    </span>
-                                </div>
-                            }
-
-                            <div class="stg-row">
-                                <div class="stg-row-info">
-                                    <div class="stg-row-label"><span>Stop Mobile Transactions</span></div>
-                                    <span class="stg-row-desc">The apps are refused and shown your message. The web app and the tills are not affected.</span>
-                                </div>
-                                <div class="stg-row-control">
-                                    <label class="stg-switch">
-                                        <input type="checkbox" @bind="maintenanceEnabled" />
-                                        <span class="stg-switch-track"></span>
-                                        <span class="stg-switch-text">@(maintenanceEnabled ? "On" : "Off")</span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div class="stg-row">
-                                <div class="stg-row-info">
-                                    <div class="stg-row-label"><span>What To Withhold</span></div>
-                                    <span class="stg-row-desc">
-                                        Transactions only lets a rep still look up a customer or a price mid-round.
-                                        Everything is for maintenance the reads cannot survive either.
-                                    </span>
-                                </div>
-                                <div class="stg-row-control">
-                                    <div class="stg-select-wrap">
-                                        <select class="stg-input stg-select" @bind="maintenanceScope" disabled="@(!maintenanceEnabled)">
-                                            <option value="Transactions">Transactions only</option>
-                                            <option value="All">Everything</option>
-                                        </select>
-                                        <i class="ph ph-caret-down stg-select-caret"></i>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="stg-row">
-                                <div class="stg-row-info">
-                                    <div class="stg-row-label"><span>Lift Automatically After</span></div>
-                                    <span class="stg-row-desc">
-                                        So the vans are not still locked out in the morning because nobody turned it back.
-                                        You can always lift it by hand before this.
-                                    </span>
-                                </div>
-                                <div class="stg-row-control">
-                                    <div class="stg-select-wrap">
-                                        <select class="stg-input stg-select" @bind="maintenanceDurationMinutes" disabled="@(!maintenanceEnabled)">
-                                            @foreach (var window in MaintenanceWindows)
-                                            {
-                                                <option value="@window.Key">@window.Value</option>
-                                            }
-                                        </select>
-                                        <i class="ph ph-caret-down stg-select-caret"></i>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="stg-row stg-row-top">
-                                <div class="stg-row-info">
-                                    <div class="stg-row-label"><span>Apps Affected</span></div>
-                                    <span class="stg-row-desc">Leave every app ticked unless the maintenance only touches one of them.</span>
-                                </div>
-                                <div class="stg-row-control">
-                                    <div class="stg-maint-apps">
-                                        @foreach (var mobileApp in maintenanceAvailableApps)
-                                        {
-                                            var appId = mobileApp.AppId;
-                                            <label class="stg-check">
-                                                <input type="checkbox"
-                                                       checked="@maintenanceSelectedApps.Contains(appId)"
-                                                       disabled="@(!maintenanceEnabled)"
-                                                       @onchange="e => ToggleMaintenanceApp(appId, e.Value is true)" />
-                                                <span>@mobileApp.DisplayName</span>
-                                            </label>
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="stg-row stg-row-top">
-                                <div class="stg-row-info">
-                                    <div class="stg-row-label"><span>Message For The Apps</span></div>
-                                    <span class="stg-row-desc">
-                                        Say what is happening and when it ends. Somebody standing in front of a customer
-                                        can act on "back by 20:00"; they cannot act on "an error occurred".
-                                    </span>
-                                </div>
-                                <div class="stg-row-control">
-                                    <textarea class="stg-input" rows="3" maxlength="500"
-                                              placeholder="@maintenanceDefaultMessage"
-                                              disabled="@(!maintenanceEnabled)"
-                                              @bind="maintenanceOperatorMessage"></textarea>
-                                </div>
-                            </div>
-
-                            <div class="stg-dialog-actions">
-                                <button type="button" class="stg-btn stg-btn-primary" @onclick="SaveMaintenance"
-                                        disabled="@isSavingMaintenance">
-                                    @if (isSavingMaintenance)
-                                    {
-                                        <span class="stg-spin"></span>
-                                    }
-                                    else
-                                    {
-                                        <i class="ph @(maintenanceEnabled ? "ph-pause-circle" : "ph-play-circle")"></i>
-                                    }
-                                    @(maintenanceEnabled ? "Turn maintenance mode on" : "Turn maintenance mode off")
-                                </button>
-                            </div>
-
-                            <div class="stg-footnote">
-                                <i class="ph ph-info"></i>
-                                <span>
-                                    Signing in, the version check and this status stay reachable while maintenance runs,
-                                    so an app shows your message rather than a failed login.
-                                </span>
-                            </div>
-                        }
-                    </section>
-
                     <section class="stg-card">
                         <div class="stg-section-head">
                             <span class="stg-section-icon"><i class="ph ph-device-mobile"></i></span>
@@ -2236,7 +2271,7 @@
         ? "ph-warning-circle"
         : fiscalisationTestUnverified ? "ph-warning" : "ph-check-circle";
 
-    // ── Mobile maintenance lockout ───────────────────────────────────────
+    // ── Maintenance lockout ───────────────────────────────────────
     //
     // The operator picks a duration rather than an end time, because what they know is how long
     // the work takes, not the wall clock it finishes on. The API stores the absolute UTC instant,
@@ -2261,6 +2296,8 @@
     private string maintenanceDefaultMessage = string.Empty;
     private List<MaintenanceAppResponse> maintenanceAvailableApps = new();
     private HashSet<string> maintenanceSelectedApps = new(StringComparer.OrdinalIgnoreCase);
+    private List<MaintenanceAudienceResponse> maintenanceAvailableAudiences = new();
+    private HashSet<string> maintenanceSelectedAudiences = new(StringComparer.OrdinalIgnoreCase);
     private bool maintenanceSaveSucceeded = false;
     private string? maintenanceMessage;
     private MaintenanceSettingsResponse? maintenanceLive;
@@ -2275,6 +2312,28 @@
     /// </remarks>
     private bool MaintenanceIsLive => maintenanceLive?.IsActive == true;
 
+    /// <summary>
+    /// Whether the phones are among what is about to be frozen.
+    /// </summary>
+    /// <remarks>
+    /// Greys out the app picker when they are not, because naming apps narrows the mobile audience
+    /// and nothing else. Left live, it would be a control that appeared to do something and did
+    /// nothing — the sort of thing somebody discovers afterwards, having believed they had
+    /// narrowed a lockout that was in fact blanket.
+    /// </remarks>
+    private bool MaintenanceCoversMobileApps =>
+        maintenanceSelectedAudiences.Contains(nameof(MaintenanceAudienceKeys.MobileApps));
+
+    /// <summary>
+    /// The audience names as the API spells them, so the page is not writing string literals.
+    /// </summary>
+    private enum MaintenanceAudienceKeys
+    {
+        MobileApps,
+        WebPortal,
+        OtherClients
+    }
+
     private string MaintenanceLiveSummary
     {
         get
@@ -2284,10 +2343,6 @@
             {
                 return string.Empty;
             }
-
-            var apps = live.CoveredApps.Count == 0
-                ? "Every mobile app"
-                : string.Join(", ", live.CoveredApps.Select(app => app.DisplayName));
 
             var withheld = string.Equals(live.Scope, "All", StringComparison.OrdinalIgnoreCase)
                 ? "cannot reach the system at all"
@@ -2299,8 +2354,44 @@
 
             var who = string.IsNullOrWhiteSpace(live.UpdatedBy) ? string.Empty : $" Set by {live.UpdatedBy}.";
 
-            return $"Maintenance mode is on. {apps} {withheld}.{until}{who}";
+            return $"Maintenance mode is on. {DescribeLiveAudiences(live)} {withheld}.{until}{who}";
         }
+    }
+
+    /// <summary>
+    /// Who the running lockout has stopped, in the words on the tick boxes.
+    /// </summary>
+    /// <remarks>
+    /// The mobile entry is replaced by the apps themselves when the lockout has been narrowed to
+    /// some of them, because "Mobile apps" over a lockout that only covers van sales would read as
+    /// more than it is.
+    /// </remarks>
+    private string DescribeLiveAudiences(MaintenanceSettingsResponse live)
+    {
+        if (live.Audiences.Count == 0)
+        {
+            return "Nobody";
+        }
+
+        var narrowedApps = live.AppIds.Count > 0
+            ? string.Join(", ", live.CoveredApps.Select(app => app.DisplayName))
+            : null;
+
+        var names = live.Audiences.Select(audience =>
+        {
+            if (narrowedApps is not null
+                && string.Equals(audience, nameof(MaintenanceAudienceKeys.MobileApps), StringComparison.OrdinalIgnoreCase))
+            {
+                return narrowedApps;
+            }
+
+            var match = live.AvailableAudiences
+                .FirstOrDefault(available => string.Equals(available.Audience, audience, StringComparison.OrdinalIgnoreCase));
+
+            return match?.DisplayName ?? audience;
+        });
+
+        return string.Join(", ", names);
     }
 
     private async Task LoadMaintenanceSettings()
@@ -2337,6 +2428,12 @@
         maintenanceOperatorMessage = settings.Message;
         maintenanceDefaultMessage = settings.DefaultMessage;
         maintenanceAvailableApps = settings.AvailableApps;
+        maintenanceAvailableAudiences = settings.AvailableAudiences;
+
+        // Unlike the apps, an empty audience list is not "everybody" — the API resolves it to the
+        // phones, which is what this switch covered before audiences existed. Ticking what it
+        // actually sent keeps the screen and the lockout saying the same thing.
+        maintenanceSelectedAudiences = new HashSet<string>(settings.Audiences, StringComparer.OrdinalIgnoreCase);
 
         // An empty AppIds means every app, and the ticks have to say so — an operator who opened
         // the page on a blanket lockout and saw nothing ticked would read it as covering nothing.
@@ -2357,6 +2454,18 @@
             .OrderBy(minutes => Math.Abs(minutes - remainingMinutes))
             .First();
 
+    private void ToggleMaintenanceAudience(string audience, bool isSelected)
+    {
+        if (isSelected)
+        {
+            maintenanceSelectedAudiences.Add(audience);
+        }
+        else
+        {
+            maintenanceSelectedAudiences.Remove(audience);
+        }
+    }
+
     private void ToggleMaintenanceApp(string appId, bool isSelected)
     {
         if (isSelected)
@@ -2376,6 +2485,18 @@
 
         try
         {
+            // Caught here rather than at the API, because the API cannot tell "the operator ticked
+            // nobody" from "an older caller sent no audiences at all" and resolves both to the
+            // phones. Saved, that would be a lockout on the vans that nobody asked for, under a
+            // screen showing every box unticked.
+            if (maintenanceEnabled && maintenanceSelectedAudiences.Count == 0)
+            {
+                maintenanceSaveSucceeded = false;
+                maintenanceMessage = "Tick at least one of Mobile apps, Web portal or Tills and integrations — "
+                    + "otherwise maintenance mode would be on and stop nothing.";
+                return;
+            }
+
             // Every app ticked is the same lockout as none named, and the empty form is the one
             // that keeps covering an app added to the catalogue later.
             var everyAppTicked = maintenanceSelectedApps.Count == maintenanceAvailableApps.Count;
@@ -2384,6 +2505,7 @@
             {
                 Enabled = maintenanceEnabled,
                 Scope = maintenanceScope,
+                Audiences = maintenanceSelectedAudiences.ToList(),
                 Message = maintenanceOperatorMessage,
                 AppIds = everyAppTicked ? null : maintenanceSelectedApps.ToList(),
                 EndsAtUtc = maintenanceEnabled && maintenanceDurationMinutes > 0
@@ -2409,8 +2531,9 @@
                 await LogAudit(
                     AuditActions.UpdateSettings,
                     maintenanceEnabled
-                        ? $"Turned mobile maintenance mode on ({maintenanceScope})"
-                        : "Turned mobile maintenance mode off");
+                        ? $"Turned maintenance mode on ({maintenanceScope}) for "
+                          + $"{string.Join(", ", maintenanceSelectedAudiences)}"
+                        : "Turned maintenance mode off");
             }
         }
         catch (Exception ex)

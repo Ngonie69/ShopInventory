@@ -88,7 +88,7 @@ Examples:
   - [Fiscal Device Offline Leases](#45-fiscal-device-offline-leases)
   - [Batches](#46-batches)
   - [App Version](#47-app-version)
-  - [Mobile Maintenance](#47a-mobile-maintenance)
+  - [Maintenance Mode](#47a-maintenance-mode)
   - [Purchasing Documents](#48-purchasing-documents)
   - [Van Sales Customer Ordering](#49-van-sales-customer-ordering)
   - [Credit Note Approvals (SAP)](#50-credit-note-approvals-sap)
@@ -4671,23 +4671,66 @@ why, and a build too old to authenticate is exactly the one that needs the answe
 
 ---
 
-### 47a. Mobile Maintenance
+### 47a. Maintenance Mode
 
 **Base route:** `/api/Maintenance`
 **Auth:** anonymous on the status route, `AdminOnly` on the settings
 
-The switch that stops the Android apps transacting while the system is being worked on — a database
-restore, a schema migration, an SAP outage being cleared. It is deliberately narrow: the web app,
-the desktop tills and the integrations are never affected, because the people using those can be
-told maintenance is running, and the handsets are in vans.
+The switch that freezes transactions while the system is being worked on — a database restore, a
+schema migration, an SAP outage being cleared. An operator picks who it applies to, so it can stop
+the vans for a stock take without stopping the office, or stop everything for a restore.
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/Maintenance/mobile/status` | **anonymous** | Whether the calling app is locked out, and what to tell its user |
-| GET | `/api/Maintenance/mobile` | **AdminOnly** | The stored lockout |
-| PUT | `/api/Maintenance/mobile` | **AdminOnly** | Turn it on or off |
+| GET | `/api/Maintenance/status` | **anonymous** | Whether the *calling* client is locked out, and what to tell its user |
+| GET | `/api/Maintenance` | **AdminOnly** | The stored lockout |
+| PUT | `/api/Maintenance` | **AdminOnly** | Turn it on or off |
 
-#### What a locked-out app gets
+`/api/Maintenance/mobile/status` and `/api/Maintenance/mobile` are the same three endpoints under
+the names the shipped Android builds already call. They are kept, not deprecated: the apps ship on
+their own schedule through the Play console.
+
+Every route on this controller is exempt from the lockout itself, under either scope and every
+audience. A lockout that froze the switch that lifts it would have to be cleared with a SQL
+statement against the database somebody was in the middle of restoring.
+
+#### Who it applies to
+
+`audiences` names who is frozen. The three partition the traffic — every request the API serves is
+exactly one of them — so ticking all three genuinely stops everything, and nothing can fall between
+them.
+
+| Audience | Who | Recognised by |
+|----------|-----|---------------|
+| `MobileApps` | The Android handsets: van sales, POD, customer orders | `X-App-Platform: android`, or no platform plus `X-App-Version`/`X-Device-Model` |
+| `WebPortal` | The office web portal, including its background cache syncs | `X-Client-App: web-portal`, which `ShopInventory.Web` puts on every API client |
+| `OtherClients` | The KefShop tills, the transfer listener, the fiscalisation tool, the customer portal, scripts | Everything else |
+
+Phones are decided first, so a caller sending Android headers is a handset whatever else it claims.
+`OtherClients` is a catch-all rather than a list because the till is in another repository and sends
+nothing that identifies it — an audience that tried to name its callers would keep trading through a
+lockout that claimed to have stopped it. It is blunt, and off by default: turning it on stops the
+transfer listener and the fiscal feeds along with the tills.
+
+Absent or empty `audiences` means `MobileApps`, which is what this switch covered before audiences
+existed. A stored lockout from before then is read the same way, so an upgrade never widens a
+running lockout.
+
+#### Admins keep working in the portal
+
+While `WebPortal` is frozen, a request carrying a signed-in **Admin**'s token is let through.
+Somebody has to be able to correct the row that caused the maintenance and see whether it is fixed,
+and it is the same person who threw the switch.
+
+The role is read from the **user's own identity**, never from the merged principal. `ShopInventory.Web`
+sends its `X-API-Key` and the signed-in user's token on the same request, and the key's identity
+carries `Admin` — asked of the whole principal, the exemption would fire for every portal user and
+the freeze would stop nobody. This is the same trap
+[`ActingUserRoleAuthorizationHandler`](#authorization) exists for.
+
+The exemption is `WebPortal` only. A handset held by an admin is still a handset in a van.
+
+#### What a locked-out client gets
 
 Every refused request answers **`503`** with `Retry-After` and this body, which is the same flat
 shape `/api/AppVersion/mobile` uses when it blocks an out-of-date build:
@@ -4698,6 +4741,7 @@ shape `/api/AppVersion/mobile` uses when it blocks an out-of-date build:
   "message": "Down for the stock migration until 20:00.",
   "maintenance": true,
   "scope": "Transactions",
+  "audience": "WebPortal",
   "endsAtUtc": "2026-09-22T20:00:00Z",
   "retryAfterSeconds": 1800,
   "checkedAtUtc": "2026-09-22T19:30:00Z"
@@ -4721,29 +4765,33 @@ Reads that this API exposes as POSTs because their filter is a body keep working
 `/api/stock/warehouse/{warehouseCode}/sales` and the two `pods/validate-bulk` routes. Any other POST,
 PUT, PATCH or DELETE counts as a transaction, including a route added after this was written.
 
-Signing in, the version check and the status route above stay reachable under either scope. An app
-that could not sign in would show its user a failed login, and they would read that as their
+Signing in, the version check and every route on this controller stay reachable under either scope.
+An app that could not sign in would show its user a failed login, and they would read that as their
 password being wrong rather than as maintenance.
 
-#### Recognising a mobile app
+Under `Transactions` the portal is judged by the same rule as the phones, so the office's searches
+that are POSTs because their filter is a body are refused along with its writes. That is the safe
+direction, and the banner says so: "you can look, but not save".
 
-The lockout applies to a caller that names `android` on `X-App-Platform`, or that names no platform
-at all but carries `X-App-Version` or `X-Device-Model`. That is the same rule the version policy has
-enforced since it shipped; the Web sends none of the three and is never mistaken for a handset.
+#### Narrowing the mobile audience
 
-`X-App-Id` narrows a lockout to named apps (`cheeseman-driver`, `kefalos-so`, `kefalos-vansales`,
-`kefalos-customer-orders`). A handset too old to send one is covered by a lockout that names no apps
-and is not covered by one that does — a blanket lockout must not be escapable by an app that declines
-to identify itself, and a lockout aimed at van sales must not take down the POD app because a handset
-could not say which one it was.
+`appIds` narrows a lockout to named apps (`cheeseman-driver`, `kefalos-so`, `kefalos-vansales`,
+`kefalos-customer-orders`). It narrows `MobileApps` **only**, and has no bearing on the portal or the
+tills: a lockout on van sales and the web portal still takes the whole portal.
+
+A handset too old to send `X-App-Id` is covered by a lockout that names no apps and is not covered by
+one that does — a blanket lockout must not be escapable by an app that declines to identify itself,
+and a lockout aimed at van sales must not take down the POD app because a handset could not say which
+one it was.
 
 #### Setting it
 
 ```json
-PUT /api/Maintenance/mobile
+PUT /api/Maintenance
 {
   "enabled": true,
   "scope": "Transactions",
+  "audiences": ["MobileApps", "WebPortal"],
   "message": "Down for the stock migration until 20:00.",
   "appIds": [],
   "endsAtUtc": "2026-09-22T20:00:00Z"
@@ -4756,11 +4804,14 @@ the switch back — which is what stops the vans being locked out at 08:00 becau
 02:00 and whoever started it went to bed. An `endsAtUtc` already in the past is rejected rather than
 stored, because it would show on the settings screen as a running lockout while refusing nothing.
 
-The state lives in `SystemConfigs` under `Mobile.Maintenance.*`, not in configuration, so throwing
-the switch needs no deployment and no app pool recycle. Each API node serves it from a snapshot it
+The state lives in `SystemConfigs` under `Maintenance.*`, not in configuration, so throwing the
+switch needs no deployment and no app pool recycle. Rows written before audiences existed are named
+`Mobile.Maintenance.*`; those are read as a fallback and never written, so a lockout that is on
+survives the deployment that introduces this. Each API node serves the switch from a snapshot it
 refreshes every 5 seconds, so a change reaches every node within that window; the node handling the
-write applies it at once. `ShopInventory.Web` drives all of this from **Settings → Mobile App →
-Maintenance Mode**.
+write applies it at once. `ShopInventory.Web` drives all of this from **Settings → General →
+Maintenance Mode**, and shows a banner on every page while a lockout that covers the portal is
+running.
 
 ---
 

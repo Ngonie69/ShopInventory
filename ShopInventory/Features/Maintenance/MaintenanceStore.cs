@@ -20,20 +20,46 @@ public sealed class MaintenanceStore : IMaintenanceStore
     /// </remarks>
     public static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
 
-    public const string EnabledKey = "Mobile.Maintenance.Enabled";
-    public const string ScopeKey = "Mobile.Maintenance.Scope";
-    public const string MessageKey = "Mobile.Maintenance.Message";
-    public const string AppsKey = "Mobile.Maintenance.Apps";
-    public const string StartedAtKey = "Mobile.Maintenance.StartedAtUtc";
-    public const string EndsAtKey = "Mobile.Maintenance.EndsAtUtc";
-    public const string UpdatedByKey = "Mobile.Maintenance.UpdatedBy";
+    public const string EnabledKey = "Maintenance.Enabled";
+    public const string ScopeKey = "Maintenance.Scope";
+    public const string AudiencesKey = "Maintenance.Audiences";
+    public const string MessageKey = "Maintenance.Message";
+    public const string AppsKey = "Maintenance.Apps";
+    public const string StartedAtKey = "Maintenance.StartedAtUtc";
+    public const string EndsAtKey = "Maintenance.EndsAtUtc";
+    public const string UpdatedByKey = "Maintenance.UpdatedBy";
+
+    /// <summary>
+    /// What each key was called while the lockout only covered the phones.
+    /// </summary>
+    /// <remarks>
+    /// Read from, never written to. Without this, the deployment that brings audiences in would
+    /// read none of its keys, find the lockout off, and let the phones straight back in — on a
+    /// system somebody had deliberately stopped, most likely in order to deploy. One read of a
+    /// second set of rows is a small price for the switch surviving its own upgrade.
+    /// </remarks>
+    private static readonly Dictionary<string, string> LegacyKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [EnabledKey] = "Mobile.Maintenance.Enabled",
+        [AudiencesKey] =
+            "JSON array of the audiences the lockout applies to: MobileApps, WebPortal, OtherClients. "
+            + "Absent or empty means MobileApps, which is what this switch covered before audiences existed.",
+        [ScopeKey] = "Mobile.Maintenance.Scope",
+        [MessageKey] = "Mobile.Maintenance.Message",
+        [AppsKey] = "Mobile.Maintenance.Apps",
+        [StartedAtKey] = "Mobile.Maintenance.StartedAtUtc",
+        [EndsAtKey] = "Mobile.Maintenance.EndsAtUtc",
+        [UpdatedByKey] = "Mobile.Maintenance.UpdatedBy"
+    };
 
     private const string ConfigCategory = "Maintenance";
 
-    private static readonly string[] AllKeys =
+    private static readonly string[] CurrentKeys =
     [
-        EnabledKey, ScopeKey, MessageKey, AppsKey, StartedAtKey, EndsAtKey, UpdatedByKey
+        EnabledKey, ScopeKey, AudiencesKey, MessageKey, AppsKey, StartedAtKey, EndsAtKey, UpdatedByKey
     ];
+
+    private static readonly string[] AllKeys = [.. CurrentKeys, .. LegacyKeys.Values];
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MaintenanceStore> _logger;
@@ -84,7 +110,7 @@ public sealed class MaintenanceStore : IMaintenanceStore
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
         var rows = await context.SystemConfigs
-            .Where(config => AllKeys.Contains(config.Key))
+            .Where(config => CurrentKeys.Contains(config.Key))
             .ToListAsync(cancellationToken);
 
         var byKey = rows.ToDictionary(row => row.Key, StringComparer.OrdinalIgnoreCase);
@@ -110,10 +136,11 @@ public sealed class MaintenanceStore : IMaintenanceStore
         _snapshot = new Snapshot(state, _timeProvider.GetUtcNow());
 
         _logger.LogWarning(
-            "Mobile maintenance lockout set to {Enabled} ({Scope}) by {User}. Apps={Apps}, EndsAtUtc={EndsAtUtc}",
+            "Maintenance lockout set to {Enabled} ({Scope}) by {User}. Audiences={Audiences}, Apps={Apps}, EndsAtUtc={EndsAtUtc}",
             state.Enabled,
             state.Scope,
             state.UpdatedBy ?? "unknown",
+            string.Join(",", state.ResolveAudiences()),
             state.AppIds.Count == 0 ? "all" : string.Join(",", state.AppIds),
             state.EndsAtUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "none");
     }
@@ -146,7 +173,7 @@ public sealed class MaintenanceStore : IMaintenanceStore
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not reload the mobile maintenance switch; keeping the current state.");
+                _logger.LogWarning(ex, "Could not reload the maintenance switch; keeping the current state.");
 
                 // Stamp the attempt so a database that is down is retried on the interval rather
                 // than on every single request.
@@ -175,6 +202,7 @@ public sealed class MaintenanceStore : IMaintenanceStore
         return new MaintenanceState(
             Enabled: ReadBool(values, EnabledKey),
             Scope: ReadScope(values),
+            Audiences: ReadAudiences(values),
             Message: ReadString(values, MessageKey),
             AppIds: ReadAppIds(values),
             StartedAtUtc: ReadDate(values, StartedAtKey),
@@ -186,6 +214,7 @@ public sealed class MaintenanceStore : IMaintenanceStore
     [
         (EnabledKey, state.Enabled ? "true" : "false", "bool"),
         (ScopeKey, state.Scope.ToString(), "string"),
+        (AudiencesKey, JsonSerializer.Serialize(state.ResolveAudiences().Select(audience => audience.ToString())), "json"),
         (MessageKey, state.Message?.Trim() ?? string.Empty, "string"),
         (AppsKey, JsonSerializer.Serialize(state.AppIds), "json"),
         (StartedAtKey, FormatDate(state.StartedAtUtc), "string"),
@@ -210,15 +239,19 @@ public sealed class MaintenanceStore : IMaintenanceStore
     private static readonly Dictionary<string, string> Descriptions = new(StringComparer.OrdinalIgnoreCase)
     {
         [EnabledKey] =
-            "Whether the mobile apps are locked out for maintenance. On, the API refuses what the scope says "
-            + "and answers 503 with the message below.",
+            "Whether a maintenance lockout is running. On, the API refuses what the scope says, from the "
+            + "audiences below, and answers 503 with the message below.",
+        [AudiencesKey] =
+            "JSON array of the audiences the lockout applies to: MobileApps, WebPortal, OtherClients. "
+            + "Absent or empty means MobileApps, which is what this switch covered before audiences existed.",
         [ScopeKey] =
             "Transactions (the default) refuses anything that changes something and leaves reads working. "
             + "All refuses reads too, leaving only signing in and the status check.",
-        [MessageKey] = "What the apps show while the lockout is on. Blank uses the built-in wording.",
+        [MessageKey] = "What the clients show while the lockout is on. Blank uses the built-in wording.",
         [AppsKey] =
-            "JSON array of app keys the lockout covers. An empty array covers every app, which is the usual case. "
-            + "Keys: " + "cheeseman-driver, kefalos-so, kefalos-vansales, kefalos-customer-orders.",
+            "JSON array of app keys the MobileApps audience is narrowed to. An empty array covers every app, which "
+            + "is the usual case, and it has no bearing on the other audiences. "
+            + "Keys: cheeseman-driver, kefalos-so, kefalos-vansales, kefalos-customer-orders.",
         [StartedAtKey] = "When the lockout was switched on (UTC, ISO 8601). Informational.",
         [EndsAtKey] =
             "When the lockout lifts on its own (UTC, ISO 8601). Blank means it stays on until somebody turns it off. "
@@ -226,9 +259,26 @@ public sealed class MaintenanceStore : IMaintenanceStore
         [UpdatedByKey] = "Who last changed the switch."
     };
 
+    /// <summary>
+    /// The stored value for a key, falling back to what that key used to be called.
+    /// </summary>
+    private static string? ReadRaw(IReadOnlyDictionary<string, string?> values, string key)
+    {
+        if (values.TryGetValue(key, out var raw) && !string.IsNullOrWhiteSpace(raw))
+        {
+            return raw;
+        }
+
+        return LegacyKeys.TryGetValue(key, out var legacyKey)
+            && values.TryGetValue(legacyKey, out var legacy)
+            && !string.IsNullOrWhiteSpace(legacy)
+                ? legacy
+                : null;
+    }
+
     private bool ReadBool(IReadOnlyDictionary<string, string?> values, string key)
     {
-        if (!values.TryGetValue(key, out var raw) || string.IsNullOrWhiteSpace(raw))
+        if (ReadRaw(values, key) is not { } raw)
         {
             return false;
         }
@@ -236,7 +286,7 @@ public sealed class MaintenanceStore : IMaintenanceStore
         if (!bool.TryParse(raw, out var parsed))
         {
             _logger.LogWarning(
-                "{Key} is {Value}, which is not true or false. Treating the mobile maintenance lockout as off.",
+                "{Key} is {Value}, which is not true or false. Treating the maintenance lockout as off.",
                 key, raw);
             return false;
         }
@@ -246,7 +296,7 @@ public sealed class MaintenanceStore : IMaintenanceStore
 
     private MaintenanceScope ReadScope(IReadOnlyDictionary<string, string?> values)
     {
-        if (!values.TryGetValue(ScopeKey, out var raw) || string.IsNullOrWhiteSpace(raw))
+        if (ReadRaw(values, ScopeKey) is not { } raw)
         {
             return MaintenanceScope.Transactions;
         }
@@ -264,7 +314,7 @@ public sealed class MaintenanceStore : IMaintenanceStore
     }
 
     private static string? ReadString(IReadOnlyDictionary<string, string?> values, string key) =>
-        values.TryGetValue(key, out var raw) && !string.IsNullOrWhiteSpace(raw) ? raw.Trim() : null;
+        ReadRaw(values, key)?.Trim();
 
     private DateTime? ReadDate(IReadOnlyDictionary<string, string?> values, string key)
     {
@@ -296,6 +346,48 @@ public sealed class MaintenanceStore : IMaintenanceStore
             DateTimeKind.Local => parsed.ToUniversalTime(),
             _ => DateTime.SpecifyKind(parsed, DateTimeKind.Utc)
         };
+    }
+
+    /// <summary>
+    /// The audiences the lockout is aimed at, dropping anything this build does not know.
+    /// </summary>
+    /// <remarks>
+    /// A row with no audiences — absent, empty, or naming only things that no longer exist — reads
+    /// as the phones, which is what the switch covered before audiences existed and what an
+    /// upgraded deployment should therefore keep doing. Widening to everything instead would turn
+    /// a lockout somebody left running on the vans into one that also stopped the office.
+    /// </remarks>
+    private List<MaintenanceAudience> ReadAudiences(IReadOnlyDictionary<string, string?> values)
+    {
+        var raw = ReadString(values, AudiencesKey);
+        if (raw is null)
+        {
+            return [.. MaintenanceAudiences.Default];
+        }
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<List<string>>(raw);
+            if (parsed is null)
+            {
+                return [.. MaintenanceAudiences.Default];
+            }
+
+            var resolved = parsed
+                .Select(entry => MaintenanceAudiences.TryParse(entry, out var audience) ? audience : (MaintenanceAudience?)null)
+                .Where(audience => audience is not null)
+                .Select(audience => audience!.Value)
+                .Distinct()
+                .ToList();
+
+            return resolved.Count == 0 ? [.. MaintenanceAudiences.Default] : resolved;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(
+                ex, "{Key} is not a JSON array of strings. Treating the lockout as covering the mobile apps.", AudiencesKey);
+            return [.. MaintenanceAudiences.Default];
+        }
     }
 
     /// <summary>

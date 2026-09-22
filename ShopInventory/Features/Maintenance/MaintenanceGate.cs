@@ -6,8 +6,9 @@ namespace ShopInventory.Features.Maintenance;
 /// <remarks>
 /// Pure, static and free of <c>HttpContext</c> so that the rule can be tested as a rule. The
 /// middleware is then only plumbing — read the headers, ask this, write the 503 — and the cases
-/// that matter (a phone during a lockout, a phone reading during a lockout, the Web during a
-/// lockout, a phone once the window has passed) are unit tests rather than a deployment.
+/// that matter (a phone during a lockout, a phone reading during a lockout, the portal during a
+/// lockout aimed only at phones, an admin during a lockout aimed at the portal, anyone once the
+/// window has passed) are unit tests rather than a deployment.
 /// </remarks>
 public static class MaintenanceGate
 {
@@ -21,6 +22,11 @@ public static class MaintenanceGate
     /// stay open so the app can find out that it is a lockout and when it lifts; push registration
     /// stays open so the phone can still be told when it is over; health stays open because it is
     /// not the app's to be refused.
+    ///
+    /// /api/maintenance covers the whole controller rather than only its status endpoint, which is
+    /// what makes the switch reachable to turn off. A lockout that froze the portal and then froze
+    /// the screen that lifts it would have to be cleared with a SQL statement against the database
+    /// somebody was in the middle of restoring.
     /// </remarks>
     private static readonly string[] AlwaysAllowedPrefixes =
     [
@@ -30,7 +36,7 @@ public static class MaintenanceGate
         "/api/van-sales-customer/auth",
         "/api/vansales/auth",
         "/api/appversion",
-        "/api/maintenance/mobile/status",
+        "/api/maintenance",
         "/api/pushnotification/register",
         "/api/pushnotification/unregister",
         "/api/health",
@@ -70,33 +76,54 @@ public static class MaintenanceGate
     /// <summary>How long a phone is told to wait when no end time was set.</summary>
     public static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// Whether this one request gets through.
+    /// </summary>
+    /// <param name="state">The lockout as an operator set it.</param>
+    /// <param name="nowUtc">Now, so a window that has run out stops applying.</param>
+    /// <param name="caller">Which audience the request belongs to, and which app if it is a phone.</param>
+    /// <param name="callerIsExemptAdmin">
+    /// Whether an Admin is behind this request. Only ever true where the caller has been
+    /// authenticated, and only ever consulted for the web portal — see
+    /// <see cref="MaintenanceAdminExemption"/>.
+    /// </param>
+    /// <param name="method">The HTTP method.</param>
+    /// <param name="path">The request path.</param>
     public static MaintenanceDecision Evaluate(
         MaintenanceState state,
         DateTime nowUtc,
-        bool isMobileApp,
-        string? policyKey,
+        MaintenanceCaller caller,
+        bool callerIsExemptAdmin,
         string method,
         string path)
     {
-        // The Web, the desktop till and the integrations are not what this switch is for. They are
-        // driven by people who can be told maintenance is running; the phones are in vans.
-        if (!isMobileApp)
-        {
-            return MaintenanceDecision.Allowed;
-        }
-
         if (!state.IsActiveAt(nowUtc))
         {
             return MaintenanceDecision.Allowed;
         }
 
-        if (!state.CoversApp(policyKey))
+        if (!state.CoversAudience(caller.Audience))
+        {
+            return MaintenanceDecision.Allowed;
+        }
+
+        // Naming apps narrows the phones and nothing else. A lockout on van sales and the web
+        // portal must still take the whole portal, which has no app id to be narrowed by.
+        if (caller.Audience == MaintenanceAudience.MobileApps && !state.CoversApp(caller.PolicyKey))
         {
             return MaintenanceDecision.Allowed;
         }
 
         var normalizedPath = Normalize(path);
         if (IsAlwaysAllowed(normalizedPath))
+        {
+            return MaintenanceDecision.Allowed;
+        }
+
+        // Asked here rather than in the middleware so that "which audiences have an exemption" is a
+        // rule with a test rather than a property of where the code happens to run. A phone held by
+        // an admin is still a phone in a van, and the lockout is about the van.
+        if (callerIsExemptAdmin && caller.Audience == MaintenanceAudience.WebPortal)
         {
             return MaintenanceDecision.Allowed;
         }

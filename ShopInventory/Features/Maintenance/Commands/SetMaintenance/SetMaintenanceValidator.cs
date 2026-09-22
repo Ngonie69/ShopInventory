@@ -21,6 +21,10 @@ public sealed class SetMaintenanceValidator : AbstractValidator<SetMaintenanceCo
             .MaximumLength(MaxMessageLength)
             .WithMessage($"The maintenance message must be {MaxMessageLength} characters or fewer.");
 
+        RuleForEach(x => x.Request.Audiences)
+            .Must(MaintenanceAudiences.IsSupported)
+            .WithMessage("'{PropertyValue}' is not an audience this system knows about.");
+
         RuleForEach(x => x.Request.AppIds)
             .Must(MobileVersionPolicyAppCatalog.IsSupportedPolicyKey)
             .WithMessage("'{PropertyValue}' is not a mobile app this system knows about.");

@@ -1119,6 +1119,40 @@
     color: var(--stg-t-45);
 }
 
+/* An audience tick box carries its own explanation, because "Tills and integrations"
+   is not self-explanatory and the consequence of ticking it wrongly is that something
+   stops trading. Two stacked lines rather than a title attribute: the person reading
+   this is in a hurry and will not hover. Both colours are tokens, so the block follows
+   the theme without a second rule under .dark-theme. */
+.stg-check-block {
+    align-items: flex-start;
+    padding: var(--stg-space-2) 0;
+}
+
+.stg-check-block > span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.stg-check-block strong {
+    font-weight: 600;
+    color: var(--stg-text);
+}
+
+.stg-check-block em {
+    font-style: normal;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--stg-t-52);
+}
+
+.stg-check-block:has(input:disabled) strong,
+.stg-check-block:has(input:disabled) em {
+    color: var(--stg-t-45);
+}
+
 .stg-chips {
     display: flex;
     flex-wrap: wrap;

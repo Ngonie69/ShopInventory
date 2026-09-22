@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -163,10 +164,12 @@ public sealed class MaintenanceMiddlewareTests
     private static MaintenanceState Lockout(
         MaintenanceScope scope = MaintenanceScope.Transactions,
         IReadOnlyList<string>? apps = null,
+        IReadOnlyList<MaintenanceAudience>? audiences = null,
         DateTime? endsAtUtc = null) =>
         new(
             Enabled: true,
             Scope: scope,
+            Audiences: audiences ?? [MaintenanceAudience.MobileApps],
             Message: "Down for the stock migration.",
             AppIds: apps ?? [],
             StartedAtUtc: Now.AddMinutes(-5),
@@ -180,7 +183,9 @@ public sealed class MaintenanceMiddlewareTests
         MaintenanceState state,
         IDictionary<string, string> headers,
         string method = "GET",
-        string path = "/api/product")
+        string path = "/api/product",
+        MaintenanceStage stage = MaintenanceStage.BeforeAuthentication,
+        ClaimsPrincipal? user = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Method = method;
@@ -188,6 +193,11 @@ public sealed class MaintenanceMiddlewareTests
         foreach (var (name, value) in headers)
         {
             context.Request.Headers[name] = value;
+        }
+
+        if (user is not null)
+        {
+            context.User = user;
         }
 
         var responseBody = new MemoryStream();
@@ -203,7 +213,8 @@ public sealed class MaintenanceMiddlewareTests
             },
             logger,
             new StubStore(state),
-            new FixedClock(Now));
+            new FixedClock(Now),
+            stage);
 
         await middleware.InvokeAsync(context);
 
@@ -218,6 +229,112 @@ public sealed class MaintenanceMiddlewareTests
             context.Response.Headers.RetryAfter.FirstOrDefault(),
             body,
             logger.Messages);
+    }
+
+    [Fact]
+    public async Task The_portal_is_not_judged_before_authentication()
+    {
+        // The stage split, stated as a test. Judged early, the portal would be refused before
+        // anyone had established whether an Admin was behind the request, and the exemption would
+        // never fire — a lockout that stopped the people running the maintenance.
+        var result = await InvokeAsync(
+            Lockout(audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.BeforeAuthentication);
+
+        Assert.True(result.ReachedTheApi);
+    }
+
+    [Fact]
+    public async Task The_portal_is_refused_after_authorization()
+    {
+        var result = await InvokeAsync(
+            Lockout(audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.AfterAuthorization);
+
+        Assert.False(result.ReachedTheApi);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
+        Assert.Equal("WebPortal", result.Body.GetProperty("audience").GetString());
+    }
+
+    [Fact]
+    public async Task A_phone_is_not_judged_again_after_authorization()
+    {
+        // The other half of the split. Judged twice, a refusal would be logged twice and read as
+        // two attempts — and the second stage runs after authentication, which is the database
+        // work the early stage exists to avoid.
+        var result = await InvokeAsync(
+            Lockout(),
+            Phone(),
+            method: "POST",
+            path: "/api/vansales/sales",
+            stage: MaintenanceStage.AfterAuthorization);
+
+        Assert.True(result.ReachedTheApi);
+    }
+
+    [Fact]
+    public async Task An_admin_passes_through_a_frozen_portal()
+    {
+        var result = await InvokeAsync(
+            Lockout(MaintenanceScope.All, audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.AfterAuthorization,
+            user: SignedInAs("Admin"));
+
+        Assert.True(result.ReachedTheApi);
+    }
+
+    [Fact]
+    public async Task The_api_keys_own_admin_role_does_not_exempt_the_user_behind_it()
+    {
+        // The trap this feature had to step around. The Web sends its X-API-Key and the signed-in
+        // user's token together, and the key's identity carries Admin — so asking the merged
+        // principal would exempt a cashier and the freeze would stop nobody at all.
+        var result = await InvokeAsync(
+            Lockout(MaintenanceScope.All, audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.AfterAuthorization,
+            user: WebRequestWithApiKeyAndUser("Cashier"));
+
+        Assert.False(result.ReachedTheApi);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
+    }
+
+    private static readonly Dictionary<string, string> WebPortalHeaders = new()
+    {
+        ["X-Client-App"] = "web-portal"
+    };
+
+    private static ClaimsPrincipal SignedInAs(string role) =>
+        new(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "ApiBearer"));
+
+    /// <summary>
+    /// What the API actually sees on a call from the Web: the key's identity, carrying Admin, and
+    /// the signed-in user's beside it.
+    /// </summary>
+    private static ClaimsPrincipal WebRequestWithApiKeyAndUser(string userRole)
+    {
+        var key = new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Role, "Admin"),
+                new Claim(ClaimTypes.AuthenticationMethod, "ApiKey"),
+                new Claim("api_key_name", "MainIntegration")
+            ],
+            "ApiKey");
+
+        var user = new ClaimsIdentity([new Claim(ClaimTypes.Role, userRole)], "ApiBearer");
+
+        return new ClaimsPrincipal([key, user]);
     }
 
     /// <summary>Keeps the rendered log messages so a test can assert on what was written.</summary>

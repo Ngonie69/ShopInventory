@@ -5,11 +5,11 @@ namespace ShopInventory.Tests;
 /// <summary>
 /// The rule the maintenance lockout comes down to: may this one request through?
 ///
-/// The feature is a switch an operator throws before a migration so that no handset in a van posts
-/// an invoice into a database that is being restored. Two ways it could fail are worth more than
-/// the rest: letting a transaction through while it is on, and taking away more than it should —
-/// a driver who cannot look up a price for the next four hours is a field outage, not maintenance.
-/// Most of what follows is one or the other.
+/// The feature is a switch an operator throws before a migration so that nothing posts into a
+/// database that is being restored. Three ways it could fail are worth more than the rest: letting
+/// a transaction through while it is on, taking away more than it should — a driver who cannot look
+/// up a price for the next four hours is a field outage, not maintenance — and reaching an audience
+/// nobody ticked. Most of what follows is one of the three.
 /// </summary>
 public sealed class MaintenanceGateTests
 {
@@ -18,10 +18,12 @@ public sealed class MaintenanceGateTests
     private static MaintenanceState On(
         MaintenanceScope scope = MaintenanceScope.Transactions,
         IReadOnlyList<string>? apps = null,
+        IReadOnlyList<MaintenanceAudience>? audiences = null,
         DateTime? endsAtUtc = null) =>
         new(
             Enabled: true,
             Scope: scope,
+            Audiences: audiences ?? [MaintenanceAudience.MobileApps],
             Message: "Down for the stock migration until 20:00.",
             AppIds: apps ?? [],
             StartedAtUtc: Now.AddMinutes(-5),
@@ -32,10 +34,17 @@ public sealed class MaintenanceGateTests
         MaintenanceState state,
         string method,
         string path,
-        bool isMobileApp = true,
+        MaintenanceAudience audience = MaintenanceAudience.MobileApps,
         string? policyKey = "kefalos-vansales",
+        bool isAdmin = false,
         DateTime? nowUtc = null) =>
-        MaintenanceGate.Evaluate(state, nowUtc ?? Now, isMobileApp, policyKey, method, path);
+        MaintenanceGate.Evaluate(
+            state,
+            nowUtc ?? Now,
+            new MaintenanceCaller(audience, policyKey),
+            isAdmin,
+            method,
+            path);
 
     [Fact]
     public void With_the_switch_off_a_phone_transacts_as_usual()
@@ -124,12 +133,94 @@ public sealed class MaintenanceGateTests
     }
 
     [Fact]
-    public void The_web_and_the_desktop_till_are_never_locked_out()
+    public void A_lockout_on_the_phones_leaves_the_portal_and_the_tills_trading()
     {
-        // This switch is for handsets in vans. The people at desks can be told.
-        var decision = Evaluate(On(MaintenanceScope.All), "POST", "/api/vansales/sales", isMobileApp: false);
+        // The audiences are the whole point: freezing the vans for a stock take must not stop the
+        // office invoicing, and before audiences existed this was the only behaviour there was.
+        var state = On(MaintenanceScope.All);
 
-        Assert.False(decision.IsBlocked);
+        Assert.False(Evaluate(state, "POST", "/api/invoice", MaintenanceAudience.WebPortal).IsBlocked);
+        Assert.False(Evaluate(state, "POST", "/api/desktopintegration/invoices", MaintenanceAudience.OtherClients).IsBlocked);
+    }
+
+    [Fact]
+    public void A_lockout_on_the_portal_refuses_the_portal_and_leaves_the_phones_trading()
+    {
+        var state = On(audiences: [MaintenanceAudience.WebPortal]);
+
+        Assert.True(Evaluate(state, "POST", "/api/invoice", MaintenanceAudience.WebPortal).IsBlocked);
+        Assert.False(Evaluate(state, "POST", "/api/vansales/sales").IsBlocked);
+    }
+
+    [Fact]
+    public void Ticking_every_audience_stops_everything()
+    {
+        // What "freeze all transactions" has to mean. Every request the API serves is one of these
+        // three, so if any of them got through here the screen would be lying.
+        var state = On(audiences: MaintenanceAudiences.All);
+
+        Assert.True(Evaluate(state, "POST", "/api/vansales/sales", MaintenanceAudience.MobileApps).IsBlocked);
+        Assert.True(Evaluate(state, "POST", "/api/invoice", MaintenanceAudience.WebPortal).IsBlocked);
+        Assert.True(Evaluate(state, "POST", "/api/desktopintegration/invoices", MaintenanceAudience.OtherClients).IsBlocked);
+    }
+
+    [Fact]
+    public void An_admin_keeps_transacting_while_the_portal_is_frozen()
+    {
+        // Somebody has to be able to fix the row that caused the maintenance, and it is the same
+        // person who threw the switch. Without this, freezing the portal freezes its own off switch
+        // in everything but name.
+        var state = On(MaintenanceScope.All, audiences: [MaintenanceAudience.WebPortal]);
+
+        Assert.False(Evaluate(state, "POST", "/api/invoice", MaintenanceAudience.WebPortal, isAdmin: true).IsBlocked);
+        Assert.True(Evaluate(state, "POST", "/api/invoice", MaintenanceAudience.WebPortal, isAdmin: false).IsBlocked);
+    }
+
+    [Fact]
+    public void The_admin_exemption_does_not_reach_the_phones_or_the_tills()
+    {
+        // A handset held by an admin is still a handset in a van, and the lockout is about the van.
+        // An exemption that followed the person rather than the audience would put the one account
+        // most likely to be signed in everywhere straight through a blanket freeze.
+        var state = On(audiences: MaintenanceAudiences.All);
+
+        Assert.True(Evaluate(state, "POST", "/api/vansales/sales", MaintenanceAudience.MobileApps, isAdmin: true).IsBlocked);
+        Assert.True(Evaluate(state, "POST", "/api/desktopintegration/invoices", MaintenanceAudience.OtherClients, isAdmin: true).IsBlocked);
+    }
+
+    [Fact]
+    public void Naming_apps_narrows_the_phones_and_nothing_else()
+    {
+        // The app list is a mobile-only filter. Read as a filter on everything, a lockout on van
+        // sales and the portal would leave the portal trading — which is the sort of thing nobody
+        // notices until the invoices are already in.
+        var state = On(apps: ["kefalos-vansales"], audiences: [MaintenanceAudience.MobileApps, MaintenanceAudience.WebPortal]);
+
+        Assert.True(Evaluate(state, "POST", "/api/invoice", MaintenanceAudience.WebPortal, policyKey: null).IsBlocked);
+        Assert.False(Evaluate(state, "POST", "/api/crates/pods", policyKey: "cheeseman-driver").IsBlocked);
+    }
+
+    [Fact]
+    public void The_switch_that_lifts_the_lockout_is_never_frozen()
+    {
+        // The recovery path. Frozen under an All lockout on the portal, this feature would have to
+        // be turned off with a SQL statement against the database somebody was restoring.
+        var state = On(MaintenanceScope.All, audiences: MaintenanceAudiences.All);
+
+        Assert.False(Evaluate(state, "GET", "/api/maintenance", MaintenanceAudience.WebPortal).IsBlocked);
+        Assert.False(Evaluate(state, "PUT", "/api/maintenance", MaintenanceAudience.WebPortal).IsBlocked);
+        Assert.False(Evaluate(state, "GET", "/api/maintenance/status", MaintenanceAudience.OtherClients).IsBlocked);
+    }
+
+    [Fact]
+    public void An_audience_nobody_ticked_falls_back_to_the_phones_rather_than_to_everybody()
+    {
+        // Only reachable from a hand-edited SystemConfigs row. Widening it to everything would turn
+        // somebody's van lockout into a company-wide one on the next restart.
+        var state = On(audiences: []);
+
+        Assert.True(Evaluate(state, "POST", "/api/vansales/sales").IsBlocked);
+        Assert.False(Evaluate(state, "POST", "/api/invoice", MaintenanceAudience.WebPortal).IsBlocked);
     }
 
     [Fact]
