@@ -22,7 +22,7 @@
                     <i class="ph ph-package" aria-hidden="true"></i>
                     <h1 class="mbk-title">Market Breakages</h1>
                 </div>
-                <p class="mbk-sub">Broken and expired stock vans swapped out at shops. Count what came back, then move it from the van to returns in SAP.</p>
+                <p class="mbk-sub">Stock broken or damaged in transit on the vans. Count what came back, then move it from the van to returns in SAP.</p>
             </div>
             <div class="mbk-head-actions">
                 <label class="mbk-search">
@@ -115,7 +115,7 @@
                             <button type="button" @key="report.Id" class="mbk-row @(isCurrent ? "is-on" : "")"
                                     aria-current="@(isCurrent ? "true" : null)" @onclick="() => PickAsync(report.Id)">
                                 <span class="mbk-row-line">
-                                    <span class="mbk-row-shop">@(report.CardName ?? report.CardCode ?? "No shop recorded")</span>
+                                    <span class="mbk-row-shop">@(report.CardName ?? report.CardCode ?? "In transit")</span>
                                     <span class="mbk-row-units">@UnitsText(report.TotalConfirmedQuantity ?? report.TotalReportedQuantity)</span>
                                 </span>
                                 <span class="mbk-row-line mbk-row-meta">
@@ -196,13 +196,13 @@
                         </button>
                         <div class="mbk-detail-titles">
                             <div class="mbk-detail-titlerow">
-                                <h2 class="mbk-detail-title">@(detail.CardName ?? detail.CardCode ?? "No shop recorded")</h2>
+                                <h2 class="mbk-detail-title">@(detail.CardName ?? detail.CardCode ?? "In transit")</h2>
                                 <span class="mbk-pill @StatusModifier(detail.Status)">
                                     <span class="mbk-dot" aria-hidden="true"></span>@StatusLabel(detail.Status)
                                 </span>
                             </div>
                             <span class="mbk-detail-sub">
-                                Report #@detail.Id@(string.IsNullOrWhiteSpace(detail.CardCode) || detail.CardName is null ? "" : $" · {detail.CardCode}") · collected @FormatStamp(detail.CapturedAtUtc)
+                                Report #@detail.Id@(string.IsNullOrWhiteSpace(detail.CardCode) || detail.CardName is null ? "" : $" · {detail.CardCode}") · reported @FormatStamp(detail.CapturedAtUtc)
                             </span>
                         </div>
                         <dl class="mbk-who">

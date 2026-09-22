@@ -154,7 +154,7 @@ public static class Permissions
     // users.edit, which the route endpoints used to borrow and which also edits every user account.
     public const string ManageVanSalesRoutes = "vansales.routes.manage";
 
-    // Market breakages: broken stock a van collects back from shops. Reporting is the handset's and
+    // Market breakages: stock broken in transit on a van. Reporting is the handset's and
     // moves nothing; confirming posts a SAP transfer from the van to returns, so it is the office's.
     public const string ReportMarketBreakages = "vansales.breakages.report";
     public const string ConfirmMarketBreakages = "vansales.breakages.confirm";
@@ -293,7 +293,7 @@ public static class Permissions
                 new(ViewVanSalesAttendance, "View Van Sales Attendance", "View van sales check-in/check-out activity and departure compliance"),
                 new(FulfilVanSalesCustomerOrders, "Fulfil Van Sales Customer Orders", "See the orders a route's shops placed, record deliveries and turn orders into sales orders"),
                 new(ManageVanSalesRoutes, "Manage Van Sales Routes", "Create and edit selling routes and the stops on each route's plan"),
-                new(ReportMarketBreakages, "Report Market Breakages", "Report broken or damaged stock collected from shops, from the van sales handset"),
+                new(ReportMarketBreakages, "Report Market Breakages", "Report stock broken or damaged in transit, from the van sales handset"),
                 new(ConfirmMarketBreakages, "Confirm Market Breakages", "Count reported breakages and transfer them from the van to the returns warehouse, or reject them")
             },
             ["System"] = new()

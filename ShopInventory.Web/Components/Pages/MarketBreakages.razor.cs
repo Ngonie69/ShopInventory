@@ -12,7 +12,7 @@ using ShopInventory.Web.Services;
 namespace ShopInventory.Web.Components.Pages;
 
 /// <summary>
-/// Broken stock van reps collected back from shops, and the one thing the office does with a report:
+/// Stock broken in transit that van reps report, and the one thing the office does with a report:
 /// count what came off the van and confirm it into a transfer to returns, or reject it.
 /// </summary>
 /// <remarks>
@@ -505,8 +505,8 @@ public partial class MarketBreakages : IDisposable
 
     private static string RowAgeText(MarketBreakageSummaryDto report)
         => MarketBreakageStatus.MayConfirm(report.Status)
-            ? $"Collected {AgeText(report.CapturedAtUtc)}"
-            : $"Collected {FormatDate(report.CapturedAtUtc)}";
+            ? $"Reported {AgeText(report.CapturedAtUtc)}"
+            : $"Reported {FormatDate(report.CapturedAtUtc)}";
 
     private static string DiffText(decimal diff) => diff switch
     {

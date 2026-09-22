@@ -465,7 +465,7 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        @* Broken stock the vans bring back from shops: counted at the depot and
+                        @* Stock broken in transit on the vans: counted at the depot and
                            confirmed into a transfer to returns. The API gates it on
                            vansales.breakages.confirm, which exactly these roles hold. *@
                         <AuthorizeView Roles="@UserRoles.MarketBreakageRoles" Context="marketBreakageCtx">
