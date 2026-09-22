@@ -1,5 +1,7 @@
 # PostgreSQL HA On Windows With pgAdmin
 
+> **Current state (2026-09-22):** `10.10.10.58` is already streaming from `10.10.10.9` on PostgreSQL 17, so the version-mismatch notes below are historical. What is actually running, and how to recover, is in [disaster-recovery.md](disaster-recovery.md).
+
 ## What pgAdmin Is And Is Not
 
 pgAdmin is an administration client. It can connect to PostgreSQL servers, run queries, manage roles, inspect replication status, and help with backups or restores.

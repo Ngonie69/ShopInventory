@@ -5,6 +5,8 @@ Standby host: `10.10.10.58`
 
 This runbook gives the exact Windows PowerShell command sequence to turn `10.10.10.58` into a streaming standby for ShopInventory.
 
+> **Current state (2026-09-22):** `10.10.10.58` is already streaming from `10.10.10.9` on PostgreSQL 17, so the version-mismatch notes below are historical. What is actually running, and how to recover, is in [disaster-recovery.md](disaster-recovery.md).
+
 Critical prerequisite: physical standby replication requires the same PostgreSQL major version on both nodes.
 
 Current environment:
