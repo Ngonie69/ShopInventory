@@ -224,6 +224,29 @@ public sealed class SapUserAdministrationTests
     }
 
     /// <summary>
+    /// Production, 2026-09-22: SAP refused to unlock Dispatch with a bare "Internal error (-5002)
+    /// occurred" and empty details. That sentence gives the operator nothing to act on, so the
+    /// error sends them to the SAP client, which runs the same check and names what it objects to.
+    /// </summary>
+    [Fact]
+    public async Task Unlock_refused_without_a_reason_sends_the_operator_to_the_sap_client()
+    {
+        var sap = new RecordingSapClient([Account(53, "Dispatch", "Kefalos Dispatch", locked: true)])
+        {
+            LockWriteRefusal = "Internal error (-5002) occurred"
+        };
+        var audit = new RecordingAuditService();
+
+        var result = await UnlockHandler(sap, audit).Handle(new UnlockSapUserAccountCommand(53), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("SapUser.Unexplained", result.FirstError.Code);
+        Assert.Contains("Users - Setup", result.FirstError.Description);
+        Assert.Contains("Internal error (-5002) occurred", result.FirstError.Description);
+        Assert.Equal("Internal error (-5002) occurred", Assert.Single(audit.Entries).ErrorMessage);
+    }
+
+    /// <summary>
     /// The Web sends its integration key alongside the signed-in user's token, and the key's
     /// identity comes first — so the audit row is signed from the account, not from the name claim.
     /// </summary>
