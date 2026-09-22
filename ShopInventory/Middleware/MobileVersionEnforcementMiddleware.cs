@@ -9,11 +9,9 @@ public sealed class MobileVersionEnforcementMiddleware(
     IMobileVersionPolicyEvaluator evaluator
 )
 {
-    private const string AppIdHeaderName = "X-App-Id";
-    private const string PlatformHeaderName = "X-App-Platform";
-    private const string VersionHeaderName = "X-App-Version";
-    private const string DeviceModelHeaderName = "X-Device-Model";
-    private const string AndroidPlatform = "android";
+    private const string PlatformHeaderName = MobileClientRequest.PlatformHeaderName;
+    private const string VersionHeaderName = MobileClientRequest.VersionHeaderName;
+    private const string AndroidPlatform = MobileClientRequest.AndroidPlatform;
 
     public async Task InvokeAsync(HttpContext context)
     {
@@ -24,21 +22,16 @@ public sealed class MobileVersionEnforcementMiddleware(
             return;
         }
 
-        var platform = context.Request.Headers[PlatformHeaderName].FirstOrDefault();
-        var appId = context.Request.Headers[AppIdHeaderName].FirstOrDefault();
-        var currentVersion = context.Request.Headers[VersionHeaderName].FirstOrDefault();
-        var deviceModel = context.Request.Headers[DeviceModelHeaderName].FirstOrDefault();
-        var explicitlyTargetsAndroid = string.Equals(platform?.Trim(), AndroidPlatform, StringComparison.OrdinalIgnoreCase);
-        var hasMobileMetadata = !string.IsNullOrWhiteSpace(currentVersion)
-            || !string.IsNullOrWhiteSpace(deviceModel);
+        // Shared with the maintenance lockout rather than repeated here: two gates that disagree
+        // about what counts as a phone would leave a hole in whichever of them is stricter.
+        var client = MobileClientRequest.FromHeaders(context.Request.Headers);
+        var platform = client.Platform;
+        var appId = client.AppId;
+        var currentVersion = client.Version;
+        var deviceModel = client.DeviceModel;
+        var explicitlyTargetsAndroid = client.NamesAndroid;
 
-        if (!explicitlyTargetsAndroid && !string.IsNullOrWhiteSpace(platform))
-        {
-            await next(context);
-            return;
-        }
-
-        if (!explicitlyTargetsAndroid && !hasMobileMetadata)
+        if (!client.IsMobileApp)
         {
             await next(context);
             return;

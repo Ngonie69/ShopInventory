@@ -88,6 +88,7 @@ Examples:
   - [Fiscal Device Offline Leases](#45-fiscal-device-offline-leases)
   - [Batches](#46-batches)
   - [App Version](#47-app-version)
+  - [Mobile Maintenance](#47a-mobile-maintenance)
   - [Purchasing Documents](#48-purchasing-documents)
   - [Van Sales Customer Ordering](#49-van-sales-customer-ordering)
   - [Credit Note Approvals (SAP)](#50-credit-note-approvals-sap)
@@ -4667,6 +4668,99 @@ required or merely offered.
 `X-App-Version` **headers**, falling back to the `appId`, `platform` and `currentVersion` query
 parameters. It is anonymous on purpose: a build that has been locked out still has to be able to ask
 why, and a build too old to authenticate is exactly the one that needs the answer.
+
+---
+
+### 47a. Mobile Maintenance
+
+**Base route:** `/api/Maintenance`
+**Auth:** anonymous on the status route, `AdminOnly` on the settings
+
+The switch that stops the Android apps transacting while the system is being worked on — a database
+restore, a schema migration, an SAP outage being cleared. It is deliberately narrow: the web app,
+the desktop tills and the integrations are never affected, because the people using those can be
+told maintenance is running, and the handsets are in vans.
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/Maintenance/mobile/status` | **anonymous** | Whether the calling app is locked out, and what to tell its user |
+| GET | `/api/Maintenance/mobile` | **AdminOnly** | The stored lockout |
+| PUT | `/api/Maintenance/mobile` | **AdminOnly** | Turn it on or off |
+
+#### What a locked-out app gets
+
+Every refused request answers **`503`** with `Retry-After` and this body, which is the same flat
+shape `/api/AppVersion/mobile` uses when it blocks an out-of-date build:
+
+```json
+{
+  "code": "Maintenance.MobileTransactionsSuspended",
+  "message": "Down for the stock migration until 20:00.",
+  "maintenance": true,
+  "scope": "Transactions",
+  "endsAtUtc": "2026-09-22T20:00:00Z",
+  "retryAfterSeconds": 1800,
+  "checkedAtUtc": "2026-09-22T19:30:00Z"
+}
+```
+
+`message` is the operator's own wording when they wrote one, and a built-in sentence otherwise.
+`Retry-After` counts down to `endsAtUtc` where there is one and is a flat 300 seconds where there is
+not, so a van full of handsets backs off instead of retrying in a loop against an API that is
+mid-maintenance.
+
+#### What is withheld
+
+| `scope` | Effect |
+|---------|--------|
+| `Transactions` (default) | Anything that changes something is refused. Reads keep working, so a rep mid-round can still look up a customer and price an order |
+| `All` | Reads are refused too. For maintenance the reads themselves cannot survive — a restore, or a migration that would have the API answer wrongly rather than not at all |
+
+Reads that this API exposes as POSTs because their filter is a body keep working under
+`Transactions`: `/api/vansales/sales-order/history`, `/api/vansales/order/history`,
+`/api/stock/warehouse/{warehouseCode}/sales` and the two `pods/validate-bulk` routes. Any other POST,
+PUT, PATCH or DELETE counts as a transaction, including a route added after this was written.
+
+Signing in, the version check and the status route above stay reachable under either scope. An app
+that could not sign in would show its user a failed login, and they would read that as their
+password being wrong rather than as maintenance.
+
+#### Recognising a mobile app
+
+The lockout applies to a caller that names `android` on `X-App-Platform`, or that names no platform
+at all but carries `X-App-Version` or `X-Device-Model`. That is the same rule the version policy has
+enforced since it shipped; the Web sends none of the three and is never mistaken for a handset.
+
+`X-App-Id` narrows a lockout to named apps (`cheeseman-driver`, `kefalos-so`, `kefalos-vansales`,
+`kefalos-customer-orders`). A handset too old to send one is covered by a lockout that names no apps
+and is not covered by one that does — a blanket lockout must not be escapable by an app that declines
+to identify itself, and a lockout aimed at van sales must not take down the POD app because a handset
+could not say which one it was.
+
+#### Setting it
+
+```json
+PUT /api/Maintenance/mobile
+{
+  "enabled": true,
+  "scope": "Transactions",
+  "message": "Down for the stock migration until 20:00.",
+  "appIds": [],
+  "endsAtUtc": "2026-09-22T20:00:00Z"
+}
+```
+
+`appIds` empty or absent covers every app. `endsAtUtc` absent leaves the lockout on until somebody
+turns it off; where it is set, the lockout stops applying once it passes, without anybody flipping
+the switch back — which is what stops the vans being locked out at 08:00 because maintenance ended at
+02:00 and whoever started it went to bed. An `endsAtUtc` already in the past is rejected rather than
+stored, because it would show on the settings screen as a running lockout while refusing nothing.
+
+The state lives in `SystemConfigs` under `Mobile.Maintenance.*`, not in configuration, so throwing
+the switch needs no deployment and no app pool recycle. Each API node serves it from a snapshot it
+refreshes every 5 seconds, so a change reaches every node within that window; the node handling the
+write applies it at once. `ShopInventory.Web` drives all of this from **Settings → Mobile App →
+Maintenance Mode**.
 
 ---
 

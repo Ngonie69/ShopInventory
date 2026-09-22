@@ -24,6 +24,7 @@ using ShopInventory.Features.RateLimit;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
 using ShopInventory.Features.InventoryTransfers;
+using ShopInventory.Features.Maintenance;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
 using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.VanSalesCustomerAuth;
@@ -381,6 +382,15 @@ try
     // in the background, so this costs no database work on the request path. See the store for what
     // a change does and does not reach.
     builder.Services.AddSingleton<IRateLimitConfigStore, RateLimitConfigStore>();
+
+    // The clock, injectable so that the maintenance window and anything else that turns on "has
+    // this passed yet" can be tested without waiting for it.
+    builder.Services.AddSingleton(TimeProvider.System);
+
+    // The mobile maintenance lockout. A singleton for the same reason the rate limit store is: it
+    // is read on the path of every request and must answer without touching the database. See
+    // IMobileMaintenanceStore for why this lives in SystemConfigs and not in configuration.
+    builder.Services.AddSingleton<IMobileMaintenanceStore, MobileMaintenanceStore>();
 
     var securitySettings = builder.Configuration.GetSection("Security").Get<SecuritySettings>()
         ?? new SecuritySettings();
@@ -1168,6 +1178,18 @@ try
                 logger.LogWarning(ex, "Could not load stored rate limits at startup; using the configured limits.");
             }
 
+            // Same reasoning for the maintenance switch, and a sharper case: the deploy a node is
+            // coming up from may well be the maintenance itself. A node that started clean while
+            // the switch was on would accept transactions for its first few seconds.
+            try
+            {
+                await services.GetRequiredService<IMobileMaintenanceStore>().ReloadAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not load the mobile maintenance switch at startup; treating it as off.");
+            }
+
             startupReadiness.MarkReady();
         }
         catch (Exception ex)
@@ -1305,6 +1327,10 @@ try
     app.UseCors("AllowConfiguredOrigins");
 
     app.UseMiddleware<MobileVersionEnforcementMiddleware>();
+
+    // Before authentication, so that a lockout applies to every request from a phone rather than
+    // only to the ones that get as far as presenting a token.
+    app.UseMobileMaintenance();
 
     // Authentication must run before rate limiting so authenticated users get per-user quotas.
     app.UseAuthentication();

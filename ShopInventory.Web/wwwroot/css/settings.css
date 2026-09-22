@@ -1091,6 +1091,34 @@
     white-space: nowrap;
 }
 
+/* The apps a maintenance lockout covers: one tick per app, wrapping rather than
+   scrolling, because there are four of them and an operator throwing this switch
+   is in a hurry. */
+.stg-maint-apps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--stg-space-2);
+    flex: 1;
+    min-width: 0;
+}
+
+/* .stg-check draws its tick with an inset ring the width of a gap, so the ring
+   has to be painted in whatever the checkbox is sitting on. The shared rule
+   assumes a list ground; inside a card it is the card. */
+.stg-maint-apps .stg-check input:checked {
+    box-shadow: inset 0 0 0 2px var(--stg-surface);
+}
+
+.stg-maint-apps .stg-check input:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.stg-maint-apps .stg-check:has(input:disabled) {
+    cursor: not-allowed;
+    color: var(--stg-t-45);
+}
+
 .stg-chips {
     display: flex;
     flex-wrap: wrap;
