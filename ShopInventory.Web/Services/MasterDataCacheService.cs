@@ -47,6 +47,9 @@ public interface IMasterDataCacheService
 
     // Not a Web cache: copies SAP's item VAT groups into the API table till sales are taxed from.
     Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null);
+
+    // Not a Web cache either: drops the API's hour-long hold on the tills' transfer-request item list.
+    Task<bool> ClearTillTransferRequestItemsAsync();
 }
 
 public class MasterDataCacheService : IMasterDataCacheService
@@ -690,6 +693,39 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// Nothing is cached on the Web side. The API table is what a till sale is taxed from and what
     /// tills read their rates from, so it is the only copy that matters.
     /// </remarks>
+    /// <summary>
+    /// Makes the tills re-read, from SAP, which items a transfer request may carry.
+    /// </summary>
+    /// <remarks>
+    /// The API holds that list for an hour, so an item just flagged <c>U_SalesItem</c> and
+    /// <c>U_VanSale</c> is otherwise missing from the tills after a Products sync that suggests it
+    /// should not be. Answers false rather than throwing: the product sync it follows has already
+    /// succeeded, and the list comes right on its own within the hour.
+    /// </remarks>
+    public async Task<bool> ClearTillTransferRequestItemsAsync()
+    {
+        try
+        {
+            using var response = await SendAuthenticatedAsync(
+                () => _httpClient.PostAsync("api/sync/transfer-request-items/clear", null));
+
+            if (response.IsSuccessStatusCode)
+            {
+                return true;
+            }
+
+            _logger.LogWarning(
+                "Clearing the tills' transfer-request item list failed with status {Status}",
+                response.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Clearing the tills' transfer-request item list failed");
+        }
+
+        return false;
+    }
+
     public async Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null)
     {
         var phases = new SyncPhaseReporter(progress, 1);

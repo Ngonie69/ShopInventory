@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestItems;
+using ShopInventory.Features.Sync.Commands.ClearTransferRequestItems;
 using ShopInventory.Services;
 using Xunit;
 
@@ -53,6 +54,43 @@ public class TransferRequestItemsTests
         await handler.Handle(new GetTransferRequestItemsQuery(), CancellationToken.None);
 
         Assert.Single(_statements);
+    }
+
+    [Fact]
+    public async Task A_clear_makes_the_next_screen_read_SAP_and_see_a_newly_flagged_item()
+    {
+        _answer = () => [Row("CHE001", "Feta 200g")];
+        var handler = CreateHandler();
+        await handler.Handle(new GetTransferRequestItemsQuery(), CancellationToken.None);
+
+        // YOG157 is flagged in the item master, and Products is synced in Settings.
+        _answer = () => [Row("CHE001", "Feta 200g"), Row("YOG157", "150g x10 Greek Yoghurt")];
+        var cleared = await new ClearTransferRequestItemsHandler(
+                _cache, NullLogger<ClearTransferRequestItemsHandler>.Instance)
+            .Handle(new ClearTransferRequestItemsCommand(), CancellationToken.None);
+
+        var result = await handler.Handle(new GetTransferRequestItemsQuery(), CancellationToken.None);
+
+        Assert.False(cleared.IsError);
+        Assert.Equal(2, _statements.Count);
+        Assert.Contains(result.Value.Items, item => item.ItemCode == "YOG157");
+    }
+
+    [Fact]
+    public async Task A_clear_keeps_the_last_list_for_a_SAP_outage()
+    {
+        _answer = () => [Row("CHE001", "Feta 200g")];
+        var handler = CreateHandler();
+        await handler.Handle(new GetTransferRequestItemsQuery(), CancellationToken.None);
+
+        await new ClearTransferRequestItemsHandler(_cache, NullLogger<ClearTransferRequestItemsHandler>.Instance)
+            .Handle(new ClearTransferRequestItemsCommand(), CancellationToken.None);
+        _answer = () => throw new HttpRequestException("SAP unreachable");
+
+        var result = await handler.Handle(new GetTransferRequestItemsQuery(), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal("CHE001", Assert.Single(result.Value.Items).ItemCode);
     }
 
     [Fact]
