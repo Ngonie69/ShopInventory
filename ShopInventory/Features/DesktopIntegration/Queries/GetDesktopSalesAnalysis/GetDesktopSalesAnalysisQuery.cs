@@ -15,9 +15,10 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// The dates are the sales' business dates (<c>DocDate</c>), both inclusive. Omitting both analyses today
 /// in CAT; omitting only the end runs to today.
 ///
-/// <c>SourceSystem</c> selects one source, or null for the default scope, which leaves out
-/// <c>SaleSourceSystems.VanSalesOnline</c> — those rows carry receipts for sales already counted as their
-/// SAP invoice, and adding them in would count the money twice.
+/// <c>SourceSystem</c> selects one source, or null for every source. Unlike the list, null includes
+/// <c>SaleSourceSystems.VanSalesOnline</c>: this report reads neither reservations nor SAP invoices, so an
+/// online van sale's receipt row is its only record here, and it is counted once. <c>Business</c> narrows
+/// by <c>SaleBusinesses</c>, whose own rules still leave those rows out.
 ///
 /// <c>PaymentMethod</c> confines every figure to one tender, matched on its reporting name, so a till's
 /// own spelling ("ecocash") and the canonical one read the same sales. "Not recorded" selects the sales

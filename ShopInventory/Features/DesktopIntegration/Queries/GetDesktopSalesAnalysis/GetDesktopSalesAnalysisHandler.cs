@@ -97,11 +97,14 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 .AsNoTracking()
                 .Where(s => s.DocDate >= windowFrom && s.DocDate <= windowTo);
 
-            // The same default source scope as the list. An online van sale's row carries a receipt for a sale
-            // already counted as its SAP invoice, so adding it to takings would count that money twice.
-            scoped = source is null
-                ? scoped.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
-                : scoped.Where(s => s.SourceSystem == source);
+            // Every source by default, online van receipts included — unlike the list's default scope. This
+            // report reads nothing but DesktopSales: not the reservation, not the SAP invoice. The receipt row
+            // is therefore the only record of an online van sale it can see, and leaving it out drops those
+            // sales from the analysis altogether rather than saving them from being counted twice.
+            if (source is not null)
+            {
+                scoped = scoped.Where(s => s.SourceSystem == source);
+            }
             scoped = scoped.InBusiness(request.Business);
 
             return warehouse is null ? scoped : scoped.Where(s => s.WarehouseCode == warehouse);
@@ -461,7 +464,7 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         SaleSourceSystems.ShopTill => "Shop till",
         SaleSourceSystems.Vending => "Vending",
         SaleSourceSystems.VanSales => "Van sales",
-        SaleSourceSystems.VanSalesOnline => "Van sales (online receipts)",
+        SaleSourceSystems.VanSalesOnline => "Van sales (online)",
         SaleSourceSystems.LegacyDesktop => "Desktop (legacy)",
         "" => "Not recorded",
         _ => source
