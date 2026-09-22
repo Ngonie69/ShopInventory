@@ -41,12 +41,26 @@ public class MaintenanceService(
         }
     }
 
+    /// <summary>
+    /// How long the banner will wait for an answer.
+    /// </summary>
+    /// <remarks>
+    /// Its own budget, well short of the shared client's five minutes. This call is made while the
+    /// layout renders, and the one situation it exists for is the one where the API may be hanging
+    /// rather than refusing — so inheriting that timeout would mean a lockout could leave every
+    /// page in the portal blank for five minutes, which is a worse outage than the maintenance.
+    /// </remarks>
+    private static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(5);
+
     public async Task<MaintenanceStatusResponse?> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         try
         {
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            budget.CancelAfter(StatusTimeout);
+
             return await httpClient.GetFromJsonAsync<MaintenanceStatusResponse>(
-                "api/maintenance/status", cancellationToken);
+                "api/maintenance/status", budget.Token);
         }
         catch (Exception ex)
         {

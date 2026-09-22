@@ -42,7 +42,31 @@
         // before they have filled in a form they cannot submit.
         await Refresh();
 
-        _timer = new Timer(async _ => await InvokeAsync(RefreshAndRender), null, PollInterval, PollInterval);
+        _timer = new Timer(_ => _ = PollAsync(), null, PollInterval, PollInterval);
+    }
+
+    /// <summary>
+    /// One tick, with its failures kept to itself.
+    /// </summary>
+    /// <remarks>
+    /// The timer can fire against a circuit that is already being torn down, and an exception
+    /// escaping here would be an unobserved task exception rather than anything anybody sees. A
+    /// banner is not worth taking a circuit down for under any circumstances.
+    /// </remarks>
+    private async Task PollAsync()
+    {
+        try
+        {
+            await InvokeAsync(RefreshAndRender);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The circuit went away between the tick and the render.
+        }
+        catch (Exception)
+        {
+            // Next tick will try again.
+        }
     }
 
     private async Task RefreshAndRender()
