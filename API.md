@@ -3422,7 +3422,7 @@ should be added to `/api/vansales` that a new caller would want.
 
 **Base route:** `/api/van-sales`  
 **Auth:** Bearer + `ApiAccess` policy, plus the per-endpoint permission below  
-**Audit:** every **read** — the five reports, `routes`, `route-stops` and both `visits` endpoints — is
+**Audit:** every **read** — the six reports, `routes`, `route-stops` and both `visits` endpoints — is
 written to the audit log by `VanSalesPortalReadAuditFilter`, **query string included**, so the row says
 whose figures were pulled, on which route, for which period. The writes already log from their
 handlers and are not recorded twice.
@@ -3431,6 +3431,7 @@ handlers and are not recorded twice.
 |--------|----------|------------|-------------|
 | GET | `/api/van-sales/compliance-report` | `vansales.attendance.view` | Departure compliance: a row per rep per trading day |
 | GET | `/api/van-sales/performance-report` | `vansales.attendance.view` | What sold, by territory and route, by rep, by item, over time |
+| GET | `/api/van-sales/sales-analysis` | `vansales.attendance.view` | The sales breakdown for the vans: takings by tender, day, hour, van, customer, channel, rep and item |
 | GET | `/api/van-sales/coverage-report` | `vansales.attendance.view` | Who the vans are reaching and who they are losing |
 | GET | `/api/van-sales/replenishment-report` | `vansales.attendance.view` | How well the depots are keeping the vans stocked |
 | GET | `/api/van-sales/stock-report` | `vansales.attendance.view` | What each van carried, sold, and is still riding around with |
@@ -3633,6 +3634,17 @@ or an untendered sale was reported short by exactly the money they had no way to
 
 **Response:** `VanSalesPerformanceReportResult` — the period cut by territory and route, by rep, by
 item and over time, with the price actually achieved per item and the shape of the drops.
+
+##### GET `/api/van-sales/sales-analysis`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 29 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `warehouseCode` | — | One van's warehouse; every van when omitted |
+| `paymentMethod` | — | One tender by its reporting name; `Not recorded` for sales that named none |
+
+**Response:** `DesktopSalesAnalysisResult`, the desktop analysis's shape, so `/van-sales/reports/sales-breakdown` is the desktop breakdown page. The breakdowns mean the van's own thing: `byWarehouse` is the van, `byBusinessPartner` the route customer (never the document card, which is the van's own account), `bySource` `online`/`offline`, and `byOperator` the rep. Reads both tables through `VanSalesFactReader`, so online sales are counted — the desktop analysis cannot see them. VAT is known on offline receipts only; an online sale's is on its SAP invoice.
 
 ##### GET `/api/van-sales/coverage-report`
 

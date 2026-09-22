@@ -1,0 +1,9 @@
+@page "/van-sales/reports/sales-breakdown"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager")]
+
+@* The desktop sales breakdown, for the vans alone. The page is DesktopSalesReport's; it asks the van sales
+   analysis instead, which reads online van sales too — those never become desktop sales, so the desktop
+   analysis confined to vans would leave out every sale a van made with signal. The roles are the other van
+   reports', not the desktop page's: a cashier has no van reports. *@
+<DesktopSalesReport Vans="true" />

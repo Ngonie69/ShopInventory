@@ -4,7 +4,7 @@
 @attribute [Authorize(Roles = "Admin,Manager,Cashier")]
 @rendermode InteractiveServer
 
-<PageTitle>Desktop Sales Analysis - Shop Inventory</PageTitle>
+<PageTitle>@(Vans ? "Van Sales Breakdown" : "Desktop Sales Analysis") - Shop Inventory</PageTitle>
 
 @* The till takings, broken down. An import of `Sales Breakdown.dc.html` from the "Nocturne Dark Ops
    Redesign" design project, built on the /desktop-sales vocabulary: the root keeps `ops-ds` for the
@@ -28,16 +28,17 @@
     <div class="ops-sbd-head">
         <div class="ops-sbd-head-row">
             <div class="ops-sbd-title">
-                <span class="ops-kicker">Desktop sales · Analysis</span>
+                <span class="ops-kicker">@(Vans ? "Van sales" : "Desktop sales") · Analysis</span>
                 <h1>Sales breakdown</h1>
             </div>
 
             <div class="ops-sbd-controls">
                 <div class="ops-field ops-sbd-shop">
-                    <label class="ops-label" for="dsa-warehouse">Shop</label>
+                    <label class="ops-label" for="dsa-warehouse">@(Vans ? "Van" : "Shop")</label>
                     <NocturneSelect Id="dsa-warehouse" Class="nsel-block" Options="WarehouseOptions"
                                     @bind-Value="warehouse" OnChanged="ReloadScopeAsync"
-                                    Caption="Filter by shop" AriaLabel="Filter by shop" Placeholder="All shops" />
+                                    Caption="@($"Filter by {Place}")" AriaLabel="@($"Filter by {Place}")"
+                                    Placeholder="@($"All {Place}s")" />
                 </div>
 
                 @* Not a <label>: the segment is several buttons, and a label would hand every click to
@@ -90,20 +91,36 @@
                 <span class="ops-sbd-vrule" aria-hidden="true"></span>
 
                 <div class="ops-sbd-actions">
-                    <a class="ops-btn ops-btn-ghost" href="/reports/desktop-sales/review">
-                        <i class="ph ph-lightbulb" aria-hidden="true"></i>
-                        <span>Review</span>
-                    </a>
-                    @* Only for the roles that may open the list; a manager shown this link would land on
-                       a refusal. *@
-                    <AuthorizeView Roles="Admin,Cashier" Context="saleListCtx">
-                        <Authorized>
-                            <a class="ops-btn ops-btn-ghost" href="/desktop-sales">
-                                <i class="ph ph-list-bullets" aria-hidden="true"></i>
-                                <span>Sale list</span>
-                            </a>
-                        </Authorized>
-                    </AuthorizeView>
+                    @if (Vans)
+                    {
+                        @* The review and the sale list read the counters' sales only; the vans' own pages
+                           stand in for them. *@
+                        <a class="ops-btn ops-btn-ghost" href="/van-sales/reports/performance">
+                            <i class="ph ph-chart-line-up" aria-hidden="true"></i>
+                            <span>Performance</span>
+                        </a>
+                        <a class="ops-btn ops-btn-ghost" href="/van-sales/invoices">
+                            <i class="ph ph-list-bullets" aria-hidden="true"></i>
+                            <span>Invoices</span>
+                        </a>
+                    }
+                    else
+                    {
+                        <a class="ops-btn ops-btn-ghost" href="/reports/desktop-sales/review">
+                            <i class="ph ph-lightbulb" aria-hidden="true"></i>
+                            <span>Review</span>
+                        </a>
+                        @* Only for the roles that may open the list; a manager shown this link would land on
+                           a refusal. *@
+                        <AuthorizeView Roles="Admin,Cashier" Context="saleListCtx">
+                            <Authorized>
+                                <a class="ops-btn ops-btn-ghost" href="/desktop-sales">
+                                    <i class="ph ph-list-bullets" aria-hidden="true"></i>
+                                    <span>Sale list</span>
+                                </a>
+                            </Authorized>
+                        </AuthorizeView>
+                    }
                     <button type="button" class="ops-btn ops-btn-primary" @onclick="ExportAsync"
                             disabled="@(isExporting || shown is null)">
                         @if (isExporting)
@@ -166,7 +183,7 @@
             @if (warehouse != "")
             {
                 <button type="button" class="ops-sbd-chip" @onclick="ClearShopAsync"
-                        aria-label="@($"Show every shop, not only {ShopChip}")">
+                        aria-label="@($"Show every {Place}, not only {ShopChip}")">
                     @ShopChip<i class="ph ph-x" aria-hidden="true"></i>
                 </button>
             }
@@ -199,7 +216,7 @@
             <div class="ops-empty">
                 <i class="ph ph-receipt" aria-hidden="true"></i>
                 <h3>No sales in this period</h3>
-                <p>Nothing was rung up at a till or vending counter @(warehouse == "" ? "" : $"at {ShopChip} ")between these dates. Widen the period to see more.</p>
+                <p>Nothing was @(Vans ? "sold off a van" : "rung up at a till or vending counter") @(warehouse == "" ? "" : $"{(Vans ? "by" : "at")} {ShopChip} ")between these dates. Widen the period to see more.</p>
             </div>
         }
         else
@@ -240,7 +257,7 @@
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Before VAT</div>
                             <div class="ops-sbd-fig-num">@Money(sales.NetAmount)</div>
-                            <div class="ops-sbd-fig-sub">VAT @Money(sales.VatAmount)</div>
+                            <div class="ops-sbd-fig-sub">VAT @Money(sales.VatAmount)@(Vans ? " · offline receipts only" : "")</div>
                         </div>
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
@@ -388,7 +405,7 @@
                             <div class="ops-sbd-peak-label">Busiest hour</div>
                             <div class="ops-sbd-peak-num">@(peak is null ? "—" : HourLabel(peak.Hour))</div>
                             <div class="ops-sbd-peak-sub">@(peak is null ? "no sales" : $"{Plural(peak.SalesCount, "sale")} · {Money(peak.TotalAmount)}")</div>
-                            <div class="ops-sbd-peak-note">Counter time (CAT)</div>
+                            <div class="ops-sbd-peak-note">@(Vans ? "Time of sale (CAT)" : "Counter time (CAT)")</div>
                         </div>
                     </div>
                 </section>
@@ -614,7 +631,7 @@
                     <div class="ops-empty">
                         <i class="ph ph-receipt" aria-hidden="true"></i>
                         <h3>No sales @(view.Method is null ? "" : $"paid by {TenderLabel(view.Method)} ")@(view.Day is { } emptyDay ? $"on {DayLabel(emptyDay)}" : "in this period")</h3>
-                        <p>Nothing matching was rung up at a till or vending counter. Clear a filter or widen the period to see more.</p>
+                        <p>Nothing matching was @(Vans ? "sold off a van" : "rung up at a till or vending counter"). Clear a filter or widen the period to see more.</p>
                     </div>
                 }
 
@@ -622,7 +639,16 @@
                     <span>
                         Generated @view.Focus.GeneratedAtUtc.AddHours(2).ToString("dd MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture) · amounts in @sales.Currency, VAT included unless stated
                     </span>
-                    <span>Van sales include those made online, counted once from the receipt the handset signed.</span>
+                    @if (Vans)
+                    {
+                        @* An online sale's VAT is on its SAP invoice, not a local receipt, so the split above
+                           is the offline half's. *@
+                        <span>Offline uploads and live invoices both counted. VAT is known on offline receipts only.</span>
+                    }
+                    else
+                    {
+                        <span>Van sales include those made online, counted once from the receipt the handset signed.</span>
+                    }
                 </div>
 
             </div>

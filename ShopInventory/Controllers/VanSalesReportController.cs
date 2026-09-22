@@ -17,6 +17,8 @@ using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
+using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Models;
 using ShopInventory.Services;
 using ShopInventory.Features.VanSalesReports;
@@ -115,6 +117,45 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 userId,
                 routeCode,
                 topItems),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The sales breakdown for the vans: takings by payment method, day, hour, van, customer, channel,
+    /// rep and item, in the desktop sales analysis's shape.
+    /// </summary>
+    /// <remarks>
+    /// Reads both tables a van sale lands in — offline uploads and online invoices — which the desktop
+    /// analysis cannot, since an online van sale leaves no desktop sale.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 29 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="warehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="paymentMethod">One tender by its reporting name; "Not recorded" for sales that named none.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("sales-analysis")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(DesktopSalesAnalysisResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetSalesAnalysis(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? warehouseCode = null,
+        [FromQuery] string? paymentMethod = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanSalesAnalysisQuery(
+                fromDate?.Date ?? today.AddDays(-29),
+                toDate?.Date ?? today,
+                warehouseCode,
+                paymentMethod),
             cancellationToken);
 
         return result.Match(
