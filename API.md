@@ -4381,7 +4381,7 @@ on the web, and refused at the point of posting instead. `POST /mobile/order` ca
 ### 39. Sync & SAP Connection
 
 **Base route:** `/api/Sync`  
-**Auth:** Bearer + `ApiAccess`; `queue/process` and `item-tax-groups` are Admin
+**Auth:** Bearer + `ApiAccess`; `queue/process`, `item-tax-groups` and `transfer-request-items/clear` are Admin
 
 The health of this API's link to SAP, and the offline queue that holds documents while it is down.
 
@@ -4400,6 +4400,7 @@ The health of this API's link to SAP, and the offline queue that holds documents
 | POST | `/api/Sync/queue/{id}/cancel` | Cancel one |
 | POST | `/api/Sync/queue/process` | **Admin.** Drain the queue now |
 | POST | `/api/Sync/item-tax-groups` | **Admin.** Copy item VAT groups from SAP now |
+| POST | `/api/Sync/transfer-request-items/clear` | **Admin.** Make tills re-read their transfer-request item list from SAP. `204` |
 
 `/queue` and `/queue/status` are two routes on one action, not two endpoints — they answer
 identically, and neither is deprecated.
@@ -4410,6 +4411,10 @@ every sellable item's VAT group from the SAP item master, bypassing the six-hour
 serves. It answers with the counts, each item whose group changed (`itemCode`, `was`, `now`), and
 any group in use with no configured rate or tax id. A failed or empty SAP read changes nothing and
 answers an error; a sync already running answers 409. Tills re-read within four hours, or on Refresh.
+
+`transfer-request-items/clear` drops the hour-long hold on `DesktopIntegration/transfer-requests/items`,
+so an item just flagged `U_SalesItem` and `U_VanSale` in SAP appears the next time a till opens its
+request screen. The last list read is kept for a SAP outage. The Products sync in Settings sends it.
 
 ---
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Sync.Commands.CancelTransaction;
+using ShopInventory.Features.Sync.Commands.ClearTransferRequestItems;
 using ShopInventory.Features.Sync.Commands.ProcessQueue;
 using ShopInventory.Features.Sync.Commands.RetryTransaction;
 using ShopInventory.Features.Sync.Commands.SyncItemTaxGroups;
@@ -155,6 +156,23 @@ public class SyncController(IMediator mediator) : ApiControllerBase
         syncTimeout.CancelAfter(TimeSpan.FromMinutes(10));
         var result = await mediator.Send(new SyncItemTaxGroupsCommand(), syncTimeout.Token);
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Make tills re-read their transfer-request item list from SAP (admin only)
+    /// </summary>
+    /// <remarks>
+    /// That list (<c>DesktopIntegration/transfer-requests/items</c>) is held for an hour. This drops the
+    /// hold, so an item just flagged <c>U_SalesItem</c> and <c>U_VanSale</c> in SAP shows the next time a
+    /// till opens its request screen. Sent by the Products sync in Settings.
+    /// </remarks>
+    [HttpPost("transfer-request-items/clear")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> ClearTransferRequestItems(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new ClearTransferRequestItemsCommand(), cancellationToken);
+        return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
     /// <summary>

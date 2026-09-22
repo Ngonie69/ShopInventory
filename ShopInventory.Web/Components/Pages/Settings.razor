@@ -1941,7 +1941,15 @@
     private List<SyncTile>? syncTiles;
     private List<SyncTile> SyncTiles => syncTiles ??=
     [
-        new("Products", "ph-package", "Products_All", CacheService.SyncProductsFromApiAsync),
+        new("Products", "ph-package", "Products_All", async progress =>
+        {
+            var count = await CacheService.SyncProductsFromApiAsync(progress);
+            tillItemsCleared = await CacheService.ClearTillTransferRequestItemsAsync();
+            return count;
+        })
+        {
+            Detail = DescribeTillItemsClear
+        },
         new("Prices", "ph-tag", "ItemPrices", CacheService.SyncPricesFromApiAsync)
         {
             Source = "SAP into the API catalog and Web cache"
@@ -1961,6 +1969,19 @@
     ];
 
     private ItemTaxGroupSyncResultModel? lastTaxGroupSync;
+
+    private bool? tillItemsCleared;
+
+    /// <summary>
+    /// Says whether the tills will see an item-master flag change the next time they open a
+    /// transfer request, since that list is held separately from the products just synced.
+    /// </summary>
+    private string? DescribeTillItemsClear() => tillItemsCleared switch
+    {
+        true => "Tills will re-read their transfer-request items from SAP when next opened.",
+        false => "The tills' transfer-request item list could not be refreshed; it updates on its own within the hour.",
+        null => null
+    };
 
     /// <summary>
     /// Names the items whose tax group moved, because that is what the person pressing the button
