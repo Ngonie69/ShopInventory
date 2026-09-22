@@ -4,7 +4,8 @@ namespace ShopInventory.Data;
 
 /// <summary>
 /// The published van sales schedule: four upcountry routes running a two-week cycle, the Bulawayo
-/// upcountry route running a four-week one, and four town trucks running a weekday round.
+/// upcountry route running a four-week one, four Harare town trucks running a weekday round, and the
+/// Bulawayo ADR round.
 /// </summary>
 /// <remarks>
 /// The single source of truth for the plan. <see cref="DbInitializer"/> applies it insert-only — a
@@ -52,11 +53,17 @@ public static class VanSalesRouteSeedData
     public const string TownTerritory = "Harare";
 
     /// <summary>
-    /// The territory of the route worked out of Bulawayo. Kept apart from <see cref="UpcountryTerritory"/>
-    /// because it is a different depot's run on a different cycle, and grouping it with Harare's four
-    /// would fold two operations into one line on every territory report.
+    /// The territory of the upcountry route worked out of Bulawayo. Kept apart from
+    /// <see cref="UpcountryTerritory"/> because it is a different depot's run on a different cycle, and
+    /// grouping it with Harare's four would fold two operations into one line on every territory report.
     /// </summary>
     public const string BulawayoUpcountryTerritory = "Bulawayo UPC";
+
+    /// <summary>
+    /// The territory of the Bulawayo local round, which is run from the Bulawayo depot and must not
+    /// be counted among the Harare trucks.
+    /// </summary>
+    public const string BulawayoTerritory = "Bulawayo";
 
     public static readonly IReadOnlyList<RouteSeed> Routes =
     [
@@ -175,6 +182,42 @@ public static class VanSalesRouteSeedData
             Day(DayOfWeek.Wednesday, "CBD town"),
             Day(DayOfWeek.Thursday, "CBD town"),
             Day(DayOfWeek.Friday, "CBD town")),
+
+        // Bulawayo ADR Route List
+        // Monday-Byo CBD,Bradfield,Hillside,Fourwinds,Braham Green,Southwold,Montrose,Bellevue,
+        //   Newtown West
+        // Tuesday-EMganwini,Nketa 6,7,8,9,Nkulumane 10,Nkulumane 5,Nulumane 12,Pumula South
+        // Wednesday-Sizinda,Tshabalala,Mpopoma,Njube,Old Lobengula,Entumbane,Iminyela,Matshobane
+        // Thursday-Number 6,Pelandaba,Pumula East,Pumula North,Old Pumula,Old Magwegwe,
+        //   New Magwegwe,Magwegwe West,Lobengula West,Magwegwe North,Luveve,Gwabalanda
+        // Friday-Queens Park,KingsDale,Northend,Saursetown,Babourfields,Thorngrove,Mzilikazi,
+        //   Makokoba,EMakhandeni,Cowdry Park
+        //
+        // The source is a table with one column per weekday; it is quoted here a day to a line.
+        //
+        // SPLIT: "Nketa 6,7,8,9" is four sections of Nketa, written out in full for the reason
+        // Chitungwiza's "Unit L,C,M,N" is — a stop named "7" names nothing.
+        //
+        // SPELLING: "Nulumane 12" is Nkulumane 12. It sits between Nkulumane 10 and Nkulumane 5 on
+        // the same day, and no suburb of that name exists. Every other spelling is the schedule's own,
+        // including the ones a map would write differently; the office can rename on the routes page.
+        TownTruck("BYOADR", "Bulawayo ADR", BulawayoTerritory,
+            Day(DayOfWeek.Monday,
+                "Byo CBD", "Bradfield", "Hillside", "Fourwinds", "Braham Green", "Southwold",
+                "Montrose", "Bellevue", "Newtown West"),
+            Day(DayOfWeek.Tuesday,
+                "EMganwini", "Nketa 6", "Nketa 7", "Nketa 8", "Nketa 9", "Nkulumane 10",
+                "Nkulumane 5", "Nkulumane 12", "Pumula South"),
+            Day(DayOfWeek.Wednesday,
+                "Sizinda", "Tshabalala", "Mpopoma", "Njube", "Old Lobengula", "Entumbane",
+                "Iminyela", "Matshobane"),
+            Day(DayOfWeek.Thursday,
+                "Number 6", "Pelandaba", "Pumula East", "Pumula North", "Old Pumula", "Old Magwegwe",
+                "New Magwegwe", "Magwegwe West", "Lobengula West", "Magwegwe North", "Luveve",
+                "Gwabalanda"),
+            Day(DayOfWeek.Friday,
+                "Queens Park", "KingsDale", "Northend", "Saursetown", "Babourfields", "Thorngrove",
+                "Mzilikazi", "Makokoba", "EMakhandeni", "Cowdry Park")),
     ];
 
     /// <summary>
@@ -220,6 +263,13 @@ public static class VanSalesRouteSeedData
         string code,
         string name,
         params (DayOfWeek Day, int AlternateSet, string[] Areas)[] days)
+        => TownTruck(code, name, TownTerritory, days);
+
+    private static RouteSeed TownTruck(
+        string code,
+        string name,
+        string territory,
+        params (DayOfWeek Day, int AlternateSet, string[] Areas)[] days)
     {
         var stops = new List<StopSeed>();
 
@@ -236,7 +286,7 @@ public static class VanSalesRouteSeedData
             }
         }
 
-        return new RouteSeed(code, name, TownTerritory, stops);
+        return new RouteSeed(code, name, territory, stops);
     }
 
     private static RouteSeed Upcountry(string code, string name, string[] week1, string[] week2)
