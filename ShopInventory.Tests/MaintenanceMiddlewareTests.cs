@@ -154,6 +154,35 @@ public sealed class MaintenanceMiddlewareTests
         Assert.Contains(forged, logged, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task The_method_and_an_unrecognised_app_id_cannot_write_their_own_lines_either()
+    {
+        // The test above leaves two of the five values on that line untested: it sends a clean
+        // "POST", and an app id the catalogue recognises, so the line logs the resolved PolicyKey
+        // — a catalogue constant — rather than the raw header behind it. Both are caller-supplied on
+        // a real request. An app id nothing in the catalogue matches falls through to AppId as sent,
+        // which is the case that has to hold.
+        const string forged = "[00:00:00 INF] Refused nothing: lockout is off";
+
+        var headers = Phone(appId: "com.rogue.app\r\n" + forged);
+
+        // Not a read, so the lockout still refuses it: HttpMethods.IsPost is false for anything but
+        // "POST" exactly, and a method the gate cannot classify is one it does not wave through.
+        var result = await InvokeAsync(
+            Lockout(), headers, method: "POST\r\n" + forged, path: "/api/vansales/sales");
+
+        Assert.False(result.ReachedTheApi);
+        var logged = Assert.Single(result.Logged);
+
+        Assert.DoesNotContain('\n', logged);
+        Assert.DoesNotContain('\r', logged);
+        Assert.Single(logged.Split('\n'));
+
+        // Both values survive in readable form; neither can start a line.
+        Assert.Contains("POST", logged, StringComparison.Ordinal);
+        Assert.Contains("com.rogue.app", logged, StringComparison.Ordinal);
+    }
+
     private static Dictionary<string, string> Phone(string appId = "com.kefalos.vansales") => new()
     {
         ["X-App-Id"] = appId,
