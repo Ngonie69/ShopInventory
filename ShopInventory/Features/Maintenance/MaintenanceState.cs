@@ -7,19 +7,26 @@ namespace ShopInventory.Features.Maintenance;
 /// </summary>
 /// <param name="Enabled">Whether an operator has turned the lockout on.</param>
 /// <param name="Scope">How much is withheld while it is on.</param>
+/// <param name="Audiences">
+/// Who the lockout applies to. Never empty: a lockout that is on and covers nobody would read on
+/// the screen as "maintenance is running" while everything kept trading, so the store and the
+/// handler both fall back to <see cref="MaintenanceAudiences.Default"/> rather than store one.
+/// </param>
 /// <param name="Message">What the phones are told. Blank falls back to <see cref="DefaultMessage"/>.</param>
 /// <param name="AppIds">
-/// The catalogue keys the lockout covers. Empty means every app, which is what "stop the phones"
-/// normally means; naming apps is for the narrower case of maintenance that only touches one.
+/// The catalogue keys the lockout covers within <see cref="MaintenanceAudience.MobileApps"/>. Empty
+/// means every app, which is what "stop the phones" normally means; naming apps is for the narrower
+/// case of maintenance that only touches one. It has no bearing on the other audiences.
 /// </param>
 /// <param name="StartedAtUtc">When it was switched on, for the audit trail and the status endpoint.</param>
 /// <param name="EndsAtUtc">
 /// When it lifts on its own, if an operator set an end. See <see cref="IsActiveAt"/>.
 /// </param>
 /// <param name="UpdatedBy">Who last touched the switch.</param>
-public sealed record MobileMaintenanceState(
+public sealed record MaintenanceState(
     bool Enabled,
-    MobileMaintenanceScope Scope,
+    MaintenanceScope Scope,
+    IReadOnlyList<MaintenanceAudience> Audiences,
     string? Message,
     IReadOnlyList<string> AppIds,
     DateTime? StartedAtUtc,
@@ -32,9 +39,10 @@ public sealed record MobileMaintenanceState(
         + "please try again shortly.";
 
     /// <summary>A deployment that has never had the switch touched.</summary>
-    public static readonly MobileMaintenanceState Off = new(
+    public static readonly MaintenanceState Off = new(
         Enabled: false,
-        Scope: MobileMaintenanceScope.Transactions,
+        Scope: MaintenanceScope.Transactions,
+        Audiences: MaintenanceAudiences.Default,
         Message: null,
         AppIds: [],
         StartedAtUtc: null,
@@ -53,6 +61,11 @@ public sealed record MobileMaintenanceState(
     /// </remarks>
     public bool IsActiveAt(DateTime nowUtc) =>
         Enabled && (EndsAtUtc is null || nowUtc < EndsAtUtc.Value);
+
+    /// <summary>
+    /// Whether this lockout is aimed at the given audience.
+    /// </summary>
+    public bool CoversAudience(MaintenanceAudience audience) => ResolveAudiences().Contains(audience);
 
     /// <summary>
     /// Whether this lockout covers the given app.
@@ -79,4 +92,16 @@ public sealed record MobileMaintenanceState(
     /// <summary>The app keys this covers, spelled out, for a screen that has to show them.</summary>
     public IReadOnlyList<string> ResolveCoveredAppIds() =>
         AppIds.Count == 0 ? MobileVersionPolicyAppCatalog.SupportedPolicyKeys : AppIds;
+
+    /// <summary>
+    /// The audiences this covers, never empty.
+    /// </summary>
+    /// <remarks>
+    /// Guards the one state that would be quietly useless: enabled, with nobody named. Everything
+    /// that writes a state resolves the audiences first, so this only ever fires on a row somebody
+    /// edited by hand — and when it does, falling back to the phones matches what the switch did
+    /// before audiences existed.
+    /// </remarks>
+    public IReadOnlyList<MaintenanceAudience> ResolveAudiences() =>
+        Audiences.Count == 0 ? MaintenanceAudiences.Default : Audiences;
 }

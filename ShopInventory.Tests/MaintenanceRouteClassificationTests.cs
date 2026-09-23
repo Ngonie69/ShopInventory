@@ -4,7 +4,7 @@ using ShopInventory.Features.Maintenance;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Holds <see cref="MobileMaintenanceGate.ReadOnlyPostRoutes"/> honest against the controllers.
+/// Holds <see cref="MaintenanceGate.ReadOnlyPostRoutes"/> honest against the controllers.
 ///
 /// <para>
 /// The transaction lockout decides by verb, with that list as the exception: POSTs that are
@@ -21,14 +21,14 @@ namespace ShopInventory.Tests;
 /// here; the cost of an entry going stale is a failing test naming it.
 /// </para>
 /// </summary>
-public sealed class MobileMaintenanceRouteClassificationTests
+public sealed class MaintenanceRouteClassificationTests
 {
     [Fact]
     public void Every_allowlisted_route_is_still_a_post_route_that_only_reads()
     {
         var actions = ReadControllerActions();
 
-        foreach (var route in MobileMaintenanceGate.ReadOnlyPostRoutes)
+        foreach (var route in MaintenanceGate.ReadOnlyPostRoutes)
         {
             var match = actions.SingleOrDefault(action =>
                 string.Equals(action.Route, route, StringComparison.OrdinalIgnoreCase));
@@ -49,7 +49,7 @@ public sealed class MobileMaintenanceRouteClassificationTests
     [Fact]
     public void The_allowlist_has_no_duplicates()
     {
-        var duplicates = MobileMaintenanceGate.ReadOnlyPostRoutes
+        var duplicates = MaintenanceGate.ReadOnlyPostRoutes
             .GroupBy(route => route, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
             .Select(group => group.Key)

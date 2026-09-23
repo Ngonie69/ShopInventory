@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -15,14 +16,14 @@ namespace ShopInventory.Tests;
 /// headers, not touching anything else, and writing a body the apps' hand-written error readers
 /// can actually parse.
 /// </summary>
-public sealed class MobileMaintenanceMiddlewareTests
+public sealed class MaintenanceMiddlewareTests
 {
     private static readonly DateTime Now = new(2026, 9, 22, 18, 0, 0, DateTimeKind.Utc);
 
     [Fact]
     public async Task With_the_switch_off_nothing_is_touched()
     {
-        var result = await InvokeAsync(MobileMaintenanceState.Off, headers: Phone());
+        var result = await InvokeAsync(MaintenanceState.Off, headers: Phone());
 
         Assert.True(result.ReachedTheApi);
         Assert.Equal(StatusCodes.Status200OK, result.StatusCode);
@@ -64,7 +65,7 @@ public sealed class MobileMaintenanceMiddlewareTests
         // The Web calls the API with none of the app headers. If this ever stops holding, throwing
         // the switch takes the office down with the vans.
         var result = await InvokeAsync(
-            Lockout(MobileMaintenanceScope.All),
+            Lockout(MaintenanceScope.All),
             headers: new Dictionary<string, string>(),
             method: "POST",
             path: "/api/invoice");
@@ -76,7 +77,7 @@ public sealed class MobileMaintenanceMiddlewareTests
     public async Task A_caller_naming_a_platform_that_is_not_android_is_not_a_phone()
     {
         var result = await InvokeAsync(
-            Lockout(MobileMaintenanceScope.All),
+            Lockout(MaintenanceScope.All),
             headers: new Dictionary<string, string> { ["X-App-Platform"] = "windows", ["X-App-Version"] = "3.1.0" },
             method: "POST",
             path: "/api/desktopintegration/sales");
@@ -160,13 +161,15 @@ public sealed class MobileMaintenanceMiddlewareTests
         ["X-App-Version"] = "2.0.1"
     };
 
-    private static MobileMaintenanceState Lockout(
-        MobileMaintenanceScope scope = MobileMaintenanceScope.Transactions,
+    private static MaintenanceState Lockout(
+        MaintenanceScope scope = MaintenanceScope.Transactions,
         IReadOnlyList<string>? apps = null,
+        IReadOnlyList<MaintenanceAudience>? audiences = null,
         DateTime? endsAtUtc = null) =>
         new(
             Enabled: true,
             Scope: scope,
+            Audiences: audiences ?? [MaintenanceAudience.MobileApps],
             Message: "Down for the stock migration.",
             AppIds: apps ?? [],
             StartedAtUtc: Now.AddMinutes(-5),
@@ -177,10 +180,12 @@ public sealed class MobileMaintenanceMiddlewareTests
         bool ReachedTheApi, int StatusCode, string? RetryAfter, JsonElement Body, IReadOnlyList<string> Logged);
 
     private static async Task<Result> InvokeAsync(
-        MobileMaintenanceState state,
+        MaintenanceState state,
         IDictionary<string, string> headers,
         string method = "GET",
-        string path = "/api/product")
+        string path = "/api/product",
+        MaintenanceStage stage = MaintenanceStage.BeforeAuthentication,
+        ClaimsPrincipal? user = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Method = method;
@@ -190,12 +195,17 @@ public sealed class MobileMaintenanceMiddlewareTests
             context.Request.Headers[name] = value;
         }
 
+        if (user is not null)
+        {
+            context.User = user;
+        }
+
         var responseBody = new MemoryStream();
         context.Response.Body = responseBody;
 
         var reachedTheApi = false;
         var logger = new CapturingLogger();
-        var middleware = new MobileMaintenanceMiddleware(
+        var middleware = new MaintenanceMiddleware(
             _ =>
             {
                 reachedTheApi = true;
@@ -203,7 +213,8 @@ public sealed class MobileMaintenanceMiddlewareTests
             },
             logger,
             new StubStore(state),
-            new FixedClock(Now));
+            new FixedClock(Now),
+            stage);
 
         await middleware.InvokeAsync(context);
 
@@ -220,8 +231,142 @@ public sealed class MobileMaintenanceMiddlewareTests
             logger.Messages);
     }
 
+    [Fact]
+    public async Task A_newline_in_the_path_cannot_write_its_own_line_into_the_log()
+    {
+        // Separate from the header case above, because the path needs a different guard and the
+        // obvious one does nothing. HttpRequest.Path is a PathString whose implicit string
+        // conversion is ToUriComponent(), so sanitising the struct hands the sanitiser a value
+        // where the newline is already %0A — the wrapper looks load-bearing and is not. This test
+        // fails if the .Value goes back to being the struct.
+        const string forged = "[00:00:00 INF] lockout is off";
+
+        var result = await InvokeAsync(
+            Lockout(),
+            Phone(),
+            method: "POST",
+            path: "/api/vansales/sales\n" + forged);
+
+        Assert.False(result.ReachedTheApi);
+        var logged = Assert.Single(result.Logged);
+
+        Assert.DoesNotContain('\n', logged);
+        Assert.DoesNotContain('\r', logged);
+
+        // The raw text is still there to read — it is what the caller sent, and the point is only
+        // that it cannot start a line. Its presence unencoded is also what proves .Value was used:
+        // through the PathString it would have arrived percent-encoded.
+        Assert.Contains(forged, logged, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_portal_is_not_judged_before_authentication()
+    {
+        // The stage split, stated as a test. Judged early, the portal would be refused before
+        // anyone had established whether an Admin was behind the request, and the exemption would
+        // never fire — a lockout that stopped the people running the maintenance.
+        var result = await InvokeAsync(
+            Lockout(audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.BeforeAuthentication);
+
+        Assert.True(result.ReachedTheApi);
+    }
+
+    [Fact]
+    public async Task The_portal_is_refused_after_authorization()
+    {
+        var result = await InvokeAsync(
+            Lockout(audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.AfterAuthorization);
+
+        Assert.False(result.ReachedTheApi);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
+        Assert.Equal("WebPortal", result.Body.GetProperty("audience").GetString());
+    }
+
+    [Fact]
+    public async Task A_phone_is_not_judged_again_after_authorization()
+    {
+        // The other half of the split. Judged twice, a refusal would be logged twice and read as
+        // two attempts — and the second stage runs after authentication, which is the database
+        // work the early stage exists to avoid.
+        var result = await InvokeAsync(
+            Lockout(),
+            Phone(),
+            method: "POST",
+            path: "/api/vansales/sales",
+            stage: MaintenanceStage.AfterAuthorization);
+
+        Assert.True(result.ReachedTheApi);
+    }
+
+    [Fact]
+    public async Task An_admin_passes_through_a_frozen_portal()
+    {
+        var result = await InvokeAsync(
+            Lockout(MaintenanceScope.All, audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.AfterAuthorization,
+            user: SignedInAs("Admin"));
+
+        Assert.True(result.ReachedTheApi);
+    }
+
+    [Fact]
+    public async Task The_api_keys_own_admin_role_does_not_exempt_the_user_behind_it()
+    {
+        // The trap this feature had to step around. The Web sends its X-API-Key and the signed-in
+        // user's token together, and the key's identity carries Admin — so asking the merged
+        // principal would exempt a cashier and the freeze would stop nobody at all.
+        var result = await InvokeAsync(
+            Lockout(MaintenanceScope.All, audiences: [MaintenanceAudience.WebPortal]),
+            WebPortalHeaders,
+            method: "POST",
+            path: "/api/invoice",
+            stage: MaintenanceStage.AfterAuthorization,
+            user: WebRequestWithApiKeyAndUser("Cashier"));
+
+        Assert.False(result.ReachedTheApi);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
+    }
+
+    private static readonly Dictionary<string, string> WebPortalHeaders = new()
+    {
+        ["X-Client-App"] = "web-portal"
+    };
+
+    private static ClaimsPrincipal SignedInAs(string role) =>
+        new(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "ApiBearer"));
+
+    /// <summary>
+    /// What the API actually sees on a call from the Web: the key's identity, carrying Admin, and
+    /// the signed-in user's beside it.
+    /// </summary>
+    private static ClaimsPrincipal WebRequestWithApiKeyAndUser(string userRole)
+    {
+        var key = new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Role, "Admin"),
+                new Claim(ClaimTypes.AuthenticationMethod, "ApiKey"),
+                new Claim("api_key_name", "MainIntegration")
+            ],
+            "ApiKey");
+
+        var user = new ClaimsIdentity([new Claim(ClaimTypes.Role, userRole)], "ApiBearer");
+
+        return new ClaimsPrincipal([key, user]);
+    }
+
     /// <summary>Keeps the rendered log messages so a test can assert on what was written.</summary>
-    private sealed class CapturingLogger : ILogger<MobileMaintenanceMiddleware>
+    private sealed class CapturingLogger : ILogger<MaintenanceMiddleware>
     {
         public List<string> Messages { get; } = [];
 
@@ -241,11 +386,11 @@ public sealed class MobileMaintenanceMiddlewareTests
         }
     }
 
-    private sealed class StubStore(MobileMaintenanceState state) : IMobileMaintenanceStore
+    private sealed class StubStore(MaintenanceState state) : IMaintenanceStore
     {
-        public MobileMaintenanceState Current { get; } = state;
+        public MaintenanceState Current { get; } = state;
 
-        public Task UpdateAsync(MobileMaintenanceState newState, CancellationToken cancellationToken = default) =>
+        public Task UpdateAsync(MaintenanceState newState, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
         public Task ReloadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

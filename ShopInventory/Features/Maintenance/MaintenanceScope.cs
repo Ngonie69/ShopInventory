@@ -3,7 +3,7 @@ namespace ShopInventory.Features.Maintenance;
 /// <summary>
 /// How much of an app is taken away while maintenance runs.
 /// </summary>
-public enum MobileMaintenanceScope
+public enum MaintenanceScope
 {
     /// <summary>
     /// Transactions only: the phones can still read, but nothing they send changes anything.

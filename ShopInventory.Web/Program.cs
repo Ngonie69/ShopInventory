@@ -187,6 +187,11 @@ try
         {
             client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
+        // Says which audience the API's maintenance lockout should judge these calls as. Every
+        // client that reaches the API carries it, including the ones that only ever read: a
+        // lockout that covered some of the portal's calls and not others would be worse than one
+        // that covered none, because nobody could tell which they had hit.
+        WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
     // Cache sweeps started with SapBackgroundPriority.Run tell the API they are background work,
     // so they cannot take the SAP slots it keeps for people. Other requests pass untouched.
@@ -200,6 +205,7 @@ try
         {
             client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
+        WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
     .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler());
 
@@ -207,6 +213,7 @@ try
     {
         client.BaseAddress = new Uri(apiBaseUrl);
         client.Timeout = TimeSpan.FromMinutes(5);
+        WebApiClientIdentity.IdentifyAsWebPortal(client);
     });
 
     builder.Services.AddSingleton(_ => new SalesOrderPodStatusCache(TimeProvider.System));
@@ -218,6 +225,7 @@ try
         {
             client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
+        WebApiClientIdentity.IdentifyAsWebPortal(client);
     });
 
     // Register a scoped HttpClient that uses the factory
@@ -335,7 +343,7 @@ try
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
-    builder.Services.AddScoped<IMobileMaintenanceService, MobileMaintenanceService>();
+    builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IFiscalisationSettingsService, FiscalisationSettingsService>();
     builder.Services.AddScoped<IDailyIncomingPaymentSettingsService, DailyIncomingPaymentSettingsService>();

@@ -1,0 +1,81 @@
+/* Scoped rather than added to a global sheet, so nothing here can be reached by
+   MudBlazor's stylesheet — which loads last — or by a page sheet that happens to
+   own a class of the same name. */
+
+.maint-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    margin: 0 0 16px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    line-height: 1.45;
+}
+
+/* Frozen and exempt are different situations, and the bar says which by colour as
+   well as by words: amber is "you are stopped", slate is "you are not, but they
+   are". An admin seeing the loud one every time they ran maintenance would learn
+   to read past it. */
+.maint-banner-frozen {
+    background: rgba(217, 119, 6, .12);
+    box-shadow: inset 0 0 0 1px rgba(217, 119, 6, .38);
+    color: #92400e;
+}
+
+.maint-banner-admin {
+    background: rgba(100, 116, 139, .12);
+    box-shadow: inset 0 0 0 1px rgba(100, 116, 139, .34);
+    color: #334155;
+}
+
+.maint-banner i {
+    font-size: 18px;
+    flex: none;
+}
+
+.maint-banner-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.maint-banner-text strong {
+    font-weight: 600;
+}
+
+.maint-banner-text span {
+    opacity: .85;
+}
+
+.maint-banner-until {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    opacity: .8;
+    white-space: nowrap;
+}
+
+/* The colours above are picked for a white page. .dark-theme sits on <html> and
+   <body>, outside this component, so a descendant selector still reaches in: only
+   the last element in a scoped selector carries the scope attribute. On the dark
+   theme the same fills sit on near-black, where the text would be unreadable, so
+   both are lightened rather than the whole bar being restyled. */
+.dark-theme .maint-banner-frozen {
+    background: rgba(251, 191, 36, .14);
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, .34);
+    color: #fcd34d;
+}
+
+.dark-theme .maint-banner-admin {
+    background: rgba(148, 163, 184, .14);
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, .3);
+    color: #cbd5e1;
+}
+
+@media (max-width: 640px) {
+    .maint-banner {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+}

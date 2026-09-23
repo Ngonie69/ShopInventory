@@ -53,6 +53,10 @@
 
     <MudMainContent Class="staff-main kf-main">
         <main class="staff-container kf-container">
+            @* Above the page rather than over it: somebody who cannot save needs to know before
+               they fill the form in, and a bar that covered content would be dismissed. It renders
+               nothing at all when no lockout is running. *@
+            <MaintenanceBanner />
             @Body
         </main>
     </MudMainContent>

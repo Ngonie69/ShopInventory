@@ -1,0 +1,98 @@
+@using ShopInventory.Web.Services
+@implements IDisposable
+@inject IMaintenanceService MaintenanceService
+@inject CustomAuthStateProvider AuthStateProvider
+
+@* Nothing at all when nothing is running: no bar, no reserved space, no layout shift. *@
+@if (_status is { IsActive: true })
+{
+    <div class="maint-banner @(_isExemptAdmin ? "maint-banner-admin" : "maint-banner-frozen")" role="status">
+        <i class="ph @(_isExemptAdmin ? "ph-wrench" : "ph-lock-simple")" aria-hidden="true"></i>
+        <div class="maint-banner-text">
+            <strong>@Headline</strong>
+            <span>@_status.Message</span>
+        </div>
+        @if (_status.EndsAtUtc is { } endsAt)
+        {
+            <span class="maint-banner-until">until @endsAt.ToLocalTime().ToString("HH:mm")</span>
+        }
+    </div>
+}
+
+@code {
+    // Longer than the API's own five-second snapshot refresh, because this only drives a bar:
+    // being a few seconds late to show it costs nothing, and every circuit in the building polls
+    // it. The answer comes off an in-memory snapshot on the API side, so it stays cheap while the
+    // database is the thing under maintenance.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(20);
+
+    private MaintenanceStatusResponse? _status;
+    private bool _isExemptAdmin;
+    private Timer? _timer;
+
+    private string Headline => _isExemptAdmin
+        ? "Maintenance mode is on — everyone else is frozen"
+        : string.Equals(_status?.Scope, "All", StringComparison.OrdinalIgnoreCase)
+            ? "Maintenance mode is on"
+            : "Maintenance mode is on — you can look, but not save";
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Read once before the first paint, so somebody who navigates into a frozen system is told
+        // before they have filled in a form they cannot submit.
+        await Refresh();
+
+        _timer = new Timer(_ => _ = PollAsync(), null, PollInterval, PollInterval);
+    }
+
+    /// <summary>
+    /// One tick, with its failures kept to itself.
+    /// </summary>
+    /// <remarks>
+    /// The timer can fire against a circuit that is already being torn down, and an exception
+    /// escaping here would be an unobserved task exception rather than anything anybody sees. A
+    /// banner is not worth taking a circuit down for under any circumstances.
+    /// </remarks>
+    private async Task PollAsync()
+    {
+        try
+        {
+            await InvokeAsync(RefreshAndRender);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The circuit went away between the tick and the render.
+        }
+        catch (Exception)
+        {
+            // Next tick will try again.
+        }
+    }
+
+    private async Task RefreshAndRender()
+    {
+        await Refresh();
+        StateHasChanged();
+    }
+
+    private async Task Refresh()
+    {
+        var status = await MaintenanceService.GetStatusAsync();
+
+        // A failed read leaves the previous answer standing rather than clearing the bar. The most
+        // likely reason the status call failed is the maintenance itself, and dropping the notice
+        // at exactly that moment would tell everybody the system was back.
+        if (status is not null)
+        {
+            _status = status;
+        }
+
+        if (_status is { IsActive: true })
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _isExemptAdmin = authState.User.IsInRole("Admin");
+        }
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

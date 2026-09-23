@@ -1,7 +1,7 @@
 namespace ShopInventory.Features.Maintenance;
 
 /// <summary>
-/// The mobile maintenance lockout: what it currently says, and how to change it.
+/// The maintenance lockout: what it currently says, and how to change it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,29 +16,29 @@ namespace ShopInventory.Features.Maintenance;
 /// <para>
 /// <see cref="Current"/> sits on the path of every request, so it never blocks and never throws. It
 /// answers from a snapshot reloaded at most once every
-/// <see cref="MobileMaintenanceStore.RefreshInterval"/>; a request that finds the snapshot stale
+/// <see cref="MaintenanceStore.RefreshInterval"/>; a request that finds the snapshot stale
 /// starts a reload in the background and is served the previous answer. The cost is that turning
 /// the lockout on takes up to that interval to reach every node — acceptable, because the operator
 /// throwing the switch is not posting invoices in the same second, and the alternative is a
 /// database round trip per request on a system whose database is about to go down for maintenance.
 /// </para>
 /// </remarks>
-public interface IMobileMaintenanceStore
+public interface IMaintenanceStore
 {
     /// <summary>
     /// The lockout as this instance understands it. Never null, never blocks, never throws.
     /// </summary>
     /// <remarks>
     /// This is the stored state, not the applied one: ask
-    /// <see cref="MobileMaintenanceState.IsActiveAt"/> whether it is actually in force, because a
+    /// <see cref="MaintenanceState.IsActiveAt"/> whether it is actually in force, because a
     /// lockout with an end time that has passed is still <c>Enabled</c> and no longer applies.
     /// </remarks>
-    MobileMaintenanceState Current { get; }
+    MaintenanceState Current { get; }
 
     /// <summary>
     /// Persist a new lockout state and apply it on this instance at once.
     /// </summary>
-    Task UpdateAsync(MobileMaintenanceState state, CancellationToken cancellationToken = default);
+    Task UpdateAsync(MaintenanceState state, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Load the stored state now rather than leaving it to the next stale read.

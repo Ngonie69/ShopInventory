@@ -2,16 +2,16 @@ using FluentValidation;
 using ShopInventory.DTOs;
 using ShopInventory.Features.AppVersion;
 
-namespace ShopInventory.Features.Maintenance.Commands.SetMobileMaintenance;
+namespace ShopInventory.Features.Maintenance.Commands.SetMaintenance;
 
-public sealed class SetMobileMaintenanceValidator : AbstractValidator<SetMobileMaintenanceCommand>
+public sealed class SetMaintenanceValidator : AbstractValidator<SetMaintenanceCommand>
 {
     /// <summary>
     /// Long enough for the reason and the expected duration, short enough to read on a phone.
     /// </summary>
     public const int MaxMessageLength = 500;
 
-    public SetMobileMaintenanceValidator()
+    public SetMaintenanceValidator()
     {
         RuleFor(x => x.Request.Scope)
             .Must(BeEmptyOrKnownScope)
@@ -21,6 +21,10 @@ public sealed class SetMobileMaintenanceValidator : AbstractValidator<SetMobileM
             .MaximumLength(MaxMessageLength)
             .WithMessage($"The maintenance message must be {MaxMessageLength} characters or fewer.");
 
+        RuleForEach(x => x.Request.Audiences)
+            .Must(MaintenanceAudiences.IsSupported)
+            .WithMessage("'{PropertyValue}' is not an audience this system knows about.");
+
         RuleForEach(x => x.Request.AppIds)
             .Must(MobileVersionPolicyAppCatalog.IsSupportedPolicyKey)
             .WithMessage("'{PropertyValue}' is not a mobile app this system knows about.");
@@ -28,6 +32,6 @@ public sealed class SetMobileMaintenanceValidator : AbstractValidator<SetMobileM
 
     private static bool BeEmptyOrKnownScope(string? value) =>
         string.IsNullOrWhiteSpace(value)
-        || Enum.TryParse<MobileMaintenanceScope>(value.Trim(), ignoreCase: true, out var parsed)
+        || Enum.TryParse<MaintenanceScope>(value.Trim(), ignoreCase: true, out var parsed)
         && Enum.IsDefined(parsed);
 }

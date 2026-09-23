@@ -387,10 +387,10 @@ try
     // this passed yet" can be tested without waiting for it.
     builder.Services.AddSingleton(TimeProvider.System);
 
-    // The mobile maintenance lockout. A singleton for the same reason the rate limit store is: it
+    // The maintenance lockout. A singleton for the same reason the rate limit store is: it
     // is read on the path of every request and must answer without touching the database. See
-    // IMobileMaintenanceStore for why this lives in SystemConfigs and not in configuration.
-    builder.Services.AddSingleton<IMobileMaintenanceStore, MobileMaintenanceStore>();
+    // IMaintenanceStore for why this lives in SystemConfigs and not in configuration.
+    builder.Services.AddSingleton<IMaintenanceStore, MaintenanceStore>();
 
     var securitySettings = builder.Configuration.GetSection("Security").Get<SecuritySettings>()
         ?? new SecuritySettings();
@@ -1183,11 +1183,11 @@ try
             // the switch was on would accept transactions for its first few seconds.
             try
             {
-                await services.GetRequiredService<IMobileMaintenanceStore>().ReloadAsync(CancellationToken.None);
+                await services.GetRequiredService<IMaintenanceStore>().ReloadAsync(CancellationToken.None);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Could not load the mobile maintenance switch at startup; treating it as off.");
+                logger.LogWarning(ex, "Could not load the maintenance switch at startup; treating it as off.");
             }
 
             startupReadiness.MarkReady();
@@ -1329,8 +1329,9 @@ try
     app.UseMiddleware<MobileVersionEnforcementMiddleware>();
 
     // Before authentication, so that a lockout applies to every request from a phone rather than
-    // only to the ones that get as far as presenting a token.
-    app.UseMobileMaintenance();
+    // only to the ones that get as far as presenting a token, and so that a refused request never
+    // touches the database that is the thing under maintenance.
+    app.UseMaintenance(MaintenanceStage.BeforeAuthentication);
 
     // Authentication must run before rate limiting so authenticated users get per-user quotas.
     app.UseAuthentication();
@@ -1340,6 +1341,13 @@ try
 
     // Authorization
     app.UseAuthorization();
+
+    // The rest of the lockout: the web portal, whose answer depends on who is asking, because
+    // Admins keep working while everybody else is stopped. Here rather than beside the stage above
+    // because the API's policies name their own authentication schemes, so the signed-in user's
+    // identity is only on context.User once the authorization middleware has run them. Before
+    // idempotency and output caching, so a refused request is not recorded or served from cache.
+    app.UseMaintenance(MaintenanceStage.AfterAuthorization);
 
     // Idempotency check after auth (needs user context for better key scoping)
     app.UseIdempotency();
