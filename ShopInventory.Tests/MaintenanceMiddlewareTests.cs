@@ -232,6 +232,34 @@ public sealed class MaintenanceMiddlewareTests
     }
 
     [Fact]
+    public async Task A_newline_in_the_path_cannot_write_its_own_line_into_the_log()
+    {
+        // Separate from the header case above, because the path needs a different guard and the
+        // obvious one does nothing. HttpRequest.Path is a PathString whose implicit string
+        // conversion is ToUriComponent(), so sanitising the struct hands the sanitiser a value
+        // where the newline is already %0A — the wrapper looks load-bearing and is not. This test
+        // fails if the .Value goes back to being the struct.
+        const string forged = "[00:00:00 INF] lockout is off";
+
+        var result = await InvokeAsync(
+            Lockout(),
+            Phone(),
+            method: "POST",
+            path: "/api/vansales/sales\n" + forged);
+
+        Assert.False(result.ReachedTheApi);
+        var logged = Assert.Single(result.Logged);
+
+        Assert.DoesNotContain('\n', logged);
+        Assert.DoesNotContain('\r', logged);
+
+        // The raw text is still there to read — it is what the caller sent, and the point is only
+        // that it cannot start a line. Its presence unencoded is also what proves .Value was used:
+        // through the PathString it would have arrived percent-encoded.
+        Assert.Contains(forged, logged, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task The_portal_is_not_judged_before_authentication()
     {
         // The stage split, stated as a test. Judged early, the portal would be refused before

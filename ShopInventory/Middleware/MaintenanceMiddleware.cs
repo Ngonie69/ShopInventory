@@ -106,10 +106,15 @@ public sealed class MaintenanceMiddleware(
         // otherwise let a caller write whole lines of their own into the log this feature is read
         // through during an incident. PolicyKey is already a catalogue value, but AppId behind it
         // is not.
+        //
+        // The path is sanitised through .Value, not through the PathString. Passing the struct
+        // hands the sanitiser ToUriComponent(), which has already turned a newline into %0A — so
+        // the guard reads as load-bearing while doing nothing, and a log-injection test cannot
+        // tell it from the struct. .Value is the raw path, which is what needs guarding.
         logger.LogInformation(
             "Refused {Method} {Path} from {App} ({Audience}): maintenance lockout is on ({Scope}). Version={Version}, Device={Device}",
             SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Method),
-            SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Path),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Path.Value),
             SensitiveDataSanitizer.SanitizeIdentifierForLog(
                 caller.PolicyKey ?? client.AppId ?? "an unidentified client"),
             caller.Audience,
