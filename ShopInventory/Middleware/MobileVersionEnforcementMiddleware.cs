@@ -1,4 +1,5 @@
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Security;
 using ShopInventory.Features.AppVersion;
 
 namespace ShopInventory.Middleware;
@@ -46,12 +47,23 @@ public sealed class MobileVersionEnforcementMiddleware(
 
         if (!evaluation.HasValidVersionMetadata && evaluation.RequireHeaders)
         {
+            // Every value here comes off the request, and a refused request is by definition one
+            // somebody may be probing with. Newlines in a header would otherwise let a caller write
+            // whole lines of their own into the log somebody opens when handsets stop working —
+            // which is exactly when a forged entry would do the most damage. Sanitising replaces the
+            // control characters rather than dropping the value, so what was sent is still visible.
+            //
+            // Path.Value, not Path: logging the PathString itself renders ToUriComponent(), which
+            // percent-escapes the line breaks and so happens to be safe already — but only as a
+            // side effect of the struct, and it escapes the whole path along with them. Handing the
+            // sanitiser the raw value makes the guard the thing that neutralises the newline, so it
+            // cannot be dropped without a test noticing, and leaves an ordinary path readable.
             logger.LogWarning(
                 "Rejected Android request with invalid app version metadata on {Path}. AppId={AppId}, Platform={Platform}, Version={Version}",
-                context.Request.Path,
-                appId,
-                platform,
-                currentVersion);
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Path.Value),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(appId),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(platform),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(currentVersion));
 
             await WriteInvalidMetadataResponseAsync(context);
             return;
@@ -59,11 +71,13 @@ public sealed class MobileVersionEnforcementMiddleware(
 
         if (evaluation.ShouldForceUpgrade)
         {
+            // CurrentVersion is the caller's header trimmed, not a catalogue value: an interior
+            // newline survives Trim() untouched.
             logger.LogWarning(
                 "Blocked Android request from unsupported app version {Version} on {Path} for AppId={AppId}",
-                evaluation.CurrentVersion,
-                context.Request.Path,
-                appId);
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(evaluation.CurrentVersion),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Path.Value),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(appId));
 
             context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
             await context.Response.WriteAsJsonAsync(new
@@ -87,11 +101,11 @@ public sealed class MobileVersionEnforcementMiddleware(
         {
             logger.LogWarning(
                 "Rejected request with incomplete Android app version metadata on {Path}. AppId={AppId}, Platform={Platform}, Version={Version}, DeviceModel={DeviceModel}",
-                context.Request.Path,
-                appId,
-                platform,
-                currentVersion,
-                deviceModel);
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(context.Request.Path.Value),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(appId),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(platform),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(currentVersion),
+                SensitiveDataSanitizer.SanitizeIdentifierForLog(deviceModel));
 
             await WriteInvalidMetadataResponseAsync(context);
             return;
