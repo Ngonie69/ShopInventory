@@ -33,8 +33,12 @@ public sealed record TransferListenerStatusResult(
     int LinesSeen,
     int InboundDocuments,
     int OutboundDocuments,
+
+    // Documents by delivery to this API's transfer-event webhook: every line taken; a line refused
+    // or given up on; a line still retrying and none failed. The first two keep the listener's names.
     int WebhookSuccessCount,
     int WebhookFailureCount,
+    int RetryingDocuments,
 
     IReadOnlyList<string> WatchedWarehouses,
 
@@ -143,7 +147,18 @@ public sealed record TransferListenerDocumentSummary(
     string? MonitoredWarehouse,
     string? SourceWarehouse,
     string? DestinationWarehouse,
+
+    // Whether this API took every line, as the listener reports it.
     bool WebhookSuccess,
+
+    // The listener's word on delivery to this API: its least-delivered line, one of
+    // TransferListenerDelivery. Null from a listener that still sent sync-batches.
+    string? Delivery,
+    int LinesDelivered,
+
+    // This API's answer for the line that decided Delivery.
+    string? DeliveryDetail,
+
     int LineCount,
     IReadOnlyList<TransferListenerLineSummary> Lines,
 
@@ -158,5 +173,7 @@ public sealed record TransferListenerDocumentSummary(
 public sealed record TransferListenerLineSummary(
     string? ItemCode,
     string? ItemDescription,
-    decimal Quantity
+    decimal Quantity,
+    string? Delivery,
+    string? DeliveryDetail
 );

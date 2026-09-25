@@ -20,8 +20,9 @@ namespace ShopInventory.Tests;
 /// On 2026-09-17 the page said the listener was "reading SAP normally" with 33 webhooks delivered and
 /// none failed, while not one of the 237 lines it had found since the previous morning had reached the
 /// ledger: it was posting them to a port nothing listened on and queueing each 404. The "delivered"
-/// figure was its batch-sync call. These tests hold the page to the two things that would have shown
-/// it — the listener's retry queue, and the adjustments table the transfer handler writes.
+/// figure was its sync-batches call to another service. These tests hold the page to the things that
+/// would have shown it — the listener's retry queue, the adjustments table the transfer handler
+/// writes, and, since the listener dropped sync-batches, its per-document delivery to this API.
 /// </remarks>
 public sealed class TransferListenerStatusLedgerTests : IDisposable
 {
@@ -45,6 +46,10 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
         _connection.Dispose();
     }
 
+    /// <summary>
+    /// A listener that still sent sync-batches reports no delivery per document, and its
+    /// WebhookSuccess flag was that call — so the queue decides, and the flag must not read as applied.
+    /// </summary>
     [Fact]
     public async Task A_document_behind_a_stuck_queue_is_waiting_and_the_delivery_error_is_passed_through()
     {
@@ -52,7 +57,7 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
         var listener = new FakeListener(
             Poll(pending: 106, oldestPending: oldestPending, abandoned: 131,
                 error: "HTTP 404", url: "http://10.10.10.9/api/desktopintegration/webhook/transfer-event"),
-            Document(88327, DateTime.UtcNow.AddMinutes(-8), batchSyncSucceeded: true));
+            Document(88327, DateTime.UtcNow.AddMinutes(-8), webhookSuccess: true, delivery: null));
 
         var result = (await HandleAsync(listener)).Value;
 
@@ -63,7 +68,6 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
         Assert.Equal("http://10.10.10.9/api/desktopintegration/webhook/transfer-event", delivery.WebhookUrl);
         Assert.InRange(delivery.MinutesOldestPending!.Value, 239, 241);
 
-        // The listener's own flag says the batch sync succeeded; that must not read as applied.
         var document = Assert.Single(result.RecentDocuments);
         Assert.Equal(GetTransferListenerStatusHandler.Waiting, document.LocalStock);
         Assert.Null(document.AppliedAtUtc);
@@ -121,6 +125,86 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
         var result = (await HandleAsync(listener)).Value;
 
         Assert.Equal(GetTransferListenerStatusHandler.NotApplied, Assert.Single(result.RecentDocuments).LocalStock);
+    }
+
+    /// <summary>
+    /// This API took the document and the ledger holds nothing for it: it moved no stock. A line
+    /// waiting from before it must not make it read as still on its way — the listener knows it
+    /// landed.
+    /// </summary>
+    [Fact]
+    public async Task A_delivered_document_the_ledger_lacks_is_not_applied_whatever_waits_before_it()
+    {
+        var listener = new FakeListener(
+            Poll(pending: 2, oldestPending: DateTime.UtcNow.AddHours(-1)),
+            Document(88410, DateTime.UtcNow.AddMinutes(-20), delivery: TransferListenerDelivery.Delivered));
+
+        var result = (await HandleAsync(listener)).Value;
+
+        Assert.Equal(GetTransferListenerStatusHandler.NotApplied, Assert.Single(result.RecentDocuments).LocalStock);
+    }
+
+    /// <summary>
+    /// The listener still holds a line of this document for replay. Nothing in the queue summary has
+    /// to be older than it for that to be known.
+    /// </summary>
+    [Fact]
+    public async Task A_retrying_document_is_waiting_without_the_queue_to_go_on()
+    {
+        var listener = new FakeListener(
+            Poll(),
+            Document(88411, DateTime.UtcNow.AddMinutes(-20), webhookSuccess: false, delivery: TransferListenerDelivery.Retrying));
+
+        var result = (await HandleAsync(listener)).Value;
+
+        Assert.Equal(GetTransferListenerStatusHandler.Waiting, Assert.Single(result.RecentDocuments).LocalStock);
+    }
+
+    /// <summary>
+    /// A refused line is never retried, so the document is not waiting — and the page needs this API's
+    /// answer and the line it was for to say why, rather than blaming a missing snapshot.
+    /// </summary>
+    [Fact]
+    public async Task A_rejected_document_is_not_applied_and_carries_the_answer_and_its_lines()
+    {
+        var document = Document(88412, DateTime.UtcNow.AddMinutes(-20), webhookSuccess: false,
+            delivery: TransferListenerDelivery.Rejected);
+        document.LineCount = 2;
+        document.LinesDelivered = 1;
+        document.WebhookResponse = "HTTP 400: Quantity must be positive";
+        document.Lines =
+        [
+            new TransferListenerLineDto
+            {
+                ItemCode = "YOG155", Quantity = 4, Delivery = TransferListenerDelivery.Delivered
+            },
+            new TransferListenerLineDto
+            {
+                ItemCode = "YOG029", Quantity = 0, Delivery = TransferListenerDelivery.Rejected,
+                DeliveryDetail = "HTTP 400: Quantity must be positive"
+            }
+        ];
+
+        var listener = new FakeListener(Poll(pending: 1, oldestPending: DateTime.UtcNow.AddHours(-1)), document)
+        {
+            Stats = { WebhookFailureCount = 1, RetryingDocuments = 2, WebhookSuccessCount = 7 }
+        };
+
+        var result = (await HandleAsync(listener)).Value;
+
+        var summary = Assert.Single(result.RecentDocuments);
+        Assert.Equal(GetTransferListenerStatusHandler.NotApplied, summary.LocalStock);
+        Assert.Equal(TransferListenerDelivery.Rejected, summary.Delivery);
+        Assert.Equal(1, summary.LinesDelivered);
+        Assert.Equal("HTTP 400: Quantity must be positive", summary.DeliveryDetail);
+
+        var rejected = summary.Lines.Single(line => line.ItemCode == "YOG029");
+        Assert.Equal(TransferListenerDelivery.Rejected, rejected.Delivery);
+        Assert.Equal("HTTP 400: Quantity must be positive", rejected.DeliveryDetail);
+
+        Assert.Equal(7, result.WebhookSuccessCount);
+        Assert.Equal(1, result.WebhookFailureCount);
+        Assert.Equal(2, result.RetryingDocuments);
     }
 
     [Fact]
@@ -260,7 +344,15 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
             WebhookUrl = url
         };
 
-    private static TransferListenerDocumentDto Document(int docNum, DateTime detectedAt, bool batchSyncSucceeded = true) => new()
+    /// <remarks>
+    /// <paramref name="delivery"/> null is a listener that still sent sync-batches, which reported no
+    /// delivery per document.
+    /// </remarks>
+    private static TransferListenerDocumentDto Document(
+        int docNum,
+        DateTime detectedAt,
+        bool webhookSuccess = true,
+        string? delivery = null) => new()
     {
         SapDocNum = docNum,
         DetectedAt = detectedAt,
@@ -268,7 +360,10 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
         MonitoredWarehouse = "VAN006",
         SourceWarehouse = "KEFGRC",
         DestinationWarehouse = "VAN006",
-        WebhookSuccess = batchSyncSucceeded,
+        WebhookTriggered = delivery is not null && delivery != TransferListenerDelivery.NotSent,
+        WebhookSuccess = webhookSuccess,
+        Delivery = delivery,
+        LinesDelivered = delivery == TransferListenerDelivery.Delivered ? 1 : 0,
         LineCount = 1
     };
 
@@ -280,6 +375,8 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
 
         public static FakeListener Unreachable() => new(null) { _unreachable = true };
 
+        public TransferListenerStatsDto Stats { get; } = new() { RecentDocuments = [.. documents] };
+
         public bool IsEnabled => true;
 
         public string BaseUrl => "http://listener.test";
@@ -290,7 +387,7 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
                 : Task.FromResult(new TransferListenerHealthDto { Status = "healthy", Poll = poll });
 
         public Task<TransferListenerStatsDto> GetStatsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new TransferListenerStatsDto { RecentDocuments = [.. documents] });
+            Task.FromResult(Stats);
 
         public Task<IReadOnlyList<string>> GetMonitoredWarehousesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<string>>(["KEFGRC", "VAN006"]);

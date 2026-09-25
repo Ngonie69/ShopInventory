@@ -225,9 +225,14 @@
                                                             <ul>
                                                                 @foreach (var line in document.Lines)
                                                                 {
+                                                                    var lineDelivery = LineDelivery(line);
                                                                     <li>
                                                                         <span class="tel-line-qty tel-num">@line.Quantity.ToString("#,0.##")</span>
                                                                         <span>@line.ItemCode — @line.ItemDescription</span>
+                                                                        @if (lineDelivery is not null)
+                                                                        {
+                                                                            <span class="tel-line-delivery tel-tone-@lineDelivery.Tone" title="@lineDelivery.Detail">@lineDelivery.Text</span>
+                                                                        }
                                                                     </li>
                                                                 }
                                                             </ul>
@@ -245,6 +250,12 @@
                                                         <span class="tel-state-word">@state.Label</span>
                                                     </span>
                                                     <span class="tel-state-note">@state.Note</span>
+                                                    @if (DocumentDelivery(document) is { } delivered)
+                                                    {
+                                                        <span class="tel-delivery-note tel-tone-@delivered.Tone" title="@delivered.Detail">
+                                                            @delivered.Text@(string.IsNullOrWhiteSpace(delivered.Detail) ? null : $" — {delivered.Detail}")
+                                                        </span>
+                                                    }
                                                 </td>
                                             </tr>
                                         }
@@ -298,13 +309,6 @@
                                             @poll.ProcessedDocuments.ToString("N0")@(poll.ResumedFromSavedState ? " · resumed from disk" : string.Empty)
                                         </span>
                                     </div>
-                                    @if (status.WebhookFailureCount > 0)
-                                    {
-                                        <div class="tel-row">
-                                            <span class="tel-row-label">Batch-sync calls failed</span>
-                                            <span class="tel-row-value tel-row-value-bad">@status.WebhookFailureCount</span>
-                                        </div>
-                                    }
                                     <p class="tel-rows-note">
                                         Counts live in the listener's memory and reset when it restarts. Its queue of
                                         waiting lines is saved to disk and survives.

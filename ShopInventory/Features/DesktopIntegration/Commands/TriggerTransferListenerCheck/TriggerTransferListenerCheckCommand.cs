@@ -8,7 +8,7 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferList
 /// </summary>
 /// <remarks>
 /// A command, not a query, and gated as one: it advances the listener's poll window, marks documents
-/// processed and delivers webhooks for anything new it finds. It is safe to run twice — the second
+/// processed and sends anything new it finds to this API's transfer-event webhook. It is safe to run twice — the second
 /// pass finds those documents already processed — but it is an operator's lever, used when the poll
 /// has been failing and someone wants the backlog applied without waiting five minutes.
 /// </remarks>
@@ -23,7 +23,8 @@ public sealed record TriggerTransferListenerCheckResult(
     // Lines among those that touched a monitored warehouse and had not been seen before.
     int MonitoredEventsDetected,
 
-    // The listener's batch-sync call, not the ledger's delivery. Kept for compatibility.
+    // Whether the check sent this API a new line, and whether this API took all of them. The counts
+    // below say the same per line.
     bool WebhookTriggered,
     bool WebhookSuccess,
 

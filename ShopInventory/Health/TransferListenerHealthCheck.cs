@@ -22,8 +22,10 @@ namespace ShopInventory.Health;
 ///
 /// <c>Degraded</c> rather than <c>Unhealthy</c> is used for a poll that is merely late, because the
 /// listener re-reads the same window next cycle: a late poll loses nothing once it recovers. What
-/// earns <c>Unhealthy</c> is the state where recovery no longer helps — a listener that is not
-/// polling at all, or webhook deliveries that failed and are never retried.
+/// earns <c>Unhealthy</c> is the state where movements are missing from the tills now and nothing is
+/// catching up — a listener that is not polling at all, or lines that have waited past the critical
+/// threshold. Lines this API refused or the listener gave up on are not retried either, but the next
+/// morning's snapshot counts them, so they are <c>Degraded</c>.
 /// </remarks>
 public sealed class TransferListenerHealthCheck(
     ITransferEventListenerClient listenerClient,
@@ -144,14 +146,20 @@ public sealed class TransferListenerHealthCheck(
             }
         }
 
-        // Detection worked and delivery did not, and nothing retries a failed webhook: those documents
-        // never reach the snapshot however healthy the listener becomes afterwards.
+        // Documents with a line this API refused, or that the listener gave up on. Nothing retries them,
+        // but none is lost for good: the next morning's snapshot reads SAP afresh and counts them, and a
+        // line given up on because its ledger day ended is already in the snapshot that ended that day.
+        // So this is Degraded by the rule above. The count is also held since the listener started, so
+        // it cannot say whether the damage is still on today's tills.
         if (poll.WebhookFailures > 0)
         {
-            return HealthCheckResult.Unhealthy(
-                $"{poll.WebhookFailures} transfer document(s) were detected but their webhook to this API "
-                + "failed, and nothing retries them. Their stock movements are missing from the daily "
-                + "snapshot and have to be applied by re-running the morning fetch.",
+            return HealthCheckResult.Degraded(
+                $"{poll.WebhookFailures} transfer document(s) have a line this API will never take from the "
+                + $"listener ({poll.RejectedNotifications} line(s) refused as invalid, {poll.AbandonedNotifications} "
+                + "given up on), and nothing retries them. A refused line, or one dropped from a full retry "
+                + "queue, is missing from local stock until the next morning's snapshot; one given up on when "
+                + "its ledger day ended is already counted by the snapshot that ended it. Counted since the "
+                + $"listener started at {poll.ProcessStartedUtc:yyyy-MM-dd HH:mm} UTC.",
                 data: data);
         }
 
