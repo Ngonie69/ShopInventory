@@ -89,6 +89,7 @@ public sealed class GetLocalStockHandler(
             query.WarehouseCode,
             snapshotDate,
             snapshot.Status.ToString(),
-            items);
+            items,
+            snapshot.LastError);
     }
 }

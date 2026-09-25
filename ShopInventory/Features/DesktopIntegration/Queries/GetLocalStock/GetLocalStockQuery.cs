@@ -15,7 +15,10 @@ public sealed record LocalStockResult(
     string WarehouseCode,
     DateTime SnapshotDate,
     string SnapshotStatus,
-    List<LocalStockItemDto> Items
+    List<LocalStockItemDto> Items,
+    // Why a Failed snapshot failed, or what a Complete one is short of. A bare "Failed" badge left the
+    // operator nothing to act on, and the reason was only ever in the API log.
+    string? LastError = null
 );
 
 public sealed record LocalStockItemDto(

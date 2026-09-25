@@ -82,7 +82,10 @@ public sealed class FetchDailyStockHandler(
                 TotalCount = warehouses.Count,
                 CurrentWarehouse = warehouseCode,
                 Status = completedCount == warehouses.Count ? "Complete" : "InProgress",
-                CompletedWarehouses = results.Select(r => r.WarehouseCode).ToList()
+                CompletedWarehouses = results.Select(r => r.WarehouseCode).ToList(),
+                // Completed means "done with", not "succeeded": without this a warehouse whose fetch
+                // threw was shown with the same green tick as one that finished.
+                FailedWarehouses = results.Where(r => r.Status == "Failed").Select(r => r.WarehouseCode).ToList()
             }, cancellationToken);
         }
 
