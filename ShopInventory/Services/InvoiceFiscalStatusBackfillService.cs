@@ -40,9 +40,11 @@ public sealed class InvoiceFiscalStatusBackfillService(
                 using var scope = serviceScopeFactory.CreateScope();
                 var fiscalReceiptReader = scope.ServiceProvider.GetRequiredService<IFiscalReceiptReader>();
                 var sender = scope.ServiceProvider.GetRequiredService<ISender>();
+                var fiscalisationSettings = scope.ServiceProvider
+                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<Configuration.FiscalisationSettings>>().Value;
 
                 await InvoiceFiscalTransactionSync.SyncAsync(
-                    invoice, fiscalReceiptReader, sender, logger, stoppingToken);
+                    invoice, fiscalReceiptReader, sender, fiscalisationSettings, logger, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

@@ -488,6 +488,48 @@ public sealed class FiscalisationConsoleTests : IDisposable
     }
 
     [Fact]
+    public async Task A_row_flagged_as_reposted_is_out_of_the_queue_and_its_counts()
+    {
+        await SeedDocumentAsync(812001, "Not Fiscalised", reposted: true);
+        await SeedDocumentAsync(812002, "Not Fiscalised");
+
+        var asked = new List<int>();
+        var result = await RunQueueAsync(
+            new GetFiscalisationWorkQueueQuery(),
+            sapInvoices: docNums =>
+            {
+                asked.AddRange(docNums);
+                return [];
+            });
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal(1, result.DocumentCount);
+        Assert.Equal(812002, Assert.Single(result.Items).DocNum);
+        // Filtered in the database, so the flagged row costs no SAP read either.
+        Assert.Equal([812002], asked);
+
+        var awaiting = await RunQueueAsync(new GetFiscalisationWorkQueueQuery(Status: FiscalWorkQueueFilters.AwaitingFiscalisation));
+        Assert.Equal(1, awaiting.TotalCount);
+    }
+
+    [Fact]
+    public async Task A_later_attempt_against_a_reposted_invoice_still_shows()
+    {
+        // The flag describes the read-back's row. An attempt after it — someone sent the invoice before
+        // the route refused reposts — is the newest row, carries no flag, and must stay in front of a person.
+        await SeedDocumentAsync(812001, "Not Fiscalised", reposted: true);
+        await SeedDocumentAsync(
+            812001,
+            "Failed",
+            syncedAt: new DateTime(2026, 8, 19, 8, 0, 0, DateTimeKind.Utc),
+            message: "The fiscal outcome is unresolved. Check the receipt before any resubmission.");
+
+        var item = Assert.Single((await RunQueueAsync(new GetFiscalisationWorkQueueQuery())).Items);
+
+        Assert.Equal(FiscalWorkQueueDispositions.Reconcile, item.Disposition);
+    }
+
+    [Fact]
     public async Task Only_the_pages_sendable_invoices_are_looked_up_in_SAP()
     {
         await SeedDocumentAsync(812001, "Not Fiscalised");
@@ -966,7 +1008,8 @@ public sealed class FiscalisationConsoleTests : IDisposable
         string documentType = "Invoice",
         DateTime? syncedAt = null,
         string? message = null,
-        int? receiptGlobalNo = null)
+        int? receiptGlobalNo = null,
+        bool reposted = false)
     {
         var stamp = syncedAt ?? new DateTime(2026, 8, 18, 8, 0, 0, DateTimeKind.Utc);
 
@@ -982,7 +1025,8 @@ public sealed class FiscalisationConsoleTests : IDisposable
             DocTotal = 12480m,
             Currency = "USD",
             TimestampUtc = stamp,
-            LastSyncedAtUtc = stamp
+            LastSyncedAtUtc = stamp,
+            RepostedAfterSapUpdate = reposted
         });
 
         await _context.SaveChangesAsync();

@@ -236,7 +236,10 @@ public sealed class GetFiscalisationWorkQueueHandler(
                 (later.LastSyncedAtUtc > transaction.LastSyncedAtUtc ||
                     (later.LastSyncedAtUtc == transaction.LastSyncedAtUtc && later.Id > transaction.Id))))
             .Where(transaction => transaction.DocNum > 0)
-            .Where(FiscalDocumentStatusProjector.LacksFiscalEvidenceExpression);
+            .Where(FiscalDocumentStatusProjector.LacksFiscalEvidenceExpression)
+            // Owes nothing: fiscalised under its old number before the SAP update. Tested on the newest
+            // row only, like everything here, so a later attempt against the document still shows.
+            .Where(transaction => !transaction.RepostedAfterSapUpdate);
 
         documents = filter switch
         {
@@ -512,10 +515,11 @@ public sealed class GetFiscalisationWorkQueueHandler(
     /// offering to fiscalise them.
     /// </summary>
     /// <remarks>
-    /// The marker is the invoice's remarks, which only SAP holds — nothing written to the fiscal
-    /// transaction log carries them — so it is read here, for the invoices on this page only, in one
-    /// narrow lookup. The counts above stay database counts and so still include reposted invoices: the
-    /// table cannot tell them apart.
+    /// The safety net behind <c>RepostedAfterSapUpdate</c>. A row carrying that flag never reaches this
+    /// page; this catches a repost whose row was written without it — by a read that had no remarks to
+    /// go on, or before <c>FlagRepostedFiscalTransactionsHandler</c> reached it. The marker is the
+    /// invoice's remarks, which only SAP holds, so it is read here, for the invoices on this page only,
+    /// in one narrow lookup. Such a row is still in the counts above until it is flagged.
     ///
     /// A failed lookup leaves the rows as they were rather than failing the page. The fiscalise route
     /// reads the remarks itself and refuses a reposted invoice, so an unmarked row costs a refused

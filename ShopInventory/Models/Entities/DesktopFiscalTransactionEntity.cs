@@ -83,4 +83,15 @@ public class DesktopFiscalTransactionEntity
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime LastSyncedAtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// The invoice was reposted after the SAP Business One update and fiscalised under its old number,
+    /// so "Not Fiscalised" here is true of the new number only and nothing is owed.
+    /// </summary>
+    /// <remarks>
+    /// Set by the read-back from the invoice's remarks, and on rows written before this column existed
+    /// by <c>FlagRepostedFiscalTransactionsHandler</c>. The fiscalisation work queue leaves these rows
+    /// out, counts included. See <see cref="Common.Fiscalization.RepostedInvoiceMarker"/>.
+    /// </remarks>
+    public bool RepostedAfterSapUpdate { get; set; }
 }

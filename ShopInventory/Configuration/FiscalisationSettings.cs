@@ -173,6 +173,19 @@ public class FiscalisationSettings
     public string RepostedInvoiceCommentsPrefix { get; set; } = "Invoice posted from SAP update.";
 
     /// <summary>
+    /// How far back the one-off pass looks for "Not Fiscalised" invoice rows to flag as reposted, read as
+    /// UTC. Null turns the pass off.
+    /// </summary>
+    /// <remarks>
+    /// The pass flags rows written before the fiscal transaction log could record a repost itself; see
+    /// <c>FlagRepostedFiscalTransactionsHandler</c>. A repost's row can only have been written after the
+    /// repost reached SAP, which was after the update, so nothing earlier needs reading — and every row
+    /// the pass reads costs part of a SAP lookup on each node start. Clear this once the pass has run
+    /// against the deployed build.
+    /// </remarks>
+    public DateTime? RepostedInvoiceSweepSinceUtc { get; set; } = new DateTime(2026, 9, 22, 0, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>
     /// The SAP user-defined fields this integration reads and writes on a marketing document.
     /// </summary>
     public FiscalisationUdfSettings Udf { get; set; } = new();

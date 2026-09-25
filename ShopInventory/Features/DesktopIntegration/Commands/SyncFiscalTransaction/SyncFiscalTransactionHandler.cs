@@ -80,6 +80,7 @@ public sealed class SyncFiscalTransactionHandler(
                 ? entity.CreatedByUsername
                 : command.Username.Trim();
             entity.LastSyncedAtUtc = nowUtc;
+            entity.RepostedAfterSapUpdate = command.RepostedAfterSapUpdate;
 
             await dbContext.SaveChangesAsync(cancellationToken);
 

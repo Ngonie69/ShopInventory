@@ -700,6 +700,10 @@ try
     // document, this one only asks the fiscalisation platform what already happened to it.
     builder.Services.AddHostedService<InvoiceFiscalStatusBackfillService>();
 
+    // Flags read-back rows written for invoices reposted after the SAP update, before the read-back
+    // recorded that itself. Once per start; off when Fiscalisation:RepostedInvoiceSweepSinceUtc is null.
+    builder.Services.AddHostedService<RepostedInvoiceSweepService>();
+
     // FetchDailyStockHandler is resolved directly by DailyStockSnapshotJob.
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();
 

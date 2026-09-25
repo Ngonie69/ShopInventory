@@ -240,6 +240,7 @@ public sealed class GetInvoiceByDocNumHandler(
                 invoiceDto,
                 fiscalReceiptReader,
                 sender,
+                fiscalisationSettings.Value,
                 logger,
                 cancellationToken);
         }

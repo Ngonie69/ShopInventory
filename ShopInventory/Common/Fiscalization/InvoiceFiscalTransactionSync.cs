@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Models.Entities;
@@ -131,10 +132,17 @@ internal static class InvoiceFiscalTransactionSync
         return true;
     }
 
+    /// <param name="invoice">The SAP invoice, with its remarks; they decide <c>RepostedAfterSapUpdate</c>.</param>
+    /// <param name="reader">Asks the fiscal device what it holds for the invoice's number.</param>
+    /// <param name="sender">Records the answer.</param>
+    /// <param name="settings">Carries the reposted-invoice marker.</param>
+    /// <param name="logger">For a failed read-back or record.</param>
+    /// <param name="cancellationToken">Cancels the read-back.</param>
     public static async Task<bool> SyncAsync(
         InvoiceDto? invoice,
         IFiscalReceiptReader reader,
         ISender sender,
+        FiscalisationSettings settings,
         ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -203,7 +211,10 @@ internal static class InvoiceFiscalTransactionSync
                     SourceSystem = SourceSystem
                 },
                 null,
-                null),
+                null,
+                // Recorded here, where the remarks are in hand, so the work queue can leave the row out
+                // by a database filter. "Not Fiscalised" is true of a repost's new number only.
+                RepostedInvoiceMarker.IsReposted(settings, invoice.Comments)),
             cancellationToken);
 
         if (syncResult.IsError)

@@ -47,6 +47,7 @@ public sealed class GetInvoiceByDocEntryHandler(
                     invoiceDto,
                     fiscalReceiptReader,
                     sender,
+                    fiscalisationSettings.Value,
                     logger,
                     cancellationToken);
             }

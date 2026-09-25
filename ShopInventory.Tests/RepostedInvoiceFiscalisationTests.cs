@@ -9,9 +9,12 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
+using ShopInventory.Features.FiscalisationConfiguration.Commands.FlagRepostedFiscalTransactions;
 using ShopInventory.Features.Invoices.Commands.FiscalizeInvoice;
 using ShopInventory.Features.Invoices.Queries.GetInvoiceByDocEntry;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Tests;
 
@@ -145,6 +148,161 @@ public sealed class RepostedInvoiceFiscalisationTests : IDisposable
     [InlineData(null, null)]
     public void The_old_number_is_read_from_the_remarks(string? comments, string? expected)
         => Assert.Equal(expected, RepostedInvoiceMarker.OldInvoiceNumber(comments));
+
+    // ── The fiscal transaction log's RepostedAfterSapUpdate ─────────────────
+
+    [Fact]
+    public async Task The_read_back_records_a_repost_on_the_row_it_writes()
+    {
+        var reader = StubProxy.For<IFiscalReceiptReader>((_, _) => Task.FromResult<FiscalReceiptSnapshot?>(
+            new FiscalReceiptSnapshot(false, null, null, null, null, null, null, DateTime.UtcNow, null)));
+        var sender = StubProxy.For<ISender>((_, args) =>
+            new SyncFiscalTransactionHandler(_context, NullLogger<SyncFiscalTransactionHandler>.Instance)
+                .Handle((SyncFiscalTransactionCommand)args![0]!, CancellationToken.None));
+
+        foreach (var invoice in new[]
+                 {
+                     new InvoiceDto { DocEntry = 1, DocNum = 812001, Comments = RepostedComments },
+                     new InvoiceDto { DocEntry = 2, DocNum = 812002, Comments = "Shop till | Ref MCH-2" }
+                 })
+        {
+            Assert.True(await InvoiceFiscalTransactionSync.SyncAsync(
+                invoice, reader, sender, new FiscalisationSettings(), NullLogger.Instance, CancellationToken.None));
+        }
+
+        var rows = await _context.DesktopFiscalTransactions.AsNoTracking()
+            .OrderBy(row => row.DocNum)
+            .Select(row => new { row.DocNum, row.Status, row.RepostedAfterSapUpdate })
+            .ToListAsync();
+
+        Assert.Equal(
+            new[]
+            {
+                new { DocNum = 812001, Status = "Not Fiscalised", RepostedAfterSapUpdate = true },
+                new { DocNum = 812002, Status = "Not Fiscalised", RepostedAfterSapUpdate = false }
+            },
+            rows);
+    }
+
+    [Fact]
+    public async Task The_one_off_pass_flags_only_reposts_read_back_as_not_fiscalised_since_the_update()
+    {
+        var inWindow = new DateTime(2026, 9, 24, 8, 0, 0, DateTimeKind.Utc);
+        await SeedLogRowAsync(812001, "Not Fiscalised", inWindow);              // a repost: flagged
+        await SeedLogRowAsync(812002, "Not Fiscalised", inWindow);              // ordinary: left
+        await SeedLogRowAsync(812003, "Failed", inWindow);                      // a repost someone sent: left
+        await SeedLogRowAsync(700001, "Not Fiscalised", new DateTime(2026, 9, 10, 8, 0, 0, DateTimeKind.Utc));
+        await SeedLogRowAsync(812004, "Not Fiscalised", inWindow, reposted: true);
+
+        var asked = new List<int>();
+        var sapClient = SapClient(docNums =>
+        {
+            asked.AddRange(docNums);
+            return docNums.Select(docNum => SapInvoice(docNum, docNum == 812002 ? "Shop till | Ref MCH-2" : RepostedComments)).ToList();
+        });
+
+        var first = await Sweep(sapClient);
+
+        Assert.Equal(new FlagRepostedFiscalTransactionsResult(Ran: true, InvoicesChecked: 2, RowsFlagged: 1), first.Value);
+        Assert.Equal([812001, 812002], asked);
+        Assert.Equal([812001, 812004], await FlaggedDocNumsAsync());
+
+        // Idempotent: a flagged row is not read again, so a second node start re-reads only the ordinary one.
+        asked.Clear();
+        var second = await Sweep(sapClient);
+
+        Assert.Equal(new FlagRepostedFiscalTransactionsResult(Ran: true, InvoicesChecked: 1, RowsFlagged: 0), second.Value);
+        Assert.Equal([812002], asked);
+    }
+
+    [Fact]
+    public async Task A_SAP_failure_keeps_what_the_pass_flagged_before_it()
+    {
+        var inWindow = new DateTime(2026, 9, 24, 8, 0, 0, DateTimeKind.Utc);
+        for (var docNum = 812001; docNum <= 812051; docNum++)
+        {
+            await SeedLogRowAsync(docNum, "Not Fiscalised", inWindow);
+        }
+
+        var calls = 0;
+        var result = await Sweep(SapClient(docNums => ++calls == 1
+            ? docNums.Select(docNum => SapInvoice(docNum, RepostedComments)).ToList()
+            : throw new HttpRequestException("Service Layer unreachable")));
+
+        Assert.True(result.IsError);
+        Assert.Equal(50, (await FlaggedDocNumsAsync()).Count);
+    }
+
+    [Theory]
+    [InlineData("no start date")]
+    [InlineData("no marker")]
+    public async Task The_one_off_pass_can_be_switched_off(string how)
+    {
+        await SeedLogRowAsync(812001, "Not Fiscalised", new DateTime(2026, 9, 24, 8, 0, 0, DateTimeKind.Utc));
+
+        var settings = how == "no start date"
+            ? new FiscalisationSettings { RepostedInvoiceSweepSinceUtc = null }
+            : new FiscalisationSettings { RepostedInvoiceCommentsPrefix = "" };
+
+        var calls = 0;
+        var result = await Sweep(
+            SapClient(docNums =>
+            {
+                calls++;
+                return docNums.Select(docNum => SapInvoice(docNum, RepostedComments)).ToList();
+            }),
+            settings);
+
+        Assert.False(result.Value.Ran);
+        Assert.Equal(0, calls);
+        Assert.Empty(await FlaggedDocNumsAsync());
+    }
+
+    private Task<ErrorOr<FlagRepostedFiscalTransactionsResult>> Sweep(
+        ISAPServiceLayerClient sapClient,
+        FiscalisationSettings? settings = null)
+        => new FlagRepostedFiscalTransactionsHandler(
+                _context,
+                sapClient,
+                Options.Create(new SAPSettings { Enabled = true }),
+                Options.Create(settings ?? new FiscalisationSettings()),
+                NullLogger<FlagRepostedFiscalTransactionsHandler>.Instance)
+            .Handle(new FlagRepostedFiscalTransactionsCommand(), CancellationToken.None);
+
+    private static ISAPServiceLayerClient SapClient(Func<IReadOnlyList<int>, List<Models.Invoice>> invoices)
+        => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetInvoicesByDocNumsAsync) =>
+                Task.FromResult(invoices(((IEnumerable<int>)args![0]!).ToList())),
+            _ => throw new InvalidOperationException($"ISAPServiceLayerClient.{method.Name} was not expected.")
+        });
+
+    private static Models.Invoice SapInvoice(int docNum, string comments) =>
+        new() { DocEntry = docNum - 800000, DocNum = docNum, Comments = comments };
+
+    private async Task SeedLogRowAsync(int docNum, string status, DateTime syncedAt, bool reposted = false)
+    {
+        _context.DesktopFiscalTransactions.Add(new DesktopFiscalTransactionEntity
+        {
+            ClientTransactionId = $"invoice-status-backfill-{docNum}-{status}",
+            DocumentType = "Invoice",
+            DocNum = docNum,
+            Status = status,
+            TimestampUtc = syncedAt,
+            LastSyncedAtUtc = syncedAt,
+            RepostedAfterSapUpdate = reposted
+        });
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private Task<List<int>> FlaggedDocNumsAsync()
+        => _context.DesktopFiscalTransactions.AsNoTracking()
+            .Where(row => row.RepostedAfterSapUpdate)
+            .Select(row => row.DocNum)
+            .OrderBy(docNum => docNum)
+            .ToListAsync();
 
     private Task<ErrorOr<FiscalizationResult>> Fiscalise(InvoiceDto invoice, FiscalisationSettings? settings = null)
         => new FiscalizeInvoiceHandler(
