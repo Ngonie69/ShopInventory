@@ -206,6 +206,23 @@ public sealed class DesktopSaleNumberTests : IDisposable
         Assert.Equal(0, result.Value.TotalCount);
     }
 
+    [Fact]
+    public async Task The_list_carries_a_chosen_sap_posting_date_and_null_otherwise()
+    {
+        // The Desktop Sales console shows the day SAP recorded a sale under when the till chose one;
+        // the list is the only place it can read that from.
+        var backdated = await AddSale("KEF-FAC-20260915-1F3EBB3AD785", postingDate: new DateTime(2026, 9, 12));
+        var ordinary = await AddSale("KEF-FAC-20260915-DE72881AC389");
+        var caller = await AddTillOperator();
+
+        var result = await List(caller);
+
+        Assert.False(result.IsError);
+        Assert.Equal(new DateTime(2026, 9, 12), result.Value.Sales.Single(s => s.Id == backdated.Id).PostingDate);
+        Assert.Equal(new DateTime(2026, 9, 15), result.Value.Sales.Single(s => s.Id == backdated.Id).DocDate);
+        Assert.Null(result.Value.Sales.Single(s => s.Id == ordinary.Id).PostingDate);
+    }
+
     // ---- Harness ---------------------------------------------------------------------------------
 
     // Ids are assigned explicitly and in the range production is in. A row whose id is 1 or 2 makes
@@ -215,7 +232,7 @@ public sealed class DesktopSaleNumberTests : IDisposable
     private int _nextId = 10427;
 
     private async Task<DesktopSaleEntity> AddSale(
-        string reference, int? sapDocNum = null, string? receiptNumber = null)
+        string reference, int? sapDocNum = null, string? receiptNumber = null, DateTime? postingDate = null)
     {
         var sale = new DesktopSaleEntity
         {
@@ -231,6 +248,7 @@ public sealed class DesktopSaleNumberTests : IDisposable
             Currency = "USD",
             SapDocNum = sapDocNum,
             FiscalReceiptNumber = receiptNumber,
+            PostingDate = postingDate,
             CreatedAt = new DateTime(2026, 9, 15, 15, 30, 0, DateTimeKind.Utc),
         };
         _context.DesktopSales.Add(sale);

@@ -3652,6 +3652,15 @@
     cursor: help;
 }
 
+/* A sale posted to SAP under a day other than the one it was sold, because an admin
+   allowed choosing it. The warn hue, not bad: nothing is wrong, but the ledger date and
+   the receipt date differ on purpose and an admin should be able to spot it. */
+.ops-ds .ops-ds-backdated,
+.ops-overlay .ops-ds-backdated {
+    color: var(--ops-fam-warn);
+    cursor: help;
+}
+
 /* ── The detail drawer's posting parts ─────────────────────────────────── */
 
 /* SAP's own words, verbatim and monospaced — it answers with codes and table

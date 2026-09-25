@@ -298,6 +298,32 @@ public class ReportExportWorkbookTests
         Assert.Equal(XLColor.FromHtml("#fff3cd"), warning.Style.Fill.BackgroundColor);
     }
 
+    /// <summary>
+    /// A sale the till posted to SAP under a chosen day carries that day in its own column; Date stays
+    /// the day it was sold, and an ordinary sale leaves the column blank.
+    /// </summary>
+    [Fact]
+    public void A_chosen_sap_posting_date_has_its_own_column()
+    {
+        var chosen = From.AddDays(-2);
+        var sales = new List<DesktopSaleDto>
+        {
+            new() { ExternalReferenceId = "R1", CardCode = "C1", DocDate = From, Currency = "USD", TotalAmount = 100m, PostingDate = chosen },
+            new() { ExternalReferenceId = "R2", CardCode = "C1", DocDate = From, Currency = "USD", TotalAmount = 50m },
+        };
+
+        using var workbook = Open(_service.ExportDesktopSalesToExcel(sales, null, From, To));
+        var sheet = workbook.Worksheet("Desktop Sales");
+
+        var header = sheet.CellsUsed().Single(c => c.GetString() == "SAP Posting Date");
+        var backdated = sheet.CellsUsed().Single(c => c.GetString() == "R1").WorksheetRow();
+        var ordinary = sheet.CellsUsed().Single(c => c.GetString() == "R2").WorksheetRow();
+
+        Assert.Equal(chosen, backdated.Cell(header.Address.ColumnNumber).GetDateTime());
+        Assert.Equal(From, backdated.Cell(1).GetDateTime());
+        Assert.True(ordinary.Cell(header.Address.ColumnNumber).IsEmpty());
+    }
+
     [Fact]
     public void A_mixed_currency_register_totals_each_currency_separately()
     {

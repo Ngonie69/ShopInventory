@@ -1027,6 +1027,14 @@ public class DesktopSaleDto
     public string CardCode { get; set; } = string.Empty;
     public string? CardName { get; set; }
     public DateTime DocDate { get; set; }
+
+    /// <summary>
+    /// The day SAP records this sale under (posting, due and document date) when the till chose one
+    /// other than the day it was sold. Null posts on <see cref="DocDate"/>. Only possible while an admin
+    /// allows it — Settings → SAP Connection.
+    /// </summary>
+    public DateTime? PostingDate { get; set; }
+
     public decimal TotalAmount { get; set; }
     public decimal VatAmount { get; set; }
     public string Currency { get; set; } = "ZWG";
