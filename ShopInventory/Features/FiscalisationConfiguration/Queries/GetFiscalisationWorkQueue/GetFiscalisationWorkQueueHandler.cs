@@ -2,11 +2,13 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Errors;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalisationWorkQueue;
 
@@ -26,11 +28,15 @@ namespace ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalisa
 /// </remarks>
 public sealed class GetFiscalisationWorkQueueHandler(
     ApplicationDbContext db,
+    ISAPServiceLayerClient sapClient,
+    IOptions<SAPSettings> sapSettings,
     IOptions<DesktopSalePostingSettings> sweepSettings,
-    IOptions<FiscalisationSettings> fiscalisationSettings)
+    IOptions<FiscalisationSettings> fiscalisationSettings,
+    ILogger<GetFiscalisationWorkQueueHandler> logger)
     : IRequestHandler<GetFiscalisationWorkQueueQuery, ErrorOr<FiscalWorkQueueResult>>
 {
     private const string NotFiscalisedStatus = "Not Fiscalised";
+    private const string RepostedStatus = "Reposted";
 
     public async Task<ErrorOr<FiscalWorkQueueResult>> Handle(
         GetFiscalisationWorkQueueQuery query,
@@ -97,6 +103,8 @@ public sealed class GetFiscalisationWorkQueueHandler(
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToList();
+
+        items = await MarkRepostedInvoicesAsync(items, cancellationToken);
 
         var total = saleCount + documentCount;
 
@@ -498,6 +506,92 @@ public sealed class GetFiscalisationWorkQueueHandler(
             Disposition: disposition,
             DispositionNote: note);
     }
+
+    /// <summary>
+    /// Marks this page's SAP invoices that were reposted after the SAP update, so the console stops
+    /// offering to fiscalise them.
+    /// </summary>
+    /// <remarks>
+    /// The marker is the invoice's remarks, which only SAP holds — nothing written to the fiscal
+    /// transaction log carries them — so it is read here, for the invoices on this page only, in one
+    /// narrow lookup. The counts above stay database counts and so still include reposted invoices: the
+    /// table cannot tell them apart.
+    ///
+    /// A failed lookup leaves the rows as they were rather than failing the page. The fiscalise route
+    /// reads the remarks itself and refuses a reposted invoice, so an unmarked row costs a refused
+    /// click, not a second receipt.
+    /// </remarks>
+    private async Task<List<FiscalConsoleWorkItemDto>> MarkRepostedInvoicesAsync(
+        List<FiscalConsoleWorkItemDto> items,
+        CancellationToken cancellationToken)
+    {
+        var settings = fiscalisationSettings.Value;
+        if (!sapSettings.Value.Enabled || string.IsNullOrWhiteSpace(settings.RepostedInvoiceCommentsPrefix))
+        {
+            return items;
+        }
+
+        var docNums = items
+            .Where(IsSendableInvoice)
+            .Select(item => item.DocNum!.Value)
+            .Distinct()
+            .ToList();
+
+        if (docNums.Count == 0)
+        {
+            return items;
+        }
+
+        var oldNumbers = new Dictionary<int, string?>();
+
+        try
+        {
+            var invoices = await sapClient.GetInvoicesByDocNumsAsync(docNums, cancellationToken);
+
+            foreach (var invoice in invoices.Where(invoice => RepostedInvoiceMarker.IsReposted(settings, invoice.Comments)))
+            {
+                oldNumbers.TryAdd(invoice.DocNum, RepostedInvoiceMarker.OldInvoiceNumber(invoice.Comments));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not read the remarks of {Count} work queue invoice(s) from SAP; reposted invoices on this "
+                + "page are not marked, and the fiscalise route still refuses them",
+                docNums.Count);
+            return items;
+        }
+
+        if (oldNumbers.Count == 0)
+        {
+            return items;
+        }
+
+        return items
+            .Select(item => IsSendableInvoice(item) && oldNumbers.TryGetValue(item.DocNum!.Value, out var oldNumber)
+                ? item with
+                {
+                    Status = RepostedStatus,
+                    Severity = FiscalWorkQueueSeverities.Neutral,
+                    // The log's "not fiscalised" is true of the new number and misleading about the sale.
+                    Error = null,
+                    Disposition = FiscalWorkQueueDispositions.Reposted,
+                    DispositionNote = Errors.Invoice.RepostedAfterSapUpdate(item.DocNum!.Value, oldNumber).Description
+                }
+                : item)
+            .ToList();
+    }
+
+    /// <summary>A SAP invoice this page would otherwise offer to send.</summary>
+    private static bool IsSendableInvoice(FiscalConsoleWorkItemDto item) =>
+        item.SaleId is null
+        && item.DocNum is > 0
+        && item.Disposition == FiscalWorkQueueDispositions.Retry;
 
     /// <summary>
     /// Whether the message recorded against a SAP document says the outcome was never established.

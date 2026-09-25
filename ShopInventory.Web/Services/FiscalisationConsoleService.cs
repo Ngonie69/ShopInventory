@@ -558,6 +558,9 @@ public static class FiscalWorkQueueDisposition
     /// <summary>No scheduled run owns this row, and this page cannot send it either.</summary>
     public const string Stalled = "stalled";
 
+    /// <summary>Reposted after the SAP update and already fiscalised under its old number.</summary>
+    public const string Reposted = "reposted";
+
     /// <summary>
     /// Whether the console may send this document to FDMS.
     /// </summary>

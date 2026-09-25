@@ -157,4 +157,14 @@ public static class FiscalWorkQueueDispositions
     /// nobody was doing.
     /// </remarks>
     public const string Stalled = "stalled";
+
+    /// <summary>
+    /// A SAP invoice reposted after the SAP Business One update. It was fiscalised under its old number,
+    /// so there is nothing to send, and the fiscalise route refuses it.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="Common.Fiscalization.RepostedInvoiceMarker"/>. Its own value rather than
+    /// <see cref="Unrecoverable"/>: nothing is wrong with the invoice, and the page should not say so.
+    /// </remarks>
+    public const string Reposted = "reposted";
 }

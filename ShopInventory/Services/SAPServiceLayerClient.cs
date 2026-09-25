@@ -2097,7 +2097,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var currentSession = _sessionId;
             var filter = string.Join(" or ", chunk.Select(docNum => $"DocNum eq {docNum}"));
-            var url = $"Invoices?$filter={filter}&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency&$top={chunk.Length}";
+            // Comments for the fiscalisation work queue, which reads the reposted-invoice marker there.
+            var url = $"Invoices?$filter={filter}&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,Comments&$top={chunk.Length}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");

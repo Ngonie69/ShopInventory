@@ -448,6 +448,105 @@ public sealed class FiscalisationConsoleTests : IDisposable
         Assert.Equal(FiscalWorkQueueDispositions.Automatic, creditNote.Disposition);
     }
 
+    // ── Invoices reposted after the SAP update ──────────────────────────────
+
+    private const string RepostedRemarks = "Invoice posted from SAP update. Old invoice 777418. Shop till | Ref MCH-1";
+
+    [Fact]
+    public async Task A_reposted_invoice_is_marked_and_not_offered_a_send()
+    {
+        // The read-back finds nothing under the new number and records "Not Fiscalised", which is what
+        // puts a reposted invoice here at all. Only SAP's remarks say it was fiscalised under the old one.
+        await SeedDocumentAsync(812001, "Not Fiscalised", message: "Invoice 812001 is not fiscalised.");
+        await SeedDocumentAsync(812002, "Not Fiscalised");
+
+        var result = await RunQueueAsync(
+            new GetFiscalisationWorkQueueQuery(),
+            sapInvoices: _ => [SapInvoice(812001, RepostedRemarks), SapInvoice(812002, "Shop till | Ref MCH-2")]);
+
+        var reposted = Assert.Single(result.Items, item => item.DocNum == 812001);
+        Assert.Equal("Reposted", reposted.Status);
+        Assert.Equal(FiscalWorkQueueSeverities.Neutral, reposted.Severity);
+        Assert.Equal(FiscalWorkQueueDispositions.Reposted, reposted.Disposition);
+        Assert.Contains("(777418)", reposted.DispositionNote);
+        Assert.Contains("not fiscalised again", reposted.DispositionNote);
+        // The log's "not fiscalised" would otherwise be what the reason panel shows.
+        Assert.Null(reposted.Error);
+
+        var ordinary = Assert.Single(result.Items, item => item.DocNum == 812002);
+        Assert.Equal(FiscalWorkQueueDispositions.Retry, ordinary.Disposition);
+
+        // And the page's own gate refuses it, for the row button, the checkbox and every bulk run alike.
+        Assert.False(FiscalWorkQueueDisposition.CanSend(
+            new FiscalConsoleWorkItemResponse
+            {
+                Key = reposted.Key,
+                DocNum = reposted.DocNum,
+                Disposition = reposted.Disposition
+            },
+            new HashSet<string>()));
+    }
+
+    [Fact]
+    public async Task Only_the_pages_sendable_invoices_are_looked_up_in_SAP()
+    {
+        await SeedDocumentAsync(812001, "Not Fiscalised");
+        await SeedDocumentAsync(812003, "Failed", message: "The fiscal outcome is unresolved.");
+        await SeedDocumentAsync(9001, "Not Fiscalised", documentType: "CreditNote");
+        await SeedSaleAsync("VAN-1", fiscal: DesktopSaleFiscalizationStatus.Failed);
+
+        var asked = new List<int>();
+        var result = await RunQueueAsync(
+            new GetFiscalisationWorkQueueQuery(),
+            sapInvoices: docNums =>
+            {
+                asked.AddRange(docNums);
+                return [SapInvoice(812003, RepostedRemarks)];
+            });
+
+        Assert.Equal([812001], asked);
+        // An unresolved attempt stays a reconciliation, even for a repost: someone did send it.
+        Assert.Equal(
+            FiscalWorkQueueDispositions.Reconcile,
+            Assert.Single(result.Items, item => item.DocNum == 812003).Disposition);
+    }
+
+    [Fact]
+    public async Task A_SAP_failure_leaves_the_queue_readable_and_the_rows_as_they_were()
+    {
+        await SeedDocumentAsync(812001, "Not Fiscalised");
+
+        var result = await RunQueueAsync(
+            new GetFiscalisationWorkQueueQuery(),
+            sapInvoices: _ => throw new HttpRequestException("Service Layer unreachable"));
+
+        // The fiscalise route still refuses it; an unmarked row costs a refused click, not a receipt.
+        Assert.Equal(FiscalWorkQueueDispositions.Retry, Assert.Single(result.Items).Disposition);
+    }
+
+    [Fact]
+    public async Task A_blank_marker_does_not_ask_SAP_at_all()
+    {
+        await SeedDocumentAsync(812001, "Not Fiscalised");
+
+        // Counted rather than thrown: the handler swallows a SAP failure, so a throw would pass unseen.
+        var lookups = 0;
+        var result = await RunQueueAsync(
+            new GetFiscalisationWorkQueueQuery(),
+            sapInvoices: _ =>
+            {
+                lookups++;
+                return [SapInvoice(812001, RepostedRemarks)];
+            },
+            fiscalisation: new FiscalisationSettings { RepostedInvoiceCommentsPrefix = "" });
+
+        Assert.Equal(0, lookups);
+        Assert.Equal(FiscalWorkQueueDispositions.Retry, Assert.Single(result.Items).Disposition);
+    }
+
+    private static ShopInventory.Models.Invoice SapInvoice(int docNum, string comments) =>
+        new() { DocEntry = docNum - 800000, DocNum = docNum, Comments = comments };
+
     // ── Who is going to fix it ──────────────────────────────────────────────
 
     [Fact]
@@ -765,14 +864,30 @@ public sealed class FiscalisationConsoleTests : IDisposable
         MaxFiscalisationAttempts = 5
     };
 
+    /// <param name="sapInvoices">
+    /// What SAP answers for the page's invoices. By default it holds none of them, so no row is a repost
+    /// and the lookup is still exercised on every test that seeds an invoice.
+    /// </param>
     private async Task<FiscalWorkQueueResult> RunQueueAsync(
         GetFiscalisationWorkQueueQuery query,
-        FiscalisationProvider provider = FiscalisationProvider.Revmax)
+        FiscalisationProvider provider = FiscalisationProvider.Revmax,
+        Func<IReadOnlyList<int>, List<ShopInventory.Models.Invoice>>? sapInvoices = null,
+        FiscalisationSettings? fiscalisation = null)
     {
+        var sapClient = StubProxy.For<ShopInventory.Services.ISAPServiceLayerClient>((method, args) => method.Name switch
+        {
+            nameof(ShopInventory.Services.ISAPServiceLayerClient.GetInvoicesByDocNumsAsync) => Task.FromResult(
+                (sapInvoices ?? (_ => []))(((IEnumerable<int>)args![0]!).ToList())),
+            _ => throw new InvalidOperationException($"ISAPServiceLayerClient.{method.Name} was not expected.")
+        });
+
         var handler = new GetFiscalisationWorkQueueHandler(
             _context,
+            sapClient,
+            Options.Create(new SAPSettings { Enabled = true }),
             Options.Create(SweepSettings),
-            Options.Create(new FiscalisationSettings { Provider = provider }));
+            Options.Create(fiscalisation ?? new FiscalisationSettings { Provider = provider }),
+            NullLogger<GetFiscalisationWorkQueueHandler>.Instance);
 
         var result = await handler.Handle(query, CancellationToken.None);
 
