@@ -1,3 +1,4 @@
+using System.Globalization;
 using FluentValidation;
 using ShopInventory.Common.Sales;
 
@@ -29,6 +30,13 @@ public sealed class CreateDesktopSaleValidator : AbstractValidator<CreateDesktop
             .When(x => TenderTypes.RequiresReference(x.Request.PaymentMethod))
             .WithMessage("A payment reference is required for Ecocash and Innbucks");
 
+        // The format only. Whether the date may be used at all depends on the admin's switch, which is
+        // data, so the handler decides that.
+        RuleFor(x => x.Request.PostingDate)
+            .Must(BeIsoDate)
+            .When(x => !string.IsNullOrWhiteSpace(x.Request.PostingDate))
+            .WithMessage("Posting date must be a date in the form yyyy-MM-dd");
+
         RuleForEach(x => x.Request.Lines).ChildRules(line =>
         {
             line.RuleFor(l => l.ItemCode).NotEmpty();
@@ -37,4 +45,7 @@ public sealed class CreateDesktopSaleValidator : AbstractValidator<CreateDesktop
             line.RuleFor(l => l.DiscountPercent).InclusiveBetween(0, 100);
         });
     }
+
+    private static bool BeIsoDate(string? value) =>
+        DateTime.TryParseExact(value?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
 }

@@ -174,6 +174,19 @@ public class DesktopSaleEntity
     [Column(TypeName = "date")]
     public DateTime DocDate { get; set; }
 
+    /// <summary>
+    /// The day the till asked for this sale to be posted to SAP under, when it differs from the day it
+    /// was sold. Null posts on <see cref="DocDate"/>.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from <see cref="DocDate"/> rather than written into it. DocDate is also the fiscal
+    /// receipt's date and what every fiscalisation and posting sweep selects on, so backdating it would
+    /// backdate the receipt ZIMRA holds and could drop the sale out of the sweeps' windows. Only accepted
+    /// while an admin has custom posting dates switched on — see <c>PostingDatePolicyKeys</c>.
+    /// </remarks>
+    [Column(TypeName = "date")]
+    public DateTime? PostingDate { get; set; }
+
     public int? SalesPersonCode { get; set; }
 
     [MaxLength(100)]

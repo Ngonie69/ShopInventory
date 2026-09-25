@@ -22,6 +22,9 @@
 @inject MediatR.IMediator Mediator
 @using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesReview
 @using ShopInventory.Web.Features.Reports.Commands.DesktopSalesReviewEmail
+@using ShopInventory.Web.Features.PostingDatePolicy
+@using ShopInventory.Web.Features.PostingDatePolicy.Queries.GetPostingDatePolicy
+@using ShopInventory.Web.Features.PostingDatePolicy.Commands.UpdatePostingDatePolicy
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
@@ -977,6 +980,50 @@
                                                    @onchange="OnSapConnectionToggled" />
                                             <span class="stg-switch-track"></span>
                                             <span class="stg-switch-text">@(sapConnectionSwitch?.Enabled == true ? "On" : "Off")</span>
+                                        </label>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Till Sales: Choose Posting Date</span></div>
+                                    <span class="stg-row-desc">
+                                        On: the till shows a <strong>Posting date</strong> picker, and a sale posts to SAP with the chosen
+                                        day as its <strong>posting, due and document date</strong>. Off: every till sale posts on the day it
+                                        was sold, and the picker is locked on the till. The fiscal receipt always keeps the real sale date.
+                                        For special occasions: turn it off again once the sales are in.
+                                    </span>
+                                    @if (postingDatePolicy is null)
+                                    {
+                                        <span class="stg-row-meta"><i class="ph ph-warning"></i>Couldn't read the current setting from the API</span>
+                                    }
+                                    else if (postingDatePolicy.UpdatedAtUtc is DateTime postingDateChangedAt)
+                                    {
+                                        <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last changed @postingDateChangedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")@(string.IsNullOrWhiteSpace(postingDatePolicy.UpdatedBy) ? "" : $" by {postingDatePolicy.UpdatedBy}")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="stg-row-meta"><i class="ph ph-gear"></i>Off by default</span>
+                                    }
+                                </div>
+                                <div class="stg-row-control">
+                                    @if (confirmingPostingDateOn)
+                                    {
+                                        <span class="stg-sched-confirm">Let tills post sales on an earlier date?</span>
+                                        <button type="button" class="stg-btn stg-btn-primary stg-btn-sm" disabled="@savingPostingDate"
+                                                @onclick="() => SetPostingDatePolicyAsync(true)">Turn on</button>
+                                        <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" disabled="@savingPostingDate"
+                                                @onclick="() => confirmingPostingDateOn = false">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <label class="stg-switch" @key="postingDateToggleKey">
+                                            <input type="checkbox" checked="@(postingDatePolicy?.AllowCustomPostingDate == true)"
+                                                   disabled="@(postingDatePolicy is null || savingPostingDate)"
+                                                   @onchange="OnPostingDateToggled" />
+                                            <span class="stg-switch-track"></span>
+                                            <span class="stg-switch-text">@(postingDatePolicy?.AllowCustomPostingDate == true ? "On" : "Off")</span>
                                         </label>
                                     }
                                 </div>
@@ -2240,6 +2287,11 @@
     private bool savingSapConnection;
     // Rebuilds the checkbox from sapConnectionSwitch after a refused or cancelled change; see dailyPaymentToggleKey.
     private int sapConnectionToggleKey;
+    private PostingDatePolicySettings? postingDatePolicy;
+    private bool confirmingPostingDateOn;
+    private bool savingPostingDate;
+    // Rebuilds the checkbox from postingDatePolicy after a refused or cancelled change; see dailyPaymentToggleKey.
+    private int postingDateToggleKey;
     private bool isLoadingSAPSettings = false;
     private bool isSAPSaving = false;
     private bool isSAPTesting = false;
@@ -3516,6 +3568,9 @@
             }
 
             sapConnectionSwitch = await SAPSettingsService.GetConnectionSwitchAsync();
+
+            var policy = await Mediator.Send(new GetPostingDatePolicyQuery());
+            postingDatePolicy = policy.IsError ? null : policy.Value;
         }
         catch (Exception ex)
         {
@@ -3567,6 +3622,48 @@
             confirmingSapConnectionOff = false;
             savingSapConnection = false;
             sapConnectionToggleKey++;
+        }
+    }
+
+    private async Task OnPostingDateToggled(ChangeEventArgs e)
+    {
+        if (e.Value is true)
+        {
+            // Turning on lets every till backdate SAP invoices, so it takes a second click. The checkbox
+            // is re-rendered from postingDatePolicy, which has not changed, so it springs back to off.
+            confirmingPostingDateOn = true;
+            return;
+        }
+
+        await SetPostingDatePolicyAsync(false);
+    }
+
+    private async Task SetPostingDatePolicyAsync(bool allow)
+    {
+        savingPostingDate = true;
+        successMessage = null;
+        errorMessage = null;
+
+        try
+        {
+            var result = await Mediator.Send(new UpdatePostingDatePolicyCommand(allow));
+            if (result.IsError)
+            {
+                errorMessage = result.FirstError.Description;
+                return;
+            }
+
+            postingDatePolicy = result.Value;
+            successMessage = allow
+                ? "Tills can now choose the posting date. Turn it off again once the backdated sales are in."
+                : "Tills now post every sale on the day it was sold.";
+            await LogAudit(AuditActions.UpdateSettings, $"Switched custom posting dates for till sales {(allow ? "on" : "off")}");
+        }
+        finally
+        {
+            confirmingPostingDateOn = false;
+            savingPostingDate = false;
+            postingDateToggleKey++;
         }
     }
 

@@ -49,6 +49,20 @@ public class CreateDesktopSaleRequest
     public string CardCode { get; set; } = string.Empty;
     public string? CardName { get; set; }
     public string? DocDate { get; set; }
+
+    /// <summary>
+    /// The day to post the sale's SAP invoice under, <c>yyyy-MM-dd</c>, when the operator chose one.
+    /// Blank, or today, posts on the day of sale.
+    /// </summary>
+    /// <remarks>
+    /// Only honoured while an admin has custom posting dates switched on; otherwise a date other than
+    /// today is refused rather than quietly replaced, because the operator picked it on purpose. It moves
+    /// SAP's posting, due and document dates and nothing else — see <c>DesktopSaleEntity.PostingDate</c>.
+    /// Left out of the JSON when null so the request's idempotency hash is what it was before the field
+    /// existed: a retry of a sale made before it shipped still matches.
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PostingDate { get; set; }
     public int? SalesPersonCode { get; set; }
     public string? NumAtCard { get; set; }
     public string? Comments { get; set; }

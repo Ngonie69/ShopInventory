@@ -55,6 +55,23 @@ public static partial class Errors
             Error.Failure("DesktopSales.FiscalizationFailed", message);
 
         /// <summary>
+        /// The till asked to post on a day other than today while custom posting dates are switched off.
+        /// </summary>
+        /// <remarks>
+        /// A Validation error, so a 400: the till shows the server's reason only for a 400 or 422, and
+        /// the cashier has to be told nothing was sold and why.
+        /// </remarks>
+        public static Error PostingDateNotAllowed(DateTime requested, DateTime today) =>
+            Error.Validation("DesktopSales.PostingDateNotAllowed",
+                $"Choosing the posting date is switched off, so this sale cannot be posted on {requested:dd MMM yyyy}. "
+                + $"Nothing was sold. Post it on today's date ({today:dd MMM yyyy}), or ask an administrator to allow posting dates in Settings.");
+
+        /// <summary>A posting date after today. SAP would accept it; an invoice for a sale that has not happened yet is wrong.</summary>
+        public static Error PostingDateInFuture(DateTime requested, DateTime today) =>
+            Error.Validation("DesktopSales.PostingDateInFuture",
+                $"The posting date {requested:dd MMM yyyy} is after today ({today:dd MMM yyyy}). Nothing was sold. Choose today or an earlier day.");
+
+        /// <summary>
         /// The caller asked for a sale that is not fiscalised, on a route where every sale must be.
         /// </summary>
         /// <remarks>

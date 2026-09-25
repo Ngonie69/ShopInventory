@@ -1094,6 +1094,7 @@ new("DELETE", "/api/van-sales/route-stops/{id}", "Drop an area from a route's pl
 new("PUT", "/api/van-sales/route-stops/{id}", "Edit an area on a route's plan"),
 new("POST", "/api/van-sales/route-stops/reorder", "Put one weekday or cycle week of stops in order"),
 new("POST", "/api/van-sales/routes", "Create a route"),
+new("DELETE", "/api/van-sales/routes/{id}", "Delete route"),
 new("PUT", "/api/van-sales/routes/{id}", "Update a route")
 }
 }
@@ -1424,6 +1425,7 @@ new("GET", "/api/DesktopIntegration/sales", "Get desktop sales"),
 new("GET", "/api/DesktopIntegration/sales/analysis", "Get desktop sales analysis"),
 new("GET", "/api/DesktopIntegration/sales/management-report", "Get management sales report"),
 new("GET", "/api/DesktopIntegration/sales/management-report/item", "Get management item analysis"),
+new("GET", "/api/DesktopIntegration/sales/posting-date-policy", "Get posting date policy"),
 new("GET", "/api/DesktopIntegration/sales/review", "Get desktop sales review"),
 new("GET", "/api/DesktopIntegration/sales/review/pdf", "Get desktop sales review PDF"),
 new("GET", "/api/DesktopIntegration/sales/review/schedule", "Get desktop sales review schedule"),
@@ -1468,6 +1470,7 @@ new("POST", "/api/DesktopIntegration/sales-orders/convert-to-invoice", "Convert 
 new("POST", "/api/DesktopIntegration/sales/{externalReference}/fiscalise", "Retry desktop sale fiscalisation"),
 new("POST", "/api/DesktopIntegration/sales/{externalReference}/post", "Post desktop sale to SAP"),
 new("POST", "/api/DesktopIntegration/sales/post-batch", "Post desktop sales to SAP"),
+new("PUT", "/api/DesktopIntegration/sales/posting-date-policy", "Update posting date policy"),
 new("POST", "/api/DesktopIntegration/sales/review/email", "Send desktop sales review email"),
 new("PUT", "/api/DesktopIntegration/sales/review/schedule", "Update desktop sales review schedule"),
 new("POST", "/api/DesktopIntegration/stock/{warehouseCode}/refresh", "Refresh warehouse stock from SAP"),
@@ -1693,10 +1696,10 @@ Methods = new[] { "GET", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/Maintenance", "Get maintenance settings"),
-new("GET", "/api/Maintenance/status", "Get maintenance status for the calling client"),
-new("PUT", "/api/Maintenance", "Turn the maintenance lockout on or off"),
 new("GET", "/api/Maintenance/mobile", "Get maintenance settings (name the Android builds call)"),
 new("GET", "/api/Maintenance/mobile/status", "Get maintenance status (name the Android builds call)"),
+new("GET", "/api/Maintenance/status", "Get maintenance status for the calling client"),
+new("PUT", "/api/Maintenance", "Turn the maintenance lockout on or off"),
 new("PUT", "/api/Maintenance/mobile", "Turn the lockout on or off (name the Android builds call)")
 }
 },

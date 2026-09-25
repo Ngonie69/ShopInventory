@@ -9,6 +9,7 @@ using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.DesktopIntegration.Queries.GetPostingDatePolicy;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Hubs;
 using ShopInventory.Models;
@@ -250,6 +251,30 @@ public sealed class CreateDesktopSaleHandler(
                 ? DateTime.Parse(req.DocDate).Date
                 : today;
 
+            // The day SAP is to record the sale under, when the operator chose one. Checked before any
+            // stock is taken or receipt signed, so a refusal leaves nothing to undo. The switch is read
+            // only when a different day was actually asked for; an ordinary sale costs no extra query.
+            var todayCat = AuditService.ToCAT(DateTime.UtcNow).Date;
+            var postingDate = ResolvePostingDate(
+                req.PostingDate,
+                todayCat,
+                RequestsCustomPostingDate(req.PostingDate, todayCat)
+                    && await PostingDatePolicyKeys.IsAllowedAsync(context, cancellationToken));
+            if (postingDate.IsError)
+            {
+                logger.LogWarning(
+                    "Refused till sale {ExternalReference}: posting date {PostingDate} ({Reason})",
+                    externalRef, req.PostingDate, postingDate.FirstError.Code);
+                return postingDate.Errors;
+            }
+
+            if (postingDate.Value is { } chosen)
+            {
+                logger.LogInformation(
+                    "Till sale {ExternalReference} sold {DocDate:yyyy-MM-dd} will post to SAP on {PostingDate:yyyy-MM-dd}",
+                    externalRef, docDate, chosen);
+            }
+
             // Acquire per-item/warehouse locks to serialize concurrent sales affecting the same stock
             var lockRequests = req.Lines
                 .Select(l => new InventoryLockRequest
@@ -277,7 +302,7 @@ public sealed class CreateDesktopSaleHandler(
             {
                 // Validate + deduct inside the lock with retry on concurrency conflict
                 var result = await ValidateDeductAndCreateSaleAsync(
-                    req, externalRef, requestHash, docDate, account, vendor, cancellationToken);
+                    req, externalRef, requestHash, docDate, postingDate.Value, account, vendor, cancellationToken);
 
                 if (!result.IsError && idempotencyRequestId.HasValue)
                 {
@@ -392,6 +417,39 @@ public sealed class CreateDesktopSaleHandler(
         Refuse,
     }
 
+    /// <summary>True when the till asked for a posting day other than today.</summary>
+    internal static bool RequestsCustomPostingDate(string? requested, DateTime todayCat) =>
+        TryParsePostingDate(requested, out var day) && day != todayCat.Date;
+
+    /// <summary>
+    /// The day to post under, or null to post on the day of sale.
+    /// </summary>
+    /// <remarks>
+    /// Today is not a custom date and is stored as null, so switching the policy off never strands a
+    /// till that sends today's date on every sale. A later day is refused whatever the switch says. An
+    /// earlier one needs the switch on, and is refused rather than replaced when it is off: the operator
+    /// chose that day, and posting on another without saying so would be a surprise in the ledger.
+    /// </remarks>
+    internal static ErrorOr<DateTime?> ResolvePostingDate(string? requested, DateTime todayCat, bool customDatesAllowed)
+    {
+        if (!TryParsePostingDate(requested, out var day) || day == todayCat.Date)
+        {
+            return (DateTime?)null;
+        }
+
+        if (day > todayCat.Date)
+        {
+            return Errors.DesktopSales.PostingDateInFuture(day, todayCat.Date);
+        }
+
+        return customDatesAllowed
+            ? day
+            : Errors.DesktopSales.PostingDateNotAllowed(day, todayCat.Date);
+    }
+
+    private static bool TryParsePostingDate(string? value, out DateTime day) =>
+        DateTime.TryParseExact(value?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
+
     /// <summary>
     /// Whether an existing sale under this reference answers this request.
     /// </summary>
@@ -481,6 +539,7 @@ public sealed class CreateDesktopSaleHandler(
         string externalRef,
         string requestHash,
         DateTime docDate,
+        DateTime? postingDate,
         SellingAccountAssignments account,
         RouteCustomerEntity? vendor,
         CancellationToken ct)
@@ -610,6 +669,7 @@ public sealed class CreateDesktopSaleHandler(
             RouteCustomerCode = vendor?.Code,
             RouteCustomerName = vendor?.Name,
             DocDate = docDate,
+            PostingDate = postingDate,
             SalesPersonCode = req.SalesPersonCode,
             NumAtCard = req.NumAtCard,
             Comments = req.Comments,
