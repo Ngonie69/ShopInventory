@@ -162,6 +162,17 @@ public class FiscalisationSettings
     }
 
     /// <summary>
+    /// The text a SAP invoice's remarks (<c>OINV.Comments</c>) start with when it was reposted after the
+    /// SAP Business One update. Such an invoice is never fiscalised.
+    /// </summary>
+    /// <remarks>
+    /// Applies under either <see cref="Provider"/>, unlike most of this section. The reposted invoices
+    /// were fiscalised under their old numbers before the update; see
+    /// <see cref="Common.Fiscalization.RepostedInvoiceMarker"/>. Blank switches the guard off.
+    /// </remarks>
+    public string RepostedInvoiceCommentsPrefix { get; set; } = "Invoice posted from SAP update.";
+
+    /// <summary>
     /// The SAP user-defined fields this integration reads and writes on a marketing document.
     /// </summary>
     public FiscalisationUdfSettings Udf { get; set; } = new();

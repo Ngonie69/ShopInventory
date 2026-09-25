@@ -255,10 +255,10 @@
                                         }
                                         else
                                         {
-                                            <span class="ivx-fiscal">
-                                                <span class="ivx-dot @GetFiscalDotClass(invoice.FiscalizationStatus)" aria-hidden="true"></span>
-                                                <span class="ivx-fiscal-text @GetFiscalTextClass(invoice.FiscalizationStatus)">
-                                                    @invoice.FiscalizationStatus
+                                            <span class="ivx-fiscal" title="@GetFiscalTitle(invoice)">
+                                                <span class="ivx-dot @GetFiscalDotClass(invoice)" aria-hidden="true"></span>
+                                                <span class="ivx-fiscal-text @GetFiscalTextClass(invoice)">
+                                                    @GetFiscalStatusText(invoice)
                                                 </span>
                                             </span>
                                         }
@@ -400,10 +400,10 @@
                     <div>
                         <div class="ivx-dt">Fiscal status</div>
                         <div class="ivx-dd">
-                            <span class="ivx-fiscal">
-                                <span class="ivx-dot @GetFiscalDotClass(selectedInvoice.FiscalizationStatus)" aria-hidden="true"></span>
-                                <span class="ivx-fiscal-text @GetFiscalTextClass(selectedInvoice.FiscalizationStatus)">
-                                    @selectedInvoice.FiscalizationStatus
+                            <span class="ivx-fiscal" title="@GetFiscalTitle(selectedInvoice)">
+                                <span class="ivx-dot @GetFiscalDotClass(selectedInvoice)" aria-hidden="true"></span>
+                                <span class="ivx-fiscal-text @GetFiscalTextClass(selectedInvoice)">
+                                    @GetFiscalStatusText(selectedInvoice)
                                 </span>
                             </span>
                         </div>
@@ -1229,7 +1229,7 @@
         };
 
     private bool CanFiscalize(InvoiceDto? invoice)
-        => invoice is { DocEntry: > 0 }
+        => invoice is { DocEntry: > 0, IsRepostedAfterSapUpdate: false }
            && NormalizeFiscalStatus(invoice.FiscalizationStatus) != "fiscalised"
            && !unresolvedDocEntries.Contains(invoice.DocEntry);
 
@@ -1906,16 +1906,30 @@
         _ => "is-unknown"
     };
 
-    private static string GetFiscalDotClass(string? status)
-        => NormalizeFiscalStatus(status) switch
-        {
-            "fiscalised" => "is-done",
-            "not fiscalised" => "is-todo",
-            _ => "is-unknown"
-        };
+    private static string GetFiscalDotClass(InvoiceDto invoice)
+        => invoice.IsRepostedAfterSapUpdate
+            ? "is-done"
+            : NormalizeFiscalStatus(invoice.FiscalizationStatus) switch
+            {
+                "fiscalised" => "is-done",
+                "not fiscalised" => "is-todo",
+                _ => "is-unknown"
+            };
 
-    private static string GetFiscalTextClass(string? status)
-        => NormalizeFiscalStatus(status) == "not fiscalised" ? "is-todo" : string.Empty;
+    private static string GetFiscalTextClass(InvoiceDto invoice)
+        => !invoice.IsRepostedAfterSapUpdate && NormalizeFiscalStatus(invoice.FiscalizationStatus) == "not fiscalised"
+            ? "is-todo"
+            : string.Empty;
+
+    // A reposted invoice reads "Not Fiscalised" under its new number, which is true and misleading: it
+    // was fiscalised under its old one, and the API refuses to fiscalise it again.
+    private static string GetFiscalStatusText(InvoiceDto invoice)
+        => invoice.IsRepostedAfterSapUpdate ? "Reposted" : invoice.FiscalizationStatus;
+
+    private static string? GetFiscalTitle(InvoiceDto invoice)
+        => invoice.IsRepostedAfterSapUpdate
+            ? "Reposted after the SAP update; already fiscalised under its old number — not fiscalised again."
+            : null;
 
     private int GetActiveCreditNoteCount()
     {

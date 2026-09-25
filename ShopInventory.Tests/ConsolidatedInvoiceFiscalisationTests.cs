@@ -4,7 +4,9 @@ using MediatR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Fiscalization;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
@@ -232,6 +234,7 @@ public sealed class ConsolidatedInvoiceFiscalisationTests : IDisposable
                 invoice),
             FiscalizationServiceFor(fiscalize),
             AuditSink(),
+            Options.Create(new FiscalisationSettings()),
             NullLogger<FiscalizeInvoiceHandler>.Instance);
 
     /// <summary>

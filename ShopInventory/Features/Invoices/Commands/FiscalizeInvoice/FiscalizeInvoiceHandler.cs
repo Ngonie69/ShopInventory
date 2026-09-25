@@ -1,8 +1,10 @@
 using System.Text.Json;
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Fiscalization;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
@@ -17,6 +19,7 @@ public sealed class FiscalizeInvoiceHandler(
     ISender sender,
     IFiscalizationService fiscalizationService,
     IAuditService auditService,
+    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<FiscalizeInvoiceHandler> logger
 ) : IRequestHandler<FiscalizeInvoiceCommand, ErrorOr<FiscalizationResult>>
 {
@@ -38,6 +41,24 @@ public sealed class FiscalizeInvoiceHandler(
         if (invoice.DocNum <= 0)
         {
             return Errors.Invoice.ValidationFailed("Only posted invoices can be fiscalised.");
+        }
+
+        // First of the refusals, and for the same reason as the two below: the invoice was fiscalised
+        // under another number, so neither device can recognise it as a duplicate.
+        if (RepostedInvoiceMarker.IsReposted(fiscalisationSettings.Value, invoice.Comments))
+        {
+            var oldInvoiceNumber = RepostedInvoiceMarker.OldInvoiceNumber(invoice.Comments);
+            var refusal = Errors.Invoice.RepostedAfterSapUpdate(invoice.DocNum, oldInvoiceNumber);
+
+            logger.LogWarning(
+                "Refused manual fiscalisation of invoice {DocNum} requested by {Username}; it was reposted after "
+                + "the SAP update and fiscalised as old invoice {OldInvoiceNumber}",
+                invoice.DocNum,
+                command.Username,
+                oldInvoiceNumber ?? "(not named)");
+
+            await TryAuditAsync(invoice, isSuccess: false, refusal.Description, command);
+            return refusal;
         }
 
         // Before the already-fiscalised shortcut below, so the refusal says why rather than reporting
