@@ -45,6 +45,12 @@ public sealed class GetPagedInvoicesHandler(
 
             await FiscalDocumentStatusProjector.EnrichInvoicesAsync(dbContext, invoiceDtos, cancellationToken);
 
+            foreach (var invoiceDto in invoiceDtos)
+            {
+                invoiceDto.IsRepostedAfterSapUpdate =
+                    RepostedInvoiceMarker.IsReposted(fiscalisationSettings.Value, invoiceDto.Comments);
+            }
+
             if (fiscalisationSettings.Value.Enabled)
             {
                 var queuedCount = InvoiceFiscalTransactionSync.QueueUnknownInvoicesForBackfill(

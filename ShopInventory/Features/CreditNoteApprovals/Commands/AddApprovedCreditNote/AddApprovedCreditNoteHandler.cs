@@ -343,7 +343,7 @@ public sealed class AddApprovedCreditNoteHandler(
         }
 
         return await CreditNoteOriginalReceipt.ResolveAsync(
-            context, invoice.DocNum, fiscalisationSettings.Value, CancellationToken.None);
+            context, invoice.DocNum, invoice.Comments, fiscalisationSettings.Value, CancellationToken.None);
     }
 
     /// <summary>

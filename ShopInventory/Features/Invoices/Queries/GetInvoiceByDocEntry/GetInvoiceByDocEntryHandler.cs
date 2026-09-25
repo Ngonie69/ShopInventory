@@ -37,6 +37,8 @@ public sealed class GetInvoiceByDocEntryHandler(
 
             var invoiceDto = invoice.ToDto();
             await FiscalDocumentStatusProjector.EnrichInvoiceAsync(dbContext, invoiceDto, cancellationToken);
+            invoiceDto.IsRepostedAfterSapUpdate =
+                RepostedInvoiceMarker.IsReposted(fiscalisationSettings.Value, invoiceDto.Comments);
 
             if (fiscalisationSettings.Value.Enabled
                 && string.Equals(invoiceDto.FiscalizationStatus, "Unknown", StringComparison.OrdinalIgnoreCase))
@@ -45,6 +47,7 @@ public sealed class GetInvoiceByDocEntryHandler(
                     invoiceDto,
                     fiscalReceiptReader,
                     sender,
+                    fiscalisationSettings.Value,
                     logger,
                     cancellationToken);
             }

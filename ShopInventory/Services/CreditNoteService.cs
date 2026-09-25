@@ -842,31 +842,40 @@ public class CreditNoteService : ICreditNoteService
     /// The number the fiscal device holds the reversed invoice's receipt under.
     /// </summary>
     /// <remarks>
-    /// See <see cref="CreditNoteOriginalReceipt"/>. The from-invoice route has already read the invoice
-    /// and carries its DocNum; a credit note raised directly carries only the DocEntry, so the DocNum
-    /// is read here. On <see cref="CancellationToken.None"/>, like everything after the post.
+    /// See <see cref="CreditNoteOriginalReceipt"/>. The invoice is read from SAP even when the request
+    /// already carries its DocNum: its remarks say whether it was reposted after the SAP update, and a
+    /// repost's receipt is not filed under this number at all. The request cannot be asked — it is the
+    /// caller's word. An invoice that cannot be read is refused, not fiscalised blind; the credit note
+    /// is already in SAP, and a person can fiscalise it from the incident. On
+    /// <see cref="CancellationToken.None"/>, like everything after the post.
     /// </remarks>
     private async Task<CreditNoteOriginalReceiptNumber> ResolveOriginalReceiptAsync(CreateCreditNoteRequest request)
     {
-        var docNum = request.OriginalInvoiceDocNum;
+        Invoice? invoice = null;
 
-        if (docNum is null && request.OriginalInvoiceDocEntry is > 0)
+        if (request.OriginalInvoiceDocEntry is > 0)
         {
-            var invoice = await _sapClient.GetInvoiceByDocEntryAsync(
+            invoice = await _sapClient.GetInvoiceByDocEntryAsync(
                 request.OriginalInvoiceDocEntry.Value, CancellationToken.None);
-            docNum = invoice?.DocNum;
+        }
+        else if (request.OriginalInvoiceDocNum is > 0)
+        {
+            invoice = (await _sapClient.GetInvoicesByDocNumsAsync(
+                [request.OriginalInvoiceDocNum.Value], CancellationToken.None)).FirstOrDefault();
         }
 
-        if (docNum is null)
+        if (invoice is null)
         {
             return CreditNoteOriginalReceiptNumber.Refused(
                 request.OriginalInvoiceDocEntry is > 0
                     ? $"invoice DocEntry {request.OriginalInvoiceDocEntry} could not be read from SAP, so the receipt it reverses cannot be found."
-                    : "the credit note does not reference an original invoice.");
+                    : request.OriginalInvoiceDocNum is > 0
+                        ? $"invoice {request.OriginalInvoiceDocNum} could not be read from SAP, so the receipt it reverses cannot be found."
+                        : "the credit note does not reference an original invoice.");
         }
 
         return await CreditNoteOriginalReceipt.ResolveAsync(
-            _context, docNum.Value, _fiscalisationSettings, CancellationToken.None);
+            _context, invoice.DocNum, invoice.Comments, _fiscalisationSettings, CancellationToken.None);
     }
 
     /// <summary>

@@ -25,6 +25,13 @@ public class InvoiceDto
     public string? DocCurrency { get; set; }
     public bool? IsFiscalized { get; set; }
     public string FiscalizationStatus { get; set; } = "Unknown";
+
+    /// <summary>
+    /// Reposted after the SAP update and already fiscalised under its old number, so never fiscalised
+    /// again. Set by the invoice list and single-invoice reads; the fiscalise route checks the remarks
+    /// itself rather than trusting this.
+    /// </summary>
+    public bool IsRepostedAfterSapUpdate { get; set; }
     public string? FiscalQrCode { get; set; }
     public int? FiscalReceiptGlobalNo { get; set; }
     public string? FiscalVerificationCode { get; set; }

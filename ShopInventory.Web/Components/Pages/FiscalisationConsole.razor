@@ -482,6 +482,10 @@
                                                note says which of the sweep's three conditions it fails. *@
                                             <span class="fcx-no-retry" title="@item.DispositionNote">Nobody is retrying this</span>
                                         }
+                                        else if (item.Disposition == FiscalWorkQueueDisposition.Reposted)
+                                        {
+                                            <span class="fcx-no-retry fcx-no-retry-quiet" title="@item.DispositionNote">Reposted — fiscalised under its old number</span>
+                                        }
                                         else if (item.Disposition != FiscalWorkQueueDisposition.Retry || item.DocNum is null or <= 0)
                                         {
                                             <span class="fcx-no-retry fcx-no-retry-quiet" title="@item.DispositionNote">Handled automatically</span>

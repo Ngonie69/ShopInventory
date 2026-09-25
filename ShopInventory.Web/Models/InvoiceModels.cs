@@ -20,6 +20,12 @@ public class InvoiceDto
     public string? DocCurrency { get; set; }
     public bool? IsFiscalized { get; set; }
     public string FiscalizationStatus { get; set; } = "Unknown";
+
+    /// <summary>
+    /// Reposted after the SAP update and already fiscalised under its old number; the API refuses to
+    /// fiscalise it again.
+    /// </summary>
+    public bool IsRepostedAfterSapUpdate { get; set; }
     public string? FiscalQrCode { get; set; }
     public int? FiscalReceiptGlobalNo { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }

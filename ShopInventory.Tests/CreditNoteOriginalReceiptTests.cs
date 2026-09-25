@@ -106,8 +106,43 @@ public sealed class CreditNoteOriginalReceiptTests : IDisposable
         Assert.NotNull(resolved.Refusal);
     }
 
-    private Task<CreditNoteOriginalReceiptNumber> ResolveAsync(int docNum)
-        => CreditNoteOriginalReceipt.ResolveAsync(_context, docNum, Settings, CancellationToken.None);
+    [Fact]
+    public async Task A_reposted_invoice_is_refused_and_names_the_number_it_was_fiscalised_under()
+    {
+        var resolved = await ResolveAsync(
+            812001,
+            "Invoice posted from SAP update. Old invoice 777418. Shop till | Ref MCH-1");
+
+        // Not "812001": the device holds nothing under the new number, and a credit note citing it
+        // would reverse a receipt that does not exist.
+        Assert.Null(resolved.InvoiceNumber);
+        Assert.Contains("reposted after the SAP update", resolved.Refusal);
+        Assert.Contains("(777418)", resolved.Refusal);
+    }
+
+    [Fact]
+    public async Task A_repost_is_refused_even_where_a_registry_would_have_answered()
+    {
+        // The repost check comes first. A registry row under the new DocNum would be a different sale's
+        // — DocNums may repeat across the update — and answering from it would cite the wrong receipt.
+        await SeedSaleAsync("GRC-FAC-20260924-111111111111", docNum: 812002);
+
+        var resolved = await ResolveAsync(812002, "Invoice posted from SAP update. Old invoice 777419.");
+
+        Assert.Null(resolved.InvoiceNumber);
+        Assert.Contains("(777419)", resolved.Refusal);
+    }
+
+    [Fact]
+    public async Task Remarks_that_only_mention_the_update_do_not_refuse_the_credit_note()
+    {
+        var resolved = await ResolveAsync(772501, "Returned goods; see invoice posted from SAP update.");
+
+        Assert.Equal("772501", resolved.InvoiceNumber);
+    }
+
+    private Task<CreditNoteOriginalReceiptNumber> ResolveAsync(int docNum, string? comments = null)
+        => CreditNoteOriginalReceipt.ResolveAsync(_context, docNum, comments, Settings, CancellationToken.None);
 
     private async Task SeedSaleAsync(
         string externalReference,

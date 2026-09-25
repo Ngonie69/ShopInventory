@@ -21,6 +21,12 @@ namespace ShopInventory.Common.Fiscalization;
 /// <c>GRC-FAC-20260911-286EEC7389FD</c>.</item>
 /// <item>An end-of-day consolidated invoice stands for many sales, each with its own receipt. No single
 /// receipt is the original, so there is nothing a credit note against it could reference.</item>
+/// <item>An invoice reposted after the SAP update (<see cref="RepostedInvoiceMarker"/>) was fiscalised
+/// under its <b>old</b> number, and the device holds nothing under the new one. It is refused rather
+/// than redirected to the old number: that number was a DocNum in the company as it stood before the
+/// update, and which receipt it was filed under — an ordinary invoice, a till sale, a consolidation —
+/// is exactly what the registries above answer by DocNum, for documents that may since share it. A
+/// wrong original on a fiscal credit note cannot be withdrawn, so a person files it.</item>
 /// </list>
 ///
 /// The two registries are the same markers the invoice guards read, for the same reason: they are
@@ -29,9 +35,18 @@ namespace ShopInventory.Common.Fiscalization;
 /// </remarks>
 internal static class CreditNoteOriginalReceipt
 {
+    /// <param name="dbContext">Holds the consolidation and per-sale registries.</param>
+    /// <param name="originalInvoiceDocNum">The DocNum of the invoice the credit note is based on.</param>
+    /// <param name="originalInvoiceComments">
+    /// That invoice's SAP remarks, which say whether it was reposted after the SAP update. Required, so
+    /// that no caller can resolve a receipt without having read the invoice.
+    /// </param>
+    /// <param name="settings">The pre-SAP prefix and the reposted-invoice marker.</param>
+    /// <param name="cancellationToken">Cancels the registry reads.</param>
     public static async Task<CreditNoteOriginalReceiptNumber> ResolveAsync(
         ApplicationDbContext dbContext,
         int originalInvoiceDocNum,
+        string? originalInvoiceComments,
         FiscalisationSettings settings,
         CancellationToken cancellationToken)
     {
@@ -39,6 +54,17 @@ internal static class CreditNoteOriginalReceipt
         {
             return CreditNoteOriginalReceiptNumber.Refused(
                 "the original invoice's SAP document number is not known, so the receipt it reverses cannot be found.");
+        }
+
+        if (RepostedInvoiceMarker.IsReposted(settings, originalInvoiceComments))
+        {
+            var oldNumber = RepostedInvoiceMarker.OldInvoiceNumber(originalInvoiceComments);
+
+            return CreditNoteOriginalReceiptNumber.Refused(
+                $"invoice {originalInvoiceDocNum} was reposted after the SAP update and is fiscalised under its old "
+                + $"number{(oldNumber is null ? string.Empty : $" ({oldNumber})")}, not this one. The device holds no "
+                + "receipt under this number, so this credit note has to be fiscalised by hand against the original "
+                + "receipt.");
         }
 
         var consolidation = await ConsolidatedInvoiceRegistry.FindByDocNumAsync(

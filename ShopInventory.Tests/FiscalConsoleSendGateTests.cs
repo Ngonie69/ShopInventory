@@ -25,6 +25,7 @@ public sealed class FiscalConsoleSendGateTests
     [InlineData(FiscalWorkQueueDisposition.Unrecoverable)]
     [InlineData(FiscalWorkQueueDisposition.Stalled)]
     [InlineData(FiscalWorkQueueDisposition.Automatic)]
+    [InlineData(FiscalWorkQueueDisposition.Reposted)]
     public void Every_other_disposition_is_refused(string disposition)
     {
         // Reconcile and Unrecoverable must never be sent; Stalled and Automatic belong to something

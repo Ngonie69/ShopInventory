@@ -180,6 +180,32 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.Equal("CreditNoteApproval.NotApproved", resetResult.FirstError.Code);
     }
 
+    /// <summary>
+    /// A credit note based on an invoice reposted after the SAP update: the device holds nothing under
+    /// the invoice's new number. The add stands; the fiscal half goes to a person.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_note_against_a_reposted_invoice_is_added_but_not_fiscalised()
+    {
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123))
+        {
+            SaveReturns = 9001,
+            BaseInvoiceComments = "Invoice posted from SAP update. Old invoice 777418. Damaged goods"
+        };
+        var fiscal = new RecordingFiscalisation { Result = new FiscalizationResult { Success = true } };
+
+        var result = await Handler(sap, fiscal, new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError, "the credit note is already in SAP; the add must stand");
+        Assert.Empty(fiscal.Calls);
+        Assert.False(result.Value.Fiscalisation.Success);
+        Assert.Contains("reposted after the SAP update", result.Value.Message);
+
+        var incident = Assert.Single(_context.ExceptionCenterIncidents);
+        Assert.Equal(CreditNoteFiscalisationIncidents.Source, incident.Source);
+        Assert.Contains("(777418)", incident.LastError);
+    }
+
     [Fact]
     public async Task A_fiscalisation_failure_leaves_an_incident_and_the_add_stands()
     {
@@ -370,6 +396,9 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         public SAPCreditNote? NewestBefore { get; init; }
         public SAPCreditNote? NewestAfter { get; init; }
 
+        /// <summary>The remarks on invoice 77001, the one the credit note is based on.</summary>
+        public string? BaseInvoiceComments { get; init; }
+
         public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
         public List<SAPCreditNote> Projected { get; } = [];
 
@@ -387,7 +416,9 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             // The invoice the credit note's lines are based on. Its receipt is filed under the DocNum,
             // which is a different number from the BaseEntry the credit note carries.
             nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync)
-                => Task.FromResult<Invoice?>((int)args![0]! == 77001 ? new Invoice { DocEntry = 77001, DocNum = 5501 } : null),
+                => Task.FromResult<Invoice?>((int)args![0]! == 77001
+                    ? new Invoice { DocEntry = 77001, DocNum = 5501, Comments = BaseInvoiceComments }
+                    : null),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
         });
 

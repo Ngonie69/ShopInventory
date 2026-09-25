@@ -161,5 +161,17 @@ public static partial class Errors
                 + $"reaching SAP{(string.IsNullOrWhiteSpace(receiptNumber) ? string.Empty : $" as receipt {receiptNumber}")}. "
                 + "Fiscalising it would submit the same sale to FDMS a second time under a different invoice "
                 + "number, which cannot be reversed.");
+
+        /// <remarks>
+        /// The same refusal for an invoice reposted after the SAP Business One update. It was fiscalised
+        /// under its old number before the update, and nothing under the new DocNum says so — see
+        /// <see cref="Fiscalization.RepostedInvoiceMarker"/>.
+        /// </remarks>
+        public static Error RepostedAfterSapUpdate(int docNum, string? oldInvoiceNumber) =>
+            Error.Conflict(
+                "Invoice.RepostedAfterSapUpdate",
+                $"Invoice {docNum} was reposted after the SAP update and is already fiscalised under its old "
+                + $"number{(string.IsNullOrWhiteSpace(oldInvoiceNumber) ? string.Empty : $" ({oldInvoiceNumber})")} "
+                + "— not fiscalised again.");
     }
 }
