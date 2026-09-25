@@ -170,6 +170,11 @@ public sealed record DesktopSaleListItemDto(
     string CardCode,
     string? CardName,
     DateTime DocDate,
+
+    // The day the sale's SAP invoice was posted under (posting, due and document date), when the till
+    // chose one other than the day it was sold because an admin allowed it. Null posts on DocDate.
+    DateTime? PostingDate,
+
     decimal TotalAmount,
     decimal VatAmount,
     string Currency,

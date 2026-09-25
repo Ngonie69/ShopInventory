@@ -263,6 +263,7 @@ public sealed class GetDesktopSalesHandler(
                 s.CardCode,
                 s.CardName,
                 s.DocDate,
+                s.PostingDate,
                 s.TotalAmount,
                 s.VatAmount,
                 s.Currency,

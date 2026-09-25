@@ -15,8 +15,11 @@ public static class DesktopSaleInvoiceRequestBuilder
     public static CreateInvoiceRequest Build(DesktopSaleEntity sale, string? comments = null) => new()
     {
         CardCode = sale.CardCode,
-        DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
-        DocDueDate = sale.DocDate.ToString("yyyy-MM-dd"),
+        // The day the till chose to post under, when an admin allowed it; otherwise the trading day.
+        // SAP's document date (TaxDate) follows DocDate in the client, so all three move together.
+        // DocDate on the sale itself is never moved: the fiscal receipt and every sweep read it.
+        DocDate = (sale.PostingDate ?? sale.DocDate).ToString("yyyy-MM-dd"),
+        DocDueDate = (sale.PostingDate ?? sale.DocDate).ToString("yyyy-MM-dd"),
         // Who bought, where SAP shows a customer reference — the route customer's name for a van, the
         // vendor's code for vending. CardCode cannot answer that on either route: it names the van or
         // the depot. See DesktopSaleCustomerReference, including why this is safe to change and why a

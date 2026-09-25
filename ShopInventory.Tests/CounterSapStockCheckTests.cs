@@ -62,6 +62,9 @@ public sealed class CounterSapStockCheckTests : IDisposable
     private int _batchReads;
     private int _stockReads;
 
+    /// <summary>The posting date the next <see cref="SellAsync"/> asks for; null asks for none.</summary>
+    private string? _postingDate;
+
     public CounterSapStockCheckTests()
     {
         _connection = new SqliteConnection("Data Source=:memory:");
@@ -411,6 +414,76 @@ public sealed class CounterSapStockCheckTests : IDisposable
         Assert.Equal(9m, await LedgerAsync(Cheese));
     }
 
+    // ---------------------------------------------------------------
+    // Posting date (the admin's switch, end to end)
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task An_earlier_posting_date_is_stored_apart_from_the_trading_day_when_allowed()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+        await AllowCustomPostingDatesAsync(true);
+        var yesterday = AuditService.ToCAT(DateTime.UtcNow).Date.AddDays(-1);
+        _postingDate = yesterday.ToString("yyyy-MM-dd");
+
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
+
+        Assert.False(result.IsError);
+        var sale = await _context.DesktopSales.Include(s => s.Lines).SingleAsync();
+        Assert.Equal(yesterday, sale.PostingDate);
+        // The trading day, and so the fiscal receipt's date, is not moved.
+        Assert.NotEqual(yesterday, sale.DocDate);
+
+        var invoice = DesktopSaleInvoiceRequestBuilder.Build(sale);
+        Assert.Equal(_postingDate, invoice.DocDate);
+        Assert.Equal(_postingDate, invoice.DocDueDate);
+    }
+
+    [Fact]
+    public async Task An_earlier_posting_date_is_refused_before_anything_is_taken_when_switched_off()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+        await AllowCustomPostingDatesAsync(false);
+        _postingDate = AuditService.ToCAT(DateTime.UtcNow).Date.AddDays(-3).ToString("yyyy-MM-dd");
+
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.PostingDateNotAllowed", result.FirstError.Code);
+        Assert.Equal(ErrorType.Validation, result.FirstError.Type);
+        Assert.Equal(0, await _context.DesktopSales.CountAsync());
+        Assert.Equal(30m, await LedgerAsync(Cheese));
+    }
+
+    [Fact]
+    public async Task Todays_date_posts_as_an_ordinary_sale_with_the_switch_off()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+        _postingDate = AuditService.ToCAT(DateTime.UtcNow).Date.ToString("yyyy-MM-dd");
+
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
+
+        Assert.False(result.IsError);
+        Assert.Null((await _context.DesktopSales.SingleAsync()).PostingDate);
+    }
+
+    private async Task AllowCustomPostingDatesAsync(bool allow)
+    {
+        _context.SystemConfigs.Add(new SystemConfigEntity
+        {
+            Key = "DesktopSales.AllowCustomPostingDate",
+            Value = allow ? "true" : "false",
+            ValueType = "bool",
+            Category = "DesktopSales",
+            UpdatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
     /// <summary>
     /// A till or vending sale may not be created with fiscalisation switched off.
     /// </summary>
@@ -675,6 +748,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
             Fiscalize = fiscalize,
             PaymentMethod = TenderTypes.Cash,
             DocCurrency = "USD",
+            PostingDate = _postingDate,
             Lines = lines.ToList()
         };
 

@@ -66,6 +66,25 @@ public sealed class InvoiceLineVatGroupTests
         Assert.Null(sap.PostedLineProperty(lineIndex: 0, "VatGroup"));
     }
 
+    /// <summary>
+    /// A till sale posted under a chosen day: SAP's posting (DocDate), due (DocDueDate) and document
+    /// (TaxDate) dates are all that day. TaxDate has no field of its own and follows DocDate.
+    /// </summary>
+    [Fact]
+    public async Task A_posting_date_moves_the_posting_due_and_document_dates_together()
+    {
+        var sap = new DocumentServiceLayer();
+        var invoice = Invoice("USD", taxCode: "O01");
+        invoice.DocDate = "2026-09-20";
+        invoice.DocDueDate = "2026-09-20";
+
+        await CreateClient(sap).CreateInvoiceAsync(invoice);
+
+        Assert.Equal("2026-09-20", sap.PostedHeaderProperty("DocDate"));
+        Assert.Equal("2026-09-20", sap.PostedHeaderProperty("DocDueDate"));
+        Assert.Equal("2026-09-20", sap.PostedHeaderProperty("TaxDate"));
+    }
+
     private static CreateInvoiceRequest Invoice(string? currency, string? taxCode) => new()
     {
         CardCode = "VAN005",
@@ -115,6 +134,14 @@ public sealed class InvoiceLineVatGroupTests
             using var document = JsonDocument.Parse(_posted);
             var line = document.RootElement.GetProperty("DocumentLines")[lineIndex];
             return line.TryGetProperty(name, out var value) ? value.GetString() : null;
+        }
+
+        /// <summary>A header property of the posted invoice, or null when it does not carry it.</summary>
+        public string? PostedHeaderProperty(string name)
+        {
+            Assert.NotNull(_posted);
+            using var document = JsonDocument.Parse(_posted);
+            return document.RootElement.TryGetProperty(name, out var value) ? value.GetString() : null;
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(

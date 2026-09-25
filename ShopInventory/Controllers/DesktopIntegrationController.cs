@@ -72,6 +72,8 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReview;
 using ShopInventory.Features.DesktopIntegration.Commands.SendDesktopSalesReviewEmail;
 using ShopInventory.Features.DesktopIntegration.Commands.UpdateDesktopSalesReviewSchedule;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReviewSchedule;
+using ShopInventory.Features.DesktopIntegration.Commands.UpdatePostingDatePolicy;
+using ShopInventory.Features.DesktopIntegration.Queries.GetPostingDatePolicy;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReviewPdf;
 using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ShopInventory.Middleware;
@@ -1368,6 +1370,38 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         var result = await mediator.Send(
             new UpdateDesktopSalesReviewScheduleCommand(
                 userId.Value, User.Identity?.Name, request.WeeklyEnabled, request.MonthlyEnabled, request.Recipients ?? []),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Whether a till may choose the date its sale is posted to SAP under. Read by every till, so any
+    /// signed-in account may ask; only an admin may change it.
+    /// </summary>
+    [HttpGet("sales/posting-date-policy")]
+    public async Task<IActionResult> GetPostingDatePolicy(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetPostingDatePolicyQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Lets tills choose a sale's SAP posting date (posting, due and document date), or stops them. Off,
+    /// a sale posts on the day it was rung up and a till asking for another day is refused.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpPut("sales/posting-date-policy")]
+    public async Task<IActionResult> UpdatePostingDatePolicy(
+        [FromBody] UpdatePostingDatePolicyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new UpdatePostingDatePolicyCommand(userId.Value, User.Identity?.Name, request.AllowCustomPostingDate),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

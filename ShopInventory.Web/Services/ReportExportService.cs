@@ -7731,7 +7731,7 @@ public partial class ReportExportService : IReportExportService
     {
         using var workbook = NewWorkbook("Desktop Sales Report");
         var ws = AddSheet(workbook, "Desktop Sales");
-        const int cols = 13;
+        const int cols = 14;
 
         var row = WriteReportHeader(ws, "Desktop Sales Report", cols, fromDate, toDate);
 
@@ -7750,7 +7750,9 @@ public partial class ReportExportService : IReportExportService
         // row could not be placed in time or read as an amount.
         // Payment Method and its reference sit beside Paid: the tender is how the takings are
         // reconciled, and an EcoCash sale is matched to its money by the reference alone.
-        var headers = new[] { "Date", "Reference", "Customer", "Card Code", "Warehouse", "Currency", "Amount", "VAT", "Paid", "Payment Method", "Payment Reference", "Fiscal Status", "Consolidation" };
+        // SAP Posting Date is blank unless the till chose a day other than the sale's, which only an
+        // admin can allow; Date stays the day it was sold.
+        var headers = new[] { "Date", "Reference", "Customer", "Card Code", "Warehouse", "Currency", "Amount", "VAT", "Paid", "Payment Method", "Payment Reference", "Fiscal Status", "Consolidation", "SAP Posting Date" };
         for (int i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
@@ -7783,6 +7785,11 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 13).Value = sale.ConsolidationStatus;
             ws.Cell(row, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (sale.PostingDate is { } postingDate)
+            {
+                ws.Cell(row, 14).Value = postingDate;
+                ws.Cell(row, 14).Style.NumberFormat.Format = FormatDate;
+            }
             row++;
         }
 

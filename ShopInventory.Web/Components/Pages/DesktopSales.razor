@@ -607,6 +607,15 @@
                                             SAP refused it@(sale.PostingAttempts > 0 ? $" · {sale.PostingAttempts} attempts" : "")
                                         </div>
                                     }
+                                    @* A chosen posting date is rare and deliberate, so it is stated on the
+                                       row rather than left for the drawer: this is how an admin finds the
+                                       sales that went to SAP under a day other than the one they were sold. *@
+                                    @if (sale.PostingDate is { } postedOn)
+                                    {
+                                        <div class="ops-sub ops-ds-backdated" title="Chosen at the till. Sold @Day(sale.DocDate); SAP posting, due and document date @Day(postedOn).">
+                                            Posting date @Day(postedOn)
+                                        </div>
+                                    }
                                 </td>
                                 <td data-label="Customer" class="ops-name">
                                     @(sale.CardName ?? sale.CardCode)
@@ -922,6 +931,16 @@
                         <div>
                             <div class="ops-def-k">SAP invoice</div>
                             <div class="ops-def-v">#@selectedSale.SapDocNum</div>
+                        </div>
+                    }
+                    @if (selectedSale.PostingDate is { } drawerPostedOn)
+                    {
+                        <div>
+                            <div class="ops-def-k">SAP posting date</div>
+                            <div class="ops-def-v">
+                                <span class="ops-ds-backdated">@Day(drawerPostedOn)</span>
+                                <div class="ops-sub">Chosen at the till: posting, due and document date. Sold @Day(selectedSale.DocDate); the fiscal receipt keeps that day.</div>
+                            </div>
                         </div>
                     }
                     @if (selectedSale.ConsolidationId.HasValue)
@@ -2733,6 +2752,10 @@
     private static string Full(DateTime utc) => utc.AddHours(2).ToString("dd MMM yyyy, HH:mm");
 
     private static string Clock(DateTime utc) => utc.AddHours(2).ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    // A calendar day, not an instant: DocDate and PostingDate are dates with no time or zone, so no
+    // CAT shift. Invariant so September is "Sep", as the other stamps on this page write it.
+    private static string Day(DateTime date) => date.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// When the API will send a sale held after an unanswered post to SAP again, or null when it is
