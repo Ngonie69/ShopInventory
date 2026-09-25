@@ -36,27 +36,17 @@
                     SAP sync <span>@SyncAge(lastSync)</span>
                 </div>
             }
-            @* Admin only, like the Settings tile that runs the same sync. The page
-               itself is open to every catalogue role, and the API cannot tell them
-               apart: Web calls carry the API key. *@
-            <AuthorizeView Roles="@UserRoles.Admin" Context="sapSyncAccess">
-                <button type="button" class="ops-btn ops-btn-ghost" @onclick="SyncFromSap"
-                        disabled="@(isSyncingFromSap || isLoadingPriceLists)"
-                        title="Read every price list, business partner price and special price from SAP now, instead of waiting for the next scheduled sync">
-                    @if (isSyncingFromSap)
-                    {
-                        <span class="ops-spin"></span>
-                        <span>@(sapSyncPhase ?? "Syncing from SAP")&hellip;</span>
-                    }
-                    else
-                    {
-                        <i class="ph ph-cloud-arrow-down" aria-hidden="true"></i>
-                        <span>Sync from SAP</span>
-                    }
-                </button>
+            @* Prices are synced from SAP only by the Prices tile in Settings → Data Sync,
+               which is admin-only. Refresh below re-reads what the last sync brought. *@
+            <AuthorizeView Roles="@UserRoles.Admin" Context="dataSyncAccess">
+                <a class="ops-btn ops-btn-ghost" href="@Settings.DataSyncHref"
+                   title="Prices are synced from SAP in Settings → Data Sync">
+                    <i class="ph ph-cloud-arrow-down" aria-hidden="true"></i>
+                    <span>Data Sync</span>
+                </a>
             </AuthorizeView>
             <button type="button" class="ops-btn ops-btn-primary" @onclick="RefreshPriceLists"
-                    disabled="@(isLoadingPriceLists || isSyncingFromSap)">
+                    disabled="@isLoadingPriceLists">
                 @if (isLoadingPriceLists)
                 {
                     <span class="ops-spin"></span>
@@ -70,17 +60,6 @@
             </button>
         </div>
     </div>
-
-    @if (sapSyncNotice != null)
-    {
-        <div class="ops-msg @sapSyncNoticeFamily" role="alert">
-            <i class="ph @(sapSyncNoticeFamily == "ops-fam-bad" ? "ph-warning-octagon" : "ph-check-circle")" aria-hidden="true"></i>
-            <div class="ops-msg-body">@sapSyncNotice</div>
-            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => sapSyncNotice = null">
-                <i class="ph ph-x" aria-hidden="true"></i>
-            </button>
-        </div>
-    }
 
     <div class="ops-prc-body">
 
@@ -250,7 +229,7 @@
                         <h3>Could not reach the server</h3>
                         <p>Check the connection and try again.</p>
                         <div class="ops-empty-actions">
-                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ForceRefreshPrices">
+                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="() => LoadPricesForList()">
                                 <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry
                             </button>
                         </div>
@@ -261,10 +240,10 @@
                     <div class="ops-empty">
                         <i class="ph ph-tag" aria-hidden="true"></i>
                         <h3>This list is empty</h3>
-                        <p>It may not have been synced yet, or the list has no items in SAP.</p>
+                        <p>It may not have been synced yet, or the list has no items in SAP. Prices are synced in Settings &rarr; Data Sync.</p>
                         <div class="ops-empty-actions">
-                            <button type="button" class="ops-btn ops-btn-warn" @onclick="ForceRefreshPrices">
-                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry from SAP
+                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="() => LoadPricesForList()">
+                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Reload
                             </button>
                         </div>
                     </div>
@@ -387,12 +366,6 @@
     /// </summary>
     private Dictionary<string, string> itemGroupByCode = new(StringComparer.OrdinalIgnoreCase);
     private bool itemGroupsLoaded;
-
-    // Sync from SAP
-    private bool isSyncingFromSap;
-    private string? sapSyncPhase;
-    private string? sapSyncNotice;
-    private string sapSyncNoticeFamily = "ops-fam-good";
 
     private List<PriceListDto> ActivePriceLists => priceLists?.Where(list => list.IsActive).ToList() ?? [];
 
@@ -660,7 +633,7 @@
     {
         if (IsListView)
         {
-            await ForceRefreshPrices();
+            await LoadPricesForList();
             return;
         }
 
@@ -738,66 +711,6 @@
         }
     }
 
-    /// <summary>
-    /// Pulls SAP's prices into the API's catalogue now rather than at the next scheduled sync.
-    /// </summary>
-    /// <remarks>
-    /// The API answers every price read from that catalogue: this page, the invoicing guard and the
-    /// shop tills' <c>prices/business-partner</c> route alike. So a price changed in SAP reaches none
-    /// of them until the catalogue is synced, and the schedule (<c>SAP:SyncIntervalHours</c>) is
-    /// four hours by default. This runs the same sync the Settings "Prices" tile does, the Web's own
-    /// price cache included, so the two cannot disagree about what a sync from here did.
-    /// </remarks>
-    private async Task SyncFromSap()
-    {
-        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
-        if (!auth.User.IsInRole(UserRoles.Admin))
-        {
-            return;
-        }
-
-        isSyncingFromSap = true;
-        sapSyncPhase = null;
-        sapSyncNotice = null;
-        StateHasChanged();
-
-        var progress = new Progress<SyncProgress>(step =>
-        {
-            sapSyncPhase = step.Phase;
-            _ = InvokeAsync(StateHasChanged);
-        });
-
-        try
-        {
-            var cachedCount = await CacheService.SyncPricesFromApiAsync(progress);
-
-            // Tills hold a business partner's price list for 30 minutes and re-read on a ten-minute
-            // timer, so 40 minutes is the longest an unattended till can go on charging the old price.
-            sapSyncNotice = $"Prices synced from SAP at {DateTime.Now:HH:mm} ({cachedCount:N0} item prices). " +
-                "Shop tills pick them up within 40 minutes, or straight away when Refresh is pressed on the till.";
-            sapSyncNoticeFamily = "ops-fam-good";
-
-            await AuditService.LogAsync(AuditActions.SyncPrices, "PriceList", null,
-                $"Synced from SAP on the Price List page; {cachedCount} item prices cached", true);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "SAP price sync from the Price List page failed");
-            sapSyncNotice = ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't sync prices from SAP right now.");
-            sapSyncNoticeFamily = "ops-fam-bad";
-
-            await AuditService.LogAsync(AuditActions.SyncPrices, "PriceList", null,
-                "Sync from SAP on the Price List page", false, sapSyncNotice);
-        }
-        finally
-        {
-            isSyncingFromSap = false;
-            sapSyncPhase = null;
-        }
-
-        await RefreshPriceLists();
-    }
-
     private async Task SelectPriceList(int listNum)
     {
         if (listNum == selectedPriceListNum && allPricesForList != null)
@@ -815,7 +728,7 @@
         await LoadPricesForList();
     }
 
-    private async Task LoadPricesForList(bool forceRefresh = false)
+    private async Task LoadPricesForList()
     {
         if (selectedPriceListNum == 0) return;
 
@@ -827,9 +740,7 @@
         {
             await EnsureAuthenticatedAsync();
             await EnsureItemGroupsAsync();
-            var response = forceRefresh
-                ? await PriceService.GetPricesByPriceListForceRefreshAsync(selectedPriceListNum)
-                : await PriceService.GetPricesByPriceListAsync(selectedPriceListNum);
+            var response = await PriceService.GetPricesByPriceListAsync(selectedPriceListNum);
 
             allPricesForList = response?.Prices;
             if (allPricesForList != null)
@@ -848,11 +759,6 @@
             BuildRows();
             StateHasChanged();
         }
-    }
-
-    private async Task ForceRefreshPrices()
-    {
-        await LoadPricesForList(forceRefresh: true);
     }
 
     /// <summary>

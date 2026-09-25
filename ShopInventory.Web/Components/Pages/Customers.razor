@@ -39,15 +39,10 @@
                 {
                     <span class="bp-synced">Synced @lastSyncTime.Value.ToLocalTime().ToString("d MMM yyyy, HH:mm")</span>
                 }
-                <button type="button" class="bp-btn bp-btn-ghost" disabled="@(isLoading || isSyncing)"
-                        @onclick="RefreshFromApi">
-                    @if (isSyncing)
-                    {
-                        <span class="bp-spin" aria-hidden="true"></span>
-                        <span>Syncing&#8230;</span>
-                    }
-                    else
-                    {
+                @* Partners are synced only from Settings → Data Sync, which is admin-only. *@
+                <AuthorizeView Roles="@UserRoles.Admin" Context="dataSyncAccess">
+                    <a class="bp-btn bp-btn-ghost" href="@Settings.DataSyncHref"
+                       title="Business partners are synced from SAP in Settings → Data Sync">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
@@ -55,9 +50,9 @@
                             <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
                             <path d="M20 20v-4h-4"></path>
                         </svg>
-                        <span>Refresh</span>
-                    }
-                </button>
+                        <span>Data Sync</span>
+                    </a>
+                </AuthorizeView>
             </div>
         </div>
     </header>
@@ -201,13 +196,12 @@
                         </svg>
                         @if (AllCount == 0)
                         {
-                            <span>Nothing cached yet &#8212; refresh to pull the business partners from SAP.</span>
-                            <div class="bp-empty-actions">
-                                <button type="button" class="bp-btn bp-btn-primary" disabled="@isSyncing"
-                                        @onclick="RefreshFromApi">
-                                    Refresh from SAP
-                                </button>
-                            </div>
+                            <span>Nothing cached yet &#8212; business partners are pulled from SAP in Settings &#8594; Data Sync.</span>
+                            <AuthorizeView Roles="@UserRoles.Admin" Context="dataSyncAccess">
+                                <div class="bp-empty-actions">
+                                    <a class="bp-btn bp-btn-primary" href="@Settings.DataSyncHref">Open Data Sync</a>
+                                </div>
+                            </AuthorizeView>
                         }
                         else
                         {

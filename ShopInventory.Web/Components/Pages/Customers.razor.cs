@@ -37,7 +37,6 @@ public partial class Customers : ComponentBase
     private List<BusinessPartnerDto> customers = [];
     private BusinessPartnerDto? selectedCustomer;
     private bool isLoading = true;
-    private bool isSyncing;
     private bool isGeneratingStatement;
     private bool isExporting;
     private bool showFilters;
@@ -155,7 +154,7 @@ public partial class Customers : ComponentBase
             if (response is null)
             {
                 customers = [];
-                errorMessage = "No cached data found. Refresh to sync from the server.";
+                errorMessage = "No cached data found. Business partners are synced in Settings → Data Sync.";
             }
             else
             {
@@ -189,30 +188,6 @@ public partial class Customers : ComponentBase
 
         if (currencyFilter != FilterAll && !AvailableCurrencies.Contains(currencyFilter, _textComparer))
             currencyFilter = FilterAll;
-    }
-
-    private async Task RefreshFromApi()
-    {
-        isSyncing = true;
-        errorMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            await BusinessPartnerService.SyncBusinessPartnersAsync();
-            lastSyncTime = DateTime.UtcNow;
-            await LoadCustomers();
-        }
-        catch (Exception ex)
-        {
-            errorMessage = ApiErrorResponse.GetFriendlyMessage(
-                ex,
-                "We couldn't sync the business partners right now. Please try again.");
-        }
-        finally
-        {
-            isSyncing = false;
-        }
     }
 
     private void SetScope(string value)

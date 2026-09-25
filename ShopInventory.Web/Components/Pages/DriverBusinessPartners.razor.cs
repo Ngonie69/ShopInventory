@@ -2,7 +2,6 @@ using MediatR;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using MudBlazor;
-using ShopInventory.Web.Features.UserManagement.Commands.RefreshDriverBusinessPartnerAccess;
 using ShopInventory.Web.Features.UserManagement.Commands.UpdateDriverBusinessPartnerAccess;
 using ShopInventory.Web.Features.UserManagement.Queries.GetDriverBusinessPartnerAccess;
 using ShopInventory.Web.Models;
@@ -35,7 +34,6 @@ public partial class DriverBusinessPartners : ComponentBase
     private string customerChannelFilter = ChannelFilterAll;
     private string selectedSearchTerm = string.Empty;
     private bool isLoading = true;
-    private bool isRefreshing;
     private bool isSaving;
 
     // Code order only. Sorting the selected to the top would move a row out
@@ -118,10 +116,9 @@ public partial class DriverBusinessPartners : ComponentBase
         await LoadAsync();
     }
 
-    private async Task LoadAsync(bool preserveSelection = false)
+    private async Task LoadAsync()
     {
         isLoading = true;
-        var preservedSelection = preserveSelection ? selectedCustomerCodes.ToList() : null;
 
         var result = await Mediator.Send(new GetDriverBusinessPartnerAccessQuery());
         if (result.IsError)
@@ -150,7 +147,7 @@ public partial class DriverBusinessPartners : ComponentBase
         }
 
         selectedCustomerCodes.Clear();
-        foreach (var code in preservedSelection ?? result.Value.AssignedCustomerCodes)
+        foreach (var code in result.Value.AssignedCustomerCodes)
         {
             selectedCustomerCodes.Add(code);
         }
@@ -186,26 +183,6 @@ public partial class DriverBusinessPartners : ComponentBase
     {
         selectedCustomerCodes.Clear();
         selectedSearchTerm = string.Empty;
-    }
-
-    private async Task RefreshCustomersAsync()
-    {
-        isRefreshing = true;
-        try
-        {
-            var result = await Mediator.Send(new RefreshDriverBusinessPartnerAccessCommand());
-            if (result.IsError)
-            {
-                Snackbar.Add(result.FirstError.Description, Severity.Error);
-                return;
-            }
-            await LoadAsync(preserveSelection: true);
-            Snackbar.Add($"Refreshed from SAP — {result.Value} record(s) processed.", Severity.Success);
-        }
-        finally
-        {
-            isRefreshing = false;
-        }
     }
 
     private async Task SaveAsync()

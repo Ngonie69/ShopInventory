@@ -28,27 +28,20 @@
                 <span class="dsa-crumb-now" aria-current="page">Driver shop access</span>
             </nav>
             <div class="dsa-head-actions">
-                <button type="button" class="dsa-btn dsa-btn-ghost"
-                        disabled="@(isLoading || isSaving || isRefreshing)" @onclick="RefreshCustomersAsync">
-                    @if (isRefreshing)
-                    {
-                        <span class="dsa-spin" aria-hidden="true"></span>
-                        <span>Refreshing&#8230;</span>
-                    }
-                    else
-                    {
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
-                            <path d="M4 4v4h4"></path>
-                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
-                            <path d="M20 20v-4h-4"></path>
-                        </svg>
-                        <span>Refresh from SAP</span>
-                    }
-                </button>
+                @* The shop list is the business partner cache, synced only from Settings → Data Sync. *@
+                <a class="dsa-btn dsa-btn-ghost" href="@Settings.DataSyncHref"
+                   title="Business partners are synced from SAP in Settings → Data Sync">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                        <path d="M4 4v4h4"></path>
+                        <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                        <path d="M20 20v-4h-4"></path>
+                    </svg>
+                    <span>Data Sync</span>
+                </a>
                 <button type="button" class="dsa-btn dsa-btn-primary"
-                        disabled="@(isLoading || isSaving || isRefreshing)" @onclick="SaveAsync">
+                        disabled="@(isLoading || isSaving)" @onclick="SaveAsync">
                     @if (isSaving)
                     {
                         <span class="dsa-spin" aria-hidden="true"></span>
@@ -236,7 +229,7 @@
                     <div class="dsa-panel-foot">
                         <span class="dsa-count">@shownSelected.Count shown</span>
                         <button type="button" class="dsa-btn dsa-btn-primary dsa-btn-lg"
-                                disabled="@(isSaving || isRefreshing)" @onclick="SaveAsync">
+                                disabled="@isSaving" @onclick="SaveAsync">
                             @if (isSaving)
                             {
                                 <span class="dsa-spin" aria-hidden="true"></span>

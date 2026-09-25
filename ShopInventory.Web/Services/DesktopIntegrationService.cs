@@ -86,7 +86,8 @@ public interface IDesktopIntegrationService
         string externalReference, CancellationToken cancellationToken = default);
 
     // Prices
-    Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false);
+    // Reads only: prices are synced from SAP by Settings → Data Sync.
+    Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
     Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode);
 }
 
@@ -709,21 +710,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
 
     #region Prices
 
-    public async Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false)
+    public async Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum)
     {
         try
         {
-            if (forceRefresh)
-            {
-                var syncResponse = await _httpClient.PostAsync($"api/DesktopIntegration/prices/pricelists/{priceListNum}/sync", null);
-                if (!syncResponse.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("Failed to sync prices for price list {PriceListNum}: {StatusCode}",
-                        priceListNum, syncResponse.StatusCode);
-                    return null;
-                }
-            }
-
             return await _httpClient.GetFromJsonAsync<ItemPricesByListResponse>(
                 $"api/DesktopIntegration/prices/pricelists/{priceListNum}");
         }
