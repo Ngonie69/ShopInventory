@@ -143,7 +143,8 @@ public class SyncController(IMediator mediator) : ApiControllerBase
     /// </summary>
     /// <remarks>
     /// Copies every item's VAT group from the SAP item master into the table till sales are taxed
-    /// from, instead of waiting for the 03:45 CAT job. Tills re-read it within four hours, or at once
+    /// from. Web → Settings → Data Sync is what calls this; nothing runs it on a schedule, so the table
+    /// is as fresh as the last time an admin ran it. Tills re-read it within four hours, or at once
     /// when Refresh is pressed on the till. Sales already recorded keep the tax code they were made under.
     /// </remarks>
     [HttpPost("item-tax-groups")]

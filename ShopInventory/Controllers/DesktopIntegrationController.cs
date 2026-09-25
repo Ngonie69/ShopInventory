@@ -1577,7 +1577,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// till waited three seconds and was then answered from the catalogue anyway. The catalogue is
     /// also where <c>CreateInvoiceHandler</c> takes the price it charges, so this is the figure the
     /// invoice will carry rather than a live one that can disagree with it. A price change reaches
-    /// the till with the next catalogue sync (<c>SAP:SyncIntervalHours</c>) or <c>prices/sync</c>.
+    /// the till only when the catalogue is next synced: from Web → Settings → Data Sync, or
+    /// <c>prices/sync</c>. Nothing syncs it on a schedule.
     /// </remarks>
     [HttpGet("prices/business-partner/{cardCode}")]
     public async Task<IActionResult> GetPricesByBusinessPartner(

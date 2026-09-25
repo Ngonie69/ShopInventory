@@ -16,7 +16,7 @@ namespace ShopInventory.Common.Sales;
 /// <para>
 /// The local copy and never SAP directly. Reading the item master costs a paged sweep of every valid item
 /// against a concurrency limit shared with everything else the process does, and a customer at a counter
-/// is the worst person to charge for it — <c>SapItemTaxGroupWarmJob</c> pays it nightly instead.
+/// is the worst person to charge for it — the Item Tax Groups sync in Settings → Data Sync pays it instead.
 /// </para>
 ///
 /// <para>

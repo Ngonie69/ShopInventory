@@ -986,7 +986,7 @@ There is no batch route on this controller. Batch detail is
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/Price/cached` | Get cached prices (synced every 5 minutes) |
+| GET | `/api/Price/cached` | Get cached prices (as of the last catalogue sync from Settings → Data Sync) |
 | GET | `/api/Price` | Get all prices directly from SAP |
 | GET | `/api/Price/grouped` | Prices grouped by item |
 | GET | `/api/Price/{itemCode}` | Prices for one item |
@@ -3134,7 +3134,7 @@ through `Tax:RatesByTaxCode`: one source, so the basket and the invoice cannot d
 
 The whole catalogue, not one warehouse's — the item master is not warehouse-scoped, and a receipt
 reprinted for an item the shop no longer carries still has to state the VAT charged that day. An
-empty `items` list means `SapItemTaxGroupWarmJob` has not completed a pass; it is answered rather than
+empty `items` list means the Item Tax Groups sync (Web → Settings → Data Sync) has never completed; it is answered rather than
 refused, and a client should keep whatever rates it already holds rather than fall back to the
 standard rate for everything.
 
@@ -4417,8 +4417,8 @@ The health of this API's link to SAP, and the offline queue that holds documents
 `/queue` and `/queue/status` are two routes on one action, not two endpoints — they answer
 identically, and neither is deprecated.
 
-`item-tax-groups` does now what the 03:45 CAT `SapItemTaxGroupWarmJob` does nightly: reads
-every sellable item's VAT group from the SAP item master, bypassing the six-hour cache, into
+`item-tax-groups` is the only thing that fills this table — nothing runs it on a schedule; Web →
+Settings → Data Sync calls it. It reads every sellable item's VAT group from the SAP item master, bypassing the six-hour cache, into
 `SapItemTaxGroups`, the table till sales are taxed from and `DesktopIntegration/tax/item-rates`
 serves. It answers with the counts, each item whose group changed (`itemCode`, `was`, `now`), and
 any group in use with no configured rate or tax id. A failed or empty SAP read changes nothing and

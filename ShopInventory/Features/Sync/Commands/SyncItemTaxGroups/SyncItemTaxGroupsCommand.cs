@@ -8,8 +8,8 @@ namespace ShopInventory.Features.Sync.Commands.SyncItemTaxGroups;
 /// </summary>
 /// <remarks>
 /// That table is what a till sale is taxed from and what <c>DesktopIntegration/tax/item-rates</c>
-/// serves. <see cref="Services.SapItemTaxGroupWarmJob"/> sends this at 03:45 CAT; an admin sends it
-/// from Settings when an item's tax group has just been changed in SAP and cannot wait for the night.
+/// serves. Only an admin sends it, from Web → Settings → Data Sync; it used to run nightly at 03:45 CAT
+/// too, and no longer does, so an item's tax group changed in SAP reaches the tills when Data Sync is run.
 /// </remarks>
 public sealed record SyncItemTaxGroupsCommand() : IRequest<ErrorOr<ItemTaxGroupSyncResult>>;
 

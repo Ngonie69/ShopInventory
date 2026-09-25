@@ -38,12 +38,12 @@ public sealed class GetItemTaxRatesHandler(
         if (items.Count == 0)
         {
             // Answered rather than refused, and the till keeps whatever it already holds. An empty
-            // table is the warm job not having run — on a fresh database, or after it has failed —
+            // table is the Data Sync not having run — on a fresh database, or after it has failed —
             // and a till that threw its rates away over that would go back to charging 15.5% on
             // zero-rated goods, which is the fault this route exists to end.
             logger.LogWarning(
                 "No item VAT groups are stored, so every till line falls back to the standard rate "
-                + "of {DefaultRate:P2}. SapItemTaxGroupWarmJob has not completed a pass.",
+                + "of {DefaultRate:P2}. Run Item Tax Groups in Settings → Data Sync to fill them.",
                 tax.VatRate);
         }
         else

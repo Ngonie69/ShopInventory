@@ -221,7 +221,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 return 0;
             }
 
-            // Fetch prices to include in products (from cached endpoint - synced from SAP every 5 mins)
+            // Fetch prices to include in products (the API's catalogue, as of its last Data Sync)
             phases.Next("Fetching prices");
             Dictionary<string, decimal> priceDict = new();
             try
@@ -553,7 +553,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         _logger.LogInformation("Syncing prices from API cache to local database...");
 
         // Ensure auth header is set before API call
-        // Use cached endpoint - prices are synced from SAP every 5 minutes by the API
+        // The API's catalogue, which only the Prices sync in Data Sync refreshes from SAP
         phases.Next("Fetching from the API");
         using var httpResponse = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/price/cached"));
         _logger.LogDebug("API response status: {Status}", httpResponse.StatusCode);
@@ -676,7 +676,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     }
 
     /// <summary>
-    /// Has the API copy every item's VAT group from SAP now, rather than at its 03:45 CAT job.
+    /// Has the API copy every item's VAT group from SAP. Nothing else does: the API runs no schedule for it.
     /// </summary>
     /// <remarks>
     /// Nothing is cached on the Web side. The API table is what a till sale is taxed from and what
