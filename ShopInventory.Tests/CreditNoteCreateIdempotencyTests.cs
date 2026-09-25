@@ -425,6 +425,30 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
         Assert.Equal(["GRC-FAC-20260911-286EEC7389FD"], _fiscalisedAgainst);
     }
 
+    /// <summary>
+    /// An invoice reposted after the SAP update was fiscalised under its old number, and the device
+    /// holds nothing under this one. The credit note is a real return and still goes to SAP; only the
+    /// fiscal half is left to a person, with an incident saying which receipt it belongs to.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_note_against_a_reposted_invoice_is_posted_but_not_fiscalised()
+    {
+        _invoice.Comments = "Invoice posted from SAP update. Old invoice 777418. Shop till | Ref MCH-1";
+
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Equal(1, _postCount);
+        Assert.Empty(_fiscalisedAgainst);
+
+        await using var read = new ApplicationDbContext(_options);
+        var incident = Assert.Single(await read.ExceptionCenterIncidents.AsNoTracking()
+            .Where(item => item.Source == "credit-note-fiscalization")
+            .ToListAsync());
+        Assert.Contains("reposted after the SAP update", incident.LastError);
+        Assert.Contains("(777418)", incident.LastError);
+    }
+
     /// <summary>A credit line that names no line of the invoice has no balance to be checked against.</summary>
     [Fact]
     public async Task A_credit_line_matching_no_invoice_line_is_refused()
