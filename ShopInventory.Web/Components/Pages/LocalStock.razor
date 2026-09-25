@@ -168,11 +168,25 @@
                     {
                         var whCode = wh.WarehouseCode ?? "";
                         var isDone = fetchProgress.CompletedWarehouses.Contains(whCode);
+                        var isFailed = isDone && fetchProgress.FailedWarehouses.Contains(whCode);
                         var isActive = !isDone && fetchProgress.CompletedCount < fetchProgress.TotalCount
                             && fetchProgress.CompletedWarehouses.Count > 0
                             && whCode == GetNextWarehouse(fetchProgress);
 
-                        if (isDone)
+                        if (isFailed)
+                        {
+                            <button type="button" class="lst-chip lst-chip-failed"
+                                    title="The fetch for @whCode failed. Show it, then refresh it from SAP"
+                                    @onclick="() => SelectCompletedWarehouse(whCode)">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+                                     aria-hidden="true">
+                                    <path d="M7 7l10 10M17 7L7 17"></path>
+                                </svg>
+                                @whCode
+                            </button>
+                        }
+                        else if (isDone)
                         {
                             <button type="button" class="lst-chip lst-chip-done"
                                     title="Show the snapshot for @whCode"
@@ -262,7 +276,7 @@
                 <div class="lst-field">
                     <span class="lst-label">&nbsp;</span>
                     <button type="button" class="lst-btn lst-btn-quiet"
-                            title="Re-read this warehouse's quantities from SAP now, less till sales SAP has not received yet"
+                            title="Re-read this warehouse's quantities from SAP now, less till sales SAP has not received yet. A failed snapshot is fetched again."
                             disabled="@(isRefreshing || isLoading || string.IsNullOrEmpty(selectedWarehouse))"
                             @onclick="RefreshFromSap">
                         @if (isRefreshing)
@@ -277,6 +291,28 @@
                     </button>
                 </div>
             </div>
+
+            @if (stockResult != null && !string.IsNullOrWhiteSpace(stockResult.LastError))
+            {
+                var failed = string.Equals(stockResult.SnapshotStatus, "Failed", StringComparison.OrdinalIgnoreCase);
+                <div class="lst-msg @(failed ? "lst-msg-bad" : "")" role="status">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                         stroke-linecap="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                    </svg>
+                    <span>
+                        @if (failed)
+                        {
+                            <text>The fetch from SAP failed: @(stockResult.LastError!.TrimEnd('.')). Refresh quantities from SAP fetches it again.</text>
+                        }
+                        else
+                        {
+                            @stockResult.LastError
+                        }
+                    </span>
+                </div>
+            }
 
             @if (errorMessage != null)
             {
@@ -583,12 +619,18 @@
             if (result == null)
             {
                 Snackbar.Add(error ?? "The refresh failed.", Severity.Error);
+
+                // A failed re-fetch records its reason on the snapshot; reload so the page shows it.
+                await LoadStock();
                 return;
             }
 
             var changed = result.ItemsCorrected + result.ItemsAdded;
             Snackbar.Add(
-                changed == 0
+                result.SnapshotRefetched
+                    ? $"{result.WarehouseCode} had no usable snapshot for today, so it was fetched from SAP again "
+                      + $"({result.RowsFetched:N0} rows)"
+                    : changed == 0
                     ? $"{result.WarehouseCode} already matches SAP ({result.ItemsChecked:N0} items checked)"
                     : $"{result.WarehouseCode} refreshed from SAP: {result.ItemsCorrected:N0} updated, "
                       + $"{result.ItemsAdded:N0} added",

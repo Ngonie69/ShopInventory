@@ -412,6 +412,21 @@
     background: rgba(var(--lst-fam-good-rgb), .22);
 }
 
+/* A warehouse whose fetch threw. Still a button: selecting it is how the
+   operator gets to Refresh quantities from SAP for that one warehouse. */
+.lst .lst-chip-failed {
+    color: var(--lst-fam-bad);
+    border-color: rgba(var(--lst-fam-bad-rgb), .45);
+    background: rgba(var(--lst-fam-bad-rgb), .12);
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color .14s;
+}
+
+.lst .lst-chip-failed:hover {
+    background: rgba(var(--lst-fam-bad-rgb), .22);
+}
+
 .lst-chip-active {
     color: var(--lst-accent-text);
     border-color: rgba(var(--lst-accent-rgb), .45);
@@ -831,6 +846,12 @@
     color: var(--lst-fam-warn);
     font-size: 13px;
     text-wrap: pretty;
+}
+
+.lst-msg.lst-msg-bad {
+    border-color: rgba(var(--lst-fam-bad-rgb), .45);
+    background: rgba(var(--lst-fam-bad-rgb), .1);
+    color: var(--lst-fam-bad);
 }
 
 .lst-msg svg {

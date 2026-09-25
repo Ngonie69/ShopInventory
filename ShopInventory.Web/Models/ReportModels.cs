@@ -773,6 +773,9 @@ public class StockFetchProgressModel
     public string CurrentWarehouse { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public List<string> CompletedWarehouses { get; set; } = new();
+
+    /// <summary>The subset of <see cref="CompletedWarehouses"/> whose fetch failed.</summary>
+    public List<string> FailedWarehouses { get; set; } = new();
 }
 
 #endregion

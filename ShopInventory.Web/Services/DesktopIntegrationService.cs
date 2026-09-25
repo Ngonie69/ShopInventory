@@ -1301,6 +1301,8 @@ public class WarehouseStockRefreshResultDto
     public int ItemsCorrected { get; set; }
     public int ItemsAdded { get; set; }
     public DateTime RefreshedAt { get; set; }
+    public bool SnapshotRefetched { get; set; }
+    public int RowsFetched { get; set; }
 }
 
 public class LocalStockResultDto
@@ -1309,6 +1311,7 @@ public class LocalStockResultDto
     public DateTime SnapshotDate { get; set; }
     public string SnapshotStatus { get; set; } = string.Empty;
     public List<LocalStockItemDto> Items { get; set; } = new();
+    public string? LastError { get; set; }
 }
 
 public class LocalStockItemDto
