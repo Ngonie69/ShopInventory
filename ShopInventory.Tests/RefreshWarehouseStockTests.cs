@@ -6,7 +6,10 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using Microsoft.AspNetCore.SignalR;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
+using ShopInventory.Hubs;
 using ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseStock;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -35,6 +38,7 @@ public sealed class RefreshWarehouseStockTests : IDisposable
 
     private readonly List<StockQuantityDto> _warehouseStock = new();
     private readonly List<BatchNumber> _warehouseBatches = new();
+    private bool _batchReadFails;
 
     private readonly DailyStockSettings _settings = new()
     {
@@ -193,22 +197,97 @@ public sealed class RefreshWarehouseStockTests : IDisposable
         Assert.Equal(100m, await AvailableAsync(Shop, Item));
     }
 
+    /// <summary>
+    /// A snapshot still being fetched is left to that fetch: a second one would write a second set of
+    /// rows into it.
+    /// </summary>
     [Fact]
-    public async Task A_warehouse_with_no_finished_snapshot_is_refused()
+    public async Task A_snapshot_still_being_fetched_is_refused()
     {
-        _context.DailyStockSnapshots.Add(new DailyStockSnapshotEntity
-        {
-            SnapshotDate = LedgerDay,
-            WarehouseCode = Shop,
-            Status = StockSnapshotStatus.Pending
-        });
-        await _context.SaveChangesAsync();
+        await SeedHeaderAsync(StockSnapshotStatus.Pending);
         _warehouseStock.Add(Stock("NEW001", inStock: 24m));
 
         var result = await RefreshAsync(Shop);
 
         Assert.True(result.IsError);
+        Assert.Equal(ErrorType.Conflict, result.FirstError.Type);
         Assert.Empty(await _context.DailyStockSnapshotItems.AsNoTracking().ToListAsync());
+    }
+
+    // ---------------------------------------------------------------
+    // No usable snapshot — fetched again rather than refused
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// 2026-09-25: the morning fetch failed for KEFSHOP and the button answered "fetch today's stock
+    /// first". A failed snapshot has no rows to correct, so the refresh fetches it again.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_snapshot_is_fetched_again()
+    {
+        await SeedHeaderAsync(StockSnapshotStatus.Failed, lastError: "SAP timed out");
+        _warehouseStock.Add(Stock(Item, inStock: 140m));
+        _warehouseBatches.Add(Batch(Item, "B1", 140m));
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.SnapshotRefetched);
+        Assert.Equal(1, result.Value.RowsFetched);
+        Assert.Equal(140m, await AvailableAsync(Shop, Item));
+
+        var header = await _context.DailyStockSnapshots.AsNoTracking().SingleAsync();
+        Assert.Equal(StockSnapshotStatus.Complete, header.Status);
+        Assert.Null(header.LastError);
+    }
+
+    [Fact]
+    public async Task A_day_never_fetched_is_fetched()
+    {
+        _warehouseStock.Add(Stock(Item, inStock: 30m));
+        _warehouseBatches.Add(Batch(Item, "B1", 30m));
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.SnapshotRefetched);
+        Assert.Equal(30m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// The fetch nets unposted till sales as the correction does, so re-fetching cannot hand back
+    /// units a till already sold.
+    /// </summary>
+    [Fact]
+    public async Task A_refetch_holds_back_unposted_till_sales()
+    {
+        await SeedHeaderAsync(StockSnapshotStatus.Failed);
+        await SeedTillSaleAsync(Shop, Item, 10m, DesktopSaleConsolidationStatus.Pending);
+        _warehouseStock.Add(Stock(Item, inStock: 140m));
+        _warehouseBatches.Add(Batch(Item, "B1", 140m));
+
+        await RefreshAsync(Shop);
+
+        Assert.Equal(130m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// The operator is told why, and the reason stays on the snapshot for the page to show.
+    /// </summary>
+    [Fact]
+    public async Task A_refetch_that_fails_again_says_why()
+    {
+        await SeedHeaderAsync(StockSnapshotStatus.Failed);
+        _batchReadFails = true;
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.Contains("Service Layer did not answer", result.FirstError.Description);
+
+        var header = await _context.DailyStockSnapshots.AsNoTracking().SingleAsync();
+        Assert.Equal(StockSnapshotStatus.Failed, header.Status);
+        Assert.Contains("Service Layer did not answer", header.LastError);
     }
 
     // ── Helpers ─────────────────────────────────────────
@@ -217,11 +296,22 @@ public sealed class RefreshWarehouseStockTests : IDisposable
 
     private async Task<ErrorOr<RefreshWarehouseStockResult>> RefreshAsync(string warehouse)
     {
+        var sap = SapClient();
+
         var handler = new RefreshWarehouseStockHandler(
             _context,
-            SapClient(),
+            sap,
             new StockLedger(_context, Options.Create(_settings), NullLogger<StockLedger>.Instance),
             Options.Create(_settings),
+            new FetchDailyStockHandler(
+                _context,
+                sap,
+                StubProxy.Unused<IHubContext<NotificationHub>>(),
+                Options.Create(_settings),
+                StubProxy.Unused<ITransferEventListenerClient>(),
+                Options.Create(new TransferEventListenerSettings()),
+                new StockFetchGate(),
+                NullLogger<FetchDailyStockHandler>.Instance),
             NullLogger<RefreshWarehouseStockHandler>.Instance);
 
         var result = await handler.Handle(new RefreshWarehouseStockCommand(warehouse), CancellationToken.None);
@@ -232,11 +322,16 @@ public sealed class RefreshWarehouseStockTests : IDisposable
     private ISAPServiceLayerClient SapClient() =>
         StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
         {
-            nameof(ISAPServiceLayerClient.GetAllBatchNumbersInWarehouseAsync) =>
-                Task.FromResult(_warehouseBatches.ToList()),
+            nameof(ISAPServiceLayerClient.GetAllBatchNumbersInWarehouseAsync) => _batchReadFails
+                ? Task.FromException<List<BatchNumber>>(new TimeoutException("Service Layer did not answer"))
+                : Task.FromResult(_warehouseBatches.ToList()),
 
             nameof(ISAPServiceLayerClient.GetStockQuantitiesInWarehouseAsync) =>
                 Task.FromResult(_warehouseStock.ToList()),
+
+            // Only the re-fetch of a failed snapshot asks for this; SAP holding nothing unbatched.
+            nameof(ISAPServiceLayerClient.GetNonBatchStockQuantitiesInWarehouseAsync) =>
+                Task.FromResult(new List<StockQuantityDto>()),
 
             // Anything else would be a second SAP round trip the whole-warehouse reads already answered.
             _ => throw new InvalidOperationException(
@@ -260,6 +355,19 @@ public sealed class RefreshWarehouseStockTests : IDisposable
         Warehouse = Shop,
         ExpiryDate = expiry?.ToString("yyyy-MM-dd")
     };
+
+    private async Task SeedHeaderAsync(StockSnapshotStatus status, string? lastError = null)
+    {
+        _context.DailyStockSnapshots.Add(new DailyStockSnapshotEntity
+        {
+            SnapshotDate = LedgerDay,
+            WarehouseCode = Shop,
+            Status = status,
+            LastError = lastError
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
 
     private async Task<decimal> AvailableAsync(string warehouse, string itemCode)
         => await _context.DailyStockSnapshotItems

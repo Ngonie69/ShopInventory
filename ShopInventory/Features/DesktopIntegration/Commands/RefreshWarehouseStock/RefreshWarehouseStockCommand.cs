@@ -23,10 +23,17 @@ public sealed record RefreshWarehouseStockCommand(string WarehouseCode)
 /// <param name="ItemsCorrected">Items whose quantity was moved to SAP's figure.</param>
 /// <param name="ItemsAdded">Items SAP holds that today's snapshot had no row for.</param>
 /// <param name="RefreshedAt">When the refresh finished, UTC.</param>
+/// <param name="SnapshotRefetched">
+/// The day's snapshot had failed or was never fetched, so it was fetched from SAP again instead of
+/// corrected. The three counts above are zero then; <paramref name="RowsFetched"/> says what arrived.
+/// </param>
+/// <param name="RowsFetched">Snapshot rows the fetch wrote, when <paramref name="SnapshotRefetched"/>.</param>
 public sealed record RefreshWarehouseStockResult(
     string WarehouseCode,
     DateTime LedgerDay,
     int ItemsChecked,
     int ItemsCorrected,
     int ItemsAdded,
-    DateTime RefreshedAt);
+    DateTime RefreshedAt,
+    bool SnapshotRefetched = false,
+    int RowsFetched = 0);

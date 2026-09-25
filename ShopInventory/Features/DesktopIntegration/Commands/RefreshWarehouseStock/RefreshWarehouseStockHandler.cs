@@ -6,6 +6,7 @@ using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -23,7 +24,7 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// differs is only which items are asked about: the job asks about rows that moved, this asks about
 /// all of them, which is the case a goods receipt booked straight into SAP falls through.</para>
 ///
-/// <para><b>Not the morning fetch again.</b> Rebuilding the snapshot from SAP would hand back every
+/// <para><b>Not the morning fetch again.</b> Rebuilding a finished snapshot from SAP would hand back every
 /// unit the tills have sold since 07:00 that has not reached SAP yet. The target here is SAP's
 /// issuable quantity less those sales, as it is for the job.</para>
 ///
@@ -33,15 +34,24 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 ///
 /// <para><b>Refuses rather than guesses.</b> Vans and any warehouse outside
 /// <see cref="DailyStockSettings.ReconcileWarehouses"/> are refused, because a van's row is its
-/// morning load and correcting it destroys the van reconciliation. So is a warehouse with no finished
-/// snapshot today, and a SAP read that comes back empty — OITW holds a row for every item a warehouse
-/// has ever carried, so empty is a failed read, and acting on it would zero the shop.</para>
+/// morning load and correcting it destroys the van reconciliation. So is a snapshot still being
+/// fetched, and a SAP read that comes back empty — OITW holds a row for every item a warehouse has
+/// ever carried, so empty is a failed read, and acting on it would zero the shop.</para>
+///
+/// <para><b>A failed or missing snapshot is fetched again, not refused.</b> There are no rows to
+/// correct then, and the tills are selling from yesterday's snapshot meanwhile (see
+/// <see cref="StockSnapshotInForce"/>). The fix is the morning fetch for this one warehouse, which is
+/// what the startup catch-up and the Fetch stock button run: it takes off the sales SAP has not had
+/// and those made off yesterday's rows while it read, so nothing sold comes back. On 2026-09-25 the
+/// morning fetch failed for KEFSHOP and this button refused with "fetch today's stock first", leaving
+/// the operator nothing to press that fixed only that shop.</para>
 /// </remarks>
 public sealed class RefreshWarehouseStockHandler(
     ApplicationDbContext db,
     ISAPServiceLayerClient sapClient,
     IStockLedger ledger,
     IOptions<DailyStockSettings> dailyStock,
+    FetchDailyStockHandler fetch,
     ILogger<RefreshWarehouseStockHandler> logger
 ) : IRequestHandler<RefreshWarehouseStockCommand, ErrorOr<RefreshWarehouseStockResult>>
 {
@@ -73,20 +83,26 @@ public sealed class RefreshWarehouseStockHandler(
 
         var ledgerDay = ledger.CurrentLedgerDay;
 
-        var snapshotId = await db.DailyStockSnapshots
-            .Where(header => header.SnapshotDate == ledgerDay
-                          && header.WarehouseCode == warehouseCode
-                          && header.Status == StockSnapshotStatus.Complete)
-            .Select(header => (int?)header.Id)
+        var snapshot = await db.DailyStockSnapshots
+            .AsNoTracking()
+            .Where(header => header.SnapshotDate == ledgerDay && header.WarehouseCode == warehouseCode)
+            .Select(header => new { header.Id, header.Status })
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (snapshotId is null)
+        if (snapshot is { Status: StockSnapshotStatus.Pending })
         {
             return Error.Conflict(
-                "Stock.NoSnapshotToRefresh",
-                $"{warehouseCode} has no finished snapshot for {ledgerDay:dd MMM yyyy}. "
-                + "Fetch today's stock first.");
+                "Stock.FetchInProgress",
+                $"{warehouseCode}'s stock for {ledgerDay:dd MMM yyyy} is being fetched from SAP now. "
+                + "Wait for it to finish, then refresh.");
         }
+
+        if (snapshot is not { Status: StockSnapshotStatus.Complete })
+        {
+            return await RebuildSnapshotAsync(warehouseCode, ledgerDay, snapshot is null, cancellationToken);
+        }
+
+        var snapshotId = snapshot.Id;
 
         // Before SAP, as in the job: a sale that posts between the two reads is then counted twice for
         // this press, which refuses a sale, rather than in neither, which puts its units back.
@@ -166,7 +182,7 @@ public sealed class RefreshWarehouseStockHandler(
 
         var added = await StockLedgerDivergenceJob.AddArrivalsAsync(
             db,
-            snapshotId.Value,
+            snapshotId,
             ledgerDay,
             warehouseCode,
             ledgerByItem.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase),
@@ -183,5 +199,50 @@ public sealed class RefreshWarehouseStockHandler(
 
         return new RefreshWarehouseStockResult(
             warehouseCode, ledgerDay, checkedCount, corrected, added, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Fetches the warehouse's snapshot for <paramref name="ledgerDay"/> from SAP again, for a day whose
+    /// fetch failed or never ran. See the remarks on this class.
+    /// </summary>
+    private async Task<ErrorOr<RefreshWarehouseStockResult>> RebuildSnapshotAsync(
+        string warehouseCode,
+        DateTime ledgerDay,
+        bool neverFetched,
+        CancellationToken cancellationToken)
+    {
+        logger.LogWarning(
+            "Refresh for {WarehouseCode}: the {Day:yyyy-MM-dd} snapshot {State}, fetching it from SAP again",
+            warehouseCode, ledgerDay, neverFetched ? "was never fetched" : "failed");
+
+        WarehouseSnapshotResult fetched;
+        try
+        {
+            fetched = await fetch.FetchWarehouseStockAsync(ledgerDay, warehouseCode, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The fetch has already marked the snapshot Failed and recorded this message against it.
+            logger.LogWarning(ex, "Refetching the snapshot for {WarehouseCode} failed", warehouseCode);
+            return Error.Failure(
+                "Stock.SnapshotFetchFailed",
+                $"{warehouseCode}'s stock could not be fetched from SAP: {ex.Message}");
+        }
+
+        if (fetched.Status == "AlreadyRunning")
+        {
+            return Error.Conflict(
+                "Stock.FetchInProgress",
+                $"{warehouseCode}'s stock for {ledgerDay:dd MMM yyyy} is being fetched from SAP now. "
+                + "Wait for it to finish, then refresh.");
+        }
+
+        logger.LogInformation(
+            "Stock for {WarehouseCode} fetched from SAP again by hand: {Count} row(s), {Status}",
+            warehouseCode, fetched.ItemCount, fetched.Status);
+
+        return new RefreshWarehouseStockResult(
+            warehouseCode, ledgerDay, 0, 0, 0, DateTime.UtcNow,
+            SnapshotRefetched: true, RowsFetched: fetched.ItemCount);
     }
 }

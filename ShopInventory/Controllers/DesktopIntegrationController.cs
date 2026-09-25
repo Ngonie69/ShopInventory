@@ -863,7 +863,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <remarks>
     /// Waits for the answer rather than returning 202: it is one warehouse, and the person who
     /// pressed the button needs to know whether anything changed. No movement or divergence row is
-    /// written. Vans and warehouses without a finished snapshot today are refused with 409.
+    /// written. Vans, and a warehouse whose snapshot is still being fetched, are refused with 409. A
+    /// snapshot that failed or was never fetched today is fetched from SAP again instead.
     /// </remarks>
     [Authorize(Roles = "Admin,Manager,StockController,DepotController,WashBay")]
     [HttpPost("stock/{warehouseCode}/refresh")]
