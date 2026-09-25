@@ -275,6 +275,16 @@
                                 <span class="vend-person-text">
                                     <span class="vend-invoice-no" title="Till reference @sale.ExternalReferenceId">@InvoiceNumber(sale)</span>
                                     <span class="vend-person-sub vend-nowrap">@VendingSalesDigest.When(sale.CreatedAt, today)</span>
+                                    @* Only when the till posted it to SAP under a day other than the one it
+                                       was sold, which an admin has to allow. Rare and deliberate, so it
+                                       is stated where the invoice is named rather than left unsaid. *@
+                                    @if (sale.PostingDate is { } postedOn)
+                                    {
+                                        <span class="vend-person-sub vend-nowrap vend-backdated"
+                                              title="Chosen at the till. Sold @Day(sale.DocDate); SAP posting, due and document date @Day(postedOn).">
+                                            Posting date @Day(postedOn)
+                                        </span>
+                                    }
                                 </span>
                             </td>
                             <td>
@@ -676,6 +686,9 @@
     /// the reason a vendor return could not be matched to the sale it came from. The reference is still
     /// on the row, as the cell's title.
     /// </remarks>
+    // A calendar day, not an instant, so no CAT shift. Invariant so September is "Sep".
+    private static string Day(DateTime date) => date.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+
     private static string InvoiceNumber(DesktopSaleDto sale) =>
         sale.SapDocNum is { } docNum ? docNum.ToString(CultureInfo.InvariantCulture) : sale.Number;
 

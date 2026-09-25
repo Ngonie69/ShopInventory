@@ -199,6 +199,13 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* A collection posted to SAP under a day other than the one it was sold, because an admin
+   allowed choosing it. The warn hue: nothing is wrong, but the ledger and receipt days differ. */
+.vend .vend-person-sub.vend-backdated {
+    color: var(--shop-fam-warn);
+    cursor: help;
+}
+
 .vend .shop-table .vend-num {
     text-align: right;
     font-variant-numeric: tabular-nums;
