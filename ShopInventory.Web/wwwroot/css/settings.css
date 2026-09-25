@@ -1320,8 +1320,14 @@
     overflow: hidden;
 }
 
+/* The master control: first, and the full width of the grid, so no module sits above it. */
 .stg-sync-card-all {
+    grid-column: 1 / -1;
     box-shadow: inset 0 0 0 1px rgba(var(--stg-accent-rgb), .35);
+}
+
+.stg-sync-body .stg-sync-failed {
+    color: var(--stg-danger);
 }
 
 .stg-sync-icon {

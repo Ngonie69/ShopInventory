@@ -31,31 +31,16 @@
             {
                 <span class="ops-count">Last synced @lastSyncTime.Value.ToString("dd MMM yyyy HH:mm")</span>
             }
-            <button type="button" class="ops-btn ops-btn-primary" @onclick="SyncFromSAP" disabled="@isSyncing">
-                @if (isSyncing)
-                {
-                    <span class="ops-spin"></span>
-                    <span>Syncing&hellip;</span>
-                }
-                else
-                {
-                    <i class="ph ph-cloud-arrow-down" aria-hidden="true"></i>
-                    <span>Sync from SAP</span>
-                }
-            </button>
+            @* Accounts are synced only from Settings → Data Sync, which is admin-only. *@
+            <AuthorizeView Roles="@UserRoles.Admin" Context="dataSyncAccess">
+                <a class="ops-btn ops-btn-ghost" href="@Settings.DataSyncHref"
+                   title="G/L accounts are synced from SAP in Settings → Data Sync">
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Data Sync</span>
+                </a>
+            </AuthorizeView>
         </div>
     </div>
-
-    @if (!string.IsNullOrEmpty(syncMessage))
-    {
-        <div class="ops-msg @(syncSuccess ? "ops-fam-good" : "ops-fam-bad")" role="status">
-            <i class="ph @(syncSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
-            <div class="ops-msg-body">@syncMessage</div>
-            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => syncMessage = null">
-                <i class="ph ph-x" aria-hidden="true"></i>
-            </button>
-        </div>
-    }
 
     @if (accounts != null)
     {
@@ -152,12 +137,12 @@
                 else
                 {
                     <h3>No accounts yet</h3>
-                    <p>Sync from SAP to bring the chart of accounts across.</p>
-                    <div class="ops-empty-actions">
-                        <button type="button" class="ops-btn ops-btn-primary" @onclick="SyncFromSAP" disabled="@isSyncing">
-                            Sync from SAP
-                        </button>
-                    </div>
+                    <p>The chart of accounts is brought across from SAP in Settings &rarr; Data Sync.</p>
+                    <AuthorizeView Roles="@UserRoles.Admin" Context="dataSyncAccess">
+                        <div class="ops-empty-actions">
+                            <a class="ops-btn ops-btn-primary" href="@Settings.DataSyncHref">Open Data Sync</a>
+                        </div>
+                    </AuthorizeView>
                 }
             </div>
         }
@@ -246,10 +231,7 @@
     private List<GLAccountDto>? accounts;
     private List<GLAccountDto> filteredAccounts = new();
     private bool isLoading = true;
-    private bool isSyncing = false;
     private string? errorMessage;
-    private string? syncMessage;
-    private bool syncSuccess;
     private DateTime? lastSyncTime;
 
     // Filters
@@ -298,8 +280,14 @@
         {
             accounts = await MasterDataCacheService.GetGLAccountsAsync();
 
-            // Get last sync time
-            lastSyncTime = MasterDataCacheService.GetLastRefreshTime("GLAccounts");
+            // The last real sync, not GetLastRefreshTime: that is stamped by every reload from the database.
+            await using var db = await DbContextFactory.CreateDbContextAsync();
+            var syncedAt = await db.CacheSyncInfo
+                .AsNoTracking()
+                .Where(row => row.CacheKey == "GLAccounts" && row.SyncSuccessful)
+                .Select(row => (DateTime?)row.LastSyncedAt)
+                .FirstOrDefaultAsync();
+            lastSyncTime = syncedAt is { } utc ? IAuditService.ToCAT(utc) : null;
 
             // Extract available currencies for filter
             availableCurrencies = accounts
@@ -318,29 +306,6 @@
         finally
         {
             isLoading = false;
-        }
-    }
-
-    private async Task SyncFromSAP()
-    {
-        isSyncing = true;
-        syncMessage = null;
-
-        try
-        {
-            var count = await MasterDataCacheService.SyncGLAccountsFromApiAsync();
-            syncSuccess = true;
-            syncMessage = $"Successfully synced {count} G/L accounts from SAP.";
-            await LoadAccounts();
-        }
-        catch (Exception ex)
-        {
-            syncSuccess = false;
-            syncMessage = $"Sync failed: {ex.Message}";
-        }
-        finally
-        {
-            isSyncing = false;
         }
     }
 

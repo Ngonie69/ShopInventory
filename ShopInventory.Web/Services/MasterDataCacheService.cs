@@ -44,9 +44,14 @@ public interface IMasterDataCacheService
     Task<int> SyncWarehousesFromApiAsync(IProgress<SyncProgress>? progress = null);
     Task<int> SyncGLAccountsFromApiAsync();
     Task<int> SyncCostCentresFromApiAsync(IProgress<SyncProgress>? progress = null);
+    Task<int> SyncItemGroupsFromApiAsync();
+    Task<int> SyncBusinessPartnerGroupsFromApiAsync();
 
     // Not a Web cache: copies SAP's item VAT groups into the API table till sales are taxed from.
     Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null);
+
+    // Nor this: stores the SAP UoM for the item/UoM pairs orders use, in the API, so approvals find it.
+    Task<ItemUomWarmResultModel> SyncItemUomsFromSapAsync(IProgress<SyncProgress>? progress = null);
 
     // Not a Web cache either: drops the API's hour-long hold on the tills' transfer-request item list.
     Task<bool> ClearTillTransferRequestItemsAsync();
@@ -71,8 +76,6 @@ public class MasterDataCacheService : IMasterDataCacheService
     private const string ItemPricesCacheKey = "ItemPrices";
     private const string ItemGroupsCacheKey = "ItemGroups";
     private const string BusinessPartnerGroupsCacheKey = "BusinessPartnerGroups";
-
-    private static readonly TimeSpan SyncInterval = TimeSpan.FromHours(1);
 
     // Global semaphore to serialize ALL background sync operations.
     // This prevents "A second operation was started on this context instance"
@@ -221,7 +224,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 return 0;
             }
 
-            // Fetch prices to include in products (from cached endpoint - synced from SAP every 5 mins)
+            // Fetch prices to include in products (the API's catalogue, as of its last Data Sync)
             phases.Next("Fetching prices");
             Dictionary<string, decimal> priceDict = new();
             try
@@ -388,93 +391,49 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             _logger.LogDebug("Loaded {Count} products from database into memory cache", products.Count);
 
-            // Check if we need to sync from API (in background if we have data)
+            // Only an empty table syncs from here; refreshing a filled one is Data Sync's job.
             var needsSync = await NeedsSyncAsync(db, ProductsCacheKey, forceRefresh);
 
             if (needsSync)
             {
-                if (products.Count > 0 && !forceRefresh)
+                // Non-blocking, so the page does not hang on a slow API call.
+                _logger.LogInformation("No products in database, triggering background sync...");
+                _ = SapBackgroundPriority.Run(async () =>
                 {
-                    // We have data - sync in background without blocking
-                    _ = SapBackgroundPriority.Run(async () =>
+                    await _backgroundSyncSemaphore.WaitAsync();
+                    try
                     {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncProductsFromApiAsync();
-                            // Reload from database after sync
-                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedProducts = await bgDb.CachedProducts
-                                .Where(p => p.IsActive)
-                                .OrderBy(p => p.ItemCode)
-                                .Select(p => new ProductDto
-                                {
-                                    ItemCode = p.ItemCode,
-                                    ItemName = p.ItemName,
-                                    BarCode = p.BarCode,
-                                    ItemType = p.ItemType,
-                                    ManagesBatches = p.ManagesBatches,
-                                    Price = p.Price,
-                                    DefaultWarehouse = p.DefaultWarehouse,
-                                    UoM = p.UoM
-                                })
-                                .ToListAsync();
-                            _cachedProducts = updatedProducts;
-                            _productsLoadedAt = DateTime.Now;
-                            _logger.LogInformation("Background sync completed, updated {Count} products in cache", updatedProducts.Count);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Background sync of products failed");
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
-                }
-                else
-                {
-                    // No data in database - trigger background sync (non-blocking)
-                    // This prevents page from hanging on slow API calls
-                    _logger.LogInformation("No products in database, triggering background sync...");
-                    _ = SapBackgroundPriority.Run(async () =>
+                        await SyncProductsFromApiAsync();
+                        // Reload from database after sync
+                        await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
+                        var updatedProducts = await bgDb.CachedProducts
+                            .Where(p => p.IsActive)
+                            .OrderBy(p => p.ItemCode)
+                            .Select(p => new ProductDto
+                            {
+                                ItemCode = p.ItemCode,
+                                ItemName = p.ItemName,
+                                BarCode = p.BarCode,
+                                ItemType = p.ItemType,
+                                ManagesBatches = p.ManagesBatches,
+                                Price = p.Price,
+                                DefaultWarehouse = p.DefaultWarehouse,
+                                UoM = p.UoM
+                            })
+                            .ToListAsync();
+                        _cachedProducts = updatedProducts;
+                        _productsLoadedAt = DateTime.Now;
+                        _logger.LogInformation("Initial sync completed, loaded {Count} products", updatedProducts.Count);
+                    }
+                    catch (Exception ex)
                     {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncProductsFromApiAsync();
-                            // Reload from database after sync
-                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedProducts = await bgDb.CachedProducts
-                                .Where(p => p.IsActive)
-                                .OrderBy(p => p.ItemCode)
-                                .Select(p => new ProductDto
-                                {
-                                    ItemCode = p.ItemCode,
-                                    ItemName = p.ItemName,
-                                    BarCode = p.BarCode,
-                                    ItemType = p.ItemType,
-                                    ManagesBatches = p.ManagesBatches,
-                                    Price = p.Price,
-                                    DefaultWarehouse = p.DefaultWarehouse,
-                                    UoM = p.UoM
-                                })
-                                .ToListAsync();
-                            _cachedProducts = updatedProducts;
-                            _productsLoadedAt = DateTime.Now;
-                            _logger.LogInformation("Initial sync completed, loaded {Count} products", updatedProducts.Count);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Initial background sync of products failed");
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
-                }
+                        _logger.LogError(ex, "Initial background sync of products failed");
+                    }
+                    finally
+                    {
+                        _backgroundSyncSemaphore.Release();
+                    }
+                });
             }
 
             return products;
@@ -588,7 +547,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// </summary>
     /// <param name="phases">
     /// Carried in from the public entry point so its catalog-sync phase is counted
-    /// too. The background refresh paths pass nothing and report to nobody.
+    /// too. The empty-table read path passes nothing and reports to nobody.
     /// </param>
     private async Task<int> SyncPricesFromApiInternalAsync(SyncPhaseReporter? phases = null)
     {
@@ -597,7 +556,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         _logger.LogInformation("Syncing prices from API cache to local database...");
 
         // Ensure auth header is set before API call
-        // Use cached endpoint - prices are synced from SAP every 5 minutes by the API
+        // The API's catalogue, which only the Prices sync in Data Sync refreshes from SAP
         phases.Next("Fetching from the API");
         using var httpResponse = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/price/cached"));
         _logger.LogDebug("API response status: {Status}", httpResponse.StatusCode);
@@ -687,13 +646,6 @@ public class MasterDataCacheService : IMasterDataCacheService
     public const string ItemTaxGroupsSyncKey = "ItemTaxGroups";
 
     /// <summary>
-    /// Has the API copy every item's VAT group from SAP now, rather than at its 03:45 CAT job.
-    /// </summary>
-    /// <remarks>
-    /// Nothing is cached on the Web side. The API table is what a till sale is taxed from and what
-    /// tills read their rates from, so it is the only copy that matters.
-    /// </remarks>
-    /// <summary>
     /// Makes the tills re-read, from SAP, which items a transfer request may carry.
     /// </summary>
     /// <remarks>
@@ -726,32 +678,75 @@ public class MasterDataCacheService : IMasterDataCacheService
         return false;
     }
 
-    public async Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null)
+    /// <summary>
+    /// Has the API copy every item's VAT group from SAP. Nothing else does: the API runs no schedule for it.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is cached on the Web side. The API table is what a till sale is taxed from and what
+    /// tills read their rates from, so it is the only copy that matters. The sync is still recorded
+    /// in <c>CacheSyncInfo</c>, which is where the Data Sync tiles read their last sync from.
+    /// </remarks>
+    public Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null) =>
+        RunApiSyncAsync<ItemTaxGroupSyncResultModel>(
+            "api/sync/item-tax-groups", ItemTaxGroupsSyncKey, "item tax group", "Reading the SAP item master",
+            result => result.ItemsRead, progress);
+
+    public const string ItemUomsSyncKey = "ItemUoms";
+
+    /// <summary>
+    /// Has the API resolve and store the SAP UoM for the item/UoM pairs orders use, so approvals find
+    /// them stored. Nothing else does: the API runs no schedule for it.
+    /// </summary>
+    public Task<ItemUomWarmResultModel> SyncItemUomsFromSapAsync(IProgress<SyncProgress>? progress = null) =>
+        RunApiSyncAsync<ItemUomWarmResultModel>(
+            "api/sync/item-uoms", ItemUomsSyncKey, "item UoM", "Resolving UoMs against SAP",
+            result => result.Warmed, progress);
+
+    /// <summary>
+    /// POSTs one of the API's own SAP syncs and records the outcome in <c>CacheSyncInfo</c> under
+    /// <paramref name="syncKey"/>, which is where the Data Sync tile reads its last sync from.
+    /// </summary>
+    private async Task<T> RunApiSyncAsync<T>(
+        string route,
+        string syncKey,
+        string what,
+        string phase,
+        Func<T, int> count,
+        IProgress<SyncProgress>? progress)
     {
         var phases = new SyncPhaseReporter(progress, 1);
-        phases.Next("Reading the SAP item master");
+        phases.Next(phase);
 
-        var syncClient = _httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
-        using var response = await SendAuthenticatedAsync(
-            () => syncClient.PostAsync("api/sync/item-tax-groups", null),
-            syncClient);
-
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogError("Item tax group sync failed with status {Status}: {Error}", response.StatusCode, errorContent);
-            throw ApiErrorResponse.CreateHttpRequestException(
-                response.StatusCode,
-                errorContent,
-                "We couldn't sync item tax groups from SAP right now.");
+            var syncClient = _httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
+            using var response = await SendAuthenticatedAsync(
+                () => syncClient.PostAsync(route, null),
+                syncClient);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("The {What} sync failed with status {Status}: {Error}", what, response.StatusCode, errorContent);
+                throw ApiErrorResponse.CreateHttpRequestException(
+                    response.StatusCode,
+                    errorContent,
+                    $"We couldn't sync {what}s from SAP right now.");
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<T>()
+                ?? throw new InvalidOperationException($"The API answered the {what} sync with an empty body.");
+
+            await UpdateSyncInfoAsync(null, syncKey, count(result), true, null);
+            _lastRefreshTimes[syncKey] = DateTime.Now;
+            phases.Complete();
+            return result;
         }
-
-        var result = await response.Content.ReadFromJsonAsync<ItemTaxGroupSyncResultModel>()
-            ?? throw new InvalidOperationException("The API answered the item tax group sync with an empty body.");
-
-        _lastRefreshTimes[ItemTaxGroupsSyncKey] = DateTime.Now;
-        phases.Complete();
-        return result;
+        catch (Exception ex)
+        {
+            await UpdateSyncInfoAsync(null, syncKey, 0, false, ex.Message);
+            throw;
+        }
     }
 
     public async Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false)
@@ -792,88 +787,41 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             _logger.LogDebug("Loaded {Count} prices from database", prices.Count);
 
-            // Check if we need to sync from API (in background if we have data)
+            // Only an empty table syncs from here; refreshing a filled one is Data Sync's job.
             var needsSync = await NeedsSyncAsync(db, ItemPricesCacheKey, forceRefresh);
             _logger.LogDebug("Prices: needsSync={NeedsSync}, priceCount={Count}, forceRefresh={Force}", needsSync, prices.Count, forceRefresh);
 
             if (needsSync)
             {
-                if (prices.Count > 0 && !forceRefresh)
+                _logger.LogInformation("Prices: Starting blocking sync (database is empty or force refresh)");
+                // No data in database - must sync now (blocking)
+                try
                 {
-                    // Store in memory cache - we have data
-                    _cachedPrices = prices;
-                    _pricesLoadedAt = DateTime.Now;
-                    _lastRefreshTimes[ItemPricesCacheKey] = DateTime.Now;
+                    await SyncPricesFromApiInternalAsync();
+                    // Reload from database
+                    prices = await db.CachedPrices
+                        .OrderBy(p => p.ItemCode)
+                        .Select(p => new ItemPriceDto
+                        {
+                            ItemCode = p.ItemCode,
+                            ItemName = p.ItemName,
+                            Price = p.Price,
+                            Currency = p.Currency
+                        })
+                        .ToListAsync();
 
-                    _logger.LogDebug("Prices: Starting background sync (have existing data)");
-                    // We have data - sync in background without blocking
-                    _ = SapBackgroundPriority.Run(async () =>
+                    // Only cache if we got data
+                    if (prices.Count > 0)
                     {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncPricesFromApiInternalAsync();
-                            // Reload from database after sync
-                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedPrices = await bgDb.CachedPrices
-                                .OrderBy(p => p.ItemCode)
-                                .Select(p => new ItemPriceDto
-                                {
-                                    ItemCode = p.ItemCode,
-                                    ItemName = p.ItemName,
-                                    Price = p.Price,
-                                    Currency = p.Currency
-                                })
-                                .ToListAsync();
-                            if (updatedPrices.Count > 0)
-                            {
-                                _cachedPrices = updatedPrices;
-                                _pricesLoadedAt = DateTime.Now;
-                                _logger.LogInformation("Background sync completed, updated {Count} prices in cache", updatedPrices.Count);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Background sync of prices failed");
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
+                        _cachedPrices = prices;
+                        _pricesLoadedAt = DateTime.Now;
+                        _lastRefreshTimes[ItemPricesCacheKey] = DateTime.Now;
+                    }
+                    _logger.LogInformation("Blocking sync completed, loaded {Count} prices", prices.Count);
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogInformation("Prices: Starting blocking sync (database is empty or force refresh)");
-                    // No data in database - must sync now (blocking)
-                    try
-                    {
-                        await SyncPricesFromApiInternalAsync();
-                        // Reload from database
-                        prices = await db.CachedPrices
-                            .OrderBy(p => p.ItemCode)
-                            .Select(p => new ItemPriceDto
-                            {
-                                ItemCode = p.ItemCode,
-                                ItemName = p.ItemName,
-                                Price = p.Price,
-                                Currency = p.Currency
-                            })
-                            .ToListAsync();
-
-                        // Only cache if we got data
-                        if (prices.Count > 0)
-                        {
-                            _cachedPrices = prices;
-                            _pricesLoadedAt = DateTime.Now;
-                            _lastRefreshTimes[ItemPricesCacheKey] = DateTime.Now;
-                        }
-                        _logger.LogInformation("Blocking sync completed, loaded {Count} prices", prices.Count);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to sync prices from API - database is empty");
-                    }
+                    _logger.LogError(ex, "Failed to sync prices from API - database is empty");
                 }
             }
             else if (prices.Count > 0)
@@ -1037,36 +985,6 @@ public class MasterDataCacheService : IMasterDataCacheService
         return refreshedPartners;
     }
 
-    private void StartBackgroundBusinessPartnerRefresh(bool includeInactive)
-    {
-        if (!_backgroundSyncSemaphore.Wait(0))
-        {
-            _logger.LogDebug("Business partner background sync already in progress");
-            return;
-        }
-
-        _ = SapBackgroundPriority.Run(async () =>
-        {
-            try
-            {
-                await SyncBusinessPartnersFromApiAsync();
-
-                await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                var updatedPartners = await LoadBusinessPartnersFromDatabaseAsync(bgDb, includeInactive);
-                CacheBusinessPartners(updatedPartners, includeInactive);
-                _logger.LogInformation("Background sync completed, updated {Count} business partners in cache", updatedPartners.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Background sync of business partners failed");
-            }
-            finally
-            {
-                _backgroundSyncSemaphore.Release();
-            }
-        });
-    }
-
     public async Task<Dictionary<string, decimal>> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false)
     {
         // Return from memory cache if valid
@@ -1142,25 +1060,17 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             _logger.LogDebug("Loaded {Count} business partners from database into memory cache", partners.Count);
 
-            // Check if we need to sync from API (in background if we have data)
+            // Only an empty table syncs from here; refreshing a filled one is Data Sync's job.
             var needsSync = await NeedsSyncAsync(db, BusinessPartnersCacheKey, forceRefresh);
 
             if (needsSync)
             {
-                if (partners.Count > 0 && !forceRefresh)
-                {
-                    // We have data - sync in background without blocking
-                    StartBackgroundBusinessPartnerRefresh(includeInactive);
-                }
-                else
-                {
-                    var syncReason = forceRefresh
-                        ? "Business partner refresh requested, synchronizing before returning data..."
-                        : "No business partners in database, synchronizing before returning data...";
+                var syncReason = forceRefresh
+                    ? "Business partner refresh requested, synchronizing before returning data..."
+                    : "No business partners in database, synchronizing before returning data...";
 
-                    _logger.LogInformation(syncReason);
-                    partners = await RefreshBusinessPartnersSynchronouslyAsync(includeInactive);
-                }
+                _logger.LogInformation(syncReason);
+                partners = await RefreshBusinessPartnersSynchronouslyAsync(includeInactive);
             }
 
             return partners;
@@ -1365,91 +1275,48 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             _logger.LogDebug("Loaded {Count} warehouses from database into memory cache", warehouses.Count);
 
-            // Check if we need to sync from API (in background if we have data)
+            // Only an empty table syncs from here; refreshing a filled one is Data Sync's job.
             var needsSync = await NeedsSyncAsync(db, WarehousesCacheKey, forceRefresh);
 
             if (needsSync)
             {
-                if (warehouses.Count > 0 && !forceRefresh)
+                // Non-blocking: the user sees an empty list first, then the sync fills it.
+                _logger.LogInformation("No warehouses in database, triggering background sync...");
+                _ = SapBackgroundPriority.Run(async () =>
                 {
-                    // We have data - sync in background without blocking
-                    _ = SapBackgroundPriority.Run(async () =>
+                    await _backgroundSyncSemaphore.WaitAsync();
+                    try
                     {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncWarehousesFromApiAsync();
-                            // Reload from database after sync
-                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedWarehouses = await bgDb.CachedWarehouses
-                                .Where(p => p.IsActive)
-                                .OrderBy(p => p.WarehouseCode)
-                                .Select(p => new WarehouseDto
-                                {
-                                    WarehouseCode = p.WarehouseCode,
-                                    WarehouseName = p.WarehouseName,
-                                    Location = p.Location,
-                                    Street = p.Street,
-                                    City = p.City,
-                                    Country = p.Country,
-                                    IsActive = p.IsActive
-                                })
-                                .ToListAsync();
-                            _cachedWarehouses = updatedWarehouses;
-                            _warehousesLoadedAt = DateTime.Now;
-                            _logger.LogInformation("Background sync completed, updated {Count} warehouses in cache", updatedWarehouses.Count);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Background sync of warehouses failed");
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
-                }
-                else
-                {
-                    // No data in database - trigger sync in background (non-blocking)
-                    // User will see empty list initially, but sync will populate data
-                    _logger.LogInformation("No warehouses in database, triggering background sync...");
-                    _ = SapBackgroundPriority.Run(async () =>
+                        await SyncWarehousesFromApiAsync();
+                        // Reload from database after sync
+                        await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
+                        var updatedWarehouses = await bgDb.CachedWarehouses
+                            .Where(p => p.IsActive)
+                            .OrderBy(p => p.WarehouseCode)
+                            .Select(p => new WarehouseDto
+                            {
+                                WarehouseCode = p.WarehouseCode,
+                                WarehouseName = p.WarehouseName,
+                                Location = p.Location,
+                                Street = p.Street,
+                                City = p.City,
+                                Country = p.Country,
+                                IsActive = p.IsActive
+                            })
+                            .ToListAsync();
+                        _cachedWarehouses = updatedWarehouses;
+                        _warehousesLoadedAt = DateTime.Now;
+                        _logger.LogInformation("Initial sync completed, loaded {Count} warehouses", updatedWarehouses.Count);
+                    }
+                    catch (Exception ex)
                     {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncWarehousesFromApiAsync();
-                            // Reload from database after sync
-                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedWarehouses = await bgDb.CachedWarehouses
-                                .Where(p => p.IsActive)
-                                .OrderBy(p => p.WarehouseCode)
-                                .Select(p => new WarehouseDto
-                                {
-                                    WarehouseCode = p.WarehouseCode,
-                                    WarehouseName = p.WarehouseName,
-                                    Location = p.Location,
-                                    Street = p.Street,
-                                    City = p.City,
-                                    Country = p.Country,
-                                    IsActive = p.IsActive
-                                })
-                                .ToListAsync();
-                            _cachedWarehouses = updatedWarehouses;
-                            _warehousesLoadedAt = DateTime.Now;
-                            _logger.LogInformation("Initial sync completed, loaded {Count} warehouses", updatedWarehouses.Count);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Initial background sync of warehouses failed");
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
-                }
+                        _logger.LogError(ex, "Initial background sync of warehouses failed");
+                    }
+                    finally
+                    {
+                        _backgroundSyncSemaphore.Release();
+                    }
+                });
             }
 
             return warehouses;
@@ -1789,13 +1656,13 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             _logger.LogDebug("Loaded {Count} G/L accounts from database into memory cache", accounts.Count);
 
-            // Check if we need to sync from API (in background - always non-blocking)
+            // Only an empty table syncs from here; refreshing a filled one is Data Sync's job.
             var needsSync = await NeedsSyncAsync(db, GLAccountsCacheKey, forceRefresh);
 
             if (needsSync)
             {
                 // Always sync in background - never block the UI
-                _logger.LogInformation("G/L accounts need sync, triggering background sync...");
+                _logger.LogInformation("No G/L accounts in database, triggering background sync...");
                 _ = SapBackgroundPriority.Run(async () =>
                 {
                     await _backgroundSyncSemaphore.WaitAsync();
@@ -2040,13 +1907,9 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             _logger.LogDebug("Loaded {Count} cost centres from database into memory cache", costCentres.Count);
 
-            // Check if we need to sync from API - cost centres rarely change so use longer interval
-            var syncInfo = await db.CacheSyncInfo.FindAsync(CostCentresCacheKey);
+            // Only an empty table syncs from here; refreshing a filled one is Data Sync's job.
             var hasNoCostCentres = costCentres.Count == 0;
-            var needsSync = syncInfo == null ||
-                            hasNoCostCentres ||
-                            forceRefresh ||
-                            (DateTime.UtcNow - syncInfo.LastSyncedAt) > TimeSpan.FromDays(1); // Sync daily
+            var needsSync = hasNoCostCentres || forceRefresh;
 
             if (needsSync)
             {
@@ -2146,12 +2009,18 @@ public class MasterDataCacheService : IMasterDataCacheService
 
     #region Helper Methods
 
-    private async Task<bool> NeedsSyncAsync(WebAppDbContext db, string cacheKey, bool forceRefresh)
+    /// <summary>
+    /// Whether a read should sync before answering: only when asked to, or when the table is
+    /// empty, so a first read after deploy is not left with nothing.
+    /// </summary>
+    /// <remarks>
+    /// Age alone never triggers a sync. Settings → Data Sync is the one place master data is
+    /// refreshed, so a page read cannot go to SAP behind it. Before this, every read of data more
+    /// than an hour old started a background sync.
+    /// </remarks>
+    private static async Task<bool> NeedsSyncAsync(WebAppDbContext db, string cacheKey, bool forceRefresh)
     {
         if (forceRefresh) return true;
-
-        var syncInfo = await db.CacheSyncInfo.FindAsync(cacheKey);
-        if (syncInfo == null) return true;
 
         var hasData = cacheKey switch
         {
@@ -2164,9 +2033,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             _ => false
         };
 
-        if (!hasData) return true;
-
-        return (DateTime.UtcNow - syncInfo.LastSyncedAt) > SyncInterval;
+        return !hasData;
     }
 
     private async Task UpdateSyncInfoAsync(WebAppDbContext? db, string cacheKey, int itemCount, bool success, string? error)

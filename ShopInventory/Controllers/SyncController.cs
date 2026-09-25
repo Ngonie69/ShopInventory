@@ -8,6 +8,8 @@ using ShopInventory.Features.Sync.Commands.ProcessQueue;
 using ShopInventory.Features.Sync.Commands.RetryTransaction;
 using ShopInventory.Features.Sync.Commands.SyncItemTaxGroups;
 using ShopInventory.Features.Sync.Commands.TestConnection;
+using ShopInventory.Features.Sync.Commands.WarmItemUoms;
+using ShopInventory.Middleware;
 using ShopInventory.Features.Sync.Queries.CheckSapConnection;
 using ShopInventory.Features.Sync.Queries.GetCacheStatus;
 using ShopInventory.Features.Sync.Queries.GetConnectionLogs;
@@ -143,7 +145,8 @@ public class SyncController(IMediator mediator) : ApiControllerBase
     /// </summary>
     /// <remarks>
     /// Copies every item's VAT group from the SAP item master into the table till sales are taxed
-    /// from, instead of waiting for the 03:45 CAT job. Tills re-read it within four hours, or at once
+    /// from. Web → Settings → Data Sync is what calls this; nothing runs it on a schedule, so the table
+    /// is as fresh as the last time an admin ran it. Tills re-read it within four hours, or at once
     /// when Refresh is pressed on the till. Sales already recorded keep the tax code they were made under.
     /// </remarks>
     [HttpPost("item-tax-groups")]
@@ -155,6 +158,28 @@ public class SyncController(IMediator mediator) : ApiControllerBase
         using var syncTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         syncTimeout.CancelAfter(TimeSpan.FromMinutes(10));
         var result = await mediator.Send(new SyncItemTaxGroupsCommand(), syncTimeout.Token);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Resolve the SAP unit of measure for the item / UoM pairs orders use (admin only)
+    /// </summary>
+    /// <remarks>
+    /// Stores each pair's canonical SAP UoM so an order approval finds it rather than resolving it
+    /// against SAP while a rep waits. Pairs already stored cost nothing. Web → Settings → Data Sync is
+    /// what calls this; nothing runs it on a schedule. Background SAP priority, because the point of it
+    /// is to keep approvals fast, and holding their reserved slots would do the opposite.
+    /// </remarks>
+    [HttpPost("item-uoms")]
+    [SapBackgroundWork]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(ItemUomWarmResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> WarmItemUoms(CancellationToken cancellationToken)
+    {
+        using var syncTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        syncTimeout.CancelAfter(TimeSpan.FromMinutes(20));
+        var result = await mediator.Send(new WarmItemUomsCommand(), syncTimeout.Token);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -21,7 +21,7 @@ namespace ShopInventory.Controllers;
 public class PriceController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>
-    /// Get cached prices (synced every 5 minutes)
+    /// Get cached prices (as of the last catalogue sync from Settings → Data Sync)
     /// </summary>
     [HttpGet("cached")]
     public async Task<IActionResult> GetCachedPrices(CancellationToken cancellationToken)

@@ -18,7 +18,7 @@ public interface IBusinessPartnerService
     Task<BusinessPartnerListResponse?> GetCachedBusinessPartnersByTypeAsync(string cardType);
     Task<BusinessPartnerListResponse?> SearchCachedBusinessPartnersAsync(string searchTerm);
     Task<BusinessPartnerDto?> GetCachedBusinessPartnerByCodeAsync(string cardCode);
-    Task<int> SyncBusinessPartnersAsync();
+    // Syncing is IMasterDataCacheService's, run only from Settings → Data Sync.
     Task<DateTime?> GetLastSyncTimeAsync();
 }
 
@@ -275,97 +275,6 @@ public class BusinessPartnerService : IBusinessPartnerService
         {
             _logger.LogError(ex, "Error fetching cached business partner by code");
             return null;
-        }
-    }
-
-    public async Task<int> SyncBusinessPartnersAsync()
-    {
-        try
-        {
-            _logger.LogInformation("Syncing business partners from API...");
-
-            var response = await _httpClient.GetFromJsonAsync<BusinessPartnerListResponse>("api/businesspartner");
-            var apiPartners = response?.BusinessPartners ?? new List<BusinessPartnerDto>();
-
-            if (apiPartners.Count == 0)
-            {
-                _logger.LogWarning("No business partners received from API");
-                return 0;
-            }
-
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-            var syncTime = DateTime.UtcNow;
-            var updatedCount = 0;
-            var insertedCount = 0;
-
-            var existingCardCodes = await db.CachedBusinessPartners
-                .Select(p => p.CardCode)
-                .ToHashSetAsync();
-
-            foreach (var partner in apiPartners)
-            {
-                if (string.IsNullOrEmpty(partner.CardCode)) continue;
-
-                if (existingCardCodes.Contains(partner.CardCode))
-                {
-                    await db.CachedBusinessPartners
-                        .Where(cp => cp.CardCode == partner.CardCode)
-                        .ExecuteUpdateAsync(setters => setters
-                            .SetProperty(cp => cp.CardName, partner.CardName)
-                            .SetProperty(cp => cp.CardType, partner.CardType)
-                            .SetProperty(cp => cp.GroupCode, partner.GroupCode)
-                            .SetProperty(cp => cp.Phone1, partner.Phone1)
-                            .SetProperty(cp => cp.Phone2, partner.Phone2)
-                            .SetProperty(cp => cp.Email, partner.Email)
-                            .SetProperty(cp => cp.Address, partner.Address)
-                            .SetProperty(cp => cp.City, partner.City)
-                            .SetProperty(cp => cp.Country, partner.Country)
-                            .SetProperty(cp => cp.Currency, partner.Currency)
-                            .SetProperty(cp => cp.Balance, partner.Balance)
-                            .SetProperty(cp => cp.PriceListNum, partner.PriceListNum)
-                                .SetProperty(cp => cp.Channel, partner.Channel)
-                            .SetProperty(cp => cp.IsActive, partner.IsActive)
-                            .SetProperty(cp => cp.LastSyncedAt, syncTime));
-                    updatedCount++;
-                }
-                else
-                {
-                    db.CachedBusinessPartners.Add(new CachedBusinessPartner
-                    {
-                        CardCode = partner.CardCode,
-                        CardName = partner.CardName,
-                        CardType = partner.CardType,
-                        GroupCode = partner.GroupCode,
-                        Phone1 = partner.Phone1,
-                        Phone2 = partner.Phone2,
-                        Email = partner.Email,
-                        Address = partner.Address,
-                        City = partner.City,
-                        Country = partner.Country,
-                        Currency = partner.Currency,
-                        Balance = partner.Balance,
-                        PriceListNum = partner.PriceListNum,
-                        Channel = partner.Channel,
-                        IsActive = partner.IsActive,
-                        LastSyncedAt = syncTime
-                    });
-                    insertedCount++;
-                }
-            }
-
-            await db.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "Business partners sync completed: {Inserted} inserted, {Updated} updated",
-                insertedCount, updatedCount);
-
-            return apiPartners.Count;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to sync business partners from API");
-            throw;
         }
     }
 

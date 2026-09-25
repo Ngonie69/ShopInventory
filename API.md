@@ -986,7 +986,7 @@ There is no batch route on this controller. Batch detail is
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/Price/cached` | Get cached prices (synced every 5 minutes) |
+| GET | `/api/Price/cached` | Get cached prices (as of the last catalogue sync from Settings → Data Sync) |
 | GET | `/api/Price` | Get all prices directly from SAP |
 | GET | `/api/Price/grouped` | Prices grouped by item |
 | GET | `/api/Price/{itemCode}` | Prices for one item |
@@ -3134,7 +3134,7 @@ through `Tax:RatesByTaxCode`: one source, so the basket and the invoice cannot d
 
 The whole catalogue, not one warehouse's — the item master is not warehouse-scoped, and a receipt
 reprinted for an item the shop no longer carries still has to state the VAT charged that day. An
-empty `items` list means `SapItemTaxGroupWarmJob` has not completed a pass; it is answered rather than
+empty `items` list means the Item Tax Groups sync (Web → Settings → Data Sync) has never completed; it is answered rather than
 refused, and a client should keep whatever rates it already holds rather than fall back to the
 standard rate for everything.
 
@@ -4393,7 +4393,7 @@ on the web, and refused at the point of posting instead. `POST /mobile/order` ca
 ### 39. Sync & SAP Connection
 
 **Base route:** `/api/Sync`  
-**Auth:** Bearer + `ApiAccess`; `queue/process`, `item-tax-groups` and `transfer-request-items/clear` are Admin
+**Auth:** Bearer + `ApiAccess`; `queue/process`, `item-tax-groups`, `item-uoms` and `transfer-request-items/clear` are Admin
 
 The health of this API's link to SAP, and the offline queue that holds documents while it is down.
 
@@ -4412,17 +4412,24 @@ The health of this API's link to SAP, and the offline queue that holds documents
 | POST | `/api/Sync/queue/{id}/cancel` | Cancel one |
 | POST | `/api/Sync/queue/process` | **Admin.** Drain the queue now |
 | POST | `/api/Sync/item-tax-groups` | **Admin.** Copy item VAT groups from SAP now |
+| POST | `/api/Sync/item-uoms` | **Admin.** Resolve the SAP UoM for the item/UoM pairs orders use |
 | POST | `/api/Sync/transfer-request-items/clear` | **Admin.** Make tills re-read their transfer-request item list from SAP. `204` |
 
 `/queue` and `/queue/status` are two routes on one action, not two endpoints — they answer
 identically, and neither is deprecated.
 
-`item-tax-groups` does now what the 03:45 CAT `SapItemTaxGroupWarmJob` does nightly: reads
-every sellable item's VAT group from the SAP item master, bypassing the six-hour cache, into
+`item-tax-groups` is the only thing that fills this table — nothing runs it on a schedule; Web →
+Settings → Data Sync calls it. It reads every sellable item's VAT group from the SAP item master, bypassing the six-hour cache, into
 `SapItemTaxGroups`, the table till sales are taxed from and `DesktopIntegration/tax/item-rates`
 serves. It answers with the counts, each item whose group changed (`itemCode`, `was`, `now`), and
 any group in use with no configured rate or tax id. A failed or empty SAP read changes nothing and
 answers an error; a sync already running answers 409. Tills re-read within four hours, or on Refresh.
+
+`item-uoms` stores the canonical SAP unit of measure for every item/UoM pair on the last 120 days of
+orders and the active catalogue, so an order approval finds it instead of resolving it while a rep
+waits. Pairs already stored cost nothing. Nothing runs it on a schedule; Web → Settings → Data Sync
+calls it. It runs at background SAP priority, answers `pairs`, `warmed`, `failedBatches` and
+`completedAtUtc`, answers an error only when no batch could be resolved, and 409 while one is running.
 
 `transfer-request-items/clear` drops the hour-long hold on `DesktopIntegration/transfer-requests/items`,
 so an item just flagged `U_SalesItem` and `U_VanSale` in SAP appears the next time a till opens its

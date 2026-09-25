@@ -1700,7 +1700,40 @@
                         }
 
                         <div class="stg-sync-grid">
-                            @* Six near-identical tiles; every per-entity difference
+                            <div class="stg-sync-card stg-sync-card-all">
+                                <span class="stg-sync-icon"><i class="ph ph-arrows-clockwise"></i></span>
+                                <div class="stg-sync-body">
+                                    <h3>Sync everything</h3>
+                                    @if (isRefreshingAll)
+                                    {
+                                        <span>@syncAllStepLabel — @SyncAllStepNumber of @syncAllTotal</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Every module below, in one pass</span>
+                                    }
+                                </div>
+                                <button type="button" class="stg-btn stg-btn-primary stg-btn-icon" title="Sync everything"
+                                        @onclick="RefreshAllData" disabled="@isRefreshingAll">
+                                    @if (isRefreshingAll)
+                                    {
+                                        <span class="stg-spin"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="ph ph-arrows-clockwise"></i>
+                                    }
+                                </button>
+                                @if (isRefreshingAll)
+                                {
+                                    <span class="stg-sync-bar" role="progressbar" aria-label="Sync everything progress"
+                                          aria-valuemin="0" aria-valuemax="100" aria-valuenow="@SyncAllPercent">
+                                        <span class="stg-sync-bar-fill" style="width: @SyncAllPercent%"></span>
+                                    </span>
+                                }
+                            </div>
+
+                            @* Near-identical tiles; every per-entity difference
                                is carried on the tile itself. *@
                             @foreach (var tile in SyncTiles)
                             {
@@ -1711,6 +1744,10 @@
                                         @if (tile.IsBusy && tile.Progress is { } phase)
                                         {
                                             <span class="stg-sync-phase">@phase.Phase — @tile.StepNumber of @phase.Total</span>
+                                        }
+                                        else if (tile.LastSyncFailed)
+                                        {
+                                            <span class="stg-sync-failed" title="@tile.LastError">@FormatLastSync(tile.LastSync, failed: true)</span>
                                         }
                                         else
                                         {
@@ -1747,44 +1784,11 @@
                                     }
                                 </div>
                             }
-
-                            <div class="stg-sync-card stg-sync-card-all">
-                                <span class="stg-sync-icon"><i class="ph ph-arrows-clockwise"></i></span>
-                                <div class="stg-sync-body">
-                                    <h3>Sync everything</h3>
-                                    @if (isRefreshingAll)
-                                    {
-                                        <span>@syncAllStepLabel — @SyncAllStepNumber of @syncAllTotal</span>
-                                    }
-                                    else
-                                    {
-                                        <span>All master data in one pass</span>
-                                    }
-                                </div>
-                                <button type="button" class="stg-btn stg-btn-primary stg-btn-icon" title="Sync everything"
-                                        @onclick="RefreshAllData" disabled="@isRefreshingAll">
-                                    @if (isRefreshingAll)
-                                    {
-                                        <span class="stg-spin"></span>
-                                    }
-                                    else
-                                    {
-                                        <i class="ph ph-arrows-clockwise"></i>
-                                    }
-                                </button>
-                                @if (isRefreshingAll)
-                                {
-                                    <span class="stg-sync-bar" role="progressbar" aria-label="Sync everything progress"
-                                          aria-valuemin="0" aria-valuemax="100" aria-valuenow="@SyncAllPercent">
-                                        <span class="stg-sync-bar-fill" style="width: @SyncAllPercent%"></span>
-                                    </span>
-                                }
-                            </div>
                         </div>
 
                         <div class="stg-footnote">
                             <i class="ph ph-info"></i>
-                            <span>Syncing is manual — nothing runs these on a timer. The API is the source; the web cache follows it.</span>
+                            <span>Master data is refreshed from SAP only from here: no page syncs it, and nothing runs on a timer in the web app or the API — prices, item tax groups and item UoMs included, so the shop tills get a SAP change only once it is synced here. A page fills a table only while it is still empty.</span>
                         </div>
                     </section>
                 }
@@ -2121,7 +2125,11 @@
         public Func<string?>? Detail { get; init; }
 
         public bool IsBusy { get; set; }
+
+        /// <summary>The last recorded sync, in CAT, whether it worked or not.</summary>
         public DateTime? LastSync { get; set; }
+        public bool LastSyncFailed { get; set; }
+        public string? LastError { get; set; }
 
         /// <summary>Null until the sync reports its first phase.</summary>
         public SyncProgress? Progress { get; set; }
@@ -2162,10 +2170,35 @@
         {
             Source = "SAP into the API",
             Detail = DescribeTaxGroupSync
-        }
+        },
+        new("Item UoMs", "ph-ruler", MasterDataCacheService.ItemUomsSyncKey, async progress =>
+        {
+            lastUomWarm = await CacheService.SyncItemUomsFromSapAsync(progress);
+            return lastUomWarm.Warmed;
+        })
+        {
+            Source = "SAP into the API",
+            Detail = DescribeUomWarm
+        },
+        // The three below have no progress phases, so their tiles show the queued bar until done.
+        new("G/L Accounts", "ph-bank", "GLAccounts", _ => CacheService.SyncGLAccountsFromApiAsync()),
+        new("Item Groups", "ph-squares-four", "ItemGroups", _ => CacheService.SyncItemGroupsFromApiAsync()),
+        new("Partner Groups", "ph-users-three", "BusinessPartnerGroups", _ => CacheService.SyncBusinessPartnerGroupsFromApiAsync())
     ];
 
     private ItemTaxGroupSyncResultModel? lastTaxGroupSync;
+
+    private ItemUomWarmResultModel? lastUomWarm;
+
+    /// <summary>
+    /// Says what the UoM pass covered, and what happens to any batch SAP could not answer.
+    /// </summary>
+    private string? DescribeUomWarm() => lastUomWarm switch
+    {
+        null => null,
+        { FailedBatches: 0 } result => $"{result.Pairs:N0} item/UoM pair(s) checked; approvals will find them stored.",
+        var result => $"{result.Warmed:N0} of {result.Pairs:N0} item/UoM pair(s) resolved; {result.FailedBatches} batch(es) could not be, and resolve when an order is approved."
+    };
 
     private bool? tillItemsCleared;
 
@@ -2593,8 +2626,22 @@
     private int? confirmingDeleteId;
     private string? scheduleValidationError;
 
+    /// <summary>
+    /// Opens a category directly. <c>data-sync</c> is what the pages that used to sync their own
+    /// master data link to, now that only Data Sync does.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
+    public const string DataSyncHref = "/settings?section=data-sync";
+
     protected override async Task OnInitializedAsync()
     {
+        if (string.Equals(Section, "data-sync", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedCategory = DataManagementCategory;
+        }
+
         await LoadCurrentUser();
         await LoadSettings();
         await LoadLastSyncTimes();
@@ -2710,14 +2757,41 @@
         currentUsername = authState.User.Identity?.Name ?? "Unknown";
     }
 
-    private Task LoadLastSyncTimes()
+    /// <summary>
+    /// Reads each tile's last sync from <c>CacheSyncInfo</c>, the row every sync writes.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="IMasterDataCacheService.GetLastRefreshTime"/>: that is stamped whenever a
+    /// page reloads its memory copy from the database, in UTC for partners and local time for the
+    /// rest, so it read as a sync that never happened.
+    /// </remarks>
+    private async Task LoadLastSyncTimes()
     {
-        foreach (var tile in SyncTiles)
+        try
         {
-            tile.LastSync = CacheService.GetLastRefreshTime(tile.CacheKey);
-        }
+            var keys = SyncTiles.Select(tile => tile.CacheKey).ToList();
+            await using var db = await DbContextFactory.CreateDbContextAsync();
+            var rows = await db.CacheSyncInfo
+                .AsNoTracking()
+                .Where(row => keys.Contains(row.CacheKey))
+                .ToDictionaryAsync(row => row.CacheKey);
 
-        return Task.CompletedTask;
+            foreach (var tile in SyncTiles)
+            {
+                ApplySyncInfo(tile, rows.GetValueOrDefault(tile.CacheKey));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not read the Data Sync tiles' last sync times");
+        }
+    }
+
+    private static void ApplySyncInfo(SyncTile tile, CacheSyncInfo? row)
+    {
+        tile.LastSync = row is null ? null : IAuditService.ToCAT(row.LastSyncedAt);
+        tile.LastSyncFailed = row is { SyncSuccessful: false };
+        tile.LastError = row?.LastError;
     }
 
     private async Task LoadSettings()
@@ -3359,8 +3433,10 @@
 
     // ── Data sync ───────────────────────────────────────────────────────
 
-    private static string FormatLastSync(DateTime? lastSync) =>
-        lastSync.HasValue ? $"Synced {lastSync.Value:dd MMM yyyy HH:mm}" : "Never synced";
+    private static string FormatLastSync(DateTime? lastSync, bool failed = false) =>
+        lastSync.HasValue
+            ? $"{(failed ? "Sync failed" : "Synced")} {lastSync.Value:dd MMM yyyy HH:mm}"
+            : "Never synced";
 
     /// <summary>
     /// Runs one tile's sync with its progress wired to the tile, and leaves the
@@ -3389,10 +3465,27 @@
         // Let the tile light up before the call blocks on SAP.
         await Task.Yield();
 
+        var startedUtc = DateTime.UtcNow;
+
         try
         {
             var count = await tile.Sync(progress);
-            tile.LastSync = DateTime.Now;
+
+            // Pages read memory copies of these tables, and nothing else reloads them now that
+            // reads no longer sync, so drop this one's copy for the next read to take from the
+            // database. Keys with no memory copy fall through harmlessly.
+            CacheService.InvalidateCache(tile.CacheKey);
+
+            // Some syncs record a failure and return 0 rather than throw; the row is what says.
+            await using var db = await DbContextFactory.CreateDbContextAsync();
+            var row = await db.CacheSyncInfo.AsNoTracking().FirstOrDefaultAsync(r => r.CacheKey == tile.CacheKey);
+            ApplySyncInfo(tile, row);
+
+            if (row is { SyncSuccessful: false } && row.LastSyncedAt >= startedUtc.AddSeconds(-1))
+            {
+                throw new InvalidOperationException(row.LastError ?? "The sync recorded a failure.");
+            }
+
             return count;
         }
         finally
@@ -3422,6 +3515,7 @@
         }
         finally
         {
+            await LoadLastSyncTimes();
             StateHasChanged();
         }
     }
@@ -3494,6 +3588,7 @@
                 tile.IsBusy = false;
                 tile.Progress = null;
             }
+            await LoadLastSyncTimes();
             StateHasChanged();
         }
     }
