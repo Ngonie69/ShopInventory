@@ -50,6 +50,9 @@ public interface IMasterDataCacheService
     // Not a Web cache: copies SAP's item VAT groups into the API table till sales are taxed from.
     Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null);
 
+    // Nor this: stores the SAP UoM for the item/UoM pairs orders use, in the API, so approvals find it.
+    Task<ItemUomWarmResultModel> SyncItemUomsFromSapAsync(IProgress<SyncProgress>? progress = null);
+
     // Not a Web cache either: drops the API's hour-long hold on the tills' transfer-request item list.
     Task<bool> ClearTillTransferRequestItemsAsync();
 }
@@ -683,39 +686,65 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// tills read their rates from, so it is the only copy that matters. The sync is still recorded
     /// in <c>CacheSyncInfo</c>, which is where the Data Sync tiles read their last sync from.
     /// </remarks>
-    public async Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null)
+    public Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null) =>
+        RunApiSyncAsync<ItemTaxGroupSyncResultModel>(
+            "api/sync/item-tax-groups", ItemTaxGroupsSyncKey, "item tax group", "Reading the SAP item master",
+            result => result.ItemsRead, progress);
+
+    public const string ItemUomsSyncKey = "ItemUoms";
+
+    /// <summary>
+    /// Has the API resolve and store the SAP UoM for the item/UoM pairs orders use, so approvals find
+    /// them stored. Nothing else does: the API runs no schedule for it.
+    /// </summary>
+    public Task<ItemUomWarmResultModel> SyncItemUomsFromSapAsync(IProgress<SyncProgress>? progress = null) =>
+        RunApiSyncAsync<ItemUomWarmResultModel>(
+            "api/sync/item-uoms", ItemUomsSyncKey, "item UoM", "Resolving UoMs against SAP",
+            result => result.Warmed, progress);
+
+    /// <summary>
+    /// POSTs one of the API's own SAP syncs and records the outcome in <c>CacheSyncInfo</c> under
+    /// <paramref name="syncKey"/>, which is where the Data Sync tile reads its last sync from.
+    /// </summary>
+    private async Task<T> RunApiSyncAsync<T>(
+        string route,
+        string syncKey,
+        string what,
+        string phase,
+        Func<T, int> count,
+        IProgress<SyncProgress>? progress)
     {
         var phases = new SyncPhaseReporter(progress, 1);
-        phases.Next("Reading the SAP item master");
+        phases.Next(phase);
 
         try
         {
             var syncClient = _httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
             using var response = await SendAuthenticatedAsync(
-                () => syncClient.PostAsync("api/sync/item-tax-groups", null),
+                () => syncClient.PostAsync(route, null),
                 syncClient);
 
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Item tax group sync failed with status {Status}: {Error}", response.StatusCode, errorContent);
+                _logger.LogError("The {What} sync failed with status {Status}: {Error}", what, response.StatusCode, errorContent);
                 throw ApiErrorResponse.CreateHttpRequestException(
                     response.StatusCode,
                     errorContent,
-                    "We couldn't sync item tax groups from SAP right now.");
+                    $"We couldn't sync {what}s from SAP right now.");
             }
 
-            var result = await response.Content.ReadFromJsonAsync<ItemTaxGroupSyncResultModel>()
-                ?? throw new InvalidOperationException("The API answered the item tax group sync with an empty body.");
+            var result = await response.Content.ReadFromJsonAsync<T>()
+                ?? throw new InvalidOperationException($"The API answered the {what} sync with an empty body.");
 
-            await UpdateSyncInfoAsync(null, ItemTaxGroupsSyncKey, result.ItemsRead, true, null);
-            _lastRefreshTimes[ItemTaxGroupsSyncKey] = DateTime.Now;
+            await UpdateSyncInfoAsync(null, syncKey, count(result), true, null);
+            _lastRefreshTimes[syncKey] = DateTime.Now;
             phases.Complete();
             return result;
         }
         catch (Exception ex)
         {
-            await UpdateSyncInfoAsync(null, ItemTaxGroupsSyncKey, 0, false, ex.Message);
+            await UpdateSyncInfoAsync(null, syncKey, 0, false, ex.Message);
             throw;
         }
     }

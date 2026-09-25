@@ -1788,7 +1788,7 @@
 
                         <div class="stg-footnote">
                             <i class="ph ph-info"></i>
-                            <span>Master data is refreshed from SAP only from here: no page syncs it, and nothing runs on a timer in the web app or the API — prices and item tax groups included, so the shop tills get a SAP change only once it is synced here. A page fills a table only while it is still empty.</span>
+                            <span>Master data is refreshed from SAP only from here: no page syncs it, and nothing runs on a timer in the web app or the API — prices, item tax groups and item UoMs included, so the shop tills get a SAP change only once it is synced here. A page fills a table only while it is still empty.</span>
                         </div>
                     </section>
                 }
@@ -2171,6 +2171,15 @@
             Source = "SAP into the API",
             Detail = DescribeTaxGroupSync
         },
+        new("Item UoMs", "ph-ruler", MasterDataCacheService.ItemUomsSyncKey, async progress =>
+        {
+            lastUomWarm = await CacheService.SyncItemUomsFromSapAsync(progress);
+            return lastUomWarm.Warmed;
+        })
+        {
+            Source = "SAP into the API",
+            Detail = DescribeUomWarm
+        },
         // The three below have no progress phases, so their tiles show the queued bar until done.
         new("G/L Accounts", "ph-bank", "GLAccounts", _ => CacheService.SyncGLAccountsFromApiAsync()),
         new("Item Groups", "ph-squares-four", "ItemGroups", _ => CacheService.SyncItemGroupsFromApiAsync()),
@@ -2178,6 +2187,18 @@
     ];
 
     private ItemTaxGroupSyncResultModel? lastTaxGroupSync;
+
+    private ItemUomWarmResultModel? lastUomWarm;
+
+    /// <summary>
+    /// Says what the UoM pass covered, and what happens to any batch SAP could not answer.
+    /// </summary>
+    private string? DescribeUomWarm() => lastUomWarm switch
+    {
+        null => null,
+        { FailedBatches: 0 } result => $"{result.Pairs:N0} item/UoM pair(s) checked; approvals will find them stored.",
+        var result => $"{result.Warmed:N0} of {result.Pairs:N0} item/UoM pair(s) resolved; {result.FailedBatches} batch(es) could not be, and resolve when an order is approved."
+    };
 
     private bool? tillItemsCleared;
 

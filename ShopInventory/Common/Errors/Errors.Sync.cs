@@ -20,5 +20,11 @@ public static partial class Errors
 
         public static Error ItemTaxGroupReadFailed(string message) =>
             Error.Failure("Sync.ItemTaxGroupReadFailed", $"Could not read item tax groups from SAP; the stored ones are unchanged. {message}");
+
+        public static readonly Error ItemUomWarmAlreadyRunning =
+            Error.Conflict("Sync.ItemUomWarmAlreadyRunning", "An item UoM sync is already running. Try again after it finishes.");
+
+        public static Error ItemUomWarmFailed(int pairs, string message) =>
+            Error.Failure("Sync.ItemUomWarmFailed", $"Could not resolve any of the {pairs} item/UoM pair(s) from SAP; approvals will resolve them on demand. {message}");
     }
 }

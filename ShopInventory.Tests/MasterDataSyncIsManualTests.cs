@@ -1,19 +1,24 @@
+using System.Reflection;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Quartz;
 using ShopInventory.Configuration;
+using ShopInventory.Controllers;
+using ShopInventory.Middleware;
 
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// The price catalogue and item VAT groups are pulled from SAP only from Web → Settings → Data Sync.
-/// They used to run every four hours and at 03:45 CAT; a job declared here again would put a sync back
+/// The price catalogue, item VAT groups and item UoM resolutions are pulled from SAP only from Web →
+/// Settings → Data Sync. They used to run every four hours and at 03:45 and 03:30 CAT; a job declared here again would put a sync back
 /// behind that page, and QuartzStoredJobReconciler only deletes what the build stops declaring.
 /// </summary>
 public sealed class MasterDataSyncIsManualTests
 {
-    private static readonly string[] RetiredJobs = ["price-catalog-sync", "sap-item-tax-group-warm"];
+    private static readonly string[] RetiredJobs = ["price-catalog-sync", "sap-item-tax-group-warm", "sap-item-uom-warm"];
 
     [Fact]
     public void Neither_master_data_sync_is_scheduled()
@@ -40,10 +45,15 @@ public sealed class MasterDataSyncIsManualTests
     }
 
     [Fact]
-    public void The_uom_warm_stays_scheduled()
+    public void The_uom_sync_Data_Sync_calls_is_an_admin_background_endpoint()
     {
-        // Not a data sync: it pre-resolves UoMs an approval would otherwise resolve on demand.
-        Assert.Contains("sap-item-uom-warm", DeclaredJobNames());
+        var action = typeof(SyncController).GetMethod(nameof(SyncController.WarmItemUoms))!;
+
+        Assert.Equal("item-uoms", Assert.Single(action.GetCustomAttributes<HttpPostAttribute>()).Template);
+        Assert.Equal("Admin", Assert.Single(action.GetCustomAttributes<AuthorizeAttribute>()).Roles);
+
+        // Its purpose is to keep approvals fast, so it must not hold their reserved SAP slots.
+        Assert.NotNull(action.GetCustomAttribute<SapBackgroundWorkAttribute>());
     }
 
     private static HashSet<string> DeclaredJobNames(Dictionary<string, string?>? settings = null)

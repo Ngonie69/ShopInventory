@@ -172,4 +172,15 @@ public class ItemTaxGroupChangeModel
     public string Now { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Mirrors the API's <c>ItemUomWarmResult</c> from <c>POST api/Sync/item-uoms</c>.
+/// </summary>
+public class ItemUomWarmResultModel
+{
+    public int Pairs { get; set; }
+    public int Warmed { get; set; }
+    public int FailedBatches { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
+}
+
 // Note: NotificationModel and NotificationListResponse are defined in ReportModels.cs

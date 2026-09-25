@@ -90,10 +90,11 @@ public static class QuartzConfiguration
                     startDelay: TimeSpan.FromSeconds(45));
             }
 
-            // No master-data sync is scheduled. The price catalogue and item VAT groups are pulled from
-            // SAP only when an admin runs them from Web → Settings → Data Sync (POST api/price/sync and
-            // api/sync/item-tax-groups). They were a 4-hourly job and a 03:45 CAT job; with those gone,
-            // QuartzStoredJobReconciler deletes their stored triggers at the next start.
+            // No master-data sync is scheduled. The price catalogue, item VAT groups and item UoM
+            // resolutions are pulled from SAP only when an admin runs them from Web → Settings → Data
+            // Sync (POST api/price/sync, api/sync/item-tax-groups and api/sync/item-uoms). They were a
+            // 4-hourly job and 03:45 and 03:30 CAT jobs; with those gone, QuartzStoredJobReconciler
+            // deletes their stored triggers at the next start.
 
             if (healthAlert.Enabled)
             {
@@ -103,11 +104,6 @@ public static class QuartzConfiguration
             }
 
             // Time-of-day jobs → cron triggers evaluated in CAT.
-
-            // Ahead of the morning approval run, and off-peak so its SAP queries do not compete
-            // with anything a person is waiting on. Not a data sync: it pre-resolves UoMs that an
-            // approval would otherwise resolve on demand, so nothing goes stale without it.
-            AddCronJob<SapItemUomWarmJob>(q, "sap-item-uom-warm", "0 30 3 * * ?");
 
             // The telematics fleet list: which vehicles exist and what each tracker can measure.
             // Nightly because it changes when a truck is bought, sold or sent to the workshop, and

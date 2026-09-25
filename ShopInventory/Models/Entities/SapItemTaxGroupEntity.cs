@@ -11,7 +11,7 @@ namespace ShopInventory.Models.Entities;
 ///
 /// <para>
 /// Read from the item master rather than resolved per sale, for the reason
-/// <see cref="Services.SapItemUomWarmJob"/> gives about UoMs: a SAP read on an interactive path is
+/// <see cref="Features.Sync.Commands.WarmItemUoms.WarmItemUomsCommand"/> gives about UoMs: a SAP read on an interactive path is
 /// paid by whoever is standing at the counter, against a concurrency limit shared with everything
 /// else the process does. This is the durable copy that read fills, and the sale path only ever
 /// touches the local table.
