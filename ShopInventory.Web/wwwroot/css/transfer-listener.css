@@ -754,6 +754,25 @@
     color: var(--tel-mute-3);
 }
 
+/* The listener's word on delivery, under the ledger's state. The API's answer can be long, so it is
+   cut to the column and kept whole in the title. */
+.tel-delivery-note {
+    display: block;
+    max-width: 260px;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--tone);
+}
+
+.tel-line-delivery {
+    flex: none;
+    margin-left: auto;
+    color: var(--tone);
+}
+
 /* ── Detail rows ───────────────────────────────────────────────────────── */
 
 .tel .tel-rows {

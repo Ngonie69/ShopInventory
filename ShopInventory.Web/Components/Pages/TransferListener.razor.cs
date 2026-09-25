@@ -16,9 +16,14 @@ namespace ShopInventory.Web.Components.Pages;
 /// applied to local stock — and judges each on its own evidence. It used to ask only the first. On
 /// 2026-09-17 the listener read SAP every two minutes while posting every line to a port nothing
 /// listened on, and the page said "reading SAP normally" beside "33 webhooks delivered, 0 failed" —
-/// a figure that counts the listener's batch-sync call, not the ledger. No transfer had reached a till
-/// since the previous morning. So the second hop is read from the listener's retry queue and the
-/// third from the API's own adjustments table, and the listener's per-document flag is not shown.</para>
+/// a figure that counted the listener's sync-batches call to another service, not the ledger. No
+/// transfer had reached a till since the previous morning. So the second hop is read from the
+/// listener's retry queue and the third from the API's own adjustments table.</para>
+///
+/// <para>The listener has since dropped sync-batches, and its per-document delivery now describes the
+/// second hop: delivered, retrying, refused by the API or given up on. It is shown beside the ledger's
+/// verdict rather than in place of it, because it is what separates a document the API refused from
+/// one it took into a warehouse with no snapshot — both of which the ledger sees as nothing.</para>
 ///
 /// <para>The verdict is computed here rather than taken from the listener's status word, because the
 /// listener cannot see the ledger, cannot see which warehouses the API snapshots, and cannot tell "the
@@ -149,7 +154,9 @@ public partial class TransferListener
 
     /// <summary>
     /// Says what the check did to local stock, which is the question behind pressing it. The
-    /// listener's own "webhook succeeded" is the batch-sync call and is not repeated.
+    /// listener's WebhookTriggered and WebhookSuccess say the same as its counts, less precisely, so
+    /// they are not repeated — and from a listener that still sent sync-batches they described that
+    /// call instead.
     /// </summary>
     private static CheckOutcome DescribeCheck(TransferListenerCheckModel check)
     {
@@ -225,8 +232,9 @@ public partial class TransferListener
         : Math.Max(0, status.LinesSeen - Delivery.PendingLines - Delivery.AbandonedLines - Delivery.RejectedLines);
 
     /// <summary>
-    /// Documents from today's ledger day that reached the API — nothing is waiting in front of them —
-    /// and moved no stock. A warehouse with no snapshot today does this, and says nothing else.
+    /// Documents from today's ledger day that are not on their way and moved no stock. Most reached
+    /// the API — a warehouse with no snapshot today does this, and says nothing else — but some it
+    /// refused or the listener gave up on; <see cref="NeverDelivered"/> tells them apart.
     /// </summary>
     private List<TransferListenerDocumentModel> UnappliedToday =>
         status?.RecentDocuments
@@ -329,10 +337,25 @@ public partial class TransferListener
 
             if (UnappliedToday is { Count: > 0 } unapplied)
             {
-                return $"{unapplied.Count} document(s) from today reached this API and changed no stock: "
-                    + string.Join(", ", unapplied.Select(document => document.SapDocNum?.ToString() ?? "?"))
-                    + ". That is what a transfer into a warehouse with no snapshot today, or one this API does not "
-                    + "monitor, looks like.";
+                var refused = unapplied.Where(NeverDelivered).ToList();
+                var accepted = unapplied.Where(document => !NeverDelivered(document)).ToList();
+                var sentences = new List<string>();
+
+                if (refused.Count > 0)
+                {
+                    sentences.Add($"{refused.Count} document(s) from today never reached this API — it refused a "
+                        + $"line, or the listener gave up on one: {DocNums(refused)}. Nothing retries them; the "
+                        + "next morning's snapshot will count them.");
+                }
+
+                if (accepted.Count > 0)
+                {
+                    sentences.Add($"{accepted.Count} document(s) from today reached this API and changed no stock: "
+                        + $"{DocNums(accepted)}. That is what a transfer into a warehouse with no snapshot today, or "
+                        + "one this API does not monitor, looks like.");
+                }
+
+                return string.Join(" ", sentences);
             }
 
             if (status.UnwatchedWarehouses.Count > 0)
@@ -537,9 +560,59 @@ public partial class TransferListener
         {
             "Applied" => ("good", "Applied", FormatShort(document.AppliedAtUtc)),
             "Waiting" => ("warn", "Waiting", FormatAge((DateTime.UtcNow - EnsureUtc(document.DetectedAt)).TotalMinutes)),
-            "NotApplied" => ("bad", "Not applied", "moved no stock"),
+            "NotApplied" => ("bad", "Not applied", NeverDelivered(document) ? "not delivered" : "moved no stock"),
             _ => ("idle", "—", string.Empty)
         };
+
+    /// <summary>
+    /// The API refused a line of the document, or the listener gave up on one. Neither is retried.
+    /// </summary>
+    private static bool NeverDelivered(TransferListenerDocumentModel document) =>
+        document.Delivery is "Rejected" or "Abandoned";
+
+    private sealed record DeliveryNote(string Tone, string Text, string? Detail);
+
+    /// <summary>
+    /// The listener's word on delivering the document, when it adds to the ledger's state: a refused
+    /// or abandoned line, or one still retrying behind a document the ledger already partly holds.
+    /// Null when every line landed, when "Waiting" already says it, or from a listener that still sent
+    /// sync-batches and reports no delivery per document.
+    /// </summary>
+    private static DeliveryNote? DocumentDelivery(TransferListenerDocumentModel document)
+    {
+        var (tone, word) = document.Delivery switch
+        {
+            "Rejected" => ("bad", "Refused by the API"),
+            "Abandoned" => ("bad", "Given up on"),
+            "Retrying" => ("warn", "Retrying"),
+            "NotSent" => ("warn", "Not sent yet"),
+            _ => (null, null)
+        };
+
+        if (word is null || (document.LocalStock == "Waiting" && document.LineCount <= 1))
+        {
+            return null;
+        }
+
+        var lines = document.LineCount > 1
+            ? $" · {document.LinesDelivered} of {document.LineCount} lines delivered"
+            : string.Empty;
+
+        return new DeliveryNote(tone!, word + lines, document.DeliveryDetail);
+    }
+
+    /// <summary>A line's delivery, for a line that has not been delivered; null for one that has.</summary>
+    private static DeliveryNote? LineDelivery(TransferListenerLineModel line) => line.Delivery switch
+    {
+        "Rejected" => new DeliveryNote("bad", "refused", line.DeliveryDetail),
+        "Abandoned" => new DeliveryNote("bad", "given up", line.DeliveryDetail),
+        "Retrying" => new DeliveryNote("warn", "retrying", line.DeliveryDetail),
+        "NotSent" => new DeliveryNote("warn", "not sent", line.DeliveryDetail),
+        _ => null
+    };
+
+    private static string DocNums(IEnumerable<TransferListenerDocumentModel> documents) =>
+        string.Join(", ", documents.Select(document => document.SapDocNum?.ToString() ?? "?"));
 
     private static string FirstLineSummary(TransferListenerDocumentModel document)
     {

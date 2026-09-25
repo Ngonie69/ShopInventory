@@ -136,17 +136,23 @@ public sealed class TransferListenerHealthCheckTests
     }
 
     /// <summary>
-    /// Detection worked and delivery did not, and nothing retries a failed webhook — so those
-    /// documents never reach the snapshot however healthy the listener looks afterwards. A recovered
-    /// poll does not undo it, which is why this outranks a merely late one.
+    /// webhookFailures counts documents with a line this API refused or the listener gave up on.
+    /// Nothing retries them, so a current poll does not clear it — but the next morning's snapshot
+    /// counts them, and a line given up on at the ledger roll is already in the snapshot that rolled
+    /// it. The figure is held since the listener started, so it cannot say the tills are wrong now:
+    /// Degraded, not Unhealthy, and the message must not send anyone to re-run the morning fetch.
     /// </summary>
     [Fact]
-    public async Task Failed_webhook_deliveries_are_unhealthy_even_while_polling_is_current()
+    public async Task Refused_or_abandoned_documents_are_degraded_even_while_polling_is_current()
     {
-        var result = await CheckAsync(FakeListener.Healthy(Poll(webhookFailures: 3)));
+        var result = await CheckAsync(FakeListener.Healthy(
+            Poll(webhookFailures: 3, rejectedNotifications: 1, abandonedNotifications: 4)));
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Equal(HealthStatus.Degraded, result.Status);
         Assert.Contains("nothing retries them", result.Description);
+        Assert.Contains("1 line(s) refused as invalid, 4 given up on", result.Description);
+        Assert.Contains("next morning's snapshot", result.Description);
+        Assert.DoesNotContain("re-running the morning fetch", result.Description);
     }
 
     /// <summary>
@@ -244,9 +250,13 @@ public sealed class TransferListenerHealthCheckTests
         int pendingNotifications = 0,
         DateTime? oldestPending = null,
         string? lastDeliveryError = null,
-        string? webhookUrl = null) => new()
+        string? webhookUrl = null,
+        int rejectedNotifications = 0,
+        int abandonedNotifications = 0) => new()
         {
             PendingNotifications = pendingNotifications,
+            RejectedNotifications = rejectedNotifications,
+            AbandonedNotifications = abandonedNotifications,
             OldestPendingNotificationUtc = oldestPending,
             LastDeliveryError = lastDeliveryError,
             WebhookUrl = webhookUrl,

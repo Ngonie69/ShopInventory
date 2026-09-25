@@ -57,9 +57,15 @@ public sealed class TransferListenerPollDto
     public int PollIntervalSeconds { get; set; }
 
     /// <summary>
-    /// Failures of the listener's batch-sync call, which is not the call that moves the ledger. The
-    /// ledger's own delivery is <see cref="PendingNotifications"/> and the members after it.
+    /// Documents with a line this API will never take from the listener: refused as invalid, or given
+    /// up on because its ledger day ended or the retry queue overflowed. The same count as
+    /// <see cref="TransferListenerStatsDto.WebhookFailureCount"/>; the lines behind it are
+    /// <see cref="RejectedNotifications"/> and <see cref="AbandonedNotifications"/>.
     /// </summary>
+    /// <remarks>
+    /// Until the listener dropped its sync-batches call this counted that call instead, and read 0 on
+    /// the day no transfer reached the ledger.
+    /// </remarks>
     public int WebhookFailures { get; set; }
 
     public bool ResumedFromSavedState { get; set; }
@@ -156,21 +162,32 @@ public sealed class TransferListenerItemQuantityDto
 /// The listener's in-memory dashboard counters, from <c>GET /stats</c>.
 /// </summary>
 /// <remarks>
-/// Everything here is counted since the listener process started and is lost on restart. A zero
+/// <para>Everything here is counted since the listener process started and is lost on restart. A zero
 /// therefore means "nothing since the last restart", never "no transfers happened" — read it beside
-/// <see cref="TransferListenerPollDto.ProcessStartedUtc"/> or it is misleading.
+/// <see cref="TransferListenerPollDto.ProcessStartedUtc"/> or it is misleading.</para>
+///
+/// <para>The <c>Webhook*</c> names are the listener's and are kept so this reader keeps working. They
+/// once described its sync-batches call to another service; they now describe delivery to this API's
+/// transfer-event webhook, the only thing it sends to.</para>
 /// </remarks>
 public sealed class TransferListenerStatsDto
 {
     public int TotalDocuments { get; set; }
 
+    /// <summary>Documents every line of which this API has taken.</summary>
     public int WebhookSuccessCount { get; set; }
 
     /// <summary>
-    /// Documents whose webhook did not land. Nothing retries them, so each one is a document the
-    /// snapshot never heard about.
+    /// Documents with a line this API will never take from the listener: refused as invalid, or given
+    /// up on. Nothing retries them.
     /// </summary>
     public int WebhookFailureCount { get; set; }
+
+    /// <summary>
+    /// Documents with a line still held for replay and none failed. Zero from a listener that still
+    /// sent sync-batches.
+    /// </summary>
+    public int RetryingDocuments { get; set; }
 
     public int InboundDocuments { get; set; }
 
@@ -201,7 +218,27 @@ public sealed class TransferListenerDocumentDto
 
     public string? DestinationWarehouse { get; set; }
 
+    /// <summary>
+    /// The document's standing with this API: its least-delivered line, one of
+    /// <see cref="TransferListenerDelivery"/>. Null from a listener that still sent sync-batches.
+    /// </summary>
+    /// <remarks>
+    /// A string rather than an enum so a state the listener adds later arrives as itself instead of
+    /// failing the whole reply.
+    /// </remarks>
+    public string? Delivery { get; set; }
+
+    /// <summary>Lines this API has taken, out of <see cref="LineCount"/>.</summary>
+    public int LinesDelivered { get; set; }
+
+    /// <summary>Whether any line has been offered to this API.</summary>
+    public bool WebhookTriggered { get; set; }
+
+    /// <summary>Whether this API took every line.</summary>
     public bool WebhookSuccess { get; set; }
+
+    /// <summary>This API's answer for the line that decided <see cref="Delivery"/>, e.g. "HTTP 400: …".</summary>
+    public string? WebhookResponse { get; set; }
 
     public int LineCount { get; set; }
 
@@ -215,6 +252,33 @@ public sealed class TransferListenerLineDto
     public string? ItemDescription { get; set; }
 
     public decimal Quantity { get; set; }
+
+    /// <summary>One of <see cref="TransferListenerDelivery"/>; null from an older listener.</summary>
+    public string? Delivery { get; set; }
+
+    /// <summary>This API's latest answer for the line, or why the listener has not sent it.</summary>
+    public string? DeliveryDetail { get; set; }
+}
+
+/// <summary>
+/// The listener's <c>LineDelivery</c> values, as its JSON spells them.
+/// </summary>
+public static class TransferListenerDelivery
+{
+    /// <summary>Detected and not yet offered to this API.</summary>
+    public const string NotSent = "NotSent";
+
+    /// <summary>This API took the line.</summary>
+    public const string Delivered = "Delivered";
+
+    /// <summary>Not taken yet, and held for replay on the next cycle.</summary>
+    public const string Retrying = "Retrying";
+
+    /// <summary>This API refused it as invalid (400/422). Not retried.</summary>
+    public const string Rejected = "Rejected";
+
+    /// <summary>Given up on: its ledger day ended, or the retry queue overflowed, before this API took it.</summary>
+    public const string Abandoned = "Abandoned";
 }
 
 /// <summary>
@@ -236,12 +300,14 @@ public sealed class TransferListenerCheckResultDto
     /// <summary>Lines among those that touched a monitored warehouse and had not been seen before.</summary>
     public int MonitoredEventsDetected { get; set; }
 
+    /// <summary>Whether the check sent this API any new line.</summary>
     public bool WebhookTriggered { get; set; }
 
+    /// <summary>Whether this API took every new line the check sent.</summary>
     public bool WebhookSuccess { get; set; }
 
-    // What happened to the lines on their way to this API's ledger. "WebhookSuccess" above is the
-    // batch-sync call and says nothing about that. Zero from a listener older than its retry queue.
+    // What happened to the lines on their way to this API's ledger, counted. Zero from a listener
+    // older than its retry queue.
 
     public int NotificationsDelivered { get; set; }
 

@@ -138,12 +138,15 @@ public sealed class GetTransferListenerStatusHandler(
                     document.SourceWarehouse,
                     document.DestinationWarehouse,
                     document.WebhookSuccess,
+                    document.Delivery,
+                    document.LinesDelivered,
+                    document.WebhookResponse,
                     document.LineCount,
                     document.Lines
                         .Select(line => new TransferListenerLineSummary(
-                            line.ItemCode, line.ItemDescription, line.Quantity))
+                            line.ItemCode, line.ItemDescription, line.Quantity, line.Delivery, line.DeliveryDetail))
                         .ToList(),
-                    LocalStockState(document.DetectedAt, applied.HasValue, delivery),
+                    LocalStockState(document.DetectedAt, applied.HasValue, document.Delivery, delivery),
                     applied);
             })
             .ToList();
@@ -164,6 +167,7 @@ public sealed class GetTransferListenerStatusHandler(
             OutboundDocuments: stats.OutboundDocuments,
             WebhookSuccessCount: stats.WebhookSuccessCount,
             WebhookFailureCount: stats.WebhookFailureCount,
+            RetryingDocuments: stats.RetryingDocuments,
             WatchedWarehouses: watched,
             UnwatchedWarehouses: unwatched,
             DocumentsByWarehouse: stats.TransfersByWarehouse,
@@ -174,24 +178,40 @@ public sealed class GetTransferListenerStatusHandler(
     /// Where a document the listener reports stands against this API's ledger.
     /// </summary>
     /// <remarks>
-    /// <para>The listener's own per-document flag is the batch-sync call, which says nothing about the
-    /// ledger, so it cannot be used for this. Applied means the ledger holds an adjustment for the
-    /// document.</para>
+    /// <para>Applied means the ledger holds an adjustment for the document, and is decided here: the
+    /// listener can only say this API took a line, and a line for a warehouse with no snapshot today
+    /// is taken and moves nothing.</para>
     ///
-    /// <para>Otherwise the document is Waiting when the listener holds undelivered lines at least as
-    /// old as it — the queue is replayed oldest first, so a document detected after the oldest
-    /// waiting line has not been confirmed delivered. With nothing waiting, an unapplied document was
-    /// accepted and moved no stock: typically a warehouse with no snapshot for the day, or one this
-    /// API does not monitor.</para>
+    /// <para>Otherwise the listener's per-document delivery says whether the document is still on its
+    /// way. Retrying or not yet sent is Waiting; delivered, refused or given up on is NotApplied — the
+    /// page tells those apart from the same field.</para>
+    ///
+    /// <para>A listener that still sent sync-batches reports no delivery per document; its only flag
+    /// was that call, which says nothing about the ledger. For one of those the document is Waiting
+    /// when the listener holds undelivered lines at least as old as it — the queue is replayed oldest
+    /// first, so a document detected after the oldest waiting line has not been confirmed
+    /// delivered.</para>
     /// </remarks>
     internal static string LocalStockState(
         DateTime detectedAtUtc,
         bool applied,
+        string? listenerDelivery,
         TransferListenerDeliverySummary? delivery)
     {
         if (applied)
         {
             return Applied;
+        }
+
+        switch (listenerDelivery)
+        {
+            case TransferListenerDelivery.Retrying or TransferListenerDelivery.NotSent:
+                return Waiting;
+
+            case TransferListenerDelivery.Delivered
+                or TransferListenerDelivery.Rejected
+                or TransferListenerDelivery.Abandoned:
+                return NotApplied;
         }
 
         return delivery is { PendingLines: > 0, OldestPendingUtc: { } oldest }
@@ -349,6 +369,7 @@ public sealed class GetTransferListenerStatusHandler(
         OutboundDocuments: 0,
         WebhookSuccessCount: 0,
         WebhookFailureCount: 0,
+        RetryingDocuments: 0,
         WatchedWarehouses: [],
         UnwatchedWarehouses: [],
         DocumentsByWarehouse: new Dictionary<string, int>(),
@@ -371,6 +392,7 @@ public sealed class GetTransferListenerStatusHandler(
         OutboundDocuments: 0,
         WebhookSuccessCount: 0,
         WebhookFailureCount: 0,
+        RetryingDocuments: 0,
         WatchedWarehouses: [],
         UnwatchedWarehouses: [],
         DocumentsByWarehouse: new Dictionary<string, int>(),

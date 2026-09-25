@@ -52,13 +52,18 @@ public sealed class TransferListenerStatusModel
 
     public int OutboundDocuments { get; set; }
 
+    /// <summary>Documents every line of which reached the API.</summary>
     public int WebhookSuccessCount { get; set; }
 
     /// <summary>
-    /// Failures of the listener's batch-sync call. Not the ledger's delivery — that is
-    /// <see cref="Delivery"/>. This figure read 0 on the day no transfer reached the ledger.
+    /// Documents with a line the API refused or the listener gave up on. The lines behind it are
+    /// <see cref="TransferListenerDeliveryModel.RejectedLines"/> and
+    /// <see cref="TransferListenerDeliveryModel.AbandonedLines"/>.
     /// </summary>
     public int WebhookFailureCount { get; set; }
+
+    /// <summary>Documents with a line still held for replay and none failed.</summary>
+    public int RetryingDocuments { get; set; }
 
     public List<string> WatchedWarehouses { get; set; } = [];
 
@@ -164,7 +169,19 @@ public sealed class TransferListenerDocumentModel
 
     public string? DestinationWarehouse { get; set; }
 
+    /// <summary>Whether the API took every line, as the listener reports it.</summary>
     public bool WebhookSuccess { get; set; }
+
+    /// <summary>
+    /// The listener's word on delivery to the API — its least-delivered line: "Delivered", "Retrying",
+    /// "Rejected", "Abandoned" or "NotSent". Null from a listener that still sent sync-batches.
+    /// </summary>
+    public string? Delivery { get; set; }
+
+    public int LinesDelivered { get; set; }
+
+    /// <summary>The API's answer for the line that decided <see cref="Delivery"/>.</summary>
+    public string? DeliveryDetail { get; set; }
 
     public int LineCount { get; set; }
 
@@ -183,6 +200,11 @@ public sealed class TransferListenerLineModel
     public string? ItemDescription { get; set; }
 
     public decimal Quantity { get; set; }
+
+    /// <summary>As <see cref="TransferListenerDocumentModel.Delivery"/>, for this line alone.</summary>
+    public string? Delivery { get; set; }
+
+    public string? DeliveryDetail { get; set; }
 }
 
 /// <summary>The API's reply to <c>transfer-listener/check-now</c>.</summary>
@@ -194,8 +216,10 @@ public sealed class TransferListenerCheckModel
 
     public int MonitoredEventsDetected { get; set; }
 
+    /// <summary>Whether the check sent the API a new line.</summary>
     public bool WebhookTriggered { get; set; }
 
+    /// <summary>Whether the API took every new line the check sent.</summary>
     public bool WebhookSuccess { get; set; }
 
     public int NotificationsDelivered { get; set; }
