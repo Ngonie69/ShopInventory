@@ -2680,7 +2680,8 @@
 
     /// <summary>
     /// Opens a category directly. <c>data-sync</c> is what the pages that used to sync their own
-    /// master data link to, now that only Data Sync does.
+    /// master data link to, now that only Data Sync does; <c>payments</c> is where Daily Incoming
+    /// Payments sends an admin to switch the daily payment.
     /// </summary>
     [SupplyParameterFromQuery(Name = "section")]
     public string? Section { get; set; }
@@ -2692,6 +2693,10 @@
         if (string.Equals(Section, "data-sync", StringComparison.OrdinalIgnoreCase))
         {
             selectedCategory = DataManagementCategory;
+        }
+        else if (string.Equals(Section, "payments", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedCategory = PaymentsCategory;
         }
 
         await LoadCurrentUser();
