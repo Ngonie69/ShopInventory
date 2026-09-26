@@ -129,6 +129,22 @@ public interface ISAPServiceLayerClient
     /// </remarks>
     Task<IReadOnlyList<SapDocumentLineReason>> GetGoodsIssueLineReasonsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Inventory counts, newest first, headers only.
+    /// </summary>
+    /// <param name="documentStatus"><c>cdsOpen</c>, <c>cdsClosed</c>, or null for both.</param>
+    /// <param name="search">A document number, or text matched inside the count's remarks.</param>
+    /// <param name="top">How many to read.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<List<InventoryCounting>> GetInventoryCountingsAsync(
+        string? documentStatus,
+        string? search,
+        int top,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>One inventory count with its lines; null when SAP has no such document.</summary>
+    Task<InventoryCounting?> GetInventoryCountingAsync(int documentEntry, CancellationToken cancellationToken = default);
+
     // Invoice Operations
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
@@ -809,6 +825,9 @@ public interface ISAPServiceLayerClient
 
     Task<SAPUser?> GetSapUserAsync(int internalKey, CancellationToken cancellationToken = default);
     Task<SAPUser?> GetSapUserByCodeAsync(string userCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Several SAP users by internal key, in one read; keys SAP does not know are simply absent.</summary>
+    Task<List<SAPUser>> GetSapUsersAsync(IEnumerable<int> internalKeys, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The company's SAP user accounts with their lock state, ordered by user code.

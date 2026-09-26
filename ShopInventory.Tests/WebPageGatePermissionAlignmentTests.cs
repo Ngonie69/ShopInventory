@@ -199,6 +199,20 @@ public sealed class WebPageGatePermissionAlignmentTests
         }
     }
 
+    /// <summary>/count-variance lists SAP's counts and values one; every role it admits must be able to do both.</summary>
+    [Theory]
+    [InlineData(nameof(CountVarianceController.GetDocuments))]
+    [InlineData(nameof(CountVarianceController.GetReport))]
+    public async Task Every_role_the_count_variance_page_admits_can_read_it(string action)
+    {
+        foreach (var role in PageRoles("ShopInventory.Web.Components.Pages.CountVariance"))
+        {
+            Assert.True(
+                await Passes<CountVarianceController>(action, role),
+                $"{role} can open /count-variance but the API refuses {action}.");
+        }
+    }
+
     /// <summary>The non-Admin roles a compiled Web page admits, read off its [Authorize] attribute.</summary>
     internal static string[] PageRoles(string pageTypeName)
     {

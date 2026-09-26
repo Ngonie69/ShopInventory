@@ -56,6 +56,8 @@ public class SapSelectClauseTests
         { "SapUserAccountSelect", "User" },
         { "AttachmentSelect", "Attachments2" },
         { "ItemSelect", "Item" },
+        { "InventoryCountingHeaderSelect", "InventoryCounting" },
+        { "InventoryCountingDetailSelect", "InventoryCounting" },
     };
 
     [Theory]

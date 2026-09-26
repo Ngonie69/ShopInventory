@@ -174,6 +174,12 @@ public static class UserRoles
     /// deciding that it is worth nothing is not the depot's call.
     /// </summary>
     public const string StockWriteOffRoles = "Admin,Manager,StockController";
+
+    /// <summary>
+    /// Who can open /count-variance: the roles that answer for a count coming up short. The API reads
+    /// on <c>stock.view</c>; <c>WebPageGatePermissionAlignmentTests</c> pins the two.
+    /// </summary>
+    public const string CountVarianceRoles = "Admin,Manager,StockController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 

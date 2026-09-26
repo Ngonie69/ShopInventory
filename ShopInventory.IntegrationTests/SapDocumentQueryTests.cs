@@ -84,6 +84,23 @@ public class SapDocumentQueryTests(SapClientFixture fixture)
     }
 
     [SapFact]
+    public async Task Inventory_count_queries_are_accepted()
+    {
+        List<InventoryCounting> counts = [];
+        await ShouldBeAccepted(async () => counts = await fixture.Client.GetInventoryCountingsAsync(null, null, 5));
+        await ShouldBeAccepted(() => fixture.Client.GetInventoryCountingsAsync("cdsOpen", "2", 5));
+        await ShouldBeAccepted(() => fixture.Client.GetInventoryCountingsAsync("cdsClosed", "December", 5));
+
+        Assert.True(counts.Count > 0, "SAP returned no inventory counts, so a count's lines cannot be read.");
+        await ShouldBeAccepted(() => fixture.Client.GetInventoryCountingAsync(counts[0].DocumentEntry));
+
+        var counters = counts
+            .Where(count => count.SingleCounterType == "ctUser" && count.SingleCounterID is > 0)
+            .Select(count => count.SingleCounterID!.Value);
+        await ShouldBeAccepted(() => fixture.Client.GetSapUsersAsync(counters));
+    }
+
+    [SapFact]
     public async Task Batched_customer_queries_are_accepted()
     {
         var cardCodes = await TakeCustomerCodesAsync(3);

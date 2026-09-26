@@ -1,0 +1,267 @@
+@page "/count-variance"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.CountVarianceRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>Count Variance - Shop Inventory</PageTitle>
+
+@* Nocturne. wwwroot/css/count-variance.css (linked from App.razor) is an alias layer over
+   nocturne-tokens.css, so this page has no .dark-theme block of its own. Built from the
+   "Count Variance Report" design canvas: a run bar, then the report — four figures, line filters
+   and one table. The count picker is a NocturnePicker because a company keeps thousands of counts;
+   see the nocturne-dropdowns-and-dates skill. *@
+
+<div class="cvr">
+
+    <header class="cvr-head">
+        <div class="cvr-shell cvr-head-row">
+            <div>
+                <div class="cvr-crumb">Inventory · Stock counts</div>
+                <h1 class="cvr-title">Count variance</h1>
+                <p class="cvr-sub">
+                    What an SAP inventory count came up short or over, valued at the price the stock
+                    sells for on the van sales price list, excluding VAT.
+                </p>
+            </div>
+            @if (report is not null)
+            {
+                <button type="button" class="cvr-btn" @onclick="ExportAsync">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" /></svg>
+                    Export to Excel
+                </button>
+            }
+        </div>
+    </header>
+
+    <main class="cvr-shell cvr-body">
+
+        <section class="cvr-run" aria-label="Run the report">
+            <div class="cvr-field">
+                <span class="cvr-label" id="cvr-status-label">Counts</span>
+                <NocturneSelect Class="nsel-block" TValue="string" Options="StatusOptions"
+                                @bind-Value="statusFilter" OnChanged="LoadDocumentsAsync"
+                                Caption="Which counts" AriaLabel="Which counts" />
+            </div>
+            <div class="cvr-field">
+                <label class="cvr-label" for="cvr-find">Find in SAP</label>
+                <div class="cvr-find">
+                    <input id="cvr-find" class="cvr-find-input" type="search" autocomplete="off"
+                           placeholder="Number or remarks" title="Type a count number or words from its remarks, then press Enter"
+                           @bind="findText" @bind:event="oninput" @onkeydown="OnFindKeyDown" />
+                    @if (!string.IsNullOrWhiteSpace(findText))
+                    {
+                        <button type="button" class="cvr-find-clear" aria-label="Clear the search" @onclick="ClearFind">
+                            <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1l-8 8" /></svg>
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="cvr-field cvr-field-wide">
+                <span class="cvr-label">Counting document</span>
+                <NocturnePicker Class="npick-block" Options="documentOptions" @bind-Value="selectedPickerValue"
+                                Loading="isLoadingDocuments" Placeholder="Choose a count"
+                                SearchPlaceholder="Search number, remarks or counter…"
+                                EmptyText="No counts match" AriaLabel="Counting document" />
+            </div>
+            <button type="button" class="cvr-run-btn" disabled="@(selectedPickerValue is null || isRunning)"
+                    @onclick="RunReportAsync">
+                @if (isRunning)
+                {
+                    <span class="cvr-spin" aria-hidden="true"></span>
+                    <span>Reading SAP…</span>
+                }
+                else
+                {
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4a.6.6 0 0 0 .9.5l8-5.2a.6.6 0 0 0 0-1L5.4 2.3a.6.6 0 0 0-.9.5Z" /></svg>
+                    <span>@(ReportIsForSelection ? "Run again" : "Run report")</span>
+                }
+            </button>
+        </section>
+
+        @if (documentsError is not null)
+        {
+            <div class="cvr-notice is-bad" role="alert">@documentsError</div>
+        }
+        @if (reportError is not null)
+        {
+            <div class="cvr-notice is-bad" role="alert">@reportError</div>
+        }
+
+        @if (report is null)
+        {
+            <section class="cvr-empty" aria-label="Before you run">
+                <h2>How the report reads a count</h2>
+                <ol>
+                    <li><strong>Variance</strong> is SAP's own: counted quantity minus the in-warehouse quantity on the count date.</li>
+                    <li><strong>Value</strong> is that variance times the item's selling price on the van sales price list, before VAT — not its cost.</li>
+                    <li>A line with <strong>no price</strong> on that list, or that <strong>nobody has counted</strong> yet, is still shown, flagged, and left out of the money.</li>
+                </ol>
+            </section>
+        }
+        else
+        {
+            var totals = report.Totals;
+            var document = report.Document;
+
+            <section class="cvr-doc" aria-label="The count">
+                <div class="cvr-doc-main">
+                    <span class="cvr-doc-no">No. @document.DocumentNumber</span>
+                    <span class="cvr-doc-whse">@(report.Warehouses.Count == 0 ? "No lines" : string.Join(", ", report.Warehouses))</span>
+                    <span class="cvr-chip @(document.IsOpen ? "is-warn" : "is-neutral")">@document.Status</span>
+                </div>
+                <div class="cvr-doc-meta">
+                    @FormatCountDate(document)
+                    @if (document.CounterName is not null) { <text> · counted by @document.CounterName</text> }
+                    @if (document.Remarks is not null) { <text> · @document.Remarks</text> }
+                    · valued at @(report.PriceListName ?? $"price list {report.PriceListNum}") (list @report.PriceListNum), excl. VAT
+                </div>
+            </section>
+
+            @if (document.IsOpen)
+            {
+                <div class="cvr-notice is-warn" role="status">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" /><path d="M8 4.75v3.75M8 11h.01" /></svg>
+                    <span>
+                        Count @document.DocumentNumber is still <strong>open</strong> in SAP, so its counted quantities can
+                        change until it is closed. This run read SAP at @FormatStamp(report.GeneratedAtUtc).
+                    </span>
+                </div>
+            }
+
+            @if (totals.LineCount > 0 && totals.UnpricedLines == totals.LineCount)
+            {
+                <div class="cvr-notice is-warn" role="alert">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" /><path d="M8 4.75v3.75M8 11h.01" /></svg>
+                    <span>
+                        <strong>Nothing on this count could be valued.</strong> Price list @report.PriceListNum has no price for
+                        any of its items, so every figure below is zero. Check which list the van customers buy on — the
+                        <em>VanSales.CustomerOrderPriceList</em> system setting — and that the price catalogue has synced.
+                    </span>
+                </div>
+            }
+
+            <section class="cvr-figures" aria-label="Totals">
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Net variance</div>
+                    <div class="cvr-figure-n @Tone(totals.NetValue)">@Money(totals.NetValue, signed: true)</div>
+                    <div class="cvr-figure-s">@NetShare of @Money(totals.StockValue) on the count</div>
+                </div>
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Short</div>
+                    <div class="cvr-figure-n @Tone(totals.ShortValue)">@Money(totals.ShortValue, signed: true)</div>
+                    <div class="cvr-figure-s">@Plural(totals.ShortLines, "line") · @Plural(totals.ShortQuantity, "unit")</div>
+                </div>
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Over</div>
+                    <div class="cvr-figure-n @Tone(totals.OverValue)">@Money(totals.OverValue, signed: true)</div>
+                    <div class="cvr-figure-s">@Plural(totals.OverLines, "line") · @Plural(totals.OverQuantity, "unit")</div>
+                </div>
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Not valued</div>
+                    <div class="cvr-figure-n @(totals.UnvaluedVarianceLines > 0 ? "is-warn" : "is-flat")">@Plural(totals.UnvaluedVarianceLines, "line")</div>
+                    <div class="cvr-figure-s">
+                        With a variance but no price on the list@(totals.NotCountedLines > 0 ? $" · {Plural(totals.NotCountedLines, "line")} not counted" : string.Empty)
+                    </div>
+                </div>
+            </section>
+
+            <div class="cvr-toolbar">
+                <div class="cvr-chips" role="group" aria-label="Show lines">
+                    @foreach (var chip in LineFilterChips)
+                    {
+                        var key = chip.Key;
+                        <button type="button" class="cvr-filter @(lineFilter == key ? "is-on" : null)"
+                                aria-pressed="@(lineFilter == key ? "true" : "false")" @onclick="() => SetLineFilter(key)">
+                            @chip.Label <span class="cvr-filter-n">@chip.Count</span>
+                        </button>
+                    }
+                </div>
+                <div class="cvr-seg" role="group" aria-label="Order lines by">
+                    <button type="button" class="@(sortByValue ? "is-on" : null)" aria-pressed="@(sortByValue ? "true" : "false")"
+                            @onclick="() => SetSort(true)">Largest variance first</button>
+                    <button type="button" class="@(!sortByValue ? "is-on" : null)" aria-pressed="@(!sortByValue ? "true" : "false")"
+                            @onclick="() => SetSort(false)">SAP row order</button>
+                </div>
+            </div>
+
+            var visible = VisibleLines.ToList();
+
+            <section class="cvr-table-wrap" aria-label="Count lines">
+                <table class="cvr-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Row</th>
+                            <th scope="col">Item</th>
+                            <th scope="col">Description</th>
+                            <th scope="col" class="num">In whse</th>
+                            <th scope="col" class="num">Counted</th>
+                            <th scope="col" class="num">Variance</th>
+                            <th scope="col" class="num">Selling price</th>
+                            <th scope="col" class="num">Variance value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (visible.Count == 0)
+                        {
+                            <tr><td colspan="8" class="cvr-none">No lines match this filter.</td></tr>
+                        }
+                        @foreach (var line in visible)
+                        {
+                            <tr>
+                                <td class="cvr-row-n">@line.RowNumber</td>
+                                <td class="cvr-code">@line.ItemCode</td>
+                                <td class="cvr-desc" title="@line.ItemDescription">@line.ItemDescription</td>
+                                <td class="num cvr-mute">@Quantity(line.InWarehouseQuantity)</td>
+                                <td class="num">
+                                    @if (line.CountedQuantity is { } counted)
+                                    {
+                                        @Quantity(counted)
+                                    }
+                                    else
+                                    {
+                                        <span class="cvr-chip is-neutral">Not counted</span>
+                                    }
+                                </td>
+                                <td class="num cvr-strong @(line.CountedQuantity is null ? "is-flat" : Tone(line.Variance))">
+                                    @(line.CountedQuantity is null ? "—" : Quantity(line.Variance, signed: true))
+                                </td>
+                                <td class="num @(line.SellingPrice is null ? "is-flat" : null)">
+                                    @(line.SellingPrice is { } price ? price.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture) : "—")
+                                </td>
+                                <td class="num">
+                                    <span class="cvr-value">
+                                        @if (line.SellingPrice is null)
+                                        {
+                                            <span class="cvr-chip is-warn">No price</span>
+                                        }
+                                        <span class="cvr-strong @(line.VarianceValue is { } v && line.CountedQuantity is not null ? Tone(v) : "is-flat")">
+                                            @(line.CountedQuantity is null || line.VarianceValue is not { } value ? "—" : value == 0m ? "0.00" : Money(value, signed: true))
+                                        </span>
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td></td>
+                            <td>Total</td>
+                            <td class="cvr-mute">
+                                @(lineFilter == "all" ? Plural(visible.Count, "line") : $"{Plural(visible.Count, "line")} shown of {totals.LineCount}")
+                            </td>
+                            <td class="num cvr-mute">@Quantity(visible.Sum(line => line.InWarehouseQuantity))</td>
+                            <td class="num">@Quantity(visible.Sum(line => line.CountedQuantity ?? 0m))</td>
+                            @{ var shownVariance = visible.Sum(line => line.Variance); }
+                            <td class="num @Tone(shownVariance)">@Quantity(shownVariance, signed: true)</td>
+                            <td></td>
+                            @{ var shownValue = visible.Sum(line => line.VarianceValue ?? 0m); }
+                            <td class="num @Tone(shownValue)">@Money(shownValue, signed: true)</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </section>
+        }
+    </main>
+</div>

@@ -95,6 +95,7 @@ Examples:
   - [Shops](#51-shops)
   - [Market Breakages](#52-market-breakages)
   - [Stock Write-offs](#53-stock-write-offs)
+  - [Count Variance](#54-count-variance)
 - [DTOs Reference](#dtos-reference)
 
 ---
@@ -5245,6 +5246,32 @@ returns warehouse is in neither `DailyStock:MonitoredWarehouses` nor `ReconcileW
 write-off out of it needs nothing local at all.
 
 **There is no reversal here.** A posted goods issue is cancelled in B1, or offset with a goods receipt.
+
+
+---
+
+### 54. Count Variance
+
+**Base route:** `/api/count-variance`  
+**Auth:** Bearer + `stock.view`
+
+What an SAP **Inventory Counting** document (`InventoryCountings`) came up short or over, valued at
+**selling price excluding VAT** rather than at cost. Read-only: closing a count is B1's Inventory
+Posting.
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|-----------|-------------|
+| GET | `/api/count-variance/documents` | `stock.view` | Counts newest first, headers only (50): `status` `open` (default), `closed` or `all`; `search` matches a document number or text in the count's remarks. Each carries `documentEntry`, `documentNumber`, `countDate`, `countTime`, `status`, `remarks`, `counterName` |
+| GET | `/api/count-variance/{documentEntry}` | `stock.view` | One count's lines — `rowNumber` as B1 shows it, `inWarehouseQuantity`, `countedQuantity` (null until counted), `variance`, `sellingPrice`, `varianceValue`, `status` `Short`/`Over`/`Matched`/`NotCounted` — with `totals`, the `warehouses` it covers and the price list it was valued at |
+
+**The variance is SAP's own.** Counted minus in-warehouse on the count date, taken as SAP reports it
+and not recomputed, so the report and the B1 screen cannot disagree about a quantity. A line nobody
+has counted carries a variance of zero in SAP; it is reported as `NotCounted`, not as a match.
+
+**The price is the van sales price list's.** The list `VanSales.CustomerOrderPriceList` names in
+`SystemConfigs` (the van customers' ordering list, seeded as 1), read from the synced price catalogue, which holds prices before VAT. A missing or zero price
+means the list does not sell the item, not that it is free: the line stays in the report with a null
+`sellingPrice` and is left out of the money totals, counted in `totals.unvaluedVarianceLines`.
 
 
 ---

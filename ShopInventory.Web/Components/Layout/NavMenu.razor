@@ -224,6 +224,18 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
+                        @* An SAP inventory count's shorts and overs, valued at the van sales price
+                           list rather than at cost. Read-only; the API gates it on stock.view. *@
+                        <AuthorizeView Roles="@UserRoles.CountVarianceRoles" Context="countVarianceCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/count-variance" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-scales" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Count Variance</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                     </NavSection>
                 </Authorized>
             </AuthorizeView>

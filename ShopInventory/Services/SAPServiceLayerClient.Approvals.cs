@@ -247,6 +247,26 @@ public partial class SAPServiceLayerClient
     public Task<SAPUser?> GetSapUserAsync(int internalKey, CancellationToken cancellationToken = default)
         => ReadSapJsonAsync<SAPUser>($"Users({internalKey})?{SapUserSelect}", $"read SAP user {internalKey}", cancellationToken);
 
+    public async Task<List<SAPUser>> GetSapUsersAsync(
+        IEnumerable<int> internalKeys,
+        CancellationToken cancellationToken = default)
+    {
+        var distinct = internalKeys.Distinct().ToList();
+        if (distinct.Count == 0)
+        {
+            return [];
+        }
+
+        var filter = string.Join(" or ", distinct.Select(key => $"InternalKey eq {key}"));
+        var page = await ReadSapJsonAsync<SAPResponse<SAPUser>>(
+            $"Users?$filter={Uri.EscapeDataString(filter)}&{SapUserSelect}",
+            $"read SAP users {string.Join(", ", distinct)}",
+            cancellationToken,
+            pageSize: distinct.Count);
+
+        return page?.Value ?? [];
+    }
+
     public async Task<SAPUser?> GetSapUserByCodeAsync(string userCode, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userCode))

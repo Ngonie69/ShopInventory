@@ -1,0 +1,686 @@
+/* ==========================================================================
+   Count Variance — Nocturne
+
+   An SAP inventory count's shorts and overs, valued at selling price. Built
+   from the "Count Variance Report" design canvas: a run bar (which counts,
+   find, the count itself, run), then the report — the count's identity, an
+   open-count notice, four figures, line filters and one table.
+
+   The palette is an alias layer over nocturne-tokens.css and flips at the
+   root, so this sheet carries no `.dark-theme` block. `color-scheme` is set on
+   the root class because the search input reads it.
+
+   Prefix `cvr-`.
+   ========================================================================== */
+
+.cvr {
+    --cvr-bg: var(--noct-bg);
+    --cvr-surface: var(--noct-surface);
+    --cvr-ink: var(--noct-ink);
+    --cvr-ink-2: var(--noct-ink-2);
+    --cvr-mute: var(--noct-mute);
+    --cvr-mute-2: var(--noct-mute-2);
+    --cvr-mute-3: var(--noct-mute-3);
+    --cvr-faint: var(--noct-faint);
+    --cvr-placeholder: var(--noct-placeholder);
+    --cvr-divider: var(--noct-divider);
+    --cvr-rule: var(--noct-rule);
+    --cvr-hover: var(--noct-hover);
+    --cvr-press: var(--noct-press);
+    --cvr-field-bg: var(--noct-field-bg);
+    --cvr-field-edge: var(--noct-field-edge);
+    --cvr-field-edge-hi: var(--noct-field-edge-hi);
+    --cvr-accent: var(--noct-accent);
+    --cvr-accent-rgb: var(--noct-accent-rgb);
+    --cvr-accent-text: var(--noct-accent-text);
+    --cvr-on-accent: var(--noct-on-accent);
+    --cvr-clear: var(--noct-clear);
+
+    /* Short is bad, over is good, unvalued is a warning, uncounted is neutral —
+       the system's families, so they agree with every other status on the app. */
+    --cvr-fam-good: var(--noct-fam-good);
+    --cvr-fam-good-rgb: var(--noct-fam-good-rgb);
+    --cvr-fam-bad: var(--noct-fam-bad);
+    --cvr-fam-bad-rgb: var(--noct-fam-bad-rgb);
+    --cvr-fam-warn: var(--noct-fam-warn);
+    --cvr-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --cvr-fam-neutral: var(--noct-fam-neutral);
+    --cvr-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+
+    --cvr-warn-bg: var(--noct-warn-bg);
+    --cvr-warn-edge: var(--noct-warn-edge);
+    --cvr-warn-ink: var(--noct-warn-ink);
+
+    --cvr-s1: var(--noct-s1);
+    --cvr-s2: var(--noct-s2);
+    --cvr-s3: var(--noct-s3);
+    --cvr-s4: var(--noct-s4);
+    --cvr-s6: var(--noct-s6);
+    --cvr-s8: var(--noct-s8);
+    --cvr-r-sm: var(--noct-r-sm);
+    --cvr-r-md: var(--noct-r-md);
+    --cvr-r-lg: var(--noct-r-lg);
+
+    /* The Nocturne controls fit the run bar from here rather than being restyled. */
+    --nsel-h: 40px;
+    --npick-h: 40px;
+
+    color-scheme: var(--noct-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.cvr {
+    min-height: 100vh;
+    background: var(--cvr-bg);
+    color: var(--cvr-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+}
+
+.cvr * {
+    box-sizing: border-box;
+}
+
+.cvr-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 16px;
+}
+
+.cvr svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.cvr-head {
+    padding: var(--cvr-s6) 0 var(--cvr-s4);
+    border-bottom: 1px solid var(--cvr-divider);
+}
+
+.cvr-head-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--cvr-s6);
+}
+
+.cvr-crumb {
+    font-size: 12px;
+    color: var(--cvr-mute-3);
+    letter-spacing: .02em;
+}
+
+.cvr-title {
+    margin: 2px 0 0;
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--cvr-ink);
+}
+
+.cvr-sub {
+    margin: var(--cvr-s1) 0 0;
+    max-width: 70ch;
+    color: var(--cvr-mute);
+}
+
+.cvr-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cvr-s2);
+    height: 36px;
+    padding: 0 14px;
+    border-radius: var(--cvr-r-md);
+    border: 1px solid var(--cvr-field-edge);
+    background: var(--cvr-field-bg);
+    color: var(--cvr-mute);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 550;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.cvr-btn:hover {
+    background: var(--cvr-hover);
+    border-color: var(--cvr-field-edge-hi);
+    color: var(--cvr-ink);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.cvr-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cvr-s4);
+    padding-top: var(--cvr-s6);
+    padding-bottom: var(--cvr-s8);
+}
+
+/* ── Run bar ───────────────────────────────────────────────────────────── */
+
+.cvr-run {
+    display: grid;
+    grid-template-columns: minmax(150px, 190px) minmax(180px, 240px) minmax(0, 1fr) auto;
+    gap: var(--cvr-s3);
+    align-items: end;
+    padding: var(--cvr-s4);
+    background: var(--cvr-surface);
+    border: 1px solid var(--cvr-divider);
+    border-radius: var(--cvr-r-lg);
+}
+
+.cvr-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cvr-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--cvr-mute-3);
+}
+
+.cvr-find {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+/* (0,2,0) on purpose: app.css's `.dark-theme input` (0,1,1) would otherwise
+   paint the field slate in dark theme. */
+.cvr .cvr-find-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 32px 0 12px;
+    border-radius: var(--cvr-r-md);
+    border: 1px solid var(--cvr-field-edge);
+    background-color: var(--cvr-field-bg);
+    color: var(--cvr-ink);
+    font: inherit;
+    font-size: 14px;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.cvr .cvr-find-input::placeholder {
+    color: var(--cvr-placeholder);
+    -webkit-text-fill-color: var(--cvr-placeholder);
+}
+
+.cvr .cvr-find-input::-webkit-search-cancel-button {
+    display: none;
+}
+
+.cvr .cvr-find-input:hover {
+    border-color: var(--cvr-field-edge-hi);
+}
+
+.cvr .cvr-find-input:focus-visible {
+    border-color: var(--cvr-accent);
+    box-shadow: 0 0 0 3px rgba(var(--cvr-accent-rgb), .22);
+}
+
+.cvr-find-clear {
+    position: absolute;
+    right: 6px;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: var(--cvr-r-sm);
+    background: transparent;
+    color: var(--cvr-mute-3);
+    cursor: pointer;
+}
+
+.cvr-find-clear:hover {
+    background: var(--cvr-hover);
+    color: var(--cvr-ink);
+}
+
+.cvr-find-clear svg {
+    width: 10px;
+    height: 10px;
+}
+
+.cvr-run-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cvr-s2);
+    height: 40px;
+    min-width: 136px;
+    padding: 0 20px;
+    border: 0;
+    border-radius: var(--cvr-r-md);
+    background: var(--cvr-accent);
+    color: var(--cvr-on-accent);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.cvr-run-btn svg {
+    fill: currentColor;
+    stroke: none;
+}
+
+.cvr-run-btn:hover:not(:disabled) {
+    filter: brightness(1.06);
+}
+
+.cvr-run-btn:focus-visible {
+    outline: 2px solid var(--cvr-accent);
+    outline-offset: 2px;
+}
+
+.cvr-run-btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.cvr-spin {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    animation: cvr-spin .8s linear infinite;
+}
+
+@keyframes cvr-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Notices ───────────────────────────────────────────────────────────── */
+
+.cvr-notice {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    border-radius: var(--cvr-r-md);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.cvr-notice svg {
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+}
+
+.cvr-notice.is-warn {
+    background: var(--cvr-warn-bg);
+    border: 1px solid var(--cvr-warn-edge);
+    color: var(--cvr-warn-ink);
+}
+
+.cvr-notice.is-bad {
+    background: rgba(var(--cvr-fam-bad-rgb), .10);
+    border: 1px solid rgba(var(--cvr-fam-bad-rgb), .45);
+    color: var(--cvr-fam-bad);
+}
+
+/* ── Before a run ──────────────────────────────────────────────────────── */
+
+.cvr-empty {
+    padding: var(--cvr-s8);
+    border: 1px dashed var(--cvr-divider);
+    border-radius: var(--cvr-r-lg);
+    color: var(--cvr-mute);
+}
+
+.cvr-empty h2 {
+    margin: 0 0 var(--cvr-s3);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--cvr-ink);
+}
+
+.cvr-empty ol {
+    margin: 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cvr-s2);
+    max-width: 72ch;
+}
+
+.cvr-empty strong {
+    color: var(--cvr-ink);
+}
+
+/* ── The count ─────────────────────────────────────────────────────────── */
+
+.cvr-doc {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cvr-doc-main {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cvr-s2);
+}
+
+.cvr-doc-no {
+    font-size: 17px;
+    font-weight: 650;
+    color: var(--cvr-ink);
+}
+
+.cvr-doc-whse {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--cvr-mute);
+}
+
+.cvr-doc-meta {
+    font-size: 13px;
+    color: var(--cvr-mute-2);
+}
+
+/* ── Chips ─────────────────────────────────────────────────────────────── */
+
+.cvr-chip {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    white-space: nowrap;
+}
+
+.cvr-chip.is-warn {
+    background: rgba(var(--cvr-fam-warn-rgb), .14);
+    color: var(--cvr-fam-warn);
+}
+
+.cvr-chip.is-neutral {
+    background: rgba(var(--cvr-fam-neutral-rgb), .14);
+    color: var(--cvr-fam-neutral);
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+
+.cvr-figures {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--cvr-s3);
+}
+
+.cvr-figure {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    background: var(--cvr-surface);
+    border: 1px solid var(--cvr-divider);
+    border-radius: var(--cvr-r-lg);
+    min-width: 0;
+}
+
+.cvr-figure-l {
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--cvr-mute-2);
+}
+
+.cvr-figure-n {
+    font-size: 24px;
+    font-weight: 650;
+    letter-spacing: -.01em;
+    color: var(--cvr-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cvr-figure-s {
+    font-size: 12px;
+    color: var(--cvr-mute-3);
+}
+
+/* Tones shared by the figures, the table and the totals. */
+.cvr .is-bad { color: var(--cvr-fam-bad); }
+.cvr .is-good { color: var(--cvr-fam-good); }
+.cvr .is-warn { color: var(--cvr-fam-warn); }
+.cvr .is-flat { color: var(--cvr-faint); }
+
+/* ── Toolbar ───────────────────────────────────────────────────────────── */
+
+.cvr-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--cvr-s3);
+}
+
+.cvr-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.cvr-filter {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--cvr-field-edge);
+    background: transparent;
+    color: var(--cvr-mute);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.cvr-filter:hover {
+    background: var(--cvr-hover);
+    border-color: var(--cvr-field-edge-hi);
+}
+
+.cvr-filter.is-on {
+    background: rgba(var(--cvr-accent-rgb), .16);
+    border-color: var(--cvr-accent);
+    color: var(--cvr-accent-text);
+}
+
+.cvr-filter-n {
+    margin-left: 4px;
+    opacity: .72;
+}
+
+.cvr-seg {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--cvr-r-md);
+    border: 1px solid var(--cvr-field-edge);
+    background: var(--cvr-field-bg);
+}
+
+.cvr-seg button {
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--cvr-mute-3);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.cvr-seg button.is-on {
+    background: var(--cvr-press);
+    color: var(--cvr-ink);
+}
+
+.cvr-filter:focus-visible,
+.cvr-seg button:focus-visible,
+.cvr-btn:focus-visible,
+.cvr-find-clear:focus-visible {
+    outline: 2px solid var(--cvr-accent);
+    outline-offset: 2px;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.cvr-table-wrap {
+    background: var(--cvr-surface);
+    border: 1px solid var(--cvr-divider);
+    border-radius: var(--cvr-r-lg);
+    overflow-x: auto;
+}
+
+.cvr-table {
+    width: 100%;
+    min-width: 860px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.cvr-table th {
+    padding: 10px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--cvr-mute-3);
+    background: transparent;
+    border-bottom: 1px solid var(--cvr-divider);
+    white-space: nowrap;
+}
+
+.cvr-table td {
+    padding: 7px 12px;
+    border-top: 1px solid var(--cvr-rule);
+    color: var(--cvr-mute);
+    vertical-align: middle;
+}
+
+.cvr-table tbody tr:first-child td {
+    border-top: 0;
+}
+
+.cvr-table tbody tr:hover td {
+    background: var(--cvr-hover);
+}
+
+.cvr-table .num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cvr-row-n {
+    color: var(--cvr-faint);
+    width: 56px;
+}
+
+.cvr-code {
+    font-weight: 600;
+    color: var(--cvr-ink-2);
+    white-space: nowrap;
+}
+
+.cvr-desc {
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cvr-table .cvr-mute {
+    color: var(--cvr-mute-2);
+}
+
+.cvr-strong {
+    font-weight: 600;
+}
+
+.cvr-value {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cvr-s2);
+}
+
+.cvr-none {
+    padding: var(--cvr-s8) 12px;
+    text-align: center;
+    color: var(--cvr-mute-3);
+}
+
+.cvr-table tfoot td {
+    padding: 11px 12px;
+    border-top: 1px solid var(--cvr-divider);
+    background: var(--cvr-hover);
+    font-weight: 600;
+    color: var(--cvr-ink);
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+    .cvr-run {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .cvr-field-wide {
+        grid-column: 1 / -1;
+    }
+
+    .cvr-run-btn {
+        grid-column: 1 / -1;
+    }
+
+    .cvr-figures {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .cvr-head-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .cvr-run,
+    .cvr-figures {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cvr-spin {
+        animation-duration: 2.4s;
+    }
+}
