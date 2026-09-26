@@ -402,6 +402,83 @@ public static class VanSalesFactReader
     }
 
     /// <summary>
+    /// The last trading day on or before <paramref name="throughDay"/> that each shop bought, over
+    /// all history.
+    /// </summary>
+    /// <remarks>
+    /// The mirror of <see cref="LoadFirstPurchaseDatesAsync"/>, and for the same reason unbounded
+    /// behind: a report's windows only reach back so far, and a shop whose last purchase fell before
+    /// them has still bought — reading it as "never bought" turns a lost customer into a prospect.
+    /// The maximum is taken in SQL and converted afterwards, which the fixed CAT offset makes safe.
+    /// </remarks>
+    public static async Task<Dictionary<VanSalesOutletKey, DateTime>> LoadLastPurchaseDatesAsync(
+        ApplicationDbContext db,
+        DateTime throughDay,
+        CancellationToken cancellationToken)
+    {
+        var through = throughDay.Date;
+        var (_, windowEndUtc) = VanSalesFacts.ToUtcWindow(through, through);
+
+        var offline = await db.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSales
+                           && sale.RouteCustomerCode != null
+                           && sale.DocDate <= through)
+            .GroupBy(sale => new { sale.CardCode, sale.RouteCustomerCode })
+            .Select(group => new
+            {
+                group.Key.CardCode,
+                group.Key.RouteCustomerCode,
+                Last = group.Max(sale => sale.DocDate)
+            })
+            .ToListAsync(cancellationToken);
+
+        var online = await db.StockReservations
+            .AsNoTracking()
+            .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
+                                  && reservation.Status == ReservationStatus.Confirmed
+                                  && reservation.RouteCustomerCode != null
+                                  && reservation.CreatedAt < windowEndUtc)
+            .GroupBy(reservation => new { reservation.CardCode, reservation.RouteCustomerCode })
+            .Select(group => new
+            {
+                group.Key.CardCode,
+                group.Key.RouteCustomerCode,
+                Last = group.Max(reservation => reservation.CreatedAt)
+            })
+            .ToListAsync(cancellationToken);
+
+        var lasts = new Dictionary<VanSalesOutletKey, DateTime>();
+
+        void Record(string account, string? code, DateTime day)
+        {
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return;
+            }
+
+            var key = new VanSalesOutletKey(account, code.Trim());
+
+            if (!lasts.TryGetValue(key, out var existing) || day > existing)
+            {
+                lasts[key] = day;
+            }
+        }
+
+        foreach (var row in offline)
+        {
+            Record(row.CardCode, row.RouteCustomerCode, row.Last.Date);
+        }
+
+        foreach (var row in online)
+        {
+            Record(row.CardCode, row.RouteCustomerCode, VanSalesFacts.TradingDayOf(row.Last));
+        }
+
+        return lasts;
+    }
+
+    /// <summary>
     /// Resolves the rep and applies the one-rep filter.
     ///
     /// The filter is applied here rather than in SQL because <c>CreatedBy</c> is a string column: a

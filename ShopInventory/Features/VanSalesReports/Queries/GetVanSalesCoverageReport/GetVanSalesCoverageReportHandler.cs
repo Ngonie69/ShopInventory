@@ -84,8 +84,10 @@ public sealed class GetVanSalesCoverageReportHandler(
 
         var days = await LoadRouteDaysAsync(query, from, to, cancellationToken);
         var calls = await LoadCallsAsync(query, from, to, cancellationToken);
-        var priorCalls = await LoadLastVisitsAsync(query, priorFrom, priorTo, cancellationToken);
+        var priorCalls = await LoadCallHistoryAsync(query, from, cancellationToken);
         var firstPurchases = await VanSalesFactReader.LoadFirstPurchaseDatesAsync(db, cancellationToken);
+        var lastPurchases = NormaliseKeys(
+            await VanSalesFactReader.LoadLastPurchaseDatesAsync(db, to, cancellationToken));
 
         // The route filter refuses to be satisfied by a rep-day with no departure record, for the
         // reason both earlier reports give: nothing on such a sale says which route it belonged to.
@@ -119,7 +121,13 @@ public sealed class GetVanSalesCoverageReportHandler(
                 group => group.Key,
                 group => group.Select(call => call.CustomerCode).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
+        // Each shop's last call in the window, keyed by the calling van's account. A shop's code is
+        // unique only within its account, so a bare-code match would let one van's call on its SHOP1
+        // cover every other van's SHOP1.
+        var lastCalls = LastCallByShop(calls, reps);
+
         var buckets = BuildBuckets(from, to, query.Granularity);
+        var churn = BuildChurn(buckets, sales, priorSales, firstPurchases, query.LapseDays, from, to);
 
         var result = new VanSalesCoverageReportResult(
             FromDate: from,
@@ -127,13 +135,13 @@ public sealed class GetVanSalesCoverageReportHandler(
             PriorWindowFrom: priorFrom,
             LapseDays: query.LapseDays,
             Granularity: query.Granularity,
-            Summary: BuildSummary(sales, days, visitsByDay, calls, roster, reps, priorSales, firstPurchases, query, to),
-            Trend: BuildTrend(buckets, sales, days, calls, from, to),
+            Summary: BuildSummary(sales, days, visitsByDay, calls, roster, lastCalls, churn),
+            Trend: BuildTrend(buckets, sales, days, calls, visitsByDay, from, to),
             Reps: BuildReps(sales, days, visitsByDay, calls, roster, reps),
-            UncoveredOutlets: BuildUncovered(roster, reps, calls, priorCalls, sales, priorSales, to),
+            UncoveredOutlets: BuildUncovered(roster, reps, lastCalls, priorCalls, sales, lastPurchases, to),
             LocationIntegrity: BuildLocationIntegrity(calls, reps),
-            Churn: BuildChurn(buckets, sales, priorSales, firstPurchases, query.LapseDays, priorFrom),
-            LapsedOutlets: BuildLapsed(sales, priorSales, roster, reps, days, priorCalls, query.LapseDays, to),
+            Churn: churn,
+            LapsedOutlets: BuildLapsed(sales, priorSales, roster, reps, days, lastCalls, priorCalls, query.LapseDays, to),
             Concentration: BuildConcentration(sales, days),
             Outlets: BuildOutlets(sales, lines, calls, firstPurchases),
             Quality: BuildQuality(sales, days, roster, reps, visitsByDay, priorSales, from));
@@ -223,22 +231,28 @@ public sealed class GetVanSalesCoverageReportHandler(
     }
 
     /// <summary>
-    /// The last time each shop was called on before the window, which is what separates a shop that
-    /// has never been visited from one that simply was not reached this period.
+    /// The last day each shop was called on before the window, over all history, keyed by the
+    /// calling rep's van account.
     /// </summary>
-    private async Task<Dictionary<string, DateTime>> LoadLastVisitsAsync(
+    /// <remarks>
+    /// This is what separates a shop nobody has ever called on from one that was merely missed this
+    /// period, so it cannot stop at the prior window: a shop visited in February is not "never
+    /// visited" because the lapse threshold is thirty days.
+    ///
+    /// Grouped in SQL by rep and code, then folded here without case. Grouping on the code alone
+    /// in SQL is case-sensitive, and folding "abc1" and "ABC1" into a case-blind dictionary threw.
+    /// </remarks>
+    private async Task<Dictionary<VanSalesOutletKey, DateTime>> LoadCallHistoryAsync(
         GetVanSalesCoverageReportQuery query,
         DateTime from,
-        DateTime to,
         CancellationToken cancellationToken)
     {
-        var (windowStartUtc, windowEndUtc) = VanSalesFacts.ToUtcWindow(from, to);
+        var (windowStartUtc, _) = VanSalesFacts.ToUtcWindow(from, from);
 
         var queryable = db.TimesheetEntries
             .AsNoTracking()
             .Where(entry => entry.Channel == TimesheetChannel.VanSales
-                            && entry.CheckInTime >= windowStartUtc
-                            && entry.CheckInTime < windowEndUtc);
+                            && entry.CheckInTime < windowStartUtc);
 
         if (query.UserId.HasValue)
         {
@@ -246,14 +260,36 @@ public sealed class GetVanSalesCoverageReportHandler(
         }
 
         var entries = await queryable
-            .GroupBy(entry => entry.CustomerCode)
-            .Select(group => new { Code = group.Key, Last = group.Max(entry => entry.CheckInTime) })
+            .GroupBy(entry => new { entry.UserId, entry.CustomerCode })
+            .Select(group => new
+            {
+                group.Key.UserId,
+                group.Key.CustomerCode,
+                Last = group.Max(entry => entry.CheckInTime)
+            })
             .ToListAsync(cancellationToken);
 
-        return entries.ToDictionary(
-            entry => entry.Code,
-            entry => VanSalesFacts.TradingDayOf(entry.Last),
-            StringComparer.OrdinalIgnoreCase);
+        if (entries.Count == 0)
+        {
+            return [];
+        }
+
+        var userIds = entries.Select(entry => entry.UserId).Distinct().ToList();
+
+        var accounts = await db.Users
+            .AsNoTracking()
+            .Where(user => userIds.Contains(user.Id) && user.AssignedBusinessPartnerCode != null)
+            .Select(user => new { user.Id, user.AssignedBusinessPartnerCode })
+            .ToDictionaryAsync(user => user.Id, user => user.AssignedBusinessPartnerCode!, cancellationToken);
+
+        return entries
+            .Where(entry => accounts.ContainsKey(entry.UserId)
+                            && !string.IsNullOrWhiteSpace(accounts[entry.UserId])
+                            && !string.IsNullOrWhiteSpace(entry.CustomerCode))
+            .GroupBy(entry => ShopKey(accounts[entry.UserId], entry.CustomerCode))
+            .ToDictionary(
+                group => group.Key,
+                group => VanSalesFacts.TradingDayOf(group.Max(entry => entry.Last)));
     }
 
     private async Task<Dictionary<Guid, RepRow>> LoadRepsAsync(
@@ -386,6 +422,7 @@ public sealed class GetVanSalesCoverageReportHandler(
         List<VanSaleFact> sales,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
         List<CallRow> calls,
+        Dictionary<VanSalesDayKey, HashSet<string>> visitsByDay,
         DateTime from,
         DateTime to) =>
         buckets
@@ -411,13 +448,7 @@ public sealed class GetVanSalesCoverageReportHandler(
                 // non-compliance — and reported separately.
                 var planned = bucketDays.Where(day => day.PlannedCustomerCount > 0).ToList();
 
-                var callsAgainstPlan = planned.Count == 0
-                    ? null
-                    : (int?)planned.Sum(day => bucketCalls
-                        .Where(call => call.UserId == day.UserId && call.TradingDate == day.TradingDate)
-                        .Select(call => call.CustomerCode)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Count());
+                var callsAgainstPlan = CallsOnPlannedDays(planned, visitsByDay);
 
                 var activeDayKeys = bucketSales.Select(sale => sale.Key)
                     .Concat(bucketCalls.Select(call => new VanSalesDayKey(call.UserId, call.TradingDate)))
@@ -431,6 +462,7 @@ public sealed class GetVanSalesCoverageReportHandler(
                     IsPartial: bucket.IsPartial,
                     RepsTrading: bucketSales.Select(sale => sale.UserId).Distinct().Count(),
                     PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
+                    CallsAgainstPlan: callsAgainstPlan,
                     Calls: CallsIn(bucketCalls),
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(bucketSales),
                     OutletsBought: VanSalesMeasures.CountOutletsThatBought(bucketSales),
@@ -438,6 +470,20 @@ public sealed class GetVanSalesCoverageReportHandler(
                     RepDaysWithoutRouteDay: activeDayKeys.Count(key => !days.ContainsKey(key)));
             })
             .ToList();
+
+    /// <summary>
+    /// Distinct shops called on across the planned days, summed — the numerator of call compliance.
+    /// Null when no day had a plan. A planned day with no visit rows contributes nothing, which is
+    /// what it did.
+    /// </summary>
+    private static int? CallsOnPlannedDays(
+        List<VanRouteDayEntity> planned,
+        Dictionary<VanSalesDayKey, HashSet<string>> visitsByDay) =>
+        planned.Count == 0
+            ? null
+            : planned.Sum(day => visitsByDay.TryGetValue(new VanSalesDayKey(day.UserId, day.TradingDate), out var visits)
+                ? visits.Count
+                : 0);
 
     /// <summary>Distinct shops called on per rep-day, summed. Null when nothing was recorded.</summary>
     private static int? CallsIn(List<CallRow> calls) =>
@@ -499,7 +545,11 @@ public sealed class GetVanSalesCoverageReportHandler(
                     .Select(sale => sale.RouteCustomerCode!)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                var planned = dayRecords.Where(day => day.PlannedCustomerCount > 0).ToList();
+                // Every departure with a plan, including a day the rep went out and called on nobody:
+                // that day missed its whole plan, and dropping it would flatter the rate.
+                var planned = days.Values
+                    .Where(day => day.UserId == userId && day.PlannedCustomerCount > 0)
+                    .ToList();
 
                 return new VanSalesRepCoverageResult(
                     UserId: userId,
@@ -517,13 +567,15 @@ public sealed class GetVanSalesCoverageReportHandler(
                     RosterSize: repRoster?.Count,
                     TradingDayCount: dayKeys.Count,
                     Calls: VanSalesMeasures.CountCalls(dayKeys, visitsByDay),
-                    OutletsVisited: VanSalesMeasures.CountOutletsVisited(dayKeys, visitsByDay),
+                    // Roster shops called on, so coverage is a share of the roster and cannot pass 100%.
+                    OutletsVisited: repRoster?.Count(row => visited.Contains(row.Code)),
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(repSales),
                     OutletsBought: attributable ? bought.Count : null,
                     OutletsUncovered: repRoster is null || !attributable
                         ? null
-                        : repRoster.Count(row => !visited.Contains(row.Code)),
+                        : repRoster.Count(row => !bought.Contains(row.Code)),
                     PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
+                    CallsAgainstPlan: CallsOnPlannedDays(planned, visitsByDay),
                     KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
                     EfficiencyByCurrency: BuildEfficiency(repSales, days),
                     TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(repSales));
@@ -566,25 +618,16 @@ public sealed class GetVanSalesCoverageReportHandler(
     private static List<VanSalesUncoveredOutletResult> BuildUncovered(
         Dictionary<string, List<RosterRow>> roster,
         Dictionary<Guid, RepRow> reps,
-        List<CallRow> calls,
-        Dictionary<string, DateTime> priorCalls,
+        Dictionary<VanSalesOutletKey, DateTime> lastCalls,
+        Dictionary<VanSalesOutletKey, DateTime> priorCalls,
         List<VanSaleFact> sales,
-        List<VanSaleFact> priorSales,
+        Dictionary<VanSalesOutletKey, DateTime> lastPurchases,
         DateTime to)
     {
-        var visited = calls.Select(call => call.CustomerCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
         var bought = sales
-            .Select(sale => sale.Outlet)
-            .Where(outlet => outlet.HasValue)
-            .Select(outlet => outlet!.Value)
+            .Where(sale => sale.RouteCustomerCode is not null)
+            .Select(sale => ShopKey(sale.VanAccountCode, sale.RouteCustomerCode!))
             .ToHashSet();
-
-        // The last purchase anywhere in the read, so a shop can be told from one that has never bought.
-        var lastPurchase = sales.Concat(priorSales)
-            .Where(sale => sale.Outlet.HasValue)
-            .GroupBy(sale => sale.Outlet!.Value)
-            .ToDictionary(group => group.Key, group => group.Max(sale => sale.TradingDate));
 
         var owners = reps.Values
             .Where(rep => rep.AccountCode is not null)
@@ -603,25 +646,29 @@ public sealed class GetVanSalesCoverageReportHandler(
         {
             foreach (var outlet in outlets)
             {
-                var key = new VanSalesOutletKey(account, outlet.Code);
-                var wasVisited = visited.Contains(outlet.Code);
+                var key = ShopKey(account, outlet.Code);
 
-                if (wasVisited && bought.Contains(key))
+                // Reached means bought. A sale proves the van was there whether or not the handset
+                // recorded a check-in, so a shop that bought is never on this register.
+                if (bought.Contains(key))
                 {
                     continue;
                 }
 
+                var wasVisited = lastCalls.TryGetValue(key, out var calledOn);
+                priorCalls.TryGetValue(key, out var lastVisit);
+                lastPurchases.TryGetValue(key, out var last);
+
+                // Never visited means no call and no sale in all of history, not in the prior window.
                 var gap = wasVisited
                     ? VanSalesCoverageGap.VisitedNotBought
-                    : priorCalls.ContainsKey(outlet.Code)
+                    : lastVisit != default || last != default
                         ? VanSalesCoverageGap.NotVisitedInWindow
                         : VanSalesCoverageGap.NeverVisited;
 
-                lastPurchase.TryGetValue(key, out var last);
                 var lastOn = last == default ? (DateTime?)null : last;
 
                 owners.TryGetValue(account, out var owningReps);
-                priorCalls.TryGetValue(outlet.Code, out var lastVisit);
 
                 rows.Add(new VanSalesUncoveredOutletResult(
                     VanAccountCode: account,
@@ -630,9 +677,7 @@ public sealed class GetVanSalesCoverageReportHandler(
                     Phone: outlet.Phone,
                     Gap: gap,
                     LastVisitedOn: wasVisited
-                        ? calls.Where(call =>
-                                string.Equals(call.CustomerCode, outlet.Code, StringComparison.OrdinalIgnoreCase))
-                            .Max(call => call.TradingDate)
+                        ? calledOn
                         : lastVisit == default ? null : lastVisit,
                     LastPurchaseOn: lastOn,
                     DaysSinceLastPurchase: lastOn is { } day ? Math.Max(0, (int)(to - day).TotalDays) : null,
@@ -711,7 +756,8 @@ public sealed class GetVanSalesCoverageReportHandler(
         List<VanSaleFact> priorSales,
         Dictionary<VanSalesOutletKey, DateTime> firstPurchases,
         int lapseDays,
-        DateTime priorFrom)
+        DateTime from,
+        DateTime to)
     {
         // Every purchase day per shop across both windows. The state of an outlet on any date is a
         // question about this set and nothing else — never about whether its row still exists.
@@ -737,10 +783,15 @@ public sealed class GetVanSalesCoverageReportHandler(
 
         foreach (var bucket in buckets)
         {
-            var previousEnd = bucket.Start.AddDays(-1);
+            // Cut to the period, as the rate trend is. Uncut, a first bucket opening before `from`
+            // holds purchases the window never loaded — a residual on the page — and a last bucket
+            // running past `to` counts lapses on dates the report has not reached yet.
+            var start = bucket.Start < from ? from : bucket.Start;
+            var end = bucket.End > to ? to : bucket.End;
+            var previousEnd = start.AddDays(-1);
 
             var bucketSales = sales
-                .Where(sale => sale.TradingDate >= bucket.Start && sale.TradingDate <= bucket.End)
+                .Where(sale => sale.TradingDate >= start && sale.TradingDate <= end)
                 .ToList();
 
             var boughtInBucket = bucketSales
@@ -749,11 +800,11 @@ public sealed class GetVanSalesCoverageReportHandler(
                 .ToHashSet();
 
             var opening = universe.Count(outlet => IsActiveAt(outlet, previousEnd));
-            var closing = universe.Count(outlet => IsActiveAt(outlet, bucket.End));
+            var closing = universe.Count(outlet => IsActiveAt(outlet, end));
 
             var newOutlets = boughtInBucket.Count(outlet =>
                 firstPurchases.TryGetValue(outlet, out var first)
-                && first >= bucket.Start && first <= bucket.End);
+                && first >= start && first <= end);
 
             // Bought in the bucket, having bought at some point before it, and not active when it
             // opened. "Bought before" is decided by the unbounded first-purchase scan and not by the
@@ -762,27 +813,27 @@ public sealed class GetVanSalesCoverageReportHandler(
             // vanish from the movement while still appearing in the closing base.
             var reactivated = boughtInBucket.Count(outlet =>
                 firstPurchases.TryGetValue(outlet, out var first)
-                && first < bucket.Start
+                && first < start
                 && !IsActiveAt(outlet, previousEnd));
 
             // Crossed the line inside this bucket. Counted once, at the boundary it crossed.
             var lapsed = universe.Count(outlet =>
-                IsActiveAt(outlet, previousEnd) && !IsActiveAt(outlet, bucket.End));
+                IsActiveAt(outlet, previousEnd) && !IsActiveAt(outlet, end));
 
             var newSales = bucketSales
                 .Where(sale => sale.Outlet is { } outlet
                                && firstPurchases.TryGetValue(outlet, out var first)
-                               && first >= bucket.Start && first <= bucket.End)
+                               && first >= start && first <= end)
                 .ToList();
 
             points.Add(new VanSalesChurnPointResult(
                 Label: bucket.Label,
-                BucketStart: bucket.Start,
-                BucketEnd: bucket.End,
+                BucketStart: start,
+                BucketEnd: end,
                 IsPartial: bucket.IsPartial,
                 // The van tables only reach back so far. A bucket at the edge shows every outlet
                 // trading before it as new, which is an artefact of the data's start, not growth.
-                IsCensored: earliest is { } start && bucket.Start <= start.AddDays(lapseDays),
+                IsCensored: earliest is { } dataStart && start <= dataStart.AddDays(lapseDays),
                 OpeningActiveOutlets: opening,
                 BuyingOutlets: boughtInBucket.Count,
                 NewOutlets: newOutlets,
@@ -804,7 +855,8 @@ public sealed class GetVanSalesCoverageReportHandler(
         Dictionary<string, List<RosterRow>> roster,
         Dictionary<Guid, RepRow> reps,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
-        Dictionary<string, DateTime> priorCalls,
+        Dictionary<VanSalesOutletKey, DateTime> lastCalls,
+        Dictionary<VanSalesOutletKey, DateTime> priorCalls,
         int lapseDays,
         DateTime to)
     {
@@ -845,7 +897,10 @@ public sealed class GetVanSalesCoverageReportHandler(
                 owners.TryGetValue(group.Key.VanAccountCode, out var owningReps);
                 reps.TryGetValue(lastRep.UserId, out var soldBy);
                 days.TryGetValue(lastRep.Key, out var routeDay);
-                priorCalls.TryGetValue(group.Key.OutletCode, out var lastVisit);
+                var shop = ShopKey(group.Key.VanAccountCode, group.Key.OutletCode);
+                var lastVisit = lastCalls.TryGetValue(shop, out var inWindow)
+                    ? inWindow
+                    : priorCalls.TryGetValue(shop, out var before) ? before : default;
 
                 return new VanSalesLapsedOutletResult(
                     VanAccountCode: group.Key.VanAccountCode,
@@ -1028,11 +1083,8 @@ public sealed class GetVanSalesCoverageReportHandler(
         Dictionary<VanSalesDayKey, HashSet<string>> visitsByDay,
         List<CallRow> calls,
         Dictionary<string, List<RosterRow>> roster,
-        Dictionary<Guid, RepRow> reps,
-        List<VanSaleFact> priorSales,
-        Dictionary<VanSalesOutletKey, DateTime> firstPurchases,
-        GetVanSalesCoverageReportQuery query,
-        DateTime to)
+        Dictionary<VanSalesOutletKey, DateTime> lastCalls,
+        List<VanSalesChurnPointResult> churn)
     {
         var dayKeys = sales.Select(sale => sale.Key)
             .Concat(calls.Select(call => new VanSalesDayKey(call.UserId, call.TradingDate)))
@@ -1040,9 +1092,19 @@ public sealed class GetVanSalesCoverageReportHandler(
             .ToList();
 
         var dayRecords = dayKeys.Where(days.ContainsKey).Select(key => days[key]).ToList();
-        var planned = dayRecords.Where(day => day.PlannedCustomerCount > 0).ToList();
 
-        var visited = calls.Select(call => call.CustomerCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Every departure with a plan, as the trend counts them, so the two cannot disagree.
+        var planned = days.Values.Where(day => day.PlannedCustomerCount > 0).ToList();
+
+        var rosterKeys = roster
+            .SelectMany(pair => pair.Value.Select(row => ShopKey(pair.Key, row.Code)))
+            .ToList();
+
+        var boughtRoster = sales
+            .Where(sale => sale.RouteCustomerCode is not null)
+            .Select(sale => ShopKey(sale.VanAccountCode, sale.RouteCustomerCode!))
+            .ToHashSet();
+
         var rosterSize = roster.Count == 0 ? (int?)null : roster.Sum(pair => pair.Value.Count);
 
         var boughtKeys = sales
@@ -1050,31 +1112,24 @@ public sealed class GetVanSalesCoverageReportHandler(
             .Select(sale => sale.Outlet!.Value)
             .ToHashSet();
 
-        var newOutlets = boughtKeys.Count(outlet =>
-            firstPurchases.TryGetValue(outlet, out var first) && first >= sales.Min(s => s.TradingDate));
-
-        var priorKeys = priorSales
-            .Where(sale => sale.Outlet.HasValue)
-            .Select(sale => sale.Outlet!.Value)
-            .ToHashSet();
-
         return new VanSalesCoverageSummaryResult(
             RepCount: dayKeys.Select(key => key.UserId).Distinct().Count(),
             RosterSize: rosterSize,
-            OutletsVisited: visited.Count,
+            // Roster shops called on, keyed by account: a share of the roster, never more than it.
+            OutletsVisited: rosterKeys.Count(lastCalls.ContainsKey),
             OutletsBought: boughtKeys.Count,
-            OutletsUncovered: roster
-                .SelectMany(pair => pair.Value)
-                .Count(row => !visited.Contains(row.Code)),
-            NewOutlets: sales.Count == 0 ? 0 : newOutlets,
-            ReactivatedOutlets: boughtKeys.Count(outlet =>
-                priorKeys.Contains(outlet)
-                && !(firstPurchases.TryGetValue(outlet, out var first)
-                     && sales.Count > 0 && first >= sales.Min(s => s.TradingDate))),
-            LapsedOutlets: priorKeys.Count(outlet => !boughtKeys.Contains(outlet)),
+            // The register's own length: roster shops that did not buy.
+            OutletsUncovered: rosterKeys.Count(key => !boughtRoster.Contains(key)),
+            // The ledger's own totals, so the headline balances the way every row does.
+            OpeningActiveOutlets: churn.Count == 0 ? 0 : churn[0].OpeningActiveOutlets,
+            NewOutlets: churn.Sum(point => point.NewOutlets),
+            ReactivatedOutlets: churn.Sum(point => point.ReactivatedOutlets),
+            LapsedOutlets: churn.Sum(point => point.LapsedOutlets),
+            ClosingActiveOutlets: churn.Count == 0 ? 0 : churn[^1].ClosingActiveOutlets,
             Calls: VanSalesMeasures.CountCalls(dayKeys, visitsByDay),
             ProductiveCalls: VanSalesMeasures.CountProductiveCalls(sales),
             PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
+            CallsAgainstPlan: CallsOnPlannedDays(planned, visitsByDay),
             KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
             TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales));
     }
@@ -1114,6 +1169,38 @@ public sealed class GetVanSalesCoverageReportHandler(
             RosterIsLive: true,
             EarliestObservedSale: earliest == default ? null : earliest);
     }
+
+    // ── Shop keys ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A shop's identity for matching calls, sales and the roster against one another: the account
+    /// and the code, compared without case. Codes are typed on handsets and in SAP by hand, and a
+    /// difference in case is not a different shop.
+    /// </summary>
+    private static VanSalesOutletKey ShopKey(string account, string code) =>
+        new(account.Trim().ToUpperInvariant(), code.Trim().ToUpperInvariant());
+
+    private static Dictionary<VanSalesOutletKey, DateTime> NormaliseKeys(
+        Dictionary<VanSalesOutletKey, DateTime> dates) =>
+        dates
+            .GroupBy(pair => ShopKey(pair.Key.VanAccountCode, pair.Key.OutletCode))
+            .ToDictionary(group => group.Key, group => group.Max(pair => pair.Value));
+
+    /// <summary>
+    /// The last trading day each shop was called on, keyed by the calling rep's van account. A call
+    /// by a rep with no account cannot be placed on any roster and is left out.
+    /// </summary>
+    private static Dictionary<VanSalesOutletKey, DateTime> LastCallByShop(
+        IEnumerable<CallRow> calls,
+        Dictionary<Guid, RepRow> reps) =>
+        calls
+            .Select(call => (
+                Account: reps.TryGetValue(call.UserId, out var rep) ? rep.AccountCode : null,
+                call.CustomerCode,
+                call.TradingDate))
+            .Where(call => call.Account is not null && !string.IsNullOrWhiteSpace(call.CustomerCode))
+            .GroupBy(call => ShopKey(call.Account!, call.CustomerCode))
+            .ToDictionary(group => group.Key, group => group.Max(call => call.TradingDate));
 
     // ── Row shapes ──────────────────────────────────────────────────────────────
 
