@@ -6096,8 +6096,10 @@ public partial class ReportExportService : IReportExportService
         var now = DateTime.UtcNow.AddHours(2); // CAT
 
         BuildVanStockOverviewSheet(workbook, report, now);
-        BuildVanStockVarianceSheet(workbook, report, now);
-        BuildVanStockItemDifferenceSheet(workbook, report, now);
+        BuildVanStockMorningSheet(workbook, report, now);
+        BuildVanStockDocumentSheet(workbook, report, now);
+        BuildVanStockUnexplainedSheet(workbook, report, now);
+        BuildVanStockSalesSheet(workbook, report, now);
         BuildVanStockDaySheet(workbook, report, now);
         BuildVanStockItemSheet(workbook, report, now);
         BuildVanStockExpirySheet(workbook, report, now);
@@ -6114,7 +6116,7 @@ public partial class ReportExportService : IReportExportService
         var ws = workbook.Worksheets.Add("Overview");
         TsApplyDefaults(ws);
 
-        var period = $"VAN STOCK  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        var period = $"VAN STOCK AGAINST SAP  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
         int row = TsTitleBar(ws, period, lastCol, now);
 
         // Ahead of every figure it governs. If the snapshot job stops, everything below describes an
@@ -6123,8 +6125,8 @@ public partial class ReportExportService : IReportExportService
         {
             ws.Cell(row, 1).Value =
                 $"THESE FIGURES ARE {report.Summary.SnapshotAgeDays:N0} DAY(S) OLD. The newest stock "
-                + $"snapshot is from {report.Summary.LatestSnapshotDate:dddd dd MMM yyyy}, so everything "
-                + "below describes the vans as they stood then. If the snapshot job has stopped, "
+                + $"count is from {report.Summary.LatestSnapshotDate:dddd dd MMM yyyy}, so everything "
+                + "below describes the vans as they stood then. If the count job has stopped, "
                 + "nothing here will improve until it runs again.";
             ws.Range(row, 1, row, lastCol).Merge();
             ws.Cell(row, 1).Style.Font.FontSize = 10;
@@ -6136,22 +6138,47 @@ public partial class ReportExportService : IReportExportService
         }
 
         var summary = report.Summary;
-
-        // Mornings, not quantities: a van carries cases, kilograms and singles, and a sell-through
-        // taken over their sum is a ratio of figures in no unit.
-        var comparable = report.Variances.Count(v => !v.HasGap);
-        var balanced = report.Variances.Count(v => v.Balanced);
-        var balancedText = comparable > 0 ? $"{balanced:N0} of {comparable:N0}" : "—";
+        var checkedMornings = report.Mornings.Count(m => m.SapChecked);
+        var tied = report.Mornings.Count(m => m.TiesToSap);
+        var late = report.SalesDays.Count(d => d.Status == "Late");
+        var notInSap = report.SalesDays.Count(d => d.Status == "NotInSap");
 
         row = TsKpiStrip(ws, row, lastCol,
             ("Vans", summary.VanCount.ToString("N0"), null),
-            ("Mornings Balanced", balancedText, balanced < comparable ? TsRed : null),
+            ("Mornings Tie To SAP", checkedMornings > 0 ? $"{tied:N0} of {checkedMornings:N0}" : "—",
+                tied < checkedMornings ? TsOrange : null),
+            ("Sales Days Late", summary.SapChecked ? late.ToString("N0") : "—", late > 0 ? TsOrange : null),
+            ("Sales Days Not In SAP", summary.SapChecked ? notInSap.ToString("N0") : "—", notInSap > 0 ? TsRed : null),
             ("Idle Items", summary.DeadItemCount.ToString("N0"),
                 summary.DeadItemCount > 0 ? TsOrange : null),
-            ("Items Seen", summary.ItemCount.ToString("N0"), null),
-            ("Van-Days", summary.SnapshotDayCount.ToString("N0"), null),
             ("Missing Days", summary.MissingSnapshotDays.ToString("N0"),
                 summary.MissingSnapshotDays > 0 ? TsOrange : null));
+
+        TsSectionTitle(ws, row, lastCol, "HOW TO READ THIS WORKBOOK");
+        row += 2;
+
+        foreach (var line in new[]
+        {
+            "Each morning's count is SAP's own stock for the van, read at about 07:00. SAP's stock moves only when a "
+            + "document is posted, so each morning is compared with the invoices, credit notes and transfers SAP "
+            + "created since the count before it — by the time SAP created them, not the date printed on them.",
+            "An item those documents do not explain was moved by a posting this report does not read: a goods "
+            + "issue (breakages), a goods receipt, or a stock count. These are book figures: a van that is "
+            + "physically short shows only once someone counts it and posts the difference in SAP.",
+            "Separately, each trading day's recorded sales are compared with the SAP invoices dated that day. "
+            + "Late means SAP had them only after the next morning's count; Not in SAP means it still does not."
+        })
+        {
+            ws.Cell(row, 1).Value = line;
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 9;
+            ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Row(row).Height = 38;
+            row++;
+        }
+
+        row++;
 
         if (!report.Quality.IsClean)
         {
@@ -6174,92 +6201,52 @@ public partial class ReportExportService : IReportExportService
         TsFinalize(ws, lastCol, freezeRow: 2);
     }
 
-    private static void BuildVanStockVarianceSheet(
+    private static void BuildVanStockMorningSheet(
         XLWorkbook workbook,
         VanStockReportResponse report,
         DateTime now)
     {
-        const int lastCol = 10;
-        var ws = workbook.Worksheets.Add("Reconciliation");
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Mornings vs SAP");
         TsApplyDefaults(ws);
 
-        int row = TsTitleBar(ws, "MORNING TO MORNING", lastCol, now);
-
-        ws.Cell(row, 1).Value =
-            "For every item, yesterday's count less what sold plus what was transferred on is what this "
-            + "morning should have found. A morning is judged by how many items were off — never by a "
-            + "quantity summed across items, which would add cases, kilograms and singles together. Only "
-            + "computable across two CONSECUTIVE counts: where a day is missing the pair is shown as a "
-            + "break rather than reached over, because two days of difference reported as one reads as a "
-            + "single large discrepancy on the wrong date.";
-        ws.Range(row, 1, row, lastCol).Merge();
-        ws.Cell(row, 1).Style.Font.FontSize = 9;
-        ws.Cell(row, 1).Style.Font.Italic = true;
-        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
-        ws.Cell(row, 1).Style.Alignment.WrapText = true;
-        ws.Row(row).Height = 44;
-        row += 2;
+        int row = TsTitleBar(ws, "EACH MORNING AGAINST SAP'S DOCUMENTS", lastCol, now);
 
         row = TsColumnHeaders(ws, row, lastCol,
         [
-            "Van", "Morning", "Compared With", "Gap", "Items", "Matched", "Missing", "Found",
-            "Biggest Difference", "Difference"
+            "Van", "Morning", "Compared With", "Days Apart", "Items", "Moved By SAP Documents",
+            "Unexplained", "SAP Documents", "Ties To SAP"
         ]);
 
         int index = 0;
-        foreach (var variance in report.Variances)
+        foreach (var morning in report.Mornings)
         {
             TsDataRow(ws, row, lastCol, index % 2 == 1);
-            ws.Cell(row, 1).Value = variance.VanWarehouseCode;
-            WriteVanPerformanceDate(ws.Cell(row, 2), variance.ToSnapshot);
-            WriteVanPerformanceDate(ws.Cell(row, 3), variance.FromSnapshot);
-            ws.Cell(row, 4).Value = variance.HasGap ? $"{variance.GapDays:N0} days" : "";
+            ws.Cell(row, 1).Value = morning.VanWarehouseCode;
+            WriteVanPerformanceDate(ws.Cell(row, 2), morning.ToSnapshot);
+            WriteVanPerformanceDate(ws.Cell(row, 3), morning.FromSnapshot);
+            ws.Cell(row, 4).Value = morning.GapDays;
+            ws.Cell(row, 5).Value = morning.ItemCount;
 
-            // Across a gap there is nothing to expect and nothing to compare, so every count reads as
-            // unavailable rather than as a morning that balanced.
-            if (variance.HasGap)
+            if (morning.SapChecked)
             {
-                for (var col = 5; col <= lastCol; col++)
+                ws.Cell(row, 6).Value = morning.ItemsMoved;
+                ws.Cell(row, 7).Value = morning.ItemsUnexplained;
+                ws.Cell(row, 8).Value = morning.Documents.Count;
+                ws.Cell(row, 9).Value = morning.TiesToSap ? "yes" : "no";
+
+                if (!morning.TiesToSap)
                 {
-                    ws.Cell(row, col).Value = "—";
+                    ws.Cell(row, 7).Style.Font.FontColor = TsOrange;
+                    ws.Cell(row, 7).Style.Font.Bold = true;
                 }
             }
             else
             {
-                if (variance.ItemCount > 0)
+                // SAP was not read, so nothing is claimed either way.
+                for (var col = 6; col <= lastCol; col++)
                 {
-                    ws.Cell(row, 5).Value = variance.ItemCount;
-                    ws.Cell(row, 6).Value = variance.ItemsMatched;
-                }
-                else
-                {
-                    ws.Cell(row, 5).Value = "—";
-                    ws.Cell(row, 6).Value = "—";
-                }
-
-                ws.Cell(row, 7).Value = variance.ItemsShort;
-                ws.Cell(row, 8).Value = variance.ItemsOver;
-
-                if (variance.ItemsShort > 0)
-                {
-                    ws.Cell(row, 7).Style.Font.FontColor = TsRed;
-                    ws.Cell(row, 7).Style.Font.Bold = true;
-                }
-
-                if (variance.TopVariances.FirstOrDefault() is { } biggest)
-                {
-                    ws.Cell(row, 9).Value = biggest.DisplayName;
-                    ws.Cell(row, 10).Value = biggest.Variance;
-
-                    if (biggest.Variance < 0)
-                    {
-                        ws.Cell(row, 10).Style.Font.FontColor = TsRed;
-                        ws.Cell(row, 10).Style.Font.Bold = true;
-                    }
-                }
-                else
-                {
-                    ws.Cell(row, 9).Value = "Balanced";
+                    ws.Cell(row, col).Value = "—";
                 }
             }
 
@@ -6271,56 +6258,48 @@ public partial class ReportExportService : IReportExportService
     }
 
     /// <summary>
-    /// The items behind each morning that did not balance, each in its own stock unit, with the
-    /// arithmetic written out so a reader can see which term is wrong.
+    /// Every SAP document behind each morning, with its printed date beside the moment SAP created
+    /// it, so a backdated invoice or load is visible as such.
     /// </summary>
-    private static void BuildVanStockItemDifferenceSheet(
+    private static void BuildVanStockDocumentSheet(
         XLWorkbook workbook,
         VanStockReportResponse report,
         DateTime now)
     {
-        const int lastCol = 10;
-        var ws = workbook.Worksheets.Add("Item Differences");
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("SAP Documents");
         TsApplyDefaults(ws);
 
-        int row = TsTitleBar(ws, "WHICH ITEMS WERE OFF", lastCol, now);
-
-        ws.Cell(row, 1).Value =
-            "Each item in its own stock unit: yesterday's count, less sold, plus transferred on, is what "
-            + "should have been found. Up to the ten largest differences per morning; the Reconciliation "
-            + "sheet has how many there were in all.";
-        ws.Range(row, 1, row, lastCol).Merge();
-        ws.Cell(row, 1).Style.Font.FontSize = 9;
-        ws.Cell(row, 1).Style.Font.Italic = true;
-        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
-        ws.Cell(row, 1).Style.Alignment.WrapText = true;
-        ws.Row(row).Height = 32;
-        row += 2;
+        int row = TsTitleBar(ws, "WHAT SAP POSTED BETWEEN COUNTS", lastCol, now);
 
         row = TsColumnHeaders(ws, row, lastCol,
         [
-            "Van", "Morning", "Item Code", "Item", "Yesterday", "Sold", "Transferred On",
-            "Should Find", "Found", "Difference"
+            "Van", "Morning", "Document", "Number", "Dated", "Created In SAP", "Days Backdated", "Items", "Remarks"
         ]);
 
         int index = 0;
-        foreach (var variance in report.Variances.Where(v => !v.HasGap))
+        foreach (var morning in report.Mornings)
         {
-            foreach (var line in variance.TopVariances)
+            foreach (var document in morning.Documents)
             {
                 TsDataRow(ws, row, lastCol, index % 2 == 1);
-                ws.Cell(row, 1).Value = variance.VanWarehouseCode;
-                WriteVanPerformanceDate(ws.Cell(row, 2), variance.ToSnapshot);
-                ws.Cell(row, 3).Value = line.ItemCode;
-                ws.Cell(row, 4).Value = line.DisplayName;
-                ws.Cell(row, 5).Value = line.Opening;
-                ws.Cell(row, 6).Value = line.Sold;
-                ws.Cell(row, 7).Value = line.Adjustment;
-                ws.Cell(row, 8).Value = line.Expected;
-                ws.Cell(row, 9).Value = line.Actual;
-                ws.Cell(row, 10).Value = line.Variance;
-                ws.Cell(row, 10).Style.Font.Bold = true;
-                ws.Cell(row, 10).Style.Font.FontColor = line.Variance < 0 ? TsRed : TsTextMuted;
+                ws.Cell(row, 1).Value = morning.VanWarehouseCode;
+                WriteVanPerformanceDate(ws.Cell(row, 2), morning.ToSnapshot);
+                ws.Cell(row, 3).Value = DocumentKindText(document.Kind);
+                ws.Cell(row, 4).Value = document.DocNum;
+                WriteVanPerformanceDate(ws.Cell(row, 5), document.DocDate);
+                ws.Cell(row, 6).Value = document.CreatedTimeKnown
+                    ? document.CreatedAt.ToString("dd MMM yyyy HH:mm")
+                    : document.CreatedAt.ToString("dd MMM yyyy") + " (no time)";
+                ws.Cell(row, 7).Value = document.DaysBackdated;
+                ws.Cell(row, 8).Value = document.ItemCount;
+                ws.Cell(row, 9).Value = document.Comments ?? "";
+
+                if (document.DaysBackdated > 0)
+                {
+                    ws.Cell(row, 7).Style.Font.FontColor = TsOrange;
+                    ws.Cell(row, 7).Style.Font.Bold = true;
+                }
 
                 row++;
                 index++;
@@ -6329,6 +6308,136 @@ public partial class ReportExportService : IReportExportService
 
         TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
     }
+
+    /// <summary>
+    /// The items behind each morning that SAP's documents do not explain, each in its own stock
+    /// unit, with the arithmetic written out.
+    /// </summary>
+    private static void BuildVanStockUnexplainedSheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 12;
+        var ws = workbook.Worksheets.Add("Unexplained Items");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "MOVED BY A POSTING THIS REPORT DOES NOT READ", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "Each item in its own stock unit: the earlier count, less invoiced, plus credited, plus "
+            + "transferred on, less transferred off, is what SAP's documents say the later count should "
+            + "be. The difference is a goods issue, goods receipt or stock count — or a count that did "
+            + "not read cleanly. Up to 25 items per morning; the Mornings sheet has how many there were.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 44;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Van", "Morning", "Item Code", "Item", "Earlier Count", "Invoiced", "Credited",
+            "Transferred On", "Transferred Off", "Documents Say", "Counted", "Unexplained"
+        ]);
+
+        int index = 0;
+        foreach (var morning in report.Mornings)
+        {
+            foreach (var line in morning.Unexplained)
+            {
+                TsDataRow(ws, row, lastCol, index % 2 == 1);
+                ws.Cell(row, 1).Value = morning.VanWarehouseCode;
+                WriteVanPerformanceDate(ws.Cell(row, 2), morning.ToSnapshot);
+                ws.Cell(row, 3).Value = line.ItemCode;
+                ws.Cell(row, 4).Value = line.DisplayName;
+                ws.Cell(row, 5).Value = line.Opening;
+                ws.Cell(row, 6).Value = line.Invoiced;
+                ws.Cell(row, 7).Value = line.Credited;
+                ws.Cell(row, 8).Value = line.TransferredIn;
+                ws.Cell(row, 9).Value = line.TransferredOut;
+                ws.Cell(row, 10).Value = line.Expected;
+                ws.Cell(row, 11).Value = line.Closing;
+                ws.Cell(row, 12).Value = line.Unexplained;
+                ws.Cell(row, 12).Style.Font.Bold = true;
+                ws.Cell(row, 12).Style.Font.FontColor = line.Unexplained < 0 ? TsRed : TsTextMuted;
+
+                row++;
+                index++;
+            }
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanStockSalesSheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 10;
+        var ws = workbook.Worksheets.Add("Sales vs SAP");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "DID EACH DAY'S SALES REACH SAP?", lastCol, now);
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Van", "Trading Day", "Verdict", "Items Recorded", "Items Invoiced", "Invoices",
+            "First Invoice Created", "Last Invoice Created", "Not In SAP", "Only In SAP"
+        ]);
+
+        int index = 0;
+        foreach (var day in report.SalesDays)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = day.VanWarehouseCode;
+            WriteVanPerformanceDate(ws.Cell(row, 2), day.TradingDate);
+            ws.Cell(row, 3).Value = SalesStatusText(day);
+            ws.Cell(row, 4).Value = day.RecordedItems;
+            ws.Cell(row, 5).Value = day.SapItems;
+            ws.Cell(row, 6).Value = day.SapInvoiceCount;
+            ws.Cell(row, 7).Value = day.FirstInvoicedAt?.ToString("dd MMM yyyy HH:mm") ?? "—";
+            ws.Cell(row, 8).Value = day.LastInvoicedAt?.ToString("dd MMM yyyy HH:mm") ?? "—";
+            ws.Cell(row, 9).Value = day.ItemsNotInSap;
+            ws.Cell(row, 10).Value = day.ItemsOnlyInSap;
+
+            ws.Cell(row, 3).Style.Font.Bold = day.Status is "Late" or "NotInSap" or "SapOnly";
+            ws.Cell(row, 3).Style.Font.FontColor = day.Status switch
+            {
+                "NotInSap" => TsRed,
+                "Late" or "SapOnly" => TsOrange,
+                _ => TsTextMuted
+            };
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static string DocumentKindText(string kind) => kind switch
+    {
+        "Invoice" => "Invoice",
+        "CreditNote" => "Credit note",
+        "TransferIn" => "Transfer on",
+        "TransferOut" => "Transfer off",
+        _ => kind
+    };
+
+    private static string SalesStatusText(VanStockSalesDay day) => day.Status switch
+    {
+        "OnTime" => "On time",
+        "Late" => day.DaysLate is { } late ? $"{late:N0} day(s) late" : "Late",
+        "NotInSap" => "Not in SAP",
+        "Pending" => "Due at next count",
+        "SapOnly" => "In SAP only",
+        "Unchecked" => "SAP not read",
+        _ => day.Status
+    };
 
     private static void BuildVanStockDaySheet(
         XLWorkbook workbook,

@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Models;
@@ -10,11 +12,11 @@ namespace ShopInventory.Tests;
 /// <summary>
 /// Covers the van stock report.
 ///
-/// The reconciliation here is morning to morning, and the two ways it can lie are both tested below.
-/// It must never reach over a missing day — two days of difference reported as one looks like a
-/// single large discrepancy on the wrong date. And it must never read the snapshot's
-/// <c>AvailableQuantity</c> as what is left on a van: no van sales path decrements it, so on a van
-/// warehouse that column is inert and would make every van look like it sold nothing.
+/// Each morning's count is SAP's book stock, so it is explained by the SAP documents created since
+/// the count before it — placed by when SAP created them, never by the date printed on them or by the
+/// app's own trading day. That is the rule these tests hold: a day's sales invoiced after the next
+/// count must read as late, not as stock missing one morning and found the next. And the snapshot's
+/// <c>AvailableQuantity</c> is never read as what is left on a van: no van sales path decrements it.
 /// </summary>
 public sealed class VanStockReportTests : IDisposable
 {
@@ -27,6 +29,7 @@ public sealed class VanStockReportTests : IDisposable
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
+    private readonly FakeSapDocuments _sap = new();
 
     public VanStockReportTests()
     {
@@ -123,121 +126,299 @@ public sealed class VanStockReportTests : IDisposable
         Assert.Equal(-15m, day.ExpectedRemaining);
     }
 
-    // --- C2: variance ---
+    // --- C2: each morning against SAP's documents ---
 
     /// <summary>
-    /// The reconciliation itself. Yesterday's load, less what sold, plus what arrived, is what this
-    /// morning should have found.
+    /// The reconciliation itself. The count is SAP's book stock, so the invoice SAP created between
+    /// the two counts is what explains the change.
     /// </summary>
     [Fact]
-    public async Task A_clean_pair_of_mornings_reconciles_to_no_variance()
+    public async Task A_morning_explained_by_sap_documents_ties()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 40m));
+        _sap.Invoice(779001, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4, 16, 5, 0), ("CHE011", 60m));
+        await _context.SaveChangesAsync();
+
+        var morning = Assert.Single((await RunAsync()).Mornings);
+
+        Assert.True(morning.SapChecked);
+        Assert.True(morning.TiesToSap);
+        Assert.Equal(0, morning.ItemsUnexplained);
+        Assert.Equal(1, morning.ItemsMoved);
+
+        var document = Assert.Single(morning.Documents);
+        Assert.Equal("Invoice", document.Kind);
+        Assert.Equal(779001, document.DocNum);
+        Assert.Equal(0, document.DaysBackdated);
+    }
+
+    /// <summary>
+    /// The case the report was rebuilt for, taken from VAN001 in September 2026: a day's sales invoiced
+    /// in SAP after the next morning's count. SAP's stock did not move until the invoice was created,
+    /// so the morning after the trading day ties with no document, and the morning after that ties
+    /// with the invoice. The day is reported as late — not as stock missing and then found.
+    /// </summary>
+    [Fact]
+    public async Task A_day_invoiced_after_the_next_count_is_late_not_missing_then_found()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 100m));
+        AddSnapshot(new DateTime(2026, 8, 6), ("CHE011", 40m));
+        // Dated the 4th, created at 09:22 on the 5th — after that morning's 07:00 count.
+        _sap.Invoice(779350, new DateTime(2026, 8, 4), new DateTime(2026, 8, 5, 9, 22, 0), ("CHE011", 60m));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(2, report.Mornings.Count);
+        Assert.All(report.Mornings, morning => Assert.True(morning.TiesToSap));
+        Assert.Empty(report.Mornings[0].Documents);
+
+        var document = Assert.Single(report.Mornings[1].Documents);
+        Assert.Equal(1, document.DaysBackdated);
+
+        var day = Assert.Single(report.SalesDays);
+        Assert.Equal("Late", day.Status);
+        Assert.Equal(1, day.DaysLate);
+        Assert.Equal(new DateTime(2026, 8, 5, 7, 0, 0), day.NextCountAt);
+        Assert.Empty(day.Differences);
+
+        var van = Assert.Single(report.Vans!);
+        Assert.Equal(2, van.MorningsTied);
+        Assert.Equal(1, van.SalesDaysLate);
+        Assert.Equal(1, van.MaxDaysLate);
+    }
+
+    [Fact]
+    public async Task A_day_invoiced_before_the_next_count_is_on_time()
     {
         AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
         AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
         AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 40m));
+        _sap.Invoice(779001, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4, 18, 30, 0), ("CHE011", 60m));
         await _context.SaveChangesAsync();
 
-        var variance = Assert.Single((await RunAsync()).Variances);
+        var day = Assert.Single((await RunAsync()).SalesDays);
 
-        Assert.False(variance.HasGap);
-        Assert.Equal(40m, variance.ExpectedQuantity);
-        Assert.Equal(40m, variance.ClosingQuantity);
-        Assert.Equal(0m, variance.Variance);
-        Assert.Empty(variance.TopVariances);
-    }
-
-    /// <summary>Stock that went missing overnight shows as a negative variance, per item.</summary>
-    [Fact]
-    public async Task Stock_that_cannot_be_accounted_for_shows_as_a_shortfall()
-    {
-        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
-        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
-        // Should have found 40; found 31.
-        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 31m));
-        await _context.SaveChangesAsync();
-
-        var variance = Assert.Single((await RunAsync()).Variances);
-
-        Assert.Equal(-9m, variance.Variance);
-        Assert.Equal(1, variance.ItemsShort);
-        Assert.Equal(0, variance.ItemsOver);
-
-        var item = Assert.Single(variance.TopVariances);
-        Assert.Equal("CHE011", item.ItemCode);
-        Assert.Equal(-9m, item.Variance);
-    }
-
-    /// <summary>A transfer that reached the van during the day is part of the arithmetic.</summary>
-    [Fact]
-    public async Task A_mid_day_transfer_is_taken_into_account()
-    {
-        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
-        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
-        AddAdjustment(new DateTime(2026, 8, 4), "CHE011", 25m);
-        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 65m));
-        await _context.SaveChangesAsync();
-
-        var variance = Assert.Single((await RunAsync()).Variances);
-
-        Assert.Equal(65m, variance.ExpectedQuantity);
-        Assert.Equal(0m, variance.Variance);
+        Assert.Equal("OnTime", day.Status);
+        Assert.Null(day.DaysLate);
+        Assert.Equal(1, day.SapInvoiceCount);
     }
 
     /// <summary>
-    /// The rule this report exists to keep. Two days of difference reported as one would read as a
-    /// single large discrepancy on the wrong date, so a gap yields no variance at all.
+    /// SAP moved stock by something other than an invoice, credit note or transfer — a breakage
+    /// issued, a count posted. The report names the item and the amount rather than calling it lost.
     /// </summary>
     [Fact]
-    public async Task A_missing_morning_breaks_the_chain_rather_than_being_bridged()
+    public async Task Stock_moved_by_a_posting_the_report_does_not_read_is_unexplained()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m), ("NRI049", 50m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 91m), ("NRI049", 50m));
+        await _context.SaveChangesAsync();
+
+        var morning = Assert.Single((await RunAsync()).Mornings);
+
+        Assert.False(morning.TiesToSap);
+        Assert.Equal(2, morning.ItemCount);
+        Assert.Equal(1, morning.ItemsUnexplained);
+
+        var item = Assert.Single(morning.Unexplained);
+        Assert.Equal("CHE011", item.ItemCode);
+        Assert.Equal(100m, item.Expected);
+        Assert.Equal(91m, item.Closing);
+        Assert.Equal(-9m, item.Unexplained);
+    }
+
+    /// <summary>Loads on and off, and a customer's return, are all SAP documents and all explain the count.</summary>
+    [Fact]
+    public async Task Transfers_and_credit_notes_are_part_of_the_arithmetic()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m), ("PIC003", 20m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 125m), ("PIC003", 12m));
+        _sap.Invoice(779001, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4, 16, 0, 0), ("CHE011", 20m));
+        _sap.CreditNote(51001, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4, 17, 0, 0), "CHE011", 5m);
+        _sap.TransferIn(88892, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4), "CHE011", 40m);
+        _sap.TransferOut(88893, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4), "PIC003", 8m);
+        await _context.SaveChangesAsync();
+
+        var morning = Assert.Single((await RunAsync()).Mornings);
+
+        Assert.True(morning.TiesToSap);
+        Assert.Equal(4, morning.Documents.Count);
+        Assert.Contains(morning.Documents, document => document.Kind == "TransferOut" && !document.CreatedTimeKnown);
+    }
+
+    /// <summary>
+    /// A cancelled transfer arrives from SAP as the same transfer with negative quantities (88939,
+    /// cancelled by 88940). The pair nets to nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_cancelled_transfer_nets_to_nothing()
     {
         AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
-        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 100m));
+        _sap.TransferIn(88939, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4), "CHE011", 30m);
+        _sap.TransferIn(88940, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4), "CHE011", -30m);
+        await _context.SaveChangesAsync();
+
+        var morning = Assert.Single((await RunAsync()).Mornings);
+
+        Assert.True(morning.TiesToSap);
+        Assert.Equal(2, morning.Documents.Count);
+    }
+
+    /// <summary>
+    /// SAP stamps a transfer with a date and no time. When TransferEventListener saw it before the
+    /// 07:00 count, that moment places it — at midday it would land in the next morning and make both
+    /// mornings look wrong.
+    /// </summary>
+    [Fact]
+    public async Task A_transfer_the_listener_saw_before_the_count_belongs_to_that_morning()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 130m));
+        AddSnapshot(new DateTime(2026, 8, 6), ("CHE011", 130m));
+        _sap.TransferIn(89001, new DateTime(2026, 8, 5), new DateTime(2026, 8, 5), "CHE011", 30m);
+        // 04:30 UTC is 06:30 CAT, before the 5th's count.
+        AddAdjustment(new DateTime(2026, 8, 4), "CHE011", 30m, docEntry: 89001,
+            detectedAtUtc: new DateTime(2026, 8, 5, 4, 30, 0));
+        await _context.SaveChangesAsync();
+
+        var mornings = (await RunAsync()).Mornings;
+
+        Assert.All(mornings, morning => Assert.True(morning.TiesToSap));
+        var document = Assert.Single(mornings[0].Documents);
+        Assert.True(document.CreatedTimeKnown);
+        Assert.Equal(new DateTime(2026, 8, 5, 6, 30, 0), document.CreatedAt);
+    }
+
+    /// <summary>
+    /// A missing count no longer breaks the chain. The documents cover every day between the two
+    /// counts, so the comparison is over the longer window and nothing lands on the wrong date.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_count_is_bridged_by_the_documents_in_between()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
         // Nothing on the 5th.
         AddSnapshot(new DateTime(2026, 8, 6), ("CHE011", 10m));
+        _sap.Invoice(779001, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4, 16, 0, 0), ("CHE011", 60m));
+        _sap.Invoice(779002, new DateTime(2026, 8, 5), new DateTime(2026, 8, 5, 16, 0, 0), ("CHE011", 30m));
         await _context.SaveChangesAsync();
 
         var report = await RunAsync();
-        var variance = Assert.Single(report.Variances);
+        var morning = Assert.Single(report.Mornings);
 
-        Assert.True(variance.HasGap);
-        Assert.Equal(2, variance.GapDays);
-        Assert.Null(variance.ExpectedQuantity);
-        Assert.Null(variance.Variance);
-        Assert.Empty(variance.TopVariances);
+        Assert.True(morning.HasGap);
+        Assert.Equal(2, morning.GapDays);
+        Assert.True(morning.TiesToSap);
+        Assert.Equal(2, morning.Documents.Count);
 
-        Assert.Equal(1, report.Quality.VariancePairsSkippedForGaps);
         Assert.Equal(1, report.Quality.MissingSnapshotDays);
-        Assert.False(report.Quality.IsClean);
+        Assert.Contains(report.Quality.Caveats, caveat => caveat.Contains("across the gap"));
+    }
+
+    /// <summary>An unfinished count is missing items, so it is left out of the chain rather than compared.</summary>
+    [Fact]
+    public async Task An_unfinished_count_is_skipped_rather_than_compared()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        AddSnapshot(new DateTime(2026, 8, 5), StockSnapshotStatus.Failed);
+        AddSnapshot(new DateTime(2026, 8, 6), ("CHE011", 100m));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var morning = Assert.Single(report.Mornings);
+
+        Assert.Equal(new DateTime(2026, 8, 4), morning.FromSnapshot);
+        Assert.Equal(new DateTime(2026, 8, 6), morning.ToSnapshot);
+        Assert.True(morning.TiesToSap);
+        Assert.Equal(1, report.Quality.IncompleteSnapshots);
+    }
+
+    // --- Sales against SAP invoices ---
+
+    /// <summary>
+    /// Recorded by the van, never invoiced. SAP overstates the van's stock until it is, and the
+    /// report names the items.
+    /// </summary>
+    [Fact]
+    public async Task Sales_with_no_sap_invoice_are_reported_as_not_in_sap()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m), ("NRI049", 50m));
+        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m), ("NRI049", 10m));
+        _sap.Invoice(779001, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4, 18, 0, 0), ("CHE011", 60m));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var day = Assert.Single(report.SalesDays);
+
+        Assert.Equal("NotInSap", day.Status);
+        Assert.Equal(1, day.ItemsNotInSap);
+        var item = Assert.Single(day.Differences);
+        Assert.Equal("NRI049", item.ItemCode);
+        Assert.Equal(-10m, item.Difference);
+
+        Assert.Equal(1, Assert.Single(report.Vans!).SalesDaysNotInSap);
     }
 
     /// <summary>
-    /// The page judges a morning by how many items were off, not by a quantity summed across units,
-    /// so it needs the count of items on the van to say how many matched — and each item's own
-    /// arithmetic to show why it did not.
+    /// SAP holds invoices from the van for a day the app recorded nothing — raised by hand, or a sale
+    /// the app lost. Either way someone should know who raised them.
     /// </summary>
     [Fact]
-    public async Task A_morning_carries_its_item_count_and_each_items_arithmetic()
+    public async Task Sap_invoices_with_no_recorded_sale_are_reported_as_sap_only()
     {
-        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m), ("NRI049", 50m), ("PIC003", 20m));
-        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
-        AddAdjustment(new DateTime(2026, 8, 4), "CHE011", 5m);
-        // CHE011 should be 45, found 31. NRI049 matches. PIC003 found 8 more than loaded.
-        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 31m), ("NRI049", 50m), ("PIC003", 28m));
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        _sap.Invoice(779001, new DateTime(2026, 8, 4), new DateTime(2026, 8, 4, 18, 0, 0), ("CHE011", 20m));
         await _context.SaveChangesAsync();
 
-        var variance = Assert.Single((await RunAsync()).Variances);
+        var day = Assert.Single((await RunAsync()).SalesDays);
 
-        Assert.Equal(3, variance.ItemCount);
-        Assert.Equal(1, variance.ItemsShort);
-        Assert.Equal(1, variance.ItemsOver);
+        Assert.Equal("SapOnly", day.Status);
+        Assert.Equal(1, day.ItemsOnlyInSap);
+    }
 
-        var short_ = variance.TopVariances.Single(v => v.ItemCode == "CHE011");
-        Assert.Equal(100m, short_.Opening);
-        Assert.Equal(60m, short_.Sold);
-        Assert.Equal(5m, short_.Adjustment);
-        Assert.Equal(45m, short_.Expected);
-        Assert.Equal(31m, short_.Actual);
-        Assert.Equal(-14m, short_.Variance);
+    /// <summary>
+    /// The van's own business partner is what SAP invoices are read by, and it comes from the rep's
+    /// profile — SAP files VAN001's invoices under VAN010, so a warehouse code would find nothing.
+    /// </summary>
+    [Fact]
+    public async Task Invoices_are_read_by_the_reps_business_partner()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        await _context.SaveChangesAsync();
+
+        await RunAsync();
+
+        Assert.Equal([Van], _sap.Accounts![Van]);
+    }
+
+    /// <summary>
+    /// When SAP cannot be read nothing is claimed either way: no morning ties, no day is on time, and
+    /// the reason leads the caveats.
+    /// </summary>
+    [Fact]
+    public async Task Without_sap_nothing_is_claimed_either_way()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 40m));
+        _sap.Problem = "SAP documents could not be read: timeout.";
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        var morning = Assert.Single(report.Mornings);
+        Assert.False(morning.SapChecked);
+        Assert.False(morning.TiesToSap);
+        Assert.Empty(morning.Unexplained);
+
+        Assert.Equal("Unchecked", Assert.Single(report.SalesDays).Status);
+        Assert.False(report.Summary.SapChecked);
+        Assert.StartsWith("SAP documents could not be read", report.Quality.Caveats.First());
     }
 
     /// <summary>
@@ -401,7 +582,7 @@ public sealed class VanStockReportTests : IDisposable
     [Fact]
     public async Task A_backwards_period_is_refused()
     {
-        var handler = new GetVanStockReportHandler(_context);
+        var handler = NewHandler();
 
         var result = await handler.Handle(
             new GetVanStockReportQuery(To, From),
@@ -413,9 +594,12 @@ public sealed class VanStockReportTests : IDisposable
 
     // --- Helpers ---
 
+    private GetVanStockReportHandler NewHandler() =>
+        new(_context, _sap, Options.Create(new DailyStockSettings { StockFetchTimeCAT = "07:00" }));
+
     private async Task<VanStockReportResult> RunAsync(int deadStockDays = 14)
     {
-        var handler = new GetVanStockReportHandler(_context);
+        var handler = NewHandler();
 
         var result = await handler.Handle(
             new GetVanStockReportQuery(From, To, null, deadStockDays),
@@ -490,7 +674,23 @@ public sealed class VanStockReportTests : IDisposable
         }
     }
 
-    private void AddAdjustment(DateTime date, string itemCode, decimal quantity) =>
+    private void AddSnapshot(DateTime date, StockSnapshotStatus status)
+    {
+        _context.DailyStockSnapshots.Add(new DailyStockSnapshotEntity
+        {
+            SnapshotDate = date,
+            WarehouseCode = Van,
+            Status = status
+        });
+        _context.SaveChanges();
+    }
+
+    private void AddAdjustment(
+        DateTime date,
+        string itemCode,
+        decimal quantity,
+        int? docEntry = null,
+        DateTime? detectedAtUtc = null) =>
         _context.StockTransferAdjustments.Add(new StockTransferAdjustmentEntity
         {
             SnapshotDate = date,
@@ -498,7 +698,8 @@ public sealed class VanStockReportTests : IDisposable
             WarehouseCode = Van,
             AdjustmentQuantity = quantity,
             Direction = quantity >= 0 ? "In" : "Out",
-            DetectedAt = date.AddHours(10)
+            TransferDocEntry = docEntry,
+            DetectedAt = detectedAtUtc ?? date.AddHours(10)
         });
 
     private void AddSale(string reference, DateTime docDate, params (string Item, decimal Quantity)[] items) =>
@@ -531,4 +732,48 @@ public sealed class VanStockReportTests : IDisposable
                 })
                 .ToList()
         });
+
+    /// <summary>
+    /// The SAP half, as SAP would answer it: each document with its printed date and the moment SAP
+    /// created it. Transfers carry a creation date only, as they do in SAP.
+    /// </summary>
+    private sealed class FakeSapDocuments : IVanStockSapDocuments
+    {
+        private readonly List<VanStockSapMovement> _movements = [];
+
+        public string? Problem { get; set; }
+
+        public IReadOnlyDictionary<string, IReadOnlyCollection<string>>? Accounts { get; private set; }
+
+        public Task<VanStockSapRead> LoadAsync(
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> accountsByVan,
+            DateTime createdFrom,
+            DateTime createdTo,
+            CancellationToken cancellationToken)
+        {
+            Accounts = accountsByVan;
+
+            return Task.FromResult(Problem is null
+                ? new VanStockSapRead(true, null, _movements.ToList())
+                : VanStockSapRead.Unavailable(Problem));
+        }
+
+        public void Invoice(int docNum, DateTime docDate, DateTime createdAt, params (string Item, decimal Quantity)[] lines) =>
+            _movements.AddRange(lines.Select(line => Movement(
+                VanStockDocumentKind.Invoice, docNum, docDate, createdAt, true, line.Item, -line.Quantity)));
+
+        public void CreditNote(int docNum, DateTime docDate, DateTime createdAt, string item, decimal quantity) =>
+            _movements.Add(Movement(VanStockDocumentKind.CreditNote, docNum, docDate, createdAt, true, item, quantity));
+
+        public void TransferIn(int docNum, DateTime docDate, DateTime createdOn, string item, decimal quantity) =>
+            _movements.Add(Movement(VanStockDocumentKind.TransferIn, docNum, docDate, createdOn.Date.AddHours(12), false, item, quantity));
+
+        public void TransferOut(int docNum, DateTime docDate, DateTime createdOn, string item, decimal quantity) =>
+            _movements.Add(Movement(VanStockDocumentKind.TransferOut, docNum, docDate, createdOn.Date.AddHours(12), false, item, -quantity));
+
+        private static VanStockSapMovement Movement(
+            VanStockDocumentKind kind, int docNum, DateTime docDate, DateTime createdAt, bool timeKnown,
+            string item, decimal quantity) =>
+            new(Van, kind, docNum, docNum, docDate, createdAt, timeKnown, null, item, $"Item {item}", quantity);
+    }
 }

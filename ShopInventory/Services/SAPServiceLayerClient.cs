@@ -1069,6 +1069,81 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             .ToList();
     }
 
+    private const string StockMovementDocumentSelect =
+        "$select=DocEntry,DocNum,DocDate,CreationDate,DocTime,Comments,CardCode,DocumentLines";
+
+    private const string StockMovementTransferSelect =
+        "$select=DocEntry,DocNum,DocDate,CreationDate,Comments,FromWarehouse,ToWarehouse,StockTransferLines";
+
+    /// <remarks>
+    /// Filtered on the header's <c>CardCode</c> and <c>CreationDate</c>, both of which the Service
+    /// Layer filters server-side; the warehouse is on the lines, which it will not filter
+    /// (<c>DocumentLines/any(...)</c> answers 400), so the caller matches lines itself. Measured on
+    /// 2026-09-26 against production: a van account's three days of invoices in 5.5s, two months of
+    /// its credit notes in 0.9s.
+    /// </remarks>
+    public async Task<List<SapStockMovementDocument>> GetSalesDocumentsCreatedAsync(
+        SapStockDocumentKind kind,
+        string cardCode,
+        DateTime createdFrom,
+        DateTime createdTo,
+        CancellationToken cancellationToken = default)
+    {
+        var entitySet = kind switch
+        {
+            SapStockDocumentKind.Invoice => "Invoices",
+            SapStockDocumentKind.CreditNote => "CreditNotes",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Only invoices and credit notes carry a business partner.")
+        };
+
+        var documents = await ReadDocumentPagesAsync<SapStockMovementDocument>(
+            entitySet,
+            $"CardCode eq '{EscapeODataStringLiteral(cardCode)}' and CreationDate ge '{createdFrom:yyyy-MM-dd}' and CreationDate le '{createdTo:yyyy-MM-dd}'",
+            StockMovementDocumentSelect,
+            $"read {entitySet} created for {cardCode}",
+            cancellationToken,
+            NoDocumentListCeiling);
+
+        documents.ForEach(document => document.Kind = kind);
+        return documents;
+    }
+
+    /// <remarks>
+    /// Filtered on the header warehouses rather than read by date alone and matched line by line, as
+    /// <see cref="GetInventoryTransfersTouchingWarehouseAsync"/> does: the company posts around 275
+    /// transfers a day, and reading two weeks of them unfiltered took ten seconds a day. A transfer
+    /// whose header names two other warehouses while a line moves stock for one of these is missed,
+    /// and shows up in a stock reconciliation as a movement no document explains.
+    /// </remarks>
+    public async Task<List<SapStockMovementDocument>> GetStockTransfersCreatedAsync(
+        IReadOnlyCollection<string> warehouseCodes,
+        DateTime createdFrom,
+        DateTime createdTo,
+        CancellationToken cancellationToken = default)
+    {
+        if (warehouseCodes.Count == 0)
+        {
+            return [];
+        }
+
+        var warehouses = string.Join(" or ", warehouseCodes.Select(code =>
+        {
+            var escaped = EscapeODataStringLiteral(code);
+            return $"FromWarehouse eq '{escaped}' or ToWarehouse eq '{escaped}'";
+        }));
+
+        var documents = await ReadDocumentPagesAsync<SapStockMovementDocument>(
+            "StockTransfers",
+            $"({warehouses}) and CreationDate ge '{createdFrom:yyyy-MM-dd}' and CreationDate le '{createdTo:yyyy-MM-dd}'",
+            StockMovementTransferSelect,
+            "read stock transfers created for van warehouses",
+            cancellationToken,
+            NoDocumentListCeiling);
+
+        documents.ForEach(document => document.Kind = SapStockDocumentKind.StockTransfer);
+        return documents;
+    }
+
     /// <summary>Every stock transfer answering <paramref name="filter"/>, page by page.</summary>
     private async Task<List<InventoryTransfer>> ReadStockTransfersAsync(string filter, CancellationToken cancellationToken)
     {
