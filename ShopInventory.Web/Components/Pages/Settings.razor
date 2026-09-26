@@ -814,9 +814,12 @@
                             <div class="stg-row-info">
                                 <div class="stg-row-label"><span>Daily Incoming Payment for Desktop Sales</span></div>
                                 <span class="stg-row-desc">
-                                    On: at 17:00 each customer gets <strong>one incoming payment</strong> settling that day's till,
-                                    vending and consolidated invoices. Off: desktop sales post <strong>invoices only</strong> and
-                                    they stay open in SAP. Takes effect on the next run, no restart needed. Van sales are never paid here.
+                                    On: each customer gets <strong>one incoming payment</strong> a day settling its till,
+                                    vending and consolidated invoices. Partners mapped to the van run are paid at
+                                    <strong>20:00</strong>; everyone else, shops and unmapped partners, at <strong>17:00</strong>.
+                                    An unmapped partner's payment is <strong>held, not posted</strong>, until its G/L accounts are
+                                    set on <a href="/reports/desktop-sales/payments">Daily Incoming Payments</a>. Off: desktop sales post
+                                    <strong>invoices only</strong> and they stay open in SAP. Takes effect on the next run, no restart needed.
                                 </span>
                                 @if (dailyPaymentSettings is null)
                                 {
