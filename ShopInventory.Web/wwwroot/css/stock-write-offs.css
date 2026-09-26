@@ -1,11 +1,13 @@
 /* ==========================================================================
    Stock Write-offs — Nocturne
 
-   Counted stock issued out of a warehouse in SAP as a goods issue. The shape is
-   Market Breakages': the history on the left, the bench on the right, because
-   it is the same job — walk a list, count, commit — and a drawer would hide the
-   list at the moment the operator most wants to check it against what they are
-   about to destroy.
+   Counted stock issued out of a warehouse in SAP as a goods issue. Built from
+   the "Stock Write-offs redesign" canvas: count, review, then commit. While
+   composing the page is three columns — the history, the count, and a preview
+   of the goods issue the count will become — and nothing posts from the count
+   itself: posting goes through a review dialog that restates it, because what
+   leaves SAP here cannot be taken back from this page. Opening a write-off
+   swaps the count and the preview for that write-off's detail.
 
    The palette is an alias layer over nocturne-tokens.css and flips at the root,
    so this sheet carries no `.dark-theme` block. `color-scheme` is declared on
@@ -13,9 +15,21 @@
    Nocturne components read it: without it they paint light furniture on the
    dark ground.
 
-   Prefix `swo-`. A separate sheet from transfer-forms.css (`tfm-`) on purpose:
-   that sheet dresses two create forms, and this page is a list beside a bench
-   rather than a third form in that family.
+   Four app.css rules have to be out-specified rather than out-ordered, which
+   is why the text, field and card rules below sit two classes deep:
+     - `.dark-theme h1…h6` and `.dark-theme p` repaint text colour (0,1,1);
+     - `.dark-theme input` paints fields slate #1e293b (0,1,1);
+     - `.dark-theme main` paints a navy gradient behind any <main> (0,1,1);
+     - `.dark-theme table thead th` paints a navy band on header rows (0,1,2).
+
+   Breakpoints are viewport widths, and the staff shell's 232px sidebar only
+   indents the content from 1280px up — below that the drawer is temporary. So
+   the three-column count needs ~1320px of content, which is a 1560px window;
+   below that the history drops beneath the count and preview.
+
+   Prefix `swo-`. The review dialog lives inside `.swo`, not beside it, so it
+   inherits the palette and the font context without an overlay peer class; it
+   is fixed, so the root's min-height does not reach it.
    ========================================================================== */
 
 .swo {
@@ -25,6 +39,7 @@
     --swo-ink-2: var(--noct-ink-2);
     --swo-mute: var(--noct-mute);
     --swo-mute-2: var(--noct-mute-2);
+    --swo-mute-3: var(--noct-mute-3);
     --swo-faint: var(--noct-faint);
     --swo-placeholder: var(--noct-placeholder);
     --swo-divider: var(--noct-divider);
@@ -37,43 +52,45 @@
     --swo-accent: var(--noct-accent);
     --swo-accent-rgb: var(--noct-accent-rgb);
     --swo-accent-text: var(--noct-accent-text);
-    --swo-fill: var(--noct-box);
-    --swo-on-fill: var(--noct-on-box);
-    --swo-shadow-lg: var(--noct-shadow-lg);
+    --swo-on-accent: var(--noct-on-accent);
+    --swo-scrim: var(--noct-scrim);
+    --swo-shadow-pop: var(--noct-shadow-pop);
+    --swo-warn-bg: var(--noct-warn-bg);
+    --swo-warn-edge: var(--noct-warn-edge);
+    --swo-warn-ink: var(--noct-warn-ink);
+    --swo-scheme: var(--noct-scheme);
 
     /* The five states a write-off can be in, from the system's families so they
        agree with every other status chip on the app: to post (accent), posting
-       (info), written off (good), failed (bad), cancelled (neutral). */
+       (info), written off (good), failed (bad), cancelled (neutral). Warn marks
+       a batch near its expiry. */
     --swo-fam-accent: var(--noct-fam-accent);
     --swo-fam-accent-rgb: var(--noct-fam-accent-rgb);
     --swo-fam-info: var(--noct-fam-info);
     --swo-fam-info-rgb: var(--noct-fam-info-rgb);
     --swo-fam-good: var(--noct-fam-good);
     --swo-fam-good-rgb: var(--noct-fam-good-rgb);
+    --swo-fam-warn: var(--noct-fam-warn);
+    --swo-fam-warn-rgb: var(--noct-fam-warn-rgb);
     --swo-fam-bad: var(--noct-fam-bad);
     --swo-fam-bad-rgb: var(--noct-fam-bad-rgb);
     --swo-fam-neutral: var(--noct-fam-neutral);
     --swo-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
 
-    --swo-s1: var(--noct-s1);
-    --swo-s2: var(--noct-s2);
-    --swo-s3: var(--noct-s3);
-    --swo-s4: var(--noct-s4);
-    --swo-s6: var(--noct-s6);
-    --swo-s8: var(--noct-s8);
     --swo-r-sm: var(--noct-r-sm);
     --swo-r-md: var(--noct-r-md);
     --swo-r-lg: var(--noct-r-lg);
+    --swo-gutter: 24px;
 
     /* The Nocturne controls fit the page from here rather than being restyled:
        the closed field matches the inputs beside it, the menus stay identical
        to every other menu in the app. */
-    --nsel-h: 38px;
-    --ndf-h: 38px;
+    --nsel-h: 40px;
+    --ndf-h: 40px;
     --ndf-fs: 14px;
-    --npick-h: 38px;
+    --npick-h: 44px;
 
-    color-scheme: var(--noct-scheme);
+    color-scheme: var(--swo-scheme);
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
@@ -84,7 +101,7 @@
     color: var(--swo-ink);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.45;
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
 }
@@ -94,9 +111,9 @@
 }
 
 .swo-shell {
-    max-width: 1320px;
+    max-width: 1640px;
     margin: 0 auto;
-    padding: 0 16px;
+    padding: 0 var(--swo-gutter);
 }
 
 .swo-sr {
@@ -108,95 +125,178 @@
     white-space: nowrap;
 }
 
+.swo svg {
+    flex: none;
+}
+
+/* The small caps label every block opens with. */
+.swo-lbl {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--swo-mute-2);
+}
+
+.swo .swo-muted {
+    margin: 0;
+    color: var(--swo-mute-2);
+    font-size: 13px;
+}
+
+.swo-rule {
+    height: 1px;
+    background: var(--swo-rule);
+}
+
 /* ── Header ────────────────────────────────────────────────────────────── */
 
 .swo-head {
-    padding: var(--swo-s6) 0 var(--swo-s4);
+    padding-top: 26px;
     border-bottom: 1px solid var(--swo-divider);
     background: var(--swo-bg);
+}
+
+.swo-head-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.swo-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
 }
 
 .swo-titles-row {
     display: flex;
     align-items: center;
-    gap: var(--swo-s2);
+    gap: 10px;
 }
 
 .swo-title-icon {
     width: 22px;
     height: 22px;
-    color: var(--swo-accent);
-    flex: none;
+    color: var(--swo-accent-text);
 }
 
-.swo-title {
+.swo .swo-title {
     margin: 0;
     font-size: 22px;
-    font-weight: 650;
+    font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--swo-ink);
 }
 
-.swo-sub {
-    margin: var(--swo-s1) 0 0;
-    max-width: 68ch;
-    color: var(--swo-mute);
+.swo .swo-sub {
+    margin: 0;
+    max-width: 64ch;
+    color: var(--swo-mute-2);
 }
 
+.swo-head-aside {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+}
+
+.swo-synced {
+    font-size: 12.5px;
+    color: var(--swo-mute-2);
+}
+
+/* Status tabs: the count is the headline, the label under it; the chosen one
+   is underlined rather than filled so the row reads as a filter, not buttons. */
 .swo-tabs {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--swo-s2);
-    margin-top: var(--swo-s4);
+    gap: 4px;
+    margin: 20px 0 0 -18px;
+    overflow-x: auto;
+    scrollbar-width: none;
 }
 
 .swo-tab {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 2px;
-    min-width: 104px;
-    padding: var(--swo-s2) var(--swo-s3);
-    border: 1px solid var(--swo-field-edge);
-    border-radius: var(--swo-r-md);
-    background: var(--swo-field-bg);
-    color: var(--swo-mute);
+    justify-content: flex-start;
+    padding: 8px 18px 12px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--swo-ink);
+    font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: border-color .12s ease, color .12s ease, background .12s ease;
+    transition: background .12s ease, border-color .12s ease;
 }
 
 .swo-tab:hover {
     background: var(--swo-hover);
-    border-color: var(--swo-field-edge-hi);
 }
 
 .swo-tab.is-on {
-    border-color: rgba(var(--swo-accent-rgb), .55);
-    color: var(--swo-ink);
-    background: rgba(var(--swo-accent-rgb), .10);
+    border-bottom-color: var(--swo-accent);
 }
 
 .swo-tab-n {
-    font-size: 19px;
-    font-weight: 650;
-    color: var(--swo-ink);
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+
+.swo-tab-n.is-bad {
+    color: var(--swo-fam-bad);
 }
 
 .swo-tab-l {
-    font-size: 12px;
-    letter-spacing: .02em;
-    text-transform: uppercase;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--swo-mute-2);
+    white-space: nowrap;
+}
+
+.swo-tab.is-on .swo-tab-l {
+    color: var(--swo-accent-text);
 }
 
 /* ── Body ──────────────────────────────────────────────────────────────── */
 
 .swo-body {
     display: grid;
-    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-    gap: var(--swo-s6);
+    gap: 24px;
     align-items: start;
-    padding-top: var(--swo-s6);
-    padding-bottom: var(--swo-s8);
+    padding-top: 24px;
+    padding-bottom: 40px;
+}
+
+.swo-body.is-compose {
+    grid-template-columns: 300px minmax(0, 1fr) 300px;
+    grid-template-areas: "queue main preview";
+}
+
+.swo-body.is-detail {
+    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-areas: "queue main";
+}
+
+.swo-queue { grid-area: queue; }
+.swo-compose,
+.swo-detail { grid-area: main; }
+.swo-preview { grid-area: preview; }
+
+.swo .swo-card {
+    background: var(--swo-surface);
+    border: 1px solid var(--swo-rule);
+    border-radius: var(--swo-r-lg);
+    color: var(--swo-ink);
+    min-width: 0;
 }
 
 /* ── History ───────────────────────────────────────────────────────────── */
@@ -204,19 +304,52 @@
 .swo-queue {
     display: flex;
     flex-direction: column;
-    gap: var(--swo-s2);
+    gap: 6px;
+    min-width: 0;
 }
 
+.swo-queue-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 2px 4px;
+}
+
+.swo-queue-head .nsel {
+    --nsel-h: 32px;
+    max-width: 190px;
+}
+
+.swo-day {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.swo-day-l {
+    padding: 8px 14px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--swo-mute-3);
+}
+
+/* Rows, tabs and batch cards are <button>s, and MudBlazor.min.css (loaded last)
+   gives every button `align-items: center; justify-content: center`. Each of
+   them states its own alignment, or its content collapses to the middle. */
 .swo-row {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 5px;
     width: 100%;
-    padding: var(--swo-s3);
-    border: 1px solid var(--swo-field-edge);
-    border-radius: var(--swo-r-md);
-    background: var(--swo-surface);
+    padding: 12px 14px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
     color: var(--swo-ink);
+    font: inherit;
     text-align: left;
     cursor: pointer;
     transition: border-color .12s ease, background .12s ease;
@@ -224,43 +357,62 @@
 
 .swo-row:hover {
     background: var(--swo-hover);
-    border-color: var(--swo-field-edge-hi);
+    border-color: var(--swo-rule);
 }
 
 .swo-row.is-open {
-    border-color: rgba(var(--swo-accent-rgb), .6);
-    background: rgba(var(--swo-accent-rgb), .08);
+    background: rgba(var(--swo-accent-rgb), .1);
+    border-color: rgba(var(--swo-accent-rgb), .45);
 }
 
-.swo-row-top {
+.swo-row-top,
+.swo-row-meta {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--swo-s2);
+    gap: 8px;
 }
 
 .swo-row-id {
+    font-size: 12.5px;
     font-weight: 600;
-    color: var(--swo-ink-2);
+    letter-spacing: .02em;
+    color: var(--swo-mute-2);
 }
 
 .swo-row-main {
-    font-weight: 550;
+    font-size: 13.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.swo-row-meta,
-.swo-row-doc {
+.swo-row-meta {
+    font-size: 12px;
+    color: var(--swo-mute-3);
+}
+
+.swo-row-meta > span:last-child {
+    flex: none;
+}
+
+.swo .swo-empty {
+    margin: 0;
+    padding: 14px;
+    color: var(--swo-mute-2);
+    font-size: 13px;
+}
+
+.swo-more {
+    margin-top: 6px;
+    height: 36px;
     font-size: 12.5px;
-    color: var(--swo-mute);
 }
 
-.swo-row-doc {
-    margin-left: var(--swo-s1);
-    color: var(--swo-fam-good);
-}
-
-/* Skeletons share the row class so anything waiting on a row sees them too. */
-.swo-row.is-skeleton {
+/* Skeletons share the row and batch classes so anything waiting on one sees them too. */
+.swo-row.is-skeleton,
+.swo-batch.is-skeleton {
     cursor: default;
     pointer-events: none;
 }
@@ -274,112 +426,183 @@
     animation: swo-shimmer 1.3s linear infinite;
 }
 
-.swo-skel-title {
-    width: 58%;
-}
-
-.swo-skel-meta {
-    width: 82%;
-    height: 9px;
-}
+.swo-skel-title { width: 58%; }
+.swo-skel-meta { width: 82%; height: 9px; }
 
 @keyframes swo-shimmer {
     from { background-position: 200% 0; }
     to   { background-position: -200% 0; }
 }
 
-/* ── Bench ─────────────────────────────────────────────────────────────── */
+/* ── Cards: heads ──────────────────────────────────────────────────────── */
 
-.swo-bench {
-    padding: var(--swo-s4) var(--swo-s4) var(--swo-s3);
-    border: 1px solid var(--swo-rule);
-    border-radius: var(--swo-r-lg);
-    background: var(--swo-surface);
-    box-shadow: var(--swo-shadow-lg);
+.swo-compose,
+.swo-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    padding: 28px 30px 30px;
 }
 
-.swo-bench-head {
+.swo-card-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: var(--swo-s3);
-    padding-bottom: var(--swo-s3);
-    border-bottom: 1px solid var(--swo-divider);
+    gap: 16px;
 }
 
-.swo-bench-title {
+.swo-card-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.swo .swo-card-title {
     margin: 0;
-    font-size: 17px;
-    font-weight: 620;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--swo-ink);
 }
 
-.swo-bench-sub {
-    margin: 2px 0 0;
-    max-width: 60ch;
-    color: var(--swo-mute);
+.swo .swo-card-title-lg {
+    font-size: 22px;
+}
+
+.swo .swo-card-sub {
+    margin: 4px 0 0;
+    color: var(--swo-mute-2);
     font-size: 13px;
 }
 
-/* ── Form ──────────────────────────────────────────────────────────────── */
+/* ── The count: sections ───────────────────────────────────────────────── */
 
-.swo-form,
-.swo-add {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: var(--swo-s3);
-    padding: var(--swo-s4) 0;
+.swo-sec {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
 }
 
-.swo-add {
-    align-items: end;
-    border-top: 1px solid var(--swo-divider);
+.swo-sec-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.swo-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border-radius: 50%;
+    background: rgba(var(--swo-accent-rgb), .16);
+    color: var(--swo-accent-text);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.swo .swo-sec-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--swo-ink);
+}
+
+.swo-sec-hint {
+    font-size: 12.5px;
+    color: var(--swo-mute-2);
+}
+
+.swo-grid2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
 }
 
 .swo-field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
     min-width: 0;
-}
-
-.swo-field-wide {
-    grid-column: span 2;
-}
-
-.swo-field-sm {
-    max-width: 180px;
+    margin: 0;
 }
 
 .swo-label {
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 600;
-    letter-spacing: .02em;
-    text-transform: uppercase;
+    color: var(--swo-mute);
+}
+
+.swo-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.swo-label-hint {
+    font-size: 12px;
     color: var(--swo-mute-2);
 }
 
 .swo-optional {
     margin-left: 4px;
-    font-weight: 500;
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--swo-faint);
+    font-weight: 400;
+    color: var(--swo-mute-2);
 }
 
-/* Two classes deep on purpose, the way nocturne-date-field.css is: app.css gives
-   `.dark-theme input` an opaque slate fill (#1e293b, app.css:3020), which
-   out-specifies a single-class rule here and leaves these fields a different
-   colour from the Nocturne triggers standing beside them. A computed-style probe
-   is the only way to see it — the slate is perfectly readable, just wrong. */
-.swo .swo-input {
-    height: 38px;
-    padding: 0 var(--swo-s3);
+/* Reasons are a handful of words, so they are one-tap chips rather than a menu. */
+.swo-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.swo-chip {
+    height: 34px;
+    padding: 0 14px;
     border: 1px solid var(--swo-field-edge);
-    border-radius: var(--swo-r-sm);
-    background: var(--swo-field-bg);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--swo-mute);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color .12s ease, background .12s ease, color .12s ease;
+}
+
+.swo-chip:hover {
+    border-color: var(--swo-field-edge-hi);
+    color: var(--swo-ink);
+}
+
+.swo-chip.is-on {
+    background: rgba(var(--swo-accent-rgb), .16);
+    border-color: var(--swo-accent);
+    color: var(--swo-accent-text);
+    font-weight: 600;
+}
+
+/* Two classes deep: app.css paints `.dark-theme input` an opaque slate at
+   (0,1,1), which a single-class rule here would tie with and lose. */
+.swo .swo-input {
+    height: 40px;
+    width: 100%;
+    padding: 0 12px;
+    border: 1px solid var(--swo-field-edge);
+    border-radius: var(--swo-r-md);
+    background-color: var(--swo-field-bg);
     color: var(--swo-ink);
     font: inherit;
-    width: 100%;
+}
+
+.swo .swo-input:hover {
+    border-color: var(--swo-field-edge-hi);
 }
 
 .swo .swo-input::placeholder {
@@ -388,42 +611,204 @@
     opacity: 1;
 }
 
-.swo .swo-input:focus-visible {
+.swo .swo-input:focus-visible,
+.swo .swo-stepper-input:focus-visible {
     outline: none;
     border-color: rgba(var(--swo-accent-rgb), .7);
     box-shadow: 0 0 0 3px rgba(var(--swo-accent-rgb), .18);
 }
 
-.swo .swo-input-num {
-    text-align: right;
+/* A notice, on a <div> because app.css repaints `.dark-theme p`. */
+.swo-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--swo-warn-edge);
+    border-radius: var(--swo-r-md);
+    background: var(--swo-warn-bg);
+    color: var(--swo-warn-ink);
+    font-size: 12.5px;
+}
+
+.swo-warn svg {
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+}
+
+/* ── The count: the line being built ───────────────────────────────────── */
+
+.swo-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 18px;
+    border: 1px solid var(--swo-rule);
+    border-radius: 12px;
+    background: var(--swo-hover);
+}
+
+.swo-batches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 10px;
+}
+
+.swo-batch {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 4px;
+    min-width: 0;
+    padding: 12px 14px;
+    border: 1px solid var(--swo-field-edge);
+    border-radius: 10px;
+    background: var(--swo-surface);
+    color: var(--swo-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+
+.swo-batch:hover {
+    border-color: var(--swo-field-edge-hi);
+}
+
+.swo-batch.is-on {
+    border-color: var(--swo-accent);
+    box-shadow: inset 0 0 0 1px var(--swo-accent);
+    background: rgba(var(--swo-accent-rgb), .08);
+}
+
+.swo-batch-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+}
+
+.swo-batch-no {
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.swo-batch-n {
+    margin-top: 2px;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.swo-batch-n span {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--swo-mute-2);
+}
+
+.swo-batch-exp {
+    font-size: 12px;
+    color: var(--swo-mute-2);
+}
+
+.swo-qty-row {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+}
+
+.swo-stepper {
+    display: flex;
+    align-items: center;
+    height: 44px;
+    border: 1px solid var(--swo-field-edge);
+    border-radius: var(--swo-r-md);
+    background: var(--swo-field-bg);
+    overflow: hidden;
+}
+
+.swo-stepper button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: transparent;
+    color: var(--swo-mute);
+    cursor: pointer;
+}
+
+.swo-stepper button:hover:not(:disabled) {
+    background: var(--swo-hover);
+    color: var(--swo-ink);
+}
+
+.swo-stepper button:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.swo-stepper svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+}
+
+.swo .swo-stepper-input {
+    width: 84px;
+    height: 44px;
+    padding: 0 6px;
+    border: none;
+    border-left: 1px solid var(--swo-field-edge);
+    border-right: 1px solid var(--swo-field-edge);
+    border-radius: 0;
+    background-color: transparent;
+    color: var(--swo-ink);
+    font: inherit;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.swo .swo-stepper-input::-webkit-outer-spin-button,
+.swo .swo-stepper-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.swo-qty-hint {
+    padding-bottom: 12px;
+    font-size: 12.5px;
+    color: var(--swo-mute-2);
+}
+
+.swo-qty-hint.is-bad {
+    color: var(--swo-fam-bad);
+    font-weight: 500;
 }
 
 .swo-add-btn {
-    height: 38px;
-    align-self: end;
-}
-
-.swo-note {
-    margin: 0 0 var(--swo-s3);
-    padding: var(--swo-s2) var(--swo-s3);
-    border-left: 3px solid var(--swo-fam-info);
-    border-radius: var(--swo-r-sm);
-    background: rgba(var(--swo-fam-info-rgb), .10);
-    color: var(--swo-ink-2);
-    font-size: 13px;
-}
-
-.swo-alert {
-    margin: var(--swo-s3) 0 0;
-    padding: var(--swo-s2) var(--swo-s3);
-    border-radius: var(--swo-r-sm);
-    font-size: 13px;
-}
-
-.swo-alert-bad {
-    border-left: 3px solid var(--swo-fam-bad);
-    background: rgba(var(--swo-fam-bad-rgb), .12);
-    color: var(--swo-ink);
+    height: 44px;
+    margin-left: auto;
 }
 
 /* ── Lines ─────────────────────────────────────────────────────────────── */
@@ -431,24 +816,49 @@
 .swo-lines {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: var(--swo-s3);
 }
 
-.swo-lines th {
-    padding: var(--swo-s2) var(--swo-s2);
-    border-bottom: 1px solid var(--swo-rule);
-    font-size: 11.5px;
-    font-weight: 650;
-    letter-spacing: .04em;
+/* Rooted two classes deep for the header: app.css's `.dark-theme table thead
+   th` (0,1,2) would otherwise lay a navy band behind the row. */
+.swo .swo-lines th {
+    padding: 0 8px 8px;
+    border-bottom: 1px solid var(--swo-divider);
+    background: transparent;
+    color: var(--swo-mute-2);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
     text-transform: uppercase;
     text-align: left;
-    color: var(--swo-mute-2);
+    white-space: nowrap;
 }
 
-.swo-lines td {
-    padding: var(--swo-s2);
-    border-bottom: 1px solid var(--swo-divider);
-    vertical-align: top;
+.swo .swo-lines td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--swo-rule);
+    color: var(--swo-ink);
+    vertical-align: middle;
+}
+
+.swo .swo-lines tfoot td {
+    padding-top: 14px;
+    border-bottom: none;
+    font-weight: 600;
+}
+
+.swo .swo-lines tfoot .swo-num {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.swo .swo-lines .swo-lines-empty {
+    padding: 22px 8px;
+    color: var(--swo-mute-2);
+    font-size: 13px;
+}
+
+.swo .swo-lines .swo-num {
+    text-align: right;
 }
 
 .swo-num {
@@ -457,13 +867,48 @@
 
 .swo-item-code {
     display: block;
+    font-size: 13px;
     font-weight: 600;
+    letter-spacing: .02em;
 }
 
 .swo-item-name {
     display: block;
     font-size: 12.5px;
+    color: var(--swo-mute-2);
+}
+
+.swo .swo-lines .swo-batch-cell,
+.swo .swo-lines .swo-exp-cell {
+    font-size: 12.5px;
     color: var(--swo-mute);
+}
+
+.swo .swo-lines .swo-exp-cell.is-soon {
+    color: var(--swo-fam-warn);
+}
+
+.swo .swo-lines .swo-qty-cell {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.swo .swo-lines .swo-col-n {
+    width: 48px;
+    color: var(--swo-mute-3);
+    font-size: 12.5px;
+}
+
+.swo-uom {
+    margin-left: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--swo-mute-3);
+}
+
+.swo-lines-draft td:last-child,
+.swo-lines-draft th:last-child {
+    width: 44px;
 }
 
 /* ── Pills ─────────────────────────────────────────────────────────────── */
@@ -473,106 +918,543 @@
     align-items: center;
     gap: 6px;
     flex: none;
-    padding: 3px 9px;
-    border: 1px solid rgba(var(--swo-fam), .45);
+    height: 22px;
+    padding: 0 9px;
     border-radius: 999px;
-    background: rgba(var(--swo-fam), .12);
+    background: rgba(var(--swo-fam), .15);
     color: var(--swo-fam-ink);
     font-size: 11.5px;
     font-weight: 600;
-    letter-spacing: .02em;
     white-space: nowrap;
+}
+
+.swo-pill::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
 }
 
 .swo-fam-accent  { --swo-fam: var(--swo-fam-accent-rgb);  --swo-fam-ink: var(--swo-fam-accent); }
 .swo-fam-info    { --swo-fam: var(--swo-fam-info-rgb);    --swo-fam-ink: var(--swo-fam-info); }
 .swo-fam-good    { --swo-fam: var(--swo-fam-good-rgb);    --swo-fam-ink: var(--swo-fam-good); }
+.swo-fam-warn    { --swo-fam: var(--swo-fam-warn-rgb);    --swo-fam-ink: var(--swo-fam-warn); }
 .swo-fam-bad     { --swo-fam: var(--swo-fam-bad-rgb);     --swo-fam-ink: var(--swo-fam-bad); }
 .swo-fam-neutral { --swo-fam: var(--swo-fam-neutral-rgb); --swo-fam-ink: var(--swo-fam-neutral); }
 
-/* ── Footer ────────────────────────────────────────────────────────────── */
+/* ── Preview ───────────────────────────────────────────────────────────── */
 
-.swo-bench-foot {
+.swo-preview {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--swo-s4);
-    flex-wrap: wrap;
-    padding-top: var(--swo-s3);
-    border-top: 1px solid var(--swo-divider);
+    flex-direction: column;
+    gap: 18px;
+    padding: 22px;
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 16px);
 }
 
-.swo-total {
-    margin: 0;
+.swo-preview-total {
     display: flex;
-    align-items: baseline;
-    gap: var(--swo-s2);
+    flex-direction: column;
+    gap: 2px;
 }
 
-.swo-total-n {
-    font-size: 21px;
-    font-weight: 650;
+.swo-big {
+    font-size: 44px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
 }
 
-.swo-total-l {
-    color: var(--swo-mute);
+.swo-preview-sub {
     font-size: 13px;
-}
-
-.swo-facts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--swo-s4);
-    margin: 0;
-}
-
-.swo-facts dt {
-    font-size: 11.5px;
-    letter-spacing: .04em;
-    text-transform: uppercase;
     color: var(--swo-mute-2);
 }
 
-.swo-facts dd {
-    margin: 2px 0 0;
-    font-weight: 550;
+.swo .swo-preview-facts {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px 16px;
+    margin: 0;
+    font-size: 13px;
 }
 
-.swo-empty {
-    margin: var(--swo-s4) 0;
+.swo .swo-preview-facts dt {
+    font-weight: 400;
+    color: var(--swo-mute-2);
+}
+
+.swo .swo-preview-facts dd {
+    margin: 0;
+    font-weight: 500;
+    color: var(--swo-ink);
+    overflow-wrap: anywhere;
+}
+
+.swo .swo-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.swo-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--swo-mute-2);
+}
+
+.swo-check.is-ok {
     color: var(--swo-mute);
+}
+
+.swo-check svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: var(--swo-fam-good);
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.swo-check-dot {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    border: 1.5px dashed var(--swo-faint);
+    border-radius: 50%;
+}
+
+.swo-preview-note {
+    font-size: 12.5px;
+    color: var(--swo-mute-2);
+}
+
+/* The phone's version of the preview: hidden until the preview is. */
+.swo-dock {
+    display: none;
+}
+
+/* ── Detail ────────────────────────────────────────────────────────────── */
+
+.swo-facts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border: 1px solid var(--swo-rule);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.swo-fact {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 16px 18px;
+    border-right: 1px solid var(--swo-rule);
+}
+
+.swo-fact:last-child {
+    border-right: none;
+}
+
+.swo-fact-v {
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.swo-fact-s {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--swo-mute-2);
+}
+
+.swo .swo-timeline {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.swo-tl-step {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding-right: 12px;
+    --swo-tl: var(--swo-fam-good);
+    --swo-tl-rgb: var(--swo-fam-good-rgb);
+}
+
+.swo-tl-step.is-bad { --swo-tl: var(--swo-fam-bad); --swo-tl-rgb: var(--swo-fam-bad-rgb); }
+.swo-tl-step.is-live { --swo-tl: var(--swo-fam-info); --swo-tl-rgb: var(--swo-fam-info-rgb); }
+
+.swo-tl-track {
+    display: flex;
+    align-items: center;
+    margin-right: -12px;
+}
+
+.swo-tl-dot {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--swo-tl);
+}
+
+.swo-tl-line {
+    flex: 1;
+    height: 2px;
+    background: var(--swo-divider);
+}
+
+.swo-tl-step.is-done .swo-tl-line {
+    background: rgba(var(--swo-tl-rgb), .5);
+}
+
+.swo-tl-step:last-child .swo-tl-line {
+    display: none;
+}
+
+.swo-tl-step.is-good .swo-tl-dot,
+.swo-tl-step.is-bad .swo-tl-dot,
+.swo-tl-step.is-live .swo-tl-dot {
+    box-shadow: 0 0 0 4px rgba(var(--swo-tl-rgb), .2);
+}
+
+.swo-tl-step.is-wait .swo-tl-dot {
+    background: transparent;
+    border: 1.5px dashed var(--swo-faint);
+}
+
+.swo-tl-l {
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.swo-tl-step.is-bad .swo-tl-l {
+    color: var(--swo-fam-bad);
+}
+
+.swo-tl-step.is-wait .swo-tl-l {
+    color: var(--swo-mute-2);
+}
+
+.swo-tl-d {
+    font-size: 12.5px;
+    color: var(--swo-mute-2);
+}
+
+.swo-remarks {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.swo-remarks-text {
+    font-size: 13.5px;
+    color: var(--swo-mute);
+    overflow-wrap: anywhere;
+}
+
+/* The failed state leads with what to do about it. */
+.swo-fail {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 20px;
+    border: 1px solid rgba(var(--swo-fam-bad-rgb), .45);
+    border-radius: 12px;
+    background: rgba(var(--swo-fam-bad-rgb), .1);
+}
+
+.swo-fail-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.swo-fail-icon {
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    fill: none;
+    stroke: var(--swo-fam-bad);
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.swo .swo-fail-title {
+    margin: 0 0 6px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--swo-ink);
+}
+
+.swo-fail-text {
+    font-size: 13.5px;
+    color: var(--swo-mute);
+}
+
+.swo-fail-msg {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-left: 32px;
+    padding: 10px 12px;
+    border: 1px solid var(--swo-rule);
+    border-radius: var(--swo-r-md);
+    background: var(--swo-field-bg);
+    font-size: 12.5px;
+    color: var(--swo-mute);
+    overflow-wrap: anywhere;
+}
+
+.swo-fail-msg .swo-lbl {
+    font-size: 10.5px;
+}
+
+.swo-fail-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-left: 32px;
+}
+
+.swo-fail-hint {
+    font-size: 12.5px;
+    color: var(--swo-mute-2);
+}
+
+.swo-alert {
+    padding: 10px 12px;
+    border-radius: var(--swo-r-md);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.swo-alert-bad {
+    border: 1px solid rgba(var(--swo-fam-bad-rgb), .45);
+    background: rgba(var(--swo-fam-bad-rgb), .1);
+    color: var(--swo-ink);
+}
+
+/* ── Review ────────────────────────────────────────────────────────────── */
+
+/* Below the app bar, not over it, like every other Nocturne overlay here. */
+.swo-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    background: var(--swo-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: swo-fade .16s ease;
+}
+
+.swo-dialog {
+    position: fixed;
+    z-index: 9999;
+    top: calc(var(--kf-topbar-h, 74px) + (100vh - var(--kf-topbar-h, 74px)) / 2);
+    left: calc(50% + var(--mud-drawer-width-left, 0px) / 2);
+    transform: translate(-50%, -50%);
+    width: min(640px, calc(100vw - 32px));
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - 32px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 30px 32px 28px;
+    border-radius: 16px;
+    background: var(--swo-surface);
+    box-shadow: var(--swo-shadow-pop);
+    color: var(--swo-ink);
+    outline: none;
+    animation: swo-rise .18s ease;
+}
+
+.swo-dialog-head {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.swo .swo-dialog-title {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: var(--swo-ink);
+}
+
+.swo-dialog-head .swo-card-sub {
+    margin: 0;
+}
+
+.swo-review-lines {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--swo-rule);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.swo-review-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 150px) 70px;
+    gap: 12px;
+    align-items: center;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--swo-rule);
+}
+
+.swo-review-row .swo-batch-cell {
+    font-size: 12.5px;
+    color: var(--swo-mute);
+    overflow-wrap: anywhere;
+}
+
+.swo-review-row .swo-qty-cell {
+    font-weight: 600;
+}
+
+.swo-review-row.is-total {
+    border-bottom: none;
+    background: var(--swo-hover);
+    font-weight: 600;
+}
+
+.swo-review-row.is-total .swo-num {
+    font-weight: 700;
+}
+
+.swo-review-item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+}
+
+.swo-review-item .swo-item-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.swo-review-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.swo-review-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--swo-mute-2);
+}
+
+.swo-review-note.is-warn {
+    color: var(--swo-mute);
+}
+
+.swo-review-note svg {
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.swo-review-note.is-warn svg {
+    stroke: var(--swo-fam-warn);
+}
+
+.swo-dialog-foot {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.swo-btn-commit {
+    min-width: 220px;
+}
+
+@keyframes swo-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+@keyframes swo-rise {
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)); }
+    to   { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 
 .swo-btn {
-    height: 38px;
-    padding: 0 var(--swo-s4);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
     border: 1px solid transparent;
-    border-radius: var(--swo-r-sm);
+    border-radius: var(--swo-r-md);
     font: inherit;
+    font-size: 13.5px;
     font-weight: 600;
+    white-space: nowrap;
     cursor: pointer;
-    transition: background .12s ease, border-color .12s ease, opacity .12s ease;
+    transition: background .12s ease, border-color .12s ease, opacity .12s ease, filter .12s ease;
+}
+
+.swo-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .swo-btn:disabled {
-    opacity: .5;
+    opacity: .42;
     cursor: not-allowed;
 }
 
 .swo-btn-primary {
-    background: var(--swo-fill);
-    color: var(--swo-on-fill);
+    border-color: var(--swo-accent);
+    background: var(--swo-accent);
+    color: var(--swo-on-accent);
 }
 
 .swo-btn-primary:hover:not(:disabled) {
-    filter: brightness(1.06);
+    filter: brightness(1.08);
 }
 
 .swo-btn-ghost {
     border-color: var(--swo-field-edge);
-    background: var(--swo-field-bg);
+    background: transparent;
     color: var(--swo-ink);
 }
 
@@ -581,24 +1463,25 @@
     border-color: var(--swo-field-edge-hi);
 }
 
-.swo-btn:focus-visible,
-.swo-icon-btn:focus-visible,
-.swo-tab:focus-visible,
-.swo-row:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(var(--swo-accent-rgb), .3);
+.swo-btn-tall {
+    height: 46px;
+    font-size: 14px;
+}
+
+.swo-btn-quiet {
+    color: var(--swo-mute);
 }
 
 .swo-icon-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--swo-field-edge);
-    border-radius: var(--swo-r-sm);
+    width: 32px;
+    height: 32px;
+    border: 1px solid transparent;
+    border-radius: var(--swo-r-md);
     background: transparent;
-    color: var(--swo-mute);
+    color: var(--swo-mute-3);
     cursor: pointer;
 }
 
@@ -613,38 +1496,223 @@
     height: 14px;
 }
 
-/* ── Narrow ────────────────────────────────────────────────────────────── */
+.swo-btn:focus-visible,
+.swo-icon-btn:focus-visible,
+.swo-tab:focus-visible,
+.swo-row:focus-visible,
+.swo-chip:focus-visible,
+.swo-batch:focus-visible,
+.swo-stepper button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--swo-accent-rgb), .35);
+}
 
-@media (max-width: 1000px) {
-    .swo-body {
-        grid-template-columns: minmax(0, 1fr);
+/* ── Narrower windows ──────────────────────────────────────────────────── */
+
+/* Under ~1320px of content the count and its preview keep the row, and the
+   history drops beneath them as a grid of cards. */
+@media (max-width: 1559.98px) {
+    .swo-body.is-compose {
+        grid-template-columns: minmax(0, 1fr) 300px;
+        grid-template-areas:
+            "main preview"
+            "queue queue";
     }
 
-    .swo-queue {
-        order: 2;
+    .swo-body.is-compose .swo-queue {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 6px 16px;
     }
 
-    .swo-bench {
-        order: 1;
+    .swo-body.is-compose .swo-queue-head,
+    .swo-body.is-compose .swo-day,
+    .swo-body.is-compose .swo-empty,
+    .swo-body.is-compose .swo-more {
+        grid-column: 1 / -1;
+    }
+
+    .swo-body.is-compose .swo-day {
+        display: grid;
+        grid-template-columns: subgrid;
+    }
+
+    .swo-body.is-compose .swo-day-l {
+        grid-column: 1 / -1;
     }
 }
 
-@media (max-width: 560px) {
-    .swo-field-wide {
-        grid-column: span 1;
+@media (max-width: 899.98px) {
+    .swo-body.is-compose,
+    .swo-body.is-detail {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            "main"
+            "preview"
+            "queue";
     }
 
-    .swo-field-sm {
-        max-width: none;
+    .swo-body.is-detail {
+        grid-template-areas:
+            "main"
+            "queue";
     }
 
-    .swo-bench {
-        padding: var(--swo-s3);
+    .swo-preview {
+        position: static;
+    }
+
+    .swo-facts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .swo-fact:nth-child(2) {
+        border-right: none;
+    }
+
+    .swo-fact:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--swo-rule);
+    }
+}
+
+/* A phone: the preview becomes a bar pinned to the bottom of the screen, where
+   a thumb is, holding the total and the one button that matters. */
+@media (max-width: 640px) {
+    .swo {
+        --swo-gutter: 16px;
+    }
+
+    .swo-head {
+        padding-top: 18px;
+    }
+
+    .swo-compose,
+    .swo-detail {
+        padding: 20px 16px 22px;
+        gap: 22px;
+    }
+
+    .swo-grid2 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .swo-entry {
+        padding: 14px;
+    }
+
+    .swo-add-btn {
+        flex: 1;
+        margin-left: 0;
+    }
+
+    .swo-qty-hint {
+        order: 3;
+        width: 100%;
+        padding-bottom: 0;
+    }
+
+    .swo .swo-lines .swo-col-exp {
+        display: none;
+    }
+
+    .swo-preview {
+        display: none;
+    }
+
+    .swo-body.is-compose {
+        grid-template-areas:
+            "main"
+            "queue";
+        padding-bottom: 104px;
+    }
+
+    .swo-dock {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--swo-divider);
+        background: var(--swo-surface);
+    }
+
+    .swo-dock-text {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .swo-dock-n {
+        font-size: 19px;
+        font-weight: 600;
+        line-height: 1.15;
+    }
+
+    .swo-dock-s {
+        font-size: 12px;
+        color: var(--swo-mute-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .swo-facts {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .swo-fact {
+        border-right: none;
+        border-bottom: 1px solid var(--swo-rule);
+    }
+
+    .swo-fact:last-child {
+        border-bottom: none;
+    }
+
+    .swo .swo-timeline {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 14px;
+    }
+
+    .swo-tl-line {
+        display: none;
+    }
+
+    .swo-fail-msg,
+    .swo-fail-actions {
+        margin-left: 0;
+    }
+
+    .swo-dialog {
+        padding: 22px 18px 20px;
+    }
+
+    .swo-review-row {
+        grid-template-columns: minmax(0, 1fr) 60px;
+    }
+
+    .swo-review-row .swo-batch-cell {
+        display: none;
+    }
+
+    .swo-dialog-foot .swo-btn {
+        flex: 1;
+    }
+
+    .swo-btn-commit {
+        min-width: 0;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .swo-skel {
+    .swo-skel,
+    .swo-scrim,
+    .swo-dialog {
         animation: none;
     }
 }
