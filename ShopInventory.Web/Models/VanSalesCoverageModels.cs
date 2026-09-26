@@ -54,19 +54,22 @@ public class VanSalesCoverageSummary
     public int OutletsVisited { get; set; }
     public int OutletsBought { get; set; }
     public int OutletsUncovered { get; set; }
+    public int OpeningActiveOutlets { get; set; }
     public int NewOutlets { get; set; }
     public int ReactivatedOutlets { get; set; }
     public int LapsedOutlets { get; set; }
+    public int ClosingActiveOutlets { get; set; }
     public int? Calls { get; set; }
     public int ProductiveCalls { get; set; }
     public int? PlannedCalls { get; set; }
+    public int? CallsAgainstPlan { get; set; }
     public int? KilometresTravelled { get; set; }
     public List<VanSalesMoney> TotalsByCurrency { get; set; } = [];
 
     public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
 
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? RosterCoverageRate =>
         RosterSize is > 0 ? (double)OutletsVisited / RosterSize.Value : null;
@@ -80,6 +83,7 @@ public class VanSalesCoverageTrendPoint
     public bool IsPartial { get; set; }
     public int RepsTrading { get; set; }
     public int? PlannedCalls { get; set; }
+    public int? CallsAgainstPlan { get; set; }
     public int? Calls { get; set; }
     public int ProductiveCalls { get; set; }
     public int OutletsBought { get; set; }
@@ -87,7 +91,7 @@ public class VanSalesCoverageTrendPoint
     public int RepDaysWithoutRouteDay { get; set; }
 
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
         Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
@@ -115,6 +119,7 @@ public class VanSalesRepCoverage
     public int? OutletsBought { get; set; }
     public int? OutletsUncovered { get; set; }
     public int? PlannedCalls { get; set; }
+    public int? CallsAgainstPlan { get; set; }
     public int? KilometresTravelled { get; set; }
     public List<VanSalesEfficiency> EfficiencyByCurrency { get; set; } = [];
     public List<VanSalesMoney> TotalsByCurrency { get; set; } = [];
@@ -124,7 +129,7 @@ public class VanSalesRepCoverage
     public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
 
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? RosterCoverageRate =>
         RosterSize is > 0 && OutletsVisited is { } visited ? (double)visited / RosterSize.Value : null;
