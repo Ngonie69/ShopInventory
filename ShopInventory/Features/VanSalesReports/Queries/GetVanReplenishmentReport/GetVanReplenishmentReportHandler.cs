@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -13,13 +14,7 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentRepo
 /// <remarks>
 /// A van's warehouse is the transfer's <c>ToWarehouse</c>; the depot it loads from is
 /// <c>FromWarehouse</c>. Vans are identified by their warehouse assignment on the user record rather
-/// than by a naming convention.
-///
-/// Production van warehouses do in fact use <c>VAN0nn</c> codes, so a prefix match would work today.
-/// It is still not what this does, because the prefix is a convention and the assignment is the
-/// definition: a warehouse is a van when a rep is assigned to it and a depot supplies it. Reading
-/// the definition means a van that is ever coded differently — or a store that is ever coded
-/// <c>VAN…</c> — is classified correctly without anybody remembering to update a filter.
+/// than by a naming convention — see <see cref="VanWarehouses"/>, which every van report reads.
 /// </remarks>
 public sealed class GetVanReplenishmentReportHandler(
     ApplicationDbContext db
@@ -46,7 +41,8 @@ public sealed class GetVanReplenishmentReportHandler(
                 $"Choose a period of {VanSalesFacts.MaximumDays} days or fewer.");
         }
 
-        var vanWarehouses = await LoadVanWarehousesAsync(cancellationToken);
+        var vanWarehouses = (await VanWarehouses.LoadAsync(db, cancellationToken)).Keys
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(query.VanWarehouseCode))
         {
@@ -94,40 +90,6 @@ public sealed class GetVanReplenishmentReportHandler(
             Vans: vans,
             NeedingAttention: BuildWorklist(requests, nowUtc),
             Quality: BuildQuality(requests, vans));
-    }
-
-    /// <summary>
-    /// The warehouses that are vans, taken from the user records that assign them.
-    /// </summary>
-    /// <remarks>
-    /// A van is a warehouse some rep is assigned to and which has a supplying depot behind it — that
-    /// pairing is what makes it a van rather than a store. Reading it from the user table rather than
-    /// from a code prefix matters: production warehouse codes are alpha-coded and named for places,
-    /// and only the repository's seed data uses VAN-prefixed codes.
-    /// </remarks>
-    private async Task<HashSet<string>> LoadVanWarehousesAsync(CancellationToken cancellationToken)
-    {
-        // Materialised as entities so the codes can be read by the entity's own helper. They are a
-        // JSON list in one column, and re-implementing that parse here is how the two would drift.
-        var users = await db.Users
-            .AsNoTracking()
-            .Where(user => user.SupplyingWarehouseCode != null && user.AssignedWarehouseCodes != null)
-            .ToListAsync(cancellationToken);
-
-        var warehouses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var user in users)
-        {
-            foreach (var code in user.GetWarehouseCodes())
-            {
-                if (!string.IsNullOrWhiteSpace(code))
-                {
-                    warehouses.Add(code.Trim());
-                }
-            }
-        }
-
-        return warehouses;
     }
 
     private static VanReplenishmentVanResult BuildVan(
