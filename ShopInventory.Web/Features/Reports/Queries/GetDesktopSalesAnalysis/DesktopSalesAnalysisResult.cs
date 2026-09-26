@@ -28,4 +28,7 @@ public sealed class DesktopSalesAnalysisResult
     public DateTime PreviousFromDate { get; set; }
 
     public DateTime PreviousToDate { get; set; }
+
+    /// <summary>The business partner every figure was confined to, or null for all of them.</summary>
+    public string? CardCode { get; set; }
 }

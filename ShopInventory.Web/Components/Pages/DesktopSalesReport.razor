@@ -33,13 +33,29 @@
             </div>
 
             <div class="ops-sbd-controls">
-                <div class="ops-field ops-sbd-shop">
-                    <label class="ops-label" for="dsa-warehouse">@(Vans ? "Van" : "Shop")</label>
-                    <NocturneSelect Id="dsa-warehouse" Class="nsel-block" Options="WarehouseOptions"
-                                    @bind-Value="warehouse" OnChanged="ReloadScopeAsync"
-                                    Caption="@($"Filter by {Place}")" AriaLabel="@($"Filter by {Place}")"
-                                    Placeholder="@($"All {Place}s")" />
-                </div>
+                @if (Vans)
+                {
+                    <div class="ops-field ops-sbd-shop">
+                        <label class="ops-label" for="dsa-warehouse">Van</label>
+                        <NocturneSelect Id="dsa-warehouse" Class="nsel-block" Options="WarehouseOptions"
+                                        @bind-Value="warehouse" OnChanged="ReloadScopeAsync"
+                                        Caption="Filter by van" AriaLabel="Filter by van" Placeholder="All vans" />
+                    </div>
+                }
+                else
+                {
+                    @* Who the takings were rung up as. A shop is still a filter — pick one from "Who took
+                       it" — but the question the counters are asked is whose money it was. *@
+                    <div class="ops-field ops-sbd-partner">
+                        <label class="ops-label" for="dsa-partner">Business partner</label>
+                        <SalesPartnerPicker Id="dsa-partner" Traded="PartnerOptions" Everyone="everyonePartners"
+                                            EveryoneLoading="isLoadingPartners" Value="@(partner == "" ? null : partner)"
+                                            ValueChanged="SetPartnerAsync" Currency="@Currency"
+                                            TotalAmount="PartnersSection.TotalAmount" TotalSales="PartnersSection.SalesCount"
+                                            PeriodText="@PeriodText" Loading="@(shown is null && isLoading)"
+                                            AriaLabel="Filter by business partner" />
+                    </div>
+                }
 
                 @* Not a <label>: the segment is several buttons, and a label would hand every click to
                    the first of them. *@
@@ -187,6 +203,13 @@
                     @ShopChip<i class="ph ph-x" aria-hidden="true"></i>
                 </button>
             }
+            @if (partner != "")
+            {
+                <button type="button" class="ops-sbd-chip" @onclick="() => SetPartnerAsync(null)"
+                        aria-label="@($"Show every business partner, not only {PartnerName(partner)}")">
+                    @PartnerName(partner)<i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            }
             @if (method != null)
             {
                 <button type="button" class="ops-sbd-chip" @onclick="() => SetMethodAsync(null)"
@@ -224,6 +247,7 @@
             var sales = Section(view.Focus);
             var payments = Section(view.Payments);
             var columns = DayColumns(view.Context);
+            var single = columns.Count == 1;
             var alerts = Alerts(view, columns);
             var change = ChangePercent(sales);
 
@@ -248,6 +272,13 @@
                                 <span>Nothing taken in the previous @PreviousBasis(view.Focus)</span>
                             }
                         </div>
+                        @if (PartnerShare(view) is { } share)
+                        {
+                            <div class="ops-sbd-kpi-share">
+                                <span class="ops-sbd-track"><span class="ops-sbd-track-fill is-accent" style="width:@Percent(share, 100m)"></span></span>
+                                <span>@Pct(share) of every partner's takings over the period</span>
+                            </div>
+                        }
                         <div class="ops-sbd-kpi-sub">
                             @Plural(sales.SalesCount, "sale") over @Plural(sales.DaysTraded, "trading day") · @sales.QuantitySold.ToString("#,##0.##") units
                         </div>
@@ -263,6 +294,14 @@
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
                             <div class="ops-sbd-fig-num">@Money(sales.AverageSale)</div>
                             <div class="ops-sbd-fig-sub">@sales.QuantitySold.ToString("#,##0.##") units · @Plural(sales.DistinctItems, "item")</div>
+                        </div>
+                        @{
+                            var partners = PartnerFigure(view, sales);
+                        }
+                        <div class="ops-sbd-kpi">
+                            <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>@partners.Head</div>
+                            <div class="ops-sbd-fig-num">@partners.Number</div>
+                            <div class="ops-sbd-fig-sub" title="@partners.Sub">@partners.Sub</div>
                         </div>
                     </div>
                 </section>
@@ -283,11 +322,11 @@
                 }
 
                 @* ── Trading pattern ──────────────────────────────────────────────── *@
-                <section class="ops-ds-card ops-sbd-pattern" aria-labelledby="dsa-pattern-title">
+                <section class="ops-ds-card ops-sbd-pattern @(single ? "is-single" : "")" aria-labelledby="dsa-pattern-title">
                     <div class="ops-ds-card-head">
                         <i class="ph ph-chart-bar" aria-hidden="true"></i>
                         <span class="ops-ds-card-label" id="dsa-pattern-title">Trading pattern</span>
-                        <span class="ops-sbd-hint">click a day to filter the page</span>
+                        <span class="ops-sbd-hint">@(single ? $"by hour · {DayLabel(view.Context.FromDate)}" : "click a day to filter the page")</span>
                         <div class="ops-sbd-head-end">
                             <div class="ops-sbd-legend" role="group" aria-label="Show one payment method">
                                 @foreach (var paymentMethod in view.Context.PaymentMethods)
@@ -318,6 +357,10 @@
                         var tradedDays = columns.Count(column => column.SalesCount > 0);
                     }
 
+                    @* One day is one column, which says nothing the headline does not: the hours lead
+                       instead, below. *@
+                    @if (!single)
+                    {
                     @* The readout above the columns answers for whichever column the pointer or focus is on,
                        and for the page's own scope otherwise. Each column carries its own readout and CSS
                        swaps it in, so hovering costs no round trip to the server. *@
@@ -371,26 +414,36 @@
                             }
                         </div>
                     </div>
+                    }
 
                     @* ── By hour of day ─────────────────────────────────────────── *@
                     @{
                         var slots = HourSlots(sales);
-                        var peak = slots.Where(slot => slot.TotalAmount > 0).MaxBy(slot => slot.TotalAmount);
+                        var peak = slots.Where(slot => HourValue(slot) > 0).MaxBy(HourValue);
                     }
-                    <div class="ops-sbd-hours">
+                    <div class="ops-sbd-hours @(single ? "is-lead" : "")">
                         <div class="ops-sbd-hours-main">
                             <div class="ops-ds-card-head">
                                 <i class="ph ph-clock" aria-hidden="true"></i>
                                 <span class="ops-ds-card-label">By hour of day</span>
-                                <span class="ops-sbd-hint">@(view.Day is { } hourDay ? DayLabel(hourDay) : "summed across the period")</span>
+                                <span class="ops-sbd-hint">@(view.Day is { } hourDay ? DayLabel(hourDay) : single ? "counter time" : "summed across the period")</span>
                             </div>
+                            @if (single)
+                            {
+                                <div class="ops-sbd-readout">
+                                    <b>@(measure == MeasureSales ? Plural(sales.SalesCount, "sale") : Money(sales.TotalAmount))</b>
+                                    <span>@DayLabel(view.Context.FromDate) · @(measure == MeasureSales ? Money(sales.TotalAmount) : Plural(sales.SalesCount, "sale"))</span>
+                                </div>
+                            }
                             @* One hue: this is magnitude, not identity. Each column's figure is its tooltip. *@
                             <div class="ops-sbd-hour-cols" role="img" aria-label="@HourDescription(slots)">
                                 @foreach (var slot in slots)
                                 {
                                     <div class="ops-sbd-hour" title="@($"{HourLabel(slot.Hour)}–{HourLabel(slot.Hour + 1)} · {Plural(slot.SalesCount, "sale")} · {Money(slot.TotalAmount)}")">
-                                        <span class="ops-sbd-hour-bar @(slot.TotalAmount == 0 ? "is-zero" : "") @(slot == peak ? "is-peak" : "")"
-                                              style="height:@Percent(slot.TotalAmount, peak?.TotalAmount ?? 0)"></span>
+                                        @* Written only where the hours lead; CSS hides it in the strip. *@
+                                        <span class="ops-sbd-hour-val">@(HourValue(slot) > 0 ? HourFigure(slot) : "")</span>
+                                        <span class="ops-sbd-hour-bar @(HourValue(slot) == 0 ? "is-zero" : "") @(slot == peak ? "is-peak" : "")"
+                                              style="height:@Percent(HourValue(slot), peak is null ? 0 : HourValue(peak))"></span>
                                     </div>
                                 }
                             </div>
@@ -523,7 +576,15 @@
                                         {
                                             <tr>
                                                 <td>
-                                                    <div class="ops-sbd-row-name">@BreakdownLabel(row)</div>
+                                                    @if (RowFilter(row) is { } filter)
+                                                    {
+                                                        <button type="button" class="ops-sbd-row-link" @onclick="filter"
+                                                                title="@($"Show only {BreakdownLabel(row)}")">@BreakdownLabel(row)</button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="ops-sbd-row-name">@BreakdownLabel(row)</div>
+                                                    }
                                                     @if (BreakdownSub(row) is { Length: > 0 } sub)
                                                     {
                                                         <div class="ops-sub">@sub</div>

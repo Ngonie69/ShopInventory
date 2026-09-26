@@ -852,6 +852,571 @@
     }
 }
 
+/* ── The business partner picker ──────────────────────────────────────── */
+/* Components/SalesPartnerPicker.razor. NocturnePicker's shape, with each row's
+   takings and share: the menu answers "whose money was it" before anything is
+   typed. Page-scoped because only this page has takings to rank by. The
+   trigger is 34px like the period segment beside it; the menu is fixed-width
+   so a long name ellipsises rather than widening it. */
+
+.ops-sbd .ops-sbd-partner {
+    width: 300px;
+}
+
+.ops-sbd .sbp {
+    position: relative;
+    display: flex;
+    gap: var(--ops-s2);
+}
+
+.ops-sbd .sbp-btn {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ops-s3);
+    min-width: 0;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    font: inherit;
+    font-size: 13px;
+    color: var(--ops-ink);
+    background: var(--ops-field-bg);
+    cursor: pointer;
+    transition: border-color .14s, box-shadow .14s;
+}
+
+.ops-sbd .sbp-btn:hover:not(:disabled) {
+    border-color: var(--ops-field-edge-hi);
+}
+
+.ops-sbd .sbp-open .sbp-btn {
+    border-color: var(--ops-accent);
+    box-shadow: 0 0 0 3px rgba(var(--ops-accent-rgb), .22);
+}
+
+.ops-sbd .sbp-btn:disabled {
+    cursor: default;
+}
+
+.ops-sbd .sbp-btn.sbp-set .sbp-btn-name {
+    color: var(--ops-accent-text);
+}
+
+.ops-sbd .sbp-btn-icon {
+    font-size: 15px;
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .sbp-btn-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-sbd .sbp-btn-code {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .sbp-muted {
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .sbp-caret {
+    flex: none;
+    font-size: 12px;
+    color: var(--ops-mute-3);
+    transition: transform .16s;
+}
+
+.ops-sbd .sbp-open .sbp-caret {
+    transform: rotate(180deg);
+}
+
+.ops-sbd .sbp-clear {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    color: var(--ops-mute-2);
+    background: transparent;
+    cursor: pointer;
+}
+
+.ops-sbd .sbp-clear:hover {
+    color: var(--ops-ink);
+    background: var(--ops-hover);
+}
+
+.ops-sbd .sbp-veil {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+}
+
+.ops-sbd .sbp-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    width: 440px;
+    max-width: calc(100vw - 32px);
+    max-height: min(580px, calc(100vh - 180px));
+    overflow: hidden;
+    border-radius: var(--ops-r-lg);
+    background: var(--ops-surface);
+    box-shadow: var(--ops-shadow-pop);
+}
+
+.ops-sbd .sbp-top {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s3);
+    padding: var(--ops-s4) var(--ops-s4) var(--ops-s3);
+}
+
+.ops-sbd .sbp-search {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    height: 40px;
+    padding: 0 6px 0 12px;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    color: var(--ops-mute-3);
+    background: var(--ops-field-bg);
+}
+
+.ops-sbd .sbp-search:focus-within {
+    border-color: var(--ops-accent);
+}
+
+/* Two classes deep to beat app.css's `.dark-theme input` fill. */
+.ops-sbd .sbp-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: none;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ops-ink);
+    background: transparent;
+    box-shadow: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.ops-sbd .sbp-search input::placeholder {
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .sbp-search input::-webkit-search-cancel-button {
+    display: none;
+}
+
+.ops-sbd .sbp-search-clear {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: var(--ops-r-sm);
+    color: var(--ops-mute-3);
+    background: transparent;
+    cursor: pointer;
+}
+
+.ops-sbd .sbp-search-clear:hover {
+    color: var(--ops-ink);
+    background: var(--ops-hover);
+}
+
+.ops-sbd .sbp-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    border-radius: var(--ops-r-md);
+    background: var(--ops-field-bg);
+}
+
+.ops-sbd .sbp-tab {
+    display: flex;
+    flex: 1 1 0;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ops-s2);
+    height: 30px;
+    border: 0;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    background: transparent;
+    cursor: pointer;
+}
+
+.ops-sbd .sbp-tab.is-on {
+    font-weight: 600;
+    color: var(--ops-ink);
+    background: var(--ops-press);
+}
+
+.ops-sbd .sbp-count {
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ops-mute-2);
+    background: var(--ops-hover);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .sbp-all {
+    padding: 0 var(--ops-s3) var(--ops-s1);
+}
+
+.ops-sbd .sbp-section {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--ops-s3) 20px 6px;
+    border-top: 1px solid var(--ops-rule);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .sbp-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+    padding: 0 var(--ops-s3) var(--ops-s3);
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.ops-sbd .sbp-row {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ops-s4);
+    width: 100%;
+    min-height: 52px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--ops-r-md);
+    font: inherit;
+    text-align: left;
+    color: var(--ops-ink);
+    background: transparent;
+    cursor: pointer;
+}
+
+.ops-sbd .sbp-row:hover {
+    background: var(--ops-hover);
+}
+
+.ops-sbd .sbp-row.is-on {
+    background: rgba(var(--ops-accent-rgb), .16);
+}
+
+.ops-sbd .sbp-row.is-active {
+    box-shadow: inset 0 0 0 1px var(--ops-accent);
+}
+
+.ops-sbd .sbp-tile {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--ops-r-md);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .16);
+}
+
+.ops-sbd .sbp-tile-sm {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 9.5px;
+}
+
+.ops-sbd .sbp-tile-plain,
+.ops-sbd .sbp-row.is-idle .sbp-tile {
+    color: var(--ops-mute-2);
+    background: var(--ops-field-bg);
+}
+
+.ops-sbd .sbp-tile-plain i {
+    font-size: 16px;
+}
+
+.ops-sbd .sbp-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.ops-sbd .sbp-name {
+    overflow: hidden;
+    font-size: 13.5px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-sbd .sbp-row.is-idle .sbp-name {
+    color: var(--ops-mute-2);
+}
+
+.ops-sbd .sbp-name mark {
+    padding: 0;
+    font-weight: 700;
+    color: var(--ops-accent-text);
+    background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.ops-sbd .sbp-meta {
+    overflow: hidden;
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .sbp-figs {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.ops-sbd .sbp-amount {
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .sbp-row.is-idle .sbp-amount {
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .sbp-share {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ops-sbd .sbp-bar {
+    display: block;
+    width: 56px;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--ops-press);
+}
+
+.ops-sbd .sbp-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--ops-accent);
+}
+
+.ops-sbd .sbp-pct {
+    width: 38px;
+    font-size: 11px;
+    text-align: right;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .sbp-tick {
+    flex: none;
+    width: 16px;
+    font-size: 15px;
+    color: var(--ops-accent-text);
+    visibility: hidden;
+}
+
+.ops-sbd .sbp-row.is-on .sbp-tick {
+    visibility: visible;
+}
+
+.ops-sbd .sbp-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ops-s2);
+    padding: var(--ops-s8) var(--ops-s6);
+    font-size: 12.5px;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--ops-mute-2);
+}
+
+.ops-sbd .sbp-empty strong {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ops-ink);
+}
+
+.ops-sbd .sbp-widen {
+    margin-top: var(--ops-s1);
+    height: 32px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: var(--ops-r-md);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .16);
+    cursor: pointer;
+}
+
+.ops-sbd .sbp-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    padding: 10px var(--ops-s6);
+    border-top: 1px solid var(--ops-rule);
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .sbp-keys kbd {
+    margin-left: 6px;
+    padding: 1px 5px;
+    border: 1px solid var(--ops-divider);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 10.5px;
+    color: var(--ops-mute-2);
+    background: transparent;
+    box-shadow: none;
+}
+
+/* ── The partner in the headline ───────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-kpi-share {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+}
+
+.ops-sbd .ops-sbd-kpi-share .ops-sbd-track {
+    flex: none;
+    width: 110px;
+}
+
+/* Three figures now, not two: they take the room, and a figure never breaks
+   between its currency and its amount. */
+.ops-sbd .ops-sbd-figures {
+    flex: 3 1 600px;
+}
+
+.ops-sbd .ops-sbd-headline .ops-sbd-fig-num {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-sbd .ops-sbd-headline .ops-sbd-fig-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── One day: the hours lead ───────────────────────────────────────────── */
+/* A single day draws as one column, which says only what the headline says.
+   So the day's hours take the plot's place and height, each with its figure. */
+
+.ops-sbd .ops-sbd-hour-val {
+    display: none;
+}
+
+.ops-sbd .ops-sbd-hours.is-lead {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-cols {
+    height: 220px;
+    gap: 8px;
+}
+
+.ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-axis {
+    gap: 8px;
+}
+
+.ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-val {
+    display: block;
+    min-height: 16px;
+    margin-bottom: 4px;
+    overflow: hidden;
+    font-size: 10.5px;
+    text-align: center;
+    color: var(--ops-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-bar {
+    border-radius: 5px 5px 0 0;
+}
+
+/* ── A row that filters the page ───────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-row-link {
+    padding: 0;
+    border: 0;
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+    color: var(--ops-ink);
+    background: transparent;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: var(--ops-divider);
+    text-underline-offset: 3px;
+}
+
+.ops-sbd .ops-sbd-row-link:hover {
+    color: var(--ops-accent-text);
+    text-decoration-color: currentColor;
+}
+
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 900px) {
@@ -872,9 +1437,27 @@
     }
 
     .ops-sbd .ops-sbd-shop,
+    .ops-sbd .ops-sbd-partner,
     .ops-sbd .ops-sbd-dates .ops-field {
         width: auto;
         flex: 1 1 0;
+    }
+
+    .ops-sbd .sbp-keys {
+        display: none;
+    }
+
+    .ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-cols {
+        height: 160px;
+    }
+
+    .ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-cols,
+    .ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-axis {
+        gap: 2px;
+    }
+
+    .ops-sbd .ops-sbd-hours.is-lead .ops-sbd-hour-val {
+        display: none;
     }
 
     .ops-sbd .ops-sbd-controls .ops-ds-seg {
