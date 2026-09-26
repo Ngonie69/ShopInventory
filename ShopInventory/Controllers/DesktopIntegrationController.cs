@@ -1226,6 +1226,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] string? warehouseCode,
         [FromQuery] string? sourceSystem,
         [FromQuery] string? paymentMethod,
+        [FromQuery] string? cardCode,
         CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -1233,7 +1234,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetDesktopSalesAnalysisQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem, paymentMethod),
+            new GetDesktopSalesAnalysisQuery(
+                userId.Value, fromDate, toDate, warehouseCode, sourceSystem, paymentMethod, CardCode: cardCode),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
