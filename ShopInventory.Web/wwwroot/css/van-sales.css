@@ -2421,64 +2421,17 @@
 }
 
 /* ==========================================================================
-   `vrp-` and `vst-` — the two stock pages
+   `vst-` — the stock page's chrome
 
-   /van-sales/reports/replenishment and /van-sales/reports/stock. Two prefixes
-   rather than one shared block, because they are two pages and a shared prefix
-   is how a change to one silently restyles the other.
+   /van-sales/reports/stock. /van-sales/reports/replenishment used to share this
+   block under `vrp-`; it has its own sheet now, van-replenishment.css.
 
-   Their chrome is the same shape as `vsp-` and `vsg-` and takes the same alias
+   The chrome is the same shape as `vsp-` and `vsg-` and takes the same alias
    tokens from the head of this file, so both schemes come free. What is new here
    is the staleness banner, which has no equivalent on the other pages: the stock
    figures are read from a snapshot job that can stop, and when it does every
    number on the page describes an older morning with nothing else to say so.
    ========================================================================== */
-
-.vs .vrp-kpis {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 1px;
-    margin: 1.25rem 0;
-    background: var(--vs-rule);
-    border: 1px solid var(--vs-rule);
-    border-radius: 10px;
-    overflow: hidden;
-}
-
-.vs .vrp-kpi {
-    background: var(--vs-surface);
-    padding: 0.85rem 1rem 0.95rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-}
-
-.vs .vrp-kpi-warn {
-    box-shadow: inset 3px 0 0 var(--vs-warn);
-}
-
-.vs .vrp-kpi-value {
-    font-size: 1.3rem;
-    font-weight: 500;
-    line-height: 1.15;
-    color: var(--vs-ink);
-    font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
-}
-
-.vs .vrp-kpi-label {
-    font-size: 0.75rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--vs-mute-2);
-}
-
-.vs .vrp-kpi-sub {
-    font-size: 0.78rem;
-    color: var(--vs-mute-3);
-    overflow-wrap: anywhere;
-}
 
 /* — The staleness banner —
    Above every figure it governs, and in the bad family rather than the flag
@@ -2503,7 +2456,6 @@
     font-weight: 500;
 }
 
-.vs .vrp-caveats,
 .vs .vst-caveats {
     margin: 1rem 0 1.25rem;
     padding: 0.85rem 1rem 0.95rem;
@@ -2513,7 +2465,6 @@
     background: rgba(var(--vs-flag-rgb), 0.06);
 }
 
-.vs .vrp-caveats-head,
 .vs .vst-caveats-head {
     font-size: 0.78rem;
     letter-spacing: 0.04em;
@@ -2522,7 +2473,6 @@
     margin-bottom: 0.4rem;
 }
 
-.vs .vrp-caveats-list,
 .vs .vst-caveats-list {
     margin: 0;
     padding-left: 1.1rem;
@@ -2533,7 +2483,6 @@
     color: var(--vs-ink-2);
 }
 
-.vs .vrp-heading,
 .vs .vst-heading {
     font-size: 0.95rem;
     font-weight: 500;
@@ -2542,7 +2491,6 @@
     margin: 1.5rem 0 0.5rem;
 }
 
-.vs .vrp-note,
 .vs .vst-note {
     font-size: 0.84rem;
     line-height: 1.5;
@@ -2557,31 +2505,14 @@
    none of them is a fault, and colouring them would put the loudest thing on the
    page next to the least actionable. */
 
-.vs .vrp-bad,
 .vs .vst-bad {
     color: var(--vs-bad);
 }
 
-.vs .vrp-failed td,
 .vs .vst-expired td {
     background: rgba(var(--vs-bad-rgb), 0.05);
 }
 
-.vs .vrp-quiet td {
-    color: var(--vs-mute-3);
-}
-
-.vs .vrp-quiet td:first-child {
-    color: var(--vs-ink-2);
-}
-
-.vs .vrp-inline-chip {
-    margin-left: 0.4rem;
-    font-size: 0.68rem;
-    vertical-align: middle;
-}
-
-.vs .vrp-sub,
 .vs .vst-sub {
     display: block;
     font-size: 0.74rem;
@@ -2590,25 +2521,6 @@
 }
 
 /* A SAP error message, which can be long and is not worth widening a table for. */
-.vs .vrp-error {
-    font-size: 0.78rem;
-    color: var(--vs-mute-3);
-    max-width: 28ch;
-    overflow-wrap: anywhere;
-}
-
-@media (max-width: 1240px) {
-    .vs .vrp-kpis {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-}
-
-@media (max-width: 720px) {
-    .vs .vrp-kpis {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
 /* ==========================================================================
    `vst-` — /van-sales/reports/stock, "is every van's stock accounted for?"
 

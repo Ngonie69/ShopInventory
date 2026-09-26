@@ -226,6 +226,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
     /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
     /// <param name="vanWarehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="depotWarehouseCode">One depot's requests and vans, or every depot when omitted.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("replenishment-report")]
     [RequirePermission(Permission.ViewVanSalesAttendance)]
@@ -235,6 +236,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
         [FromQuery] string? vanWarehouseCode = null,
+        [FromQuery] string? depotWarehouseCode = null,
         CancellationToken cancellationToken = default)
     {
         var today = AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -243,7 +245,8 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             new GetVanReplenishmentReportQuery(
                 fromDate?.Date ?? today.AddDays(-30),
                 toDate?.Date ?? today,
-                vanWarehouseCode),
+                vanWarehouseCode,
+                depotWarehouseCode),
             cancellationToken);
 
         return result.Match(

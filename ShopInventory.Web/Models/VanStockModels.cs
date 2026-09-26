@@ -14,81 +14,207 @@ public class VanReplenishmentReportResponse
 {
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
+    public DateTime GeneratedAt { get; set; }
     public VanReplenishmentSummary Summary { get; set; } = new();
+    public List<VanReplenishmentWaitBand> Waits { get; set; } = [];
     public List<VanReplenishmentVan> Vans { get; set; } = [];
-    public List<VanReplenishmentRequest> NeedingAttention { get; set; } = [];
+
+    /// <summary>Every request still open today, whatever the period — not only the period's.</summary>
+    public List<VanReplenishmentOpenRequest> Unfilled { get; set; } = [];
+
+    public List<VanReplenishmentDepotShortage> DepotShortages { get; set; } = [];
     public VanReplenishmentQuality Quality { get; set; } = new();
+
+    /// <summary>The van filter's choices, taken before any filter applied.</summary>
+    public List<string> AvailableVans { get; set; } = [];
+
+    /// <summary>The depot filter's choices, taken before any filter applied.</summary>
+    public List<string> AvailableDepots { get; set; } = [];
 }
 
 public class VanReplenishmentSummary
 {
     public int VanCount { get; set; }
+    public int VansAsking { get; set; }
     public int RequestCount { get; set; }
     public int PostedCount { get; set; }
+    public int PartlyPostedCount { get; set; }
     public int RejectedCount { get; set; }
-    public int AwaitingApprovalCount { get; set; }
-    public int PostFailedCount { get; set; }
+    public int CancelledCount { get; set; }
+    public int WithdrawnAfterFailureCount { get; set; }
+    public int OpenCount { get; set; }
     public int LineCount { get; set; }
+    public int FilledWithinDayCount { get; set; }
     public double? MedianHoursToDecision { get; set; }
+    public double? SlowestTenthHoursToDecision { get; set; }
     public double? MedianHoursToPosting { get; set; }
+    public double? SlowestTenthHoursToPosting { get; set; }
+    public int UnfilledNowCount { get; set; }
+    public int VansWaitingNow { get; set; }
+    public int? OldestUnfilledDays { get; set; }
 
-    public double? PostRate => RequestCount > 0 ? (double)PostedCount / RequestCount : null;
+    /// <summary>
+    /// The requests a van was owed an answer on: all but those turned down and those its requester
+    /// took back before a decision. A withdrawal after a failed post stays in — that van went without.
+    /// </summary>
+    public int FillBase => RequestCount - RejectedCount - CancelledCount;
+
+    /// <summary>Null on a period with nothing owed — no service level, not a perfect one.</summary>
+    public double? FilledWithinDayRate => FillBase > 0 ? (double)FilledWithinDayCount / FillBase : null;
 
     public double? RejectionRate => RequestCount > 0 ? (double)RejectedCount / RequestCount : null;
+}
 
-    public int NeedingAttentionCount => AwaitingApprovalCount + PostFailedCount;
+public class VanReplenishmentWaitBand
+{
+    public string Band { get; set; } = string.Empty;
+    public int Count { get; set; }
+}
+
+public static class VanReplenishmentWaitBands
+{
+    public const string UnderOneHour = "UnderOneHour";
+    public const string OneToFourHours = "OneToFourHours";
+    public const string FourToTwentyFourHours = "FourToTwentyFourHours";
+    public const string OneToThreeDays = "OneToThreeDays";
+    public const string OverThreeDays = "OverThreeDays";
+    public const string PostedUntimed = "PostedUntimed";
+    public const string StillOpen = "StillOpen";
+    public const string WithdrawnAfterFailure = "WithdrawnAfterFailure";
+    public const string TurnedDown = "TurnedDown";
+    public const string CancelledByRequester = "CancelledByRequester";
+
+    public static string Label(string band) => band switch
+    {
+        UnderOneHour => "Under 1 hour",
+        OneToFourHours => "1–4 hours",
+        FourToTwentyFourHours => "4–24 hours",
+        OneToThreeDays => "1–3 days",
+        OverThreeDays => "Over 3 days",
+        PostedUntimed => "Posted, no time kept",
+        StillOpen => "Still unfilled",
+        WithdrawnAfterFailure => "Withdrawn unfilled",
+        TurnedDown => "Turned down",
+        CancelledByRequester => "Taken back by requester",
+        _ => band
+    };
 }
 
 public class VanReplenishmentVan
 {
     public string VanWarehouseCode { get; set; } = string.Empty;
     public List<string> DepotWarehouses { get; set; } = [];
+
+    /// <summary>False when no active rep is assigned to the van any more.</summary>
+    public bool IsAssigned { get; set; }
+
     public int RequestCount { get; set; }
     public int PostedCount { get; set; }
+    public int PartlyPostedCount { get; set; }
     public int RejectedCount { get; set; }
-    public int AwaitingApprovalCount { get; set; }
-    public int PostFailedCount { get; set; }
+    public int CancelledCount { get; set; }
+    public int WithdrawnAfterFailureCount { get; set; }
+    public int OpenCount { get; set; }
+    public int FilledWithinDayCount { get; set; }
     public int LineCount { get; set; }
     public decimal TotalQuantity { get; set; }
     public double? MedianHoursToDecision { get; set; }
     public double? MedianHoursToPosting { get; set; }
     public double? SlowestHoursToPosting { get; set; }
     public DateTime? LastRequestedAt { get; set; }
+
+    /// <summary>The van's last load over all time — not only this period.</summary>
     public DateTime? LastPostedAt { get; set; }
 
     /// <summary>Null means never supplied at all — a different finding from a long gap.</summary>
     public int? DaysSinceLastPosted { get; set; }
 
-    public double? PostRate => RequestCount > 0 ? (double)PostedCount / RequestCount : null;
+    public int UnfilledNowCount { get; set; }
+    public bool LastPostedBeforePeriod { get; set; }
 
-    public double? RejectionRate => RequestCount > 0 ? (double)RejectedCount / RequestCount : null;
+    public int FillBase => RequestCount - RejectedCount - CancelledCount;
 
-    public int NeedingAttentionCount => AwaitingApprovalCount + PostFailedCount;
+    public double? FilledWithinDayRate => FillBase > 0 ? (double)FilledWithinDayCount / FillBase : null;
+
+    /// <summary>What never reached the van: still open, or withdrawn after failing to post.</summary>
+    public int UnfilledCount => OpenCount + WithdrawnAfterFailureCount;
 }
 
-public class VanReplenishmentRequest
+public class VanReplenishmentOpenRequest
 {
     public Guid Id { get; set; }
+    public string? DraftNumber { get; set; }
     public string VanWarehouseCode { get; set; } = string.Empty;
     public string DepotWarehouseCode { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public string Cause { get; set; } = string.Empty;
     public string RequestedBy { get; set; } = string.Empty;
+    public string? RequestedByRole { get; set; }
+
+    /// <summary>Raised by depot staff on the van's behalf rather than by the van's rep.</summary>
+    public bool RaisedByDepot { get; set; }
+
     public DateTime RequestedAt { get; set; }
     public DateTime? DecidedAt { get; set; }
+    public DateTime? LastAttemptedAt { get; set; }
     public int LineCount { get; set; }
     public decimal TotalQuantity { get; set; }
+    public int? ShortLineCount { get; set; }
+    public bool ShortLinesIncomplete { get; set; }
+    public List<VanReplenishmentShortItem> ShortItems { get; set; } = [];
     public string? LastError { get; set; }
     public double HoursWaiting { get; set; }
+    public int DaysWaiting { get; set; }
+    public int? LinesInStockAtLastAttempt { get; set; }
+}
 
-    public bool IsPostFailure => string.Equals(Status, "PostFailed", StringComparison.OrdinalIgnoreCase);
+/// <summary>Why an open request is open. Mirrors the API's causes.</summary>
+public static class VanReplenishmentCauses
+{
+    public const string AwaitingDecision = "AwaitingDecision";
+    public const string Posting = "Posting";
+    public const string ApprovedNeverPosted = "ApprovedNeverPosted";
+    public const string DepotShort = "DepotShort";
+    public const string StockUnread = "StockUnread";
+    public const string OutcomeUnknown = "OutcomeUnknown";
+    public const string PostRefused = "PostRefused";
 
-    public int DaysWaiting => (int)(HoursWaiting / 24);
+    /// <summary>The cause in a few words, as the page's chips and the export's column say it.</summary>
+    public static string Label(string cause) => cause switch
+    {
+        AwaitingDecision => "Waiting on an approver",
+        Posting => "Posting now",
+        ApprovedNeverPosted => "Approved, never posted",
+        DepotShort => "Depot short",
+        StockUnread => "SAP stock unread",
+        OutcomeUnknown => "Outcome unknown",
+        PostRefused => "SAP refused",
+        _ => cause
+    };
+}
 
-    /// <summary>
-    /// What a reader needs to do about it. A failed post was decided and then lost; one merely
-    /// awaiting approval is waiting on a person.
-    /// </summary>
-    public string GapLabel => IsPostFailure ? "Failed to post" : "Awaiting a decision";
+public class VanReplenishmentShortItem
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public decimal Shortage { get; set; }
+}
+
+public class VanReplenishmentDepotShortage
+{
+    public string DepotWarehouseCode { get; set; } = string.Empty;
+    public int RequestCount { get; set; }
+    public int VanCount { get; set; }
+    public int LineCount { get; set; }
+    public int LinesInStock { get; set; }
+    public bool Incomplete { get; set; }
+    public List<VanReplenishmentDepotShortItem> Items { get; set; } = [];
+}
+
+public class VanReplenishmentDepotShortItem
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public decimal Shortage { get; set; }
+    public int RequestCount { get; set; }
 }
 
 public class VanReplenishmentQuality
@@ -97,6 +223,7 @@ public class VanReplenishmentQuality
     public int RequestsWithoutPostTime { get; set; }
     public int PostedWithoutSapDocNum { get; set; }
     public int VansWithNoRequests { get; set; }
+    public int PostsRecordedByHand { get; set; }
 
     public bool IsClean =>
         RequestsWithoutDecisionTime == 0
@@ -112,7 +239,7 @@ public class VanReplenishmentQuality
             {
                 yield return
                     $"{VansWithNoRequests:N0} van(s) raised no restock request at all in this period, " +
-                    "so they have no service level to measure.";
+                    "so they have no wait to measure.";
             }
 
             if (PostedWithoutSapDocNum > 0)
@@ -137,6 +264,39 @@ public class VanReplenishmentQuality
             }
         }
     }
+}
+
+// ── A held transfer against the depot, live ─────────────────────────────────────
+
+public class PendingTransferStockCheck
+{
+    public Guid PendingTransferId { get; set; }
+    public string FromWarehouse { get; set; } = string.Empty;
+    public string ToWarehouse { get; set; } = string.Empty;
+    public DateTime CheckedAt { get; set; }
+    public bool StockWasFullyRead { get; set; }
+    public List<string> UnreadableWarehouses { get; set; } = [];
+    public List<PendingTransferStockCheckLine> Lines { get; set; } = [];
+    public int LinesInStock { get; set; }
+    public int LinesShort { get; set; }
+}
+
+public class PendingTransferStockCheckLine
+{
+    public int LineNumber { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string? UoMCode { get; set; }
+    public string? BatchNumber { get; set; }
+    public decimal Quantity { get; set; }
+
+    /// <summary>Known only for a short line.</summary>
+    public decimal? AvailableQuantity { get; set; }
+
+    /// <summary>InStock, Short or Unread.</summary>
+    public string State { get; set; } = string.Empty;
+
+    public bool IsShort => State == "Short";
+    public bool IsUnread => State == "Unread";
 }
 
 // ── Stock ───────────────────────────────────────────────────────────────────────

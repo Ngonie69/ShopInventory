@@ -15,6 +15,10 @@ using ShopInventory.Features.InventoryTransfers.Commands.DecidePendingTransfer;
 using ShopInventory.Features.InventoryTransfers.Commands.EditTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
 using ShopInventory.Features.InventoryTransfers.Commands.RetryPendingTransferPost;
+using ShopInventory.Features.InventoryTransfers.Commands.PostPendingTransferLinesInStock;
+using ShopInventory.Features.InventoryTransfers.Commands.RecordPendingTransferSapDocument;
+using ShopInventory.Features.InventoryTransfers.Commands.WithdrawPendingTransfer;
+using ShopInventory.Features.InventoryTransfers.Queries.GetPendingTransferStockCheck;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingTransferById;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingTransfers;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPagedTransferRequests;
@@ -159,6 +163,79 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(new RetryPendingTransferPostCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Measures a held transfer's lines against the source warehouse's stock as it stands now.
+    /// </summary>
+    [HttpGet("pending/{id:guid}/stock-check")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [ProducesResponseType(typeof(PendingTransferStockCheckResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> CheckPendingInventoryTransferStock(Guid id, CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new GetPendingTransferStockCheckQuery(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Posts the lines of an approved transfer that the depot can fill, leaving the short ones out.
+    /// </summary>
+    [HttpPost("pending/{id:guid}/post-in-stock")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> PostPendingInventoryTransferLinesInStock(Guid id, CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new PostPendingTransferLinesInStockCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Withdraws an approved transfer that failed to post, instead of retrying it.
+    /// </summary>
+    [HttpPost("pending/{id:guid}/withdraw")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> WithdrawPendingInventoryTransfer(
+        Guid id,
+        [FromBody] WithdrawPendingTransferDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new WithdrawPendingTransferCommand(id, userId.Value, request.Reason), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Records a transfer found in SAP as this held transfer's post — after a post timed out and SAP
+    /// had in fact created it — so it is closed without posting it a second time.
+    /// </summary>
+    [HttpPost("pending/{id:guid}/record-sap-document")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> RecordPendingInventoryTransferSapDocument(
+        Guid id,
+        [FromBody] RecordPendingTransferSapDocumentDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new RecordPendingTransferSapDocumentCommand(id, userId.Value, request.SapDocNum), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -25,15 +25,19 @@ public class VanStockWorkbookTests
 
     /// <summary>
     /// The worklist is the first sheet, as it is the first section on the page. It is the only part
-    /// of this report that is somebody's job today.
+    /// of this report that is somebody's job today. A depot short of stock adds its restock list.
     /// </summary>
     [Fact]
     public void The_replenishment_workbook_leads_with_the_worklist()
     {
         using var workbook = Open(_service.ExportVanReplenishmentToExcel(Replenishment()));
 
-        Assert.Equal(["Stuck Now", "By Van"], workbook.Worksheets.Select(s => s.Name).ToArray());
-        Assert.Contains("SAP connection closed", TextOf(workbook.Worksheet("Stuck Now")));
+        Assert.Equal(["Unfilled Now", "Depot Shortages", "By Van"], workbook.Worksheets.Select(s => s.Name).ToArray());
+        var worklist = TextOf(workbook.Worksheet("Unfilled Now"));
+        Assert.Contains("Depot short", worklist);
+        Assert.Contains("YOG100 −360", worklist);
+        Assert.Contains("SAP connection closed", worklist);
+        Assert.Contains("YOG100", TextOf(workbook.Worksheet("Depot Shortages")));
     }
 
     /// <summary>
@@ -72,7 +76,7 @@ public class VanStockWorkbookTests
         using var workbook = Open(bytes);
 
         Assert.Equal(2, workbook.Worksheets.Count);
-        Assert.Contains("VAN REPLENISHMENT", TextOf(workbook.Worksheet("Stuck Now")));
+        Assert.Contains("VAN REPLENISHMENT", TextOf(workbook.Worksheet("Unfilled Now")));
     }
 
     // ── Stock ───────────────────────────────────────────────────────────────────
@@ -230,17 +234,22 @@ public class VanStockWorkbookTests
     {
         FromDate = new DateTime(2026, 8, 1),
         ToDate = new DateTime(2026, 8, 31),
+        GeneratedAt = new DateTime(2026, 9, 1, 8, 0, 0),
         Summary = new VanReplenishmentSummary
         {
             VanCount = 1,
+            VansAsking = 1,
             RequestCount = 12,
             PostedCount = 9,
             RejectedCount = 1,
-            AwaitingApprovalCount = 1,
-            PostFailedCount = 1,
+            OpenCount = 2,
             LineCount = 96,
+            FilledWithinDayCount = 8,
             MedianHoursToDecision = 6,
-            MedianHoursToPosting = 11
+            MedianHoursToPosting = 11,
+            UnfilledNowCount = 2,
+            VansWaitingNow = 1,
+            OldestUnfilledDays = 25
         },
         Vans =
         [
@@ -248,11 +257,12 @@ public class VanStockWorkbookTests
             {
                 VanWarehouseCode = "VAN010",
                 DepotWarehouses = ["KEFGRC"],
+                IsAssigned = true,
                 RequestCount = 12,
                 PostedCount = 9,
                 RejectedCount = 1,
-                AwaitingApprovalCount = 1,
-                PostFailedCount = 1,
+                OpenCount = 2,
+                FilledWithinDayCount = 8,
                 LineCount = 96,
                 TotalQuantity = 1440m,
                 MedianHoursToDecision = 6,
@@ -260,24 +270,57 @@ public class VanStockWorkbookTests
                 SlowestHoursToPosting = 52,
                 LastRequestedAt = new DateTime(2026, 8, 28, 7, 0, 0),
                 LastPostedAt = new DateTime(2026, 8, 28, 18, 0, 0),
-                DaysSinceLastPosted = 3
+                DaysSinceLastPosted = 3,
+                UnfilledNowCount = 2
             }
         ],
-        NeedingAttention =
+        Unfilled =
         [
-            new VanReplenishmentRequest
+            new VanReplenishmentOpenRequest
+            {
+                Id = Guid.NewGuid(),
+                DraftNumber = "DT-2026-00412",
+                VanWarehouseCode = "VAN010",
+                DepotWarehouseCode = "KEFGRC",
+                Status = "PostFailed",
+                Cause = VanReplenishmentCauses.DepotShort,
+                RequestedBy = "Bulawayo Controller",
+                RaisedByDepot = true,
+                RequestedAt = new DateTime(2026, 8, 1, 16, 55, 0),
+                LineCount = 25,
+                ShortLineCount = 1,
+                LinesInStockAtLastAttempt = 24,
+                ShortItems = [new VanReplenishmentShortItem { ItemCode = "YOG100", Shortage = 360m }],
+                HoursWaiting = 600,
+                DaysWaiting = 25
+            },
+            new VanReplenishmentOpenRequest
             {
                 Id = Guid.NewGuid(),
                 VanWarehouseCode = "VAN010",
                 DepotWarehouseCode = "KEFGRC",
                 Status = "PostFailed",
+                Cause = VanReplenishmentCauses.PostRefused,
                 RequestedBy = "Tinashe Moyo",
                 RequestedAt = new DateTime(2026, 8, 29, 7, 0, 0),
                 DecidedAt = new DateTime(2026, 8, 29, 9, 0, 0),
                 LineCount = 8,
                 TotalQuantity = 120m,
                 LastError = "SAP connection closed",
-                HoursWaiting = 51.5
+                HoursWaiting = 51.5,
+                DaysWaiting = 2
+            }
+        ],
+        DepotShortages =
+        [
+            new VanReplenishmentDepotShortage
+            {
+                DepotWarehouseCode = "KEFGRC",
+                RequestCount = 1,
+                VanCount = 1,
+                LineCount = 25,
+                LinesInStock = 24,
+                Items = [new VanReplenishmentDepotShortItem { ItemCode = "YOG100", Shortage = 360m, RequestCount = 1 }]
             }
         ],
         Quality = new VanReplenishmentQuality()

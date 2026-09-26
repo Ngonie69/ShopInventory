@@ -110,6 +110,18 @@ public class PendingInventoryTransferDecisionResponseDto
     public InventoryTransferDto? Transfer { get; set; }
 }
 
+/// <summary>Why an approved transfer that failed to post is being withdrawn instead of retried.</summary>
+public class WithdrawPendingTransferDto
+{
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>The SAP number of a transfer found in SAP after its post timed out.</summary>
+public class RecordPendingTransferSapDocumentDto
+{
+    public int SapDocNum { get; set; }
+}
+
 public class SubmitPendingTransferDecisionDto
 {
     /// <summary>Approved or NotApproved.</summary>

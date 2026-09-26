@@ -100,6 +100,42 @@ public static partial class Errors
         public static Error PendingTransferNotFound(Guid id) =>
             Error.NotFound("InventoryTransfer.PendingTransferNotFound", $"Pending inventory transfer {id} was not found.");
 
+        public static Error NothingInStockToPost(string warehouseCode) =>
+            Error.Conflict(
+                "InventoryTransfer.NothingInStockToPost",
+                $"None of this transfer's lines can be filled from {warehouseCode} right now, so there is nothing to post. " +
+                "Withdraw it, or wait for the depot to be restocked.");
+
+        /// <summary>
+        /// The last post reached SAP and its answer was lost, so the document may already exist. Posting
+        /// part of it now could put a second transfer in beside the first.
+        /// </summary>
+        public static readonly Error PostOutcomeUnknown =
+            Error.Conflict(
+                "InventoryTransfer.PostOutcomeUnknown",
+                "The last post of this transfer timed out, so SAP may already hold it. Look for it in SAP first: " +
+                "record its number if it is there, or retry the whole transfer if it is not.");
+
+        public static Error WithdrawalNotAllowed(string status) =>
+            Error.Conflict(
+                "InventoryTransfer.WithdrawalNotAllowed",
+                $"Only an approved transfer that failed to post can be withdrawn here; this one is {status}.");
+
+        public static Error SapTransferNotFound(int docNum, string toWarehouse) =>
+            Error.NotFound(
+                "InventoryTransfer.SapTransferNotFound",
+                $"SAP has no inventory transfer #{docNum} into {toWarehouse} since this request was raised. Check the number.");
+
+        public static Error SapTransferDoesNotMatch(int docNum, string detail) =>
+            Error.Conflict(
+                "InventoryTransfer.SapTransferDoesNotMatch",
+                $"Inventory transfer #{docNum} in SAP is not this request: {detail}");
+
+        public static Error SapTransferAlreadyRecorded(int docNum, string draftNumber) =>
+            Error.Conflict(
+                "InventoryTransfer.SapTransferAlreadyRecorded",
+                $"Inventory transfer #{docNum} is already recorded against {draftNumber}.");
+
         public static Error PendingTransferNotActionable(string status) =>
             Error.Conflict("InventoryTransfer.PendingTransferNotActionable", $"This inventory transfer is {status} and can no longer be actioned.");
 

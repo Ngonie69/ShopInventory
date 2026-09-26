@@ -30,6 +30,18 @@ public interface IInventoryTransferService
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RetryPendingTransferPostAsync(Guid id);
     Task<(bool Success, string Message)> CancelPendingTransferAsync(Guid id);
 
+    /// <summary>A held transfer's lines against the source warehouse's stock now; null if it could not be read.</summary>
+    Task<PendingTransferStockCheck?> CheckPendingTransferStockAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Posts the lines the depot can fill and leaves the short ones out.</summary>
+    Task<(bool Success, string Message, InventoryTransferDto? Transfer)> PostPendingTransferLinesInStockAsync(Guid id);
+
+    /// <summary>Withdraws an approved transfer that failed to post, instead of retrying it.</summary>
+    Task<(bool Success, string Message)> WithdrawPendingTransferAsync(Guid id, string reason);
+
+    /// <summary>Closes a transfer against the document SAP created when its post timed out.</summary>
+    Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RecordPendingTransferSapDocumentAsync(Guid id, int sapDocNum);
+
     /// <summary>
     /// Changes an open transfer request's lines. Callers assigned the source warehouse update
     /// SAP directly; for anyone else the change comes back held for approval.
@@ -432,6 +444,45 @@ public class InventoryTransferService : IInventoryTransferService
             "We couldn't withdraw this transfer right now. Please try again.");
         return (success, message);
     }
+
+    public async Task<PendingTransferStockCheck?> CheckPendingTransferStockAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<PendingTransferStockCheck>(
+                $"api/inventorytransfer/pending/{id}/stock-check", cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking stock for pending inventory transfer {PendingId}", id);
+            return null;
+        }
+    }
+
+    public Task<(bool Success, string Message, InventoryTransferDto? Transfer)> PostPendingTransferLinesInStockAsync(Guid id)
+        => SendPendingTransferActionAsync(
+            $"api/inventorytransfer/pending/{id}/post-in-stock",
+            null,
+            "We couldn't post the lines in stock right now. Please try again.");
+
+    public async Task<(bool Success, string Message)> WithdrawPendingTransferAsync(Guid id, string reason)
+    {
+        var (success, message, _) = await SendPendingTransferActionAsync(
+            $"api/inventorytransfer/pending/{id}/withdraw",
+            JsonContent.Create(new { reason }),
+            "We couldn't withdraw this transfer right now. Please try again.");
+        return (success, message);
+    }
+
+    public Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RecordPendingTransferSapDocumentAsync(Guid id, int sapDocNum)
+        => SendPendingTransferActionAsync(
+            $"api/inventorytransfer/pending/{id}/record-sap-document",
+            JsonContent.Create(new { sapDocNum }),
+            "We couldn't record that SAP transfer right now. Please try again.");
 
     public async Task<(bool Success, string Message, TransferRequestEditResponse? Result)> EditTransferRequestAsync(
         int docEntry, EditTransferRequestRequest request)
