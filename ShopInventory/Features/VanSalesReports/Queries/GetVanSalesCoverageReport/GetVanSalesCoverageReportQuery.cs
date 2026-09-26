@@ -52,29 +52,42 @@ public sealed record VanSalesCoverageReportResult(
 
 // ── Summary ─────────────────────────────────────────────────────────────────────
 
+/// <summary>
+/// The period in one row.
+/// </summary>
+/// <remarks>
+/// The four base movements are the churn ledger's own totals, not a second calculation: opening is
+/// the first bucket's opening, closing the last bucket's closing, and new, reactivated and lapsed sum
+/// the buckets. So the headline balances exactly as each row does, and it can never disagree with the
+/// rows printed beneath it.
+/// </remarks>
 public sealed record VanSalesCoverageSummaryResult(
     int RepCount,
     int? RosterSize,
     int OutletsVisited,
     int OutletsBought,
     int OutletsUncovered,
+    int OpeningActiveOutlets,
     int NewOutlets,
     int ReactivatedOutlets,
     int LapsedOutlets,
+    int ClosingActiveOutlets,
     int? Calls,
     int ProductiveCalls,
     int? PlannedCalls,
+    int? CallsAgainstPlan,
     int? KilometresTravelled,
     List<VanSalesMoneyResult> TotalsByCurrency)
 {
     public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
 
     /// <summary>
-    /// Calls made over calls planned. Null when no departure record in the period stated a plan —
-    /// nothing planned means nothing can have been missed.
+    /// Calls made on planned days over the calls those days planned. Null when no departure record
+    /// in the period stated a plan — nothing planned means nothing can have been missed. A day whose
+    /// plan reads zero is out of both sides: its calls are not counted against another day's plan.
     /// </summary>
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     /// <summary>
     /// The share of the roster that was reached at all. Null when the roster is unknown — several
@@ -103,6 +116,7 @@ public sealed record VanSalesCoverageTrendPointResult(
     bool IsPartial,
     int RepsTrading,
     int? PlannedCalls,
+    int? CallsAgainstPlan,
     int? Calls,
     int ProductiveCalls,
     int OutletsBought,
@@ -110,7 +124,7 @@ public sealed record VanSalesCoverageTrendPointResult(
     int RepDaysWithoutRouteDay)
 {
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
         Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
@@ -142,6 +156,7 @@ public sealed record VanSalesRepCoverageResult(
     int? OutletsBought,
     int? OutletsUncovered,
     int? PlannedCalls,
+    int? CallsAgainstPlan,
     int? KilometresTravelled,
     List<VanSalesEfficiencyResult> EfficiencyByCurrency,
     List<VanSalesMoneyResult> TotalsByCurrency)
@@ -151,7 +166,7 @@ public sealed record VanSalesRepCoverageResult(
     public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
 
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? RosterCoverageRate =>
         RosterSize is > 0 && OutletsVisited is { } visited ? (double)visited / RosterSize.Value : null;

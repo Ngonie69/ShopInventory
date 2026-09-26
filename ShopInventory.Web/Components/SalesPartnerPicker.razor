@@ -1,0 +1,417 @@
+@* The business partner filter on the sales breakdown: who the takings were rung up as.
+
+   NocturnePicker's shape — a trigger, a search-first menu behind a veil, keys read where they bubble,
+   rows capped — with the one thing that picker cannot say: what each partner took. The question this
+   filter answers is "whose takings", so the menu opens on the partners that traded in the period,
+   ranked by what they took, each with its share; "All partners" reaches the rest of the partner cache
+   for a partner that took nothing, which is still a fair thing to ask about.
+
+   Styled in sales-breakdown.css under `sbp-`, against the page's `--ops-*` tokens: the page is the
+   only one that has takings to rank by. *@
+
+<div class="sbp @Class @(_open ? "sbp-open" : "")" @onkeydown="OnKeyDown">
+    <button type="button" id="@Id" class="sbp-btn @(HasValue ? "sbp-set" : "")"
+            disabled="@Loading" @onclick="Toggle"
+            aria-haspopup="dialog" aria-expanded="@_open" aria-label="@AriaLabel">
+        @if (Loading)
+        {
+            <span class="sbp-btn-name sbp-muted">Loading…</span>
+        }
+        else if (HasValue)
+        {
+            <span class="sbp-tile sbp-tile-sm" aria-hidden="true">@Initials(CurrentName)</span>
+            <span class="sbp-btn-name">@CurrentName</span>
+            @if (CurrentName != Value)
+            {
+                <span class="sbp-btn-code">@Value</span>
+            }
+        }
+        else
+        {
+            <i class="ph ph-users sbp-btn-icon" aria-hidden="true"></i>
+            <span class="sbp-btn-name">@AllLabel</span>
+        }
+        <i class="ph ph-caret-down sbp-caret" aria-hidden="true"></i>
+    </button>
+
+    @if (HasValue && !Loading)
+    {
+        @* Beside the trigger, not in it: a button in a button is not parseable HTML. *@
+        <button type="button" class="sbp-clear" @onclick="() => PickAsync(null)"
+                title="Show every business partner" aria-label="@($"Show every business partner, not only {CurrentName}")">
+            <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+    }
+
+    @if (_open)
+    {
+        var view = Visible();
+
+        <div class="sbp-veil" @onclick="Close"></div>
+        <div class="sbp-menu" role="dialog" aria-label="Filter by business partner">
+            <div class="sbp-top">
+                <div class="sbp-search">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    @* The literal handler keeps Enter from submitting a form this may sit in; the keys
+                       themselves are read on the wrapper. See NocturnePicker for why it cannot be both. *@
+                    <input type="search" autocomplete="off" spellcheck="false"
+                           placeholder="Search name or code" aria-label="Search business partners"
+                           onkeydown="if(event.key==='Enter')event.preventDefault()"
+                           @ref="_searchRef" @bind="Query" @bind:event="oninput" />
+                    @if (_query.Length > 0)
+                    {
+                        <button type="button" class="sbp-search-clear" @onclick="() => Query = string.Empty"
+                                aria-label="Clear search">
+                            <i class="ph ph-x" aria-hidden="true"></i>
+                        </button>
+                    }
+                </div>
+
+                <div class="sbp-tabs" role="group" aria-label="Which partners to list">
+                    <button type="button" class="sbp-tab @(_everyone ? "" : "is-on")" aria-pressed="@(!_everyone)"
+                            @onclick="() => SetTab(false)">
+                        Traded @PeriodText<span class="sbp-count">@view.TradedCount.ToString("N0")</span>
+                    </button>
+                    <button type="button" class="sbp-tab @(_everyone ? "is-on" : "")" aria-pressed="@_everyone"
+                            @onclick="() => SetTab(true)">
+                        All partners<span class="sbp-count">@(EveryoneLoading ? "…" : view.EveryoneCount.ToString("N0"))</span>
+                    </button>
+                </div>
+            </div>
+
+            @if (view.ShowAll)
+            {
+                <div class="sbp-all">
+                    <button type="button" class="sbp-row @(HasValue ? "" : "is-on") @(_active == 0 ? "is-active" : "")"
+                            aria-pressed="@(!HasValue)" @onclick="() => PickAsync(null)">
+                        <span class="sbp-tile sbp-tile-plain" aria-hidden="true"><i class="ph ph-users"></i></span>
+                        <span class="sbp-text">
+                            <span class="sbp-name">@AllLabel</span>
+                            <span class="sbp-meta">@Plural(TotalSales, "sale") · every partner</span>
+                        </span>
+                        <span class="sbp-figs"><span class="sbp-amount">@Amount(TotalAmount)</span></span>
+                        <i class="ph ph-check sbp-tick" aria-hidden="true"></i>
+                    </button>
+                </div>
+            }
+
+            <div class="sbp-section">
+                <span>@view.Heading</span>
+                <span>@Currency</span>
+            </div>
+
+            <div class="sbp-list">
+                @for (var i = 0; i < view.Rows.Count; i++)
+                {
+                    var option = view.Rows[i];
+                    var index = i + (view.ShowAll ? 1 : 0);
+                    var chosen = string.Equals(option.Code, Value, StringComparison.OrdinalIgnoreCase);
+                    var (before, hit, after) = Split(option.Name);
+
+                    <button type="button" @key="option.Code"
+                            class="sbp-row @(chosen ? "is-on" : "") @(index == _active ? "is-active" : "") @(option.Traded ? "" : "is-idle")"
+                            aria-pressed="@chosen" @onclick="() => PickAsync(option.Code)">
+                        <span class="sbp-tile" aria-hidden="true">@Initials(option.Name)</span>
+                        <span class="sbp-text">
+                            <span class="sbp-name">@before<mark>@hit</mark>@after</span>
+                            <span class="sbp-meta">@option.Code · @(option.Traded ? Plural(option.SalesCount, "sale") : $"no sales {PeriodText}")</span>
+                        </span>
+                        <span class="sbp-figs">
+                            <span class="sbp-amount">@(option.Traded ? Amount(option.TotalAmount) : "—")</span>
+                            @if (option.Traded)
+                            {
+                                <span class="sbp-share">
+                                    <span class="sbp-bar"><span style="width:@BarWidth(option.TotalAmount)"></span></span>
+                                    <span class="sbp-pct">@Pct(option.SharePercent)</span>
+                                </span>
+                            }
+                        </span>
+                        <i class="ph ph-check sbp-tick" aria-hidden="true"></i>
+                    </button>
+                }
+
+                @if (view.Rows.Count == 0)
+                {
+                    <div class="sbp-empty">
+                        @if (_everyone && EveryoneLoading)
+                        {
+                            <span class="ops-spin"></span>
+                            <span>Loading every business partner…</span>
+                        }
+                        else if (_query.Trim().Length == 0)
+                        {
+                            <strong>No business partner traded @PeriodText</strong>
+                            <span>Widen the period, or look under All partners.</span>
+                        }
+                        else
+                        {
+                            <strong>No partner matches “@_query.Trim()”</strong>
+                            @if (!_everyone)
+                            {
+                                <span>Nothing was sold to a partner by that name @PeriodText. It may still be on file.</span>
+                                <button type="button" class="sbp-widen" @onclick="() => SetTab(true)">
+                                    Search all partners
+                                </button>
+                            }
+                            else
+                            {
+                                <span>Check the spelling, or search by the partner code.</span>
+                            }
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="sbp-foot">
+                <span>
+                    @if (view.Total > view.Rows.Count)
+                    {
+                        @($"Showing {view.Rows.Count:N0} of {view.Total:N0} — type to narrow")
+                    }
+                    else
+                    {
+                        @($"{Traded.Count:N0} {(Traded.Count == 1 ? "partner" : "partners")} traded {PeriodText}")
+                    }
+                </span>
+                <span class="sbp-keys" aria-hidden="true">
+                    <kbd>↑↓</kbd> move <kbd>Enter</kbd> pick <kbd>Esc</kbd> close
+                </span>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The partners that traded in the period, ranked by takings — the page's order, kept.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<SalesPartnerOption> Traded { get; set; } = [];
+
+    /// <summary>Every partner on file, for "All partners"; the traded ones are merged in with their figures.</summary>
+    [Parameter] public IReadOnlyList<SalesPartnerOption> Everyone { get; set; } = [];
+
+    [Parameter] public bool EveryoneLoading { get; set; }
+
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Runs after the value has been committed — the reload hook.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>The currency the figures are in, shown once over the column rather than on every row.</summary>
+    [Parameter] public string? Currency { get; set; }
+
+    /// <summary>The whole period's takings and sales, for the "All business partners" row.</summary>
+    [Parameter] public decimal TotalAmount { get; set; }
+    [Parameter] public int TotalSales { get; set; }
+
+    /// <summary>How the period reads after "traded": "today", "in this period".</summary>
+    [Parameter] public string PeriodText { get; set; } = "in this period";
+
+    [Parameter] public string AllLabel { get; set; } = "All business partners";
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Rows drawn at once under "All partners"; the search reaches the rest.</summary>
+    [Parameter] public int MaxVisible { get; set; } = 50;
+
+    private bool _open;
+    private bool _everyone;
+    private string _query = string.Empty;
+    private int _active = -1;
+    private bool _focusPending;
+    private ElementReference _searchRef;
+
+    /// <summary>The keys the last render drew, in order: null for "All business partners", then each row.</summary>
+    private List<string?> _keys = [];
+
+    private string Query
+    {
+        get => _query;
+        set
+        {
+            _query = value;
+            // Typing lands the highlight on the top match, so type-then-Enter picks it.
+            _active = value.Trim().Length > 0 ? 0 : -1;
+        }
+    }
+
+    private bool HasValue => !string.IsNullOrEmpty(Value);
+
+    /// <summary>The picked partner's name, from whichever list knows it, else its code.</summary>
+    private string CurrentName =>
+        Traded.FirstOrDefault(o => Same(o.Code, Value))?.Name
+        ?? Everyone.FirstOrDefault(o => Same(o.Code, Value))?.Name
+        ?? Value ?? string.Empty;
+
+    private sealed record View(
+        List<SalesPartnerOption> Rows, int Total, bool ShowAll, string Heading, int TradedCount, int EveryoneCount);
+
+    private View Visible()
+    {
+        var terms = _query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var traded = Traded.Where(o => Hit(o, terms)).ToList();
+
+        // The partners on file that did not trade, after the ones that did — so "All partners" still leads
+        // with the answers, and a partner that took nothing sits where the alphabet puts it.
+        var idle = Everyone
+            .Where(o => !Traded.Any(t => Same(t.Code, o.Code)))
+            .Where(o => Hit(o, terms))
+            .OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var matches = _everyone ? traded.Concat(idle).ToList() : traded;
+        var rows = matches.Take(MaxVisible).ToList();
+        var showAll = terms.Length == 0;
+
+        _keys = (showAll ? new List<string?> { null } : []).Concat(rows.Select(r => (string?)r.Code)).ToList();
+        if (_active >= _keys.Count)
+        {
+            _active = _keys.Count - 1;
+        }
+
+        var heading = terms.Length > 0
+            ? $"{matches.Count:N0} {(matches.Count == 1 ? "match" : "matches")}"
+            : _everyone ? "Traded first, then A–Z" : $"Ranked by takings, {PeriodText}";
+
+        return new View(rows, matches.Count, showAll, heading, traded.Count, traded.Count + idle.Count);
+    }
+
+    /// <summary>Every term lands on the code or the name, so "chee cash" and "cash chee" find the same row.</summary>
+    private static bool Hit(SalesPartnerOption option, string[] terms) =>
+        terms.All(term =>
+            option.Code.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+            option.Name.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The name around the first search term it contains, for the match to be marked.</summary>
+    private (string Before, string Hit, string After) Split(string name)
+    {
+        var term = _query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(t => name.Contains(t, StringComparison.OrdinalIgnoreCase));
+        if (term is null)
+        {
+            return (name, string.Empty, string.Empty);
+        }
+
+        var at = name.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+        return (name[..at], name.Substring(at, term.Length), name[(at + term.Length)..]);
+    }
+
+    private void Toggle()
+    {
+        if (_open)
+        {
+            Close();
+            return;
+        }
+
+        _open = true;
+        _everyone = false;
+        Query = string.Empty;
+        _focusPending = true;
+    }
+
+    private void Close()
+    {
+        _open = false;
+        Query = string.Empty;
+    }
+
+    private void SetTab(bool everyone)
+    {
+        _everyone = everyone;
+        _active = _query.Trim().Length > 0 ? 0 : -1;
+        _focusPending = true;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                Close();
+                break;
+
+            case "Enter" when _open:
+                if (_active >= 0 && _active < _keys.Count)
+                {
+                    await PickAsync(_keys[_active]);
+                }
+                break;
+
+            case "ArrowDown" when !_open:
+            case "ArrowUp" when !_open:
+                Toggle();
+                break;
+
+            case "ArrowDown" when _keys.Count > 0:
+                _active = Math.Min(_active + 1, _keys.Count - 1);
+                break;
+
+            case "ArrowUp" when _keys.Count > 0:
+                _active = _active < 0 ? _keys.Count - 1 : Math.Max(_active - 1, 0);
+                break;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending)
+        {
+            return;
+        }
+
+        _focusPending = false;
+
+        if (_open)
+        {
+            await _searchRef.FocusAsync();
+        }
+    }
+
+    private async Task PickAsync(string? code)
+    {
+        Close();
+
+        if (Same(code, Value) || (code is null && !HasValue))
+        {
+            return;
+        }
+
+        Value = code;
+        await ValueChanged.InvokeAsync(code);
+        await OnChanged.InvokeAsync();
+    }
+
+    private static bool Same(string? a, string? b) =>
+        string.Equals(a ?? string.Empty, b ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+    private string BarWidth(decimal total)
+    {
+        var top = Traded.Count == 0 ? 0m : Traded.Max(o => o.TotalAmount);
+        var percent = top <= 0 ? 0m : Math.Max(4m, total / top * 100m);
+        return percent.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "%";
+    }
+
+    private static string Amount(decimal value) =>
+        value.ToString("N2", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Pct(decimal percent) =>
+        percent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    private static string Plural(int count, string noun) =>
+        $"{count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} {noun}{(count == 1 ? "" : "s")}";
+
+    /// <summary>Two letters for the row's tile: the first of its first two words.</summary>
+    private static string Initials(string name)
+    {
+        var letters = name
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => char.IsLetterOrDigit(word[0]))
+            .Take(2)
+            .Select(word => char.ToUpperInvariant(word[0]));
+
+        var text = string.Concat(letters);
+        return text.Length == 0 ? "?" : text;
+    }
+}

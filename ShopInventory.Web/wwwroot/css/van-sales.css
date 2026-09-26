@@ -2567,6 +2567,7 @@
 .vs .vst-small { font-size: 0.78rem; }
 .vs .vst-info-ink { color: var(--vs-info); }
 .vs .vst-warn-ink { color: var(--vs-warn); font-weight: 500; }
+.vs .vst-good-ink { color: var(--vs-good); }
 .vs .vst-accent-ink { color: var(--vs-accent-text); }
 
 .vs .vst-stack {
@@ -2624,6 +2625,8 @@
 .vs .vst-answer-warn { border-color: rgba(var(--vs-warn-rgb), 0.4); }
 .vs .vst-answer-warn .vst-answer-kicker { color: var(--vs-warn); }
 .vs .vst-answer-good .vst-answer-kicker { color: var(--vs-good); }
+.vs .vst-answer-info { border-color: rgba(var(--vs-info-rgb), 0.4); }
+.vs .vst-answer-info .vst-answer-kicker { color: var(--vs-info); }
 
 /* — Section heads and the legend — */
 
@@ -2672,6 +2675,10 @@
 .vs .vst-sq-short { background: var(--vs-bad); }
 .vs .vst-sq-over { background: var(--vs-info); }
 .vs .vst-sq-gap { border: 1px dashed var(--vs-faint); }
+.vs .vst-sq-late { background: var(--vs-warn); }
+.vs .vst-sq-miss { background: var(--vs-bad); }
+.vs .vst-sq-other { background: var(--vs-info); }
+.vs .vst-sq-unk { background: rgba(var(--vs-neutral-rgb), 0.35); }
 
 .vs .vst-pill {
     align-self: flex-start;
@@ -2685,12 +2692,14 @@
 .vs .vst-pill-bad { background: rgba(var(--vs-bad-rgb), 0.14); color: var(--vs-bad); }
 .vs .vst-pill-warn { background: rgba(var(--vs-warn-rgb), 0.14); color: var(--vs-warn); }
 .vs .vst-pill-good { background: rgba(var(--vs-good-rgb), 0.14); color: var(--vs-good); }
+.vs .vst-pill-info { background: rgba(var(--vs-info-rgb), 0.14); color: var(--vs-info); }
+.vs .vst-pill-neutral { background: rgba(var(--vs-neutral-rgb), 0.14); color: var(--vs-neutral); }
 
 /* — Van by van — */
 
 .vs .vst-vans,
 .vs .vst-ledger {
-    --vst-cols: 9rem minmax(12rem, 16rem) 6rem 9.5rem 6.5rem 5.5rem minmax(0, 1fr) 1.25rem;
+    --vst-cols: 9.5rem minmax(13rem, 16rem) 6.5rem minmax(8rem, 1fr) minmax(7rem, 1fr) minmax(7.5rem, 1fr) 1.25rem;
     border-radius: 12px;
     background: var(--vs-surface);
     border: 1px solid var(--vs-rule);
@@ -2698,7 +2707,7 @@
 }
 
 .vs .vst-ledger {
-    --vst-cols: 7.5rem minmax(14rem, 20rem) 7.5rem minmax(0, 1fr) 8rem;
+    --vst-cols: 9rem 8rem 7rem 7rem 6.5rem 7rem minmax(0, 1fr);
 }
 
 .vs .vst-vans-head,
@@ -2871,6 +2880,32 @@
 .vs .vst-table td.vst-bad { color: var(--vs-bad); }
 .vs .vst-table td.vst-info-ink { color: var(--vs-info); }
 .vs .vst-table td.vst-accent-ink { color: var(--vs-accent-text); }
+.vs .vst-table td.vst-warn-ink { color: var(--vs-warn); }
+.vs .vst-table td.vst-good-ink { color: var(--vs-good); }
+.vs .vst-table td.vst-mute-cell { color: var(--vs-mute-2); font-size: 0.82rem; max-width: 28rem; }
+
+/* A trading day's differing items open under its row, inside the same table. */
+.vs .vst-table tr.vst-subrow > td { padding: 0.25rem 0 0.9rem 1.25rem; background: var(--vs-hover); }
+.vs .vst-table tr.vst-subrow .vst-table { font-size: 0.84rem; }
+
+.vs .vst-link-inline { margin-left: 0.6rem; padding: 0; min-height: 0; }
+
+.vs .vst-subheading {
+    margin: 1.25rem 0 0.25rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--vs-ink);
+}
+
+/* The two rules the page checks, one above the other. */
+.vs .vst-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.vs .vst-rules .vst-rule-label { min-width: 10.5rem; }
 
 /* — One van — */
 
@@ -3007,8 +3042,8 @@
 .vs .vst-morning-ok { color: var(--vs-mute-2); }
 
 .vs .vst-morning-open {
-    background: rgba(var(--vs-bad-rgb), 0.08);
-    box-shadow: inset 3px 0 0 var(--vs-bad);
+    background: rgba(var(--vs-accent-rgb), 0.1);
+    box-shadow: inset 3px 0 0 var(--vs-accent);
 }
 
 .vs .vst-morning-date { font-weight: 500; }
@@ -3082,6 +3117,21 @@
 .vs .vst-opened { margin-top: 1rem; }
 .vs .vst-opened-short { border-color: rgba(var(--vs-bad-rgb), 0.4); }
 .vs .vst-opened-over { border-color: rgba(var(--vs-info-rgb), 0.4); }
+.vs .vst-opened-ok { border-color: rgba(var(--vs-accent-rgb), 0.35); }
+
+/* What to do reads as a sentence, so it takes its own line under the van's figures rather than
+   a column squeezed to a word a line beside them. */
+@media (min-width: 1241px) {
+    .vs .vst-vans-head > :nth-child(7) { display: none; }
+
+    .vs .vst-van > .vst-action {
+        grid-column: 2 / -2;
+        grid-row: 2;
+        margin-top: -0.35rem;
+    }
+
+    .vs .vst-van > .vst-chev { grid-column: -2; grid-row: 1 / span 2; }
+}
 
 @media (max-width: 1240px) {
     .vs .vst-answers,
@@ -3090,7 +3140,7 @@
     }
 
     .vs .vst-vans {
-        --vst-cols: 8rem minmax(10rem, 1fr) 5rem 8.5rem 1.25rem;
+        --vst-cols: 8.5rem minmax(10rem, 1fr) 5.5rem 8rem 1.25rem;
     }
 
     /* Selling, idle and the action move to the van's own page on a narrow screen. */
@@ -3130,7 +3180,9 @@
     .vs .vst-ledger { overflow-x: auto; }
 
     .vs .vst-ledger-head,
-    .vs .vst-morning { min-width: 44rem; }
+    .vs .vst-morning { min-width: 52rem; }
+
+    .vs .vst-rules .vst-rule-label { min-width: 0; width: 100%; }
 
     .vs .vst-opened,
     .vs .vst-panel { overflow-x: auto; }

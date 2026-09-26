@@ -54,9 +54,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             nameof(DesktopSaleEntity),
             string.IsNullOrWhiteSpace(request.WarehouseCode) ? "(caller scope)" : request.WarehouseCode.Trim(),
             outcome.IsError
-                ? $"Refused a sales analysis for warehouse {request.WarehouseCode}."
+                ? $"Refused a sales analysis for warehouse {request.WarehouseCode}, partner {request.CardCode}."
                 : $"Analysed {outcome.Value.Currencies.Sum(c => c.SalesCount)} sale(s) from "
-                    + $"{outcome.Value.FromDate:yyyy-MM-dd} to {outcome.Value.ToDate:yyyy-MM-dd}.",
+                    + $"{outcome.Value.FromDate:yyyy-MM-dd} to {outcome.Value.ToDate:yyyy-MM-dd}"
+                    + (outcome.Value.CardCode is { } partner ? $" for partner {partner}." : "."),
             !outcome.IsError,
             outcome.IsError ? outcome.FirstError.Description : null);
 
@@ -90,6 +91,7 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         var paymentMethod = string.IsNullOrWhiteSpace(request.PaymentMethod)
             ? null
             : TenderTypes.ReportingName(request.PaymentMethod);
+        var cardCode = string.IsNullOrWhiteSpace(request.CardCode) ? null : request.CardCode.Trim();
 
         IQueryable<DesktopSaleEntity> Scope(DateTime windowFrom, DateTime windowTo)
         {
@@ -106,6 +108,12 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 scoped = scoped.Where(s => s.SourceSystem == source);
             }
             scoped = scoped.InBusiness(request.Business);
+
+            // Inside the warehouse scope, never instead of it: the partner narrows what the caller may read.
+            if (cardCode is not null)
+            {
+                scoped = scoped.Where(s => s.CardCode == cardCode);
+            }
 
             return warehouse is null ? scoped : scoped.Where(s => s.WarehouseCode == warehouse);
         }
@@ -244,7 +252,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             currencies,
             paymentMethod,
             previousFrom,
-            previousTo);
+            previousTo,
+            cardCode);
     }
 
     private static DesktopSalesCurrencyAnalysis Analyse(

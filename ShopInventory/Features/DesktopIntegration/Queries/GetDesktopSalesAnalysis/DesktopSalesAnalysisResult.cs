@@ -18,6 +18,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// <para><c>PreviousFromDate</c>/<c>PreviousToDate</c>: The same number of days just before the period,
 /// which each currency's <c>PreviousSalesCount</c> and <c>PreviousTotalAmount</c> were read over, under the
 /// same filters.</para>
+/// <para><c>CardCode</c>: The business partner every figure was confined to, or null for all of them.</para>
 /// </remarks>
 public sealed record DesktopSalesAnalysisResult(
     DateTime FromDate,
@@ -29,4 +30,5 @@ public sealed record DesktopSalesAnalysisResult(
     List<DesktopSalesCurrencyAnalysis> Currencies,
     string? PaymentMethod,
     DateTime PreviousFromDate,
-    DateTime PreviousToDate);
+    DateTime PreviousToDate,
+    string? CardCode = null);

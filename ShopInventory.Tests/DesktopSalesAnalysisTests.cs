@@ -441,6 +441,36 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     }
 
     [Fact]
+    public async Task A_business_partner_confines_every_figure_to_its_sales()
+    {
+        var result = await Analyse(_adminId, Day1, Day2, cardCode: $" {MachipisaPartner} ");
+
+        Assert.False(result.IsError);
+        Assert.Equal(MachipisaPartner, result.Value.CardCode);
+
+        // The farm partner's dollars and its ZWG section are gone, not merely ranked below.
+        var usd = Assert.Single(result.Value.Currencies);
+        Assert.Equal("USD", usd.Currency);
+        Assert.Equal((1, 50m), (usd.SalesCount, usd.TotalAmount));
+        Assert.Equal(MachipisaPartner, Assert.Single(usd.ByBusinessPartner).Key);
+        Assert.Equal("CORMACH2", Assert.Single(usd.ByWarehouse).Key);
+        Assert.Equal(50m, usd.ByPaymentMethod.Single(p => p.PaymentMethod == TenderTypes.Cash).TotalAmount);
+    }
+
+    [Fact]
+    public async Task A_business_partner_narrows_a_shop_confined_caller_and_never_widens_them()
+    {
+        var cashierAtFarm = await AddUser(ApplicationRoles.Cashier, shopId: _farmId);
+
+        // Machipisa's partner sold only at Machipisa, which this cashier cannot read.
+        var result = await Analyse(cashierAtFarm, Day1, Day2, cardCode: MachipisaPartner);
+
+        Assert.False(result.IsError);
+        Assert.Equal("KEFSHOP", result.Value.WarehouseCode);
+        Assert.Empty(result.Value.Currencies);
+    }
+
+    [Fact]
     public async Task Best_sellers_rank_by_net_value_and_count_sales_rather_than_lines()
     {
         var usd = Dollars(await AnalyseAsAdmin());
@@ -573,9 +603,11 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
 
     private Task<ErrorOr.ErrorOr<DesktopSalesAnalysisResult>> Analyse(
         Guid callerId, DateTime from, DateTime to, string? warehouseCode = null, string? paymentMethod = null,
-        string? sourceSystem = null) =>
+        string? sourceSystem = null, string? cardCode = null) =>
         new GetDesktopSalesAnalysisHandler(_context, new RecordingAuditService())
             .Handle(
-                new GetDesktopSalesAnalysisQuery(callerId, from, to, warehouseCode, SourceSystem: sourceSystem, PaymentMethod: paymentMethod),
+                new GetDesktopSalesAnalysisQuery(
+                    callerId, from, to, warehouseCode, SourceSystem: sourceSystem, PaymentMethod: paymentMethod,
+                    CardCode: cardCode),
                 CancellationToken.None);
 }
