@@ -68,6 +68,7 @@ public interface IReportExportService
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
     byte[] ExportCountVarianceToExcel(CountVarianceReport report);
+    byte[] ExportVanCountVarianceToExcel(VanCountVarianceReport report);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
 

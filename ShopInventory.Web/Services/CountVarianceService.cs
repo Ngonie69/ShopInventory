@@ -13,6 +13,9 @@ public interface ICountVarianceService
 
     Task<(bool Success, string Message, CountVarianceReport? Value)> GetReportAsync(
         int documentEntry, CancellationToken cancellationToken);
+
+    Task<(bool Success, string Message, VanCountVarianceReport? Value)> GetVanReportAsync(
+        DateTime fromDate, DateTime toDate, CancellationToken cancellationToken);
 }
 
 public sealed class CountVarianceService(HttpClient httpClient, ILogger<CountVarianceService> logger)
@@ -33,6 +36,12 @@ public sealed class CountVarianceService(HttpClient httpClient, ILogger<CountVar
         int documentEntry, CancellationToken cancellationToken)
         => ReadAsync<CountVarianceReport>(
             $"api/count-variance/{documentEntry}", "The count variance could not be loaded.", cancellationToken);
+
+    public Task<(bool Success, string Message, VanCountVarianceReport? Value)> GetVanReportAsync(
+        DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+        => ReadAsync<VanCountVarianceReport>(
+            $"api/count-variance/vans?fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}",
+            "The van counts could not be loaded.", cancellationToken);
 
     private async Task<(bool Success, string Message, T? Value)> ReadAsync<T>(
         string path, string fallback, CancellationToken cancellationToken)

@@ -98,6 +98,81 @@ public sealed class CountVarianceTotalsDto
     public decimal StockValue { get; set; }
 }
 
+/// <summary>One van's latest count in the range, valued.</summary>
+public sealed class VanCountVarianceDto
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+
+    /// <summary>The rep assigned to the van; null when the assignment names nobody by name.</summary>
+    public string? RepName { get; set; }
+
+    public CountingDocumentSummaryDto Document { get; set; } = new();
+
+    /// <summary>This van's lines only — a count spanning several warehouses is split between them.</summary>
+    public CountVarianceTotalsDto Totals { get; set; } = new();
+
+    /// <summary>Older counts of this van in the range, which the latest one replaces.</summary>
+    public List<int> SupersededDocumentNumbers { get; set; } = [];
+}
+
+/// <summary>A van with no count dated in the range.</summary>
+public sealed class VanWithoutCountDto
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public string? RepName { get; set; }
+}
+
+/// <summary>One item across every van counted.</summary>
+public sealed class ItemCountVarianceDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemDescription { get; set; }
+
+    /// <summary>Null when the price list has no price for the item.</summary>
+    public decimal? SellingPrice { get; set; }
+
+    /// <summary>Vans that counted the item short, and over.</summary>
+    public int VansShort { get; set; }
+    public int VansOver { get; set; }
+
+    /// <summary>Units short across the vans, as a positive number.</summary>
+    public decimal ShortQuantity { get; set; }
+    public decimal OverQuantity { get; set; }
+    public decimal NetQuantity { get; set; }
+
+    /// <summary>Null when there is no price.</summary>
+    public decimal? NetValue { get; set; }
+}
+
+/// <summary>Every van's latest count in a date range, valued at selling price and added up.</summary>
+public sealed class VanCountVarianceReportDto
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+
+    public int PriceListNum { get; set; }
+    public string? PriceListName { get; set; }
+    public string? Currency { get; set; }
+
+    /// <summary>How many vans the application knows of.</summary>
+    public int VanCount { get; set; }
+
+    public List<VanCountVarianceDto> Vans { get; set; } = [];
+    public List<VanWithoutCountDto> VansNotCounted { get; set; } = [];
+    public List<ItemCountVarianceDto> Items { get; set; } = [];
+
+    /// <summary>The vans' totals added together.</summary>
+    public CountVarianceTotalsDto Totals { get; set; } = new();
+
+    /// <summary>
+    /// True when SAP held more counts in the range than one run reads, so a van's latest count may
+    /// have been missed. Narrow the range.
+    /// </summary>
+    public bool Truncated { get; set; }
+
+    public DateTime GeneratedAtUtc { get; set; }
+}
+
 public sealed class CountVarianceReportDto
 {
     public CountingDocumentSummaryDto Document { get; set; } = new();

@@ -142,6 +142,15 @@ public interface ISAPServiceLayerClient
         int top,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Inventory counts dated within a range (count date, inclusive), newest first, headers only.
+    /// </summary>
+    Task<List<InventoryCounting>> GetInventoryCountingsByDateAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        int top,
+        CancellationToken cancellationToken = default);
+
     /// <summary>One inventory count with its lines; null when SAP has no such document.</summary>
     Task<InventoryCounting?> GetInventoryCountingAsync(int documentEntry, CancellationToken cancellationToken = default);
 

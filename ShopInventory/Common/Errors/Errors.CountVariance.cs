@@ -12,6 +12,10 @@ public static partial class Errors
         public static Error NotFound(int documentEntry) =>
             Error.NotFound("CountVariance.NotFound", $"SAP has no inventory count with entry {documentEntry}.");
 
+        public static readonly Error NoVans =
+            Error.NotFound("CountVariance.NoVans",
+                "No warehouse is set up as a van: none is assigned to a rep who loads from a depot.");
+
         public static Error SapReadFailed(string what, string reason) =>
             Error.Failure("CountVariance.SapReadFailed", $"SAP could not {what}: {reason}");
     }

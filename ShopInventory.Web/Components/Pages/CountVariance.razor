@@ -24,10 +24,16 @@
                     What an SAP inventory count came up short or over, valued at the price the stock
                     sells for on the van sales price list, excluding VAT.
                 </p>
+                <div class="cvr-seg cvr-modes" role="group" aria-label="Report on">
+                    <button type="button" class="@(!fleetMode ? "is-on" : null)" aria-pressed="@(!fleetMode ? "true" : "false")"
+                            @onclick="() => SetMode(false)">One count</button>
+                    <button type="button" class="@(fleetMode ? "is-on" : null)" aria-pressed="@(fleetMode ? "true" : "false")"
+                            @onclick="() => SetMode(true)">All vans</button>
+                </div>
             </div>
-            @if (report is not null)
+            @if (fleetMode ? fleetReport is not null : report is not null)
             {
-                <button type="button" class="cvr-btn" @onclick="ExportAsync">
+                <button type="button" class="cvr-btn" @onclick="@(() => fleetMode ? ExportFleetAsync() : ExportAsync())">
                     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" /></svg>
                     Export to Excel
                 </button>
@@ -36,7 +42,9 @@
     </header>
 
     <main class="cvr-shell cvr-body">
-
+      @if (!fleetMode)
+      {
+       <div class="cvr-mode">
         <section class="cvr-run" aria-label="Run the report">
             <div class="cvr-field">
                 <span class="cvr-label" id="cvr-status-label">Counts</span>
@@ -263,5 +271,292 @@
                 </table>
             </section>
         }
+       </div>
+      }
+      else
+      {
+       <div class="cvr-mode">
+        <section class="cvr-run cvr-run-fleet" aria-label="Run the report for every van">
+            <div class="cvr-field">
+                <span class="cvr-label">Counted from</span>
+                <NocturneDateField @bind-Date="fleetFrom" AriaLabel="Counted from" />
+            </div>
+            <div class="cvr-field">
+                <span class="cvr-label">Counted to</span>
+                <NocturneDateField @bind-Date="fleetTo" AriaLabel="Counted to" />
+            </div>
+            <p class="cvr-run-note">
+                Each van's <strong>latest</strong> count in the range, on its own lines. A recount replaces the
+                earlier one, so no van's stock is counted twice.
+            </p>
+            <button type="button" class="cvr-run-btn" disabled="@(isRunningFleet || fleetFrom is null || fleetTo is null)"
+                    @onclick="RunFleetAsync">
+                @if (isRunningFleet)
+                {
+                    <span class="cvr-spin" aria-hidden="true"></span>
+                    <span>Reading SAP…</span>
+                }
+                else
+                {
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4a.6.6 0 0 0 .9.5l8-5.2a.6.6 0 0 0 0-1L5.4 2.3a.6.6 0 0 0-.9.5Z" /></svg>
+                    <span>@(fleetReport is null ? "Run report" : "Run again")</span>
+                }
+            </button>
+        </section>
+
+        @if (fleetError is not null)
+        {
+            <div class="cvr-notice is-bad" role="alert">@fleetError</div>
+        }
+
+        @if (fleetReport is null)
+        {
+            <section class="cvr-empty" aria-label="Before you run">
+                <h2>How the fleet report adds counts up</h2>
+                <ol>
+                    <li>A <strong>van</strong> is a warehouse assigned to a rep a depot supplies — the same vans the Van Stock report shows.</li>
+                    <li>Each van is valued on its <strong>latest</strong> SAP count dated in the range, and only on the lines in its own warehouse.</li>
+                    <li>Values are the van sales price list's, before VAT. Vans with no count in the range are listed, not guessed at.</li>
+                </ol>
+            </section>
+        }
+        else
+        {
+            var fleet = fleetReport;
+            var ft = fleet.Totals;
+
+            <section class="cvr-doc" aria-label="The range">
+                <div class="cvr-doc-main">
+                    <span class="cvr-doc-no">All vans</span>
+                    <span class="cvr-doc-whse">@FormatDay(fleet.FromDate) – @FormatDay(fleet.ToDate)</span>
+                </div>
+                <div class="cvr-doc-meta">
+                    @fleet.Vans.Count of @fleet.VanCount vans counted
+                    · valued at @(fleet.PriceListName ?? $"price list {fleet.PriceListNum}") (list @fleet.PriceListNum), excl. VAT
+                    · read SAP at @FormatStamp(fleet.GeneratedAtUtc)
+                </div>
+            </section>
+
+            @if (fleet.Truncated)
+            {
+                <div class="cvr-notice is-warn" role="alert">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" /><path d="M8 4.75v3.75M8 11h.01" /></svg>
+                    <span><strong>This range holds more counts than one run reads.</strong> Only the newest were used, so a van's latest count may be missing. Narrow the range.</span>
+                </div>
+            }
+
+            @if (ft.LineCount > 0 && ft.UnpricedLines == ft.LineCount)
+            {
+                <div class="cvr-notice is-warn" role="alert">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" /><path d="M8 4.75v3.75M8 11h.01" /></svg>
+                    <span>
+                        <strong>Nothing on these counts could be valued.</strong> Price list @fleet.PriceListNum has no price for
+                        any of the items, so every figure below is zero. Check the <em>VanSales.CustomerOrderPriceList</em>
+                        system setting, and that the price catalogue has synced.
+                    </span>
+                </div>
+            }
+
+            <section class="cvr-figures" aria-label="Fleet totals">
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Net variance, all vans</div>
+                    <div class="cvr-figure-n @Tone(ft.NetValue)">@Money(ft.NetValue, signed: true)</div>
+                    <div class="cvr-figure-s">@FleetShare of @Money(ft.StockValue) on the counts</div>
+                </div>
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Short</div>
+                    <div class="cvr-figure-n @Tone(ft.ShortValue)">@Money(ft.ShortValue, signed: true)</div>
+                    <div class="cvr-figure-s">@Plural(ft.ShortLines, "line") · @Plural(ft.ShortQuantity, "unit")</div>
+                </div>
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Over</div>
+                    <div class="cvr-figure-n @Tone(ft.OverValue)">@Money(ft.OverValue, signed: true)</div>
+                    <div class="cvr-figure-s">@Plural(ft.OverLines, "line") · @Plural(ft.OverQuantity, "unit")</div>
+                </div>
+                <div class="cvr-figure">
+                    <div class="cvr-figure-l">Vans counted</div>
+                    <div class="cvr-figure-n @(fleet.VansNotCounted.Count > 0 ? "is-warn" : null)">@fleet.Vans.Count of @fleet.VanCount</div>
+                    <div class="cvr-figure-s">
+                        @Plural(ft.UnvaluedVarianceLines, "line") not valued@(ft.NotCountedLines > 0 ? $" · {Plural(ft.NotCountedLines, "line")} not counted" : string.Empty)
+                    </div>
+                </div>
+            </section>
+
+            <div class="cvr-toolbar">
+                <div class="cvr-chips" role="group" aria-label="Show">
+                    <button type="button" class="cvr-filter @(fleetTab == "vans" ? "is-on" : null)" aria-pressed="@(fleetTab == "vans" ? "true" : "false")"
+                            @onclick="@(() => SetFleetTab("vans"))">By van <span class="cvr-filter-n">@fleet.Vans.Count</span></button>
+                    <button type="button" class="cvr-filter @(fleetTab == "items" ? "is-on" : null)" aria-pressed="@(fleetTab == "items" ? "true" : "false")"
+                            @onclick="@(() => SetFleetTab("items"))">By item <span class="cvr-filter-n">@fleet.Items.Count</span></button>
+                    <button type="button" class="cvr-filter @(fleetTab == "notcounted" ? "is-on" : null)" aria-pressed="@(fleetTab == "notcounted" ? "true" : "false")"
+                            @onclick="@(() => SetFleetTab("notcounted"))">Not counted <span class="cvr-filter-n">@fleet.VansNotCounted.Count</span></button>
+                </div>
+            </div>
+
+            @if (fleetTab == "vans")
+            {
+                <section class="cvr-table-wrap" aria-label="Vans">
+                    <table class="cvr-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Van</th>
+                                <th scope="col">Rep</th>
+                                <th scope="col">Count</th>
+                                <th scope="col" class="num">Lines</th>
+                                <th scope="col" class="num">Short</th>
+                                <th scope="col" class="num">Over</th>
+                                <th scope="col" class="num">Net variance</th>
+                                <th scope="col" class="num">Not valued</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (fleet.Vans.Count == 0)
+                            {
+                                <tr><td colspan="8" class="cvr-none">No van has a count dated in this range.</td></tr>
+                            }
+                            @foreach (var van in fleet.Vans)
+                            {
+                                var row = van;
+                                <tr>
+                                    <td class="cvr-code">
+                                        <button type="button" class="cvr-link" @onclick="() => OpenVanCountAsync(row)"
+                                                title="Open count @row.Document.DocumentNumber">@row.WarehouseCode</button>
+                                    </td>
+                                    <td class="cvr-desc">@(row.RepName ?? "—")</td>
+                                    <td class="cvr-count">
+                                        No. @row.Document.DocumentNumber
+                                        <span class="cvr-mute">· @(row.Document.CountDate is { } d ? FormatDay(d) : "no date")</span>
+                                        @if (row.Document.IsOpen)
+                                        {
+                                            <span class="cvr-chip is-warn">Open</span>
+                                        }
+                                        @if (row.SupersededDocumentNumbers.Count > 0)
+                                        {
+                                            <span class="cvr-chip is-neutral" title="Earlier counts in the range, replaced by this one">
+                                                replaces @string.Join(", ", row.SupersededDocumentNumbers)
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="num cvr-mute">@row.Totals.LineCount</td>
+                                    <td class="num @Tone(row.Totals.ShortValue)">@Money(row.Totals.ShortValue, signed: true)</td>
+                                    <td class="num @Tone(row.Totals.OverValue)">@Money(row.Totals.OverValue, signed: true)</td>
+                                    <td class="num cvr-strong @Tone(row.Totals.NetValue)">@Money(row.Totals.NetValue, signed: true)</td>
+                                    <td class="num">
+                                        @if (row.Totals.UnvaluedVarianceLines > 0 || row.Totals.NotCountedLines > 0)
+                                        {
+                                            <span class="cvr-value">
+                                                @if (row.Totals.UnvaluedVarianceLines > 0)
+                                                {
+                                                    <span class="cvr-chip is-warn">@row.Totals.UnvaluedVarianceLines no price</span>
+                                                }
+                                                @if (row.Totals.NotCountedLines > 0)
+                                                {
+                                                    <span class="cvr-chip is-neutral">@row.Totals.NotCountedLines not counted</span>
+                                                }
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="is-flat">—</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td>Total</td>
+                                <td class="cvr-mute">@Plural(fleet.Vans.Count, "van")</td>
+                                <td></td>
+                                <td class="num cvr-mute">@ft.LineCount</td>
+                                <td class="num @Tone(ft.ShortValue)">@Money(ft.ShortValue, signed: true)</td>
+                                <td class="num @Tone(ft.OverValue)">@Money(ft.OverValue, signed: true)</td>
+                                <td class="num @Tone(ft.NetValue)">@Money(ft.NetValue, signed: true)</td>
+                                <td class="num cvr-mute">@(ft.UnvaluedVarianceLines > 0 ? Plural(ft.UnvaluedVarianceLines, "line") : "—")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </section>
+            }
+            else if (fleetTab == "items")
+            {
+                <section class="cvr-table-wrap" aria-label="Items across the vans">
+                    <table class="cvr-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Item</th>
+                                <th scope="col">Description</th>
+                                <th scope="col" class="num">Vans short</th>
+                                <th scope="col" class="num">Vans over</th>
+                                <th scope="col" class="num">Units short</th>
+                                <th scope="col" class="num">Units over</th>
+                                <th scope="col" class="num">Net units</th>
+                                <th scope="col" class="num">Selling price</th>
+                                <th scope="col" class="num">Net value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (fleet.Items.Count == 0)
+                            {
+                                <tr><td colspan="9" class="cvr-none">No item came up short or over on any van.</td></tr>
+                            }
+                            @foreach (var item in fleet.Items)
+                            {
+                                <tr>
+                                    <td class="cvr-code">@item.ItemCode</td>
+                                    <td class="cvr-desc" title="@item.ItemDescription">@item.ItemDescription</td>
+                                    <td class="num @(item.VansShort > 0 ? null : "is-flat")">@item.VansShort</td>
+                                    <td class="num @(item.VansOver > 0 ? null : "is-flat")">@item.VansOver</td>
+                                    <td class="num @(item.ShortQuantity > 0 ? "is-bad" : "is-flat")">@Quantity(item.ShortQuantity)</td>
+                                    <td class="num @(item.OverQuantity > 0 ? "is-good" : "is-flat")">@Quantity(item.OverQuantity)</td>
+                                    <td class="num cvr-strong @Tone(item.NetQuantity)">@Quantity(item.NetQuantity, signed: true)</td>
+                                    <td class="num @(item.SellingPrice is null ? "is-flat" : null)">
+                                        @(item.SellingPrice is { } price ? price.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture) : "—")
+                                    </td>
+                                    <td class="num">
+                                        @if (item.NetValue is { } value)
+                                        {
+                                            <span class="cvr-strong @Tone(value)">@Money(value, signed: true)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="cvr-chip is-warn">No price</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </section>
+            }
+            else
+            {
+                <section class="cvr-table-wrap" aria-label="Vans with no count">
+                    <table class="cvr-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Van</th>
+                                <th scope="col">Rep</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (fleet.VansNotCounted.Count == 0)
+                            {
+                                <tr><td colspan="2" class="cvr-none">Every van has a count dated in this range.</td></tr>
+                            }
+                            @foreach (var van in fleet.VansNotCounted)
+                            {
+                                <tr>
+                                    <td class="cvr-code">@van.WarehouseCode</td>
+                                    <td class="cvr-desc">@(van.RepName ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </section>
+            }
+        }
+       </div>
+      }
     </main>
 </div>

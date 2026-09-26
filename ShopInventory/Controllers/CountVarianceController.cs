@@ -5,6 +5,7 @@ using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Features.CountVariance.Queries.GetCountingDocuments;
 using ShopInventory.Features.CountVariance.Queries.GetCountVariance;
+using ShopInventory.Features.CountVariance.Queries.GetVanCountVariance;
 using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
@@ -30,6 +31,22 @@ public sealed class CountVarianceController(IMediator mediator) : ApiControllerB
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetCountingDocumentsQuery(status, search), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Every van's latest count dated between <c>fromDate</c> and <c>toDate</c> (inclusive, at most
+    /// 92 days), valued at the van sales price list excluding VAT: per van, per item, and in total.
+    /// </summary>
+    [HttpGet("vans")]
+    [RequirePermission(Permission.ViewStock)]
+    [ProducesResponseType(typeof(VanCountVarianceReportDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetVans(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetVanCountVarianceQuery(fromDate, toDate), cancellationToken);
         return result.Match(Ok, Problem);
     }
 

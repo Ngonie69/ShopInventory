@@ -5262,6 +5262,7 @@ Posting.
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
 | GET | `/api/count-variance/documents` | `stock.view` | Counts newest first, headers only (50): `status` `open` (default), `closed` or `all`; `search` matches a document number or text in the count's remarks. Each carries `documentEntry`, `documentNumber`, `countDate`, `countTime`, `status`, `remarks`, `counterName` |
+| GET | `/api/count-variance/vans` | `stock.view` | Every van's latest count dated `fromDate`–`toDate` (inclusive, at most 92 days), valued the same way: `vans` (each with its `document`, `totals` and `supersededDocumentNumbers`), `vansNotCounted`, `items` rolled up across vans, fleet `totals`, and `truncated` when the range held more than 150 counts |
 | GET | `/api/count-variance/{documentEntry}` | `stock.view` | One count's lines — `rowNumber` as B1 shows it, `inWarehouseQuantity`, `countedQuantity` (null until counted), `variance`, `sellingPrice`, `varianceValue`, `status` `Short`/`Over`/`Matched`/`NotCounted` — with `totals`, the `warehouses` it covers and the price list it was valued at |
 
 **The variance is SAP's own.** Counted minus in-warehouse on the count date, taken as SAP reports it
@@ -5272,6 +5273,13 @@ has counted carries a variance of zero in SAP; it is reported as `NotCounted`, n
 `SystemConfigs` (the van customers' ordering list, seeded as 1), read from the synced price catalogue, which holds prices before VAT. A missing or zero price
 means the list does not sell the item, not that it is free: the line stays in the report with a null
 `sellingPrice` and is left out of the money totals, counted in `totals.unvaluedVarianceLines`.
+
+**All vans at once.** A van is a warehouse assigned to a rep a depot supplies — the Van Stock report's
+rule, not a code prefix. Each van is valued on its **latest** count in the range (a recount replaces the
+earlier one, which is listed as superseded, so no van's stock is counted twice), and on its own lines only:
+a document spanning two warehouses is split between them, and lines in a warehouse that is not a van are
+ignored. A count's header does not name its warehouse, so every count in the range is read in full, three
+at a time.
 
 
 ---

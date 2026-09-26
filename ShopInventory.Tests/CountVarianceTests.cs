@@ -205,6 +205,89 @@ public class CountVarianceTests
         Assert.Equal(1, report.Totals.NotCountedLines);
     }
 
+    private static InventoryCounting Count(int entry, int number, string date, string time, params InventoryCountingLine[] lines)
+        => new()
+        {
+            DocumentEntry = entry,
+            DocumentNumber = number,
+            CountDate = date + "T00:00:00Z",
+            CountTime = time,
+            DocumentStatus = "cdsClosed",
+            InventoryCountingLines = [.. lines]
+        };
+
+    [Fact]
+    public void Each_van_is_valued_on_its_latest_count_and_the_earlier_one_is_superseded()
+    {
+        var vans = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["VAN006"] = "Crispen",
+            ["VAN003"] = "Tendai",
+            ["VAN011"] = null,
+        };
+
+        var counts = new[]
+        {
+            // VAN006 counted Monday, then again Friday: Friday stands.
+            Count(10, 2670, "2026-09-21", "09:00:00", Line(1, "ICC025", 30, 20, "VAN006")),
+            Count(12, 2679, "2026-09-25", "15:04:00", Line(1, "ICC025", 30, 28, "VAN006"), Line(2, "MUE002", 30, 31, "VAN006")),
+            // One document across VAN003 and a depot: only the van's line counts.
+            Count(11, 2675, "2026-09-23", "10:00:00", Line(1, "ICC025", 10, 9, "VAN003"), Line(2, "YOG063", 100, 50, "KEFBYC")),
+        };
+
+        var report = VanCountConsolidation.Consolidate(vans, counts, new Dictionary<int, string>(), Prices);
+
+        Assert.Equal(3, report.VanCount);
+        Assert.Equal(2, report.Vans.Count);
+
+        var van006 = report.Vans.Single(van => van.WarehouseCode == "VAN006");
+        Assert.Equal(2679, van006.Document.DocumentNumber);
+        Assert.Equal([2670], van006.SupersededDocumentNumbers);
+        Assert.Equal(-2.20m + 3.60m, van006.Totals.NetValue);
+        Assert.Equal("Crispen", van006.RepName);
+
+        var van003 = report.Vans.Single(van => van.WarehouseCode == "VAN003");
+        Assert.Equal(1, van003.Totals.LineCount);
+        Assert.Equal(-1.10m, van003.Totals.NetValue);
+
+        var notCounted = Assert.Single(report.VansNotCounted);
+        Assert.Equal("VAN011", notCounted.WarehouseCode);
+
+        // The fleet: VAN006's net plus VAN003's; the depot line and Monday's count add nothing.
+        Assert.Equal(0.30m, report.Totals.NetValue);
+        Assert.Equal(-3.30m, report.Totals.ShortValue);
+        Assert.Equal(3, report.Totals.LineCount);
+
+        // Worst van first.
+        Assert.Equal("VAN003", report.Vans[0].WarehouseCode);
+    }
+
+    [Fact]
+    public void Items_roll_up_across_the_vans_that_counted_them_short_or_over()
+    {
+        var vans = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["VAN006"] = null, ["VAN003"] = null };
+        var counts = new[]
+        {
+            Count(12, 2679, "2026-09-25", "15:04:00", Line(1, "ICC025", 30, 28, "VAN006"), Line(2, "CRA002", 7, 6, "VAN006")),
+            Count(11, 2675, "2026-09-23", "10:00:00", Line(1, "ICC025", 10, 11, "VAN003"), Line(2, "YOG063", 5, 5, "VAN003")),
+        };
+
+        var items = VanCountConsolidation.Consolidate(vans, counts, new Dictionary<int, string>(), Prices).Items;
+
+        var icc = items.Single(item => item.ItemCode == "ICC025");
+        Assert.Equal(1, icc.VansShort);
+        Assert.Equal(1, icc.VansOver);
+        Assert.Equal(2m, icc.ShortQuantity);
+        Assert.Equal(1m, icc.OverQuantity);
+        Assert.Equal(-1m, icc.NetQuantity);
+        Assert.Equal(-1.10m, icc.NetValue);
+
+        // Unpriced items stay, unvalued, after the priced ones; matched items are left out.
+        Assert.Null(items.Single(item => item.ItemCode == "CRA002").NetValue);
+        Assert.Equal("CRA002", items[^1].ItemCode);
+        Assert.DoesNotContain(items, item => item.ItemCode == "YOG063");
+    }
+
     [Fact]
     public async Task A_count_sap_does_not_have_is_not_found()
     {

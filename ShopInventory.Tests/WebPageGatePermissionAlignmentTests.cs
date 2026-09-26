@@ -203,6 +203,7 @@ public sealed class WebPageGatePermissionAlignmentTests
     [Theory]
     [InlineData(nameof(CountVarianceController.GetDocuments))]
     [InlineData(nameof(CountVarianceController.GetReport))]
+    [InlineData(nameof(CountVarianceController.GetVans))]
     public async Task Every_role_the_count_variance_page_admits_can_read_it(string action)
     {
         foreach (var role in PageRoles("ShopInventory.Web.Components.Pages.CountVariance"))

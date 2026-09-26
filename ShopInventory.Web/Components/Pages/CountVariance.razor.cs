@@ -6,6 +6,7 @@ using Microsoft.JSInterop;
 using MudBlazor;
 using ShopInventory.Web.Features.CountVariance.Queries.GetCountingDocuments;
 using ShopInventory.Web.Features.CountVariance.Queries.GetCountVariance;
+using ShopInventory.Web.Features.CountVariance.Queries.GetVanCountVariance;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -18,6 +19,12 @@ namespace ShopInventory.Web.Components.Pages;
 /// <para>
 /// The price is the van sales price list's, before VAT, so a short reads as the takings it cost rather
 /// than the stock's cost. The API decides that; this page only shows which list it used.
+/// </para>
+/// <para>
+/// Two modes. <b>One count</b> reads a single SAP counting document. <b>All vans</b> takes every van's
+/// latest count in a date range and adds them up — per van, per item and for the fleet — and a van's
+/// row opens its count in the first mode, so the fleet view is where a question starts and the single
+/// count is where it is answered.
 /// </para>
 /// <para>
 /// Lines the list has no price for, and lines nobody has counted yet, are kept in the table and out
@@ -42,6 +49,22 @@ public partial class CountVariance : IDisposable
     private Dictionary<string, int> entryByPickerValue = [];
 
     private CountVarianceReport? report;
+
+    // All vans.
+    private bool fleetMode;
+    private DateTime? fleetFrom = TodayCat().AddDays(-6);
+    private DateTime? fleetTo = TodayCat();
+    private VanCountVarianceReport? fleetReport;
+    private string fleetTab = FleetTabs.Vans;
+    private bool isRunningFleet;
+    private string? fleetError;
+
+    private static class FleetTabs
+    {
+        public const string Vans = "vans";
+        public const string Items = "items";
+        public const string NotCounted = "notcounted";
+    }
     private string lineFilter = LineFilters.All;
     private bool sortByValue = true;
 
@@ -172,6 +195,99 @@ public partial class CountVariance : IDisposable
         }
     }
 
+    // ── All vans ────────────────────────────────────────────────────────────
+
+    private void SetMode(bool fleet) => fleetMode = fleet;
+
+    private void SetFleetTab(string tab) => fleetTab = tab;
+
+    private async Task RunFleetAsync()
+    {
+        if (fleetFrom is not { } from || fleetTo is not { } to)
+        {
+            fleetError = "Choose both dates.";
+            return;
+        }
+
+        isRunningFleet = true;
+        fleetError = null;
+
+        var result = await Mediator.Send(new GetVanCountVarianceQuery(from, to), _disposal.Token);
+
+        if (result.IsError)
+        {
+            fleetError = result.FirstError.Description;
+        }
+        else
+        {
+            fleetReport = result.Value;
+            fleetTab = FleetTabs.Vans;
+        }
+
+        isRunningFleet = false;
+    }
+
+    /// <summary>
+    /// A van's row opens its count in the single-count mode, found in SAP by number so the picker
+    /// shows it and "Run again" works from there.
+    /// </summary>
+    private async Task OpenVanCountAsync(VanCountVariance van)
+    {
+        fleetMode = false;
+        statusFilter = "all";
+        findText = van.Document.DocumentNumber.ToString(CultureInfo.InvariantCulture);
+        await LoadDocumentsAsync();
+
+        selectedPickerValue = entryByPickerValue
+            .Where(pair => pair.Value == van.Document.DocumentEntry)
+            .Select(pair => pair.Key)
+            .FirstOrDefault();
+
+        if (selectedPickerValue is not null)
+        {
+            await RunReportAsync();
+        }
+        else
+        {
+            reportError = $"Count {van.Document.DocumentNumber} could not be found in SAP again.";
+        }
+    }
+
+    private async Task ExportFleetAsync()
+    {
+        if (fleetReport is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = ReportExport.ExportVanCountVarianceToExcel(fleetReport);
+            var fileName = $"Van_Count_Variance_{fleetReport.FromDate:yyyyMMdd}_{fleetReport.ToDate:yyyyMMdd}.xlsx";
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogError(ex, "Exporting the van count variance failed");
+            Snackbar.Add("The workbook could not be built.", Severity.Error);
+        }
+    }
+
+    private static DateTime TodayCat() => IAuditService.ToCAT(DateTime.UtcNow).Date;
+
+    private static string FormatDay(DateTime date) => date.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+
+    private string FleetShare
+    {
+        get
+        {
+            if (fleetReport is null || fleetReport.Totals.StockValue == 0m)
+                return "—";
+            return Math.Abs(fleetReport.Totals.NetValue / fleetReport.Totals.StockValue)
+                .ToString("0.0%", CultureInfo.InvariantCulture);
+        }
+    }
+
     // ── What the table shows ────────────────────────────────────────────────
 
     private IEnumerable<CountVarianceLine> VisibleLines
@@ -256,7 +372,8 @@ public partial class CountVariance : IDisposable
     private string Money(decimal value, bool signed = false)
     {
         var amount = Math.Abs(value).ToString("#,##0.00", CultureInfo.InvariantCulture);
-        var currency = string.IsNullOrWhiteSpace(report?.Currency) ? string.Empty : report!.Currency + " ";
+        var code = fleetMode ? fleetReport?.Currency : report?.Currency;
+        var currency = string.IsNullOrWhiteSpace(code) ? string.Empty : code + " ";
         if (!signed || value == 0m)
             return currency + amount;
         return (value < 0 ? "−" : "+") + currency + amount;

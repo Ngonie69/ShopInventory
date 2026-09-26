@@ -73,3 +73,47 @@ public sealed class CountVarianceReport
     public CountVarianceTotals Totals { get; set; } = new();
     public DateTime GeneratedAtUtc { get; set; }
 }
+
+public sealed class VanCountVariance
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public string? RepName { get; set; }
+    public CountingDocumentSummary Document { get; set; } = new();
+    public CountVarianceTotals Totals { get; set; } = new();
+    public List<int> SupersededDocumentNumbers { get; set; } = [];
+}
+
+public sealed class VanWithoutCount
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public string? RepName { get; set; }
+}
+
+public sealed class ItemCountVariance
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemDescription { get; set; }
+    public decimal? SellingPrice { get; set; }
+    public int VansShort { get; set; }
+    public int VansOver { get; set; }
+    public decimal ShortQuantity { get; set; }
+    public decimal OverQuantity { get; set; }
+    public decimal NetQuantity { get; set; }
+    public decimal? NetValue { get; set; }
+}
+
+public sealed class VanCountVarianceReport
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int PriceListNum { get; set; }
+    public string? PriceListName { get; set; }
+    public string? Currency { get; set; }
+    public int VanCount { get; set; }
+    public List<VanCountVariance> Vans { get; set; } = [];
+    public List<VanWithoutCount> VansNotCounted { get; set; } = [];
+    public List<ItemCountVariance> Items { get; set; } = [];
+    public CountVarianceTotals Totals { get; set; } = new();
+    public bool Truncated { get; set; }
+    public DateTime GeneratedAtUtc { get; set; }
+}

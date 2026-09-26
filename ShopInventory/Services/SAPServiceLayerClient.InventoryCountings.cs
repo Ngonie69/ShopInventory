@@ -58,6 +58,24 @@ public partial class SAPServiceLayerClient
         return page?.Value ?? [];
     }
 
+    /// <inheritdoc cref="ISAPServiceLayerClient.GetInventoryCountingsByDateAsync" />
+    public async Task<List<InventoryCounting>> GetInventoryCountingsByDateAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        int top,
+        CancellationToken cancellationToken = default)
+    {
+        var filter = Uri.EscapeDataString(
+            $"CountDate ge '{fromDate:yyyy-MM-dd}' and CountDate le '{toDate:yyyy-MM-dd}'");
+
+        var url = $"InventoryCountings?$filter={filter}&{InventoryCountingHeaderSelect}&$orderby=DocumentEntry desc&$top={top}";
+
+        var page = await ReadSapJsonAsync<SAPResponse<InventoryCounting>>(
+            url, $"read the inventory counts dated {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}", cancellationToken, pageSize: top);
+
+        return page?.Value ?? [];
+    }
+
     /// <inheritdoc cref="ISAPServiceLayerClient.GetInventoryCountingAsync" />
     public Task<InventoryCounting?> GetInventoryCountingAsync(
         int documentEntry,
