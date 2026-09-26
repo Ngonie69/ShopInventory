@@ -26,6 +26,10 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 ///
 /// <c>Business</c> confines it to one of <c>SaleBusinesses</c> — shops, vending or vans — on top of the
 /// source scope; null reads them all.
+///
+/// <c>CardCode</c> confines every figure to the sales made as one business partner, matched exactly as the
+/// management report matches it. It narrows within the caller's scope and never widens it: a shop-confined
+/// caller naming a partner reads that partner's sales at their own shop only.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     Guid CallerUserId,
@@ -34,5 +38,6 @@ public sealed record GetDesktopSalesAnalysisQuery(
     string? WarehouseCode = null,
     string? SourceSystem = null,
     string? PaymentMethod = null,
-    string? Business = null
+    string? Business = null,
+    string? CardCode = null
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;

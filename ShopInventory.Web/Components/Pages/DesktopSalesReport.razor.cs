@@ -102,6 +102,16 @@ public partial class DesktopSalesReport : IDisposable
     private readonly SortedSet<string> vanCodes = new(StringComparer.OrdinalIgnoreCase);
 
     private string warehouse = "";
+
+    /// <summary>The business partner the page is confined to, by CardCode; empty for every partner.</summary>
+    private string partner = "";
+
+    /// <summary>
+    /// Every active partner on file, for the picker's "All partners" — a partner that took nothing is still a
+    /// fair thing to ask about. Read once, after the figures, so the page never waits on the partner cache.
+    /// </summary>
+    private List<SalesPartnerOption> everyonePartners = [];
+    private bool isLoadingPartners;
     private string period = PeriodThirtyDays;
     private DateTime? fromDate = DateTime.Today.AddDays(-29);
     private DateTime? toDate = DateTime.Today;
@@ -129,7 +139,8 @@ public partial class DesktopSalesReport : IDisposable
     /// <summary>
     /// One analysis request, by what it is confined to.
     /// </summary>
-    private readonly record struct AnalysisKey(DateTime From, DateTime To, string Warehouse, string? Method);
+    private readonly record struct AnalysisKey(
+        DateTime From, DateTime To, string Warehouse, string Partner, string? Method);
 
     /// <summary>
     /// The three answers the page draws from.
@@ -138,32 +149,28 @@ public partial class DesktopSalesReport : IDisposable
     /// <param name="Focus">The period or picked day, confined to the picked method: every other figure.</param>
     /// <param name="Payments">The period or picked day across every method: how it was paid, so the other
     /// methods stay in view to be picked instead.</param>
+    /// <param name="Partners">The whole period across every partner and method: the picker's ranking, and the
+    /// picked partner's rank and share. The same answer as <c>Context</c> while no partner is picked.</param>
     /// <param name="Day">The day these were loaded for, which the page's own field may already have moved on from.</param>
     /// <param name="Method">The payment method these were loaded for, likewise.</param>
+    /// <param name="Partner">The partner these were loaded for, likewise; empty for every partner.</param>
     private sealed record Shown(
         DesktopSalesAnalysisResult Context,
         DesktopSalesAnalysisResult Focus,
         DesktopSalesAnalysisResult Payments,
+        DesktopSalesAnalysisResult Partners,
         DateTime? Day,
-        string? Method);
+        string? Method,
+        string Partner);
 
+    /// <summary>The van picker's rows. The counters filter by business partner instead; see PartnerOptions.</summary>
     private IEnumerable<NocturneSelectOption<string>> WarehouseOptions =>
-        Vans
-            ? vanCodes
-                .Select(code => new NocturneSelectOption<string>(code, WarehouseName(code) ?? code)
-                {
-                    Hint = WarehouseName(code) is null ? null : code
-                })
-                .Prepend(NocturneSelectOption.All("All vans"))
-            : warehouses
-                .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
-                .Select(w => new NocturneSelectOption<string>(
-                    w.WarehouseCode!,
-                    string.IsNullOrWhiteSpace(w.WarehouseName) ? w.WarehouseCode! : w.WarehouseName!)
-                {
-                    Hint = string.IsNullOrWhiteSpace(w.WarehouseName) ? null : w.WarehouseCode
-                })
-                .Prepend(NocturneSelectOption.All("All shops"));
+        vanCodes
+            .Select(code => new NocturneSelectOption<string>(code, WarehouseName(code) ?? code)
+            {
+                Hint = WarehouseName(code) is null ? null : code
+            })
+            .Prepend(NocturneSelectOption.All("All vans"));
 
     private (string Key, string Label)[] BreakdownOptions => Vans ? VanBreakdownOptions : ShopBreakdownOptions;
 
@@ -178,6 +185,39 @@ public partial class DesktopSalesReport : IDisposable
         warehouses = warehouseList?.Where(w => Vans || w.IsActive).ToList() ?? [];
 
         await LoadAsync();
+
+        if (!Vans)
+        {
+            // Draw the figures first: the partner cache can take a sync on a cold start.
+            StateHasChanged();
+            await LoadEveryonePartnersAsync();
+        }
+    }
+
+    private async Task LoadEveryonePartnersAsync()
+    {
+        isLoadingPartners = true;
+
+        try
+        {
+            var partners = await MasterDataCache.GetBusinessPartnersAsync();
+            everyonePartners = partners
+                .Where(p => !string.IsNullOrWhiteSpace(p.CardCode))
+                .Select(p => new SalesPartnerOption(
+                    p.CardCode!.Trim(),
+                    string.IsNullOrWhiteSpace(p.CardName) ? p.CardCode!.Trim() : p.CardName.Trim()))
+                .DistinctBy(p => p.Code, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            // The picker still offers every partner that traded; only the idle ones are missing.
+            Logger.LogWarning(ex, "Could not read the business partner cache for the sales breakdown picker");
+        }
+        finally
+        {
+            isLoadingPartners = false;
+        }
     }
 
     // ── Loading ──────────────────────────────────────────────────────────
@@ -197,9 +237,10 @@ public partial class DesktopSalesReport : IDisposable
 
         var focusFrom = day ?? from.Date;
         var focusTo = day ?? to.Date;
-        var contextKey = new AnalysisKey(from.Date, to.Date, warehouse, null);
-        var focusKey = new AnalysisKey(focusFrom, focusTo, warehouse, method);
-        var paymentsKey = new AnalysisKey(focusFrom, focusTo, warehouse, null);
+        var contextKey = new AnalysisKey(from.Date, to.Date, warehouse, partner, null);
+        var focusKey = new AnalysisKey(focusFrom, focusTo, warehouse, partner, method);
+        var paymentsKey = new AnalysisKey(focusFrom, focusTo, warehouse, partner, null);
+        var partnersKey = new AnalysisKey(from.Date, to.Date, warehouse, "", null);
 
         isLoading = true;
         error = null;
@@ -207,8 +248,8 @@ public partial class DesktopSalesReport : IDisposable
         try
         {
             // One after another rather than together: they share the circuit's HttpClient handlers, and at
-            // most three are ever missing.
-            foreach (var key in new[] { contextKey, focusKey, paymentsKey }.Distinct())
+            // most four are ever missing.
+            foreach (var key in new[] { contextKey, focusKey, paymentsKey, partnersKey }.Distinct())
             {
                 if (loaded.ContainsKey(key))
                 {
@@ -221,7 +262,8 @@ public partial class DesktopSalesReport : IDisposable
                         key.To,
                         key.Warehouse == "" ? null : key.Warehouse,
                         key.Method,
-                        Vans: Vans),
+                        Vans: Vans,
+                        CardCode: key.Partner == "" ? null : key.Partner),
                     cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested || isDisposed)
@@ -247,7 +289,8 @@ public partial class DesktopSalesReport : IDisposable
                 }
             }
 
-            shown = new Shown(loaded[contextKey], loaded[focusKey], loaded[paymentsKey], day, method);
+            shown = new Shown(
+                loaded[contextKey], loaded[focusKey], loaded[paymentsKey], loaded[partnersKey], day, method, partner);
 
             // The chosen currency survives a reload that still trades in it.
             if (currency is null || shown.Context.Currencies.All(section => section.Currency != currency))
@@ -380,10 +423,34 @@ public partial class DesktopSalesReport : IDisposable
         return ReloadScopeAsync();
     }
 
+    /// <summary>A shop picked from "Who took it": the same reload as the van picker's.</summary>
+    private Task SetWarehouseAsync(string code)
+    {
+        warehouse = code;
+        return ReloadScopeAsync();
+    }
+
+    /// <summary>
+    /// A partner, or none. Unlike a shop it keeps the picked day and method: every answer is keyed by the
+    /// partner, so nothing already loaded is wrong, and a partner's day is a fair question.
+    /// </summary>
+    private Task SetPartnerAsync(string? code)
+    {
+        var value = code?.Trim() ?? "";
+        if (string.Equals(value, partner, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.CompletedTask;
+        }
+
+        partner = value;
+        return LoadAsync();
+    }
+
     private Task ClearAllAsync()
     {
         var scopeChanged = warehouse != "";
         warehouse = "";
+        partner = "";
         method = null;
         day = null;
 
@@ -602,6 +669,75 @@ public partial class DesktopSalesReport : IDisposable
         return alerts;
     }
 
+    // ── Business partners ────────────────────────────────────────────────
+
+    /// <summary>The whole period's section across every partner: what the picker ranks.</summary>
+    private DesktopSalesCurrencyAnalysis PartnersSection =>
+        shown is null ? new DesktopSalesCurrencyAnalysis() : Section(shown.Partners);
+
+    /// <summary>
+    /// The partners that traded in the period, ranked by takings. A sale with no partner recorded is left
+    /// out: it cannot be asked for by code.
+    /// </summary>
+    private List<SalesPartnerOption> PartnerOptions =>
+        PartnersSection.ByBusinessPartner
+            .Where(row => row.Key != "")
+            .Select(row => new SalesPartnerOption(
+                row.Key, row.Label, row.TotalAmount, row.SalesCount, row.ShareOfValuePercent))
+            .ToList();
+
+    private string PartnerName(string code) =>
+        PartnersSection.ByBusinessPartner.FirstOrDefault(row => Same(row.Key, code))?.Label
+        ?? everyonePartners.FirstOrDefault(p => Same(p.Code, code))?.Name
+        ?? code;
+
+    /// <summary>How the period reads after "traded" in the picker.</summary>
+    private string PeriodText =>
+        fromDate is { } from && toDate is { } to && from.Date == to.Date
+            ? from.Date == DateTime.Today ? "today" : $"on {DayLabel(from)}"
+            : "in this period";
+
+    /// <summary>The picked partner's share of the whole period's takings, or null with no partner picked.</summary>
+    private decimal? PartnerShare(Shown view) =>
+        view.Partner == ""
+            ? null
+            : Section(view.Partners).ByBusinessPartner.FirstOrDefault(row => Same(row.Key, view.Partner))?.ShareOfValuePercent ?? 0m;
+
+    private sealed record Figure(string Head, string Number, string Sub);
+
+    /// <summary>
+    /// The headline's partner figure: how many partners the figures on screen were sold to and who led, or,
+    /// with one picked, where it ranks among them over the period.
+    /// </summary>
+    private Figure PartnerFigure(Shown view, DesktopSalesCurrencyAnalysis sales)
+    {
+        var noun = Vans ? "customer" : "partner";
+
+        if (view.Partner != "")
+        {
+            var ranked = Section(view.Partners).ByBusinessPartner.Where(row => row.Key != "").ToList();
+            var at = ranked.FindIndex(row => Same(row.Key, view.Partner));
+
+            return at < 0
+                ? new Figure($"Rank among {noun}s", "—", $"No sales {PeriodText}")
+                : new Figure(
+                    $"Rank among {noun}s",
+                    $"{at + 1:N0} of {ranked.Count:N0}",
+                    $"{view.Partner} · by takings {PeriodText}");
+        }
+
+        var rows = sales.ByBusinessPartner.Where(row => row.Key != "").ToList();
+        var top = rows.FirstOrDefault();
+
+        return new Figure(
+            Vans ? "Customers" : "Business partners",
+            $"{rows.Count:N0} traded",
+            top is null ? "None recorded" : $"Top: {top.Label} · {Pct(top.ShareOfValuePercent)}");
+    }
+
+    private static bool Same(string? a, string? b) =>
+        string.Equals(a ?? "", b ?? "", StringComparison.OrdinalIgnoreCase);
+
     // ── Who took it ──────────────────────────────────────────────────────
 
     private List<DesktopSalesBreakdownRow> BreakdownRows(DesktopSalesCurrencyAnalysis sales)
@@ -640,6 +776,25 @@ public partial class DesktopSalesReport : IDisposable
         _ => row.SalesCount == 0 ? null : $"avg {Money(row.TotalAmount / row.SalesCount)}"
     };
 
+    /// <summary>
+    /// What clicking a row's name does: a shop narrows the page to that shop, a partner to that partner. Null
+    /// where there is nothing to narrow to — a row with no key, or the filter already in force.
+    /// </summary>
+    private Func<Task>? RowFilter(DesktopSalesBreakdownRow row)
+    {
+        if (row.Key == "")
+        {
+            return null;
+        }
+
+        return breakdown switch
+        {
+            BreakdownShop when warehouse == "" => () => SetWarehouseAsync(row.Key),
+            BreakdownPartner when !Vans && partner == "" => () => SetPartnerAsync(row.Key),
+            _ => null
+        };
+    }
+
     private string? WarehouseName(string code) =>
         warehouses.FirstOrDefault(w => string.Equals(w.WarehouseCode, code, StringComparison.OrdinalIgnoreCase))?.WarehouseName;
 
@@ -660,7 +815,7 @@ public partial class DesktopSalesReport : IDisposable
 
     private string ShopChip => WarehouseName(warehouse) is { Length: > 0 } name ? name : warehouse;
 
-    private bool HasChips => warehouse != "" || method != null || day != null;
+    private bool HasChips => warehouse != "" || partner != "" || method != null || day != null;
 
     // ── Payment methods ──────────────────────────────────────────────────
 
@@ -729,6 +884,16 @@ public partial class DesktopSalesReport : IDisposable
         $"{count.ToString("N0", CultureInfo.InvariantCulture)} {noun}{(count == 1 ? "" : "s")}";
 
     private static string HourLabel(int hour) => $"{hour % 24:00}:00";
+
+    /// <summary>An hour's height, by whichever measure the trading pattern is set to.</summary>
+    private decimal HourValue(DesktopSalesHourRow slot) =>
+        measure == MeasureSales ? slot.SalesCount : slot.TotalAmount;
+
+    /// <summary>The figure over an hour's column where the hours lead: whole units, the currency is in the readout.</summary>
+    private string HourFigure(DesktopSalesHourRow slot) =>
+        measure == MeasureSales
+            ? slot.SalesCount.ToString("N0", CultureInfo.InvariantCulture)
+            : slot.TotalAmount.ToString("N0", CultureInfo.InvariantCulture);
 
     private static string DayLabel(DateTime date) => date.ToString("ddd dd MMM", CultureInfo.InvariantCulture);
 

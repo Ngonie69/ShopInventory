@@ -43,6 +43,11 @@ public sealed class GetDesktopSalesAnalysisHandler(
             queryParts.Add($"sourceSystem={Uri.EscapeDataString(request.SourceSystem.Trim())}");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.CardCode) && !request.Vans)
+        {
+            queryParts.Add($"cardCode={Uri.EscapeDataString(request.CardCode.Trim())}");
+        }
+
         var path = request.Vans ? "api/van-sales/sales-analysis" : "api/DesktopIntegration/sales/analysis";
         var url = queryParts.Count == 0 ? path : $"{path}?{string.Join("&", queryParts)}";
 

@@ -8007,7 +8007,8 @@ public partial class ReportExportService : IReportExportService
             (string.IsNullOrWhiteSpace(report.WarehouseCode)
                 ? (vans ? "All vans" : "All shops")
                 : $"{(vans ? "Van" : "Shop")}: {report.WarehouseCode}")
-                // A workbook confined to one tender says so, or its takings read as the whole period's.
+                // A workbook confined to one partner or tender says so, or its takings read as everyone's.
+                + (string.IsNullOrWhiteSpace(report.CardCode) ? "" : $" · Business partner: {report.CardCode}")
                 + (string.IsNullOrWhiteSpace(report.PaymentMethod)
                     ? ""
                     : $" · Paid by {DesktopAnalysisTenderName(report.PaymentMethod)} only"),

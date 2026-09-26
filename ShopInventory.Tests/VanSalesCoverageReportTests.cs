@@ -455,17 +455,288 @@ public sealed class VanSalesCoverageReportTests : IDisposable
         Assert.Equal("VanSalesReports.InvalidLapseDays", result.FirstError.Code);
     }
 
+    // --- Churn edges ---
+
+    /// <summary>
+    /// A period that opens mid-month still has to balance. The bucket is cut at the period's start,
+    /// so a shop that bought before it is in the opening base rather than appearing from nowhere.
+    /// </summary>
+    [Fact]
+    public async Task A_period_opening_mid_month_still_balances()
+    {
+        AddOutlet(VanAccount, "TUCK01", "Tuck Shop");
+        AddSale(Rep, "S1", "TUCK01", 40m, new DateTime(2026, 8, 5));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(from: new DateTime(2026, 8, 15), to: new DateTime(2026, 9, 30));
+
+        Assert.Equal(new DateTime(2026, 8, 15), report.Churn[0].BucketStart);
+        Assert.Equal(1, report.Churn[0].OpeningActiveOutlets);
+        Assert.All(report.Churn, bucket => Assert.Equal(0, bucket.UnexplainedMovement));
+    }
+
+    /// <summary>
+    /// A lapse that falls after the period's last day has not happened yet as far as the report is
+    /// concerned. The churn table and the win-back list are measured at the same date.
+    /// </summary>
+    [Fact]
+    public async Task No_shop_lapses_after_the_period_ends()
+    {
+        AddOutlet(VanAccount, "TUCK01", "Tuck Shop");
+
+        // Crosses a 90-day line on 8 Sep; the period ends on 1 Sep.
+        AddSale(Rep, "S1", "TUCK01", 40m, new DateTime(2026, 6, 10));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(from: new DateTime(2026, 8, 1), to: new DateTime(2026, 9, 1));
+
+        Assert.Equal(new DateTime(2026, 9, 1), report.Churn[^1].BucketEnd);
+        Assert.Equal(0, report.Churn.Sum(bucket => bucket.LapsedOutlets));
+        Assert.Empty(report.LapsedOutlets);
+    }
+
+    // --- The headline movements ---
+
+    /// <summary>
+    /// A shop that simply kept buying has not returned — it never left. The headline has to say the
+    /// same as the monthly rows beneath it.
+    /// </summary>
+    [Fact]
+    public async Task A_shop_that_kept_buying_is_not_counted_as_returned()
+    {
+        AddOutlet(VanAccount, "TUCK01", "Tuck Shop");
+        AddSale(Rep, "S1", "TUCK01", 40m, new DateTime(2026, 7, 10));
+        AddSale(Rep, "S2", "TUCK01", 40m, new DateTime(2026, 8, 10));
+        await _context.SaveChangesAsync();
+
+        var summary = (await RunAsync()).Summary;
+
+        Assert.Equal(0, summary.ReactivatedOutlets);
+        Assert.Equal(0, summary.NewOutlets);
+        Assert.Equal(1, summary.OpeningActiveOutlets);
+        Assert.Equal(1, summary.ClosingActiveOutlets);
+    }
+
+    /// <summary>
+    /// Lapsed means gone past the chosen threshold. A shop that bought a week before the period and
+    /// not during it is quiet, not lost.
+    /// </summary>
+    [Fact]
+    public async Task The_headline_lapse_count_respects_the_lapse_threshold()
+    {
+        AddOutlet(VanAccount, "TUCK01", "Tuck Shop");
+        AddSale(Rep, "S1", "TUCK01", 40m, new DateTime(2026, 7, 25));
+        AddSale(Rep, "S2", "OTHER", 40m, new DateTime(2026, 8, 3));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(0, report.Summary.LapsedOutlets);
+        Assert.Empty(report.LapsedOutlets);
+    }
+
+    /// <summary>
+    /// The headline is the ledger's own totals: every movement sums its buckets, and opening plus
+    /// the movements is closing.
+    /// </summary>
+    [Fact]
+    public async Task The_headline_is_the_sum_of_the_ledger()
+    {
+        AddOutlet(VanAccount, "KEPT", "Kept");
+        AddOutlet(VanAccount, "GONE", "Gone");
+        AddOutlet(VanAccount, "BACK", "Back");
+        AddOutlet(VanAccount, "FRESH", "Fresh");
+
+        AddSale(Rep, "K1", "KEPT", 10m, new DateTime(2026, 5, 20));
+        AddSale(Rep, "K2", "KEPT", 10m, new DateTime(2026, 7, 5));
+        AddSale(Rep, "G1", "GONE", 10m, new DateTime(2026, 5, 1));
+        AddSale(Rep, "B1", "BACK", 10m, new DateTime(2025, 11, 1));
+        AddSale(Rep, "B2", "BACK", 10m, new DateTime(2026, 8, 12));
+        AddSale(Rep, "F1", "FRESH", 10m, new DateTime(2026, 7, 20));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(from: new DateTime(2026, 7, 1), to: new DateTime(2026, 8, 31), lapseDays: 60);
+        var summary = report.Summary;
+
+        Assert.Equal(report.Churn.Sum(bucket => bucket.NewOutlets), summary.NewOutlets);
+        Assert.Equal(report.Churn.Sum(bucket => bucket.ReactivatedOutlets), summary.ReactivatedOutlets);
+        Assert.Equal(report.Churn.Sum(bucket => bucket.LapsedOutlets), summary.LapsedOutlets);
+        Assert.Equal(report.Churn[0].OpeningActiveOutlets, summary.OpeningActiveOutlets);
+        Assert.Equal(report.Churn[^1].ClosingActiveOutlets, summary.ClosingActiveOutlets);
+        Assert.Equal(
+            summary.ClosingActiveOutlets,
+            summary.OpeningActiveOutlets + summary.NewOutlets + summary.ReactivatedOutlets - summary.LapsedOutlets);
+
+        Assert.Equal(1, summary.NewOutlets);
+        Assert.Equal(1, summary.ReactivatedOutlets);
+        Assert.Equal(1, summary.LapsedOutlets);
+    }
+
+    // --- Reach is measured against the roster ---
+
+    /// <summary>
+    /// Coverage is a share of the roster, so only roster shops count towards it. A call on a shop
+    /// that is not on the books is a call, but it reaches nothing the roster holds.
+    /// </summary>
+    [Fact]
+    public async Task Calls_on_shops_off_the_roster_do_not_count_towards_coverage()
+    {
+        AddOutlet(VanAccount, "S1", "On the books");
+        AddVisit(Rep, "S1", new DateTime(2026, 8, 4));
+        AddVisit(Rep, "OFF1", new DateTime(2026, 8, 4), hour: 8);
+        AddVisit(Rep, "OFF2", new DateTime(2026, 8, 4), hour: 9);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(1, report.Summary.OutletsVisited);
+        Assert.Equal(1.0, report.Summary.RosterCoverageRate);
+        Assert.Equal(1.0, Assert.Single(report.Reps).RosterCoverageRate);
+    }
+
+    /// <summary>
+    /// A shop's code is unique only within its van's account. Another van calling on its own SHOP1
+    /// has not called on this van's SHOP1.
+    /// </summary>
+    [Fact]
+    public async Task A_call_on_another_vans_shop_with_the_same_code_reaches_only_that_shop()
+    {
+        AddOutlet(VanAccount, "SHOP1", "Ours");
+        AddOutlet(OtherAccount, "SHOP1", "Theirs");
+        AddSale(Rep, "S1", "ELSEWHERE", 10m, new DateTime(2026, 8, 4));
+        AddVisit(OtherRep, "SHOP1", new DateTime(2026, 8, 4));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(1, report.Summary.OutletsVisited);
+        Assert.Equal(VanSalesCoverageGap.NeverVisited,
+            report.UncoveredOutlets.Single(row => row.VanAccountCode == VanAccount && row.OutletCode == "SHOP1").Gap);
+        Assert.Equal(VanSalesCoverageGap.VisitedNotBought,
+            report.UncoveredOutlets.Single(row => row.VanAccountCode == OtherAccount && row.OutletCode == "SHOP1").Gap);
+    }
+
+    // --- The not-bought register ---
+
+    /// <summary>
+    /// A shop that bought was reached, whether or not the handset recorded a check-in. It is not on
+    /// the register, and the headline count is the register's own length.
+    /// </summary>
+    [Fact]
+    public async Task A_shop_that_bought_without_a_check_in_is_not_on_the_register()
+    {
+        AddOutlet(VanAccount, "S1", "Bought");
+        AddOutlet(VanAccount, "S2", "Missed");
+        AddSale(Rep, "A", "S1", 10m, new DateTime(2026, 8, 4));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        var row = Assert.Single(report.UncoveredOutlets);
+        Assert.Equal("S2", row.OutletCode);
+        Assert.Equal(report.UncoveredOutlets.Count, report.Summary.OutletsUncovered);
+    }
+
+    /// <summary>
+    /// "Never" means never, not "not in the last few months". A shop that was called on and bought
+    /// in February has history, however short the lapse threshold is.
+    /// </summary>
+    [Fact]
+    public async Task A_shop_with_old_history_is_not_read_as_never_called_or_never_bought()
+    {
+        AddOutlet(VanAccount, "S1", "Old Friend");
+        AddVisit(Rep, "S1", new DateTime(2026, 2, 10));
+        AddSale(Rep, "OLD", "S1", 10m, new DateTime(2026, 2, 10));
+        AddSale(Rep, "X", "OTHER", 10m, new DateTime(2026, 8, 3));
+        await _context.SaveChangesAsync();
+
+        var row = (await RunAsync(lapseDays: 30)).UncoveredOutlets.Single(outlet => outlet.OutletCode == "S1");
+
+        Assert.False(row.HasNeverBought);
+        Assert.Equal(new DateTime(2026, 2, 10), row.LastPurchaseOn);
+        Assert.Equal(new DateTime(2026, 2, 10), row.LastVisitedOn);
+        Assert.Equal(VanSalesCoverageGap.NotVisitedInWindow, row.Gap);
+    }
+
+    /// <summary>
+    /// A code typed in two cases is one shop. It must not bring the report down.
+    /// </summary>
+    [Fact]
+    public async Task Check_ins_that_differ_only_in_case_are_one_shop()
+    {
+        AddOutlet(VanAccount, "ABC1", "Mixed Case");
+        AddSale(Rep, "X", "OTHER", 10m, new DateTime(2026, 8, 3));
+        AddVisit(Rep, "abc1", new DateTime(2026, 7, 10));
+        AddVisit(Rep, "ABC1", new DateTime(2026, 7, 11));
+        await _context.SaveChangesAsync();
+
+        var row = (await RunAsync()).UncoveredOutlets.Single(outlet => outlet.OutletCode == "ABC1");
+
+        Assert.Equal(new DateTime(2026, 7, 11), row.LastVisitedOn);
+        Assert.Equal(VanSalesCoverageGap.NotVisitedInWindow, row.Gap);
+    }
+
+    // --- Calls against the plan ---
+
+    /// <summary>
+    /// A day whose plan failed is left out of both sides of the rate: its calls do not count against
+    /// another day's plan.
+    /// </summary>
+    [Fact]
+    public async Task Calls_on_a_day_without_a_plan_do_not_count_against_another_days_plan()
+    {
+        AddOutlet(VanAccount, "S1", "S1");
+        AddRouteDay(Rep, new DateTime(2026, 8, 4), planned: 10);
+        AddRouteDay(Rep, new DateTime(2026, 8, 5), planned: 0);
+        AddVisit(Rep, "S1", new DateTime(2026, 8, 4));
+        AddVisit(Rep, "S2", new DateTime(2026, 8, 4), hour: 8);
+        for (var index = 0; index < 5; index++)
+        {
+            AddVisit(Rep, $"T{index}", new DateTime(2026, 8, 5), hour: 8 + index);
+        }
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(2, report.Summary.CallsAgainstPlan);
+        Assert.Equal(0.2, report.Summary.CallComplianceRate!.Value, 3);
+        Assert.Equal(0.2, report.Trend.Single().CallComplianceRate!.Value, 3);
+        Assert.Equal(0.2, report.Reps.Single().CallComplianceRate!.Value, 3);
+    }
+
+    /// <summary>
+    /// A van that went out with a plan and called on nobody missed the whole plan. The day counts,
+    /// and the headline and the trend agree about it.
+    /// </summary>
+    [Fact]
+    public async Task A_planned_day_with_no_calls_counts_as_missed()
+    {
+        AddOutlet(VanAccount, "S1", "S1");
+        AddRouteDay(Rep, new DateTime(2026, 8, 4), planned: 10);
+        AddRouteDay(Rep, new DateTime(2026, 8, 6), planned: 10);
+        AddVisit(Rep, "S1", new DateTime(2026, 8, 4));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(20, report.Summary.PlannedCalls);
+        Assert.Equal(20, report.Trend.Single().PlannedCalls);
+        Assert.Equal(0.05, report.Summary.CallComplianceRate!.Value, 3);
+        Assert.Equal(0.05, report.Trend.Single().CallComplianceRate!.Value, 3);
+    }
+
     // --- Helpers ---
 
     private async Task<VanSalesCoverageReportResult> RunAsync(
         DateTime? from = null,
         DateTime? to = null,
-        int lapseDays = 90)
+        int lapseDays = 90,
+        string? route = null)
     {
         var handler = new GetVanSalesCoverageReportHandler(_context);
 
         var result = await handler.Handle(
-            new GetVanSalesCoverageReportQuery(from ?? From, to ?? To, LapseDays: lapseDays),
+            new GetVanSalesCoverageReportQuery(from ?? From, to ?? To, RouteCode: route, LapseDays: lapseDays),
             CancellationToken.None);
 
         Assert.False(result.IsError);
@@ -495,14 +766,14 @@ public sealed class VanSalesCoverageReportTests : IDisposable
             CreatedAt = new DateTime(2026, 1, 5, 8, 0, 0, DateTimeKind.Utc)
         });
 
-    private void AddRouteDay(Guid userId, DateTime tradingDate, int planned) =>
+    private void AddRouteDay(Guid userId, DateTime tradingDate, int planned, string route = "GURUVE") =>
         _context.VanRouteDays.Add(new VanRouteDayEntity
         {
             UserId = userId,
             Username = "van010",
             TradingDate = tradingDate,
-            RouteCode = "GURUVE",
-            RouteName = "Guruve",
+            RouteCode = route,
+            RouteName = route,
             Territory = "Mash Central",
             DepartedAt = tradingDate.AddHours(5),
             PlannedCustomerCount = planned
@@ -514,7 +785,8 @@ public sealed class VanSalesCoverageReportTests : IDisposable
         DateTime tradingDate,
         string source = TimesheetLocationSources.Gps,
         double? latitude = -17.8,
-        double? accuracy = 15) =>
+        double? accuracy = 15,
+        int hour = 7) =>
         _context.TimesheetEntries.Add(new TimesheetEntryEntity
         {
             Channel = TimesheetChannel.VanSales,
@@ -522,9 +794,9 @@ public sealed class VanSalesCoverageReportTests : IDisposable
             Username = "van010",
             CustomerCode = customerCode,
             CustomerName = customerCode,
-            // 09:00 CAT, comfortably inside the trading day either way.
-            CheckInTime = tradingDate.AddHours(7),
-            CheckOutTime = tradingDate.AddHours(7).AddMinutes(20),
+            // 09:00 CAT by default, comfortably inside the trading day either way.
+            CheckInTime = tradingDate.AddHours(hour),
+            CheckOutTime = tradingDate.AddHours(hour).AddMinutes(20),
             CheckInLatitude = latitude,
             CheckInLongitude = latitude is null ? null : 31.05,
             CheckInLocationSource = source,
@@ -538,7 +810,8 @@ public sealed class VanSalesCoverageReportTests : IDisposable
         decimal total,
         DateTime docDate,
         string account = VanAccount,
-        string itemCode = "CHE011") =>
+        string itemCode = "CHE011",
+        string currency = "USD") =>
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
             ExternalReferenceId = reference,
@@ -550,7 +823,7 @@ public sealed class VanSalesCoverageReportTests : IDisposable
             DocDate = docDate,
             TotalAmount = total,
             VatAmount = 0m,
-            Currency = "USD",
+            Currency = currency,
             WarehouseCode = account,
             PaymentMethod = "Cash",
             AmountPaid = total,

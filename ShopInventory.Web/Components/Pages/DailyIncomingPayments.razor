@@ -7,6 +7,8 @@
 
 @* The one incoming payment each business partner gets per day for its till, vending and van
    invoices, the invoices each one settles, and the G/L accounts each partner's payment posts to.
+   Built from the "Daily Incoming Payments redesign" canvas: payments grouped by day and run, the
+   ones that need a person pulled out on top, and a drawer for one payment or one partner's accounts.
 
    Carried by wwwroot/css/daily-payments.css, which is shops.css renamed to `dpy-` plus a page
    footer. See scripts/derive_daily_payments_css.py. *@
@@ -25,8 +27,9 @@
                 </div>
                 <h2 class="dpy-title">Daily incoming payments</h2>
                 <p class="dpy-subtitle">
-                    One SAP payment per business partner per day: shops at 17:00, vans at 20:00.
-                    Each settles that day's invoices, and every payment carries a DAYPAY reference for audit.
+                    @(tab == Tab.Payments
+                        ? "One SAP payment per business partner per day. Each settles that day's till, vending and van invoices and carries a DAYPAY reference."
+                        : "Where each partner's daily payment lands in the ledger, and who is told when it posts.")
                 </p>
             </div>
         </div>
@@ -43,18 +46,65 @@
         </div>
     </div>
 
-    <div class="dpy-seg dpy-tabs" role="tablist" aria-label="View">
-        <button type="button" role="tab" class="dpy-seg-btn @(tab == Tab.Payments ? "is-on" : null)"
+    @if (postingSwitch is { Enabled: false })
+    {
+        <div class="dpy-paused" role="status">
+            <i class="bi bi-pause-circle" aria-hidden="true"></i>
+            <div class="dpy-paused-text">
+                <strong>Daily payments are paused</strong>
+                <span>
+                    Invoices still post to SAP, but no incoming payment is created. Turning it back on pays
+                    invoices from the last 7 days; anything older is left for finance.
+                </span>
+            </div>
+            @if (isAdmin)
+            {
+                <a class="dpy-paused-link" href="@SettingsHref">Settings › Payments</a>
+            }
+        </div>
+    }
+
+    <section class="dpy-runs" aria-label="Run status">
+        <div class="dpy-run">
+            <span class="dpy-run-label">Posting</span>
+            <span class="dpy-run-value">
+                <span class="dpy-dot @PostingDot" aria-hidden="true"></span>@PostingLabel
+            </span>
+            <span class="dpy-run-meta">
+                @PostingMeta
+                @if (isAdmin)
+                {
+                    <a href="@SettingsHref">Settings › Payments</a>
+                }
+            </span>
+        </div>
+        @foreach (var run in RunOrder)
+        {
+            var last = LastPosted(run);
+            <div class="dpy-run">
+                <span class="dpy-run-label">@RunLabel(run)</span>
+                <span class="dpy-run-value">@NextRun(run)</span>
+                <span class="dpy-run-meta">
+                    @(last is null
+                        ? "Nothing posted in this range"
+                        : $"Last posted {ToCat(last.Value.PostedAtUtc, "ddd dd MMM HH:mm")} · {Plural(last.Value.Count, "payment")}")
+                </span>
+            </div>
+        }
+    </section>
+
+    <div class="dpy-tabbar" role="tablist" aria-label="View">
+        <button type="button" role="tab" class="dpy-tab @(tab == Tab.Payments ? "is-on" : null)"
                 aria-selected="@(tab == Tab.Payments)" @onclick="() => SetTab(Tab.Payments)">
             Payments<span class="dpy-seg-count">@payments.Count</span>
         </button>
-        <button type="button" role="tab" class="dpy-seg-btn @(tab == Tab.Accounts ? "is-on" : null)"
+        <button type="button" role="tab" class="dpy-tab @(tab == Tab.Accounts ? "is-on" : null)"
                 aria-selected="@(tab == Tab.Accounts)" @onclick="() => SetTab(Tab.Accounts)">
             G/L accounts<span class="dpy-seg-count">@mappings.Count</span>
         </button>
     </div>
 
-    @if (error is not null && editing is null)
+    @if (error is not null && editing is null && selected is null)
     {
         <div class="dpy-alert" role="alert">
             <i class="bi bi-exclamation-triangle-fill"></i>
@@ -64,6 +114,45 @@
 
     @if (tab == Tab.Payments)
     {
+        var attention = Attention;
+        if (!isLoading && attention.Count > 0)
+        {
+            <section class="dpy-attn" aria-label="Needs attention">
+                <div class="dpy-section-head">
+                    <h3>Needs attention</h3>
+                    <span>@Plural(attention.Count, "payment") in this range · cleared once it posts or its email goes</span>
+                </div>
+                <div class="dpy-attn-grid">
+                    @foreach (var payment in attention.Take(AttentionCards))
+                    {
+                        var tone = AttentionTone(payment);
+                        var held = IsHeldForMapping(payment);
+                        <div class="dpy-attn-card" @key="payment.Id">
+                            <span class="dpy-attn-icon dpy-tone-@tone" aria-hidden="true">
+                                <i class="bi @(tone == "info" ? "bi-envelope-exclamation" : "bi-exclamation-triangle")"></i>
+                            </span>
+                            <div class="dpy-attn-text">
+                                <span class="dpy-attn-title">@payment.CardCode · @AttentionTitle(payment)</span>
+                                <span class="dpy-attn-meta">@Day(payment.PaymentDate) · @Money(payment.Total) · @AttentionReason(payment)</span>
+                            </div>
+                            @if (held && isAdmin)
+                            {
+                                <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="() => StartMapping(payment.CardCode, payment.CardName)">Map accounts</button>
+                            }
+                            else
+                            {
+                                <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="() => OpenAsync(payment)">View</button>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (attention.Count > AttentionCards)
+                {
+                    <span class="dpy-attn-more">and @(attention.Count - AttentionCards) more in the list below</span>
+                }
+            </section>
+        }
+
         <div class="dpy-filter-bar">
             <label class="dpy-filter-field">
                 From
@@ -85,27 +174,58 @@
                                 @bind-Value="statusFilter" OnChanged="LoadPaymentsAsync"
                                 AriaLabel="Filter by status" Placeholder="All statuses" />
             </div>
+            <div class="dpy-filter-field">
+                Run
+                <div class="dpy-seg" role="radiogroup" aria-label="Run">
+                    @foreach (var option in RunFilterOptions)
+                    {
+                        <button type="button" role="radio" class="dpy-seg-btn @(runFilter == option ? "is-on" : null)"
+                                aria-checked="@(runFilter == option)" @onclick="() => runFilter = option">
+                            @(option ?? "All")
+                        </button>
+                    }
+                </div>
+            </div>
             <span class="dpy-result">@PaymentsLabel</span>
         </div>
 
-        <div class="dpy-totals">
-            <div class="dpy-total">
-                <div class="dpy-total-label">Cash</div>
-                <div class="dpy-total-value">@Money(payments.Sum(p => p.CashSum))</div>
+        var visible = Visible;
+        var posted = visible.Where(p => p.Status == "Posted").ToList();
+        var waiting = visible.Where(IsNotPosted).ToList();
+        var settledCash = posted.Sum(p => p.CashSum);
+        var settledElectronic = posted.Sum(p => p.ElectronicSum);
+        var cashShare = Share(settledCash, settledCash + settledElectronic);
+
+        <section class="dpy-kpis" aria-label="Totals">
+            <div class="dpy-kpi dpy-kpi-lead">
+                <span class="dpy-kpi-label">Settled</span>
+                <span class="dpy-kpi-value">@Money(settledCash + settledElectronic)</span>
+                <div class="dpy-split" aria-hidden="true">
+                    <span class="dpy-split-cash" style="width: @(cashShare)%"></span>
+                    <span class="dpy-split-el"></span>
+                </div>
             </div>
-            <div class="dpy-total">
-                <div class="dpy-total-label">Ecocash, Innbucks &amp; swipe</div>
-                <div class="dpy-total-value">@Money(payments.Sum(p => p.ElectronicSum))</div>
+            <div class="dpy-kpi">
+                <span class="dpy-kpi-label"><span class="dpy-key dpy-key-cash" aria-hidden="true"></span>Cash</span>
+                <span class="dpy-kpi-value">@Money(settledCash)</span>
+                <span class="dpy-kpi-meta">@cashShare% of settled</span>
             </div>
-            <div class="dpy-total">
-                <div class="dpy-total-label">Invoices settled</div>
-                <div class="dpy-total-value">@payments.Sum(p => p.InvoiceCount)</div>
+            <div class="dpy-kpi">
+                <span class="dpy-kpi-label"><span class="dpy-key dpy-key-el" aria-hidden="true"></span>Ecocash, Innbucks &amp; swipe</span>
+                <span class="dpy-kpi-value">@Money(settledElectronic)</span>
+                <span class="dpy-kpi-meta">@(posted.Count == 0 ? 0 : 100 - cashShare)% of settled</span>
             </div>
-            <div class="dpy-total">
-                <div class="dpy-total-label">Not posted</div>
-                <div class="dpy-total-value">@payments.Count(p => p.Status is "Pending" or "Unresolved")</div>
+            <div class="dpy-kpi">
+                <span class="dpy-kpi-label">Invoices settled</span>
+                <span class="dpy-kpi-value">@posted.Sum(p => p.InvoiceCount).ToString("N0", Invariant)</span>
+                <span class="dpy-kpi-meta">across @Plural(posted.Count, "posted payment")</span>
             </div>
-        </div>
+            <div class="dpy-kpi">
+                <span class="dpy-kpi-label">Not posted</span>
+                <span class="dpy-kpi-value @(waiting.Count > 0 ? "is-bad" : null)">@waiting.Count</span>
+                <span class="dpy-kpi-meta">@Money(waiting.Sum(p => p.Total)) waiting</span>
+            </div>
+        </section>
 
         @if (isLoading)
         {
@@ -117,7 +237,7 @@
         else
         {
             <div class="dpy-table-wrap">
-                @if (payments.Count == 0)
+                @if (visible.Count == 0)
                 {
                     <div class="dpy-empty">
                         <i class="bi bi-cash-coin"></i>
@@ -127,122 +247,89 @@
                 }
                 else
                 {
-                    <table class="dpy-table">
+                    <table class="dpy-table dpy-ledger">
                         <thead>
                             <tr>
-                                <th><span class="visually-hidden">Invoices</span></th>
-                                <th>Day</th>
-                                <th>Reference</th>
                                 <th>Partner</th>
                                 <th class="dpy-num">Cash</th>
                                 <th class="dpy-num">Electronic</th>
-                                <th>G/L accounts</th>
+                                <th class="dpy-num">Total</th>
+                                <th>G/L cash · electronic</th>
                                 <th>SAP payment</th>
                                 <th class="dpy-num">Invoices</th>
                                 <th>Status</th>
-                                <th>Email</th>
+                                <th><span class="visually-hidden">Email</span></th>
                             </tr>
                         </thead>
-                        <tbody>
-                            @foreach (var payment in payments)
-                            {
-                                var open = openId == payment.Id;
-                                <tr @key="payment.Id" class="@(open ? "dpy-row-open" : null)">
-                                    <td>
-                                        <button type="button" class="dpy-expand" aria-expanded="@open"
-                                                aria-label="@(open ? "Hide" : "Show") invoices on @payment.Reference"
-                                                @onclick="() => ToggleAsync(payment)">
-                                            <i class="bi @(open ? "bi-chevron-down" : "bi-chevron-right")"></i>
+                        @foreach (var day in Days(visible))
+                        {
+                            var open = openDays.Contains(day.Date);
+                            <tbody @key="day.Date">
+                                <tr class="dpy-day-row">
+                                    <td colspan="9">
+                                        <button type="button" class="dpy-day" aria-expanded="@open" @onclick="() => ToggleDay(day.Date)">
+                                            <i class="bi bi-chevron-right dpy-day-caret @(open ? "is-open" : null)" aria-hidden="true"></i>
+                                            <span class="dpy-day-label">@Day(day.Date)</span>
+                                            <span class="dpy-day-count">@Plural(day.Count, "payment")</span>
+                                            @if (day.NotPosted > 0)
+                                            {
+                                                <span class="dpy-chip dpy-chip-bad">@day.NotPosted not posted</span>
+                                            }
+                                            <span class="dpy-day-fill"></span>
+                                            <span class="dpy-day-inv">@day.Invoices.ToString("N0", Invariant) invoices</span>
+                                            <span class="dpy-day-total">@Money(day.Total)</span>
                                         </button>
-                                    </td>
-                                    <td>
-                                        <span class="dpy-primary">@payment.PaymentDate.ToString("dd MMM", System.Globalization.CultureInfo.InvariantCulture)</span>
-                                        <span class="dpy-sub">@payment.PaymentDate.ToString("ddd yyyy", System.Globalization.CultureInfo.InvariantCulture)</span>
-                                    </td>
-                                    <td><span class="dpy-code">@payment.Reference</span></td>
-                                    <td class="dpy-wrap">
-                                        <span class="dpy-primary">@(payment.CardName ?? payment.CardCode)</span>
-                                        <span class="dpy-sub">@payment.CardCode</span>
-                                    </td>
-                                    <td class="dpy-num">@Money(payment.CashSum)</td>
-                                    <td class="dpy-num">@Money(payment.ElectronicSum)</td>
-                                    <td>
-                                        <span class="dpy-acct">@(payment.CashAccount ?? "—")</span>
-                                        <span class="dpy-sub">@(payment.TransferAccount ?? "—")</span>
-                                    </td>
-                                    <td>@(payment.SapDocNum?.ToString() ?? "—")</td>
-                                    <td class="dpy-num">@payment.InvoiceCount</td>
-                                    <td>
-                                        <span class="dpy-chip @StatusChip(payment)" title="@payment.LastError">@StatusLabel(payment)</span>
-                                    </td>
-                                    <td>
-                                        @if (payment.EmailSentAtUtc is { } sent)
-                                        {
-                                            <i class="bi bi-envelope-check dpy-mail-ok" title="Emailed @ToCat(sent)"></i>
-                                        }
-                                        else if (payment.EmailError is not null)
-                                        {
-                                            <i class="bi bi-envelope-exclamation dpy-mail-bad" title="@payment.EmailError"></i>
-                                        }
-                                        else
-                                        {
-                                            <span class="dpy-sub">—</span>
-                                        }
                                     </td>
                                 </tr>
                                 @if (open)
                                 {
-                                    <tr @key="-payment.Id">
-                                        <td colspan="11" class="dpy-detail-cell">
-                                            <div class="dpy-detail">
-                                                @if (!string.IsNullOrWhiteSpace(payment.LastError))
-                                                {
-                                                    <div class="dpy-detail-error"><i class="bi bi-exclamation-circle"></i> @payment.LastError</div>
-                                                }
-                                                @if (detail is null)
-                                                {
-                                                    <div class="dpy-loading"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>Loading invoices…</span></div>
-                                                }
-                                                else if (detail.Lines.Count == 0)
-                                                {
-                                                    <span class="dpy-sub">No invoices are left on this payment.</span>
-                                                }
-                                                else
-                                                {
-                                                    <table class="dpy-lines">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>SAP invoice</th>
-                                                                <th>Source</th>
-                                                                <th>Sale</th>
-                                                                <th>Sold</th>
-                                                                <th>Tender</th>
-                                                                <th class="dpy-num">Cash</th>
-                                                                <th class="dpy-num">Electronic</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            @foreach (var line in detail.Lines)
-                                                            {
-                                                                <tr>
-                                                                    <td class="dpy-mono">@(line.InvoiceDocNum?.ToString() ?? $"entry {line.InvoiceDocEntry}")</td>
-                                                                    <td>@line.Source</td>
-                                                                    <td class="dpy-mono">@(line.SaleReference ?? "—")</td>
-                                                                    <td>@(line.SaleDate?.ToString("dd MMM yyyy") ?? "—")</td>
-                                                                    <td>@(line.PaymentMethod ?? "—")</td>
-                                                                    <td class="dpy-num">@Money(line.CashAmount)</td>
-                                                                    <td class="dpy-num">@Money(line.ElectronicAmount)</td>
-                                                                </tr>
-                                                            }
-                                                        </tbody>
-                                                    </table>
-                                                }
-                                            </div>
-                                        </td>
-                                    </tr>
+                                    @foreach (var run in day.Runs)
+                                    {
+                                        <tr class="dpy-run-row">
+                                            <td colspan="9">
+                                                <span class="dpy-run-row-label">@RunLabel(run.Run)</span>
+                                                <span>@run.Posted of @run.Payments.Count posted · @Money(run.Total)</span>
+                                            </td>
+                                        </tr>
+                                        @foreach (var payment in run.Payments)
+                                        {
+                                            var mapping = MappingFor(payment.CardCode);
+                                            <tr @key="payment.Id" class="dpy-pay-row @(selected?.Id == payment.Id ? "is-selected" : null)"
+                                                @onclick="() => OpenAsync(payment)">
+                                                <td class="dpy-wrap">
+                                                    <button type="button" class="dpy-pay-open" aria-label="Open @payment.Reference"
+                                                            @onclick="() => OpenAsync(payment)" @onclick:stopPropagation="true">
+                                                        <span class="dpy-primary">@(payment.CardName ?? payment.CardCode)</span>
+                                                        <span class="dpy-sub">@payment.CardCode</span>
+                                                    </button>
+                                                </td>
+                                                <td class="dpy-num">@Money(payment.CashSum)</td>
+                                                <td class="dpy-num @(payment.ElectronicSum == 0 ? "dpy-faint" : null)">@(payment.ElectronicSum == 0 ? "—" : Money(payment.ElectronicSum))</td>
+                                                <td class="dpy-num dpy-strong">@Money(payment.Total)</td>
+                                                <td><span class="dpy-acct">@AccountsCell(payment, mapping)</span></td>
+                                                <td class="dpy-num @(payment.SapDocNum is null ? "dpy-faint" : null)">@(payment.SapDocNum?.ToString(Invariant) ?? "—")</td>
+                                                <td class="dpy-num">@payment.InvoiceCount</td>
+                                                <td><span class="dpy-chip @StatusChip(payment)">@StatusLabel(payment)</span></td>
+                                                <td>
+                                                    @if (payment.EmailSentAtUtc is { } sent)
+                                                    {
+                                                        <i class="bi bi-envelope-check dpy-mail-ok" title="Emailed @ToCat(sent)" aria-label="Emailed"></i>
+                                                    }
+                                                    else if (payment.EmailError is not null)
+                                                    {
+                                                        <i class="bi bi-envelope-exclamation dpy-mail-bad" title="@payment.EmailError" aria-label="Email failed"></i>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="dpy-faint" title="Not emailed">—</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
                                 }
-                            }
-                        </tbody>
+                            </tbody>
+                        }
                     </table>
                 }
             </div>
@@ -250,14 +337,29 @@
     }
     else
     {
-        <div class="dpy-form-note">
-            <i class="bi bi-info-circle" aria-hidden="true"></i>
-            <span>
-                Cash posts to the cash account; Ecocash, Innbucks and swipe post to the electronic account.
-                A partner with no active row here is held rather than posted, so nothing lands in SAP's
-                default account (700300). The people listed are emailed once the day's payment posts.
-            </span>
-        </div>
+        var heldPartners = HeldPartners;
+        if (heldPartners.Count > 0)
+        {
+            <div class="dpy-held" role="alert">
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                <div class="dpy-paused-text">
+                    <strong>@(heldPartners.Count == 1 ? "1 partner has" : $"{heldPartners.Count} partners have") invoices but no active accounts</strong>
+                    <span>
+                        @string.Join(" · ", heldPartners.Select(h => $"{h.CardCode}: {Plural(h.Invoices, "invoice")}, {Money(h.Total)} held since {Day(h.Since)}")).
+                        A partner with no active row is held, never posted to SAP's default account.
+                    </span>
+                </div>
+                @if (isAdmin)
+                {
+                    <div class="dpy-held-actions">
+                        @foreach (var held in heldPartners)
+                        {
+                            <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="() => StartMapping(held.CardCode, held.CardName)">Map @held.CardCode</button>
+                        }
+                    </div>
+                }
+            </div>
+        }
 
         @if (isLoading)
         {
@@ -268,101 +370,319 @@
         }
         else
         {
+            var uses = AccountUses;
+            if (uses.Count > 0)
+            {
+                <section class="dpy-lands" aria-label="Where the money lands">
+                    <div class="dpy-section-head">
+                        <h3>Where the money lands</h3>
+                        <span>Active partners. Cash posts to the cash account; Ecocash, Innbucks and swipe post to the electronic account as a transfer.</span>
+                    </div>
+                    <div class="dpy-lands-grid">
+                        @foreach (var use in uses)
+                        {
+                            <div class="dpy-land" @key="use.Account">
+                                <div class="dpy-land-head">
+                                    <span class="dpy-land-code">@use.Account</span>
+                                    <span class="dpy-land-name">@(AccountName(use.Account) is { Length: > 0 } name ? name : "Not in the G/L cache")</span>
+                                </div>
+                                @if (use.Cash.Count > 0)
+                                {
+                                    <div class="dpy-land-group">
+                                        <span class="dpy-land-kind"><span class="dpy-key dpy-key-cash" aria-hidden="true"></span>Cash from @Plural(use.Cash.Count, "partner")</span>
+                                        <div class="dpy-land-codes">
+                                            @foreach (var partnerCode in use.Cash)
+                                            {
+                                                <span class="dpy-land-chip is-cash">@partnerCode</span>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                @if (use.Electronic.Count > 0)
+                                {
+                                    <div class="dpy-land-group">
+                                        <span class="dpy-land-kind"><span class="dpy-key dpy-key-el" aria-hidden="true"></span>Electronic from @Plural(use.Electronic.Count, "partner")</span>
+                                        <div class="dpy-land-codes">
+                                            @foreach (var partnerCode in use.Electronic)
+                                            {
+                                                <span class="dpy-land-chip is-el">@partnerCode</span>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                @if (use.Account == SapDefaultCashAccount)
+                                {
+                                    <span class="dpy-land-note">Also SAP's default. Unmapped partners are held so nothing falls through to it.</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+
             <div class="dpy-table-wrap">
-                <table class="dpy-table">
+                <table class="dpy-table dpy-accounts">
                     <thead>
                         <tr>
                             <th>Partner</th>
-                            <th>Run</th>
                             <th>Cash account</th>
                             <th>Electronic account</th>
-                            <th>Emailed to</th>
+                            <th>Emailed when posted</th>
                             <th>Status</th>
                             <th>Last changed</th>
                             <th><span class="visually-hidden">Actions</span></th>
                         </tr>
                     </thead>
-                    <tbody>
-                        @foreach (var mapping in mappings)
-                        {
-                            <tr @key="mapping.CardCode">
-                                <td class="dpy-wrap">
-                                    <span class="dpy-primary">@(mapping.CardName ?? mapping.CardCode)</span>
-                                    <span class="dpy-sub">@mapping.CardCode</span>
-                                </td>
-                                <td>
-                                    <span class="dpy-chip @(mapping.Run == "Vans" ? "dpy-chip-info" : "dpy-chip-accent")">
-                                        @(mapping.Run == "Vans" ? "Vans · 20:00" : "Shops · 17:00")
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="dpy-acct">@mapping.CashAccount</span>
-                                    <span class="dpy-sub">@AccountName(mapping.CashAccount)</span>
-                                </td>
-                                <td>
-                                    <span class="dpy-acct">@mapping.ElectronicAccount</span>
-                                    @if (mapping.NeedsReview)
-                                    {
-                                        <span class="dpy-chip dpy-chip-warn" title="No electronic receipt in the pre-September history confirmed this account. Saving the row clears this.">Review</span>
-                                    }
-                                    <span class="dpy-sub">@AccountName(mapping.ElectronicAccount)</span>
-                                </td>
-                                <td class="dpy-wrap">
-                                    @if (string.IsNullOrWhiteSpace(mapping.NotifyEmails))
-                                    {
-                                        <span class="dpy-sub">Nobody</span>
-                                    }
-                                    else
-                                    {
-                                        @foreach (var address in mapping.NotifyEmails.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-                                        {
-                                            <span class="dpy-sub">@address</span>
-                                        }
-                                    }
-                                </td>
-                                <td>
-                                    <span class="dpy-chip @(mapping.IsActive ? "dpy-chip-good" : "dpy-chip-neutral")">
-                                        @(mapping.IsActive ? "Active" : "Held")
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="dpy-sub">@ToCat(mapping.UpdatedAtUtc)</span>
-                                    <span class="dpy-sub">@(mapping.UpdatedBy ?? "")</span>
-                                </td>
-                                <td>
-                                    @if (isAdmin)
-                                    {
-                                        <div class="dpy-row-act">
-                                            <button type="button" class="dpy-action-btn"
-                                                    title="Edit @mapping.CardCode" aria-label="Edit @mapping.CardCode"
-                                                    @onclick="() => StartEdit(mapping)" disabled="@isSaving">
-                                                <i class="bi bi-pencil"></i>
-                                            </button>
-                                        </div>
-                                    }
+                    @foreach (var group in MappingGroups)
+                    {
+                        <tbody @key="group.Run">
+                            <tr class="dpy-run-row">
+                                <td colspan="7">
+                                    <span class="dpy-run-row-label">@RunLabel(group.Run)</span>
+                                    <span>@Plural(group.Mappings.Count, "partner")@(group.Run == VansRun ? " · usually everything to one account" : null)</span>
                                 </td>
                             </tr>
-                        }
-                    </tbody>
+                            @foreach (var mapping in group.Mappings)
+                            {
+                                var same = string.Equals(mapping.CashAccount, mapping.ElectronicAccount, StringComparison.OrdinalIgnoreCase);
+                                <tr @key="mapping.CardCode" class="@(editing?.CardCode == mapping.CardCode && !isNew ? "is-selected" : null)">
+                                    <td class="dpy-wrap">
+                                        <span class="dpy-primary">@(mapping.CardName ?? mapping.CardCode)</span>
+                                        <span class="dpy-sub">@mapping.CardCode</span>
+                                    </td>
+                                    <td>
+                                        <span class="dpy-acct">@mapping.CashAccount</span>
+                                        <span class="dpy-sub">@AccountName(mapping.CashAccount)</span>
+                                    </td>
+                                    <td>
+                                        <span class="dpy-acct @(same ? "dpy-faint" : null)">@(same ? "same" : mapping.ElectronicAccount)</span>
+                                        @if (mapping.NeedsReview)
+                                        {
+                                            <span class="dpy-chip dpy-chip-warn" title="No electronic receipt in the pre-September history confirmed this account. Saving the row clears this.">Review</span>
+                                        }
+                                        <span class="dpy-sub">@(same ? "Everything to the cash account" : AccountName(mapping.ElectronicAccount))</span>
+                                    </td>
+                                    <td class="dpy-wrap">
+                                        @{ var addresses = Emails(mapping.NotifyEmails); }
+                                        @if (addresses.Count == 0)
+                                        {
+                                            <span class="dpy-sub dpy-faint">Nobody</span>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var address in addresses)
+                                            {
+                                                <span class="dpy-sub">@address</span>
+                                            }
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="dpy-chip @(mapping.IsActive ? "dpy-chip-good" : "dpy-chip-neutral")">
+                                            @(mapping.IsActive ? "Active" : "Held")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="dpy-sub">@ToCat(mapping.UpdatedAtUtc)</span>
+                                        @if (!string.IsNullOrWhiteSpace(mapping.UpdatedBy))
+                                        {
+                                            <span class="dpy-sub dpy-faint">by @mapping.UpdatedBy</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (isAdmin)
+                                        {
+                                            <div class="dpy-row-act">
+                                                <button type="button" class="dpy-action-btn"
+                                                        title="Edit @mapping.CardCode" aria-label="Edit @mapping.CardCode"
+                                                        @onclick="() => StartEdit(mapping)" disabled="@isSaving">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                            </div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    }
                 </table>
             </div>
         }
     }
 </div>
 
-@if (editing is not null)
+@if (selected is { } current)
 {
-    <div class="dpy-overlay" @onclick="CloseDialog">
-        <div class="dpy-modal" role="dialog" aria-modal="true" aria-labelledby="dpy-dialog-title"
-             @onclick:stopPropagation="true">
-            <div class="dpy-modal-header">
-                <h2 id="dpy-dialog-title">@(isNew ? "Add partner" : $"G/L accounts for {editing.CardCode}")</h2>
-                <button type="button" class="dpy-modal-close" @onclick="CloseDialog" aria-label="Close dialog" disabled="@isSaving">
-                    <i class="bi bi-x-lg"></i>
-                </button>
+    var mapping = MappingFor(current.CardCode);
+    var problem = ProblemFor(current);
+    var cashAccount = current.CashAccount ?? mapping?.CashAccount;
+    var electronicAccount = current.TransferAccount ?? mapping?.ElectronicAccount;
+    var recipients = Emails(mapping?.NotifyEmails);
+
+    <div class="dpy-overlay dpy-overlay-drawer" @onclick="ClosePayment">
+        <aside class="dpy-drawer" role="dialog" aria-modal="true" aria-labelledby="dpy-pay-title"
+               @onclick:stopPropagation="true">
+            <div class="dpy-drawer-head">
+                <div class="dpy-drawer-top">
+                    <span class="dpy-ref">@current.Reference</span>
+                    <button type="button" class="dpy-modal-close" @onclick="ClosePayment" aria-label="Close payment details">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <h2 id="dpy-pay-title" class="dpy-drawer-title">@(current.CardName ?? current.CardCode)</h2>
+                <span class="dpy-drawer-sub">@current.CardCode · @current.PaymentDate.ToString("dddd d MMMM yyyy", Invariant) · @RunLabel(RunOf(current))</span>
+                <div class="dpy-drawer-status">
+                    <span class="dpy-chip @StatusChip(current)">@StatusLabel(current)</span>
+                    <span>
+                        @(current.SapDocNum is { } docNum
+                            ? $"SAP payment {docNum}{(current.PostedAtUtc is { } at ? $" · posted {ToCat(at, "dd MMM HH:mm")} CAT" : null)}"
+                            : "Not in SAP")
+                    </span>
+                </div>
             </div>
 
-            <div class="dpy-modal-body">
+            <div class="dpy-drawer-body">
+                @if (problem is not null)
+                {
+                    <div class="dpy-problem dpy-tone-@problem.Tone" role="alert">
+                        <strong>@problem.Title</strong>
+                        @if (!string.IsNullOrWhiteSpace(problem.Text))
+                        {
+                            <span>@problem.Text</span>
+                        }
+                        @if (IsHeldForMapping(current) && isAdmin)
+                        {
+                            <button type="button" class="dpy-btn dpy-btn-primary" @onclick="() => StartMapping(current.CardCode, current.CardName)">
+                                Map G/L accounts for @current.CardCode
+                            </button>
+                        }
+                    </div>
+                }
+
+                <section class="dpy-drawer-section">
+                    <div class="dpy-drawer-section-head">
+                        <h3>Where it posts</h3>
+                        <span class="dpy-drawer-total">@Money(current.Total)</span>
+                    </div>
+                    <div class="dpy-split dpy-split-lg" aria-hidden="true">
+                        <span class="dpy-split-cash" style="width: @(Share(current.CashSum, current.Total))%"></span>
+                        <span class="dpy-split-el"></span>
+                    </div>
+                    <div class="dpy-posts">
+                        <span class="dpy-key dpy-key-cash" aria-hidden="true"></span>
+                        <span class="dpy-posts-what">
+                            Cash
+                            <span class="dpy-sub">→ <span class="dpy-acct">@(cashAccount ?? "—")</span> @(cashAccount is null ? "not mapped" : AccountName(cashAccount))</span>
+                        </span>
+                        <span class="dpy-num">@Money(current.CashSum)</span>
+
+                        <span class="dpy-key dpy-key-el" aria-hidden="true"></span>
+                        <span class="dpy-posts-what">
+                            Ecocash, Innbucks &amp; swipe
+                            <span class="dpy-sub">→ <span class="dpy-acct">@(electronicAccount ?? "—")</span> @(electronicAccount is null ? "not mapped" : AccountName(electronicAccount))</span>
+                        </span>
+                        <span class="dpy-num">@Money(current.ElectronicSum)</span>
+                    </div>
+                    @if (current.CashAccount is null && mapping is not null)
+                    {
+                        <span class="dpy-form-hint">Not posted yet, so these are the partner's accounts today.</span>
+                    }
+                </section>
+
+                <section class="dpy-drawer-section">
+                    <div class="dpy-drawer-section-head">
+                        <h3>Invoices settled · @current.InvoiceCount</h3>
+                    </div>
+                    @if (detail is null)
+                    {
+                        <div class="dpy-loading"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>Loading invoices…</span></div>
+                    }
+                    else if (detail.Lines.Count == 0)
+                    {
+                        <span class="dpy-sub">No invoices are left on this payment.</span>
+                    }
+                    else
+                    {
+                        <div class="dpy-lines-wrap">
+                            <table class="dpy-lines">
+                                <thead>
+                                    <tr>
+                                        <th>Invoice</th>
+                                        <th>Source</th>
+                                        <th>Sale</th>
+                                        <th>Tender</th>
+                                        <th class="dpy-num">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in detail.Lines)
+                                    {
+                                        <tr>
+                                            <td class="dpy-mono">@(line.InvoiceDocNum?.ToString(Invariant) ?? $"entry {line.InvoiceDocEntry}")</td>
+                                            <td>@line.Source</td>
+                                            <td class="dpy-mono dpy-line-sale" title="@(line.SaleDate is { } sold ? $"Sold {sold:dd MMM yyyy}" : null)">@(line.SaleReference ?? "—")</td>
+                                            <td>
+                                                <span class="dpy-key @LineKey(line)" aria-hidden="true"></span>@(line.PaymentMethod ?? "—")
+                                            </td>
+                                            <td class="dpy-num">@Money(line.CashAmount + line.ElectronicAmount)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                <section class="dpy-drawer-section">
+                    <div class="dpy-drawer-section-head">
+                        <h3>Email</h3>
+                        <span class="dpy-sub">@EmailState(current)</span>
+                    </div>
+                    @if (recipients.Count == 0)
+                    {
+                        <span class="dpy-sub">
+                            Nobody is emailed for @current.CardCode.
+                            @if (isAdmin)
+                            {
+                                <button type="button" class="dpy-link" @onclick="() => StartMapping(current.CardCode, current.CardName)">Add the cash holders</button>
+                            }
+                        </span>
+                    }
+                    else
+                    {
+                        <ul class="dpy-recipients">
+                            @foreach (var address in recipients)
+                            {
+                                <li><span class="dpy-dot @EmailDot(current)" aria-hidden="true"></span>@address</li>
+                            }
+                        </ul>
+                        <span class="dpy-form-hint">The partner's addresses today. Changing them does not re-send a payment already emailed.</span>
+                    }
+                </section>
+            </div>
+        </aside>
+    </div>
+}
+
+@if (editing is not null)
+{
+    var held = HeldFor(editing.CardCode);
+
+    <div class="dpy-overlay dpy-overlay-drawer" @onclick="CloseDialog">
+        <aside class="dpy-drawer" role="dialog" aria-modal="true" aria-labelledby="dpy-dialog-title"
+               @onclick:stopPropagation="true">
+            <div class="dpy-drawer-head">
+                <div class="dpy-drawer-top">
+                    <span class="dpy-drawer-kicker">@(isNew ? "Add partner" : "Edit G/L accounts")</span>
+                    <button type="button" class="dpy-modal-close" @onclick="CloseDialog" aria-label="Close dialog" disabled="@isSaving">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <h2 id="dpy-dialog-title" class="dpy-drawer-title">
+                    @(string.IsNullOrWhiteSpace(editing.CardCode) ? "New partner" : $"{editing.CardCode}{(string.IsNullOrWhiteSpace(editing.CardName) ? null : $" · {editing.CardName}")}")
+                </h2>
+            </div>
+
+            <div class="dpy-drawer-body">
                 @if (error is not null)
                 {
                     <div class="dpy-alert" role="alert">
@@ -371,65 +691,100 @@
                     </div>
                 }
 
+                @if (held.Count > 0)
+                {
+                    <div class="dpy-problem dpy-tone-warn">
+                        <strong>@(held.Count == 1 ? "1 held payment waits" : $"{held.Count} held payments wait") on this</strong>
+                        <span>
+                            @string.Join(" · ", held.Select(p => $"{Day(p.PaymentDate)}: {Money(p.Total)}, {Plural(p.InvoiceCount, "invoice")}")).
+                            Once the accounts are saved and active, the next pass pays its invoices.
+                        </span>
+                    </div>
+                }
+
                 <div class="dpy-form-grid">
                     <div class="dpy-form-field">
                         <label for="dpy-code">Business partner code <span class="required">*</span></label>
-                        <input id="dpy-code" class="dpy-input" @bind="editing.CardCode" placeholder="CIS006" disabled="@(!isNew)" />
+                        <input id="dpy-code" class="dpy-input" @bind="editing.CardCode" placeholder="CIS006" disabled="@(!isNew || codeLocked)" />
                     </div>
                     <div class="dpy-form-field">
                         <label for="dpy-name">Name</label>
                         <input id="dpy-name" class="dpy-input" @bind="editing.CardName" placeholder="Factory Kefalos shop" />
                     </div>
+                </div>
 
-                    <div class="dpy-form-field">
-                        <label for="dpy-cash">Cash account <span class="required">*</span></label>
-                        <NocturnePicker Class="npick-block" Id="dpy-cash" Options="accountOptions"
-                                        @bind-Value="editing.CashAccount" Loading="accountsLoading"
-                                        Placeholder="Select G/L account" EmptyText="No G/L accounts cached"
-                                        AllowClear="false" AriaLabel="Cash account" />
+                <div class="dpy-form-field">
+                    <span class="dpy-form-label" id="dpy-run-label">Daily run</span>
+                    <div class="dpy-run-pick" role="radiogroup" aria-labelledby="dpy-run-label">
+                        @foreach (var run in RunOrder)
+                        {
+                            <button type="button" role="radio" class="dpy-run-card @(editing.Run == run ? "is-on" : null)"
+                                    aria-checked="@(editing.Run == run)" @onclick="() => SetRun(run)">
+                                <span class="dpy-run-card-title">@RunLabel(run)</span>
+                                <span class="dpy-run-card-hint">@(run == VansRun ? "Van invoices, after the vans return" : "Till, vending and consolidated invoices")</span>
+                            </button>
+                        }
                     </div>
-                    <div class="dpy-form-field">
-                        <label for="dpy-electronic">Electronic account <span class="required">*</span></label>
+                </div>
+
+                <div class="dpy-form-field">
+                    <label for="dpy-cash"><span class="dpy-key dpy-key-cash" aria-hidden="true"></span>Cash account <span class="required">*</span></label>
+                    <NocturnePicker Class="npick-block" Id="dpy-cash" Options="accountOptions"
+                                    @bind-Value="editing.CashAccount" Loading="accountsLoading"
+                                    Placeholder="Select G/L account" EmptyText="No G/L accounts cached"
+                                    AllowClear="false" AriaLabel="Cash account" />
+                </div>
+
+                <div class="dpy-form-field">
+                    <label for="dpy-electronic"><span class="dpy-key dpy-key-el" aria-hidden="true"></span>Electronic account · Ecocash, Innbucks &amp; swipe <span class="required">*</span></label>
+                    <label class="dpy-check">
+                        <input type="checkbox" @bind="editing.SameAccount" />
+                        Same as the cash account
+                    </label>
+                    @if (!editing.SameAccount)
+                    {
                         <NocturnePicker Class="npick-block npick-end" Id="dpy-electronic" Options="accountOptions"
                                         @bind-Value="editing.ElectronicAccount" Loading="accountsLoading"
                                         Placeholder="Select G/L account" EmptyText="No G/L accounts cached"
                                         AllowClear="false" AriaLabel="Electronic account" />
-                    </div>
-
-                    <div class="dpy-form-field dpy-form-full">
-                        <span>Daily run</span>
-                        <div class="dpy-seg" role="radiogroup" aria-label="Daily run">
-                            <button type="button" role="radio" class="dpy-seg-btn @(editing.Run == "Shops" ? "is-on" : null)"
-                                    aria-checked="@(editing.Run == "Shops")" @onclick="@(() => editing.Run = "Shops")">
-                                Shops · 17:00
-                            </button>
-                            <button type="button" role="radio" class="dpy-seg-btn @(editing.Run == "Vans" ? "is-on" : null)"
-                                    aria-checked="@(editing.Run == "Vans")" @onclick="@(() => editing.Run = "Vans")">
-                                Vans · 20:00
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="dpy-form-field dpy-form-full">
-                        <label for="dpy-emails">Email when posted (the people receiving the cash)</label>
-                        <textarea id="dpy-emails" class="dpy-input dpy-textarea" @bind="editing.NotifyEmails"
-                                  placeholder="cashier@example.com, supervisor@example.com"></textarea>
-                        <span class="dpy-form-hint">Separate addresses with commas. Leave empty to email nobody.</span>
-                    </div>
-
-                    <label class="dpy-check dpy-form-full">
-                        <input type="checkbox" @bind="editing.IsActive" />
-                        Active: post this partner's daily payment. Untick to hold it.
-                    </label>
+                    }
                 </div>
+
+                <div class="dpy-form-field">
+                    <label for="dpy-emails">Email when posted · the people receiving the cash</label>
+                    <div class="dpy-emails">
+                        @foreach (var address in editing.Emails)
+                        {
+                            <span class="dpy-email-chip" @key="address">
+                                @address
+                                <button type="button" aria-label="Remove @address" @onclick="() => editing.Emails.Remove(address)">
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </button>
+                            </span>
+                        }
+                        <input id="dpy-emails" class="dpy-email-input" placeholder="@(editing.Emails.Count == 0 ? "cashier@example.com" : "Add another")"
+                               @bind="editing.EmailDraft" @bind:event="oninput" @bind:after="SplitEmailDraft"
+                               @onkeydown="OnEmailKeyDown" @onblur="CommitEmailDraft" />
+                    </div>
+                    <span class="dpy-form-hint">Type an address and press Enter or a comma. Leave empty to email nobody.</span>
+                </div>
+
+                <label class="dpy-check dpy-check-card">
+                    <input type="checkbox" @bind="editing.IsActive" />
+                    <span>
+                        <span class="dpy-primary">Post this partner's daily payment</span>
+                        <span class="dpy-sub">Untick to hold it. A held payment waits here until the partner is active again.</span>
+                    </span>
+                </label>
             </div>
 
-            <div class="dpy-modal-footer">
+            <div class="dpy-drawer-foot">
+                <span class="dpy-form-hint">Saving checks both accounts in SAP first.</span>
                 <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="CloseDialog" disabled="@isSaving">Cancel</button>
                 <button type="button" class="dpy-btn dpy-btn-primary" @onclick="SaveAsync" disabled="@isSaving">
                     @(isSaving ? "Checking in SAP…" : "Save")
                 </button>
             </div>
-        </div>
+        </aside>
     </div>
 }
