@@ -15,6 +15,9 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 ///
 /// <c>Vans</c> asks the van sales analysis instead, in the same shape: the warehouse is then a van, and the
 /// source system is ignored. It reads online van sales too, which never become desktop sales.
+///
+/// <c>CardCode</c> confines every figure to the sales made as one business partner, inside whatever the
+/// account may read. The van analysis has no such filter, so it is not sent there.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     DateTime? FromDate,
@@ -22,5 +25,6 @@ public sealed record GetDesktopSalesAnalysisQuery(
     string? WarehouseCode,
     string? PaymentMethod = null,
     string? SourceSystem = null,
-    bool Vans = false
+    bool Vans = false,
+    string? CardCode = null
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;

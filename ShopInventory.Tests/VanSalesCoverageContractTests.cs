@@ -201,7 +201,7 @@ public class VanSalesCoverageContractTests
         PriorWindowFrom: new DateTime(2026, 5, 3),
         LapseDays: 90,
         Granularity: ApiGranularity.Month,
-        Summary: new VanSalesCoverageSummaryResult(0, null, 0, 0, 0, 0, 0, 0, null, 0, null, null, []),
+        Summary: new VanSalesCoverageSummaryResult(0, null, 0, 0, 0, 0, 0, 0, 0, 0, null, 0, null, null, null, []),
         Trend: [],
         Reps: [],
         UncoveredOutlets: [],
@@ -224,24 +224,27 @@ public class VanSalesCoverageContractTests
             OutletsVisited: 95,
             OutletsBought: 80,
             OutletsUncovered: 25,
+            OpeningActiveOutlets: 90,
             NewOutlets: 6,
             ReactivatedOutlets: 3,
             LapsedOutlets: 4,
+            ClosingActiveOutlets: 95,
             Calls: 100,
             ProductiveCalls: 80,
             PlannedCalls: 120,
+            CallsAgainstPlan: 100,
             KilometresTravelled: 1200,
             TotalsByCurrency: [new VanSalesMoneyResult("USD", 260, 210, 8400m)]),
         Trend:
         [
             new VanSalesCoverageTrendPointResult("Aug 2026", new DateTime(2026, 8, 1),
-                new DateTime(2026, 8, 31), false, 1, 120, 100, 80, 80, 0, 0)
+                new DateTime(2026, 8, 31), false, 1, 120, 100, 100, 80, 80, 0, 0)
         ],
         Reps:
         [
             new VanSalesRepCoverageResult(
                 Guid.NewGuid(), "van010", "Tinashe Moyo", "VAN010", ["GURUVE"],
-                true, 120, 22, 100, 95, 80, 80, 25, 120, 1200,
+                true, 120, 22, 100, 95, 80, 80, 25, 120, 100, 1200,
                 [new VanSalesEfficiencyResult("USD", 8400m, 210, 1200, 20, 2)],
                 [new VanSalesMoneyResult("USD", 260, 210, 8400m)])
         ],
@@ -295,17 +298,17 @@ public class VanSalesCoverageContractTests
         PriorWindowFrom: new DateTime(2026, 5, 3),
         LapseDays: 90,
         Granularity: ApiGranularity.Week,
-        Summary: new VanSalesCoverageSummaryResult(1, null, 0, 0, 0, 0, 0, 0, null, 0, null, null, []),
+        Summary: new VanSalesCoverageSummaryResult(1, null, 0, 0, 0, 0, 0, 0, 0, 0, null, 0, null, null, null, []),
         Trend:
         [
             new VanSalesCoverageTrendPointResult("w/c 03 Aug", new DateTime(2026, 8, 3),
-                new DateTime(2026, 8, 9), true, 0, null, null, 0, 0, 1, 1)
+                new DateTime(2026, 8, 9), true, 0, null, null, null, 0, 0, 1, 1)
         ],
         Reps:
         [
             new VanSalesRepCoverageResult(
                 Guid.NewGuid(), "van010", null, null, [],
-                false, null, 0, null, null, 0, null, null, null, null,
+                false, null, 0, null, null, 0, null, null, null, null, null,
                 [new VanSalesEfficiencyResult("USD", 0m, 0, null, 0, 3)],
                 [])
         ],
