@@ -1,6 +1,7 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using MudBlazor;
 using ShopInventory.Web.Features.StockWriteOffs.Commands.CreateStockWriteOff;
 using ShopInventory.Web.Features.StockWriteOffs.Queries.GetStockWriteOff;
@@ -24,7 +25,11 @@ namespace ShopInventory.Web.Components.Pages;
 /// <para>
 /// The batch picker is not a convenience: SAP refuses the whole goods issue when a batch-managed line
 /// names no batch, so the page will not let such a line be added at all. The API refuses it a second
-/// time, because a caller that is not this page still has to be told.
+/// time, because a caller that is not this page still has to be told. The batches come back from SAP
+/// with what each holds, so the page also refuses a line asking for more of a batch than SAP shows on
+/// hand — counted across every line naming that batch, since SAP measures the document as a whole.
+/// That is a courtesy, not the guard: stock moves between the count and the post, and the API reads
+/// SAP again before it issues anything.
 /// </para>
 /// <para>
 /// The item picker is filled once, from the Web's own PostgreSQL copy of the item master, and not
@@ -32,6 +37,11 @@ namespace ShopInventory.Web.Components.Pages;
 /// for every item holding stock in a warehouse each time one was chosen was the dearest read on the
 /// page. Whether the warehouse holds the item is settled by the batch read and by the API when it
 /// posts — both of which are still SAP, and both of which are per item rather than per warehouse.
+/// </para>
+/// <para>
+/// Nothing is posted from the count itself. The preview beside it says what the goods issue will
+/// be, and posting happens only from a review dialog that restates it, because what leaves SAP here
+/// cannot be taken back from this page.
 /// </para>
 /// </remarks>
 public partial class StockWriteOffs
@@ -44,19 +54,29 @@ public partial class StockWriteOffs
 
     private const int PageSize = 30;
 
+    /// <summary>How close an expiry has to be before a batch is flagged as the likely one.</summary>
+    private const int ExpirySoonDays = 7;
+
     private readonly List<StockWriteOffSummary> writeOffs = [];
-    private readonly List<CreateStockWriteOffLine> draft = [];
+    private readonly List<DraftLine> draft = [];
     private Dictionary<string, int> statusCounts = [];
+    private int totalCount;
+    private int loadedPage;
 
     private StockWriteOffDetail? selected;
     private string? errorMessage;
     private string statusFilter = string.Empty;
+    private string? warehouseFilter;
 
     private bool hasInitialized;
     private bool isLoadingList = true;
+    private bool isLoadingMore;
     private bool isLoadingItems = true;
     private bool isLoadingBatches;
     private bool isPosting;
+    private bool isReviewing;
+    private bool focusReview;
+    private ElementReference reviewDialog;
 
     // The write-off being built.
     private string? warehouseCode;
@@ -75,7 +95,7 @@ public partial class StockWriteOffs
     private List<WarehouseDto> warehouses = [];
     private IReadOnlyList<StockWriteOffItem> items = [];
     private DateTime? catalogueSyncedAt;
-    private List<BatchDto> batches = [];
+    private List<BatchView> batchViews = [];
     private List<StockWriteOffReason> reasons = [];
 
     /// <summary>
@@ -89,12 +109,19 @@ public partial class StockWriteOffs
     [
         (string.Empty, "All"),
         ("Pending", "To post"),
+        ("Posting", "Posting"),
         ("Posted", "Written off"),
         ("PostFailed", "Failed")
     ];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (focusReview)
+        {
+            focusReview = false;
+            await reviewDialog.FocusAsync();
+        }
+
         if (!firstRender || hasInitialized)
         {
             return;
@@ -118,8 +145,8 @@ public partial class StockWriteOffs
                 Hint = warehouse.WarehouseCode
             });
 
-    private IEnumerable<INocturneSelectOption<string>> ReasonOptions =>
-        reasons.Select(row => new NocturneSelectOption<string>(row.Value, row.Description));
+    private IEnumerable<INocturneSelectOption<string>> WarehouseFilterOptions =>
+        WarehouseOptions.Prepend(NocturneSelectOption.All("All warehouses"));
 
     private IReadOnlyList<NocturnePickerOption> ItemOptions =>
         items
@@ -129,22 +156,6 @@ public partial class StockWriteOffs
                 item.ItemCode))
             .ToList();
 
-    private IEnumerable<INocturneSelectOption<string>> BatchOptions =>
-        batches
-            .Where(batch => !string.IsNullOrWhiteSpace(batch.BatchNumber))
-            .Select(batch => new NocturneSelectOption<string>(batch.BatchNumber!, batch.BatchNumber!)
-            {
-                // The quantity on hand and the expiry are what decide which batch is the one being
-                // written off, so they belong in the row rather than a tooltip.
-                Hint = FormatBatchHint(batch)
-            });
-
-    private static string FormatBatchHint(BatchDto batch)
-    {
-        var hint = $"{batch.Quantity.ToString("0.###", CultureInfo.InvariantCulture)} on hand";
-        return string.IsNullOrWhiteSpace(batch.ExpiryDate) ? hint : $"{hint} · exp {batch.ExpiryDate}";
-    }
-
     // ── Loading ────────────────────────────────────────────────────────────────────────────────
 
     private async Task LoadListAsync()
@@ -152,23 +163,50 @@ public partial class StockWriteOffs
         isLoadingList = true;
         try
         {
-            var result = await Mediator.Send(new GetStockWriteOffsQuery(
-                string.IsNullOrEmpty(statusFilter) ? null : statusFilter, null, 1, PageSize));
-
             writeOffs.Clear();
-            if (result.IsError)
-            {
-                errorMessage = result.FirstError.Description;
-                return;
-            }
-
-            writeOffs.AddRange(result.Value.Items);
-            statusCounts = result.Value.StatusCounts;
+            loadedPage = 0;
+            await LoadPageAsync(1);
         }
         finally
         {
             isLoadingList = false;
         }
+    }
+
+    private async Task LoadOlderAsync()
+    {
+        isLoadingMore = true;
+        try
+        {
+            await LoadPageAsync(loadedPage + 1);
+        }
+        finally
+        {
+            isLoadingMore = false;
+        }
+    }
+
+    private async Task LoadPageAsync(int page)
+    {
+        var result = await Mediator.Send(new GetStockWriteOffsQuery(
+            string.IsNullOrEmpty(statusFilter) ? null : statusFilter,
+            string.IsNullOrEmpty(warehouseFilter) ? null : warehouseFilter,
+            page,
+            PageSize));
+
+        if (result.IsError)
+        {
+            errorMessage = result.FirstError.Description;
+            return;
+        }
+
+        // A write-off raised between two pages shifts the next page by one, so an id already shown
+        // is skipped rather than listed twice.
+        var shown = writeOffs.Select(row => row.Id).ToHashSet();
+        writeOffs.AddRange(result.Value.Items.Where(row => shown.Add(row.Id)));
+        statusCounts = result.Value.StatusCounts;
+        totalCount = result.Value.TotalCount;
+        loadedPage = page;
     }
 
     private async Task LoadWarehousesAsync()
@@ -224,6 +262,11 @@ public partial class StockWriteOffs
 
     private Task OnWarehouseChangedAsync(string? code)
     {
+        if (string.Equals(code, warehouseCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.CompletedTask;
+        }
+
         warehouseCode = code;
 
         // The lines already counted belong to the warehouse they were counted at, so changing it
@@ -238,7 +281,7 @@ public partial class StockWriteOffs
     {
         draftItemCode = itemCode;
         draftBatchNumber = null;
-        batches = [];
+        batchViews = [];
         draftNeedsBatch = false;
 
         if (string.IsNullOrWhiteSpace(itemCode) || string.IsNullOrWhiteSpace(warehouseCode))
@@ -261,12 +304,18 @@ public partial class StockWriteOffs
         try
         {
             var response = await ProductService.GetProductBatchesAsync(itemCode, warehouseCode);
-            batches = response?.Batches?.Where(batch => batch.Quantity > 0).ToList() ?? [];
+            batchViews = (response?.Batches ?? [])
+                .Where(batch => batch.Quantity > 0 && !string.IsNullOrWhiteSpace(batch.BatchNumber))
+                .Select(BatchView.From)
+                // Soonest expiry first, because the batch nearest its date is the likeliest to be the
+                // one being written off. A batch with no expiry recorded goes last.
+                .OrderBy(batch => batch.ExpiresOn ?? DateTime.MaxValue)
+                .ThenBy(batch => batch.Number, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            if (batches.Count == 0)
+            if (batchViews.Count == 1)
             {
-                errorMessage = $"SAP shows no batch of {itemCode} holding stock in {warehouseCode}, "
-                    + "so there is nothing here to write off.";
+                draftBatchNumber = batchViews[0].Number;
             }
         }
         catch (Exception exception)
@@ -280,19 +329,67 @@ public partial class StockWriteOffs
         }
     }
 
-    // ── The bench ──────────────────────────────────────────────────────────────────────────────
+    // ── The count ──────────────────────────────────────────────────────────────────────────────
+
+    private BatchView? DraftBatch =>
+        draftNeedsBatch && draftBatchNumber is not null
+            ? batchViews.FirstOrDefault(batch => string.Equals(batch.Number, draftBatchNumber, StringComparison.OrdinalIgnoreCase))
+            : null;
+
+    /// <summary>What the lines already counted take out of the chosen batch.</summary>
+    private decimal DraftedFromBatch =>
+        DraftBatch is { } batch
+            ? draft.Where(line => SameLine(line, draftItemCode, batch.Number)).Sum(line => line.Quantity)
+            : 0;
+
+    private bool DraftOverStock =>
+        DraftBatch is { } batch && draftQuantity > 0 && draftQuantity + DraftedFromBatch > batch.OnHand;
+
+    private string QuantityHint
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(draftItemCode))
+            {
+                return "Choose an item first";
+            }
+
+            if (!draftNeedsBatch)
+            {
+                return "SAP checks the quantity on hand when it posts";
+            }
+
+            if (DraftBatch is not { } batch)
+            {
+                return isLoadingBatches ? "Reading batches…" : "Choose the batch you counted";
+            }
+
+            var available = batch.OnHand - DraftedFromBatch;
+            if (DraftOverStock)
+            {
+                return available <= 0
+                    ? $"All {batch.OnHand:0.###} on hand are already counted"
+                    : DraftedFromBatch > 0
+                    ? $"Only {available:0.###} more on hand — {DraftedFromBatch:0.###} already counted"
+                    : $"More than the {batch.OnHand:0.###} SAP shows on hand";
+            }
+
+            return DraftedFromBatch > 0
+                ? $"of {available:0.###} still on hand · {DraftedFromBatch:0.###} already counted"
+                : $"of {batch.OnHand:0.###} on hand";
+        }
+    }
 
     private bool CanAddLine =>
         !string.IsNullOrWhiteSpace(warehouseCode)
         && !string.IsNullOrWhiteSpace(draftItemCode)
         && draftQuantity > 0
-        && (!draftNeedsBatch || !string.IsNullOrWhiteSpace(draftBatchNumber));
+        && (!draftNeedsBatch || DraftBatch is not null)
+        && !DraftOverStock;
 
-    private bool CanPost =>
-        !isPosting
-        && draft.Count > 0
-        && !string.IsNullOrWhiteSpace(warehouseCode)
-        && !string.IsNullOrWhiteSpace(reason);
+    private void StepQuantity(int step) => draftQuantity = Math.Max(0, draftQuantity + step);
+
+    private void ToggleReason(string value) => reason = reason == value ? null : value;
 
     private void AddLine()
     {
@@ -301,12 +398,12 @@ public partial class StockWriteOffs
             return;
         }
 
+        var batch = DraftBatch;
+
         // The same item and batch counted twice is one line with the quantities added, because SAP
         // checks a batch selection across the whole document and two lines naming one batch would be
         // measured together anyway.
-        var existing = draft.FirstOrDefault(line =>
-            string.Equals(line.ItemCode, draftItemCode, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(line.BatchNumber, draftBatchNumber, StringComparison.OrdinalIgnoreCase));
+        var existing = draft.FirstOrDefault(line => SameLine(line, draftItemCode, batch?.Number));
 
         if (existing is not null)
         {
@@ -314,12 +411,15 @@ public partial class StockWriteOffs
         }
         else
         {
-            draft.Add(new CreateStockWriteOffLine
+            draft.Add(new DraftLine
             {
                 ItemCode = draftItemCode!,
                 ItemDescription = draftItemName,
+                BatchNumber = batch?.Number,
                 Quantity = draftQuantity,
-                BatchNumber = string.IsNullOrWhiteSpace(draftBatchNumber) ? null : draftBatchNumber
+                ExpiryText = batch?.ExpiryText,
+                ExpirySoon = batch?.SoonText is not null,
+                CheckedAgainstStock = true
             });
         }
 
@@ -327,7 +427,11 @@ public partial class StockWriteOffs
         ClearDraftLine();
     }
 
-    private void RemoveLine(CreateStockWriteOffLine line) => draft.Remove(line);
+    private static bool SameLine(DraftLine line, string? itemCode, string? batchNumber) =>
+        string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(line.BatchNumber, batchNumber, StringComparison.OrdinalIgnoreCase);
+
+    private void RemoveLine(DraftLine line) => draft.Remove(line);
 
     private void ClearDraftLine()
     {
@@ -336,7 +440,99 @@ public partial class StockWriteOffs
         draftBatchNumber = null;
         draftQuantity = 0;
         draftNeedsBatch = false;
-        batches = [];
+        batchViews = [];
+    }
+
+    private bool HasDraft =>
+        draft.Count > 0 || reason is not null || !string.IsNullOrWhiteSpace(remarks)
+        || docDate is not null || draftItemCode is not null;
+
+    private void DiscardDraft()
+    {
+        draft.Clear();
+        ClearDraftLine();
+        reason = null;
+        remarks = null;
+        docDate = null;
+        errorMessage = null;
+        attemptId = null;
+    }
+
+    // ── The preview ────────────────────────────────────────────────────────────────────────────
+
+    private decimal DraftTotal => draft.Sum(line => line.Quantity);
+
+    private int DraftItemCount =>
+        draft.Select(line => line.ItemCode).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+    private string DraftSummary =>
+        $"{(DraftTotal == 1 ? "unit" : "units")} over {DraftLinesSummary}";
+
+    private string DraftLinesSummary => $"{Plural(draft.Count, "line")} · {Plural(DraftItemCount, "item")}";
+
+    private IEnumerable<(bool Ok, string Text)> Checklist
+    {
+        get
+        {
+            yield return string.IsNullOrEmpty(warehouseCode)
+                ? (false, "Choose a warehouse")
+                : (true, $"Warehouse: {warehouseCode}");
+            yield return reason is null
+                ? (false, "Choose a reason")
+                : (true, $"Reason: {ReasonLabel(reason)}");
+            yield return draft.Count == 0
+                ? (false, "Count at least one line")
+                : (true, $"{Plural(draft.Count, "line")} counted");
+
+            // Copied lines never went through the batch cards, so the page has not measured them
+            // against stock; SAP still will, and the checklist says which of the two is true.
+            var unchecked_ = draft.Count(line => !line.CheckedAgainstStock);
+            yield return unchecked_ == 0
+                ? (true, "Every line within stock on hand")
+                : (false, $"{Plural(unchecked_, "copied line")} checked by SAP when it posts");
+        }
+    }
+
+    private string FirstMissing =>
+        Checklist.Where(check => !check.Ok).Select(check => check.Text).FirstOrDefault() ?? DraftSummary;
+
+    private bool CanReview =>
+        draft.Count > 0
+        && !string.IsNullOrWhiteSpace(warehouseCode)
+        && !string.IsNullOrWhiteSpace(reason);
+
+    private bool CanPost => !isPosting && CanReview;
+
+    // ── Review and post ────────────────────────────────────────────────────────────────────────
+
+    private void OpenReview()
+    {
+        if (!CanReview)
+        {
+            return;
+        }
+
+        errorMessage = null;
+        isReviewing = true;
+        focusReview = true;
+    }
+
+    private void CloseReview()
+    {
+        if (isPosting)
+        {
+            return;
+        }
+
+        isReviewing = false;
+    }
+
+    private void OnReviewKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            CloseReview();
+        }
     }
 
     private async Task PostAsync()
@@ -362,7 +558,13 @@ public partial class StockWriteOffs
                 Reason = reason!,
                 Remarks = string.IsNullOrWhiteSpace(remarks) ? null : remarks,
                 DocDate = docDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                Lines = draft.ToList()
+                Lines = draft.Select(line => new CreateStockWriteOffLine
+                {
+                    ItemCode = line.ItemCode,
+                    ItemDescription = line.ItemDescription,
+                    Quantity = line.Quantity,
+                    BatchNumber = line.BatchNumber
+                }).ToList()
             }));
 
             if (result.IsError)
@@ -375,6 +577,7 @@ public partial class StockWriteOffs
 
             // The attempt is over either way, so the next write-off gets its own id.
             attemptId = null;
+            isReviewing = false;
             draft.Clear();
             ClearDraftLine();
             reason = null;
@@ -389,6 +592,8 @@ public partial class StockWriteOffs
             isPosting = false;
         }
     }
+
+    // ── One write-off ──────────────────────────────────────────────────────────────────────────
 
     private async Task OpenAsync(int id)
     {
@@ -408,22 +613,140 @@ public partial class StockWriteOffs
         errorMessage = null;
     }
 
+    /// <summary>
+    /// A new draft holding what the open write-off held. A new draft rather than a second post of
+    /// the same record, because a failed post whose outcome is unknown may already be in SAP — the
+    /// person has to look before posting again, and a fresh draft through the review makes them.
+    /// </summary>
+    private void CopyAsNew()
+    {
+        if (selected is null)
+        {
+            return;
+        }
+
+        var source = selected;
+        DiscardDraft();
+
+        warehouseCode = source.WarehouseCode;
+        reason = reasons.Any(row => row.Value == source.Reason) ? source.Reason : null;
+        remarks = source.Remarks;
+
+        foreach (var line in source.Lines.OrderBy(line => line.LineNum))
+        {
+            var existing = draft.FirstOrDefault(row => SameLine(row, line.ItemCode, line.BatchNumber));
+            if (existing is not null)
+            {
+                existing.Quantity += line.Quantity;
+                continue;
+            }
+
+            draft.Add(new DraftLine
+            {
+                ItemCode = line.ItemCode,
+                ItemDescription = line.ItemDescription,
+                BatchNumber = line.BatchNumber,
+                Quantity = line.Quantity,
+                CheckedAgainstStock = false
+            });
+        }
+
+        selected = null;
+    }
+
+    private IEnumerable<TimelineStep> Timeline(StockWriteOffDetail writeOff)
+    {
+        yield return new TimelineStep("Raised", $"{ToCatDay(writeOff.CreatedAtUtc)} · {writeOff.RaisedByName}", "done");
+
+        var attempted = writeOff.LastAttemptedAtUtc is DateTime at ? ToCatDay(at) : null;
+
+        switch (writeOff.Status)
+        {
+            case "Posted":
+                yield return new TimelineStep("Sent to SAP", attempted ?? "—", "done");
+                yield return new TimelineStep(
+                    "Written off",
+                    $"{(writeOff.PostedAtUtc is DateTime posted ? ToCatDay(posted) : "—")}"
+                        + (writeOff.SapDocNum is int doc ? $" · goods issue #{doc}" : string.Empty),
+                    "good");
+                break;
+            case "PostFailed":
+                yield return new TimelineStep("Sent to SAP", attempted ?? "—", "done");
+                yield return new TimelineStep("Did not post", attempted ?? "—", "bad");
+                break;
+            case "Posting":
+                yield return new TimelineStep("Sent to SAP", attempted ?? "—", "live");
+                yield return new TimelineStep("Written off", "Waiting for SAP", "wait");
+                break;
+            default:
+                yield return new TimelineStep("Sent to SAP", "Not yet", "wait");
+                yield return new TimelineStep("Written off", "—", "wait");
+                break;
+        }
+    }
+
+    // ── Filters ────────────────────────────────────────────────────────────────────────────────
+
     private async Task ApplyStatusAsync(string status)
     {
         statusFilter = status;
         await LoadListAsync();
     }
 
+    private async Task ApplyWarehouseFilterAsync(string? code)
+    {
+        warehouseFilter = string.IsNullOrEmpty(code) ? null : code;
+        await LoadListAsync();
+    }
+
     // ── Presentation ───────────────────────────────────────────────────────────────────────────
+
+    private IEnumerable<(string Label, List<StockWriteOffSummary> Rows)> HistoryByDay
+    {
+        get
+        {
+            var today = ToCat(DateTime.UtcNow).Date;
+            return writeOffs
+                .GroupBy(row => ToCat(row.CreatedAtUtc).Date)
+                .Select(group => (DayLabel(group.Key, today), group.ToList()));
+        }
+    }
+
+    private static string DayLabel(DateTime day, DateTime today)
+    {
+        if (day == today) return "Today";
+        if (day == today.AddDays(-1)) return "Yesterday";
+        return day.Year == today.Year
+            ? day.ToString("ddd dd MMM", CultureInfo.InvariantCulture)
+            : day.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+    }
 
     private int CountFor(string status) =>
         string.IsNullOrEmpty(status)
             ? statusCounts.Values.Sum()
             : statusCounts.TryGetValue(status, out var count) ? count : 0;
 
+    private string WarehouseName(string code) =>
+        warehouses.FirstOrDefault(warehouse =>
+            string.Equals(warehouse.WarehouseCode, code, StringComparison.OrdinalIgnoreCase))?.WarehouseName
+        ?? code;
+
+    /// <summary>The name and the code, or the code alone where the cache has no name for it.</summary>
+    private string WarehouseLabel(string code)
+    {
+        var name = WarehouseName(code);
+        return string.Equals(name, code, StringComparison.OrdinalIgnoreCase) ? code : $"{name} ({code})";
+    }
+
+    private string? ReasonLabel(string? value) =>
+        value is null ? null : reasons.FirstOrDefault(row => row.Value == value)?.Description ?? value;
+
+    private static string Plural(decimal count, string word) =>
+        $"{count.ToString("0.###", CultureInfo.InvariantCulture)} {word}{(count == 1 ? "" : "s")}";
+
     /// <summary>
     /// The Nocturne family for a status, named once so the pill in the list and the pill on the
-    /// bench cannot drift apart.
+    /// detail cannot drift apart.
     /// </summary>
     private static string FamilyFor(string status) => status switch
     {
@@ -444,7 +767,75 @@ public partial class StockWriteOffs
         _ => status
     };
 
-    private static string ToCat(DateTime utc) => IAuditService
-        .ToCAT(utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc))
-        .ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture);
+    private static DateTime ToCat(DateTime utc) => IAuditService
+        .ToCAT(utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc));
+
+    private static string ToCatTime(DateTime utc) =>
+        ToCat(utc).ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    private static string ToCatDate(DateTime utc) =>
+        ToCat(utc).ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+
+    private static string ToCatShort(DateTime utc) =>
+        DayLabel(ToCat(utc).Date, ToCat(DateTime.UtcNow).Date).Replace("Today", "today").Replace("Yesterday", "yesterday")
+        + " " + ToCatTime(utc);
+
+    private static string ToCatDay(DateTime utc)
+    {
+        var today = ToCat(DateTime.UtcNow).Date;
+        return $"{DayLabel(ToCat(utc).Date, today)} {ToCatTime(utc)}";
+    }
+
+    /// <summary>A line on the count, carrying what the page learned about its batch.</summary>
+    private sealed class DraftLine
+    {
+        public string ItemCode { get; init; } = string.Empty;
+        public string? ItemDescription { get; init; }
+        public string? BatchNumber { get; init; }
+        public decimal Quantity { get; set; }
+        public string? ExpiryText { get; init; }
+        public bool ExpirySoon { get; init; }
+
+        /// <summary>
+        /// True when the quantity was measured against SAP's batch stock as it was added. Lines
+        /// copied from an earlier write-off were not.
+        /// </summary>
+        public bool CheckedAgainstStock { get; init; }
+    }
+
+    /// <summary>A batch as the cards show it: what it holds and how near its date it is.</summary>
+    private sealed record BatchView(string Number, decimal OnHand, DateTime? ExpiresOn, string? ExpiryText, string? SoonText, bool IsExpired)
+    {
+        public static BatchView From(BatchDto batch)
+        {
+            // SAP's date comes through as text; an unreadable one is shown as sent and never flagged.
+            DateTime? expires = DateTime.TryParse(batch.ExpiryDate, CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces, out var parsed)
+                ? parsed.Date
+                : null;
+
+            var text = expires?.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)
+                ?? (string.IsNullOrWhiteSpace(batch.ExpiryDate) ? null : batch.ExpiryDate);
+
+            string? soon = null;
+            var expired = false;
+            if (expires is DateTime date)
+            {
+                var days = (date - ToCat(DateTime.UtcNow).Date).Days;
+                expired = days < 0;
+                soon = days switch
+                {
+                    < 0 => "expired",
+                    0 => "today",
+                    1 => "tomorrow",
+                    <= ExpirySoonDays => $"in {days} days",
+                    _ => null
+                };
+            }
+
+            return new BatchView(batch.BatchNumber!, batch.Quantity, expires, text, soon, expired);
+        }
+    }
+
+    private sealed record TimelineStep(string Label, string Detail, string State);
 }
