@@ -570,6 +570,9 @@ try
     builder.Services.AddScoped<IVanSalesOrderingPolicy, VanSalesOrderingPolicy>();
     builder.Services.AddScoped<IVanSalesCatalogueReader, VanSalesCatalogueReader>();
     builder.Services.AddScoped<IVanSalesCustomerNotifier, VanSalesCustomerNotifier>();
+    builder.Services.AddScoped<
+        ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport.IVanStockSapDocuments,
+        ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport.SapVanStockDocuments>();
     builder.Services.AddSingleton<IPasskeyOperationStore, PasskeyOperationStore>();
 
     // Register stock validation service - CRITICAL for preventing negative quantities

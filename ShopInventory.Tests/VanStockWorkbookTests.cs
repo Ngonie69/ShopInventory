@@ -83,7 +83,10 @@ public class VanStockWorkbookTests
         using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
 
         Assert.Equal(
-            ["Overview", "Reconciliation", "Item Differences", "Load & Sell-Through", "What Is Worth Carrying", "Expiry"],
+            [
+                "Overview", "Mornings vs SAP", "SAP Documents", "Unexplained Items", "Sales vs SAP",
+                "Load & Sell-Through", "What Is Worth Carrying", "Expiry"
+            ],
             workbook.Worksheets.Select(s => s.Name).ToArray());
     }
 
@@ -115,22 +118,34 @@ public class VanStockWorkbookTests
     }
 
     /// <summary>
-    /// Across a break in the snapshots there is nothing to expect and nothing to compare. The counts
-    /// read as unavailable — a zero would claim the van reconciled perfectly.
+    /// The workbook has to say, on its face, that these are SAP's book figures — a reader must not
+    /// take a morning that ties for a van that was physically counted.
     /// </summary>
     [Fact]
-    public void A_variance_across_a_gap_is_written_as_unavailable_not_zero()
+    public void The_overview_says_the_counts_are_sap_book_figures()
+    {
+        using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
+        var text = TextOf(workbook.Worksheet("Overview"));
+
+        Assert.Contains("not the date printed on them", text);
+        Assert.Contains("book figures", text);
+    }
+
+    /// <summary>
+    /// Where SAP was not read there is nothing to claim either way. The counts read as unavailable —
+    /// a zero would say the morning tied perfectly.
+    /// </summary>
+    [Fact]
+    public void A_morning_sap_could_not_check_is_written_as_unavailable_not_zero()
     {
         var report = Stock();
-        report.Variances[0].HasGap = true;
-        report.Variances[0].GapDays = 2;
+        report.Mornings[0].SapChecked = false;
 
         using var workbook = Open(_service.ExportVanStockToExcel(report));
-        var sheet = workbook.Worksheet("Reconciliation");
+        var sheet = workbook.Worksheet("Mornings vs SAP");
 
-        Assert.Equal("—", CellBelow(sheet, "Missing").GetFormattedString());
-        Assert.Equal("—", CellBelow(sheet, "Difference").GetFormattedString());
-        Assert.Contains("2 days", TextOf(sheet));
+        Assert.Equal("—", CellBelow(sheet, "Unexplained").GetFormattedString());
+        Assert.Equal("—", CellBelow(sheet, "Ties To SAP").GetFormattedString());
     }
 
     /// <summary>
@@ -141,49 +156,53 @@ public class VanStockWorkbookTests
     public void A_morning_is_written_as_counts_of_items()
     {
         using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
-        var sheet = workbook.Worksheet("Reconciliation");
+        var sheet = workbook.Worksheet("Mornings vs SAP");
 
         Assert.Equal(2, CellBelow(sheet, "Items").GetDouble());
-        Assert.Equal(1, CellBelow(sheet, "Matched").GetDouble());
-        Assert.Equal(1, CellBelow(sheet, "Missing").GetDouble());
-        Assert.Equal(XLDataType.Number, CellBelow(sheet, "Difference").DataType);
-        Assert.Equal(-9, CellBelow(sheet, "Difference").GetDouble());
-
-        // The old summed-quantity columns are gone.
-        Assert.DoesNotContain(sheet.CellsUsed(), cell => cell.GetString() is "Opened" or "Expected");
+        Assert.Equal(1, CellBelow(sheet, "Moved By SAP Documents").GetDouble());
+        Assert.Equal(1, CellBelow(sheet, "Unexplained").GetDouble());
+        Assert.Equal("no", CellBelow(sheet, "Ties To SAP").GetString());
     }
 
-    /// <summary>Each off item's arithmetic travels with the file, in that item's own unit.</summary>
+    /// <summary>A backdated document shows how far back it was dated, which is the whole story of a late posting.</summary>
     [Fact]
-    public void The_item_sheet_writes_out_each_differences_arithmetic()
+    public void A_backdated_document_carries_its_days_backdated()
     {
         using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
-        var sheet = workbook.Worksheet("Item Differences");
+        var sheet = workbook.Worksheet("SAP Documents");
+
+        Assert.Equal(779350, CellBelow(sheet, "Number").GetDouble());
+        Assert.Equal(2, CellBelow(sheet, "Days Backdated").GetDouble());
+        Assert.Equal("04 Aug 2026 09:22", CellBelow(sheet, "Created In SAP").GetString());
+    }
+
+    /// <summary>Each unexplained item's arithmetic travels with the file, in that item's own unit.</summary>
+    [Fact]
+    public void The_unexplained_sheet_writes_out_each_items_arithmetic()
+    {
+        using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
+        var sheet = workbook.Worksheet("Unexplained Items");
 
         Assert.Equal("CHE011", CellBelow(sheet, "Item Code").GetString());
-        Assert.Equal(100, CellBelow(sheet, "Yesterday").GetDouble());
-        Assert.Equal(60, CellBelow(sheet, "Sold").GetDouble());
-        Assert.Equal(40, CellBelow(sheet, "Should Find").GetDouble());
-        Assert.Equal(31, CellBelow(sheet, "Found").GetDouble());
-        Assert.Equal(-9, CellBelow(sheet, "Difference").GetDouble());
+        Assert.Equal(100, CellBelow(sheet, "Earlier Count").GetDouble());
+        Assert.Equal(60, CellBelow(sheet, "Invoiced").GetDouble());
+        Assert.Equal(40, CellBelow(sheet, "Documents Say").GetDouble());
+        Assert.Equal(31, CellBelow(sheet, "Counted").GetDouble());
+        Assert.Equal(-9, CellBelow(sheet, "Unexplained").GetDouble());
+    }
+
+    [Fact]
+    public void A_late_trading_day_says_how_late()
+    {
+        using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
+
+        Assert.Equal("2 day(s) late", CellBelow(workbook.Worksheet("Sales vs SAP"), "Verdict").GetString());
     }
 
     private static IXLCell CellBelow(IXLWorksheet sheet, string header)
     {
         var address = sheet.CellsUsed().First(cell => cell.GetString() == header).Address;
         return sheet.Cell(address.RowNumber + 1, address.ColumnNumber);
-    }
-
-    /// <summary>
-    /// The reconciliation sheet has to explain why a gap yields nothing, because the blank rows would
-    /// otherwise look like a fault in the report rather than a limit of the data.
-    /// </summary>
-    [Fact]
-    public void The_reconciliation_sheet_explains_the_consecutive_rule()
-    {
-        using var workbook = Open(_service.ExportVanStockToExcel(Stock()));
-
-        Assert.Contains("CONSECUTIVE", TextOf(workbook.Worksheet("Reconciliation")));
     }
 
     /// <summary>An item that never sold says so, and never with a blank date.</summary>
@@ -220,7 +239,7 @@ public class VanStockWorkbookTests
 
         using var workbook = Open(bytes);
 
-        Assert.Equal(6, workbook.Worksheets.Count);
+        Assert.Equal(8, workbook.Worksheets.Count);
         Assert.Contains("VAN STOCK", TextOf(workbook.Worksheet("Overview")));
     }
 
@@ -298,7 +317,8 @@ public class VanStockWorkbookTests
             LoadedQuantity = 150m,
             SoldQuantity = 60m,
             LatestSnapshotDate = new DateTime(2026, 8, 14),
-            SnapshotAgeDays = 3
+            SnapshotAgeDays = 3,
+            SapChecked = true
         },
         Days =
         [
@@ -315,30 +335,57 @@ public class VanStockWorkbookTests
                 UnsoldItemCount = 1
             }
         ],
-        Variances =
+        Mornings =
         [
-            new VanStockVariance
+            new VanStockMorning
             {
                 VanWarehouseCode = "VAN010",
                 FromSnapshot = new DateTime(2026, 8, 4),
                 ToSnapshot = new DateTime(2026, 8, 5),
-                HasGap = false,
+                CountedFrom = new DateTime(2026, 8, 4, 7, 3, 0),
+                CountedTo = new DateTime(2026, 8, 5, 7, 2, 0),
                 GapDays = 1,
-                OpeningQuantity = 100m,
-                SoldQuantity = 60m,
-                AdjustmentQuantity = 0m,
-                ClosingQuantity = 31m,
-                ItemsShort = 1,
-                ItemsOver = 0,
+                SapChecked = true,
                 ItemCount = 2,
-                TopVariances =
+                ItemsMoved = 1,
+                ItemsUnexplained = 1,
+                Documents =
                 [
-                    new VanStockItemVariance
+                    new VanStockDocument
+                    {
+                        Kind = "Invoice",
+                        DocEntry = 2389341,
+                        DocNum = 779350,
+                        DocDate = new DateTime(2026, 8, 2),
+                        CreatedAt = new DateTime(2026, 8, 4, 9, 22, 0),
+                        CreatedTimeKnown = true,
+                        ItemCount = 1
+                    }
+                ],
+                Unexplained =
+                [
+                    new VanStockItemMovement
                     {
                         ItemCode = "CHE011", ItemDescription = "Cheddar 1kg",
-                        Expected = 40m, Actual = 31m, Opening = 100m, Sold = 60m, Adjustment = 0m
+                        Opening = 100m, Invoiced = 60m, Closing = 31m
                     }
                 ]
+            }
+        ],
+        SalesDays =
+        [
+            new VanStockSalesDay
+            {
+                VanWarehouseCode = "VAN010",
+                TradingDate = new DateTime(2026, 8, 2),
+                Status = "Late",
+                RecordedItems = 1,
+                SapItems = 1,
+                SapInvoiceCount = 1,
+                FirstInvoicedAt = new DateTime(2026, 8, 4, 9, 22, 0),
+                LastInvoicedAt = new DateTime(2026, 8, 4, 9, 22, 0),
+                NextCountAt = new DateTime(2026, 8, 3, 7, 1, 0),
+                DaysLate = 2
             }
         ],
         Items =

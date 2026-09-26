@@ -17,6 +17,18 @@ public interface ISAPServiceLayerClient
     /// Transfers dated in the range where the warehouse is either end of the header or of any line.
     /// </summary>
     Task<List<InventoryTransfer>> GetInventoryTransfersTouchingWarehouseAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A business partner's invoices or credit notes that SAP <em>created</em> between two dates,
+    /// lines included, whatever date is printed on them.
+    /// </summary>
+    Task<List<SapStockMovementDocument>> GetSalesDocumentsCreatedAsync(SapStockDocumentKind kind, string cardCode, DateTime createdFrom, DateTime createdTo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stock transfers SAP created between two dates whose header moves stock out of or into one of
+    /// <paramref name="warehouseCodes"/>, lines included.
+    /// </summary>
+    Task<List<SapStockMovementDocument>> GetStockTransfersCreatedAsync(IReadOnlyCollection<string> warehouseCodes, DateTime createdFrom, DateTime createdTo, CancellationToken cancellationToken = default);
     Task<int> GetInventoryTransfersCountAsync(string warehouseCode, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<InventoryTransfer?> GetInventoryTransferByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
 

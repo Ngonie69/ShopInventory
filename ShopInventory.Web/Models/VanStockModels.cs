@@ -141,6 +141,10 @@ public class VanReplenishmentQuality
 
 // ── Stock ───────────────────────────────────────────────────────────────────────
 
+/// <summary>
+/// Mirrors the API's van stock report: each morning's SAP count against the SAP documents created
+/// since the count before it, and each trading day's sales against the SAP invoices dated that day.
+/// </summary>
 public class VanStockReportResponse
 {
     public DateTime FromDate { get; set; }
@@ -148,7 +152,8 @@ public class VanStockReportResponse
     public int DeadStockDays { get; set; }
     public VanStockSummary Summary { get; set; } = new();
     public List<VanStockDay> Days { get; set; } = [];
-    public List<VanStockVariance> Variances { get; set; } = [];
+    public List<VanStockMorning> Mornings { get; set; } = [];
+    public List<VanStockSalesDay> SalesDays { get; set; } = [];
     public List<VanStockItem> Items { get; set; } = [];
     public List<VanStockExpiry> Expiring { get; set; } = [];
     public VanStockQuality Quality { get; set; } = new();
@@ -169,6 +174,20 @@ public class VanStockVan
     public int SoldItemDays { get; set; }
     public int DeadItemCount { get; set; }
 
+    /// <summary>The business partners this van's sales invoice to in SAP.</summary>
+    public List<string> AccountCodes { get; set; } = [];
+
+    public int MorningsChecked { get; set; }
+    public int MorningsTied { get; set; }
+    public int SalesDays { get; set; }
+    public int SalesDaysOnTime { get; set; }
+    public int SalesDaysLate { get; set; }
+    public int SalesDaysNotInSap { get; set; }
+    public int SalesDaysSapOnly { get; set; }
+    public int? MaxDaysLate { get; set; }
+
+    public int MorningsWithOtherPostings => MorningsChecked - MorningsTied;
+
     /// <summary>Of the item-mornings carried, the share on which the item sold. Null when nothing was carried.</summary>
     public double? ItemsSellingRate => ItemDays > 0 ? (double)SoldItemDays / ItemDays : null;
 }
@@ -184,6 +203,12 @@ public class VanStockSummary
     public decimal SoldQuantity { get; set; }
     public DateTime? LatestSnapshotDate { get; set; }
     public int? SnapshotAgeDays { get; set; }
+
+    /// <summary>False when SAP could not be read: nothing is then claimed about SAP either way.</summary>
+    public bool SapChecked { get; set; }
+
+    /// <summary>When the newest count read SAP, on the CAT clock.</summary>
+    public DateTime? LatestCountAt { get; set; }
 
     public double? SellThroughRate =>
         LoadedQuantity > 0 ? (double)(SoldQuantity / LoadedQuantity) : null;
@@ -211,51 +236,90 @@ public class VanStockDay
     public bool SoldBeyondLoad => SoldQuantity > LoadedQuantity + AdjustmentQuantity;
 }
 
-public class VanStockVariance
+/// <summary>One van between two counts: what SAP posted in between, and whether it accounts for the change.</summary>
+public class VanStockMorning
 {
     public string VanWarehouseCode { get; set; } = string.Empty;
     public DateTime FromSnapshot { get; set; }
     public DateTime ToSnapshot { get; set; }
-    public bool HasGap { get; set; }
+    public DateTime CountedFrom { get; set; }
+    public DateTime CountedTo { get; set; }
     public int GapDays { get; set; }
-    public decimal OpeningQuantity { get; set; }
-    public decimal SoldQuantity { get; set; }
-    public decimal AdjustmentQuantity { get; set; }
-    public decimal ClosingQuantity { get; set; }
-    public int ItemsShort { get; set; }
-    public int ItemsOver { get; set; }
-    public List<VanStockItemVariance> TopVariances { get; set; } = [];
-
-    /// <summary>Items on the van either morning. Zero from an API that predates it.</summary>
+    public bool SapChecked { get; set; }
     public int ItemCount { get; set; }
+    public int ItemsMoved { get; set; }
+    public int ItemsUnexplained { get; set; }
+    public List<VanStockDocument> Documents { get; set; } = [];
+    public List<VanStockItemMovement> Unexplained { get; set; } = [];
 
-    public int ItemsMatched => Math.Max(0, ItemCount - ItemsShort - ItemsOver);
+    public bool HasGap => GapDays > 1;
 
-    public bool Balanced => !HasGap && ItemsShort == 0 && ItemsOver == 0;
-
-    public decimal? ExpectedQuantity =>
-        HasGap ? null : OpeningQuantity - SoldQuantity + AdjustmentQuantity;
-
-    public decimal? Variance =>
-        ExpectedQuantity is { } expected ? decimal.Round(ClosingQuantity - expected, 3) : null;
-
-    public double? VariancePercent =>
-        ExpectedQuantity is { } expected && expected != 0
-            ? (double)decimal.Round((ClosingQuantity - expected) / expected * 100m, 2)
-            : null;
+    public bool TiesToSap => SapChecked && ItemsUnexplained == 0;
 }
 
-public class VanStockItemVariance
+public class VanStockDocument
+{
+    /// <summary>Invoice, CreditNote, TransferIn or TransferOut.</summary>
+    public string Kind { get; set; } = string.Empty;
+    public int DocEntry { get; set; }
+    public int DocNum { get; set; }
+    public DateTime DocDate { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>False for a transfer SAP stamped with a date only and the listener never saw.</summary>
+    public bool CreatedTimeKnown { get; set; }
+    public int ItemCount { get; set; }
+    public string? Comments { get; set; }
+
+    public int DaysBackdated => Math.Max(0, (int)(CreatedAt.Date - DocDate.Date).TotalDays);
+}
+
+public class VanStockItemMovement
 {
     public string ItemCode { get; set; } = string.Empty;
     public string? ItemDescription { get; set; }
-    public decimal Expected { get; set; }
-    public decimal Actual { get; set; }
     public decimal Opening { get; set; }
-    public decimal Sold { get; set; }
-    public decimal Adjustment { get; set; }
+    public decimal Invoiced { get; set; }
+    public decimal Credited { get; set; }
+    public decimal TransferredIn { get; set; }
+    public decimal TransferredOut { get; set; }
+    public decimal Closing { get; set; }
 
-    public decimal Variance => decimal.Round(Actual - Expected, 3);
+    public decimal Expected => Opening - Invoiced + Credited + TransferredIn - TransferredOut;
+
+    public decimal Unexplained => decimal.Round(Closing - Expected, 3);
+
+    public string DisplayName => string.IsNullOrWhiteSpace(ItemDescription) ? ItemCode : ItemDescription;
+}
+
+/// <summary>One van's trading day: what the van recorded against the SAP invoices dated that day.</summary>
+public class VanStockSalesDay
+{
+    public string VanWarehouseCode { get; set; } = string.Empty;
+    public DateTime TradingDate { get; set; }
+
+    /// <summary>OnTime, Late, NotInSap, Pending, SapOnly or Unchecked.</summary>
+    public string Status { get; set; } = string.Empty;
+    public int RecordedItems { get; set; }
+    public int SapItems { get; set; }
+    public int SapInvoiceCount { get; set; }
+    public DateTime? FirstInvoicedAt { get; set; }
+    public DateTime? LastInvoicedAt { get; set; }
+    public DateTime NextCountAt { get; set; }
+    public int? DaysLate { get; set; }
+    public int ItemsNotInSap { get; set; }
+    public int ItemsOnlyInSap { get; set; }
+    public List<VanStockSalesItem> Differences { get; set; } = [];
+}
+
+public class VanStockSalesItem
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemDescription { get; set; }
+    public decimal Recorded { get; set; }
+    public decimal Invoiced { get; set; }
+
+    public decimal Difference => decimal.Round(Invoiced - Recorded, 3);
 
     public string DisplayName => string.IsNullOrWhiteSpace(ItemDescription) ? ItemCode : ItemDescription;
 }
@@ -296,71 +360,20 @@ public class VanStockExpiry
     public bool HasExpired => DaysToExpiry < 0;
 }
 
+/// <summary>
+/// What the period could not answer. The sentences are the API's own, carried as sent, so the page
+/// and the report cannot word the same gap two ways.
+/// </summary>
 public class VanStockQuality
 {
     public int MissingSnapshotDays { get; set; }
     public int IncompleteSnapshots { get; set; }
     public int VansWithNoSnapshot { get; set; }
-    public int VariancePairsSkippedForGaps { get; set; }
     public int SalesForWarehousesWithNoSnapshot { get; set; }
     public DateTime? LatestSnapshotDate { get; set; }
     public int? SnapshotAgeDays { get; set; }
-
-    public bool IsClean =>
-        MissingSnapshotDays == 0
-        && IncompleteSnapshots == 0
-        && VansWithNoSnapshot == 0
-        && VariancePairsSkippedForGaps == 0
-        && SalesForWarehousesWithNoSnapshot == 0
-        && SnapshotAgeDays is null or 0;
-
-    public IEnumerable<string> Caveats
-    {
-        get
-        {
-            if (SnapshotAgeDays is > 0)
-            {
-                yield return
-                    $"The newest stock snapshot is {SnapshotAgeDays:N0} day(s) old" +
-                    (LatestSnapshotDate is { } latest ? $" ({latest:dd MMM yyyy})" : "")
-                    + ". Every figure here describes the vans as they stood then, not today.";
-            }
-
-            if (VansWithNoSnapshot > 0)
-            {
-                yield return
-                    $"{VansWithNoSnapshot:N0} van(s) have no snapshot in this period at all, so nothing " +
-                    "can be said about what they carried.";
-            }
-
-            if (MissingSnapshotDays > 0)
-            {
-                yield return
-                    $"{MissingSnapshotDays:N0} van-day(s) have no snapshot. Those days are absent from " +
-                    "the load figures rather than being filled in from a neighbouring day.";
-            }
-
-            if (VariancePairsSkippedForGaps > 0)
-            {
-                yield return
-                    $"{VariancePairsSkippedForGaps:N0} variance(s) could not be computed because the two " +
-                    "mornings are not consecutive. Reaching over a gap would report two days of " +
-                    "difference as one.";
-            }
-
-            if (IncompleteSnapshots > 0)
-            {
-                yield return
-                    $"{IncompleteSnapshots:N0} snapshot(s) did not finish, so their item list may be " +
-                    "short and their load understated.";
-            }
-
-            if (SalesForWarehousesWithNoSnapshot > 0)
-            {
-                yield return
-                    $"{SalesForWarehousesWithNoSnapshot:N0} sale(s) were made from a warehouse with no " +
-                    "snapshot, so they sold stock this report never saw arrive.";
-            }
-        }
-    }
+    public string? SapProblem { get; set; }
+    public int VansWithNoAccount { get; set; }
+    public bool IsClean { get; set; } = true;
+    public List<string> Caveats { get; set; } = [];
 }
