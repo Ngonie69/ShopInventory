@@ -93,7 +93,13 @@ public class SapDocumentQueryTests(SapClientFixture fixture)
         await ShouldBeAccepted(() => fixture.Client.GetInventoryCountingsByDateAsync(DateTime.UtcNow.Date.AddDays(-30), DateTime.UtcNow.Date, 5));
 
         Assert.True(counts.Count > 0, "SAP returned no inventory counts, so a count's lines cannot be read.");
-        await ShouldBeAccepted(() => fixture.Client.GetInventoryCountingAsync(counts[0].DocumentEntry));
+        InventoryCounting? count = null;
+        await ShouldBeAccepted(async () => count = await fixture.Client.GetInventoryCountingAsync(counts[0].DocumentEntry));
+
+        // Accepted is not enough: a $select naming the lines was accepted and returned none.
+        Assert.True(
+            count?.InventoryCountingLines is { Count: > 0 },
+            $"Count {counts[0].DocumentEntry} came back with no lines.");
 
         var counters = counts
             .Where(count => count.SingleCounterType == "ctUser" && count.SingleCounterID is > 0)
