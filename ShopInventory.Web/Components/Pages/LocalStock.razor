@@ -314,6 +314,18 @@
                 </div>
             }
 
+            @if (warehouseListError != null)
+            {
+                <div class="lst-msg" role="alert">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                         stroke-linecap="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                    </svg>
+                    <span>@warehouseListError</span>
+                </div>
+            }
+
             @if (errorMessage != null)
             {
                 <div class="lst-msg" role="alert">
@@ -467,6 +479,10 @@
     private bool isExporting = false;
     private string? errorMessage;
 
+    // Kept apart from errorMessage, which every stock load clears: the warehouse list is read once, and
+    // the operator should still be able to see why the picker lists every warehouse after picking one.
+    private string? warehouseListError;
+
     private string selectedWarehouse = "";
     private DateTime? snapshotDate;
     private string searchTerm = "";
@@ -493,8 +509,14 @@
         snapshotDate = DateTime.UtcNow.Date;
 
         // Load only warehouses configured for daily stock monitoring
-        var monitoredCodes = await DesktopService.GetMonitoredWarehousesAsync();
+        var (monitoredCodes, monitoredError) = await DesktopService.GetMonitoredWarehousesAsync();
         var warehouseList = await MasterDataCache.GetWarehousesAsync();
+
+        if (monitoredError is not null)
+        {
+            warehouseListError =
+                $"Could not read which warehouses are monitored, so every active warehouse is listed. {monitoredError}";
+        }
 
         if (monitoredCodes is { Count: > 0 })
         {
@@ -588,8 +610,16 @@
 
         try
         {
-            stockResult = await DesktopService.GetLocalStockAsync(selectedWarehouse, snapshotDate);
-            if (stockResult == null)
+            var (snapshot, error) = await DesktopService.GetLocalStockAsync(selectedWarehouse, snapshotDate);
+            stockResult = snapshot;
+
+            // Two different answers: the API said there is no snapshot for that day, or it could not be
+            // asked. They used to read the same.
+            if (error is not null)
+            {
+                errorMessage = $"Could not load the stock snapshot. {error}";
+            }
+            else if (stockResult == null)
             {
                 errorMessage = "No snapshot found for this warehouse and date. Stock may not have been fetched yet.";
             }
@@ -715,7 +745,8 @@
                 if (completed.Contains(whCode)) continue;
                 try
                 {
-                    var result = await DesktopService.GetLocalStockAsync(whCode, DateTime.UtcNow.Date);
+                    // A progress poll: a failed tick is simply not progress, and the next one asks again.
+                    var (result, _) = await DesktopService.GetLocalStockAsync(whCode, DateTime.UtcNow.Date);
                     if (result != null && result.SnapshotStatus == "Complete")
                     {
                         completed.Add(whCode);

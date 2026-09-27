@@ -111,6 +111,9 @@ public partial class DepotDashboard
 
     private bool isLoadingStock = true;
     private bool stockFailed;
+
+    // Why, when the API gave a reason. Null when the failure was a throw on this side, which the log has.
+    private string? stockError;
     private StockHealth? stock;
 
     private static DateTime Today => DateTime.Today;
@@ -704,18 +707,27 @@ public partial class DepotDashboard
 
         isLoadingStock = true;
         stockFailed = false;
+        stockError = null;
         stock = null;
         await InvokeAsync(StateHasChanged);
 
         try
         {
-            var result = await DesktopService.GetLocalStockAsync(warehouse, Today);
+            var (result, error) = await DesktopService.GetLocalStockAsync(warehouse, Today);
 
             if (version != dataVersion) return;
 
-            // The service reports a missing snapshot and a failed call the same
-            // way, so the panel says the thing that is true either way: there is
-            // nothing to read for today.
+            // A failed read and a day with no snapshot used to arrive as the same
+            // null. They no longer do: a failure fails the panel and says why, and
+            // only a real "no snapshot" leaves it saying there is nothing for today.
+            if (error is not null)
+            {
+                Logger.LogWarning("Failed to read the stock snapshot for depot {Depot}: {Error}", warehouse, error);
+                stockFailed = true;
+                stockError = error;
+                return;
+            }
+
             if (result is null) return;
 
             stock = new StockHealth(
@@ -760,7 +772,8 @@ public partial class DepotDashboard
 
         loadError = failed.Count == 0
             ? null
-            : $"Some panels could not be read ({string.Join(", ", failed)}). Everything else on this page is current.";
+            : $"Some panels could not be read ({string.Join(", ", failed)}). Everything else on this page is current."
+              + (stockError is null ? string.Empty : $" The stock snapshot: {stockError}");
     }
 
     // ── Reading a document ──────────────────────────────────────────────────
