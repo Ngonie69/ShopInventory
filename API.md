@@ -1678,6 +1678,10 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 | POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject a held transfer |
 | POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post for an approved transfer |
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Cancel a held transfer |
+| GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Measure a held transfer's lines against the depot's stock now |
+| POST | `/api/InventoryTransfer/pending/{id}/post-in-stock` | Post only the lines in stock, leaving the short ones out |
+| POST | `/api/InventoryTransfer/pending/{id}/withdraw` | Withdraw an approved transfer that failed to post |
+| POST | `/api/InventoryTransfer/pending/{id}/record-sap-document` | Record a transfer found in SAP after a timed-out post |
 | POST | `/api/InventoryTransfer/request` | Raise a transfer request — ask a warehouse for stock |
 | GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
 | PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, WashBay, DepotController, Manager |
@@ -1813,6 +1817,10 @@ repeat returns the existing held transfer rather than opening a second approval.
 | POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, Manager |
 | POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed` |
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, before any decision |
+| GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Each line against the source warehouse now: `InStock`, `Short` (with the available figure) or `Unread` |
+| POST | `/api/InventoryTransfer/pending/{id}/post-in-stock` | Post the lines the depot can fill from an `Approved`/`PostFailed` transfer; short lines are left out and kept in `DroppedLinesJson`. Refused after a timed-out post until SAP is checked |
+| POST | `/api/InventoryTransfer/pending/{id}/withdraw` | `{ "reason" }`. Close a `PostFailed` transfer instead of retrying it; the approval time is kept |
+| POST | `/api/InventoryTransfer/pending/{id}/record-sap-document` | `{ "sapDocNum" }`. Close a transfer against the document SAP created when its post timed out; the number is checked against SAP first |
 
 **Decision body:**
 
@@ -3677,9 +3685,24 @@ returning one needs an unbounded look at when each shop first bought.
 | `fromDate` | today − 30 days | Inclusive CAT trading day |
 | `toDate` | today | Inclusive CAT trading day |
 | `vanWarehouseCode` | — | One van's warehouse; every van when omitted |
+| `depotWarehouseCode` | — | Requests drawing on one depot, and the idle vans it supplies; every depot when omitted |
 
-**Response:** `VanReplenishmentReportResult` — how well the depots are keeping the vans stocked, and
-which restock requests are stuck.
+**Response:** `VanReplenishmentReportResult` — whether each van got what it asked for, how long it
+waited, and what it is still going without.
+
+- The figures describe requests **raised** in the period. `unfilled` is every request still open
+  **today**, whatever the period, each with a `cause`: `AwaitingDecision`, `Posting`,
+  `ApprovedNeverPosted`, `DepotShort`, `StockUnread`, `OutcomeUnknown` or `PostRefused`.
+- `summary.filledWithinDayRate` is the service level: posted within 24 hours of asking, over every
+  request except those turned down and those taken back by the requester before a decision. A
+  withdrawal after a failed post counts against it.
+- `waits` bands every request raised, the unfilled ones included, so the median cannot hide them.
+- `depotShortages` adds up what each depot is short of across the requests it cannot fill, read from
+  the shortage recorded at the last post attempt.
+- `vans[].lastPostedAt` is over all time; `lastPostedBeforePeriod` marks a van served before the
+  period rather than never. A van appears when an active rep is assigned to it or it asked for
+  something in the period.
+- `availableVans` and `availableDepots` are the filter's choices, taken before any filter applies.
 
 Built on the pending-transfer table rather than the daily stock snapshot: snapshots are a desktop-app
 feature that no van sales path writes to, and the job that fills them is off by default, so a report

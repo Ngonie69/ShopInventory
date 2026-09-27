@@ -38,6 +38,20 @@ public static class PendingInventoryTransferMapper
         return payload;
     }
 
+    /// <summary>A copy of the payload carrying only <paramref name="lines"/>; every header field is kept.</summary>
+    public static CreateInventoryTransferRequest WithLines(
+        CreateInventoryTransferRequest payload,
+        List<CreateInventoryTransferLineRequest> lines) => new()
+    {
+        FromWarehouse = payload.FromWarehouse,
+        ToWarehouse = payload.ToWarehouse,
+        ClientRequestId = payload.ClientRequestId,
+        DocDate = payload.DocDate,
+        DueDate = payload.DueDate,
+        Comments = payload.Comments,
+        Lines = lines
+    };
+
     public static PendingInventoryTransferDto ToDto(PendingInventoryTransferEntity pending, bool includeLines = true)
     {
         var dto = new PendingInventoryTransferDto
