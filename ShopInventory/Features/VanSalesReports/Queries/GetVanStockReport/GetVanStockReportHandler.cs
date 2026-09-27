@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sales;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -143,36 +144,17 @@ public sealed class GetVanStockReportHandler(
 
     /// <summary>
     /// The warehouses that are vans — a rep is assigned to them and a depot supplies them — each with
-    /// the business partner its rep's sales invoice to. Read from the assignment rather than a code
-    /// prefix: see the replenishment report for why.
+    /// the business partner its rep's sales invoice to, narrowed to the one van asked for. The sets are
+    /// copies: the caller adds whatever account the van's sales actually carried.
     /// </summary>
     private async Task<Dictionary<string, HashSet<string>>> LoadVanWarehousesAsync(
         GetVanStockReportQuery query,
         CancellationToken cancellationToken)
     {
-        var users = await db.Users
-            .AsNoTracking()
-            .Where(user => user.SupplyingWarehouseCode != null && user.AssignedWarehouseCodes != null)
-            .ToListAsync(cancellationToken);
-
-        var vans = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var user in users)
-        {
-            foreach (var code in user.GetWarehouseCodes().Where(code => !string.IsNullOrWhiteSpace(code)))
-            {
-                if (!vans.TryGetValue(code.Trim(), out var accounts))
-                {
-                    accounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    vans[code.Trim()] = accounts;
-                }
-
-                if (!string.IsNullOrWhiteSpace(user.AssignedBusinessPartnerCode))
-                {
-                    accounts.Add(user.AssignedBusinessPartnerCode.Trim());
-                }
-            }
-        }
+        var vans = (await VanWarehouses.LoadAsync(db, cancellationToken)).ToDictionary(
+            pair => pair.Key,
+            pair => new HashSet<string>(pair.Value.BusinessPartnerCodes, StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(query.VanWarehouseCode))
         {

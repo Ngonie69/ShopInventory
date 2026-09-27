@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -41,7 +42,8 @@ public sealed class GetVanCountVarianceHandler(
         if (!sapSettings.Value.Enabled)
             return Errors.CountVariance.SapDisabled;
 
-        var vans = await VanWarehouses.LoadAsync(db, cancellationToken);
+        var vans = (await VanWarehouses.LoadAsync(db, cancellationToken))
+            .ToDictionary(pair => pair.Key, pair => (string?)pair.Value.Rep, StringComparer.OrdinalIgnoreCase);
         if (vans.Count == 0)
             return Errors.CountVariance.NoVans;
 

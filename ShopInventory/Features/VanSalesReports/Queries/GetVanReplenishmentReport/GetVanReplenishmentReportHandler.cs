@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Features.InventoryTransfers;
 using ShopInventory.Models;
@@ -16,7 +17,8 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentRepo
 /// A van's warehouse is the transfer's <c>ToWarehouse</c>; the depot it loads from is
 /// <c>FromWarehouse</c>. Vans are identified by their warehouse assignment on the user record rather
 /// than by a naming convention: a warehouse is a van when a rep is assigned to it and a depot supplies
-/// it, so a van coded differently — or a store coded <c>VAN…</c> — is classified on what it is.
+/// it, so a van coded differently — or a store coded <c>VAN…</c> — is classified on what it is. See
+/// <see cref="VanWarehouses"/>, which every van report reads.
 /// </remarks>
 public sealed class GetVanReplenishmentReportHandler(
     ApplicationDbContext db
@@ -161,38 +163,14 @@ public sealed class GetVanReplenishmentReportHandler(
     private async Task<(HashSet<string> Every, HashSet<string> Assigned, Dictionary<string, string> SupplierOf)> LoadVanWarehousesAsync(
         CancellationToken cancellationToken)
     {
-        // Materialised as entities so the codes can be read by the entity's own helper. They are a
-        // JSON list in one column, and re-implementing that parse here is how the two would drift.
-        var users = await db.Users
-            .AsNoTracking()
-            .Where(user => user.SupplyingWarehouseCode != null && user.AssignedWarehouseCodes != null)
-            .ToListAsync(cancellationToken);
+        var vans = await VanWarehouses.LoadIncludingDeactivatedAsync(db, cancellationToken);
 
-        var every = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var assigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var supplierOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var user in users)
-        {
-            foreach (var code in user.GetWarehouseCodes())
-            {
-                if (string.IsNullOrWhiteSpace(code))
-                {
-                    continue;
-                }
-
-                every.Add(code.Trim());
-                if (user.IsActive)
-                {
-                    assigned.Add(code.Trim());
-                    supplierOf[code.Trim()] = user.SupplyingWarehouseCode!.Trim();
-                }
-                else
-                {
-                    supplierOf.TryAdd(code.Trim(), user.SupplyingWarehouseCode!.Trim());
-                }
-            }
-        }
+        var every = vans.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var assigned = vans.Values
+            .Where(van => van.HasActiveRep)
+            .Select(van => van.Code)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var supplierOf = vans.ToDictionary(pair => pair.Key, pair => pair.Value.Depot, StringComparer.OrdinalIgnoreCase);
 
         return (every, assigned, supplierOf);
     }
