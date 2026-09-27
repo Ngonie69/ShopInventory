@@ -267,6 +267,65 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
     }
 
     /// <summary>
+    /// A device that does not answer at all is the same device for every sale in the batch, so the
+    /// pass stops at the first. It used to ask again for each of them, each lookup waiting out the full
+    /// timeout.
+    /// </summary>
+    [Fact]
+    public async Task A_device_that_does_not_answer_stops_the_pass_at_the_first_sale()
+    {
+        for (var n = 1; n <= 3; n++)
+        {
+            Seed($"VEND-20260927-000{n}", status: DesktopSaleFiscalizationStatus.Failed, attempts: 1,
+                requiresReconciliation: true);
+        }
+        await _context.SaveChangesAsync();
+
+        var lookups = 0;
+        var result = await BuildSweep(
+                Signed,
+                callBudget: 0,
+                existingReceipt: () =>
+                {
+                    lookups++;
+                    throw new InvalidOperationException(
+                        "REVMax could not be asked.",
+                        new HttpRequestException("No connection could be made because the target machine actively refused it."));
+                })
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, lookups);
+        Assert.Equal(1, result.Failed);
+    }
+
+    /// <summary>A device that answered, however unhelpfully, only holds up the sale it was asked about.</summary>
+    [Fact]
+    public async Task A_device_that_answers_busy_holds_up_only_that_sale()
+    {
+        for (var n = 1; n <= 3; n++)
+        {
+            Seed($"VEND-20260927-001{n}", status: DesktopSaleFiscalizationStatus.Failed, attempts: 1,
+                requiresReconciliation: true);
+        }
+        await _context.SaveChangesAsync();
+
+        var lookups = 0;
+        var result = await BuildSweep(
+                Signed,
+                callBudget: 0,
+                existingReceipt: () =>
+                {
+                    lookups++;
+                    throw new InvalidOperationException(
+                        "REVMax did not say whether it already holds this receipt (Code 0: Init error -1).");
+                })
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(3, lookups);
+        Assert.Equal(3, result.Failed);
+    }
+
+    /// <summary>
     /// The mark alone makes the device be asked, whatever the counter says: a mark is by definition an
     /// attempt whose outcome never came back.
     /// </summary>

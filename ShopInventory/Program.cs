@@ -900,6 +900,8 @@ try
     builder.Services.Configure<RevmaxSettings>(
         builder.Configuration.GetSection(RevmaxSettings.SectionName));
 
+    // Shared by every RevmaxClient, so the next caller knows the device just failed to answer.
+    builder.Services.AddSingleton<RevmaxReachability>();
     builder.Services.AddHttpClient<IRevmaxClient, RevmaxClient>();
 
     // Register the Cartrack fleet telematics client — the vehicle half of the van sales departure

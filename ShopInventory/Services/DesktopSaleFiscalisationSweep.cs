@@ -106,6 +106,19 @@ public sealed class DesktopSaleFiscalisationSweep(
 
                 context.Entry(sale).State = EntityState.Unchanged;
                 result.Failed++;
+
+                // The device did not answer at all, and every other sale in the batch needs the same
+                // device. Moving on used to ask it again for each of them, each lookup waiting out the
+                // full timeout, so one hung device held this job for hours. A device that answered
+                // (busy, say) only stops this sale.
+                if (RevmaxReachability.IsNoAnswer(ex))
+                {
+                    logger.LogWarning(
+                        "The fiscal device is not answering; leaving the other {Remaining} sales for the next pass.",
+                        pending.Count - result.Total);
+                    break;
+                }
+
                 continue;
             }
 
