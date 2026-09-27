@@ -1631,6 +1631,21 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
+Name = "Count Variance",
+BasePath = "/api/count-variance",
+Description = "What an SAP inventory count — or every van's — came up short or over, valued at selling price excluding VAT.",
+Icon = Icons.Material.Filled.Inventory,
+Color = Color.Secondary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/count-variance/{documentEntry}", "One count's variance, valued at the van sales price list"),
+new("GET", "/api/count-variance/documents", "SAP inventory counts, newest first"),
+new("GET", "/api/count-variance/vans", "Every van's latest count in a date range, consolidated")
+}
+},
+new ApiModule
+{
 Name = "Daily Incoming Payments",
 BasePath = "/api/daily-incoming-payments",
 Description = "The day's incoming payment per business partner, its invoices, and the G/L accounts it posts to.",

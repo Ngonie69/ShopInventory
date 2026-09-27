@@ -96,6 +96,7 @@ Inventory
     Stock Monitoring  /stock
     Transfers  /inventory-transfers
     Stock Write-offs  /stock-write-offs
+    Count Variance  /count-variance
 Purchasing
     Purchase Requests  /purchase-requests
     Create Request  /purchase-requests/create
@@ -221,6 +222,7 @@ Inventory
     Transfers  /inventory-transfers
     Local Stock  /local-stock
     Stock Write-offs  /stock-write-offs
+    Count Variance  /count-variance
 Finance
     G/L Accounts  /gl-accounts
 Van Sales
@@ -293,6 +295,7 @@ Inventory
     Transfers  /inventory-transfers
     Local Stock  /local-stock
     Stock Write-offs  /stock-write-offs
+    Count Variance  /count-variance
 Purchasing
     Purchase Requests  /purchase-requests
     Create Request  /purchase-requests/create

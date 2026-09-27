@@ -67,6 +67,8 @@ public interface IReportExportService
     byte[] ExportManagementSalesReportToExcel(ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementSalesReportResult report, IReadOnlyDictionary<int, string>? itemGroupNames = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
+    byte[] ExportCountVarianceToExcel(CountVarianceReport report);
+    byte[] ExportVanCountVarianceToExcel(VanCountVarianceReport report);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
 
