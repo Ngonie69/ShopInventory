@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
@@ -11,7 +13,8 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetInvoicesByCustome
 
 public sealed class GetInvoicesByCustomerHandler(
     ISAPServiceLayerClient sapClient,
-    IOptions<SAPSettings> sapSettings
+    IOptions<SAPSettings> sapSettings,
+    ApplicationDbContext db
 ) : IRequestHandler<GetInvoicesByCustomerQuery, ErrorOr<List<InvoiceDto>>>
 {
     public async Task<ErrorOr<List<InvoiceDto>>> Handle(
@@ -34,6 +37,20 @@ public sealed class GetInvoicesByCustomerHandler(
             invoices = list.ToArray();
         }
 
-        return invoices.ToList().ToDto();
+        var dtos = invoices.ToList().ToDto();
+
+        // The till's invoice history is this list. Without the credits it showed a returned invoice in
+        // full, and its figures counted money the shop had given back.
+        var creditByDocEntry = await SaleCredits.ForInvoicesAsync(
+            db, dtos.Select(invoice => invoice.DocEntry), cancellationToken);
+
+        foreach (var invoice in dtos)
+        {
+            var credit = creditByDocEntry.GetValueOrDefault(invoice.DocEntry) ?? SaleCredit.None;
+            invoice.CreditedAmount = credit.Amount;
+            invoice.CreditNoteNumbers = credit.Numbers.ToList();
+        }
+
+        return dtos;
     }
 }

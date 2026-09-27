@@ -114,6 +114,17 @@ public class VanSalesLegacyOrderDto
     [JsonPropertyName("sale_number")]
     public string SaleNumber { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How much of this invoice has been credited back, tax-inclusive like <see cref="Gross"/>; 0 when
+    /// nothing has. The handset shows the invoice as credited and nets its sales totals by this.
+    /// </summary>
+    [JsonPropertyName("credited")]
+    public double Credited { get; set; }
+
+    /// <summary>The numbers of the credits behind <see cref="Credited"/>, comma-separated; empty when none.</summary>
+    [JsonPropertyName("credit_notes")]
+    public string CreditNotes { get; set; } = string.Empty;
+
     [JsonPropertyName("status")]
     public int Status { get; set; }
 

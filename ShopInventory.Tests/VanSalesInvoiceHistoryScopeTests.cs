@@ -278,6 +278,50 @@ public sealed class VanSalesInvoiceHistoryScopeTests : IDisposable
     /// mapping still works, and the mapping can break while the flag is still passed.</para>
     /// </remarks>
     [Fact]
+    public async Task An_invoice_credited_in_the_office_tells_the_van_how_much_was_given_back()
+    {
+        // Credits are raised on the web, never on the handset, so this row is the only way the van
+        // learns the invoice it sold was returned — and that its day's takings are smaller for it.
+        GivenVanRep();
+        _context.SapCreditNoteSnapshots.Add(new SapCreditNoteSnapshotEntity
+        {
+            SapDocEntry = 70001,
+            SapDocNum = 55294,
+            DocDate = new DateTime(2026, 8, 21),
+            CardCode = VanBusinessPartner,
+            DocCurrency = "USD",
+            DocTotal = 59m,
+            VatSum = 9m,
+            LastSeenInSapAtUtc = DateTime.UtcNow,
+            SyncedAtUtc = DateTime.UtcNow,
+            Lines =
+            [
+                new SapCreditNoteLineSnapshotEntity
+                {
+                    LineNum = 0,
+                    ItemCode = "MOZ-1KG",
+                    BaseType = VanSaleCreditNotes.InvoiceBaseType,
+                    BaseEntry = 9008,
+                    LineTotal = 50m,
+                    VatSum = 9m
+                }
+            ]
+        });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+
+        var history = await WhenHistoryIsRead(SapHolds(
+            Invoice(docEntry: 9008, docNum: 4028),
+            Invoice(docEntry: 9009, docNum: 4029)));
+
+        var byDocNum = history.ToDictionary(invoice => invoice.DocNum);
+        Assert.Equal(59d, byDocNum["4028"].Credited);
+        Assert.Equal("55294", byDocNum["4028"].CreditNotes);
+        Assert.Equal(0d, byDocNum["4029"].Credited);
+        Assert.Equal(string.Empty, byDocNum["4029"].CreditNotes);
+    }
+
+    [Fact]
     public async Task An_invoice_arrives_with_its_lines()
     {
         GivenVanRep();

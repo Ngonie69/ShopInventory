@@ -536,7 +536,8 @@ public static partial class VanSalesCompatibilityMapper
     public static VanSalesLegacyOrderDto MapLegacyInvoice(
         Invoice invoice,
         DesktopFiscalTransactionEntity? fiscalTransaction,
-        PerSaleInvoiceSaleFacts? sale = null)
+        PerSaleInvoiceSaleFacts? sale = null,
+        SaleCredit? credit = null)
     {
         var lines = (invoice.DocumentLines ?? new List<InvoiceLine>())
             .OrderBy(line => line.LineNum)
@@ -590,6 +591,8 @@ public static partial class VanSalesCompatibilityMapper
                 ?? fiscalTransaction?.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture)
                 ?? string.Empty,
             SaleNumber = sale?.SaleId is { } saleId ? DesktopSaleNumber.Format(saleId) : string.Empty,
+            Credited = ToLegacyDouble(credit?.Amount ?? 0m),
+            CreditNotes = string.Join(", ", credit?.Numbers ?? []),
             Status = isFiscalized ? 2 : 0,
             Timestamps = new VanSalesLegacyTimestampsDto
             {

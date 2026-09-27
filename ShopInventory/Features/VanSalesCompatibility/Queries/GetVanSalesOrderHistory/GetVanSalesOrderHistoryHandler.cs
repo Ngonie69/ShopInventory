@@ -4,6 +4,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Mobile;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -240,11 +241,19 @@ public sealed class GetVanSalesOrderHistoryHandler(
             docNums,
             cancellationToken);
 
+        // Credits are raised in the office, never on the handset, so this is the only way the van learns
+        // that an invoice it sold has been given back — and its day's takings with it.
+        var creditByDocEntry = await SaleCredits.ForInvoicesAsync(
+            db,
+            invoices.Select(invoice => invoice.DocEntry),
+            cancellationToken);
+
         return invoices
             .Select(invoice => VanSalesCompatibilityMapper.MapLegacyInvoice(
                 invoice,
                 latestFiscalByDocNum.GetValueOrDefault(invoice.DocNum),
-                saleByDocNum.GetValueOrDefault(invoice.DocNum)))
+                saleByDocNum.GetValueOrDefault(invoice.DocNum),
+                creditByDocEntry.GetValueOrDefault(invoice.DocEntry)))
             .OrderByDescending(order => VanSalesCompatibilityMapper.ParseLegacyDate(order.Timestamps.CreateDate) ?? DateTime.MinValue)
             .ThenByDescending(order => order.Id)
             .ToList();
