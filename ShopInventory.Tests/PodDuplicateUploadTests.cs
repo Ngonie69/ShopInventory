@@ -305,6 +305,7 @@ public sealed class PodDuplicateUploadTests : IDisposable
             StubProxy.Unused<ISAPServiceLayerClient>(),
             NullLogger<DocumentService>.Instance,
             new MemoryCache(new MemoryCacheOptions()),
+            HybridLookupCacheTests.NewHybridCache(),
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {

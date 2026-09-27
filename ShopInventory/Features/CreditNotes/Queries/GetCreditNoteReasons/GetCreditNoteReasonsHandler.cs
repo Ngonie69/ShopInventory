@@ -1,6 +1,6 @@
 using ErrorOr;
 using MediatR;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Hybrid;
 using ShopInventory.Common.Errors;
 using ShopInventory.Services;
 
@@ -8,7 +8,7 @@ namespace ShopInventory.Features.CreditNotes.Queries.GetCreditNoteReasons;
 
 public sealed class GetCreditNoteReasonsHandler(
     ISAPServiceLayerClient sapClient,
-    IMemoryCache cache,
+    HybridCache cache,
     ILogger<GetCreditNoteReasonsHandler> logger
 ) : IRequestHandler<GetCreditNoteReasonsQuery, ErrorOr<GetCreditNoteReasonsResult>>
 {
@@ -25,27 +25,33 @@ public sealed class GetCreditNoteReasonsHandler(
     /// </remarks>
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(6);
 
+    private static readonly HybridCacheEntryOptions EntryOptions = new()
+    {
+        Expiration = CacheLifetime,
+        LocalCacheExpiration = CacheLifetime
+    };
+
     public async Task<ErrorOr<GetCreditNoteReasonsResult>> Handle(
         GetCreditNoteReasonsQuery query,
         CancellationToken cancellationToken)
     {
-        if (cache.TryGetValue(CacheKey, out GetCreditNoteReasonsResult? cached) && cached is not null)
-        {
-            return cached;
-        }
-
         try
         {
-            var reasons = await sapClient.GetCreditNoteLineReasonsAsync(cancellationToken);
-
-            var result = new GetCreditNoteReasonsResult(
-                reasons.Select(reason => new CreditNoteReasonOption(reason.Value, reason.Description)).ToList());
-
             // An empty list is cached too. A company database with no reason field will not grow one
             // between two dialogs, and not caching it would mean a SAP round trip on every open for
-            // the one configuration where the answer is certainly nothing.
-            cache.Set(CacheKey, result, CacheLifetime);
-            return result;
+            // the one configuration where the answer is certainly nothing. A SAP failure is not: it
+            // throws out of the loader, so HybridCache stores nothing and the next open asks again.
+            return await cache.GetOrCreateAsync(
+                CacheKey,
+                sapClient,
+                static async (client, token) =>
+                {
+                    var reasons = await client.GetCreditNoteLineReasonsAsync(token);
+                    return new GetCreditNoteReasonsResult(
+                        reasons.Select(reason => new CreditNoteReasonOption(reason.Value, reason.Description)).ToList());
+                },
+                EntryOptions,
+                cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {

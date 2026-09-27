@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Caching.Memory;
 using ShopInventory.Common.Pods;
 using ShopInventory.Data;
@@ -129,6 +130,7 @@ public class DocumentService : IDocumentService
     private readonly ISAPServiceLayerClient _sapServiceLayerClient;
     private readonly ILogger<DocumentService> _logger;
     private readonly IMemoryCache _memoryCache;
+    private readonly HybridCache _hybridCache;
     private readonly string _uploadPath;
 
     public DocumentService(
@@ -137,6 +139,7 @@ public class DocumentService : IDocumentService
         ISAPServiceLayerClient sapServiceLayerClient,
         ILogger<DocumentService> logger,
         IMemoryCache memoryCache,
+        HybridCache hybridCache,
         IConfiguration configuration)
     {
         _context = context;
@@ -144,6 +147,7 @@ public class DocumentService : IDocumentService
         _sapServiceLayerClient = sapServiceLayerClient;
         _logger = logger;
         _memoryCache = memoryCache;
+        _hybridCache = hybridCache;
         _uploadPath = configuration["FileStorage:UploadPath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
 
         // Ensure upload directory exists
@@ -1223,7 +1227,18 @@ public class DocumentService : IDocumentService
         return $"pod-scope:{assignedSection.ToUpperInvariant()}:{docEntry}";
     }
 
-    private async Task<string[]> GetPodWarehouseCodesForAssignedSectionAsync(
+    private static readonly HybridCacheEntryOptions PodWarehouseCodesEntryOptions = new()
+    {
+        Expiration = TimeSpan.FromMinutes(30),
+        LocalCacheExpiration = TimeSpan.FromMinutes(30)
+    };
+
+    /// <remarks>
+    /// POD users of one section opening the list together share one SAP warehouse read. A SAP
+    /// failure throws out of the loader, so the section-name fallback is never cached and the next
+    /// request tries SAP again.
+    /// </remarks>
+    internal async Task<string[]> GetPodWarehouseCodesForAssignedSectionAsync(
         string assignedSection,
         CancellationToken cancellationToken)
     {
@@ -1234,15 +1249,21 @@ public class DocumentService : IDocumentService
         }
 
         var cacheKey = $"pod-warehouse-codes:{canonicalSection.ToUpperInvariant()}";
-        if (_memoryCache.TryGetValue(cacheKey, out string[]? cachedWarehouseCodes) && cachedWarehouseCodes is not null)
-        {
-            return cachedWarehouseCodes;
-        }
-
-        List<WarehouseDto> warehouses;
         try
         {
-            warehouses = await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken);
+            return await _hybridCache.GetOrCreateAsync(
+                cacheKey,
+                (_sapServiceLayerClient, canonicalSection),
+                static async (state, token) =>
+                {
+                    var warehouses = await state._sapServiceLayerClient.GetWarehousesAsync(token);
+                    return PodLocationScope.GetWarehouseCodesForAssignedSection(warehouses, state.canonicalSection)
+                        .Select(code => code.ToUpperInvariant())
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                },
+                PodWarehouseCodesEntryOptions,
+                cancellationToken: cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -1256,14 +1277,6 @@ public class DocumentService : IDocumentService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
-
-        var warehouseCodes = PodLocationScope.GetWarehouseCodesForAssignedSection(warehouses, canonicalSection)
-            .Select(code => code.ToUpperInvariant())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        _memoryCache.Set(cacheKey, warehouseCodes, TimeSpan.FromMinutes(30));
-        return warehouseCodes;
     }
 
     public async Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default)
