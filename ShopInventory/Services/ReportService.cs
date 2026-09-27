@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using ShopInventory.Common.Caching;
 using ShopInventory.Common.Sales;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -47,7 +48,7 @@ public class ReportService : IReportService
 
     private static readonly TimeSpan ReportDataCacheDuration = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ReportResultCacheDuration = TimeSpan.FromMinutes(2);
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> CacheLoadLocks = new(StringComparer.Ordinal);
+    internal static readonly KeyedAsyncLock CacheLoadLocks = new();
     private static readonly ConcurrentDictionary<string, CacheTelemetryCounters> CacheTelemetry = new(StringComparer.Ordinal);
 
     private sealed class CacheTelemetryCounters
@@ -351,9 +352,7 @@ public class ReportService : IReportService
             return cachedValue!;
         }
 
-        var cacheLock = CacheLoadLocks.GetOrAdd(cacheKey, static _ => new SemaphoreSlim(1, 1));
-        await cacheLock.WaitAsync(cancellationToken);
-        try
+        using (await CacheLoadLocks.AcquireAsync(cacheKey, cancellationToken))
         {
             if (TryGetCachedValue(cacheName, cacheKey, out cachedValue))
             {
@@ -361,10 +360,6 @@ public class ReportService : IReportService
             }
 
             return await CreateAndCacheAsync(cacheName, cacheKey, duration, factory, cancellationToken);
-        }
-        finally
-        {
-            cacheLock.Release();
         }
     }
 
