@@ -19,8 +19,6 @@ public partial class SAPServiceLayerClient
         "$select=DocumentEntry,DocumentNumber,CountDate,CountTime,SingleCounterType,SingleCounterID," +
         "DocumentStatus,Remarks,Reference2,CountingType";
 
-    private const string InventoryCountingDetailSelect = InventoryCountingHeaderSelect + ",InventoryCountingLines";
-
     /// <inheritdoc cref="ISAPServiceLayerClient.GetInventoryCountingsAsync" />
     public async Task<List<InventoryCounting>> GetInventoryCountingsAsync(
         string? documentStatus,
@@ -77,11 +75,16 @@ public partial class SAPServiceLayerClient
     }
 
     /// <inheritdoc cref="ISAPServiceLayerClient.GetInventoryCountingAsync" />
+    /// <remarks>
+    /// No <c>$select</c>. Naming <c>InventoryCountingLines</c> in one makes SAP answer 200 with an
+    /// empty line list (measured 2026-09-27: the same count returns its lines only when unselected),
+    /// so the whole count is read.
+    /// </remarks>
     public Task<InventoryCounting?> GetInventoryCountingAsync(
         int documentEntry,
         CancellationToken cancellationToken = default)
         => ReadSapJsonAsync<InventoryCounting>(
-            $"InventoryCountings({documentEntry})?{InventoryCountingDetailSelect}",
+            $"InventoryCountings({documentEntry})",
             $"read inventory count {documentEntry}",
             cancellationToken);
 }
