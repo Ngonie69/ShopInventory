@@ -317,6 +317,9 @@ public sealed class GetDesktopSalesHandler(
         var operators = await SaleOperatorNames.ResolveAsync(
             db, rows.Select(row => row.Sale.CreatedBy), cancellationToken);
 
+        var creditBySale = await SaleCredits.ForSalesAsync(
+            db, rows.Select(row => (row.Sale.Id, row.Sale.SapDocEntry)), cancellationToken);
+
         var nowUtc = DateTime.UtcNow;
         var usesPlatform = fiscalisationSettings.Value.UsesPlatform;
 
@@ -334,7 +337,9 @@ public sealed class GetDesktopSalesHandler(
                     row.Sale.CreatedAt,
                     nowUtc,
                     usesPlatform),
-                PostHeldUntilUtc = PostHeldUntil(row.Sale, row.PostIssuedAtUtc, nowUtc)
+                PostHeldUntilUtc = PostHeldUntil(row.Sale, row.PostIssuedAtUtc, nowUtc),
+                CreditedAmount = creditBySale.GetValueOrDefault(row.Sale.Id)?.Amount ?? 0m,
+                CreditNoteNumbers = creditBySale.GetValueOrDefault(row.Sale.Id)?.Numbers ?? []
             })
             .ToList();
 

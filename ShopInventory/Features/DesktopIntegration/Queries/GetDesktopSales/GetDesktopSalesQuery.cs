@@ -276,6 +276,20 @@ public sealed record DesktopSaleListItemDto(
     /// the grace window is API configuration and differs between the till and van routes.
     /// </remarks>
     public DateTime? PostHeldUntilUtc { get; init; }
+
+    /// <summary>
+    /// How much of this sale has been credited back, tax-inclusive like <see cref="TotalAmount"/>; 0 when
+    /// nothing has.
+    /// </summary>
+    /// <remarks>
+    /// Carried on every row so the till can mark a credited sale and net its day's takings without a
+    /// second request per sale. Counts fiscalised till credits and SAP memos against the sale's own
+    /// invoice — see <see cref="Common.Sales.SaleCredits.ForSalesAsync"/>.
+    /// </remarks>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary>The numbers of the credits behind <see cref="CreditedAmount"/>; empty when none.</summary>
+    public IReadOnlyList<string> CreditNoteNumbers { get; init; } = [];
 }
 
 public sealed record DesktopSaleLineItemDto(

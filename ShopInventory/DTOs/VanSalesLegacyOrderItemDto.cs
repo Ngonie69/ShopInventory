@@ -21,4 +21,12 @@ public class VanSalesLegacyOrderItemDto
 
     [JsonPropertyName("price_total")]
     public double PriceTotal { get; set; }
+
+    /// <summary>How many of this line the office has credited back; 0 when none.</summary>
+    [JsonPropertyName("credited_quantity")]
+    public double CreditedQuantity { get; set; }
+
+    /// <summary>What was credited back on this line, tax included; 0 when nothing.</summary>
+    [JsonPropertyName("credited_amount")]
+    public double CreditedAmount { get; set; }
 }

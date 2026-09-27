@@ -278,6 +278,64 @@ public sealed class VanSalesInvoiceHistoryScopeTests : IDisposable
     /// mapping still works, and the mapping can break while the flag is still passed.</para>
     /// </remarks>
     [Fact]
+    public async Task An_invoice_credited_in_the_office_tells_the_van_how_much_was_given_back()
+    {
+        // Credits are raised on the web, never on the handset, so this row is the only way the van
+        // learns the invoice it sold was returned — and that its day's takings are smaller for it.
+        GivenVanRep();
+        _context.SapCreditNoteSnapshots.Add(new SapCreditNoteSnapshotEntity
+        {
+            SapDocEntry = 70001,
+            SapDocNum = 55294,
+            DocDate = new DateTime(2026, 8, 21),
+            CardCode = VanBusinessPartner,
+            DocCurrency = "USD",
+            DocTotal = 59m,
+            VatSum = 9m,
+            LastSeenInSapAtUtc = DateTime.UtcNow,
+            SyncedAtUtc = DateTime.UtcNow,
+            Lines =
+            [
+                new SapCreditNoteLineSnapshotEntity
+                {
+                    LineNum = 0,
+                    ItemCode = "MOZ-1KG",
+                    BaseType = VanSaleCreditNotes.InvoiceBaseType,
+                    BaseEntry = 9008,
+                    BaseLine = 1,
+                    LineTotal = 50m,
+                    VatSum = 9m
+                }
+            ]
+        });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+
+        var credited = Invoice(docEntry: 9008, docNum: 4028);
+        credited.DocumentLines =
+        [
+            new InvoiceLine { LineNum = 0, ItemCode = "FET-500", Quantity = 2m, UnitPrice = 5m, LineTotal = 10m },
+            new InvoiceLine { LineNum = 1, ItemCode = "MOZ-1KG", Quantity = 9m, UnitPrice = 10m, LineTotal = 90m }
+        ];
+
+        var history = await WhenHistoryIsRead(SapHolds(
+            credited,
+            Invoice(docEntry: 9009, docNum: 4029)));
+
+        var byDocNum = history.ToDictionary(invoice => invoice.DocNum);
+        Assert.Equal(59d, byDocNum["4028"].Credited);
+        Assert.Equal("55294", byDocNum["4028"].CreditNotes);
+        Assert.Equal(0d, byDocNum["4029"].Credited);
+        Assert.Equal(string.Empty, byDocNum["4029"].CreditNotes);
+
+        // And which lines: the memo gave back 50.00 net of the mozzarella line, which sells at 10.00.
+        var lines = byDocNum["4028"].OrderItems;
+        Assert.Equal(0d, lines[0].CreditedQuantity);
+        Assert.Equal(5d, lines[1].CreditedQuantity);
+        Assert.Equal(59d, lines[1].CreditedAmount);
+    }
+
+    [Fact]
     public async Task An_invoice_arrives_with_its_lines()
     {
         GivenVanRep();

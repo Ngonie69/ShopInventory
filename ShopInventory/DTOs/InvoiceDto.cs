@@ -39,6 +39,15 @@ public class InvoiceDto
     public string? FiscalDay { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
 
+    /// <summary>
+    /// How much of this invoice has been credited back, tax-inclusive like <see cref="DocTotal"/>. Null
+    /// when the read did not look — only the till's customer invoice list does — never "not credited".
+    /// </summary>
+    public decimal? CreditedAmount { get; set; }
+
+    /// <summary>The numbers of the credits behind <see cref="CreditedAmount"/>, when it was looked up.</summary>
+    public List<string>? CreditNoteNumbers { get; set; }
+
     // Address & tax fields (populated from SAP invoice + business partner)
     public string? BillToAddress { get; set; }
     public string? ShipToAddress { get; set; }
@@ -76,6 +85,15 @@ public class InvoiceLineDto
     public string? WarehouseCode { get; set; }
     public decimal DiscountPercent { get; set; }
     public string? UoMCode { get; set; }
+
+    /// <summary>
+    /// How many of this line have been credited back. Null when the read did not look — only the till's
+    /// invoice reads do — never "nothing credited".
+    /// </summary>
+    public decimal? CreditedQuantity { get; set; }
+
+    /// <summary>What was credited back on this line, tax included, when the read looked.</summary>
+    public decimal? CreditedAmount { get; set; }
 }
 
 /// <summary>
