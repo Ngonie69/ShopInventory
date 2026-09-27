@@ -8,11 +8,11 @@ namespace ShopInventory.Common.Sales;
 /// </summary>
 /// <param name="Code">The warehouse code, trimmed, spelt as the first rep's assignment spells it.</param>
 /// <param name="Rep">
-/// The rep's name, falling back to the account they sign in as. Two reps on one van are both named,
-/// in the order their accounts were created, rather than letting the order of the rows decide.
+/// The active rep's name, falling back to the account they sign in as. Two active reps on one van are
+/// both named, in user-id order, rather than letting the order of the rows decide.
 /// </param>
 /// <param name="BusinessPartnerCodes">
-/// Every <c>AssignedBusinessPartnerCode</c> on the van's reps. Not the warehouse code: VAN001's sales
+/// Every <c>AssignedBusinessPartnerCode</c> on the van's active reps. Not the warehouse code: VAN001's sales
 /// invoice to VAN010. Empty when no rep on the van has one.
 /// </param>
 public sealed record VanWarehouse(string Code, string Rep, IReadOnlySet<string> BusinessPartnerCodes);
@@ -35,8 +35,9 @@ public sealed record VanWarehouse(string Code, string Rep, IReadOnlySet<string> 
 /// coded <c>VAN…</c>, is classified correctly without anybody remembering to update a filter.
 /// </para>
 /// <para>
-/// A deactivated rep's van still counts until its assignment is cleared: <c>User.IsActive</c> is not
-/// read here.
+/// Only active reps count. A deactivated rep neither makes a warehouse a van nor is named on one, so
+/// a van whose only rep has been deactivated drops out of every van report — even while it still
+/// holds stock — until an active rep is assigned to it. Decided on PR #579.
 /// </para>
 /// </remarks>
 public static class VanWarehouses
@@ -50,7 +51,9 @@ public static class VanWarehouses
         // JSON list in one column, and re-implementing that parse here is how the two would drift.
         var users = await db.Users
             .AsNoTracking()
-            .Where(user => user.SupplyingWarehouseCode != null && user.AssignedWarehouseCodes != null)
+            .Where(user => user.IsActive
+                           && user.SupplyingWarehouseCode != null
+                           && user.AssignedWarehouseCodes != null)
             .OrderBy(user => user.Id)
             .ToListAsync(cancellationToken);
 

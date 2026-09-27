@@ -101,19 +101,36 @@ public sealed class VanWarehousesTests : IDisposable
     }
 
     /// <summary>
-    /// Pins today's behaviour rather than endorsing it: <c>IsActive</c> is not read, so a deactivated
-    /// rep's van stays a van until the assignment is cleared. Whether it should is an open question;
-    /// change this test only alongside a deliberate decision.
+    /// Decided on PR #579: a deactivated rep does not make a warehouse a van, even though the
+    /// assignment is still on their record.
     /// </summary>
     [Fact]
-    public async Task A_deactivated_reps_van_still_counts()
+    public async Task A_deactivated_reps_van_is_not_a_van()
     {
-        AddUser(1, "leaver", ["KEFVAN12"], supplying: Depot, isActive: false);
+        AddUser(1, "leaver", ["KEFVAN12"], supplying: Depot, isActive: false, businessPartner: "VAN020");
         await _context.SaveChangesAsync();
 
         var vans = await VanWarehouses.LoadAsync(_context, CancellationToken.None);
 
-        Assert.Equal("leaver", Assert.Single(vans).Value.Rep);
+        Assert.Empty(vans);
+    }
+
+    /// <summary>
+    /// A van shared with a deactivated rep stays a van for the active one, and names and invoices
+    /// only for them.
+    /// </summary>
+    [Fact]
+    public async Task A_deactivated_rep_on_a_shared_van_is_left_out_of_it()
+    {
+        AddUser(1, "leaver", ["KEFVAN10"], supplying: Depot, isActive: false, businessPartner: "VAN019");
+        AddUser(2, "rep2", ["KEFVAN10"], supplying: Depot, businessPartner: "VAN010");
+        await _context.SaveChangesAsync();
+
+        var vans = await VanWarehouses.LoadAsync(_context, CancellationToken.None);
+
+        var van = Assert.Single(vans).Value;
+        Assert.Equal("rep2", van.Rep);
+        Assert.Equal(["VAN010"], van.BusinessPartnerCodes);
     }
 
     [Fact]
