@@ -23,7 +23,6 @@ public interface IDesktopIntegrationService
     Task<(List<InvoiceQueueStatusDto>? Result, string? Error)> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100);
     Task<(List<InvoiceQueueStatusDto>? Result, string? Error)> GetInvoicesRequiringReviewAsync(int limit = 50);
     Task<(InvoiceQueueStatsDto? Result, string? Error)> GetQueueStatsAsync();
-    Task<InvoiceQueueStatusDto?> GetQueueStatusAsync(string externalReference);
     Task<bool> CancelQueuedInvoiceAsync(string externalReference);
     Task<bool> RetryQueuedInvoiceAsync(string externalReference);
 
@@ -31,13 +30,11 @@ public interface IDesktopIntegrationService
     Task<(List<InventoryTransferQueueStatusDto>? Result, string? Error)> GetPendingTransferQueueAsync(string? sourceSystem = null, int limit = 100);
     Task<(List<InventoryTransferQueueStatusDto>? Result, string? Error)> GetTransfersRequiringReviewAsync(int limit = 50);
     Task<(InventoryTransferQueueStatsDto? Result, string? Error)> GetTransferQueueStatsAsync();
-    Task<InventoryTransferQueueStatusDto?> GetTransferQueueStatusAsync(string externalReference);
     Task<bool> CancelQueuedTransferAsync(string externalReference);
     Task<bool> RetryQueuedTransferAsync(string externalReference);
 
     // Reservations
     Task<(List<StockReservationDto>? Result, string? Error)> GetReservationsAsync(string? sourceSystem = null, string? status = null, int page = 1, int pageSize = 50);
-    Task<StockReservationDto?> GetReservationAsync(string reservationId);
     Task<bool> CancelReservationAsync(string reservationId, string? reason = null);
 
     // Desktop Sales (offline invoicing)
@@ -95,11 +92,6 @@ public interface IDesktopIntegrationService
     // call for different things.
     Task<(DesktopSaleFiscalisationRetryResultDto? Result, string? Error)> RetrySaleFiscalisationAsync(
         string externalReference, CancellationToken cancellationToken = default);
-
-    // Prices
-    // Reads only: prices are synced from SAP by Settings → Data Sync.
-    Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
-    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode);
 }
 
 public class DesktopIntegrationService : IDesktopIntegrationService
@@ -188,19 +180,6 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         return await ReadAsync<InvoiceQueueStatsDto>("api/DesktopIntegration/queue/stats");
     }
 
-    public async Task<InvoiceQueueStatusDto?> GetQueueStatusAsync(string externalReference)
-    {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<InvoiceQueueStatusDto>($"api/DesktopIntegration/queue/{Uri.EscapeDataString(externalReference)}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting queue status for {Reference}", externalReference);
-            return null;
-        }
-    }
-
     public async Task<(List<StockReservationDto>? Result, string? Error)> GetReservationsAsync(string? sourceSystem = null, string? status = null, int page = 1, int pageSize = 50)
     {
         var url = $"api/DesktopIntegration/reservations?page={page}&pageSize={pageSize}&activeOnly=false";
@@ -214,19 +193,6 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
         var (response, error) = await ReadAsync<ReservationListResponse>(url);
         return (response?.Reservations, error);
-    }
-
-    public async Task<StockReservationDto?> GetReservationAsync(string reservationId)
-    {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<StockReservationDto>($"api/DesktopIntegration/reservations/{Uri.EscapeDataString(reservationId)}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting reservation {Id}", reservationId);
-            return null;
-        }
     }
 
     public async Task<bool> CancelQueuedInvoiceAsync(string externalReference)
@@ -292,19 +258,6 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     public async Task<(InventoryTransferQueueStatsDto? Result, string? Error)> GetTransferQueueStatsAsync()
     {
         return await ReadAsync<InventoryTransferQueueStatsDto>("api/DesktopIntegration/transfer-queue/stats");
-    }
-
-    public async Task<InventoryTransferQueueStatusDto?> GetTransferQueueStatusAsync(string externalReference)
-    {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<InventoryTransferQueueStatusDto>($"api/DesktopIntegration/transfer-queue/{Uri.EscapeDataString(externalReference)}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting transfer queue status for {Reference}", externalReference);
-            return null;
-        }
     }
 
     public async Task<bool> CancelQueuedTransferAsync(string externalReference)
@@ -691,38 +644,6 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         public string? Title { get; set; }
         public string? Detail { get; set; }
-    }
-
-    #endregion
-
-    #region Prices
-
-    public async Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum)
-    {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<ItemPricesByListResponse>(
-                $"api/DesktopIntegration/prices/pricelists/{priceListNum}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching prices for price list {PriceListNum}", priceListNum);
-            return null;
-        }
-    }
-
-    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode)
-    {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<ItemPricesByListResponse>(
-                $"api/DesktopIntegration/prices/business-partner/{Uri.EscapeDataString(cardCode)}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching prices for business partner {CardCode}", cardCode);
-            return null;
-        }
     }
 
     #endregion
