@@ -52,6 +52,16 @@ public interface IDesktopIntegrationService
     /// built and the two forms cannot come to disagree.
     /// </remarks>
     Task<DesktopSalesListResponse?> GetDesktopSalesAsync(DesktopSalesQuery query);
+
+    /// <summary>
+    /// The same read, with the reason it failed when it did — see <see cref="ApiReadFailure"/>.
+    /// </summary>
+    /// <remarks>
+    /// For the console, which shows the reason. The null-returning form above stays for callers that only
+    /// want a count and have nowhere to put a sentence.
+    /// </remarks>
+    Task<(DesktopSalesListResponse? Result, string? Error)> ReadDesktopSalesAsync(
+        DesktopSalesQuery query, CancellationToken cancellationToken = default);
     Task<EndOfDayReportDto?> GetEndOfDayReportAsync(DateTime? reportDate = null);
 
     // Local Stock Snapshots
@@ -398,7 +408,11 @@ public class DesktopIntegrationService : IDesktopIntegrationService
             Search = search
         });
 
-    public async Task<DesktopSalesListResponse?> GetDesktopSalesAsync(DesktopSalesQuery query)
+    public async Task<DesktopSalesListResponse?> GetDesktopSalesAsync(DesktopSalesQuery query) =>
+        (await ReadDesktopSalesAsync(query)).Result;
+
+    public async Task<(DesktopSalesListResponse? Result, string? Error)> ReadDesktopSalesAsync(
+        DesktopSalesQuery query, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -449,12 +463,28 @@ public class DesktopIntegrationService : IDesktopIntegrationService
                 queryParams.Add("includeFacets=true");
 
             var url = $"api/DesktopIntegration/sales?{string.Join("&", queryParams)}";
-            return await _httpClient.GetFromJsonAsync<DesktopSalesListResponse>(url);
+
+            // Sent and read in two steps rather than through GetFromJsonAsync, which throws away the body
+            // of a refusal — and the body is where the API says why.
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Error getting desktop sales: the API answered {StatusCode} {Body}",
+                    (int)response.StatusCode, ApiErrorResponse.SanitizeForLog(body));
+                return (null, ApiReadFailure.ForStatus(response.StatusCode, body));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<DesktopSalesListResponse>(cancellationToken);
+            return result is null
+                ? (null, "The API answered with an empty reply.")
+                : (result, null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting desktop sales");
-            return null;
+            return (null, ApiReadFailure.ForException(ex, _httpClient.Timeout));
         }
     }
 
