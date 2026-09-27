@@ -80,6 +80,7 @@ public sealed class AttachmentStorageUnavailableTests : IDisposable
             sapServiceLayerClient: null!,
             NullLogger<DocumentService>.Instance,
             new MemoryCache(new MemoryCacheOptions()),
+            HybridLookupCacheTests.NewHybridCache(),
             configuration);
     }
 

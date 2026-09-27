@@ -199,6 +199,12 @@ try
     // Add memory cache for expensive queries and SAP call results
     builder.Services.AddMemoryCache();
 
+    // Lookups whose loader should run once however many requests miss together. Local only: there
+    // is no distributed cache, and one node serves traffic. Hits are JSON copies unless the type is
+    // marked immutable, so an object? value comes back as a JsonElement — keep ReportService's
+    // row dictionaries and the detached statement builds on IMemoryCache.
+    builder.Services.AddHybridCache();
+
     var postgresConnectionPolicy = builder.Configuration
         .GetSection(PostgresConnectionPolicyOptions.SectionName)
         .Get<PostgresConnectionPolicyOptions>()
@@ -1016,7 +1022,7 @@ try
 
     // Scoped, not singleton: it depends on the typed FiscalisationApiClient, and a singleton would pin
     // one HttpClient forever and defeat the factory's handler rotation. The cached entries still
-    // outlive the scope because the storage is the singleton IMemoryCache.
+    // outlive the scope because the storage is the singleton HybridCache.
     builder.Services.AddScoped<IFiscalDeviceConfigCache, FiscalDeviceConfigCache>();
 
     // The platform's fiscal-day and offline-file routes need a bearer token from its own /auth/token, not

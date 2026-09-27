@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Hybrid;
 
 namespace ShopInventory.Services.Fiscalisation;
 
@@ -24,23 +24,33 @@ public interface IFiscalDeviceConfigCache
 /// already fiscalised at FDMS — failing here would turn a successful, irreversible submission into a
 /// reported error, and could trigger a resubmit. A missing QR is repairable later by the backfill; a
 /// duplicate fiscal receipt is not repairable at all.
+///
+/// The failure is caught outside the cache, so it is never stored: HybridCache keeps nothing when the
+/// loader throws, and the next receipt asks the platform again. Receipts that miss together share
+/// one request.
 /// </remarks>
 public class FiscalDeviceConfigCache : IFiscalDeviceConfigCache
 {
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(15);
     private const string CacheKeyPrefix = "fiscal-device-config:";
 
+    private static readonly HybridCacheEntryOptions EntryOptions = new()
+    {
+        Expiration = CacheDuration,
+        LocalCacheExpiration = CacheDuration
+    };
+
     private readonly IFiscalisationApiClient _client;
-    private readonly IMemoryCache _memoryCache;
+    private readonly HybridCache _cache;
     private readonly ILogger<FiscalDeviceConfigCache> _logger;
 
     public FiscalDeviceConfigCache(
         IFiscalisationApiClient client,
-        IMemoryCache memoryCache,
+        HybridCache cache,
         ILogger<FiscalDeviceConfigCache> logger)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
-        _memoryCache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -50,16 +60,14 @@ public class FiscalDeviceConfigCache : IFiscalDeviceConfigCache
     {
         var cacheKey = CacheKeyPrefix + deviceId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-        if (_memoryCache.TryGetValue(cacheKey, out FiscalConfigApiResponse? cached) && cached is not null)
-        {
-            return cached;
-        }
-
         try
         {
-            var config = await _client.GetFiscalConfigAsync(deviceId, cancellationToken);
-            _memoryCache.Set(cacheKey, config, CacheDuration);
-            return config;
+            return await _cache.GetOrCreateAsync(
+                cacheKey,
+                (_client, deviceId),
+                static async (state, token) => await state._client.GetFiscalConfigAsync(state.deviceId, token),
+                EntryOptions,
+                cancellationToken: cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
