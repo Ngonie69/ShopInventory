@@ -46,9 +46,7 @@ public sealed class GetInvoicesByCustomerHandler(
 
         foreach (var invoice in dtos)
         {
-            var credit = creditByDocEntry.GetValueOrDefault(invoice.DocEntry) ?? SaleCredit.None;
-            invoice.CreditedAmount = credit.Amount;
-            invoice.CreditNoteNumbers = credit.Numbers.ToList();
+            SaleCredits.ApplyTo(invoice, creditByDocEntry.GetValueOrDefault(invoice.DocEntry));
         }
 
         return dtos;

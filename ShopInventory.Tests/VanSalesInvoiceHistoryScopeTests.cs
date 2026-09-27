@@ -302,6 +302,7 @@ public sealed class VanSalesInvoiceHistoryScopeTests : IDisposable
                     ItemCode = "MOZ-1KG",
                     BaseType = VanSaleCreditNotes.InvoiceBaseType,
                     BaseEntry = 9008,
+                    BaseLine = 1,
                     LineTotal = 50m,
                     VatSum = 9m
                 }
@@ -310,8 +311,15 @@ public sealed class VanSalesInvoiceHistoryScopeTests : IDisposable
         _context.SaveChanges();
         _context.ChangeTracker.Clear();
 
+        var credited = Invoice(docEntry: 9008, docNum: 4028);
+        credited.DocumentLines =
+        [
+            new InvoiceLine { LineNum = 0, ItemCode = "FET-500", Quantity = 2m, UnitPrice = 5m, LineTotal = 10m },
+            new InvoiceLine { LineNum = 1, ItemCode = "MOZ-1KG", Quantity = 9m, UnitPrice = 10m, LineTotal = 90m }
+        ];
+
         var history = await WhenHistoryIsRead(SapHolds(
-            Invoice(docEntry: 9008, docNum: 4028),
+            credited,
             Invoice(docEntry: 9009, docNum: 4029)));
 
         var byDocNum = history.ToDictionary(invoice => invoice.DocNum);
@@ -319,6 +327,12 @@ public sealed class VanSalesInvoiceHistoryScopeTests : IDisposable
         Assert.Equal("55294", byDocNum["4028"].CreditNotes);
         Assert.Equal(0d, byDocNum["4029"].Credited);
         Assert.Equal(string.Empty, byDocNum["4029"].CreditNotes);
+
+        // And which lines: the memo gave back 50.00 net of the mozzarella line, which sells at 10.00.
+        var lines = byDocNum["4028"].OrderItems;
+        Assert.Equal(0d, lines[0].CreditedQuantity);
+        Assert.Equal(5d, lines[1].CreditedQuantity);
+        Assert.Equal(59d, lines[1].CreditedAmount);
     }
 
     [Fact]

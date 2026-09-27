@@ -548,6 +548,9 @@ public static partial class VanSalesCompatibilityMapper
         var soldAt = sale?.SoldAt;
         var createdAt = soldAt ?? fiscalTransaction?.TimestampUtc ?? docDate;
         var netTotal = Math.Max(invoice.DocTotal - invoice.VatSum, 0m);
+        var creditedByLine = SaleCredits.ByInvoiceLine(
+            credit,
+            lines.Select(line => (line.LineNum, line.ItemCode, line.Quantity, LegacyLineTotal(line))).ToList());
         var isFiscalized = sale is not null ||
             (fiscalTransaction is not null &&
              (string.Equals(fiscalTransaction.Status, "Success", StringComparison.OrdinalIgnoreCase) ||
@@ -604,7 +607,7 @@ public static partial class VanSalesCompatibilityMapper
             OrderItems = lines.Select(line =>
             {
                 var unitPrice = line.UnitPrice > 0m ? line.UnitPrice : line.Price;
-                var lineTotal = line.LineTotal > 0m ? line.LineTotal : unitPrice * line.Quantity;
+                var credited = creditedByLine.GetValueOrDefault(line.LineNum);
 
                 return new VanSalesLegacyOrderItemDto
                 {
@@ -613,12 +616,21 @@ public static partial class VanSalesCompatibilityMapper
                     Code = line.ItemCode ?? string.Empty,
                     Quantity = RoundLegacyQuantity(line.Quantity),
                     Price = ToLegacyDouble(unitPrice),
-                    PriceTotal = ToLegacyDouble(lineTotal)
+                    PriceTotal = ToLegacyDouble(LegacyLineTotal(line)),
+                    CreditedQuantity = ToLegacyDouble(credited?.Quantity ?? 0m),
+                    CreditedAmount = ToLegacyDouble(credited?.Amount ?? 0m)
                 };
             }).ToList(),
             FiscalizedText = isFiscalized ? "Fiscalised" : "Not Fiscalised",
             FiscalizedTextColor = isFiscalized ? "Green" : "Black"
         };
+    }
+
+    /// <summary>A line's net total, or its price times its quantity when SAP sent no total.</summary>
+    private static decimal LegacyLineTotal(InvoiceLine line)
+    {
+        var unitPrice = line.UnitPrice > 0m ? line.UnitPrice : line.Price;
+        return line.LineTotal > 0m ? line.LineTotal : unitPrice * line.Quantity;
     }
 
     public static VanSalesLegacyInventoryOrderDto MapLegacyTransferRequest(
