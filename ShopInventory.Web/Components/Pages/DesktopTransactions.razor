@@ -47,7 +47,7 @@
                    read the queue tables. What talks to SAP is InvoicePostingJob and
                    InventoryTransferPostingJob on their own Quartz schedule. Saying
                    "polling SAP" here claimed a freshness this page cannot offer. *@
-                <div class="ops-dt-sync-now">Last read @_lastSync.ToString("HH:mm:ss")</div>
+                <div class="ops-dt-sync-now">@(_lastSync is { } read ? $"Last read {read:HH:mm:ss}" : "Not read yet")</div>
                 <div class="ops-dt-sync-note">Auto-refreshes every @PollSeconds seconds</div>
             </div>
             <button type="button" class="ops-btn ops-btn-primary" @onclick="RefreshAll" disabled="@_isLoading">
@@ -82,6 +82,19 @@
                      _transferStats.Failed + _transferStats.RequiresReview, _transferStats.Cancelled)
         }
     </div>
+
+    @if (_loadFailures.Count > 0)
+    {
+        <div class="ops-msg ops-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="ops-msg-body">
+                @foreach (var reason in _loadFailures.GroupBy(failure => failure.Error))
+                {
+                    <div>Could not read the @string.Join(", ", reason.Select(failure => failure.Part)). @reason.Key</div>
+                }
+            </div>
+        </div>
+    }
 
     @if (RejectedCount > 0)
     {
@@ -152,6 +165,15 @@
                     <div class="ops-loading">
                         <span class="ops-spin ops-spin-lg"></span>
                         <p>Reading the desktop queues…</p>
+                    </div>
+                }
+                else if (VisibleRows.Count == 0 && LaneUnread)
+                {
+                    @* Not "No invoices queued": nothing was read, so nothing can be said about the queue. *@
+                    <div class="ops-empty">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <h3>This list could not be read</h3>
+                        <p>The notice above says why. It will fill in on the next refresh that reaches the API.</p>
                     </div>
                 }
                 else if (VisibleRows.Count == 0)
@@ -234,7 +256,7 @@
                     <div class="ops-foot">
                         <span class="ops-foot-info">
                             Showing @VisibleRows.Count of @RowsFor(_lane).Count · newest first ·
-                            refreshed at @_lastSync.ToString("HH:mm:ss")
+                            @(_lastSync is { } refreshed ? $"refreshed at {refreshed:HH:mm:ss}" : "not read yet")
                         </span>
                     </div>
                 }
@@ -309,12 +331,18 @@
 
     private bool _isLoading = true;
     private bool _rowsLoaded;
+
+    // The parts of the last refresh that could not be read, and why. Shown as one notice, grouped by
+    // reason: when the API is down all seven fail with the same sentence, and it should be said once.
+    private List<(string Part, string Error)> _loadFailures = [];
     private Lane _lane = Lane.Invoices;
     private string? _selectedKey;
     private string _query = string.Empty;
     private string _statusFilter = string.Empty;
     private bool _filtersOpen;
-    private DateTime _lastSync = DateTime.Now;
+    // Null until a refresh reads every part. Starting it at the page's own open time claimed a read that
+    // had not happened, which a first load that failed then displayed as fresh.
+    private DateTime? _lastSync;
 
     private PeriodicTimer? _pollTimer;
     private CancellationTokenSource? _pollCancellation;
@@ -445,16 +473,46 @@
             await Task.WhenAll(statsTask, queueTask, reviewTask, reservationsTask,
                 transferStatsTask, transferQueueTask, transferReviewTask);
 
-            _stats = await statsTask;
-            _transferStats = await transferStatsTask;
-            _invoices = Project(await queueTask);
-            _invoiceReview = Project(await reviewTask);
-            _transfers = Project(await transferQueueTask);
-            _transferReview = Project(await transferReviewTask);
-            _reservations = Project(await reservationsTask);
+            // A read that failed keeps what it showed before and names itself in the notice. Taking its
+            // null used to empty the lane, so an outage read as "nothing queued" and the clock moved on.
+            var failures = new List<(string Part, string Error)>();
 
+            bool Read(string? error, string part)
+            {
+                if (error is null) return true;
+                failures.Add((part, error));
+                return false;
+            }
+
+            var (stats, statsError) = await statsTask;
+            if (Read(statsError, "invoice queue totals")) _stats = stats;
+
+            var (transferStats, transferStatsError) = await transferStatsTask;
+            if (Read(transferStatsError, "transfer queue totals")) _transferStats = transferStats;
+
+            var (queue, queueError) = await queueTask;
+            if (Read(queueError, "invoice queue")) _invoices = Project(queue);
+
+            var (review, reviewError) = await reviewTask;
+            if (Read(reviewError, "invoice review")) _invoiceReview = Project(review);
+
+            var (transferQueue, transferQueueError) = await transferQueueTask;
+            if (Read(transferQueueError, "transfer queue")) _transfers = Project(transferQueue);
+
+            var (transferReview, transferReviewError) = await transferReviewTask;
+            if (Read(transferReviewError, "transfer review")) _transferReview = Project(transferReview);
+
+            var (reservations, reservationsError) = await reservationsTask;
+            if (Read(reservationsError, "reservations")) _reservations = Project(reservations);
+
+            _loadFailures = failures;
             _rowsLoaded = true;
-            _lastSync = DateTime.Now;
+
+            // "Last read" claims the whole page is that fresh, so it only moves when every part was read.
+            if (failures.Count == 0)
+            {
+                _lastSync = DateTime.Now;
+            }
         }
         catch (Exception ex)
         {
@@ -759,6 +817,17 @@
         ? null
         : VisibleRows.FirstOrDefault(row => row.Key == _selectedKey);
 
+    // Whether the lane on screen failed its last read. Rows it read before are kept and shown, so this only
+    // changes anything when there is nothing to show.
+    private bool LaneUnread => _loadFailures.Any(failure => failure.Part == _lane switch
+    {
+        Lane.Review => "invoice review",
+        Lane.Transfers => "transfer queue",
+        Lane.TransferReview => "transfer review",
+        Lane.Reservations => "reservations",
+        _ => "invoice queue"
+    });
+
     private string EmptyTitle => IsFiltered
         ? "Nothing matches those filters"
         : _lane switch
@@ -858,8 +927,19 @@
 
         try
         {
-            _reservations = Project(await DesktopService.GetReservationsAsync(
-                status: string.IsNullOrEmpty(_statusFilter) ? null : _statusFilter));
+            var (reservations, error) = await DesktopService.GetReservationsAsync(
+                status: string.IsNullOrEmpty(_statusFilter) ? null : _statusFilter);
+
+            if (error is null)
+            {
+                _reservations = Project(reservations);
+                _loadFailures = _loadFailures.Where(failure => failure.Part != "reservations").ToList();
+            }
+            else
+            {
+                _loadFailures = _loadFailures.Where(failure => failure.Part != "reservations")
+                    .Append(("reservations", error)).ToList();
+            }
         }
         catch (Exception ex)
         {

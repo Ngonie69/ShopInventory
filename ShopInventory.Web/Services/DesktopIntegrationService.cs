@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using ShopInventory.Web.Models;
@@ -19,23 +20,23 @@ public interface IDesktopIntegrationService
     Task<DesktopCreditNoteListRow> RetryCreditNoteSapAsync(Guid id) => throw new NotSupportedException();
     Task<DesktopCreditNoteListRow> MarkCreditNoteRaisedAsync(Guid id, int sapDocNum) => throw new NotSupportedException();
     // Invoice Queue
-    Task<List<InvoiceQueueStatusDto>?> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100);
-    Task<List<InvoiceQueueStatusDto>?> GetInvoicesRequiringReviewAsync(int limit = 50);
-    Task<InvoiceQueueStatsDto?> GetQueueStatsAsync();
+    Task<(List<InvoiceQueueStatusDto>? Result, string? Error)> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100);
+    Task<(List<InvoiceQueueStatusDto>? Result, string? Error)> GetInvoicesRequiringReviewAsync(int limit = 50);
+    Task<(InvoiceQueueStatsDto? Result, string? Error)> GetQueueStatsAsync();
     Task<InvoiceQueueStatusDto?> GetQueueStatusAsync(string externalReference);
     Task<bool> CancelQueuedInvoiceAsync(string externalReference);
     Task<bool> RetryQueuedInvoiceAsync(string externalReference);
 
     // Inventory Transfer Queue
-    Task<List<InventoryTransferQueueStatusDto>?> GetPendingTransferQueueAsync(string? sourceSystem = null, int limit = 100);
-    Task<List<InventoryTransferQueueStatusDto>?> GetTransfersRequiringReviewAsync(int limit = 50);
-    Task<InventoryTransferQueueStatsDto?> GetTransferQueueStatsAsync();
+    Task<(List<InventoryTransferQueueStatusDto>? Result, string? Error)> GetPendingTransferQueueAsync(string? sourceSystem = null, int limit = 100);
+    Task<(List<InventoryTransferQueueStatusDto>? Result, string? Error)> GetTransfersRequiringReviewAsync(int limit = 50);
+    Task<(InventoryTransferQueueStatsDto? Result, string? Error)> GetTransferQueueStatsAsync();
     Task<InventoryTransferQueueStatusDto?> GetTransferQueueStatusAsync(string externalReference);
     Task<bool> CancelQueuedTransferAsync(string externalReference);
     Task<bool> RetryQueuedTransferAsync(string externalReference);
 
     // Reservations
-    Task<List<StockReservationDto>?> GetReservationsAsync(string? sourceSystem = null, string? status = null, int page = 1, int pageSize = 50);
+    Task<(List<StockReservationDto>? Result, string? Error)> GetReservationsAsync(string? sourceSystem = null, string? status = null, int page = 1, int pageSize = 50);
     Task<StockReservationDto?> GetReservationAsync(string reservationId);
     Task<bool> CancelReservationAsync(string reservationId, string? reason = null);
 
@@ -62,11 +63,11 @@ public interface IDesktopIntegrationService
     /// </remarks>
     Task<(DesktopSalesListResponse? Result, string? Error)> ReadDesktopSalesAsync(
         DesktopSalesQuery query, CancellationToken cancellationToken = default);
-    Task<EndOfDayReportDto?> GetEndOfDayReportAsync(DateTime? reportDate = null);
+    Task<(EndOfDayReportDto? Result, string? Error)> GetEndOfDayReportAsync(DateTime? reportDate = null);
 
     // Local Stock Snapshots
-    Task<LocalStockResultDto?> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null);
-    Task<List<string>?> GetMonitoredWarehousesAsync();
+    Task<(LocalStockResultDto? Result, string? Error)> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null);
+    Task<(List<string>? Result, string? Error)> GetMonitoredWarehousesAsync();
     Task<bool> TriggerStockFetchAsync();
 
     // Returns the API's refusal verbatim — "a van cannot be refreshed", "fetch today's stock first",
@@ -167,48 +168,24 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         _logger = logger;
     }
 
-    public async Task<List<InvoiceQueueStatusDto>?> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100)
+    public async Task<(List<InvoiceQueueStatusDto>? Result, string? Error)> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100)
     {
-        try
+        var url = $"api/DesktopIntegration/queue?limit={limit}";
+        if (!string.IsNullOrEmpty(sourceSystem))
         {
-            var url = $"api/DesktopIntegration/queue?limit={limit}";
-            if (!string.IsNullOrEmpty(sourceSystem))
-            {
-                url += $"&sourceSystem={Uri.EscapeDataString(sourceSystem)}";
-            }
-            return await _httpClient.GetFromJsonAsync<List<InvoiceQueueStatusDto>>(url);
+            url += $"&sourceSystem={Uri.EscapeDataString(sourceSystem)}";
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting pending queue");
-            return null;
-        }
+        return await ReadAsync<List<InvoiceQueueStatusDto>>(url);
     }
 
-    public async Task<List<InvoiceQueueStatusDto>?> GetInvoicesRequiringReviewAsync(int limit = 50)
+    public async Task<(List<InvoiceQueueStatusDto>? Result, string? Error)> GetInvoicesRequiringReviewAsync(int limit = 50)
     {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<List<InvoiceQueueStatusDto>>($"api/DesktopIntegration/queue/review?limit={limit}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting invoices requiring review");
-            return null;
-        }
+        return await ReadAsync<List<InvoiceQueueStatusDto>>($"api/DesktopIntegration/queue/review?limit={limit}");
     }
 
-    public async Task<InvoiceQueueStatsDto?> GetQueueStatsAsync()
+    public async Task<(InvoiceQueueStatsDto? Result, string? Error)> GetQueueStatsAsync()
     {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<InvoiceQueueStatsDto>("api/DesktopIntegration/queue/stats");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting queue stats");
-            return null;
-        }
+        return await ReadAsync<InvoiceQueueStatsDto>("api/DesktopIntegration/queue/stats");
     }
 
     public async Task<InvoiceQueueStatusDto?> GetQueueStatusAsync(string externalReference)
@@ -224,27 +201,19 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
     }
 
-    public async Task<List<StockReservationDto>?> GetReservationsAsync(string? sourceSystem = null, string? status = null, int page = 1, int pageSize = 50)
+    public async Task<(List<StockReservationDto>? Result, string? Error)> GetReservationsAsync(string? sourceSystem = null, string? status = null, int page = 1, int pageSize = 50)
     {
-        try
+        var url = $"api/DesktopIntegration/reservations?page={page}&pageSize={pageSize}&activeOnly=false";
+        if (!string.IsNullOrEmpty(sourceSystem))
         {
-            var url = $"api/DesktopIntegration/reservations?page={page}&pageSize={pageSize}&activeOnly=false";
-            if (!string.IsNullOrEmpty(sourceSystem))
-            {
-                url += $"&sourceSystem={Uri.EscapeDataString(sourceSystem)}";
-            }
-            if (!string.IsNullOrEmpty(status))
-            {
-                url += $"&status={Uri.EscapeDataString(status)}";
-            }
-            var response = await _httpClient.GetFromJsonAsync<ReservationListResponse>(url);
-            return response?.Reservations;
+            url += $"&sourceSystem={Uri.EscapeDataString(sourceSystem)}";
         }
-        catch (Exception ex)
+        if (!string.IsNullOrEmpty(status))
         {
-            _logger.LogError(ex, "Error getting reservations");
-            return null;
+            url += $"&status={Uri.EscapeDataString(status)}";
         }
+        var (response, error) = await ReadAsync<ReservationListResponse>(url);
+        return (response?.Reservations, error);
     }
 
     public async Task<StockReservationDto?> GetReservationAsync(string reservationId)
@@ -305,48 +274,24 @@ public class DesktopIntegrationService : IDesktopIntegrationService
 
     #region Inventory Transfer Queue Methods
 
-    public async Task<List<InventoryTransferQueueStatusDto>?> GetPendingTransferQueueAsync(string? sourceSystem = null, int limit = 100)
+    public async Task<(List<InventoryTransferQueueStatusDto>? Result, string? Error)> GetPendingTransferQueueAsync(string? sourceSystem = null, int limit = 100)
     {
-        try
+        var url = $"api/DesktopIntegration/transfer-queue?limit={limit}";
+        if (!string.IsNullOrEmpty(sourceSystem))
         {
-            var url = $"api/DesktopIntegration/transfer-queue?limit={limit}";
-            if (!string.IsNullOrEmpty(sourceSystem))
-            {
-                url += $"&sourceSystem={Uri.EscapeDataString(sourceSystem)}";
-            }
-            return await _httpClient.GetFromJsonAsync<List<InventoryTransferQueueStatusDto>>(url);
+            url += $"&sourceSystem={Uri.EscapeDataString(sourceSystem)}";
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting pending transfer queue");
-            return null;
-        }
+        return await ReadAsync<List<InventoryTransferQueueStatusDto>>(url);
     }
 
-    public async Task<List<InventoryTransferQueueStatusDto>?> GetTransfersRequiringReviewAsync(int limit = 50)
+    public async Task<(List<InventoryTransferQueueStatusDto>? Result, string? Error)> GetTransfersRequiringReviewAsync(int limit = 50)
     {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<List<InventoryTransferQueueStatusDto>>($"api/DesktopIntegration/transfer-queue/review?limit={limit}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting transfers requiring review");
-            return null;
-        }
+        return await ReadAsync<List<InventoryTransferQueueStatusDto>>($"api/DesktopIntegration/transfer-queue/review?limit={limit}");
     }
 
-    public async Task<InventoryTransferQueueStatsDto?> GetTransferQueueStatsAsync()
+    public async Task<(InventoryTransferQueueStatsDto? Result, string? Error)> GetTransferQueueStatsAsync()
     {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<InventoryTransferQueueStatsDto>("api/DesktopIntegration/transfer-queue/stats");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting transfer queue stats");
-            return null;
-        }
+        return await ReadAsync<InventoryTransferQueueStatsDto>("api/DesktopIntegration/transfer-queue/stats");
     }
 
     public async Task<InventoryTransferQueueStatusDto?> GetTransferQueueStatusAsync(string externalReference)
@@ -463,23 +408,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
                 queryParams.Add("includeFacets=true");
 
             var url = $"api/DesktopIntegration/sales?{string.Join("&", queryParams)}";
-
-            // Sent and read in two steps rather than through GetFromJsonAsync, which throws away the body
-            // of a refusal — and the body is where the API says why.
-            using var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError(
-                    "Error getting desktop sales: the API answered {StatusCode} {Body}",
-                    (int)response.StatusCode, ApiErrorResponse.SanitizeForLog(body));
-                return (null, ApiReadFailure.ForStatus(response.StatusCode, body));
-            }
-
-            var result = await response.Content.ReadFromJsonAsync<DesktopSalesListResponse>(cancellationToken);
-            return result is null
-                ? (null, "The API answered with an empty reply.")
-                : (result, null);
+            return await ReadAsync<DesktopSalesListResponse>(url, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
@@ -488,49 +417,25 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
     }
 
-    public async Task<EndOfDayReportDto?> GetEndOfDayReportAsync(DateTime? reportDate = null)
+    public async Task<(EndOfDayReportDto? Result, string? Error)> GetEndOfDayReportAsync(DateTime? reportDate = null)
     {
-        try
-        {
-            var url = "api/DesktopIntegration/end-of-day/report";
-            if (reportDate.HasValue)
-                url += $"?reportDate={reportDate.Value:yyyy-MM-dd}";
-            return await _httpClient.GetFromJsonAsync<EndOfDayReportDto>(url);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting end-of-day report");
-            return null;
-        }
+        var url = "api/DesktopIntegration/end-of-day/report";
+        if (reportDate.HasValue)
+            url += $"?reportDate={reportDate.Value:yyyy-MM-dd}";
+        return await ReadAsync<EndOfDayReportDto>(url);
     }
 
-    public async Task<LocalStockResultDto?> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null)
+    public async Task<(LocalStockResultDto? Result, string? Error)> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null)
     {
-        try
-        {
-            var url = $"api/DesktopIntegration/stock/{Uri.EscapeDataString(warehouseCode)}/local";
-            if (snapshotDate.HasValue)
-                url += $"?snapshotDate={snapshotDate.Value:yyyy-MM-dd}";
-            return await _httpClient.GetFromJsonAsync<LocalStockResultDto>(url);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting local stock for {Warehouse}", warehouseCode);
-            return null;
-        }
+        var url = $"api/DesktopIntegration/stock/{Uri.EscapeDataString(warehouseCode)}/local";
+        if (snapshotDate.HasValue)
+            url += $"?snapshotDate={snapshotDate.Value:yyyy-MM-dd}";
+        return await ReadAsync<LocalStockResultDto>(url, notFoundIsEmpty: true);
     }
 
-    public async Task<List<string>?> GetMonitoredWarehousesAsync()
+    public async Task<(List<string>? Result, string? Error)> GetMonitoredWarehousesAsync()
     {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<List<string>>("api/DesktopIntegration/stock/monitored-warehouses");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting monitored warehouses");
-            return null;
-        }
+        return await ReadAsync<List<string>>("api/DesktopIntegration/stock/monitored-warehouses");
     }
 
     public async Task<bool> TriggerStockFetchAsync()
@@ -701,6 +606,58 @@ public class DesktopIntegrationService : IDesktopIntegrationService
             return (null,
                 $"The batch could not be completed from here: {ex.Message}. Refresh to see what reached SAP, "
                 + "then post whatever is still awaiting close — anything already posted will not be posted twice.");
+        }
+    }
+
+    /// <summary>
+    /// GETs a JSON body, or says in one sentence why it could not — see <see cref="ApiReadFailure"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every read in this service used to be a <c>GetFromJsonAsync</c> inside a catch that returned null, so a
+    /// page could not tell an outage from an empty queue, and said "check that the API is running" or simply
+    /// showed nothing. Sent and read in two steps because <c>GetFromJsonAsync</c> throws away the body of a
+    /// refusal, and the body is where the API says why.
+    /// </para>
+    /// <para>
+    /// <paramref name="notFoundIsEmpty"/> is for a read whose 404 is an answer — "no snapshot for that day" —
+    /// and returns <c>(null, null)</c> for it. Only a 404 carrying the API's problem body counts. A bare 404 is
+    /// the Web asking for a route that does not exist, and reading that as "nothing there" is the very failure
+    /// this helper exists to stop hiding.
+    /// </para>
+    /// </remarks>
+    private async Task<(T? Result, string? Error)> ReadAsync<T>(
+        string url, bool notFoundIsEmpty = false, CancellationToken cancellationToken = default) where T : class
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+
+            if (notFoundIsEmpty
+                && response.StatusCode == HttpStatusCode.NotFound
+                && response.Content.Headers.ContentType?.MediaType == "application/problem+json")
+            {
+                return (null, null);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Error reading {Url}: the API answered {StatusCode} {Body}",
+                    url, (int)response.StatusCode, ApiErrorResponse.SanitizeForLog(body));
+                return (null, ApiReadFailure.ForStatus(response.StatusCode, body));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+            return result is null
+                ? (null, "The API answered with an empty reply.")
+                : (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading {Url}", url);
+            return (null, ApiReadFailure.ForException(ex, _httpClient.Timeout));
         }
     }
 

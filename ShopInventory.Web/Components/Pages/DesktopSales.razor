@@ -1662,7 +1662,14 @@
                 SayError($"Failed to load desktop sales. {loadError}");
             }
 
-            report = await DesktopService.GetEndOfDayReportAsync(filterFromDate);
+            var (endOfDay, reportError) = await DesktopService.GetEndOfDayReportAsync(filterFromDate);
+            report = endOfDay;
+
+            // Said only when the list itself loaded; a list failure is the bigger news and keeps the notice.
+            if (reportError is not null && loadError is null)
+            {
+                SayError($"Failed to load the end-of-day report. {reportError}");
+            }
         }
         catch (Exception ex)
         {
