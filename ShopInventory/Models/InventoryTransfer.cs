@@ -81,4 +81,8 @@ public class LoginResponse
 {
     [JsonPropertyName("SessionId")]
     public string? SessionId { get; set; }
+
+    /// <summary>Minutes SAP keeps the session while it is idle.</summary>
+    [JsonPropertyName("SessionTimeout")]
+    public int? SessionTimeout { get; set; }
 }
