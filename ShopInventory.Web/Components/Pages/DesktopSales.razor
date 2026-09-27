@@ -1611,7 +1611,7 @@
 
         try
         {
-            var response = await DesktopService.GetDesktopSalesAsync(new DesktopSalesQuery
+            var (response, loadError) = await DesktopService.ReadDesktopSalesAsync(new DesktopSalesQuery
             {
                 Search = Trimmed(filterSearch),
                 CardCode = Trimmed(filterCardCode),
@@ -1656,7 +1656,10 @@
             }
             else
             {
-                SayError("Failed to load desktop sales. Check that the API is running.");
+                // The reason as the service found it — the status the API answered with, a timeout, a
+                // refused connection or the field the Web could not read. "Check that the API is running"
+                // used to stand in for all four, and was shown with the API up.
+                SayError($"Failed to load desktop sales. {loadError}");
             }
 
             report = await DesktopService.GetEndOfDayReportAsync(filterFromDate);
