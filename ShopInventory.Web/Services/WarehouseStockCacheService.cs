@@ -94,9 +94,17 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
     /// </summary>
     internal static readonly TimeSpan CacheExpiry = TimeSpan.FromMinutes(15);
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
-    private static readonly HashSet<string> _syncInProgress = new();
-    private static readonly object _syncLock = new();
-    private static readonly SemaphoreSlim _backgroundSyncSemaphore = new(1, 1);
+
+    /// <summary>
+    /// How many warehouses may refresh at once.
+    /// </summary>
+    /// <remarks>
+    /// It was one, shared by every warehouse, and a whole-warehouse read can take four minutes when
+    /// SAP is slow, so one slow warehouse held every other warehouse's refresh behind it. Only one
+    /// refresh per warehouse can be waiting here (see <see cref="CacheRefresh"/>), so two slots
+    /// bound the SAP load without a queue of repeats.
+    /// </remarks>
+    private static readonly SemaphoreSlim _refreshSlots = new(2, 2);
 
     public event EventHandler<string>? SyncCompleted;
 
@@ -130,9 +138,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
             var syncInfo = await dbContext.CacheSyncInfo.FindAsync([cacheKey], cancellationToken);
             _logger.LogDebug("CacheSyncInfo lookup completed. Found: {Found}", syncInfo != null);
 
-            var isCacheStale = syncInfo == null ||
-                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > CacheExpiry ||
-                          !syncInfo.SyncSuccessful;
+            var isCacheStale = CacheRefresh.IsDue(syncInfo, CacheExpiry, DateTime.UtcNow);
 
             // Get cached data. The search is applied before both the count and the
             // page, so the total describes the same set the rows came from.
@@ -179,18 +185,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 // Trigger background sync if cache is stale
                 if (isCacheStale)
                 {
-                    _ = SapBackgroundPriority.Run(async () =>
-                    {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncWarehouseStockInBackgroundAsync(warehouseCode);
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
+                    CacheRefresh.StartInBackground(cacheKey, () => InRefreshSlotAsync(() => SyncWarehouseStockInBackgroundAsync(warehouseCode)));
                 }
 
                 return response;
@@ -226,18 +221,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 await SaveStockToCacheAsync(warehouseCode, apiResponse.Items);
 
                 // Start background sync for remaining items
-                _ = SapBackgroundPriority.Run(async () =>
-                {
-                    await _backgroundSyncSemaphore.WaitAsync();
-                    try
-                    {
-                        await SyncRemainingStockInBackgroundAsync(warehouseCode, apiResponse.HasMore);
-                    }
-                    finally
-                    {
-                        _backgroundSyncSemaphore.Release();
-                    }
-                });
+                CacheRefresh.StartInBackground(cacheKey, () => InRefreshSlotAsync(() => SyncRemainingStockInBackgroundAsync(warehouseCode, apiResponse.HasMore)));
 
                 var products = apiResponse.Items.Select(MapStockToProduct).ToList();
 
@@ -281,9 +265,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         try
         {
             var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
-            var isCacheStale = syncInfo == null ||
-                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > CacheExpiry ||
-                          !syncInfo.SyncSuccessful;
+            var isCacheStale = CacheRefresh.IsDue(syncInfo, CacheExpiry, DateTime.UtcNow);
 
             // Get ALL cached data (no pagination)
             var cachedItems = await dbContext.CachedWarehouseStocks
@@ -299,18 +281,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 // Trigger background sync if cache is stale
                 if (isCacheStale)
                 {
-                    _ = SapBackgroundPriority.Run(async () =>
-                    {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncWarehouseStockInBackgroundAsync(warehouseCode);
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
+                    CacheRefresh.StartInBackground(cacheKey, () => InRefreshSlotAsync(() => SyncWarehouseStockInBackgroundAsync(warehouseCode)));
                 }
 
                 return new WarehouseProductsResponse
@@ -340,18 +311,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 await SaveStockToCacheAsync(warehouseCode, firstPage.Items);
 
                 // Start background sync for remaining items
-                _ = SapBackgroundPriority.Run(async () =>
-                {
-                    await _backgroundSyncSemaphore.WaitAsync();
-                    try
-                    {
-                        await SyncRemainingStockInBackgroundAsync(warehouseCode, firstPage.HasMore);
-                    }
-                    finally
-                    {
-                        _backgroundSyncSemaphore.Release();
-                    }
-                });
+                CacheRefresh.StartInBackground(cacheKey, () => InRefreshSlotAsync(() => SyncRemainingStockInBackgroundAsync(warehouseCode, firstPage.HasMore)));
 
                 var products = firstPage.Items.Select(MapStockToProduct).ToList();
                 return new WarehouseProductsResponse
@@ -456,10 +416,30 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
             counts.OnOrder);
     }
 
-    public async Task<bool> SyncWarehouseStockAsync(string warehouseCode)
+    public Task<bool> SyncWarehouseStockAsync(string warehouseCode) =>
+        CacheRefresh.RunNowAsync(
+            $"WarehouseStock_{warehouseCode}",
+            () => InRefreshSlotAsync(() => SyncWarehouseStockInBackgroundAsync(warehouseCode)));
+
+    private static async Task<T> InRefreshSlotAsync<T>(Func<Task<T>> refresh)
     {
-        return await SyncWarehouseStockInBackgroundAsync(warehouseCode);
+        await _refreshSlots.WaitAsync();
+        try
+        {
+            return await refresh();
+        }
+        finally
+        {
+            _refreshSlots.Release();
+        }
     }
+
+    private static Task InRefreshSlotAsync(Func<Task> refresh) =>
+        InRefreshSlotAsync(async () =>
+        {
+            await refresh();
+            return true;
+        });
 
     public async Task<IReadOnlyDictionary<string, ProductDto>> GetStockForItemsAsync(
         string warehouseCode,
@@ -522,17 +502,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
 
     private async Task<bool> SyncWarehouseStockInBackgroundAsync(string warehouseCode)
     {
-        // Prevent concurrent syncs for the same warehouse
-        lock (_syncLock)
-        {
-            if (_syncInProgress.Contains(warehouseCode))
-            {
-                _logger.LogDebug("Sync already in progress for warehouse {WarehouseCode}", warehouseCode);
-                return false;
-            }
-            _syncInProgress.Add(warehouseCode);
-        }
-
+        // One refresh per warehouse at a time is the caller's claim (CacheRefresh), not a lock here.
         try
         {
             _logger.LogInformation("Starting full stock sync for warehouse {WarehouseCode}", warehouseCode);
@@ -573,13 +543,6 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
             _logger.LogError(ex, "Error during stock sync for warehouse {WarehouseCode}", warehouseCode);
             await UpdateSyncInfoAsync(warehouseCode, 0, false, ex.Message);
             return false;
-        }
-        finally
-        {
-            lock (_syncLock)
-            {
-                _syncInProgress.Remove(warehouseCode);
-            }
         }
     }
 

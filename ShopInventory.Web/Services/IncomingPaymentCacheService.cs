@@ -47,10 +47,14 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
     private readonly ILogger<IncomingPaymentCacheService> _logger;
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
-    private static bool _syncInProgress;
-    private static readonly object _syncLock = new();
-    private static readonly SemaphoreSlim _backgroundSyncSemaphore = new(1, 1);
     private const string CacheKey = "IncomingPayments";
+    private const int PageSize = 100;
+
+    /// <summary>
+    /// The most pages a refresh reads looking for the payments it already holds. Past this many new
+    /// payments (two thousand) it walks them all again rather than paging on with an ever larger skip.
+    /// </summary>
+    internal const int TopUpPageLimit = 20;
 
     public event EventHandler? SyncCompleted;
 
@@ -69,9 +73,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         var syncInfo = await dbContext.CacheSyncInfo.FindAsync(CacheKey);
-        var isCacheStale = syncInfo == null ||
-                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
-                          !syncInfo.SyncSuccessful;
+        var isCacheStale = CacheRefresh.IsDue(syncInfo, _cacheExpiration, DateTime.UtcNow);
 
         // Get cached count
         var cachedCount = await dbContext.CachedIncomingPayments.CountAsync();
@@ -99,18 +101,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
             // Trigger background sync if cache is stale
             if (isCacheStale)
             {
-                _ = SapBackgroundPriority.Run(async () =>
-                {
-                    await _backgroundSyncSemaphore.WaitAsync();
-                    try
-                    {
-                        await SyncPaymentsInBackgroundAsync();
-                    }
-                    finally
-                    {
-                        _backgroundSyncSemaphore.Release();
-                    }
-                });
+                CacheRefresh.StartInBackground(CacheKey, RefreshAsync);
             }
 
             return response;
@@ -129,18 +120,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
                 catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache payments"); }
 
                 // Start full background sync (consistent pageSize avoids gaps from the initial fetch)
-                _ = SapBackgroundPriority.Run(async () =>
-                {
-                    await _backgroundSyncSemaphore.WaitAsync();
-                    try
-                    {
-                        await SyncPaymentsInBackgroundAsync();
-                    }
-                    finally
-                    {
-                        _backgroundSyncSemaphore.Release();
-                    }
-                });
+                CacheRefresh.StartInBackground(CacheKey, RefreshAsync);
 
                 return apiResponse;
             }
@@ -229,10 +209,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
         }
     }
 
-    public async Task<bool> SyncPaymentsAsync()
-    {
-        return await SyncPaymentsInBackgroundAsync();
-    }
+    public Task<bool> SyncPaymentsAsync() => CacheRefresh.RunNowAsync(CacheKey, RefreshAsync);
 
     public async Task<CacheSyncInfo?> GetSyncStatusAsync()
     {
@@ -240,55 +217,36 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
         return await dbContext.CacheSyncInfo.FindAsync(CacheKey);
     }
 
-    private async Task<bool> SyncPaymentsInBackgroundAsync()
+    /// <summary>
+    /// Brings the cache up to date with SAP.
+    /// </summary>
+    /// <remarks>
+    /// This used to read every incoming payment ever made, a hundred to a page, each time the cache was
+    /// five minutes old. SAP numbers payments in order (DocEntry only grows) and the API pages them
+    /// newest first, so after one full walk a refresh reads only the pages newer than the watermark,
+    /// usually one. The full walk is kept for an empty cache and for a gap too wide to page through.
+    /// </remarks>
+    private async Task<bool> RefreshAsync()
     {
-        lock (_syncLock)
-        {
-            if (_syncInProgress)
-            {
-                _logger.LogDebug("Payment sync already in progress");
-                return false;
-            }
-            _syncInProgress = true;
-        }
-
         try
         {
-            _logger.LogInformation("Starting full payment sync");
-
-            var allPayments = new List<IncomingPaymentDto>();
-            var page = 1;
-            var pageSize = 100;
-            var hasMore = true;
-
-            while (hasMore)
+            var watermark = await CacheRefresh.ReadWatermarkAsync(_dbContextFactory, CacheKey);
+            var toppedUp = watermark is { } mark && await TopUpAsync(mark);
+            if (!toppedUp)
             {
-                var response = await FetchPaymentsFromApiAsync(page, pageSize);
-                if (response?.Payments != null)
-                {
-                    allPayments.AddRange(response.Payments);
-                    hasMore = response.HasMore;
-                    page++;
-                }
-                else
-                {
-                    hasMore = false;
-                }
+                await WalkAllPaymentsAsync();
             }
 
-            if (allPayments.Any())
-            {
-                await ReplacePaymentCacheAsync(allPayments);
-                await UpdateSyncInfoAsync(allPayments.Count, true, null);
-                _logger.LogInformation("Completed payment sync: {Count} payments", allPayments.Count);
-                SyncCompleted?.Invoke(this, EventArgs.Empty);
-                return true;
-            }
-            else
-            {
-                await UpdateSyncInfoAsync(0, true, "No payments found");
-                return true;
-            }
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            var count = await dbContext.CachedIncomingPayments.CountAsync();
+
+            await UpdateSyncInfoAsync(count, true, count == 0 ? "No payments found" : null);
+            _logger.LogInformation(
+                "Refreshed the payments cache ({How}): {Count} payments",
+                toppedUp ? "new payments only" : "full walk",
+                count);
+            SyncCompleted?.Invoke(this, EventArgs.Empty);
+            return true;
         }
         catch (Exception ex)
         {
@@ -296,71 +254,76 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
             await UpdateSyncInfoAsync(0, false, ex.Message);
             return false;
         }
-        finally
-        {
-            lock (_syncLock)
-            {
-                _syncInProgress = false;
-            }
-        }
     }
 
-    private async Task SyncRemainingPaymentsInBackgroundAsync(bool hasMore)
+    /// <summary>
+    /// Reads pages newest first until one reaches <paramref name="watermark"/>, saving every payment
+    /// past it. False when <see cref="TopUpPageLimit"/> pages did not get that far.
+    /// </summary>
+    private async Task<bool> TopUpAsync(int watermark)
     {
-        if (!hasMore) return;
+        var highest = watermark;
 
-        lock (_syncLock)
+        for (var page = 1; page <= TopUpPageLimit; page++)
         {
-            if (_syncInProgress)
+            var response = await FetchPaymentsFromApiAsync(page, PageSize)
+                ?? throw new InvalidOperationException("The payments list could not be read from the API.");
+            var payments = response.Payments ?? [];
+            var newer = payments.Where(payment => payment.DocEntry > watermark).ToList();
+
+            if (newer.Count > 0)
             {
-                _logger.LogDebug("Payment sync already in progress");
-                return;
-            }
-            _syncInProgress = true;
-        }
-
-        try
-        {
-            _logger.LogInformation("Starting background sync for remaining payments");
-
-            var page = 2;
-            var pageSize = 100;
-
-            while (hasMore)
-            {
-                var response = await FetchPaymentsFromApiAsync(page, pageSize);
-                if (response?.Payments != null && response.Payments.Any())
-                {
-                    await SavePaymentsToCacheAsync(response.Payments);
-                    hasMore = response.HasMore;
-                    page++;
-                    _logger.LogDebug("Cached page {Page}: {Count} payments", page - 1, response.Payments.Count);
-                }
-                else
-                {
-                    hasMore = false;
-                }
+                await SavePaymentsToCacheAsync(newer);
+                highest = Math.Max(highest, newer.Max(payment => payment.DocEntry));
             }
 
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            var totalCount = await dbContext.CachedIncomingPayments.CountAsync();
-
-            await UpdateSyncInfoAsync(totalCount, true, null);
-            _logger.LogInformation("Completed background payment sync: {Count} total payments", totalCount);
-            SyncCompleted?.Invoke(this, EventArgs.Empty);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during background payment sync");
-            await UpdateSyncInfoAsync(0, false, ex.Message);
-        }
-        finally
-        {
-            lock (_syncLock)
+            if (newer.Count < payments.Count || !response.HasMore)
             {
-                _syncInProgress = false;
+                await CacheRefresh.WriteWatermarkAsync(_dbContextFactory, CacheKey, highest);
+                return true;
             }
         }
+
+        _logger.LogInformation(
+            "More than {Pages} pages of payments since the last refresh; reading them all",
+            TopUpPageLimit);
+        return false;
+    }
+
+    /// <summary>
+    /// Reads every payment and replaces the cache with them.
+    /// </summary>
+    /// <remarks>
+    /// A page that could not be read stops the walk as a failure. It used to end the walk as if it were
+    /// the last page, and the cache was then replaced with the pages read so far.
+    /// </remarks>
+    private async Task WalkAllPaymentsAsync()
+    {
+        var all = new List<IncomingPaymentDto>();
+
+        for (var page = 1; ; page++)
+        {
+            var response = await FetchPaymentsFromApiAsync(page, PageSize)
+                ?? throw new InvalidOperationException("The payments list could not be read from the API.");
+            var payments = response.Payments ?? [];
+            all.AddRange(payments);
+
+            if (!response.HasMore || payments.Count == 0)
+                break;
+        }
+
+        if (all.Count == 0)
+            return;
+
+        // A payment posted during the walk shifts the pages by one, so the row at a page boundary can
+        // be read twice.
+        var distinct = all
+            .GroupBy(payment => payment.DocEntry)
+            .Select(group => group.First())
+            .ToList();
+
+        await ReplacePaymentCacheAsync(distinct);
+        await CacheRefresh.WriteWatermarkAsync(_dbContextFactory, CacheKey, distinct.Max(payment => payment.DocEntry));
     }
 
     private async Task<IncomingPaymentListResponse?> FetchPaymentsFromApiAsync(int page, int pageSize, CancellationToken cancellationToken = default)

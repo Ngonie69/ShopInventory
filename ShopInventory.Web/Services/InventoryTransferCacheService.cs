@@ -47,8 +47,15 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
     private readonly ILogger<InventoryTransferCacheService> _logger;
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
-    private static readonly HashSet<string> _syncInProgress = new();
-    private static readonly object _syncLock = new();
+    private const int PageSize = 100;
+
+    /// <summary>
+    /// The most pages a refresh reads looking for the transfers it already holds. Past this many new
+    /// transfers it walks them all again rather than paging on with an ever larger skip.
+    /// </summary>
+    internal const int TopUpPageLimit = 20;
+
+    private static string CacheKeyFor(string warehouseCode) => $"InventoryTransfers_{warehouseCode}";
 
     public event EventHandler<string>? SyncCompleted;
 
@@ -66,11 +73,9 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        var cacheKey = $"InventoryTransfers_{warehouseCode}";
+        var cacheKey = CacheKeyFor(warehouseCode);
         var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
-        var isCacheStale = syncInfo == null ||
-                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
-                          !syncInfo.SyncSuccessful;
+        var isCacheStale = CacheRefresh.IsDue(syncInfo, _cacheExpiration, DateTime.UtcNow);
 
         // Get cached count - transfers where the warehouse is either from or to
         var cachedCount = await dbContext.CachedInventoryTransfers
@@ -102,7 +107,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
             // Trigger background sync if cache is stale
             if (isCacheStale)
             {
-                _ = SapBackgroundPriority.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+                CacheRefresh.StartInBackground(cacheKey, () => RefreshAsync(warehouseCode));
             }
 
             return response;
@@ -118,8 +123,8 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
             try { await SaveTransfersToCacheAsync(apiResponse.Transfers); }
             catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache transfers for warehouse {WarehouseCode}", warehouseCode); }
 
-            // Start background sync for remaining items
-            _ = SapBackgroundPriority.Run(async () => await SyncRemainingTransfersInBackgroundAsync(warehouseCode, apiResponse.HasMore));
+            // Walk the warehouse once in the background. Later refreshes read only what is new.
+            CacheRefresh.StartInBackground(cacheKey, () => RefreshAsync(warehouseCode));
 
             return apiResponse;
         }
@@ -155,15 +160,12 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
         // If cache has data, return it (and trigger background sync if stale)
         if (transfers.Count > 0)
         {
-            var cacheKey = $"InventoryTransfers_{warehouseCode}";
+            var cacheKey = CacheKeyFor(warehouseCode);
             var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
-            var isCacheStale = syncInfo == null ||
-                              (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
-                              !syncInfo.SyncSuccessful;
 
-            if (isCacheStale)
+            if (CacheRefresh.IsDue(syncInfo, _cacheExpiration, DateTime.UtcNow))
             {
-                _ = SapBackgroundPriority.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+                CacheRefresh.StartInBackground(cacheKey, () => RefreshAsync(warehouseCode));
             }
 
             return new InventoryTransferDateResponse
@@ -191,7 +193,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
                 try { await SaveTransfersToCacheAsync(apiResponse.Transfers); }
                 catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache transfers for warehouse {WarehouseCode}", warehouseCode); }
                 // Trigger full background sync
-                _ = SapBackgroundPriority.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+                CacheRefresh.StartInBackground(CacheKeyFor(warehouseCode), () => RefreshAsync(warehouseCode));
             }
 
             return apiResponse ?? new InventoryTransferDateResponse
@@ -250,67 +252,50 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
         }
     }
 
-    public async Task<bool> SyncTransfersAsync(string warehouseCode)
-    {
-        return await SyncTransfersInBackgroundAsync(warehouseCode);
-    }
+    public Task<bool> SyncTransfersAsync(string warehouseCode) =>
+        CacheRefresh.RunNowAsync(CacheKeyFor(warehouseCode), () => RefreshAsync(warehouseCode));
 
     public async Task<CacheSyncInfo?> GetSyncStatusAsync(string warehouseCode)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        var cacheKey = $"InventoryTransfers_{warehouseCode}";
-        return await dbContext.CacheSyncInfo.FindAsync(cacheKey);
+        return await dbContext.CacheSyncInfo.FindAsync(CacheKeyFor(warehouseCode));
     }
 
-    private async Task<bool> SyncTransfersInBackgroundAsync(string warehouseCode)
+    /// <summary>
+    /// Brings one warehouse's transfers up to date with SAP.
+    /// </summary>
+    /// <remarks>
+    /// This used to read every transfer the warehouse had ever sent or received, a hundred to a page,
+    /// each time the warehouse's cache was five minutes old. SAP numbers transfers in order (DocEntry
+    /// only grows, and a cancellation adds a document rather than changing one) and the API pages them
+    /// newest first, so after one full walk a refresh reads only the pages newer than the warehouse's
+    /// watermark, usually one.
+    /// </remarks>
+    private async Task<bool> RefreshAsync(string warehouseCode)
     {
-        lock (_syncLock)
-        {
-            if (_syncInProgress.Contains(warehouseCode))
-            {
-                _logger.LogDebug("Transfer sync already in progress for warehouse {WarehouseCode}", warehouseCode);
-                return false;
-            }
-            _syncInProgress.Add(warehouseCode);
-        }
+        var cacheKey = CacheKeyFor(warehouseCode);
 
         try
         {
-            _logger.LogInformation("Starting full transfer sync for warehouse {WarehouseCode}", warehouseCode);
-
-            var allTransfers = new List<InventoryTransferDto>();
-            var page = 1;
-            var pageSize = 100;
-            var hasMore = true;
-
-            while (hasMore)
+            var watermark = await CacheRefresh.ReadWatermarkAsync(_dbContextFactory, cacheKey);
+            var toppedUp = watermark is { } mark && await TopUpAsync(warehouseCode, mark);
+            if (!toppedUp)
             {
-                var response = await FetchTransfersFromApiAsync(warehouseCode, page, pageSize);
-                if (response?.Transfers != null)
-                {
-                    allTransfers.AddRange(response.Transfers);
-                    hasMore = response.HasMore;
-                    page++;
-                }
-                else
-                {
-                    hasMore = false;
-                }
+                await WalkAllTransfersAsync(warehouseCode);
             }
 
-            if (allTransfers.Any())
-            {
-                await ReplaceTransferCacheAsync(warehouseCode, allTransfers);
-                await UpdateSyncInfoAsync(warehouseCode, allTransfers.Count, true, null);
-                _logger.LogInformation("Completed transfer sync for warehouse {WarehouseCode}: {Count} transfers", warehouseCode, allTransfers.Count);
-                SyncCompleted?.Invoke(this, warehouseCode);
-                return true;
-            }
-            else
-            {
-                await UpdateSyncInfoAsync(warehouseCode, 0, true, "No transfers found");
-                return true;
-            }
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            var count = await dbContext.CachedInventoryTransfers
+                .CountAsync(t => t.FromWarehouse == warehouseCode || t.ToWarehouse == warehouseCode);
+
+            await UpdateSyncInfoAsync(warehouseCode, count, true, count == 0 ? "No transfers found" : null);
+            _logger.LogInformation(
+                "Refreshed the transfers cache for warehouse {WarehouseCode} ({How}): {Count} transfers",
+                warehouseCode,
+                toppedUp ? "new transfers only" : "full walk",
+                count);
+            SyncCompleted?.Invoke(this, warehouseCode);
+            return true;
         }
         catch (Exception ex)
         {
@@ -318,74 +303,80 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
             await UpdateSyncInfoAsync(warehouseCode, 0, false, ex.Message);
             return false;
         }
-        finally
-        {
-            lock (_syncLock)
-            {
-                _syncInProgress.Remove(warehouseCode);
-            }
-        }
     }
 
-    private async Task SyncRemainingTransfersInBackgroundAsync(string warehouseCode, bool hasMore)
+    /// <summary>
+    /// Reads pages newest first until one reaches <paramref name="watermark"/>, saving every transfer
+    /// past it. False when <see cref="TopUpPageLimit"/> pages did not get that far.
+    /// </summary>
+    private async Task<bool> TopUpAsync(string warehouseCode, int watermark)
     {
-        if (!hasMore) return;
+        var highest = watermark;
 
-        lock (_syncLock)
+        for (var page = 1; page <= TopUpPageLimit; page++)
         {
-            if (_syncInProgress.Contains(warehouseCode))
+            var response = await FetchTransfersFromApiAsync(warehouseCode, page, PageSize)
+                ?? throw new InvalidOperationException($"The transfers for warehouse {warehouseCode} could not be read from the API.");
+            var transfers = response.Transfers ?? [];
+            var newer = transfers.Where(transfer => transfer.DocEntry > watermark).ToList();
+
+            if (newer.Count > 0)
             {
-                _logger.LogDebug("Transfer sync already in progress for warehouse {WarehouseCode}", warehouseCode);
-                return;
-            }
-            _syncInProgress.Add(warehouseCode);
-        }
-
-        try
-        {
-            _logger.LogInformation("Starting background sync for remaining transfers in warehouse {WarehouseCode}", warehouseCode);
-
-            var page = 2;
-            var pageSize = 100;
-
-            while (hasMore)
-            {
-                var response = await FetchTransfersFromApiAsync(warehouseCode, page, pageSize);
-                if (response?.Transfers != null && response.Transfers.Any())
-                {
-                    await SaveTransfersToCacheAsync(response.Transfers);
-                    hasMore = response.HasMore;
-                    page++;
-                    _logger.LogDebug("Cached page {Page} for warehouse {WarehouseCode}: {Count} transfers",
-                        page - 1, warehouseCode, response.Transfers.Count);
-                }
-                else
-                {
-                    hasMore = false;
-                }
+                await SaveTransfersToCacheAsync(newer);
+                highest = Math.Max(highest, newer.Max(transfer => transfer.DocEntry));
             }
 
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            var totalCount = await dbContext.CachedInventoryTransfers
-                .Where(t => t.FromWarehouse == warehouseCode || t.ToWarehouse == warehouseCode)
-                .CountAsync();
-
-            await UpdateSyncInfoAsync(warehouseCode, totalCount, true, null);
-            _logger.LogInformation("Completed background transfer sync for warehouse {WarehouseCode}: {Count} total transfers", warehouseCode, totalCount);
-            SyncCompleted?.Invoke(this, warehouseCode);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during background transfer sync for warehouse {WarehouseCode}", warehouseCode);
-            await UpdateSyncInfoAsync(warehouseCode, 0, false, ex.Message);
-        }
-        finally
-        {
-            lock (_syncLock)
+            if (newer.Count < transfers.Count || !response.HasMore)
             {
-                _syncInProgress.Remove(warehouseCode);
+                await CacheRefresh.WriteWatermarkAsync(_dbContextFactory, CacheKeyFor(warehouseCode), highest);
+                return true;
             }
         }
+
+        _logger.LogInformation(
+            "More than {Pages} pages of transfers for warehouse {WarehouseCode} since the last refresh; reading them all",
+            TopUpPageLimit,
+            warehouseCode);
+        return false;
+    }
+
+    /// <summary>
+    /// Reads every transfer for the warehouse and replaces its cached rows with them.
+    /// </summary>
+    /// <remarks>
+    /// A page that could not be read stops the walk as a failure. It used to end the walk as if it were
+    /// the last page, and the warehouse's rows were then replaced with the pages read so far.
+    /// </remarks>
+    private async Task WalkAllTransfersAsync(string warehouseCode)
+    {
+        var all = new List<InventoryTransferDto>();
+
+        for (var page = 1; ; page++)
+        {
+            var response = await FetchTransfersFromApiAsync(warehouseCode, page, PageSize)
+                ?? throw new InvalidOperationException($"The transfers for warehouse {warehouseCode} could not be read from the API.");
+            var transfers = response.Transfers ?? [];
+            all.AddRange(transfers);
+
+            if (!response.HasMore || transfers.Count == 0)
+                break;
+        }
+
+        if (all.Count == 0)
+            return;
+
+        // A transfer posted during the walk shifts the pages by one, so the row at a page boundary can
+        // be read twice.
+        var distinct = all
+            .GroupBy(transfer => transfer.DocEntry)
+            .Select(group => group.First())
+            .ToList();
+
+        await ReplaceTransferCacheAsync(warehouseCode, distinct);
+        await CacheRefresh.WriteWatermarkAsync(
+            _dbContextFactory,
+            CacheKeyFor(warehouseCode),
+            distinct.Max(transfer => transfer.DocEntry));
     }
 
     private async Task<InventoryTransferListResponse?> FetchTransfersFromApiAsync(string warehouseCode, int page, int pageSize)
@@ -473,7 +464,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        var cacheKey = $"InventoryTransfers_{warehouseCode}";
+        var cacheKey = CacheKeyFor(warehouseCode);
         var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
         if (syncInfo == null)
         {
