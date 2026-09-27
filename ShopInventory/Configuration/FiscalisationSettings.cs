@@ -181,9 +181,10 @@ public class FiscalisationSettings
     /// <c>FlagRepostedFiscalTransactionsHandler</c>. A repost's row can only have been written after the
     /// repost reached SAP, which was after the update, so nothing earlier needs reading — and every row
     /// the pass reads costs part of a SAP lookup on each node start. Clear this once the pass has run
-    /// against the deployed build.
+    /// against the deployed build. It ran with the #567 deploy, so it is off by default; set a date only to
+    /// run it again.
     /// </remarks>
-    public DateTime? RepostedInvoiceSweepSinceUtc { get; set; } = new DateTime(2026, 9, 22, 0, 0, 0, DateTimeKind.Utc);
+    public DateTime? RepostedInvoiceSweepSinceUtc { get; set; }
 
     /// <summary>
     /// The SAP user-defined fields this integration reads and writes on a marketing document.

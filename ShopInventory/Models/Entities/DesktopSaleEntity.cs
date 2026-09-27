@@ -102,6 +102,10 @@ public enum DesktopSaleReceiptIngestStatus
 // rows whose customer record has since been deleted.
 [Index(nameof(RouteCustomerId), nameof(DocDate))]
 [Index(nameof(RouteCustomerCode))]
+// The counter stock check on every till sale, and the hourly ledger comparison, sum unposted lines over
+// the last 30 days by capture time (UnpostedTillSales). Without this the join scans every sale ever made;
+// with it Postgres reads the window's sales and reaches their lines through the SaleId index.
+[Index(nameof(CreatedAt))]
 public class DesktopSaleEntity
 {
     [Key]

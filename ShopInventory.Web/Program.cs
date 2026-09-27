@@ -512,7 +512,7 @@ try
     app.UseWebSecurityHeaders();      // Add security headers to all responses
 
     // Add Serilog request logging
-    app.UseSerilogRequestLogging();
+    app.UseSerilogRequestLogging(options => options.GetLevel = RequestLogLevels.For);
 
     // Only redirect to HTTPS if the request is actually HTTP
     // With ForwardedHeaders configured, this correctly detects the original scheme

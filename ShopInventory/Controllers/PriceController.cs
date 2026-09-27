@@ -13,6 +13,7 @@ using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
 using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
 using ShopInventory.Features.Prices.Commands.SyncPriceCatalog;
 using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
+using ShopInventory.Middleware;
 
 namespace ShopInventory.Controllers;
 
@@ -92,6 +93,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     /// Sync the price lists
     /// </summary>
     [HttpPost("pricelists/sync")]
+    [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken)
     {
         using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
@@ -103,6 +105,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     /// Force a price sync from SAP
     /// </summary>
     [HttpPost("sync")]
+    [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken)
     {
         using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));

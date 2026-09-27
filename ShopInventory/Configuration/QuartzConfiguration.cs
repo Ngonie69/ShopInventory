@@ -44,6 +44,11 @@ public static class QuartzConfiguration
             q.SchedulerName = SchedulerName;
             q.SchedulerId = "AUTO"; // unique instance id per node — required for clustering
 
+            // Quartz's default is ten threads, shared by about 25 job keys. Several of them can run for
+            // minutes when SAP or the fiscal device is slow, and while they do the 5 and 10 second queue
+            // pollers wait for a thread. A thread here only waits on I/O, so twenty costs little.
+            q.UseDefaultThreadPool(pool => pool.MaxConcurrency = 20);
+
             q.UsePersistentStore(store =>
             {
                 store.UseProperties = true;
@@ -194,8 +199,10 @@ public static class QuartzConfiguration
                 AddCronJob<VanSalesEndOfDayPostingJob>(
                     q, "van-sales-eod-posting", BuildDailyCron(vanSalesPosting.PostingTimeCAT, "18:00"));
 
-                AddCronJob<VanSalesEndOfDayPostingJob>(
-                    q, "van-sales-eod-mopup", BuildDailyCron(vanSalesPosting.MopUpTimeCAT, "19:30"));
+                // A trigger on the 18:00 job, for the reason given below for the interval trigger. It was
+                // once a job of its own, "van-sales-eod-mopup", which the stored-job reconciler now deletes.
+                AddCronTriggerForJob(
+                    q, "van-sales-eod-posting", "van-sales-mopup", BuildDailyCron(vanSalesPosting.MopUpTimeCAT, "19:30"));
 
                 // Since van sales fiscalise on the handset and are held rather than posted on the
                 // request, waiting for the evening would leave SAP knowing nothing about a trading day

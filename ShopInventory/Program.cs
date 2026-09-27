@@ -210,6 +210,11 @@ try
         postgresConnectionPolicy,
         "DefaultConnection");
 
+    // Npgsql keeps one pool per distinct connection string, and the inventory lock service, the leader
+    // elector and the latency check read this key themselves. They must see the capped string, or each
+    // opens a second pool at the uncapped size.
+    builder.Configuration["ConnectionStrings:DefaultConnection"] = defaultConnectionString;
+
     // Add output caching for read-heavy GET endpoints
     builder.Services.AddOutputCache(options =>
     {

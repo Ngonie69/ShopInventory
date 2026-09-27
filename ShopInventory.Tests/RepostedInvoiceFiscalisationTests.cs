@@ -265,7 +265,10 @@ public sealed class RepostedInvoiceFiscalisationTests : IDisposable
                 _context,
                 sapClient,
                 Options.Create(new SAPSettings { Enabled = true }),
-                Options.Create(settings ?? new FiscalisationSettings()),
+                Options.Create(settings ?? new FiscalisationSettings
+                {
+                    RepostedInvoiceSweepSinceUtc = new DateTime(2026, 9, 22, 0, 0, 0, DateTimeKind.Utc)
+                }),
                 NullLogger<FlagRepostedFiscalTransactionsHandler>.Instance)
             .Handle(new FlagRepostedFiscalTransactionsCommand(), CancellationToken.None);
 
