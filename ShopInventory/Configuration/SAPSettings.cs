@@ -72,6 +72,12 @@ public class SAPSettings
     public int RequestTimeoutMinutes { get; set; } = 5;
 
     /// <summary>
+    /// How long a login may take before it fails with a timeout. Every SAP caller in the process waits
+    /// behind a login, so this is kept well under <see cref="RequestTimeoutMinutes"/>.
+    /// </summary>
+    public int LoginTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
     /// Extended timeout for bulk sync SAP requests that read large SAP datasets.
     /// </summary>
     public int LongRunningRequestTimeoutMinutes { get; set; } = 20;

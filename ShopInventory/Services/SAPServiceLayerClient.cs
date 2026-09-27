@@ -39,7 +39,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // Session state is static so all transient instances share a single SAP session
     // instead of each injected instance creating its own login.
     private static string? _sessionId;
-    private static DateTime _sessionExpiry = DateTime.MinValue;
+
+    /// <summary>UTC ticks after which the session is treated as lapsed. See <see cref="MarkSessionUsed"/>.</summary>
+    private static long _sessionExpiryTicks;
+
+    /// <summary>How long SAP keeps an idle session, as its login reply states. Service Layer's default is 30 minutes.</summary>
+    private static TimeSpan _sessionTimeout = TimeSpan.FromMinutes(30);
+
+    /// <summary>How long before SAP would drop an idle session this client stops trusting it.</summary>
+    private static readonly TimeSpan SessionExpiryMargin = TimeSpan.FromMinutes(5);
+
     private static readonly SemaphoreSlim _loginLock = new(1, 1);
 
     private const string WarehouseCacheKey = "SAP_Warehouses";
@@ -665,10 +674,24 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    /// <summary>
+    /// Makes sure there is a session to send the next request with, logging in only when there is none
+    /// or it has lapsed.
+    /// </summary>
+    /// <remarks>
+    /// The session used to be renewed 25 minutes after login however busy it was: the next caller
+    /// logged out the session other requests were still using, then logged in again, all under the
+    /// process-wide login lock. Requests in flight on the old session got 401s, and while SAP was slow
+    /// every SAP caller waited behind that lock. SAP times a session out after it has been idle, not
+    /// after a fixed life, so each use now pushes the expiry on (<see cref="MarkSessionUsed"/>) and a
+    /// busy session is kept. A new login happens only after the session has sat idle for most of SAP's
+    /// timeout, or after a 401 (<see cref="HandleAuthFailureAsync"/>). The old session is not logged
+    /// out first: by then SAP has dropped it or is about to, and logging it out cost a request under
+    /// the lock.
+    /// </remarks>
     private async Task EnsureAuthenticatedAsync(CancellationToken cancellationToken)
     {
-        // Fast path: session is still valid
-        if (!string.IsNullOrEmpty(_sessionId) && DateTime.UtcNow < _sessionExpiry)
+        if (TryUseSession())
         {
             return;
         }
@@ -678,23 +701,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         try
         {
             // Double-check after acquiring lock (another thread may have logged in)
-            if (!string.IsNullOrEmpty(_sessionId) && DateTime.UtcNow < _sessionExpiry)
+            if (TryUseSession())
             {
                 return;
-            }
-
-            // Best-effort logout of old session to free SAP server-side slot
-            var oldSession = _sessionId;
-            if (!string.IsNullOrEmpty(oldSession))
-            {
-                try
-                {
-                    using var logoutReq = new HttpRequestMessage(HttpMethod.Post, "Logout");
-                    logoutReq.Headers.Add("Cookie", $"B1SESSION={oldSession}");
-                    using var logoutResponse = await _httpClient.SendAsync(logoutReq, cancellationToken);
-                    _logger.LogDebug("Logged out stale SAP session before re-authentication");
-                }
-                catch { /* best effort - session may have already expired on SAP */ }
             }
 
             await LoginAsync(cancellationToken);
@@ -704,6 +713,26 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             _loginLock.Release();
         }
     }
+
+    /// <summary>True, and the session's expiry pushed on, when there is a session that has not lapsed.</summary>
+    private bool TryUseSession()
+    {
+        var utcNow = _timeProvider.GetUtcNow().UtcDateTime;
+        if (string.IsNullOrEmpty(_sessionId) || utcNow.Ticks >= Volatile.Read(ref _sessionExpiryTicks))
+        {
+            return false;
+        }
+
+        MarkSessionUsed(utcNow);
+        return true;
+    }
+
+    /// <summary>
+    /// Records a use of the session: SAP restarts its idle timer on every request, so the session is
+    /// good for its timeout from now, less <see cref="SessionExpiryMargin"/>.
+    /// </summary>
+    private static void MarkSessionUsed(DateTime utcNow) =>
+        Volatile.Write(ref _sessionExpiryTicks, (utcNow + _sessionTimeout - SessionExpiryMargin).Ticks);
 
     /// <summary>
     /// Safely invalidates and re-authenticates after a 401 response.
@@ -776,21 +805,41 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var json = JsonSerializer.Serialize(loginRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync("Login", content, cancellationToken);
+        // A budget of its own rather than the client's five minutes: every SAP caller in the process
+        // waits behind the login lock while this runs, so a Service Layer that has stopped answering
+        // must not hold them all for that long.
+        var timeoutSeconds = Math.Clamp(_settings.LoginTimeoutSeconds, 5, 300);
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds), _timeProvider);
+        using var loginToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
+
+        HttpResponseMessage response;
+        string responseContent;
+        try
+        {
+            response = await _httpClient.PostAsync("Login", content, loginToken.Token);
+            responseContent = await response.Content.ReadAsStringAsync(loginToken.Token);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
+        {
+            throw new TimeoutException($"SAP login did not answer within {timeoutSeconds} seconds.", ex);
+        }
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            var sanitizedError = SensitiveDataSanitizer.SanitizeForLog(errorContent);
+            var sanitizedError = SensitiveDataSanitizer.SanitizeForLog(responseContent);
             _logger.LogError("SAP Login failed: {StatusCode} - {Error}", response.StatusCode, sanitizedError);
             throw new Exception($"SAP Login failed: {response.StatusCode}");
         }
 
-        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
         var loginResponse = JsonSerializer.Deserialize<LoginResponse>(responseContent);
 
+        if (loginResponse?.SessionTimeout is > 0 and var minutes)
+        {
+            _sessionTimeout = TimeSpan.FromMinutes(minutes);
+        }
+
         _sessionId = loginResponse?.SessionId;
-        _sessionExpiry = DateTime.UtcNow.AddMinutes(25); // SAP session typically lasts 30 mins
+        MarkSessionUsed(_timeProvider.GetUtcNow().UtcDateTime);
 
         // Extract session cookie from response
         if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
@@ -834,7 +883,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         finally
         {
             _sessionId = null;
-            _sessionExpiry = DateTime.MinValue;
+            Volatile.Write(ref _sessionExpiryTicks, 0);
         }
     }
 
@@ -16690,11 +16739,20 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
     {
         try
         {
-            // Force a fresh login to actually verify credentials - don't reuse cached session
-            _sessionId = null;
-            _sessionExpiry = DateTime.MinValue;
+            // Force a fresh login to actually verify credentials - don't reuse cached session. Under the
+            // login lock, so a caller logging in at the same moment does not race it for the session.
+            await _loginLock.WaitAsync(cancellationToken);
+            try
+            {
+                _sessionId = null;
+                Volatile.Write(ref _sessionExpiryTicks, 0);
 
-            await LoginAsync(cancellationToken);
+                await LoginAsync(cancellationToken);
+            }
+            finally
+            {
+                _loginLock.Release();
+            }
 
             if (!string.IsNullOrEmpty(_sessionId))
             {
