@@ -1538,6 +1538,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Sync the price lists from SAP
     /// </summary>
     [HttpPost("prices/pricelists/sync")]
+    [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken = default)
     {
         using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
@@ -1549,6 +1550,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Sync item prices from SAP
     /// </summary>
     [HttpPost("prices/sync")]
+    [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken = default)
     {
         using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));

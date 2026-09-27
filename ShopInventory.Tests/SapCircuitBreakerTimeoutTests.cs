@@ -192,6 +192,23 @@ public class SapCircuitBreakerTimeoutTests
         Assert.Equal(5, harness.Sap.HungRequests);
     }
 
+    [Fact]
+    public async Task A_read_that_outlives_the_client_timeout_is_not_sent_again()
+    {
+        // HttpClient's own timeout means SAP held the request for the whole client deadline. Sending it
+        // again held the slot for a second and a third deadline: fifteen minutes in one of the six slots
+        // at the production five-minute timeout, for callers such as jobs that never cancel.
+        var harness = new Harness(
+            path => path.Contains("/Invoices(", StringComparison.Ordinal),
+            clientTimeout: TimeSpan.FromMilliseconds(300));
+
+        var ex = await Assert.ThrowsAsync<TaskCanceledException>(
+            () => harness.Client.GetInvoiceByDocEntryAsync(1));
+
+        Assert.IsType<TimeoutException>(ex.InnerException);
+        Assert.Equal(1, harness.Sap.HungRequests);
+    }
+
     private static bool BatchListHangs(string path) =>
         path.Contains(SAPServiceLayerClient.ItemBatchesQueryCode, StringComparison.Ordinal)
         && path.EndsWith("/List", StringComparison.Ordinal);
@@ -207,22 +224,21 @@ public class SapCircuitBreakerTimeoutTests
     {
         public static readonly TimeSpan StockBudget = TimeSpan.FromSeconds(5);
         public static readonly TimeSpan PriceListBudget = TimeSpan.FromSeconds(10);
-        private static readonly TimeSpan ClientTimeout = TimeSpan.FromMinutes(5);
-
-        public Harness(Func<string, bool>? hangs = null)
+        public Harness(Func<string, bool>? hangs = null, TimeSpan? clientTimeout = null)
         {
+            var timeout = clientTimeout ?? TimeSpan.FromMinutes(5);
             Breaker = NewBreaker();
             Sap = new HangingSap(hangs ?? (path => path.Contains("STOCK_QTY_", StringComparison.Ordinal)
                                                    && path.EndsWith("/List", StringComparison.Ordinal)));
 
             var httpClient = new HttpClient(
-                new SAPCircuitBreakerHandler(Breaker, NullLogger<SAPCircuitBreakerHandler>.Instance, ClientTimeout)
+                new SAPCircuitBreakerHandler(Breaker, NullLogger<SAPCircuitBreakerHandler>.Instance, timeout)
                 {
                     InnerHandler = new ReachSap { InnerHandler = Sap }
                 })
             {
                 BaseAddress = new Uri("https://sap.invalid/b1s/v1/"),
-                Timeout = ClientTimeout
+                Timeout = timeout
             };
 
             var services = new ServiceCollection().BuildServiceProvider();

@@ -7,6 +7,10 @@ namespace ShopInventory.Models.Entities;
 [Index(nameof(ClientTransactionId), IsUnique = true)]
 [Index(nameof(TimestampUtc))]
 [Index(nameof(Status), nameof(DocumentType), nameof(TimestampUtc))]
+// Every invoice and credit-note list, PDF download and handset history call looks up the fiscal status of
+// a page of documents by type and number (FiscalDocumentStatusProjector), and the console finds the latest
+// row per number the same way. Without this each call scans a table that gains a row per fiscalised document.
+[Index(nameof(DocumentType), nameof(DocNum))]
 public class DesktopFiscalTransactionEntity
 {
     [Key]

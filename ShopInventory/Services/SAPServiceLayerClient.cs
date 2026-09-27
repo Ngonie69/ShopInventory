@@ -513,6 +513,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             }
             catch (Exception ex) when (
                 attempt < maxRetries
+                && !IsClientTimeout(ex, cancellationToken)
                 && SapFailureClassifier.IsTransient(ex, cancellationToken)
                 && !BreakerOutlastsRemainingRetries(ex, attempt, maxRetries))
             {
@@ -535,6 +536,20 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     }
 
     private static TimeSpan TransientRetryDelay(int attempt) => TimeSpan.FromSeconds(attempt * 2);
+
+    /// <summary>
+    /// True when HttpClient's own timeout ended the request, rather than the caller giving up.
+    /// </summary>
+    /// <remarks>
+    /// SAP took the request and held it for the whole client timeout (five minutes in production), so a
+    /// resend is another full wait in the same concurrency slot, not a blip retried. Retrying these held
+    /// one slot for up to fifteen minutes, and the callers that never cancel are jobs and hosted services
+    /// running in the four background slots. A caller that wants another attempt at a slow read should
+    /// give it a budget of its own, as the stock and price-list reads do.
+    /// </remarks>
+    private static bool IsClientTimeout(Exception exception, CancellationToken cancellationToken) =>
+        exception is TaskCanceledException { InnerException: TimeoutException }
+        && !cancellationToken.IsCancellationRequested;
 
     /// <summary>
     /// True when the breaker will still be open after every retry this call has left, so waiting
