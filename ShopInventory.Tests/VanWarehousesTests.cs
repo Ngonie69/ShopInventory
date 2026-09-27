@@ -133,6 +133,47 @@ public sealed class VanWarehousesTests : IDisposable
         Assert.Equal(["VAN010"], van.BusinessPartnerCodes);
     }
 
+    /// <summary>
+    /// The replenishment report's view: a van nobody active drives is still returned, flagged, with
+    /// its deactivated rep's depot, so its open requests can stay on the worklist. A van shared with
+    /// an active rep is described by the active rep alone — name, accounts and depot.
+    /// </summary>
+    [Fact]
+    public async Task Including_deactivated_returns_vans_nobody_active_drives_flagged()
+    {
+        AddUser(1, "leaver", ["KEFVAN10", "KEFVAN12"], supplying: "KEFBYC", isActive: false, businessPartner: "VAN019");
+        AddUser(2, "rep2", ["KEFVAN10"], supplying: Depot, businessPartner: "VAN010");
+        await _context.SaveChangesAsync();
+
+        var vans = await VanWarehouses.LoadIncludingDeactivatedAsync(_context, CancellationToken.None);
+
+        Assert.Equal(["KEFVAN10", "KEFVAN12"], vans.Keys.Order());
+
+        var shared = vans["KEFVAN10"];
+        Assert.True(shared.HasActiveRep);
+        Assert.Equal("rep2", shared.Rep);
+        Assert.Equal(["VAN010"], shared.BusinessPartnerCodes);
+        Assert.Equal(Depot, shared.Depot);
+
+        var orphaned = vans["KEFVAN12"];
+        Assert.False(orphaned.HasActiveRep);
+        Assert.Equal("leaver", orphaned.Rep);
+        Assert.Equal("KEFBYC", orphaned.Depot);
+    }
+
+    [Fact]
+    public async Task A_vans_depot_is_its_first_reps_supplying_warehouse_trimmed()
+    {
+        AddUser(1, "rep1", ["KEFVAN10"], supplying: " KEFBYC ");
+        AddUser(2, "rep2", ["KEFVAN10"], supplying: Depot);
+        await _context.SaveChangesAsync();
+
+        var vans = await VanWarehouses.LoadAsync(_context, CancellationToken.None);
+
+        Assert.Equal("KEFBYC", vans["KEFVAN10"].Depot);
+        Assert.True(vans["KEFVAN10"].HasActiveRep);
+    }
+
     [Fact]
     public async Task No_assigned_reps_means_no_vans()
     {

@@ -29,7 +29,8 @@ public interface IVanSalesReportService
     Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
-        string? vanWarehouseCode = null);
+        string? vanWarehouseCode = null,
+        string? depotWarehouseCode = null);
 
     Task<VanStockReportResponse?> GetStockReportAsync(
         DateTime? fromDate = null,
@@ -195,7 +196,8 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
     public async Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
-        string? vanWarehouseCode = null)
+        string? vanWarehouseCode = null,
+        string? depotWarehouseCode = null)
     {
         try
         {
@@ -205,6 +207,8 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
             if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
             if (!string.IsNullOrWhiteSpace(vanWarehouseCode))
                 queryParams.Add($"vanWarehouseCode={Uri.EscapeDataString(vanWarehouseCode)}");
+            if (!string.IsNullOrWhiteSpace(depotWarehouseCode))
+                queryParams.Add($"depotWarehouseCode={Uri.EscapeDataString(depotWarehouseCode)}");
 
             var url = queryParams.Count > 0
                 ? $"api/van-sales/replenishment-report?{string.Join("&", queryParams)}"

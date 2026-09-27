@@ -1,0 +1,1337 @@
+/* ==========================================================================
+   Van replenishment — Nocturne
+
+   /van-sales/reports/replenishment. Built from the "Van Replenishment
+   Redesign" canvas: the period in figures, a bar of how long every request
+   waited, every request still unfilled grouped by why it is stuck, and the
+   vans worst served first. A request opens in a right-hand drawer that reads
+   the depot's stock live and offers the fix its cause needs.
+
+   The palette is an alias layer over nocturne-tokens.css and flips at the
+   root, so this sheet carries no `.dark-theme` block. The token block sits on
+   `.vrp, .vrp-overlay`: the drawer lives outside the page element so nothing
+   clips it, and takes the tokens from its own class rather than the page root
+   class — which would also bring the root's min-height: 100vh and hang the
+   drawer's footer one top bar below the fold.
+
+   Three app.css rules have to be out-specified rather than out-ordered, which
+   is why text and field rules sit two classes deep:
+     - `.dark-theme h1…h6` and `.dark-theme p` repaint text colour (0,1,1);
+     - `.dark-theme input, textarea` paints fields slate #1e293b (0,1,1).
+   There is no <table> here — rows are grids — so the navy header band never
+   applies.
+
+   Prefix `vrp-`, which the page's old rules in van-sales.css used under `.vs`;
+   those are gone with the page that used them.
+   ========================================================================== */
+
+.vrp,
+.vrp-overlay {
+    --vrp-bg: var(--noct-bg);
+    --vrp-surface: var(--noct-surface);
+    --vrp-wash: var(--noct-wash);
+    --vrp-ink: var(--noct-ink);
+    --vrp-ink-2: var(--noct-ink-2);
+    --vrp-mute: var(--noct-mute);
+    --vrp-mute-2: var(--noct-mute-2);
+    --vrp-mute-3: var(--noct-mute-3);
+    --vrp-faint: var(--noct-faint);
+    --vrp-placeholder: var(--noct-placeholder);
+    --vrp-divider: var(--noct-divider);
+    --vrp-rule: var(--noct-rule);
+    --vrp-hover: var(--noct-hover);
+    --vrp-press: var(--noct-press);
+    --vrp-field-bg: var(--noct-field-bg);
+    --vrp-field-edge: var(--noct-field-edge);
+    --vrp-field-edge-hi: var(--noct-field-edge-hi);
+    --vrp-accent: var(--noct-accent);
+    --vrp-accent-rgb: var(--noct-accent-rgb);
+    --vrp-accent-text: var(--noct-accent-text);
+    --vrp-on-accent: var(--noct-on-accent);
+    --vrp-box: var(--noct-box);
+    --vrp-on-box: var(--noct-on-box);
+    --vrp-scrim: var(--noct-scrim);
+    --vrp-shadow-lg: var(--noct-shadow-lg);
+    --vrp-warn-bg: var(--noct-warn-bg);
+    --vrp-warn-edge: var(--noct-warn-edge);
+    --vrp-warn-ink: var(--noct-warn-ink);
+    --vrp-scheme: var(--noct-scheme);
+
+    /* Posted is good, unfilled is bad, a lost answer is warn, a pending
+       approval is accent, turned down or taken back is neutral — the same
+       families every status chip in the app uses. */
+    --vrp-good: var(--noct-fam-good);
+    --vrp-good-rgb: var(--noct-fam-good-rgb);
+    --vrp-warn: var(--noct-fam-warn);
+    --vrp-warn-rgb: var(--noct-fam-warn-rgb);
+    --vrp-bad: var(--noct-fam-bad);
+    --vrp-bad-rgb: var(--noct-fam-bad-rgb);
+    --vrp-info: var(--noct-fam-info);
+    --vrp-fam-accent: var(--noct-fam-accent);
+    --vrp-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --vrp-neutral: var(--noct-fam-neutral);
+    --vrp-neutral-rgb: var(--noct-fam-neutral-rgb);
+
+    --vrp-r-sm: var(--noct-r-sm);
+    --vrp-r-md: var(--noct-r-md);
+    --vrp-r-lg: var(--noct-r-lg);
+
+    /* The unfilled rows' columns, shared by their header and every row. */
+    --vrp-row-cols: 92px 132px minmax(150px, 1.1fr) 104px 80px 132px minmax(0, 1.6fr) auto;
+    --vrp-van-cols: 100px 80px 72px minmax(220px, 1fr) 132px 92px 84px 128px;
+
+    /* The Nocturne controls fit the filter bar rather than being restyled. */
+    --nsel-h: 40px;
+    --ndf-h: 40px;
+    --ndf-fs: 14px;
+
+    color-scheme: var(--vrp-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.vrp {
+    min-height: 100vh;
+    background: var(--vrp-bg);
+    color: var(--vrp-ink);
+    font-size: 14px;
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+}
+
+.vrp *,
+.vrp-overlay * {
+    box-sizing: border-box;
+}
+
+.vrp svg,
+.vrp-overlay svg {
+    flex: none;
+}
+
+.vrp :focus-visible,
+.vrp-overlay :focus-visible {
+    outline: 2px solid var(--vrp-accent);
+    outline-offset: 2px;
+}
+
+.vrp-shell {
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: 32px 24px 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+}
+
+.vrp .vrp-lbl,
+.vrp-overlay .vrp-lbl {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--vrp-mute-3);
+}
+
+.vrp .vrp-note,
+.vrp-overlay .vrp-note {
+    font-size: 12.5px;
+    color: var(--vrp-mute-3);
+}
+
+.vrp-strong {
+    font-weight: 600;
+}
+
+.vrp-mute {
+    color: var(--vrp-mute);
+}
+
+.vrp .vrp-faint,
+.vrp-overlay .vrp-faint {
+    color: var(--vrp-faint);
+}
+
+.vrp .vrp-bad-ink,
+.vrp-overlay .vrp-bad-ink {
+    color: var(--vrp-bad);
+}
+
+.vrp .vrp-warn-ink {
+    color: var(--vrp-warn);
+}
+
+.vrp .vrp-minus,
+.vrp-overlay .vrp-minus {
+    color: var(--vrp-bad);
+    font-weight: 600;
+}
+
+.vrp-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.vrp a,
+.vrp-overlay a {
+    color: var(--vrp-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.vrp-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.vrp-head-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.vrp .vrp-title {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--vrp-ink);
+}
+
+.vrp .vrp-sub {
+    margin: 0;
+    font-size: 15px;
+    color: var(--vrp-mute-2);
+    text-wrap: pretty;
+}
+
+.vrp .vrp-h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--vrp-ink);
+}
+
+.vrp .vrp-h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--vrp-ink);
+}
+
+.vrp .vrp-h3 {
+    margin: 0;
+    font-size: 16.5px;
+    font-weight: 600;
+    color: var(--vrp-ink);
+    text-wrap: pretty;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.vrp .vrp-btn,
+.vrp-overlay .vrp-btn {
+    height: 40px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: var(--vrp-r-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--vrp-ink);
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.vrp .vrp-btn:disabled,
+.vrp-overlay .vrp-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.vrp .vrp-btn-sm,
+.vrp-overlay .vrp-btn-sm {
+    height: 34px;
+    padding: 0 12px;
+    font-size: 13px;
+}
+
+.vrp .vrp-btn-primary,
+.vrp-overlay .vrp-btn-primary {
+    background: var(--vrp-accent);
+    color: var(--vrp-on-accent);
+    font-weight: 600;
+}
+
+.vrp .vrp-btn-primary:hover:not(:disabled),
+.vrp-overlay .vrp-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.vrp .vrp-btn-ghost,
+.vrp-overlay .vrp-btn-ghost {
+    border-color: var(--vrp-divider);
+}
+
+.vrp .vrp-btn-ghost:hover:not(:disabled),
+.vrp-overlay .vrp-btn-ghost:hover:not(:disabled) {
+    background: var(--vrp-hover);
+    border-color: var(--vrp-field-edge-hi);
+}
+
+.vrp .vrp-btn-warn,
+.vrp-overlay .vrp-btn-warn {
+    border-color: rgba(var(--vrp-warn-rgb), .55);
+    color: var(--vrp-warn-ink);
+    background: rgba(var(--vrp-warn-rgb), .08);
+}
+
+.vrp .vrp-btn-warn:hover:not(:disabled),
+.vrp-overlay .vrp-btn-warn:hover:not(:disabled) {
+    background: rgba(var(--vrp-warn-rgb), .16);
+}
+
+.vrp-overlay .vrp-btn-danger,
+.vrp .vrp-btn-danger {
+    background: var(--vrp-bad);
+    color: #fff;
+    font-weight: 600;
+}
+
+.vrp-overlay .vrp-btn-danger-ghost {
+    border-color: rgba(var(--vrp-bad-rgb), .5);
+    color: var(--vrp-bad);
+}
+
+.vrp-overlay .vrp-btn-danger-ghost:hover:not(:disabled) {
+    background: rgba(var(--vrp-bad-rgb), .1);
+}
+
+.vrp-overlay .vrp-grow {
+    flex: 1 1 auto;
+}
+
+.vrp-overlay .vrp-icon-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--vrp-r-md);
+    background: transparent;
+    color: var(--vrp-mute-2);
+    cursor: pointer;
+}
+
+.vrp-overlay .vrp-icon-btn:hover {
+    background: var(--vrp-hover);
+    color: var(--vrp-ink);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.vrp-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 16px;
+    padding: 18px 20px;
+    border-radius: var(--vrp-r-lg);
+    background: var(--vrp-wash);
+    border: 1px solid var(--vrp-rule);
+}
+
+.vrp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vrp-field-date {
+    width: 200px;
+}
+
+.vrp-field-van {
+    width: 220px;
+}
+
+.vrp-seg {
+    height: 40px;
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--vrp-r-md);
+    border: 1px solid var(--vrp-field-edge);
+}
+
+.vrp .vrp-seg-btn {
+    min-width: 64px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--vrp-mute);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.vrp .vrp-seg-btn:hover {
+    background: var(--vrp-hover);
+}
+
+.vrp .vrp-seg-btn.is-on {
+    background: var(--vrp-box);
+    color: var(--vrp-on-box);
+    font-weight: 500;
+}
+
+.vrp .vrp-run {
+    padding: 0 24px;
+}
+
+.vrp-filters-meta {
+    margin-left: auto;
+    align-self: center;
+    font-size: 13px;
+    color: var(--vrp-mute-3);
+}
+
+/* ── Notices and states ────────────────────────────────────────────────── */
+
+.vrp .vrp-notice,
+.vrp-overlay .vrp-notice {
+    padding: 12px 16px;
+    border-radius: var(--vrp-r-md);
+    border: 1px solid var(--vrp-divider);
+    background: var(--vrp-wash);
+    font-size: 13.5px;
+    color: var(--vrp-mute);
+}
+
+.vrp .vrp-notice-bad,
+.vrp-overlay .vrp-notice-bad {
+    border-color: rgba(var(--vrp-bad-rgb), .45);
+    background: rgba(var(--vrp-bad-rgb), .08);
+    color: var(--vrp-ink);
+}
+
+.vrp .vrp-notice-warn,
+.vrp-overlay .vrp-notice-warn {
+    border-color: var(--vrp-warn-edge);
+    background: var(--vrp-warn-bg);
+    color: var(--vrp-warn-ink);
+}
+
+.vrp-loading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 40px 0;
+    color: var(--vrp-mute-2);
+}
+
+.vrp-loading-sm {
+    padding: 14px 0;
+    font-size: 13px;
+}
+
+.vrp-empty {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--vrp-mute-2);
+    border: 1px dashed var(--vrp-divider);
+    border-radius: var(--vrp-r-lg);
+}
+
+.vrp-empty-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--vrp-ink);
+    margin-bottom: 4px;
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+
+.vrp-figs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    border-radius: var(--vrp-r-lg);
+    border: 1px solid var(--vrp-rule);
+    background: var(--vrp-surface);
+    overflow: hidden;
+}
+
+.vrp-fig {
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.vrp-fig + .vrp-fig {
+    border-left: 1px solid var(--vrp-rule);
+}
+
+.vrp-fig-val {
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+}
+
+.vrp-fig-sub {
+    font-size: 13px;
+    color: var(--vrp-mute-2);
+    text-wrap: pretty;
+}
+
+.vrp .vrp-fig.is-bad {
+    background: rgba(var(--vrp-bad-rgb), .08);
+}
+
+.vrp .vrp-fig.is-bad .vrp-lbl,
+.vrp .vrp-fig.is-bad .vrp-fig-val {
+    color: var(--vrp-bad);
+}
+
+/* ── Cards and sections ────────────────────────────────────────────────── */
+
+.vrp-card {
+    border-radius: var(--vrp-r-lg);
+    border: 1px solid var(--vrp-rule);
+    background: var(--vrp-surface);
+}
+
+.vrp-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.vrp-section-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+}
+
+/* ── Wait distribution ─────────────────────────────────────────────────── */
+
+.vrp-waits {
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: var(--vrp-wash);
+}
+
+.vrp-waits-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+}
+
+.vrp-waits-bar {
+    display: flex;
+    gap: 2px;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.vrp-waits-seg {
+    flex-basis: 0;
+    min-width: 4px;
+}
+
+.vrp .vrp-waits-key {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    font-size: 13px;
+    color: var(--vrp-mute);
+}
+
+.vrp-waits-key li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vrp-waits-key strong {
+    color: var(--vrp-ink);
+}
+
+.vrp-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+
+/* Faster is fuller green; slower turns amber; never filled is red. The steps
+   differ in strength, not hue alone, so they still read in greyscale. */
+.vrp-band-fast { background: var(--vrp-good); }
+.vrp-band-ok { background: rgba(var(--vrp-good-rgb), .68); }
+.vrp-band-day { background: rgba(var(--vrp-good-rgb), .4); }
+.vrp-band-slow { background: var(--vrp-warn); }
+.vrp-band-slower { background: rgba(var(--vrp-warn-rgb), .6); }
+.vrp-band-unfilled { background: var(--vrp-bad); }
+.vrp-band-neutral { background: rgba(var(--vrp-neutral-rgb), .5); }
+
+/* ── Chips ─────────────────────────────────────────────────────────────── */
+
+.vrp .vrp-chip,
+.vrp-overlay .vrp-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.vrp .vrp-chip-bad,
+.vrp-overlay .vrp-chip-bad {
+    background: rgba(var(--vrp-bad-rgb), .16);
+    color: var(--vrp-bad);
+}
+
+.vrp .vrp-chip-warn,
+.vrp-overlay .vrp-chip-warn {
+    background: rgba(var(--vrp-warn-rgb), .16);
+    color: var(--vrp-warn);
+}
+
+.vrp .vrp-chip-accent,
+.vrp-overlay .vrp-chip-accent {
+    background: rgba(var(--vrp-fam-accent-rgb), .16);
+    color: var(--vrp-fam-accent);
+}
+
+.vrp-overlay .vrp-chip-neutral {
+    background: var(--vrp-hover);
+    color: var(--vrp-mute);
+    font-weight: 500;
+}
+
+/* ── A cause and its requests ──────────────────────────────────────────── */
+
+.vrp-cause {
+    border-radius: var(--vrp-r-lg);
+    border: 1px solid var(--vrp-divider);
+    background: var(--vrp-surface);
+    overflow: hidden;
+}
+
+.vrp-cause-bad {
+    border-color: rgba(var(--vrp-bad-rgb), .35);
+}
+
+.vrp-cause-warn {
+    border-color: rgba(var(--vrp-warn-rgb), .45);
+}
+
+.vrp-cause-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 20px 22px 16px;
+}
+
+.vrp-cause-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 900px;
+    min-width: 0;
+}
+
+.vrp-cause-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.vrp .vrp-cause-body {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--vrp-mute-2);
+    text-wrap: pretty;
+}
+
+.vrp .vrp-cause-body strong {
+    color: var(--vrp-ink);
+    font-weight: 500;
+}
+
+.vrp-cause-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.vrp-cause-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 22px;
+    font-size: 13px;
+    color: var(--vrp-mute-2);
+}
+
+.vrp-cause-foot svg {
+    color: var(--vrp-warn);
+}
+
+.vrp-short-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 0 22px 18px;
+}
+
+.vrp-short-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 11px;
+    border-radius: var(--vrp-r-md);
+    background: var(--vrp-field-bg);
+    border: 1px solid var(--vrp-rule);
+    font-size: 13px;
+}
+
+/* The rows are grids that share one column template with their header, so a
+   row whose content wraps still lines up with the ones around it. A row that
+   opens the drawer is a real <button>, so it is reachable by keyboard. */
+.vrp .vrp-row {
+    display: grid;
+    grid-template-columns: var(--vrp-row-cols);
+    column-gap: 16px;
+    align-items: center;
+    width: 100%;
+    min-height: 56px;
+    padding: 8px 22px;
+    border: 0;
+    border-top: 1px solid var(--vrp-rule);
+    background: transparent;
+    color: var(--vrp-ink);
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+}
+
+.vrp .vrp-row-head {
+    min-height: 0;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    background: var(--vrp-hover);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--vrp-mute-3);
+}
+
+.vrp .vrp-row-btn {
+    cursor: pointer;
+}
+
+.vrp .vrp-row-btn:hover {
+    background: var(--vrp-hover);
+}
+
+.vrp .vrp-row-btn:active {
+    background: var(--vrp-press);
+}
+
+.vrp-row-who {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.vrp-row-stock {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--vrp-mute);
+    white-space: nowrap;
+}
+
+.vrp-row-short {
+    font-size: 13px;
+    color: var(--vrp-mute-2);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vrp-row-error {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.vrp-row-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.vrp-row-open {
+    justify-self: end;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--vrp-accent-text);
+}
+
+/* Share of lines in stock: green for what could go, red behind it for what
+   could not. */
+.vrp .vrp-meter {
+    width: 52px;
+    flex: none;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(var(--vrp-bad-rgb), .5);
+    overflow: hidden;
+    display: flex;
+}
+
+.vrp .vrp-meter > span {
+    display: block;
+    background: var(--vrp-good);
+}
+
+.vrp .vrp-meter-wide {
+    width: 240px;
+    background: var(--vrp-rule);
+}
+
+.vrp .vrp-meter-wide > span {
+    background: var(--vrp-accent);
+}
+
+.vrp-quiet-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.vrp-quiet-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-radius: var(--vrp-r-lg);
+    border: 1px solid var(--vrp-rule);
+    background: var(--vrp-wash);
+}
+
+.vrp .vrp-quiet-title {
+    margin: 0 0 2px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vrp-ink);
+}
+
+.vrp-ok {
+    color: var(--vrp-good);
+}
+
+/* ── Acting on a whole group ───────────────────────────────────────────── */
+
+.vrp-bulk {
+    margin: 0 22px 18px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-radius: var(--vrp-r-md);
+    border: 1px solid var(--vrp-divider);
+    background: var(--vrp-wash);
+}
+
+.vrp-bulk-progress {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 13.5px;
+}
+
+.vrp .vrp-foot-row,
+.vrp-overlay .vrp-foot-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.vrp .vrp-foot-text,
+.vrp-overlay .vrp-foot-text {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--vrp-mute-2);
+    text-wrap: pretty;
+}
+
+.vrp .vrp-foot-text strong,
+.vrp-overlay .vrp-foot-text strong {
+    color: var(--vrp-ink);
+    font-weight: 600;
+}
+
+.vrp .vrp-input,
+.vrp-overlay .vrp-input {
+    height: 40px;
+    padding: 0 12px;
+    border-radius: var(--vrp-r-md);
+    border: 1px solid var(--vrp-field-edge);
+    background-color: var(--vrp-field-bg);
+    color: var(--vrp-ink);
+    font: inherit;
+    font-size: 14px;
+}
+
+.vrp .vrp-input:focus,
+.vrp-overlay .vrp-input:focus {
+    border-color: var(--vrp-accent);
+    outline: none;
+}
+
+.vrp .vrp-input::placeholder,
+.vrp-overlay .vrp-input::placeholder {
+    color: var(--vrp-placeholder);
+    -webkit-text-fill-color: var(--vrp-placeholder);
+}
+
+.vrp .vrp-textarea,
+.vrp-overlay .vrp-textarea {
+    width: 100%;
+    height: auto;
+    padding: 10px 12px;
+    resize: vertical;
+}
+
+/* ── By van ────────────────────────────────────────────────────────────── */
+
+.vrp-table {
+    overflow: hidden;
+}
+
+.vrp-vrow {
+    display: grid;
+    grid-template-columns: var(--vrp-van-cols);
+    column-gap: 16px;
+    align-items: center;
+    min-height: 54px;
+    padding: 6px 22px;
+    border-top: 1px solid var(--vrp-rule);
+}
+
+.vrp-vrow-head {
+    min-height: 0;
+    padding: 12px 22px;
+    border-top: 0;
+    background: var(--vrp-hover);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--vrp-mute-3);
+}
+
+.vrp .vrp-vrow.is-bad {
+    background: rgba(var(--vrp-bad-rgb), .06);
+}
+
+.vrp .vrp-vrow.is-idle {
+    color: var(--vrp-mute-3);
+}
+
+.vrp-vrow > span:first-child {
+    display: flex;
+    flex-direction: column;
+}
+
+.vrp-outcome {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+/* One line: the bar already says it, the words are the detail, and a wrapped
+   note turned every busy van's row into a column of single words. */
+.vrp .vrp-outcome .vrp-note {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vrp-outcome-bar {
+    display: flex;
+    gap: 2px;
+    height: 10px;
+    flex: none;
+}
+
+.vrp-outcome-bar > span {
+    display: block;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.vrp-seg-good { background: var(--vrp-good); }
+.vrp-seg-bad { background: var(--vrp-bad); }
+.vrp-seg-neutral { background: rgba(var(--vrp-neutral-rgb), .55); }
+
+.vrp-last {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+/* ── Data quality ──────────────────────────────────────────────────────── */
+
+.vrp-quality {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px 20px;
+    border-radius: var(--vrp-r-lg);
+    border: 1px solid var(--vrp-rule);
+    background: var(--vrp-wash);
+    color: var(--vrp-mute-2);
+}
+
+.vrp .vrp-quality-list {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* ── Drawer ────────────────────────────────────────────────────────────── */
+
+.vrp-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 54px) 0 0;
+    z-index: 1300;
+    background: var(--vrp-scrim);
+    animation: vrp-fade .18s ease;
+}
+
+.vrp-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 54px);
+    right: 0;
+    z-index: 1301;
+    width: min(600px, 100vw);
+    height: calc(100vh - var(--kf-topbar-h, 54px));
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--vrp-surface);
+    color: var(--vrp-ink);
+    box-shadow: var(--vrp-shadow-lg);
+    font-size: 14px;
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+    animation: vrp-slide .22s ease;
+}
+
+@keyframes vrp-fade {
+    from { opacity: 0; }
+}
+
+@keyframes vrp-slide {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vrp-scrim,
+    .vrp-drawer {
+        animation: none;
+    }
+}
+
+.vrp-drawer-head {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--vrp-rule);
+}
+
+.vrp-drawer-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.vrp-overlay .vrp-drawer-route {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--vrp-ink);
+}
+
+.vrp-drawer-route svg {
+    color: var(--vrp-mute-3);
+}
+
+.vrp-drawer-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.vrp-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 18px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.vrp-overlay .vrp-steps {
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vrp-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 110px;
+    column-gap: 12px;
+    padding-bottom: 14px;
+}
+
+/* The line joining one step to the next. */
+.vrp-step:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 8.5px;
+    top: 16px;
+    bottom: 0;
+    width: 1px;
+    background: var(--vrp-divider);
+}
+
+.vrp-step-dot,
+.vrp-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin: 5px 0 0 4px;
+}
+
+.vrp-dot {
+    width: 8px;
+    height: 8px;
+    margin: 0;
+    flex: none;
+}
+
+.vrp-dot-mute { background: var(--vrp-mute-3); }
+.vrp-dot-good { background: var(--vrp-good); }
+.vrp-dot-warn { background: var(--vrp-warn); }
+.vrp-dot-bad { background: var(--vrp-bad); }
+.vrp-dot-faint { background: var(--vrp-faint); }
+
+.vrp-step-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.vrp-step-text strong {
+    font-weight: 500;
+}
+
+.vrp-overlay .vrp-step-error {
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.vrp-step-when {
+    font-size: 13px;
+    color: var(--vrp-mute-2);
+    text-align: right;
+}
+
+.vrp-lines-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.vrp-line {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px 104px 80px;
+    column-gap: 12px;
+    align-items: center;
+    min-height: 40px;
+    border-bottom: 1px solid var(--vrp-rule);
+    font-size: 14px;
+}
+
+.vrp-line-head {
+    min-height: 0;
+    padding: 8px 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--vrp-mute-3);
+}
+
+.vrp-line-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.vrp-drawer-foot {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 24px 20px;
+    border-top: 1px solid var(--vrp-rule);
+    background: var(--vrp-hover);
+}
+
+/* ── Narrow windows ────────────────────────────────────────────────────── */
+
+@media (max-width: 1360px) {
+    .vrp-figs {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .vrp-fig + .vrp-fig {
+        border-left: 0;
+    }
+
+    .vrp-fig {
+        border-bottom: 1px solid var(--vrp-rule);
+    }
+
+    .vrp,
+    .vrp-overlay {
+        --vrp-row-cols: 84px minmax(0, 1fr) 96px 132px auto;
+        --vrp-van-cols: 100px 70px minmax(0, 1fr) 120px 150px;
+    }
+
+    /* The draft, asked-by and detail cells give way first; the drawer has them. */
+    .vrp .vrp-row > :nth-child(2),
+    .vrp .vrp-row > :nth-child(3),
+    .vrp .vrp-row > :nth-child(7) {
+        display: none;
+    }
+
+    .vrp .vrp-vrow > :nth-child(2),
+    .vrp .vrp-vrow > :nth-child(6),
+    .vrp .vrp-vrow > :nth-child(7) {
+        display: none;
+    }
+}
+
+@media (max-width: 760px) {
+    .vrp-shell {
+        padding: 20px 16px 40px;
+    }
+
+    .vrp-head,
+    .vrp-cause-head {
+        flex-direction: column;
+    }
+
+    .vrp-figs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vrp-field-date,
+    .vrp-field-van {
+        width: 100%;
+    }
+
+    .vrp-filters-meta {
+        margin-left: 0;
+    }
+
+    .vrp-quiet-pair {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .vrp,
+    .vrp-overlay {
+        --vrp-row-cols: 76px minmax(0, 1fr) 72px auto;
+        --vrp-van-cols: 84px minmax(0, 1fr) 96px;
+    }
+
+    .vrp .vrp-row > :nth-child(4),
+    .vrp .vrp-row > :nth-child(6) {
+        display: none;
+    }
+
+    .vrp .vrp-vrow > :nth-child(3),
+    .vrp .vrp-vrow > :nth-child(5) {
+        display: none;
+    }
+
+    .vrp-row-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+        padding-top: 8px;
+    }
+}

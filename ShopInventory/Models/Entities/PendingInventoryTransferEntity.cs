@@ -99,7 +99,44 @@ public sealed class PendingInventoryTransferEntity
     /// <summary>Populated when posting to SAP failed after the approval completed.</summary>
     [MaxLength(2000)]
     public string? LastError { get; set; }
+
+    /// <summary>
+    /// The lines left out when only the in-stock part of the transfer was posted, as a JSON list of
+    /// <c>PendingTransferDroppedLine</c>. Null on every transfer that posted whole.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PayloadJson"/>, <see cref="LineCount"/> and <see cref="TotalQuantity"/> describe
+    /// what reached SAP once this is set, so this column is the only record of what the van asked
+    /// for and did not get.
+    /// </remarks>
+    public string? DroppedLinesJson { get; set; }
+
+    /// <summary>
+    /// When an approved transfer that failed to post was withdrawn instead of retried. Kept apart
+    /// from <see cref="DecidedAtUtc"/>, which still says when the approval completed — overwriting
+    /// it would make the decision look days slower than it was.
+    /// </summary>
+    public DateTime? WithdrawnAtUtc { get; set; }
+
+    public Guid? WithdrawnByUserId { get; set; }
+
+    [MaxLength(500)]
+    public string? WithdrawalReason { get; set; }
+
+    /// <summary>
+    /// True when the SAP document was found in SAP and recorded against this transfer by a person,
+    /// rather than created by this system's own post — the case after a post timed out and SAP had
+    /// in fact created the transfer.
+    /// </summary>
+    public bool PostRecordedManually { get; set; }
 }
+
+/// <summary>A line left out of a partial post, with what the depot had when it was left out.</summary>
+public sealed record PendingTransferDroppedLine(
+    string ItemCode,
+    decimal RequestedQuantity,
+    decimal AvailableQuantity,
+    string? BatchNumber);
 
 public static class PendingInventoryTransferStatuses
 {
@@ -118,6 +155,10 @@ public static class PendingInventoryTransferStatuses
     /// <summary>Approved, but the SAP post failed. Retryable.</summary>
     public const string PostFailed = "PostFailed";
 
-    /// <summary>Withdrawn by the originator before a decision was made.</summary>
+    /// <summary>
+    /// Withdrawn: by the originator before a decision was made, or — with
+    /// <see cref="PendingInventoryTransferEntity.WithdrawnAtUtc"/> set — after it was approved and
+    /// failed to post, by someone who decided it should not be retried.
+    /// </summary>
     public const string Cancelled = "Cancelled";
 }

@@ -2,350 +2,790 @@
 @* Admin and Manager only — see VanSalesActivity.razor. *@
 @attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
-@using System.Globalization
 @using ShopInventory.Web.Models
-@inject IVanSalesReportService VanSalesReportService
-@inject IReportExportService ExportService
-@inject IJSRuntime JS
+@implements IDisposable
 
 <PageTitle>Van Replenishment - Shop Inventory</PageTitle>
 
-@* How well the depots are keeping the vans stocked.
+@* Whether each van got what it asked the depot for, how long it waited, and what
+   it is still going without. Built from the "Van Replenishment Redesign" canvas.
 
-   Carried by wwwroot/css/van-sales.css: the shared `vs-` chrome plus `vrp-` for
-   what only this page draws. A prefix nothing else owns — `vsr-` is the routes
-   page, and sheets here are separated by prefix alone.
+   Dressed by wwwroot/css/van-replenishment.css under `vrp-`; the drawer sits
+   outside the page element in `.vrp-overlay`, which carries the same tokens.
 
-   The worklist leads, deliberately. Everything else on this page is a measure of
-   how things have been going; the worklist is the part somebody has to act on
-   today, and a request that failed to post is surfaced nowhere else in the
-   system — it simply sits there.
+   Two scopes, and the page says which is which. The figures, the wait bar and
+   the van table describe the requests raised in the chosen period. "Unfilled
+   now" is every request open today, whatever the period — a request stuck since
+   before the start date is exactly the one a period filter used to hide.
 
-   Two waits, kept apart everywhere. Time to a decision is somebody's attention;
-   time from there to SAP is the posting machinery. A van kept waiting by the
-   first needs a different conversation from one kept waiting by the second, and
-   a single "lead time" figure would hide which. *@
+   The unfilled requests are grouped by why they are stuck, because each cause
+   has a different fix: a depot short of stock needs stock or a smaller load, a
+   post whose answer was lost needs somebody to look in SAP before anything else,
+   an approval whose post never ran needs its post run. *@
 
-<div class="vs vrp">
+<div class="vrp">
+    <div class="vrp-shell">
 
-    <div class="vs-head">
-        <div>
-            <h2 class="vs-title">Van replenishment</h2>
-            <p class="vs-subtitle">
-                What each van asked the depot for, how long it waited, and what is still stuck.
-            </p>
-        </div>
-        <div class="vs-actions">
-            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+        <header class="vrp-head">
+            <div class="vrp-head-text">
+                <h1 class="vrp-title">Van replenishment</h1>
+                <p class="vrp-sub">Whether each van got what it asked the depot for, how long it waited, and what it is still going without.</p>
+            </div>
+            <button type="button" class="vrp-btn vrp-btn-ghost" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13h10" /></svg>
                 Export
             </button>
-        </div>
-    </div>
+        </header>
 
-    <div class="vs-filters">
-        <div class="row g-3">
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vrp-from">From</label>
+        <section class="vrp-filters" aria-label="Period and filters">
+            <div class="vrp-field vrp-field-date">
+                <label class="vrp-lbl" for="vrp-from">From</label>
                 <NocturneDateField Id="vrp-from" @bind-Date="fromDate" AriaLabel="From date" />
             </div>
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vrp-to">To</label>
+            <div class="vrp-field vrp-field-date">
+                <label class="vrp-lbl" for="vrp-to">To</label>
                 <NocturneDateField Id="vrp-to" @bind-Date="toDate" AriaLabel="To date" />
             </div>
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vrp-van">Van</label>
+            <div class="vrp-field vrp-field-van">
+                <label class="vrp-lbl" for="vrp-van">Van</label>
                 <NocturneSelect Id="vrp-van" Class="nsel-block" TValue="string"
                                 Options="VanFilterOptions" @bind-Value="selectedVan"
                                 OnChanged="LoadAsync" AriaLabel="Filter by van"
                                 Placeholder="All vans" />
             </div>
-            <div class="col-md-3 vs-actions">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-            </div>
-        </div>
-    </div>
-
-    @if (loadError is not null)
-    {
-        <div class="vs-notice">@loadError</div>
-    }
-
-    @if (isLoading)
-    {
-        <div class="vs-loading">
-            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-            <span>Reading the requests…</span>
-        </div>
-    }
-    else if (report is null)
-    {
-        <div class="vs-empty">
-            <div class="vs-empty-title">Nothing loaded yet</div>
-            <div>Choose a period and run the report.</div>
-        </div>
-    }
-    else
-    {
-        var summary = report.Summary;
-
-        <div class="vrp-kpis">
-            <div class="vrp-kpi">
-                <div class="vrp-kpi-value">@summary.RequestCount.ToString("N0")</div>
-                <div class="vrp-kpi-label">Requests raised</div>
-                <div class="vrp-kpi-sub">across @summary.VanCount.ToString("N0") vans</div>
-            </div>
-
-            <div class="vrp-kpi">
-                <div class="vrp-kpi-value">@Rate(summary.PostRate)</div>
-                <div class="vrp-kpi-label">Reached SAP</div>
-                <div class="vrp-kpi-sub">@summary.PostedCount.ToString("N0") posted</div>
-            </div>
-
-            <div class="vrp-kpi">
-                <div class="vrp-kpi-value">@Hours(summary.MedianHoursToDecision)</div>
-                <div class="vrp-kpi-label">Wait for a decision</div>
-                <div class="vrp-kpi-sub">middle request</div>
-            </div>
-
-            <div class="vrp-kpi">
-                <div class="vrp-kpi-value">@Hours(summary.MedianHoursToPosting)</div>
-                <div class="vrp-kpi-label">Wait to reach SAP</div>
-                <div class="vrp-kpi-sub">from asking to posted</div>
-            </div>
-
-            <div class="vrp-kpi @(summary.NeedingAttentionCount > 0 ? "vrp-kpi-warn" : null)">
-                <div class="vrp-kpi-value">@summary.NeedingAttentionCount.ToString("N0")</div>
-                <div class="vrp-kpi-label">Needing attention</div>
-                <div class="vrp-kpi-sub">@summary.PostFailedCount.ToString("N0") failed to post</div>
-            </div>
-
-            <div class="vrp-kpi">
-                <div class="vrp-kpi-value">@Rate(summary.RejectionRate)</div>
-                <div class="vrp-kpi-label">Rejected</div>
-                <div class="vrp-kpi-sub">@summary.RejectedCount.ToString("N0") turned down</div>
-            </div>
-        </div>
-
-        @if (!report.Quality.IsClean)
-        {
-            <div class="vrp-caveats">
-                <div class="vrp-caveats-head">What this period could not answer</div>
-                <ul class="vrp-caveats-list">
-                    @foreach (var caveat in report.Quality.Caveats)
-                    {
-                        <li>@caveat</li>
-                    }
-                </ul>
-            </div>
-        }
-
-        @* The worklist first: it is the only part of this page that is somebody's job today. *@
-        @if (report.NeedingAttention.Count > 0)
-        {
-            <h3 class="vrp-heading">Stuck now</h3>
-            <p class="vrp-note">
-                A request that failed to post was approved and then lost on its way to SAP. Nothing
-                else in the system surfaces that — it simply sits, and the van goes without.
-            </p>
-            <div class="vs-table-wrap">
-                <table class="vs-table">
-                    <thead>
-                        <tr>
-                            <th>Van</th>
-                            <th>From depot</th>
-                            <th>Problem</th>
-                            <th>Asked by</th>
-                            <th>Asked</th>
-                            <th class="vs-num">Waiting</th>
-                            <th class="vs-num">Lines</th>
-                            <th>Last error</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var request in report.NeedingAttention)
+            @if (DepotChoices.Count > 1)
+            {
+                <div class="vrp-field">
+                    <span class="vrp-lbl" id="vrp-depot-lbl">Depot</span>
+                    <div class="vrp-seg" role="group" aria-labelledby="vrp-depot-lbl">
+                        <button type="button" class="vrp-seg-btn @(selectedDepot is null ? "is-on" : null)"
+                                aria-pressed="@(selectedDepot is null)" @onclick="() => PickDepotAsync(null)">All</button>
+                        @foreach (var depot in DepotChoices)
                         {
-                            <tr class="@(request.IsPostFailure ? "vrp-failed" : null)">
-                                <td>@request.VanWarehouseCode</td>
-                                <td>@request.DepotWarehouseCode</td>
-                                <td>
-                                    <span class="vs-chip @(request.IsPostFailure ? "vs-chip-bad" : "vs-chip-warn") vrp-inline-chip">
-                                        @request.GapLabel
-                                    </span>
-                                </td>
-                                <td>@request.RequestedBy</td>
-                                <td>@request.RequestedAt.ToString("dd MMM HH:mm")</td>
-                                <td class="vs-num">
-                                    @(request.DaysWaiting >= 1
-                                        ? $"{request.DaysWaiting:N0}d"
-                                        : $"{request.HoursWaiting:N0}h")
-                                </td>
-                                <td class="vs-num">@request.LineCount.ToString("N0")</td>
-                                <td class="vrp-error">@(request.LastError ?? "—")</td>
-                            </tr>
+                            <button type="button" class="vrp-seg-btn @(selectedDepot == depot ? "is-on" : null)"
+                                    aria-pressed="@(selectedDepot == depot)" @onclick="() => PickDepotAsync(depot)">@depot</button>
                         }
-                    </tbody>
-                </table>
-            </div>
+                    </div>
+                </div>
+            }
+            <button type="button" class="vrp-btn vrp-btn-primary vrp-run" @onclick="LoadAsync" disabled="@isLoading">
+                @(isLoading ? "Loading…" : "Run")
+            </button>
+            @if (report is not null)
+            {
+                <span class="vrp-filters-meta">@PeriodDays days · read @report.GeneratedAt.ToString("d MMM HH:mm")</span>
+            }
+        </section>
+
+        @if (loadError is not null)
+        {
+            <div class="vrp-notice vrp-notice-bad" role="alert">@loadError</div>
         }
 
-        <h3 class="vrp-heading">By van</h3>
-        <div class="vs-table-wrap">
-            <table class="vs-table">
-                <thead>
-                    <tr>
-                        <th>Van</th>
-                        <th>Depots</th>
-                        <th class="vs-num">Requests</th>
-                        <th class="vs-num">Posted</th>
-                        <th class="vs-num">Rejected</th>
-                        <th class="vs-num">Stuck</th>
-                        <th class="vs-num">To decide</th>
-                        <th class="vs-num">To post</th>
-                        <th class="vs-num">Slowest</th>
-                        <th>Last supplied</th>
-                    </tr>
-                </thead>
-                <tbody>
+        @if (isLoading && report is null)
+        {
+            <div class="vrp-loading">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                <span>Reading the requests…</span>
+            </div>
+        }
+        else if (report is null)
+        {
+            <div class="vrp-empty">
+                <div class="vrp-empty-title">Nothing loaded yet</div>
+                <div>Choose a period and run the report.</div>
+            </div>
+        }
+        else
+        {
+            var summary = report.Summary;
+
+            <section class="vrp-figs" aria-label="The period in figures">
+                <div class="vrp-fig">
+                    <div class="vrp-lbl">Filled within a day</div>
+                    <div class="vrp-fig-val">@Rate(summary.FilledWithinDayRate)</div>
+                    <div class="vrp-fig-sub">
+                        @if (summary.FillBase > 0)
+                        {
+                            <text>@summary.FilledWithinDayCount.ToString("N0") of the @summary.FillBase.ToString("N0") requests nobody turned down</text>
+                        }
+                        else
+                        {
+                            <text>no request was owed an answer</text>
+                        }
+                    </div>
+                </div>
+                <div class="vrp-fig">
+                    <div class="vrp-lbl">Wait for a decision</div>
+                    <div class="vrp-fig-val">@Wait(summary.MedianHoursToDecision)</div>
+                    <div class="vrp-fig-sub">@SlowestTenth(summary.SlowestTenthHoursToDecision, "middle request")</div>
+                </div>
+                <div class="vrp-fig">
+                    <div class="vrp-lbl">Asking to posted</div>
+                    <div class="vrp-fig-val">@Wait(summary.MedianHoursToPosting)</div>
+                    <div class="vrp-fig-sub">@SlowestTenth(summary.SlowestTenthHoursToPosting, "middle posted request")</div>
+                </div>
+                <div class="vrp-fig @(summary.UnfilledNowCount > 0 ? "is-bad" : null)">
+                    <div class="vrp-lbl">Unfilled now</div>
+                    <div class="vrp-fig-val">@summary.UnfilledNowCount.ToString("N0")</div>
+                    <div class="vrp-fig-sub">
+                        @if (summary.UnfilledNowCount == 0)
+                        {
+                            <text>every van has what it asked for</text>
+                        }
+                        else
+                        {
+                            <text>@Plural(summary.VansWaitingNow, "van") without · oldest @Days(summary.OldestUnfilledDays ?? 0)</text>
+                        }
+                    </div>
+                </div>
+                <div class="vrp-fig">
+                    <div class="vrp-lbl">Turned down</div>
+                    <div class="vrp-fig-val">@summary.RejectedCount.ToString("N0")</div>
+                    <div class="vrp-fig-sub">@Rate(summary.RejectionRate) of requests@(summary.PartlyPostedCount > 0 ? $" · {summary.PartlyPostedCount:N0} posted in part" : null)</div>
+                </div>
+            </section>
+
+            @if (summary.RequestCount > 0)
+            {
+                <section class="vrp-card vrp-waits" aria-labelledby="vrp-waits-h">
+                    <div class="vrp-waits-head">
+                        <h2 id="vrp-waits-h" class="vrp-h2">How long the @summary.RequestCount.ToString("N0") requests waited, from asking to reaching SAP</h2>
+                        <span class="vrp-note">every request counted — the unfilled ones too</span>
+                    </div>
+                    <div class="vrp-waits-bar" role="img" aria-label="@WaitsAriaLabel">
+                        @foreach (var band in VisibleWaits)
+                        {
+                            <span class="vrp-waits-seg vrp-band-@BandClass(band.Band)" style="flex-grow: @band.Count"
+                                  title="@VanReplenishmentWaitBands.Label(band.Band): @band.Count"></span>
+                        }
+                    </div>
+                    <ul class="vrp-waits-key">
+                        @foreach (var band in VisibleWaits)
+                        {
+                            <li>
+                                <span class="vrp-swatch vrp-band-@BandClass(band.Band)" aria-hidden="true"></span>
+                                @VanReplenishmentWaitBands.Label(band.Band)
+                                <strong>@band.Count.ToString("N0")</strong>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            }
+
+            <section class="vrp-section" aria-labelledby="vrp-unfilled-h">
+                <div class="vrp-section-head">
+                    <h2 id="vrp-unfilled-h" class="vrp-h1">Unfilled now</h2>
+                    <span class="vrp-note">every open request, whatever the period above — grouped by why it is stuck, because each cause needs a different fix</span>
+                </div>
+
+                @if (report.Unfilled.Count == 0)
+                {
+                    <div class="vrp-quiet-card">
+                        <svg class="vrp-ok" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" /></svg>
+                        <div>
+                            <div class="vrp-quiet-title">Nothing is stuck</div>
+                            <div class="vrp-note">Every request raised has posted, been turned down or been withdrawn.</div>
+                        </div>
+                    </div>
+                }
+
+                @* A post whose answer was lost: it may already be in SAP, so it comes first. *@
+                @if (ByCause(VanReplenishmentCauses.OutcomeUnknown) is { Count: > 0 } unknown)
+                {
+                    <div class="vrp-cause vrp-cause-warn">
+                        <div class="vrp-cause-head">
+                            <div class="vrp-cause-text">
+                                <div class="vrp-cause-title">
+                                    <span class="vrp-chip vrp-chip-warn">Outcome unknown</span>
+                                    <h3 class="vrp-h3">SAP did not answer in time — @Plural(unknown.Count, "request") may already be posted</h3>
+                                </div>
+                                <p class="vrp-cause-body">Look for each in SAP before anything else: retrying a transfer that did go through moves the stock twice. If it is there, record its number; if not, retry it.</p>
+                            </div>
+                        </div>
+                        @RowHeader
+                        @foreach (var request in unknown)
+                        {
+                            <div class="vrp-row" @key="request.Id">
+                                @RequestCells(request)
+                                <span class="vrp-row-short">Last tried @(request.LastAttemptedAt?.ToString("d MMM HH:mm") ?? "—")</span>
+                                <span class="vrp-row-actions">
+                                    <button type="button" class="vrp-btn vrp-btn-ghost vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.Record)">It is in SAP</button>
+                                    <button type="button" class="vrp-btn vrp-btn-warn vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.ConfirmRetry)">Not in SAP — retry</button>
+                                </span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (ByCause(VanReplenishmentCauses.ApprovedNeverPosted) is { Count: > 0 } stranded)
+                {
+                    <div class="vrp-cause vrp-cause-bad">
+                        <div class="vrp-cause-head">
+                            <div class="vrp-cause-text">
+                                <div class="vrp-cause-title">
+                                    <span class="vrp-chip vrp-chip-bad">Approved, never posted</span>
+                                    <h3 class="vrp-h3">@Plural(stranded.Count, "approval") never reached a post attempt</h3>
+                                </div>
+                                <p class="vrp-cause-body">The approval saved and the post never started — a restart between the two leaves it here, and nothing else shows it. Post it now.</p>
+                            </div>
+                        </div>
+                        @RowHeader
+                        @foreach (var request in stranded)
+                        {
+                            <div class="vrp-row" @key="request.Id">
+                                @RequestCells(request)
+                                <span class="vrp-row-short">Approved @(request.DecidedAt?.ToString("d MMM HH:mm") ?? "—")</span>
+                                <span class="vrp-row-actions">
+                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.ConfirmRetry)">Post to SAP</button>
+                                </span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @foreach (var depot in report.DepotShortages)
+                {
+                    var rows = report.Unfilled
+                        .Where(request => request.Cause == VanReplenishmentCauses.DepotShort && request.DepotWarehouseCode == depot.DepotWarehouseCode)
+                        .ToList();
+
+                    <div class="vrp-cause vrp-cause-bad" @key="depot.DepotWarehouseCode">
+                        <div class="vrp-cause-head">
+                            <div class="vrp-cause-text">
+                                <div class="vrp-cause-title">
+                                    <span class="vrp-chip vrp-chip-bad">Depot short</span>
+                                    <h3 class="vrp-h3">@depot.DepotWarehouseCode is out of @Plural(depot.Items.Count, "item") — @Plural(depot.RequestCount, "request") from @Plural(depot.VanCount, "van") cannot post</h3>
+                                </div>
+                                <p class="vrp-cause-body">
+                                    SAP refuses a whole transfer when a single line is short, so
+                                    <strong>@depot.LinesInStock.ToString("N0") of the @depot.LineCount.ToString("N0") lines were in stock</strong>
+                                    at the last try and held back anyway. Retrying changes nothing until @depot.DepotWarehouseCode is restocked; posting the lines in stock sends those now.
+                                </p>
+                            </div>
+                            <div class="vrp-cause-actions">
+                                <button type="button" class="vrp-btn vrp-btn-ghost" disabled="@(bulk is not null)"
+                                        @onclick="() => StartBulk(BulkKind.Withdraw, rows)">Withdraw all @rows.Count</button>
+                                <button type="button" class="vrp-btn vrp-btn-primary" disabled="@(bulk is not null || depot.LinesInStock == 0)"
+                                        @onclick="() => StartBulk(BulkKind.PostInStock, rows)">Post the lines in stock</button>
+                            </div>
+                        </div>
+
+                        @if (bulk is not null && bulk.Depot == depot.DepotWarehouseCode)
+                        {
+                            @BulkPanel
+                        }
+
+                        <div class="vrp-short-strip">
+                            <span class="vrp-lbl">Short at @depot.DepotWarehouseCode</span>
+                            @foreach (var item in depot.Items.Take(8))
+                            {
+                                <span class="vrp-short-item">
+                                    <strong>@item.ItemCode</strong>
+                                    <span class="vrp-minus">−@Qty(item.Shortage)</span>
+                                    <span class="vrp-note">@Plural(item.RequestCount, "request")</span>
+                                </span>
+                            }
+                            @if (depot.Items.Count > 8)
+                            {
+                                <span class="vrp-note">+ @(depot.Items.Count - 8) more</span>
+                            }
+                            @if (depot.Incomplete)
+                            {
+                                <span class="vrp-note">— the list may be longer: an error this long was cut off when it was saved</span>
+                            }
+                        </div>
+
+                        @RowHeader
+                        @foreach (var request in rows)
+                        {
+                            <button type="button" class="vrp-row vrp-row-btn" @key="request.Id" @onclick="() => OpenAsync(request, DrawerMode.View)">
+                                @RequestCells(request)
+                                <span class="vrp-row-short">@ShortSummary(request)</span>
+                                <span class="vrp-row-open">Open</span>
+                            </button>
+                        }
+
+                        @if (LongestWaitingVan(rows) is { } repeat)
+                        {
+                            <div class="vrp-cause-foot">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="M8 4.8v3.6M8 11h.01" /></svg>
+                                @repeat
+                            </div>
+                        }
+                    </div>
+                }
+
+                @foreach (var cause in new[] { VanReplenishmentCauses.PostRefused, VanReplenishmentCauses.StockUnread })
+                {
+                    @if (ByCause(cause) is { Count: > 0 } rows)
+                    {
+                        <div class="vrp-cause vrp-cause-bad" @key="cause">
+                            <div class="vrp-cause-head">
+                                <div class="vrp-cause-text">
+                                    <div class="vrp-cause-title">
+                                        <span class="vrp-chip vrp-chip-bad">@VanReplenishmentCauses.Label(cause)</span>
+                                        <h3 class="vrp-h3">
+                                            @if (cause == VanReplenishmentCauses.StockUnread)
+                                            {
+                                                @($"SAP could not read the depot's stock — {Plural(rows.Count, "request")} never posted")
+                                            }
+                                            else
+                                            {
+                                                @($"SAP refused {Plural(rows.Count, "request")} for another reason")
+                                            }
+                                        </h3>
+                                    </div>
+                                    <p class="vrp-cause-body">
+                                        @if (cause == VanReplenishmentCauses.StockUnread)
+                                        {
+                                            <text>Nothing was measured and nothing was posted. Retry once SAP is answering.</text>
+                                        }
+                                        else
+                                        {
+                                            <text>Open each to read SAP's error, then retry, post the lines in stock or withdraw it.</text>
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                            @RowHeader
+                            @foreach (var request in rows)
+                            {
+                                <button type="button" class="vrp-row vrp-row-btn" @key="request.Id" @onclick="() => OpenAsync(request, DrawerMode.View)">
+                                    @RequestCells(request)
+                                    <span class="vrp-row-short vrp-row-error">@(request.LastError ?? "—")</span>
+                                    <span class="vrp-row-open">Open</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (ByCause(VanReplenishmentCauses.AwaitingDecision) is { Count: > 0 } waiting)
+                {
+                    <div class="vrp-cause">
+                        <div class="vrp-cause-head">
+                            <div class="vrp-cause-text">
+                                <div class="vrp-cause-title">
+                                    <span class="vrp-chip vrp-chip-accent">Waiting on an approver</span>
+                                    <h3 class="vrp-h3">@Plural(waiting.Count, "request") sitting with a depot approver</h3>
+                                </div>
+                                <p class="vrp-cause-body">Decided on the <a href="/inventory-transfers">Inventory transfers</a> page.</p>
+                            </div>
+                        </div>
+                        @RowHeader
+                        @foreach (var request in waiting)
+                        {
+                            <button type="button" class="vrp-row vrp-row-btn" @key="request.Id" @onclick="() => OpenAsync(request, DrawerMode.View)">
+                                @RequestCells(request)
+                                <span class="vrp-row-short">@request.TotalQuantity.ToString("N0") units</span>
+                                <span class="vrp-row-open">Open</span>
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (ByCause(VanReplenishmentCauses.Posting) is { Count: > 0 } posting)
+                {
+                    <div class="vrp-quiet-card">
+                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                        <div>
+                            <div class="vrp-quiet-title">Posting now · @posting.Count</div>
+                            <div class="vrp-note">Approved in the last few minutes; the post is most likely running in SAP. Run the report again shortly.</div>
+                        </div>
+                    </div>
+                }
+
+                @if (report.Unfilled.Count > 0)
+                {
+                    <div class="vrp-quiet-pair">
+                        @if (ByCause(VanReplenishmentCauses.ApprovedNeverPosted).Count == 0)
+                        {
+                            <div class="vrp-quiet-card">
+                                <svg class="vrp-ok" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" /></svg>
+                                <div>
+                                    <div class="vrp-quiet-title">Approved but never posted · 0</div>
+                                    <div class="vrp-note">Every approval reached a post attempt. An approval stranded here would otherwise show nowhere.</div>
+                                </div>
+                            </div>
+                        }
+                        @if (ByCause(VanReplenishmentCauses.AwaitingDecision).Count == 0)
+                        {
+                            <div class="vrp-quiet-card">
+                                <svg class="vrp-ok" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" /></svg>
+                                <div>
+                                    <div class="vrp-quiet-title">Waiting on an approver · 0</div>
+                                    <div class="vrp-note">Nothing is sitting with a depot controller.</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="vrp-section" aria-labelledby="vrp-vans-h">
+                <div class="vrp-section-head">
+                    <h2 id="vrp-vans-h" class="vrp-h1">By van</h2>
+                    <span class="vrp-note">worst served first</span>
+                </div>
+                <div class="vrp-card vrp-table" role="table" aria-label="Service level by van">
+                    <div class="vrp-vrow vrp-vrow-head" role="row">
+                        <span role="columnheader">Van</span>
+                        <span role="columnheader">Depot</span>
+                        <span role="columnheader" class="vrp-num">Requests</span>
+                        <span role="columnheader">What became of them</span>
+                        <span role="columnheader" class="vrp-num">Filled in a day</span>
+                        <span role="columnheader" class="vrp-num">Middle wait</span>
+                        <span role="columnheader" class="vrp-num">Slowest</span>
+                        <span role="columnheader">Last load</span>
+                    </div>
                     @foreach (var van in report.Vans)
                     {
-                        <tr class="@(van.RequestCount == 0 ? "vrp-quiet" : null)">
-                            <td>@van.VanWarehouseCode</td>
-                            <td>@(van.DepotWarehouses.Count == 0 ? "—" : string.Join(", ", van.DepotWarehouses))</td>
-                            <td class="vs-num">@van.RequestCount.ToString("N0")</td>
-                            <td class="vs-num">@van.PostedCount.ToString("N0")</td>
-                            <td class="vs-num">@van.RejectedCount.ToString("N0")</td>
-                            <td class="vs-num @(van.NeedingAttentionCount > 0 ? "vrp-bad" : null)">
-                                @van.NeedingAttentionCount.ToString("N0")
-                            </td>
-                            <td class="vs-num @(van.MedianHoursToDecision is null ? "vs-metric-none" : null)">
-                                @Hours(van.MedianHoursToDecision)
-                            </td>
-                            <td class="vs-num @(van.MedianHoursToPosting is null ? "vs-metric-none" : null)">
-                                @Hours(van.MedianHoursToPosting)
-                            </td>
-                            <td class="vs-num">@Hours(van.SlowestHoursToPosting)</td>
-                            <td>
+                        <div class="vrp-vrow @VanRowClass(van)" role="row" @key="van.VanWarehouseCode">
+                            <span role="cell" class="vrp-strong">
+                                @van.VanWarehouseCode
+                                @if (!van.IsAssigned)
+                                {
+                                    <span class="vrp-note">no rep</span>
+                                }
+                            </span>
+                            <span role="cell" class="vrp-mute">@(van.DepotWarehouses.Count == 0 ? "—" : string.Join(", ", van.DepotWarehouses))</span>
+                            <span role="cell" class="vrp-num">@van.RequestCount.ToString("N0")</span>
+                            <span role="cell" class="vrp-outcome">
+                                @if (van.RequestCount > 0)
+                                {
+                                    <span class="vrp-outcome-bar" aria-hidden="true">
+                                        <span class="vrp-seg-good" style="width: @OutcomeWidth(van.PostedCount)"></span>
+                                        <span class="vrp-seg-bad" style="width: @OutcomeWidth(van.UnfilledCount)"></span>
+                                        <span class="vrp-seg-neutral" style="width: @OutcomeWidth(van.RejectedCount + van.CancelledCount)"></span>
+                                    </span>
+                                }
+                                <span class="vrp-note" title="@Outcome(van)">@Outcome(van)</span>
+                            </span>
+                            <span role="cell" class="vrp-num vrp-strong @FillClass(van.FilledWithinDayRate)">
+                                @if (van.FilledWithinDayRate is { } rate)
+                                {
+                                    @($"{rate:P0} · {van.FilledWithinDayCount:N0} of {van.FillBase:N0}")
+                                }
+                                else
+                                {
+                                    <text>—</text>
+                                }
+                            </span>
+                            <span role="cell" class="vrp-num vrp-mute">@Wait(van.MedianHoursToPosting)</span>
+                            <span role="cell" class="vrp-num vrp-mute">@Wait(van.SlowestHoursToPosting)</span>
+                            <span role="cell" class="vrp-last">
                                 @if (van.LastPostedAt is { } posted)
                                 {
-                                    @posted.ToString("dd MMM")
-                                    <span class="vrp-sub">@van.DaysSinceLastPosted d ago</span>
+                                    <span>@posted.ToString("d MMM")</span>
+                                    <span class="vrp-note @(van.DaysSinceLastPosted >= 7 ? "vrp-bad-ink" : null)">@LastLoadNote(van)</span>
                                 }
                                 else
                                 {
                                     @* Never supplied is a different finding from supplied long ago. *@
-                                    <span class="vs-metric-none">never</span>
+                                    <span class="vrp-bad-ink">never</span>
                                 }
-                            </td>
-                        </tr>
+                            </span>
+                        </div>
                     }
-                </tbody>
-            </table>
-        </div>
-    }
+                </div>
+            </section>
+
+            @if (!report.Quality.IsClean || report.Quality.PostsRecordedByHand > 0)
+            {
+                <section class="vrp-quality" aria-labelledby="vrp-quality-h">
+                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="M8 7.2v4M8 4.8h.01" /></svg>
+                    <div>
+                        <h2 id="vrp-quality-h" class="vrp-quiet-title">What this period cannot answer</h2>
+                        <ul class="vrp-quality-list">
+                            @foreach (var caveat in report.Quality.Caveats)
+                            {
+                                <li>@caveat</li>
+                            }
+                            @if (report.Quality.PostsRecordedByHand > 0)
+                            {
+                                <li>@Plural(report.Quality.PostsRecordedByHand, "request") were closed against a transfer found in SAP after a timed-out post; their wait runs to that attempt.</li>
+                            }
+                        </ul>
+                    </div>
+                </section>
+            }
+        }
+    </div>
 </div>
 
-@code {
-    private VanReplenishmentReportResponse? report;
+@if (drawer is not null)
+{
+    var request = drawer.Request;
 
-    private DateTime? fromDate;
-    private DateTime? toDate;
-    private string? selectedVan;
+    <div class="vrp-overlay">
+        <div class="vrp-scrim" @onclick="CloseDrawer"></div>
+        <aside class="vrp-drawer" role="dialog" aria-modal="true" aria-labelledby="vrp-drawer-h">
+            <div class="vrp-drawer-head">
+                <div class="vrp-drawer-top">
+                    <span class="vrp-note">@(request.DraftNumber ?? "Held transfer")</span>
+                    <button type="button" class="vrp-icon-btn" aria-label="Close" @onclick="CloseDrawer">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13" /></svg>
+                    </button>
+                </div>
+                <h2 id="vrp-drawer-h" class="vrp-drawer-route">
+                    <span>@request.DepotWarehouseCode</span>
+                    <svg width="22" height="14" viewBox="0 0 22 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="to"><path d="M1 7h19M15 2l5 5-5 5" /></svg>
+                    <span>@request.VanWarehouseCode</span>
+                </h2>
+                <div class="vrp-drawer-chips">
+                    <span class="vrp-chip @CauseChip(request.Cause)">@VanReplenishmentCauses.Label(request.Cause)@(request.ShortLineCount is { } shortLines ? $" · {Plural(shortLines, "line")}" : null)</span>
+                    <span class="vrp-chip vrp-chip-neutral">Unfilled @Days(request.DaysWaiting)</span>
+                    <span class="vrp-chip vrp-chip-neutral">@(request.RaisedByDepot ? "Raised by the depot, for the van" : "Raised from the van")</span>
+                </div>
+            </div>
 
-    private bool isLoading;
-    private string? loadError;
+            <div class="vrp-drawer-body">
+                <section aria-labelledby="vrp-steps-h">
+                    <h3 id="vrp-steps-h" class="vrp-lbl">What happened</h3>
+                    <ol class="vrp-steps">
+                        <li class="vrp-step">
+                            <span class="vrp-step-dot vrp-dot-mute" aria-hidden="true"></span>
+                            <span class="vrp-step-text"><strong>Asked</strong><span class="vrp-note">@request.RequestedBy, @Plural(request.LineCount, "line")</span></span>
+                            <span class="vrp-step-when">@request.RequestedAt.ToString("d MMM HH:mm")</span>
+                        </li>
+                        @if (request.DecidedAt is { } decided)
+                        {
+                            <li class="vrp-step">
+                                <span class="vrp-step-dot vrp-dot-good" aria-hidden="true"></span>
+                                <span class="vrp-step-text"><strong>Approved</strong><span class="vrp-note">after @Wait((decided - request.RequestedAt).TotalHours)</span></span>
+                                <span class="vrp-step-when">@decided.ToString("d MMM HH:mm")</span>
+                            </li>
+                        }
+                        @if (request.LastAttemptedAt is { } attempted)
+                        {
+                            <li class="vrp-step">
+                                <span class="vrp-step-dot @(request.Cause == VanReplenishmentCauses.OutcomeUnknown ? "vrp-dot-warn" : "vrp-dot-bad")" aria-hidden="true"></span>
+                                <span class="vrp-step-text"><strong>@AttemptTitle(request)</strong><span class="vrp-note vrp-step-error">@(request.LastError ?? "No error was recorded.")</span></span>
+                                <span class="vrp-step-when">@attempted.ToString("d MMM HH:mm")</span>
+                            </li>
+                        }
+                        <li class="vrp-step">
+                            <span class="vrp-step-dot vrp-dot-faint" aria-hidden="true"></span>
+                            <span class="vrp-step-text"><strong>Still unfilled</strong><span class="vrp-note">nothing has reached the van</span></span>
+                            <span class="vrp-step-when">@Days(request.DaysWaiting)</span>
+                        </li>
+                    </ol>
+                </section>
 
-    /// <summary>
-    /// The vans the loaded period holds, rebuilt from the last answer. There is no separate van list
-    /// endpoint, and this report already knows every van a rep is assigned to.
-    /// </summary>
-    private IEnumerable<INocturneSelectOption<string>> VanFilterOptions =>
-        new[] { NocturneSelectOption.All("All vans") }
-            .Concat((report?.Vans ?? [])
-                .OrderBy(van => van.VanWarehouseCode, StringComparer.OrdinalIgnoreCase)
-                .Select(van => new NocturneSelectOption<string>(van.VanWarehouseCode, van.VanWarehouseCode)
+                <section aria-labelledby="vrp-lines-h">
+                    <div class="vrp-lines-head">
+                        <h3 id="vrp-lines-h" class="vrp-lbl">@Plural(request.LineCount, "line") · stock read now</h3>
+                        @if (drawer.Stock is { } stock)
+                        {
+                            <span class="vrp-note">@stock.LinesInStock.ToString("N0") in stock · @stock.LinesShort.ToString("N0") short · read @stock.CheckedAt.ToString("HH:mm")</span>
+                        }
+                    </div>
+
+                    @if (drawer.StockLoading)
+                    {
+                        <div class="vrp-loading vrp-loading-sm">
+                            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                            <span>Reading @request.DepotWarehouseCode's stock from SAP…</span>
+                        </div>
+                    }
+                    else if (drawer.Stock is null)
+                    {
+                        <div class="vrp-notice vrp-notice-warn">SAP's stock could not be read just now, so the lines cannot be measured. Posting the lines in stock is off until it can be.</div>
+                    }
+                    else
+                    {
+                        @if (!drawer.Stock.StockWasFullyRead)
+                        {
+                            <div class="vrp-notice vrp-notice-warn">SAP did not answer for @string.Join(", ", drawer.Stock.UnreadableWarehouses), so some lines are unmeasured. Nothing will be posted against them.</div>
+                        }
+                        <div class="vrp-lines" role="table" aria-label="Lines against the depot">
+                            <div class="vrp-line vrp-line-head" role="row">
+                                <span role="columnheader">Item</span>
+                                <span role="columnheader" class="vrp-num">Asked</span>
+                                <span role="columnheader" class="vrp-num">At @request.DepotWarehouseCode</span>
+                                <span role="columnheader" class="vrp-num">Short</span>
+                            </div>
+                            @foreach (var line in drawer.Stock.Lines)
+                            {
+                                <div class="vrp-line" role="row" @key="line.LineNumber">
+                                    <span role="cell" class="vrp-line-item">
+                                        <span class="vrp-dot @(line.IsShort ? "vrp-dot-bad" : line.IsUnread ? "vrp-dot-warn" : "vrp-dot-good")" aria-hidden="true"></span>
+                                        <strong>@line.ItemCode</strong>
+                                        @if (line.BatchNumber is not null)
+                                        {
+                                            <span class="vrp-note">batch @line.BatchNumber</span>
+                                        }
+                                    </span>
+                                    <span role="cell" class="vrp-num vrp-mute">@Qty(line.Quantity) @line.UoMCode</span>
+                                    <span role="cell" class="vrp-num vrp-mute">@(line.IsUnread ? "unread" : line.AvailableQuantity is { } available ? Qty(available) : "in stock")</span>
+                                    <span role="cell" class="vrp-num @(line.IsShort ? "vrp-minus" : "vrp-faint")">@(line.IsShort && line.AvailableQuantity is { } have ? $"−{Qty(line.Quantity - have)}" : "—")</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
+
+                @if (request.Cause == VanReplenishmentCauses.AwaitingDecision)
                 {
-                    Hint = van.RequestCount.ToString("N0")
-                }));
+                    <div class="vrp-notice">This request is still with an approver. Decide it on the <a href="/inventory-transfers">Inventory transfers</a> page.</div>
+                }
+            </div>
 
-    protected override async Task OnInitializedAsync()
-    {
-        // CAT, not the server's clock: a trading day belongs to the van.
-        var today = DateTime.UtcNow.AddHours(2).Date;
-        fromDate = today.AddDays(-29);
-        toDate = today;
-
-        await LoadAsync();
-    }
-
-    private async Task LoadAsync()
-    {
-        isLoading = true;
-        loadError = null;
-        StateHasChanged();
-
-        try
-        {
-            report = await VanSalesReportService.GetReplenishmentReportAsync(
-                fromDate,
-                toDate,
-                string.IsNullOrWhiteSpace(selectedVan) ? null : selectedVan);
-
-            if (report is null)
+            @if (request.Cause != VanReplenishmentCauses.AwaitingDecision && request.Cause != VanReplenishmentCauses.Posting)
             {
-                loadError = "The replenishment report could not be loaded. Check that the API is reachable.";
-                return;
-            }
+                <div class="vrp-drawer-foot">
+                    @if (drawer.Error is not null)
+                    {
+                        <div class="vrp-notice vrp-notice-bad" role="alert">@drawer.Error</div>
+                    }
 
-            if (!string.IsNullOrWhiteSpace(selectedVan)
-                && report.Vans.All(van => van.VanWarehouseCode != selectedVan))
+                    @switch (drawer.Mode)
+                    {
+                        case DrawerMode.Record:
+                            <label class="vrp-lbl" for="vrp-docnum">SAP transfer number</label>
+                            <p class="vrp-foot-text">The number SAP shows for the transfer into @request.VanWarehouseCode. It is checked against SAP before anything is recorded, and nothing is posted again.</p>
+                            <div class="vrp-foot-row">
+                                <input id="vrp-docnum" class="vrp-input" inputmode="numeric" placeholder="e.g. 51234" @bind="docNumText" @bind:event="oninput" />
+                                <button type="button" class="vrp-btn vrp-btn-primary" disabled="@(drawer.Busy || !int.TryParse(docNumText, out _))" @onclick="RecordAsync">Record it</button>
+                                <button type="button" class="vrp-btn vrp-btn-ghost" disabled="@drawer.Busy" @onclick="() => SetMode(DrawerMode.View)">Back</button>
+                            </div>
+                            break;
+
+                        case DrawerMode.ConfirmWithdraw:
+                            <label class="vrp-lbl" for="vrp-reason">Why is it being withdrawn?</label>
+                            <p class="vrp-foot-text">The van will not get this load. The approval is kept on the record; the request closes as withdrawn.</p>
+                            <textarea id="vrp-reason" class="vrp-input vrp-textarea" rows="2" maxlength="500" placeholder="e.g. Depot out of yoghurt until the October delivery" @bind="withdrawReason" @bind:event="oninput"></textarea>
+                            <div class="vrp-foot-row">
+                                <button type="button" class="vrp-btn vrp-btn-danger" disabled="@(drawer.Busy || string.IsNullOrWhiteSpace(withdrawReason))" @onclick="WithdrawAsync">Withdraw it</button>
+                                <button type="button" class="vrp-btn vrp-btn-ghost" disabled="@drawer.Busy" @onclick="() => SetMode(DrawerMode.View)">Back</button>
+                            </div>
+                            break;
+
+                        case DrawerMode.ConfirmPostInStock:
+                            <p class="vrp-foot-text">
+                                <strong>Post @(drawer.Stock?.LinesInStock ?? 0) of @request.LineCount lines to @request.VanWarehouseCode?</strong>
+                                The @Plural(drawer.Stock?.LinesShort ?? 0, "short line") are dropped, not held — the van asks again once @request.DepotWarehouseCode has them. Stock is read again before anything posts.
+                            </p>
+                            <div class="vrp-foot-row">
+                                <button type="button" class="vrp-btn vrp-btn-primary" disabled="@drawer.Busy" @onclick="PostInStockAsync">@(drawer.Busy ? "Posting…" : "Post them")</button>
+                                <button type="button" class="vrp-btn vrp-btn-ghost" disabled="@drawer.Busy" @onclick="() => SetMode(DrawerMode.View)">Back</button>
+                            </div>
+                            break;
+
+                        case DrawerMode.ConfirmRetry:
+                            <p class="vrp-foot-text">
+                                @if (request.Cause == VanReplenishmentCauses.OutcomeUnknown)
+                                {
+                                    <strong>Only if it is not in SAP.</strong>
+                                    <text> If the timed-out post did go through, this posts it a second time and moves the stock twice.</text>
+                                }
+                                else
+                                {
+                                    <strong>Post all @request.LineCount lines to SAP?</strong>
+                                    <text> SAP refuses the whole transfer if any line is still short.</text>
+                                }
+                            </p>
+                            <div class="vrp-foot-row">
+                                <button type="button" class="vrp-btn @(request.Cause == VanReplenishmentCauses.OutcomeUnknown ? "vrp-btn-warn" : "vrp-btn-primary")" disabled="@drawer.Busy" @onclick="RetryAsync">@(drawer.Busy ? "Posting…" : "Post it")</button>
+                                <button type="button" class="vrp-btn vrp-btn-ghost" disabled="@drawer.Busy" @onclick="() => SetMode(DrawerMode.View)">Back</button>
+                            </div>
+                            break;
+
+                        default:
+                            @if (request.Cause == VanReplenishmentCauses.DepotShort || request.Cause == VanReplenishmentCauses.PostRefused)
+                            {
+                                <p class="vrp-foot-text">@PostInStockExplainer</p>
+                            }
+                            <div class="vrp-foot-row">
+                                @if (request.Cause == VanReplenishmentCauses.OutcomeUnknown)
+                                {
+                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" @onclick="() => SetMode(DrawerMode.Record)">It is in SAP — record the number</button>
+                                    <button type="button" class="vrp-btn vrp-btn-warn" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Not in SAP — retry</button>
+                                }
+                                else if (CanPostInStock)
+                                {
+                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" @onclick="() => SetMode(DrawerMode.ConfirmPostInStock)">Post the @drawer.Stock!.LinesInStock lines in stock</button>
+                                    <button type="button" class="vrp-btn vrp-btn-ghost" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Retry all @request.LineCount</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" disabled="@(drawer.StockLoading)" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">@RetryLabel</button>
+                                }
+                                @if (request.Status == "PostFailed")
+                                {
+                                    <button type="button" class="vrp-btn vrp-btn-danger-ghost" @onclick="() => SetMode(DrawerMode.ConfirmWithdraw)">Withdraw</button>
+                                }
+                            </div>
+                            break;
+                    }
+                </div>
+            }
+        </aside>
+    </div>
+}
+
+@code {
+    private RenderFragment RowHeader => @<div class="vrp-row vrp-row-head" aria-hidden="true">
+        <span>Van</span><span>Draft</span><span>Asked by</span><span>Asked</span><span class="vrp-num">Waiting</span><span>Lines</span><span>Detail</span><span></span>
+    </div>;
+
+    private RenderFragment RequestCells(VanReplenishmentOpenRequest request) => @<text>
+        <span class="vrp-strong">@request.VanWarehouseCode</span>
+        <span class="vrp-mute">@(request.DraftNumber ?? "—")</span>
+        <span class="vrp-row-who">
+            <span>@request.RequestedBy</span>
+            <span class="vrp-note">@(request.RaisedByDepot ? "for the van" : "from the van")</span>
+        </span>
+        <span class="vrp-mute">@request.RequestedAt.ToString("d MMM HH:mm")</span>
+        <span class="vrp-num vrp-strong @WaitClass(request)">@Days(request.DaysWaiting, request.HoursWaiting)</span>
+        <span class="vrp-row-stock">
+            @if (request.LinesInStockAtLastAttempt is { } inStock)
             {
-                selectedVan = null;
+                <span class="vrp-meter" aria-hidden="true"><span style="width: @MeterWidth(inStock, request.LineCount)"></span></span>
+                <span>@inStock of @request.LineCount</span>
+            }
+            else
+            {
+                <span class="vrp-mute">@Plural(request.LineCount, "line")</span>
+            }
+        </span>
+    </text>;
+
+    private RenderFragment BulkPanel => @<div class="vrp-bulk" role="region" aria-label="Acting on every request in this group">
+        @if (bulk!.Running || bulk.Done > 0)
+        {
+            <div class="vrp-bulk-progress">
+                <span>@bulk.Done of @bulk.Requests.Count done@(bulk.Failures.Count > 0 ? $" · {bulk.Failures.Count} could not" : null)</span>
+                <span class="vrp-meter vrp-meter-wide" aria-hidden="true"><span style="width: @MeterWidth(bulk.Done, bulk.Requests.Count)"></span></span>
+            </div>
+            @foreach (var failure in bulk.Failures)
+            {
+                <div class="vrp-note vrp-bad-ink">@failure</div>
+            }
+            @if (!bulk.Running)
+            {
+                <div class="vrp-foot-row">
+                    <button type="button" class="vrp-btn vrp-btn-ghost" @onclick="FinishBulkAsync">Done</button>
+                </div>
             }
         }
-        catch (Exception ex)
+        else if (bulk.Kind == BulkKind.PostInStock)
         {
-            loadError = $"Failed to load the replenishment report: {ex.Message}";
+            <p class="vrp-foot-text"><strong>Post the lines in stock for all @bulk.Requests.Count requests?</strong> Each is read against @bulk.Depot again and posted with its short lines dropped; one with nothing in stock is left as it is.</p>
+            <div class="vrp-foot-row">
+                <button type="button" class="vrp-btn vrp-btn-primary" @onclick="RunBulkAsync">Post them</button>
+                <button type="button" class="vrp-btn vrp-btn-ghost" @onclick="CancelBulk">Cancel</button>
+            </div>
         }
-        finally
+        else
         {
-            isLoading = false;
-            StateHasChanged();
+            <label class="vrp-lbl" for="vrp-bulk-reason">Why are all @bulk.Requests.Count being withdrawn?</label>
+            <textarea id="vrp-bulk-reason" class="vrp-input vrp-textarea" rows="2" maxlength="500" @bind="bulk.Reason" @bind:event="oninput"></textarea>
+            <div class="vrp-foot-row">
+                <button type="button" class="vrp-btn vrp-btn-danger" disabled="@string.IsNullOrWhiteSpace(bulk.Reason)" @onclick="RunBulkAsync">Withdraw all @bulk.Requests.Count</button>
+                <button type="button" class="vrp-btn vrp-btn-ghost" @onclick="CancelBulk">Cancel</button>
+            </div>
         }
-    }
-
-    private async Task ExportAsync()
-    {
-        if (report is null)
-        {
-            return;
-        }
-
-        try
-        {
-            var bytes = ExportService.ExportVanReplenishmentToExcel(report);
-            var fileName = $"VanReplenishment_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
-
-            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
-        }
-        catch (Exception ex)
-        {
-            loadError = $"The export could not be downloaded: {ex.Message}";
-        }
-    }
-
-    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
-
-    /// <summary>
-    /// A wait, in the unit that reads best at its size. Null is an em dash — a van that asked for
-    /// nothing has no waiting time, which is not the same as being served instantly.
-    /// </summary>
-    private static string Hours(double? hours) => hours switch
-    {
-        null => "—",
-        < 1 => "<1h",
-        < 48 => $"{hours.Value:N0}h",
-        _ => $"{hours.Value / 24:N1}d"
-    };
+    </div>;
 }

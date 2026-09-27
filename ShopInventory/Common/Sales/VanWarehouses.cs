@@ -1,21 +1,35 @@
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.Models;
 
 namespace ShopInventory.Common.Sales;
 
 /// <summary>
-/// One van warehouse: who drives it and which business partners its reps' sales invoice to.
+/// One van warehouse: who drives it, the depot that loads it, and which business partners its reps'
+/// sales invoice to.
 /// </summary>
+/// <remarks>
+/// A van any active rep drives is described by its active reps alone. Only a van whose reps are all
+/// deactivated — which <see cref="VanWarehouses.LoadIncludingDeactivatedAsync"/> alone returns — is
+/// described by its deactivated reps.
+/// </remarks>
 /// <param name="Code">The warehouse code, trimmed, spelt as the first rep's assignment spells it.</param>
 /// <param name="Rep">
-/// The active rep's name, falling back to the account they sign in as. Two active reps on one van are
-/// both named, in user-id order, rather than letting the order of the rows decide.
+/// The rep's name, falling back to the account they sign in as. Two reps on one van are both named,
+/// in user-id order, rather than letting the order of the rows decide.
 /// </param>
 /// <param name="BusinessPartnerCodes">
-/// Every <c>AssignedBusinessPartnerCode</c> on the van's active reps. Not the warehouse code: VAN001's sales
+/// Every <c>AssignedBusinessPartnerCode</c> on the van's reps. Not the warehouse code: VAN001's sales
 /// invoice to VAN010. Empty when no rep on the van has one.
 /// </param>
-public sealed record VanWarehouse(string Code, string Rep, IReadOnlySet<string> BusinessPartnerCodes);
+/// <param name="Depot">The first rep's <c>SupplyingWarehouseCode</c>, trimmed: where the van loads from.</param>
+/// <param name="HasActiveRep">Whether any active rep is assigned to the van.</param>
+public sealed record VanWarehouse(
+    string Code,
+    string Rep,
+    IReadOnlySet<string> BusinessPartnerCodes,
+    string Depot,
+    bool HasActiveRep);
 
 /// <summary>
 /// The warehouses that are vans, and whose they are.
@@ -35,30 +49,59 @@ public sealed record VanWarehouse(string Code, string Rep, IReadOnlySet<string> 
 /// coded <c>VAN…</c>, is classified correctly without anybody remembering to update a filter.
 /// </para>
 /// <para>
-/// Only active reps count. A deactivated rep neither makes a warehouse a van nor is named on one, so
-/// a van whose only rep has been deactivated drops out of every van report — even while it still
-/// holds stock — until an active rep is assigned to it. Decided on PR #579.
+/// Only active reps make a van (decided on PR #579): a van whose reps are all deactivated drops out of
+/// <see cref="LoadAsync"/> — even while it still holds stock — until an active rep is assigned to it.
+/// The replenishment report alone reads <see cref="LoadIncludingDeactivatedAsync"/>, because such a
+/// van's open restock requests still need somebody to decide them.
 /// </para>
 /// </remarks>
 public static class VanWarehouses
 {
-    /// <summary>Van warehouse code (case-insensitive) → the van.</summary>
-    public static async Task<Dictionary<string, VanWarehouse>> LoadAsync(
+    /// <summary>Van warehouse code (case-insensitive) → the van, for vans an active rep drives.</summary>
+    public static Task<Dictionary<string, VanWarehouse>> LoadAsync(
         ApplicationDbContext db,
+        CancellationToken cancellationToken) =>
+        LoadCoreAsync(db, includeDeactivated: false, cancellationToken);
+
+    /// <summary>
+    /// Van warehouse code (case-insensitive) → the van, including vans whose reps are all deactivated
+    /// (<see cref="VanWarehouse.HasActiveRep"/> false).
+    /// </summary>
+    public static Task<Dictionary<string, VanWarehouse>> LoadIncludingDeactivatedAsync(
+        ApplicationDbContext db,
+        CancellationToken cancellationToken) =>
+        LoadCoreAsync(db, includeDeactivated: true, cancellationToken);
+
+    private static async Task<Dictionary<string, VanWarehouse>> LoadCoreAsync(
+        ApplicationDbContext db,
+        bool includeDeactivated,
         CancellationToken cancellationToken)
     {
         // Materialised as entities so the codes can be read by the entity's own helper. They are a
         // JSON list in one column, and re-implementing that parse here is how the two would drift.
         var users = await db.Users
             .AsNoTracking()
-            .Where(user => user.IsActive
+            .Where(user => (includeDeactivated || user.IsActive)
                            && user.SupplyingWarehouseCode != null
                            && user.AssignedWarehouseCodes != null)
             .OrderBy(user => user.Id)
             .ToListAsync(cancellationToken);
 
+        var vans = Describe(users.Where(user => user.IsActive), hasActiveRep: true);
+
+        foreach (var (code, van) in Describe(users.Where(user => !user.IsActive), hasActiveRep: false))
+        {
+            vans.TryAdd(code, van);
+        }
+
+        return vans;
+    }
+
+    private static Dictionary<string, VanWarehouse> Describe(IEnumerable<User> users, bool hasActiveRep)
+    {
         var reps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var accounts = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var depots = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var user in users)
         {
@@ -77,6 +120,8 @@ public static class VanWarehouses
                     ? $"{existing}, {rep}"
                     : rep;
 
+                depots.TryAdd(key, user.SupplyingWarehouseCode!.Trim());
+
                 if (!accounts.TryGetValue(key, out var codes))
                 {
                     codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -93,7 +138,7 @@ public static class VanWarehouses
         // Keyed by the dictionary's own spelling of the code, which is the first one seen.
         return reps.ToDictionary(
             pair => pair.Key,
-            pair => new VanWarehouse(pair.Key, pair.Value, accounts[pair.Key]),
+            pair => new VanWarehouse(pair.Key, pair.Value, accounts[pair.Key], depots[pair.Key], hasActiveRep),
             StringComparer.OrdinalIgnoreCase);
     }
 }

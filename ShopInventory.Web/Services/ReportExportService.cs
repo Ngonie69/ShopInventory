@@ -5955,23 +5955,26 @@ public partial class ReportExportService : IReportExportService
         var now = DateTime.UtcNow.AddHours(2); // CAT
 
         BuildReplenishmentWorklistSheet(workbook, report, now);
+        if (report.DepotShortages.Count > 0)
+        {
+            BuildReplenishmentShortageSheet(workbook, report, now);
+        }
         BuildReplenishmentVanSheet(workbook, report, now);
 
         return WorkbookToBytes(workbook);
     }
 
     /// <summary>
-    /// The worklist leads the workbook as it leads the page. Everything else here records how things
-    /// have been going; this is the sheet somebody acts on, and an approved transfer that never
-    /// reached SAP is surfaced nowhere else in the system.
+    /// The worklist leads the workbook as it leads the page: every request still open today, whatever
+    /// the period, grouped by why it is stuck.
     /// </summary>
     private static void BuildReplenishmentWorklistSheet(
         XLWorkbook workbook,
         VanReplenishmentReportResponse report,
         DateTime now)
     {
-        const int lastCol = 8;
-        var ws = workbook.Worksheets.Add("Stuck Now");
+        const int lastCol = 10;
+        var ws = workbook.Worksheets.Add("Unfilled Now");
         TsApplyDefaults(ws);
 
         var period = $"VAN REPLENISHMENT  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
@@ -5981,14 +5984,14 @@ public partial class ReportExportService : IReportExportService
 
         row = TsKpiStrip(ws, row, lastCol,
             ("Requests", summary.RequestCount.ToString("N0"), null),
-            ("Reached SAP", RateText(summary.PostRate), null),
+            ("Filled In A Day", RateText(summary.FilledWithinDayRate), null),
             ("Wait To Decide", HoursText(summary.MedianHoursToDecision), null),
-            ("Wait To Post", HoursText(summary.MedianHoursToPosting), null),
-            ("Needing Attention", summary.NeedingAttentionCount.ToString("N0"),
-                summary.NeedingAttentionCount > 0 ? TsRed : null),
-            ("Failed To Post", summary.PostFailedCount.ToString("N0"),
-                summary.PostFailedCount > 0 ? TsRed : null),
-            ("Rejected", summary.RejectedCount.ToString("N0"), null),
+            ("Asking To Posted", HoursText(summary.MedianHoursToPosting), null),
+            ("Unfilled Now", summary.UnfilledNowCount.ToString("N0"),
+                summary.UnfilledNowCount > 0 ? TsRed : null),
+            ("Vans Waiting", summary.VansWaitingNow.ToString("N0"),
+                summary.VansWaitingNow > 0 ? TsRed : null),
+            ("Turned Down", summary.RejectedCount.ToString("N0"), null),
             ("Vans", summary.VanCount.ToString("N0"), null));
 
         if (!report.Quality.IsClean)
@@ -6011,34 +6014,89 @@ public partial class ReportExportService : IReportExportService
             row++;
         }
 
-        TsSectionTitle(ws, row, lastCol, "REQUESTS THAT HAVE NOT REACHED SAP");
+        TsSectionTitle(ws, row, lastCol, "EVERY REQUEST STILL OPEN, WHATEVER THE PERIOD");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Van", "From Depot", "Problem", "Asked By", "Asked", "Waiting", "Lines", "Last Error"]);
+            ["Why", "Van", "From Depot", "Draft", "Asked By", "Asked", "Waiting", "Lines", "In Stock At Last Try", "Short / Last Error"]);
 
         int index = 0;
-        foreach (var request in report.NeedingAttention)
+        foreach (var request in report.Unfilled)
         {
             TsDataRow(ws, row, lastCol, index % 2 == 1);
-            ws.Cell(row, 1).Value = request.VanWarehouseCode;
-            ws.Cell(row, 2).Value = request.DepotWarehouseCode;
-            ws.Cell(row, 3).Value = request.GapLabel;
-            ws.Cell(row, 4).Value = request.RequestedBy;
-            WriteVanPerformanceDate(ws.Cell(row, 5), request.RequestedAt);
-            ws.Cell(row, 6).Value = request.DaysWaiting >= 1
+            ws.Cell(row, 1).Value = VanReplenishmentCauses.Label(request.Cause);
+            ws.Cell(row, 2).Value = request.VanWarehouseCode;
+            ws.Cell(row, 3).Value = request.DepotWarehouseCode;
+            ws.Cell(row, 4).Value = request.DraftNumber ?? "—";
+            ws.Cell(row, 5).Value = request.RaisedByDepot
+                ? $"{request.RequestedBy} (for the van)"
+                : request.RequestedBy;
+            WriteVanPerformanceDate(ws.Cell(row, 6), request.RequestedAt);
+            ws.Cell(row, 7).Value = request.DaysWaiting >= 1
                 ? $"{request.DaysWaiting:N0}d"
                 : $"{request.HoursWaiting:N0}h";
-            ws.Cell(row, 7).Value = request.LineCount;
-            ws.Cell(row, 8).Value = request.LastError ?? "—";
-
-            if (request.IsPostFailure)
+            ws.Cell(row, 8).Value = request.LineCount;
+            if (request.LinesInStockAtLastAttempt is { } inStock)
             {
-                ws.Cell(row, 3).Style.Font.FontColor = TsRed;
-                ws.Cell(row, 3).Style.Font.Bold = true;
+                ws.Cell(row, 9).Value = inStock;
+            }
+            else
+            {
+                ws.Cell(row, 9).Value = "—";
+            }
+            ws.Cell(row, 10).Value = request.ShortItems.Count > 0
+                ? string.Join(", ", request.ShortItems.Select(item => $"{item.ItemCode} −{item.Shortage:0.##}"))
+                : request.LastError ?? "—";
+
+            if (request.Cause is VanReplenishmentCauses.OutcomeUnknown or VanReplenishmentCauses.ApprovedNeverPosted
+                or VanReplenishmentCauses.DepotShort or VanReplenishmentCauses.PostRefused)
+            {
+                ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+                ws.Cell(row, 1).Style.Font.Bold = true;
             }
 
             row++;
             index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    /// <summary>
+    /// What each depot is short of across every request it cannot fill — the restock list, rather
+    /// than one long error per van.
+    /// </summary>
+    private static void BuildReplenishmentShortageSheet(
+        XLWorkbook workbook,
+        VanReplenishmentReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 4;
+        var ws = workbook.Worksheets.Add("Depot Shortages");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "WHAT THE DEPOTS ARE SHORT OF", lastCol, now);
+
+        foreach (var depot in report.DepotShortages)
+        {
+            TsSectionTitle(ws, row, lastCol,
+                $"{depot.DepotWarehouseCode}  —  {depot.RequestCount:N0} REQUESTS FROM {depot.VanCount:N0} VANS · " +
+                $"{depot.LinesInStock:N0} OF {depot.LineCount:N0} LINES IN STOCK AT THE LAST TRY");
+            row += 2;
+            row = TsColumnHeaders(ws, row, lastCol, ["Depot", "Item", "Short By", "Requests"]);
+
+            int index = 0;
+            foreach (var item in depot.Items)
+            {
+                TsDataRow(ws, row, lastCol, index % 2 == 1);
+                ws.Cell(row, 1).Value = depot.DepotWarehouseCode;
+                ws.Cell(row, 2).Value = item.ItemCode;
+                ws.Cell(row, 3).Value = item.Shortage;
+                ws.Cell(row, 4).Value = item.RequestCount;
+                row++;
+                index++;
+            }
+
+            row++;
         }
 
         TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
@@ -6049,37 +6107,44 @@ public partial class ReportExportService : IReportExportService
         VanReplenishmentReportResponse report,
         DateTime now)
     {
-        const int lastCol = 10;
+        const int lastCol = 11;
         var ws = workbook.Worksheets.Add("By Van");
         TsApplyDefaults(ws);
 
         int row = TsTitleBar(ws, "SERVICE LEVEL BY VAN", lastCol, now);
         row = TsColumnHeaders(ws, row, lastCol,
         [
-            "Van", "Depots", "Requests", "Posted", "Rejected", "Stuck",
-            "To Decide", "To Post", "Slowest", "Last Supplied"
+            "Van", "Depots", "Requests", "Posted", "Unfilled", "Turned Down",
+            "Filled In A Day", "To Decide", "To Post", "Slowest", "Last Load"
         ]);
 
         int index = 0;
         foreach (var van in report.Vans)
         {
             TsDataRow(ws, row, lastCol, index % 2 == 1);
-            ws.Cell(row, 1).Value = van.VanWarehouseCode;
+            ws.Cell(row, 1).Value = van.IsAssigned ? van.VanWarehouseCode : $"{van.VanWarehouseCode} (no rep)";
             ws.Cell(row, 2).Value = van.DepotWarehouses.Count == 0
                 ? "—"
                 : string.Join(", ", van.DepotWarehouses);
             ws.Cell(row, 3).Value = van.RequestCount;
             ws.Cell(row, 4).Value = van.PostedCount;
-            ws.Cell(row, 5).Value = van.RejectedCount;
-            ws.Cell(row, 6).Value = van.NeedingAttentionCount;
-            ws.Cell(row, 7).Value = HoursText(van.MedianHoursToDecision);
-            ws.Cell(row, 8).Value = HoursText(van.MedianHoursToPosting);
-            ws.Cell(row, 9).Value = HoursText(van.SlowestHoursToPosting);
+            ws.Cell(row, 5).Value = van.UnfilledCount;
+            ws.Cell(row, 6).Value = van.RejectedCount;
+            ws.Cell(row, 7).Value = RateText(van.FilledWithinDayRate);
+            ws.Cell(row, 8).Value = HoursText(van.MedianHoursToDecision);
+            ws.Cell(row, 9).Value = HoursText(van.MedianHoursToPosting);
+            ws.Cell(row, 10).Value = HoursText(van.SlowestHoursToPosting);
 
             // Never supplied is a different finding from supplied a long time ago.
-            ws.Cell(row, 10).Value = van.LastPostedAt is { } posted
-                ? $"{posted:dd MMM} ({van.DaysSinceLastPosted:N0}d ago)"
+            ws.Cell(row, 11).Value = van.LastPostedAt is { } posted
+                ? $"{posted:dd MMM} ({van.DaysSinceLastPosted:N0}d ago{(van.LastPostedBeforePeriod ? ", before this period" : string.Empty)})"
                 : "never";
+
+            if (van.UnfilledCount > 0)
+            {
+                ws.Cell(row, 5).Style.Font.FontColor = TsRed;
+                ws.Cell(row, 5).Style.Font.Bold = true;
+            }
 
             row++;
             index++;

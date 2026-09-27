@@ -35,10 +35,16 @@ public interface IPendingInventoryTransferPoster
     /// caller because this is the single point where a SAP document comes into existence, so the
     /// approval that posts on completion and a manual "Post to SAP" also exclude each other.
     /// </para>
+    /// <para>
+    /// With <paramref name="postOnlyLinesInStock"/>, a shortage no longer fails the post: the short
+    /// lines are left out, the rest posts, and what was left out is recorded on the transfer.
+    /// Nothing is ever posted against stock that could not be read.
+    /// </para>
     /// </remarks>
     Task<ErrorOr<InventoryTransferDto>> PostAsync(
         PendingInventoryTransferEntity pending,
-        Guid postedByUserId);
+        Guid postedByUserId,
+        bool postOnlyLinesInStock = false);
 }
 
 public sealed class PendingInventoryTransferPoster(
@@ -56,11 +62,16 @@ public sealed class PendingInventoryTransferPoster(
     /// the same transfer would each create a document in SAP, so they must collide, and a request
     /// scoped per user would let them straight through.
     /// </summary>
-    private const string IdempotencyScope = "pending-inventory-transfer-post";
+    /// <remarks>
+    /// Internal so the other writers of a held transfer's outcome — withdrawing it, recording a
+    /// document found in SAP — can take the same claim and exclude a post running under it.
+    /// </remarks>
+    internal const string IdempotencyScope = "pending-inventory-transfer-post";
 
     public async Task<ErrorOr<InventoryTransferDto>> PostAsync(
         PendingInventoryTransferEntity pending,
-        Guid postedByUserId)
+        Guid postedByUserId,
+        bool postOnlyLinesInStock = false)
     {
         // The approval is already committed, so nothing downstream may cancel this. See the
         // interface for why the caller's request token is not threaded through.
@@ -96,7 +107,7 @@ public sealed class PendingInventoryTransferPoster(
                     break;
             }
 
-            var result = await PostCoreAsync(pending, postedByUserId, cancellationToken);
+            var result = await PostCoreAsync(pending, postedByUserId, postOnlyLinesInStock, cancellationToken);
 
             // Only a posted document is worth replaying. Every failure released the key on the way
             // out, because the record stays retryable and the next attempt must be allowed to run.
@@ -125,6 +136,7 @@ public sealed class PendingInventoryTransferPoster(
     private async Task<ErrorOr<InventoryTransferDto>> PostCoreAsync(
         PendingInventoryTransferEntity pending,
         Guid postedByUserId,
+        bool postOnlyLinesInStock,
         CancellationToken cancellationToken)
     {
         // Stamped before anything can fail. Every path out of here saves the entity, so this
@@ -145,6 +157,9 @@ public sealed class PendingInventoryTransferPoster(
         // SAP is the only record some people ever see, so the document carries the reason, who
         // raised it and who approved it. The payload is rebuilt from storage on every attempt,
         // so a retried post recomposes these rather than appending to them.
+        // The stored payload keeps the requester's own comments; the remarks below are rebuilt from
+        // them on every attempt, so a trimmed payload written back must carry these, not the remarks.
+        var requesterComments = payload.Comments;
         payload.Comments = InventoryTransferRemarks.Build(
             pending,
             await LoadApprovalProgressAsync(pending, cancellationToken),
@@ -155,10 +170,23 @@ public sealed class PendingInventoryTransferPoster(
             // Stock may have moved while the transfer waited for approval, so this check —
             // not the one taken at submission time — is the authoritative one.
             var stockValidationResult = await stockValidation.ValidateInventoryTransferStockAsync(payload, cancellationToken);
+
+            List<PendingTransferDroppedLine> dropped = [];
+            if (postOnlyLinesInStock && !stockValidationResult.IsValid && stockValidationResult.StockWasFullyRead)
+            {
+                var trimmed = await TrimToLinesInStockAsync(payload, stockValidationResult, dropped, cancellationToken);
+                if (trimmed is null)
+                {
+                    await FailAsync(pending, ShortageMessage(stockValidationResult), cancellationToken);
+                    return Errors.InventoryTransfer.NothingInStockToPost(pending.FromWarehouse);
+                }
+
+                (payload, stockValidationResult) = trimmed.Value;
+            }
+
             if (!stockValidationResult.IsValid)
             {
-                var message = $"Insufficient stock in source warehouse: " +
-                              string.Join("; ", stockValidationResult.Errors.Select(error => error.Message));
+                var message = ShortageMessage(stockValidationResult);
                 await FailAsync(pending, message, cancellationToken);
                 return Errors.InventoryTransfer.InsufficientStock(message);
             }
@@ -186,6 +214,16 @@ public sealed class PendingInventoryTransferPoster(
             pending.PostedAtUtc = DateTime.UtcNow;
             pending.PostedByUserId = postedByUserId;
             pending.LastError = null;
+            if (dropped.Count > 0)
+            {
+                // What reached SAP is now the record of the transfer; what was left out moves to its
+                // own column, the only place the van's unmet ask survives.
+                payload.Comments = requesterComments;
+                pending.PayloadJson = PendingInventoryTransferMapper.SerializePayload(payload);
+                pending.LineCount = payload.Lines!.Count;
+                pending.TotalQuantity = payload.Lines.Sum(line => line.Quantity);
+                pending.DroppedLinesJson = PendingTransferDroppedLines.Serialize(dropped);
+            }
             await context.SaveChangesAsync(cancellationToken);
 
             await approvalService.MarkGeneratedAsync(
@@ -230,6 +268,64 @@ public sealed class PendingInventoryTransferPoster(
             return Errors.InventoryTransfer.CreationFailed(
                 $"The transfer was approved but could not be posted to SAP: {exception.Message}");
         }
+    }
+
+    private static string ShortageMessage(StockValidationResult result) =>
+        "Insufficient stock in source warehouse: " +
+        string.Join("; ", result.Errors.Select(error => error.Message));
+
+    /// <summary>
+    /// The payload with every short line taken out, re-validated until what is left fits.
+    /// </summary>
+    /// <remarks>
+    /// One pass is usually enough. It is not always: two lines drawing on the same batch are measured
+    /// together and reported against the first, so dropping that one can leave the second still
+    /// short — hence the loop, bounded by the number of lines. Null when nothing would be left, or
+    /// when a pass could not read the stock it needs, which is never a reason to post.
+    /// </remarks>
+    private async Task<(CreateInventoryTransferRequest Payload, StockValidationResult Validation)?> TrimToLinesInStockAsync(
+        CreateInventoryTransferRequest payload,
+        StockValidationResult validation,
+        List<PendingTransferDroppedLine> dropped,
+        CancellationToken cancellationToken)
+    {
+        var current = payload;
+        var result = validation;
+        var passes = payload.Lines!.Count;
+
+        while (!result.IsValid && passes-- > 0)
+        {
+            if (!result.StockWasFullyRead || result.Errors.Any(error => error.StockReadFailed))
+                return null;
+
+            var shortLines = result.Errors
+                .Where(error => error.LineNumber >= 1 && error.LineNumber <= current.Lines!.Count)
+                .GroupBy(error => error.LineNumber)
+                .ToDictionary(group => group.Key, group => group.First());
+            if (shortLines.Count == 0)
+                return null;
+
+            foreach (var (lineNumber, error) in shortLines.OrderBy(pair => pair.Key))
+            {
+                var line = current.Lines![lineNumber - 1];
+                dropped.Add(new PendingTransferDroppedLine(
+                    line.ItemCode ?? error.ItemCode ?? string.Empty,
+                    line.Quantity,
+                    Math.Max(0, error.AvailableQuantity),
+                    error.BatchNumber));
+            }
+
+            var kept = current.Lines!
+                .Where((_, index) => !shortLines.ContainsKey(index + 1))
+                .ToList();
+            if (kept.Count == 0)
+                return null;
+
+            current = PendingInventoryTransferMapper.WithLines(current, kept);
+            result = await stockValidation.ValidateInventoryTransferStockAsync(current, cancellationToken);
+        }
+
+        return result.IsValid && result.StockWasFullyRead ? (current, result) : null;
     }
 
     /// <summary>

@@ -92,7 +92,7 @@ public sealed class VanReplenishmentReportTests : IDisposable
         Assert.Equal(4d, van.MedianHoursToDecision);
         Assert.Equal(10d, van.MedianHoursToPosting);
         Assert.Equal(1, van.PostedCount);
-        Assert.Equal(1d, van.PostRate);
+        Assert.Equal(1d, van.FilledWithinDayRate);
     }
 
     /// <summary>
@@ -135,8 +135,8 @@ public sealed class VanReplenishmentReportTests : IDisposable
     }
 
     /// <summary>
-    /// A failed post leads the worklist. It was decided and then lost, and nothing else in the system
-    /// surfaces it — an approved transfer that never reached SAP just sits there.
+    /// A failed post leads the worklist ahead of a request merely waiting on an approver: it was
+    /// decided and then lost, and the van is going without while it sits.
     /// </summary>
     [Fact]
     public async Task A_failed_post_leads_the_worklist_ahead_of_one_merely_waiting()
@@ -146,10 +146,11 @@ public sealed class VanReplenishmentReportTests : IDisposable
             status: "PostFailed", lastError: "SAP connection closed");
         await _context.SaveChangesAsync();
 
-        var worklist = (await RunAsync()).NeedingAttention;
+        var worklist = (await RunAsync()).Unfilled;
 
         Assert.Equal(2, worklist.Count);
-        Assert.True(worklist[0].IsPostFailure);
+        Assert.Equal(VanReplenishmentCauses.PostRefused, worklist[0].Cause);
+        Assert.Equal(VanReplenishmentCauses.AwaitingDecision, worklist[1].Cause);
         Assert.Equal("SAP connection closed", worklist[0].LastError);
 
         // The one merely waiting has waited far longer, and still sorts second.
@@ -164,7 +165,7 @@ public sealed class VanReplenishmentReportTests : IDisposable
         var van = Assert.Single(report.Vans, v => v.VanWarehouseCode == Van);
 
         Assert.Equal(0, van.RequestCount);
-        Assert.Null(van.PostRate);
+        Assert.Null(van.FilledWithinDayRate);
         Assert.Null(van.MedianHoursToDecision);
         Assert.Null(van.DaysSinceLastPosted);
         Assert.Equal(2, report.Quality.VansWithNoRequests);
@@ -243,14 +244,232 @@ public sealed class VanReplenishmentReportTests : IDisposable
         Assert.Equal("VanSalesReports.InvalidRange", result.FirstError.Code);
     }
 
+    // ── What the review found ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// A request stuck since before the period still needs somebody. Filtering the worklist by the
+    /// period hid exactly the oldest ones.
+    /// </summary>
+    [Fact]
+    public async Task A_request_stuck_since_before_the_period_is_still_in_the_worklist()
+    {
+        AddRequest("OLD", Van, July(20, 8), decidedAt: July(20, 9),
+            status: PendingInventoryTransferStatuses.PostFailed, lastError: ShortageError(("YOG100", 360, 0)));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(0, report.Summary.RequestCount);
+        var stuck = Assert.Single(report.Unfilled);
+        Assert.Equal(VanReplenishmentCauses.DepotShort, stuck.Cause);
+        Assert.Equal(1, report.Summary.UnfilledNowCount);
+    }
+
+    /// <summary>
+    /// An approval whose post never ran reads Approved forever. It used to be counted nowhere —
+    /// not posted, not failed, not waiting — so nothing showed it.
+    /// </summary>
+    [Fact]
+    public async Task An_approval_whose_post_never_ran_is_in_the_worklist()
+    {
+        AddRequest("STRANDED", Van, Utc(10, 8), decidedAt: Utc(10, 9), status: PendingInventoryTransferStatuses.Approved);
+        AddRequest("POSTING", Van, DateTime.UtcNow.AddMinutes(-5), decidedAt: DateTime.UtcNow.AddMinutes(-2),
+            status: PendingInventoryTransferStatuses.Approved);
+        await _context.SaveChangesAsync();
+
+        var causes = (await RunAsync()).Unfilled.Select(request => request.Cause).ToList();
+
+        Assert.Contains(VanReplenishmentCauses.ApprovedNeverPosted, causes);
+        Assert.Contains(VanReplenishmentCauses.Posting, causes);
+    }
+
+    /// <summary>
+    /// A request its requester took back before anybody decided was never owed; one withdrawn after it
+    /// failed to post is a van that went without. The first leaves the service level, the second
+    /// counts against it.
+    /// </summary>
+    [Fact]
+    public async Task A_withdrawal_after_a_failed_post_counts_against_the_service_level_and_a_requester_cancel_does_not()
+    {
+        AddRequest("FILLED", Van, Utc(4, 8), decidedAt: Utc(4, 9), postedAt: Utc(4, 10));
+        AddRequest("TAKEN-BACK", Van, Utc(5, 8), decidedAt: Utc(5, 9), status: PendingInventoryTransferStatuses.Cancelled);
+        AddRequest("WENT-WITHOUT", Van, Utc(6, 8), decidedAt: Utc(6, 9), status: PendingInventoryTransferStatuses.Cancelled,
+            withdrawnAt: Utc(12, 8));
+        AddRequest("TURNED-DOWN", Van, Utc(7, 8), decidedAt: Utc(7, 9), status: PendingInventoryTransferStatuses.Rejected);
+        await _context.SaveChangesAsync();
+
+        var summary = (await RunAsync()).Summary;
+
+        Assert.Equal(4, summary.RequestCount);
+        Assert.Equal(2, summary.FillBase);
+        Assert.Equal(0.5, summary.FilledWithinDayRate);
+        Assert.Equal(1, summary.WithdrawnAfterFailureCount);
+        Assert.Equal(1, summary.CancelledCount);
+    }
+
+    /// <summary>
+    /// The waits cover every request, not only the ones that got there — a median over the posted ones
+    /// alone read "under an hour" while a van had waited three weeks.
+    /// </summary>
+    [Fact]
+    public async Task The_wait_bands_account_for_every_request_raised()
+    {
+        AddRequest("FAST", Van, Utc(4, 8), decidedAt: Utc(4, 8), postedAt: Utc(4, 8).AddMinutes(30));
+        AddRequest("SLOW", Van, Utc(4, 8), decidedAt: Utc(4, 9), postedAt: Utc(8, 8));
+        AddRequest("STUCK", Van, Utc(5, 8), decidedAt: Utc(5, 9), status: PendingInventoryTransferStatuses.PostFailed,
+            lastError: ShortageError(("YOG100", 10, 0)));
+        AddRequest("NO", Van, Utc(6, 8), decidedAt: Utc(6, 9), status: PendingInventoryTransferStatuses.Rejected);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var bands = report.Waits.ToDictionary(band => band.Band, band => band.Count);
+
+        Assert.Equal(report.Summary.RequestCount, report.Waits.Sum(band => band.Count));
+        Assert.Equal(1, bands[VanReplenishmentWaitBands.UnderOneHour]);
+        Assert.Equal(1, bands[VanReplenishmentWaitBands.OverThreeDays]);
+        Assert.Equal(1, bands[VanReplenishmentWaitBands.StillOpen]);
+        Assert.Equal(1, bands[VanReplenishmentWaitBands.TurnedDown]);
+    }
+
+    /// <summary>
+    /// A van last loaded the day before the period has been served, just not in these dates. Reading
+    /// only the period called it "never".
+    /// </summary>
+    [Fact]
+    public async Task A_load_before_the_period_is_still_the_vans_last_load()
+    {
+        AddRequest("JULY", Van, July(28, 8), decidedAt: July(28, 9), postedAt: July(28, 10));
+        await _context.SaveChangesAsync();
+
+        var van = Assert.Single((await RunAsync()).Vans, v => v.VanWarehouseCode == Van);
+
+        Assert.Equal(0, van.RequestCount);
+        Assert.NotNull(van.LastPostedAt);
+        Assert.True(van.LastPostedBeforePeriod);
+    }
+
+    /// <summary>
+    /// A van nobody drives any more earns no row saying it asked for nothing — but a request of its
+    /// still open is still somebody's job.
+    /// </summary>
+    [Fact]
+    public async Task A_deactivated_reps_van_drops_from_the_idle_list_but_not_from_the_worklist()
+    {
+        AddVanUser("retired", "KEFVAN99", isActive: false);
+        AddVanUser("retired2", "KEFVAN98", isActive: false);
+        AddRequest("LEFT", "KEFVAN98", July(2, 8), status: PendingInventoryTransferStatuses.AwaitingApproval);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.DoesNotContain(report.Vans, van => van.VanWarehouseCode is "KEFVAN99" or "KEFVAN98");
+        Assert.Equal("KEFVAN98", Assert.Single(report.Unfilled).VanWarehouseCode);
+        Assert.Equal(2, report.Quality.VansWithNoRequests);
+    }
+
+    /// <summary>
+    /// The depot's shortfall is added up across every request it cannot fill, so it reads as one
+    /// restock list rather than one long error per van.
+    /// </summary>
+    [Fact]
+    public async Task A_depots_shortages_are_added_up_across_the_requests_it_cannot_fill()
+    {
+        AddRequest("A", Van, Utc(4, 8), decidedAt: Utc(4, 9), status: PendingInventoryTransferStatuses.PostFailed,
+            lastError: ShortageError(("YOG100", 360, 0), ("YOG017", 34, 0)), lineCount: 25);
+        AddRequest("B", OtherVan, Utc(5, 8), decidedAt: Utc(5, 9), status: PendingInventoryTransferStatuses.PostFailed,
+            lastError: ShortageError(("YOG100", 240, 0)), lineCount: 10);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var depot = Assert.Single(report.DepotShortages);
+
+        Assert.Equal(Depot, depot.DepotWarehouseCode);
+        Assert.Equal(2, depot.RequestCount);
+        Assert.Equal(2, depot.VanCount);
+        Assert.Equal(35, depot.LineCount);
+        Assert.Equal(32, depot.LinesInStock);
+        var yoghurt = depot.Items[0];
+        Assert.Equal("YOG100", yoghurt.ItemCode);
+        Assert.Equal(600, yoghurt.Shortage);
+        Assert.Equal(2, yoghurt.RequestCount);
+
+        var first = Assert.Single(report.Unfilled, request => request.VanWarehouseCode == Van);
+        Assert.Equal(23, first.LinesInStockAtLastAttempt);
+    }
+
+    [Fact]
+    public async Task A_timed_out_post_is_read_as_an_unknown_outcome_and_leads_the_worklist()
+    {
+        AddRequest("SHORT", Van, Utc(2, 8), decidedAt: Utc(2, 9), status: PendingInventoryTransferStatuses.PostFailed,
+            lastError: ShortageError(("YOG100", 10, 0)));
+        AddRequest("TIMEOUT", Van, Utc(20, 8), decidedAt: Utc(20, 9), status: PendingInventoryTransferStatuses.PostFailed,
+            lastError: "The SAP post timed out before SAP answered, so it is not known whether the transfer was created. Check SAP for this transfer before retrying — retrying will post it again.");
+        await _context.SaveChangesAsync();
+
+        var worklist = (await RunAsync()).Unfilled;
+
+        Assert.Equal(VanReplenishmentCauses.OutcomeUnknown, worklist[0].Cause);
+        Assert.Equal(VanReplenishmentCauses.DepotShort, worklist[1].Cause);
+    }
+
+    /// <summary>
+    /// Filtering to one depot answers for its requests and the idle vans it supplies, and the filter's
+    /// own choices stay whole — the van list used to shrink to the one van picked.
+    /// </summary>
+    [Fact]
+    public async Task One_depots_window_holds_its_requests_and_the_choices_stay_whole()
+    {
+        _context.Users.Add(new User
+        {
+            Id = Guid.NewGuid(),
+            Username = "byo",
+            Email = "byo@example.com",
+            PasswordHash = "x",
+            Role = "Sales",
+            IsActive = true,
+            AssignedWarehouseCode = "KEFVAN20",
+            SupplyingWarehouseCode = "KEFBYC",
+            AssignedBusinessPartnerCode = "KEFVAN20"
+        });
+        AddRequest("GRC", Van, Utc(4, 8));
+        AddRequest("BYC", "KEFVAN20", Utc(4, 8), fromWarehouse: "KEFBYC");
+        await _context.SaveChangesAsync();
+
+        var handler = new GetVanReplenishmentReportHandler(_context);
+        var result = await handler.Handle(
+            new GetVanReplenishmentReportQuery(From, To, DepotWarehouseCode: "KEFBYC"), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var report = result.Value;
+        Assert.Equal(1, report.Summary.RequestCount);
+        Assert.Equal("KEFVAN20", Assert.Single(report.Vans).VanWarehouseCode);
+        Assert.Equal([Van, OtherVan, "KEFVAN20"], report.AvailableVans);
+        Assert.Equal(["KEFBYC", Depot], report.AvailableDepots);
+
+        var oneVan = await RunAsync(vanWarehouseCode: Van);
+        Assert.Equal(3, oneVan.AvailableVans.Count);
+    }
+
+    private static DateTime July(int day, int hour) => new(2026, 7, day, hour, 0, 0, DateTimeKind.Utc);
+
+    private static string ShortageError(params (string Item, decimal Requested, decimal Available)[] lines) =>
+        "Insufficient stock in source warehouse: " + string.Join("; ", lines.Select(line => new ShopInventory.DTOs.StockValidationError
+        {
+            ItemCode = line.Item,
+            WarehouseCode = Depot,
+            RequestedQuantity = line.Requested,
+            AvailableQuantity = line.Available
+        }.Message));
+
+
     // --- Helpers ---
 
-    private async Task<VanReplenishmentReportResult> RunAsync(string? vanWarehouseCode = null)
+    private async Task<VanReplenishmentReportResult> RunAsync(string? vanWarehouseCode = null, DateTime? to = null)
     {
         var handler = new GetVanReplenishmentReportHandler(_context);
 
         var result = await handler.Handle(
-            new GetVanReplenishmentReportQuery(From, To, vanWarehouseCode),
+            new GetVanReplenishmentReportQuery(From, to ?? To, vanWarehouseCode),
             CancellationToken.None);
 
         Assert.False(result.IsError);
@@ -260,7 +479,7 @@ public sealed class VanReplenishmentReportTests : IDisposable
     /// <summary>An instant on the given August day, in UTC.</summary>
     private static DateTime Utc(int day, int hour) => new(2026, 8, day, hour, 0, 0, DateTimeKind.Utc);
 
-    private void AddVanUser(string username, string warehouse) =>
+    private void AddVanUser(string username, string warehouse, bool isActive = true) =>
         _context.Users.Add(new User
         {
             Id = Guid.NewGuid(),
@@ -268,7 +487,7 @@ public sealed class VanReplenishmentReportTests : IDisposable
             Email = $"{username}@example.com",
             PasswordHash = "x",
             Role = "Sales",
-            IsActive = true,
+            IsActive = isActive,
             AssignedWarehouseCode = warehouse,
             // The depot behind it is what makes this warehouse a van rather than a store.
             SupplyingWarehouseCode = Depot,
@@ -283,12 +502,16 @@ public sealed class VanReplenishmentReportTests : IDisposable
         DateTime? postedAt = null,
         string? status = null,
         int? sapDocNum = 5001,
-        string? lastError = null) =>
+        string? lastError = null,
+        DateTime? withdrawnAt = null,
+        DateTime? lastAttemptedAt = null,
+        int lineCount = 8,
+        string fromWarehouse = Depot) =>
         _context.PendingInventoryTransfers.Add(new PendingInventoryTransferEntity
         {
             Id = Guid.NewGuid(),
             ClientRequestId = reference,
-            FromWarehouse = Depot,
+            FromWarehouse = fromWarehouse,
             ToWarehouse = vanWarehouse,
             PayloadJson = "{}",
             Status = status ?? (postedAt.HasValue
@@ -301,9 +524,11 @@ public sealed class VanReplenishmentReportTests : IDisposable
             CreatedAtUtc = requestedAt,
             DecidedAtUtc = decidedAt,
             PostedAtUtc = postedAt,
-            LineCount = 8,
+            LineCount = lineCount,
             TotalQuantity = 120m,
             SapDocNum = postedAt.HasValue ? sapDocNum : null,
-            LastError = lastError
+            LastError = lastError,
+            WithdrawnAtUtc = withdrawnAt,
+            LastAttemptedAtUtc = lastAttemptedAt
         });
 }

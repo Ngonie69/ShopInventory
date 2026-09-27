@@ -1,0 +1,503 @@
+using ErrorOr;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ShopInventory.Common.Idempotency;
+using ShopInventory.Configuration;
+using ShopInventory.Data;
+using ShopInventory.DTOs;
+using ShopInventory.Features.InventoryTransfers;
+using ShopInventory.Features.InventoryTransfers.Commands.PostPendingTransferLinesInStock;
+using ShopInventory.Features.InventoryTransfers.Commands.RecordPendingTransferSapDocument;
+using ShopInventory.Features.InventoryTransfers.Commands.WithdrawPendingTransfer;
+using ShopInventory.Features.InventoryTransfers.Queries.GetPendingTransferStockCheck;
+using ShopInventory.Models;
+using ShopInventory.Models.Entities;
+using ShopInventory.Services;
+
+namespace ShopInventory.Tests;
+
+/// <summary>
+/// The three ways out for an approved transfer that failed to post, besides retrying it whole:
+/// post the lines the depot can fill, withdraw it, or record the document SAP created anyway.
+/// </summary>
+/// <remarks>
+/// Each test reads the outcome back through a fresh context, so it proves what was written rather
+/// than what the handler's tracked copy says.
+/// </remarks>
+public sealed class PendingTransferRecoveryTests : IDisposable
+{
+    private static readonly Guid Controller = Guid.Parse("66666666-6666-6666-6666-666666666666");
+
+    private readonly SqliteConnection _connection;
+    private readonly DbContextOptions<ApplicationDbContext> _options;
+    private readonly ApplicationDbContext _context;
+
+    public PendingTransferRecoveryTests()
+    {
+        _connection = new SqliteConnection("DataSource=:memory:");
+        _connection.Open();
+        _options = new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options;
+        _context = new ApplicationDbContext(_options);
+        _context.Database.EnsureCreated();
+    }
+
+    public void Dispose()
+    {
+        _context.Dispose();
+        _connection.Dispose();
+    }
+
+    // ── Posting the lines in stock ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task Posting_the_lines_in_stock_sends_them_and_records_what_was_left_out()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG100", 360), ("MLK201", 240), ("YOG017", 34), ("JCE110", 96));
+        var stock = new DepotStock { ["YOG100"] = 0, ["YOG017"] = 10 };
+        var sap = new RecordingSap();
+
+        var result = await PostInStock(stock, sap).Handle(
+            new PostPendingTransferLinesInStockCommand(pending.Id, Controller), default);
+
+        Assert.False(result.IsError);
+        Assert.Contains("2 of 4 lines", result.Value.Message);
+
+        var sent = Assert.Single(sap.Created);
+        Assert.Equal(["MLK201", "JCE110"], sent.Lines!.Select(line => line.ItemCode));
+
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.Posted, stored.Status);
+        Assert.Equal(2, stored.LineCount);
+        Assert.Equal(336, stored.TotalQuantity);
+        Assert.Null(stored.LastError);
+
+        var dropped = PendingTransferDroppedLines.Read(stored.DroppedLinesJson);
+        Assert.Collection(dropped,
+            line => { Assert.Equal("YOG100", line.ItemCode); Assert.Equal(360, line.RequestedQuantity); Assert.Equal(0, line.AvailableQuantity); },
+            line => { Assert.Equal("YOG017", line.ItemCode); Assert.Equal(10, line.AvailableQuantity); });
+
+        // The stored payload is what reached SAP, and keeps the requester's comments rather than the
+        // remarks the poster composes for SAP on each attempt.
+        var payload = PendingInventoryTransferMapper.DeserializePayload(stored);
+        Assert.Equal(2, payload.Lines!.Count);
+        Assert.Equal("Van restock", payload.Comments);
+    }
+
+    [Fact]
+    public async Task Posting_the_lines_in_stock_when_all_are_in_stock_posts_it_whole()
+    {
+        var pending = await GivenFailedTransferAsync(("MLK201", 240), ("JCE110", 96));
+        var sap = new RecordingSap();
+
+        var result = await PostInStock(new DepotStock(), sap).Handle(
+            new PostPendingTransferLinesInStockCommand(pending.Id, Controller), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal(2, Assert.Single(sap.Created).Lines!.Count);
+        Assert.Null((await ReadAsync(pending.Id)).DroppedLinesJson);
+    }
+
+    [Fact]
+    public async Task Nothing_is_posted_when_no_line_is_in_stock()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG100", 360), ("YOG126", 360));
+        var sap = new RecordingSap();
+
+        var result = await PostInStock(new DepotStock { ["YOG100"] = 0, ["YOG126"] = 0 }, sap).Handle(
+            new PostPendingTransferLinesInStockCommand(pending.Id, Controller), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.NothingInStockToPost", result.FirstError.Code);
+        Assert.Empty(sap.Created);
+
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.PostFailed, stored.Status);
+        Assert.Equal(2, stored.LineCount);
+    }
+
+    [Fact]
+    public async Task Nothing_is_posted_against_stock_that_could_not_be_read()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG100", 360), ("MLK201", 240));
+        var stock = new DepotStock { ["YOG100"] = 0 };
+        stock.Unreadable = true;
+        var sap = new RecordingSap();
+
+        var result = await PostInStock(stock, sap).Handle(
+            new PostPendingTransferLinesInStockCommand(pending.Id, Controller), default);
+
+        Assert.True(result.IsError);
+        Assert.Empty(sap.Created);
+    }
+
+    [Fact]
+    public async Task A_timed_out_post_must_be_checked_in_SAP_before_part_of_it_is_posted()
+    {
+        var pending = await GivenFailedTransferAsync(("MLK201", 240));
+        await SetLastErrorAsync(pending.Id,
+            "The SAP post timed out before SAP answered, so it is not known whether the transfer was created. "
+            + "Check SAP for this transfer before retrying — retrying will post it again.");
+        var sap = new RecordingSap();
+
+        var result = await PostInStock(new DepotStock(), sap).Handle(
+            new PostPendingTransferLinesInStockCommand(pending.Id, Controller), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.PostOutcomeUnknown", result.FirstError.Code);
+        Assert.Empty(sap.Created);
+    }
+
+    // ── Withdrawing ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Withdrawing_a_failed_transfer_closes_it_and_keeps_its_approval_time()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG100", 360));
+        var decidedAt = pending.DecidedAtUtc;
+
+        var result = await Withdraw(BuildStore()).Handle(
+            new WithdrawPendingTransferCommand(pending.Id, Controller, "  Depot out of yoghurt until October  "), default);
+
+        Assert.False(result.IsError);
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.Cancelled, stored.Status);
+        Assert.Equal("Depot out of yoghurt until October", stored.WithdrawalReason);
+        Assert.Equal(Controller, stored.WithdrawnByUserId);
+        Assert.NotNull(stored.WithdrawnAtUtc);
+        Assert.Equal(decidedAt, stored.DecidedAtUtc);
+    }
+
+    [Fact]
+    public async Task A_transfer_that_is_posting_right_now_cannot_be_withdrawn()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG100", 360));
+        var store = BuildStore();
+
+        // A retry in flight holds the poster's claim while the record still reads PostFailed.
+        var held = await store.TryAcquireAsync<InventoryTransferDto>(
+            PendingInventoryTransferPoster.IdempotencyScope, pending.Id.ToString(),
+            new { PendingTransferId = pending.Id }, default);
+        Assert.Equal(IdempotencyAcquireOutcome.Acquired, held.Outcome);
+
+        var result = await Withdraw(store).Handle(
+            new WithdrawPendingTransferCommand(pending.Id, Controller, "not needed"), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.PostInProgress", result.FirstError.Code);
+        Assert.Equal(PendingInventoryTransferStatuses.PostFailed, (await ReadAsync(pending.Id)).Status);
+    }
+
+    [Fact]
+    public async Task A_transfer_still_awaiting_approval_is_not_withdrawn_here()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG100", 360));
+        await SetStatusAsync(pending.Id, PendingInventoryTransferStatuses.AwaitingApproval);
+
+        var result = await Withdraw(BuildStore()).Handle(
+            new WithdrawPendingTransferCommand(pending.Id, Controller, "not needed"), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.WithdrawalNotAllowed", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_withdrawal_releases_the_claim_so_nothing_is_left_locked()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG100", 360));
+        var store = BuildStore();
+
+        await Withdraw(store).Handle(new WithdrawPendingTransferCommand(pending.Id, Controller, "not needed"), default);
+
+        var after = await store.TryAcquireAsync<InventoryTransferDto>(
+            PendingInventoryTransferPoster.IdempotencyScope, pending.Id.ToString(),
+            new { PendingTransferId = pending.Id }, default);
+        Assert.Equal(IdempotencyAcquireOutcome.Acquired, after.Outcome);
+    }
+
+    // ── Recording a document found in SAP ──────────────────────────────────────
+
+    [Fact]
+    public async Task Recording_the_SAP_document_closes_the_transfer_at_the_attempt_that_created_it()
+    {
+        var pending = await GivenFailedTransferAsync(("MLK201", 240));
+        var attempted = DateTime.UtcNow.AddDays(-4);
+        await SetLastAttemptAsync(pending.Id, attempted);
+        var store = BuildStore();
+        var sap = new RecordingSap
+        {
+            Existing = [new InventoryTransfer { DocEntry = 7001, DocNum = 51234, FromWarehouse = "KEFBYC", ToWarehouse = "VAN010" }]
+        };
+
+        var result = await Record(sap, store).Handle(
+            new RecordPendingTransferSapDocumentCommand(pending.Id, Controller, 51234), default);
+
+        Assert.False(result.IsError);
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.Posted, stored.Status);
+        Assert.Equal(51234, stored.SapDocNum);
+        Assert.Equal(7001, stored.SapDocEntry);
+        Assert.True(stored.PostRecordedManually);
+        Assert.Equal(attempted, stored.PostedAtUtc!.Value, TimeSpan.FromSeconds(1));
+        Assert.Empty(sap.Created);
+
+        // A later post must replay this document, not create a second one.
+        var replay = await store.TryAcquireAsync<InventoryTransferDto>(
+            PendingInventoryTransferPoster.IdempotencyScope, pending.Id.ToString(),
+            new { PendingTransferId = pending.Id }, default);
+        Assert.Equal(IdempotencyAcquireOutcome.ReplayAvailable, replay.Outcome);
+        Assert.Equal(51234, replay.Response!.DocNum);
+    }
+
+    [Fact]
+    public async Task A_number_SAP_does_not_have_for_this_van_is_refused()
+    {
+        var pending = await GivenFailedTransferAsync(("MLK201", 240));
+        var sap = new RecordingSap
+        {
+            Existing = [new InventoryTransfer { DocEntry = 7001, DocNum = 51234, FromWarehouse = "KEFBYC", ToWarehouse = "VAN010" }]
+        };
+
+        var result = await Record(sap, BuildStore()).Handle(
+            new RecordPendingTransferSapDocumentCommand(pending.Id, Controller, 99999), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.SapTransferNotFound", result.FirstError.Code);
+        Assert.Equal(PendingInventoryTransferStatuses.PostFailed, (await ReadAsync(pending.Id)).Status);
+    }
+
+    [Fact]
+    public async Task A_document_from_another_depot_is_not_this_request()
+    {
+        var pending = await GivenFailedTransferAsync(("MLK201", 240));
+        var sap = new RecordingSap
+        {
+            Existing = [new InventoryTransfer { DocEntry = 7001, DocNum = 51234, FromWarehouse = "KEFGRC", ToWarehouse = "VAN010" }]
+        };
+
+        var result = await Record(sap, BuildStore()).Handle(
+            new RecordPendingTransferSapDocumentCommand(pending.Id, Controller, 51234), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.SapTransferDoesNotMatch", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_number_already_recorded_against_another_request_is_refused()
+    {
+        var first = await GivenFailedTransferAsync(("MLK201", 240));
+        var second = await GivenFailedTransferAsync(("MLK201", 240));
+        var sap = new RecordingSap
+        {
+            Existing = [new InventoryTransfer { DocEntry = 7001, DocNum = 51234, FromWarehouse = "KEFBYC", ToWarehouse = "VAN010" }]
+        };
+
+        Assert.False((await Record(sap, BuildStore()).Handle(
+            new RecordPendingTransferSapDocumentCommand(first.Id, Controller, 51234), default)).IsError);
+
+        var result = await Record(sap, BuildStore()).Handle(
+            new RecordPendingTransferSapDocumentCommand(second.Id, Controller, 51234), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.SapTransferAlreadyRecorded", result.FirstError.Code);
+    }
+
+    // ── The stock check ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task The_stock_check_puts_short_lines_first_with_what_the_depot_has()
+    {
+        var pending = await GivenFailedTransferAsync(("MLK201", 240), ("YOG100", 360), ("JCE110", 96));
+
+        var result = await new GetPendingTransferStockCheckHandler(
+                NewContext(), Authorizer(), new DepotStock { ["YOG100"] = 40 }.AsService())
+            .Handle(new GetPendingTransferStockCheckQuery(pending.Id, Controller), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal(2, result.Value.LinesInStock);
+        Assert.Equal(1, result.Value.LinesShort);
+        var first = result.Value.Lines[0];
+        Assert.Equal("YOG100", first.ItemCode);
+        Assert.Equal(PendingTransferStockLineStates.Short, first.State);
+        Assert.Equal(40, first.AvailableQuantity);
+        Assert.All(result.Value.Lines.Skip(1), line => Assert.Null(line.AvailableQuantity));
+    }
+
+    // ── Fixture ─────────────────────────────────────────────────────────────────
+
+    private async Task<PendingInventoryTransferEntity> GivenFailedTransferAsync(params (string Item, decimal Quantity)[] lines)
+    {
+        var pending = new PendingInventoryTransferEntity
+        {
+            Id = Guid.NewGuid(),
+            DraftNumber = $"DT-2026-{Random.Shared.Next(10000, 99999)}",
+            FromWarehouse = "KEFBYC",
+            ToWarehouse = "VAN010",
+            Status = PendingInventoryTransferStatuses.PostFailed,
+            CreatedByUserId = Controller,
+            CreatedByName = "Bulawayo Controller",
+            CreatedByRole = ApplicationRoles.DepotController,
+            CreatedAtUtc = DateTime.UtcNow.AddDays(-5),
+            DecidedAtUtc = DateTime.UtcNow.AddDays(-5).AddMinutes(7),
+            LineCount = lines.Length,
+            TotalQuantity = lines.Sum(line => line.Quantity),
+            LastError = "Insufficient stock in source warehouse: Insufficient stock for item 'YOG100' in warehouse 'KEFBYC'. Requested: 360, Available: 0, Shortage: 360",
+            PayloadJson = PendingInventoryTransferMapper.SerializePayload(new CreateInventoryTransferRequest
+            {
+                FromWarehouse = "KEFBYC",
+                ToWarehouse = "VAN010",
+                Comments = "Van restock",
+                Lines = lines.Select(line => new CreateInventoryTransferLineRequest
+                {
+                    ItemCode = line.Item,
+                    Quantity = line.Quantity,
+                    UoMCode = "EA",
+                    FromWarehouseCode = "KEFBYC",
+                    ToWarehouseCode = "VAN010"
+                }).ToList()
+            })
+        };
+
+        _context.PendingInventoryTransfers.Add(pending);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return pending;
+    }
+
+    private async Task SetLastErrorAsync(Guid id, string message)
+        => await _context.PendingInventoryTransfers.Where(item => item.Id == id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.LastError, message));
+
+    private async Task SetStatusAsync(Guid id, string status)
+        => await _context.PendingInventoryTransfers.Where(item => item.Id == id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.Status, status));
+
+    private async Task SetLastAttemptAsync(Guid id, DateTime attemptedUtc)
+        => await _context.PendingInventoryTransfers.Where(item => item.Id == id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.LastAttemptedAtUtc, attemptedUtc));
+
+    private async Task<PendingInventoryTransferEntity> ReadAsync(Guid id)
+    {
+        await using var verify = NewContext();
+        return await verify.PendingInventoryTransfers.AsNoTracking().FirstAsync(item => item.Id == id);
+    }
+
+    private ApplicationDbContext NewContext() => new(_options);
+
+    private IIdempotencyRequestStore BuildStore()
+        => new IdempotencyRequestStore(new ScopeFactory(_options), Options.Create(new SecuritySettings()));
+
+    private static IOptions<SAPSettings> SapOn => Options.Create(new SAPSettings { Enabled = true });
+
+    private static ITransferWarehouseAuthorizer Authorizer()
+        => StubProxy.For<ITransferWarehouseAuthorizer>((_, _) => Task.FromResult<ErrorOr<Success>>(Result.Success));
+
+    private static IAuditService Audit() => StubProxy.For<IAuditService>((_, _) => Task.CompletedTask);
+
+    private static IInventoryTransferApprovalService Approvals()
+        => StubProxy.For<IInventoryTransferApprovalService>((method, _) => method.Name switch
+        {
+            nameof(IInventoryTransferApprovalService.GetProgressAsync) =>
+                throw new InvalidOperationException("no approval request in this fixture"),
+            nameof(IInventoryTransferApprovalService.MarkGeneratedAsync) => (object)Task.CompletedTask,
+            _ => throw new InvalidOperationException($"Unexpected approval call: {method.Name}")
+        });
+
+    private PostPendingTransferLinesInStockHandler PostInStock(DepotStock stock, RecordingSap sap)
+    {
+        var context = NewContext();
+        var poster = new PendingInventoryTransferPoster(
+            context, sap.AsClient(), stock.AsService(), Approvals(), new NoOpNotificationService(), Audit(),
+            BuildStore(), NullLogger<PendingInventoryTransferPoster>.Instance);
+        return new PostPendingTransferLinesInStockHandler(context, Authorizer(), poster, Audit(), SapOn);
+    }
+
+    private WithdrawPendingTransferHandler Withdraw(IIdempotencyRequestStore store)
+        => new(NewContext(), Authorizer(), store, Audit(), NullLogger<WithdrawPendingTransferHandler>.Instance);
+
+    private RecordPendingTransferSapDocumentHandler Record(RecordingSap sap, IIdempotencyRequestStore store)
+        => new(NewContext(), Authorizer(), sap.AsClient(), Approvals(), store, Audit(), SapOn,
+            NullLogger<RecordPendingTransferSapDocumentHandler>.Instance);
+
+    /// <summary>The depot's stock by item; an item not named has plenty.</summary>
+    private sealed class DepotStock : Dictionary<string, decimal>
+    {
+        public bool Unreadable { get; set; }
+
+        public IStockValidationService AsService() =>
+            StubProxy.For<IStockValidationService>((method, args) => method.Name switch
+            {
+                nameof(IStockValidationService.ValidateInventoryTransferStockAsync) =>
+                    (object)Task.FromResult(Validate((CreateInventoryTransferRequest)args![0]!)),
+                _ => throw new InvalidOperationException($"Unexpected stock-validation call: {method.Name}")
+            });
+
+        private StockValidationResult Validate(CreateInventoryTransferRequest request)
+        {
+            var result = new StockValidationResult();
+            if (Unreadable)
+            {
+                result.UnreadableWarehouses.Add("KEFBYC");
+                return result;
+            }
+
+            for (var index = 0; index < request.Lines!.Count; index++)
+            {
+                var line = request.Lines[index];
+                if (TryGetValue(line.ItemCode!, out var available) && available < line.Quantity)
+                {
+                    result.Errors.Add(new StockValidationError
+                    {
+                        LineNumber = index + 1,
+                        ItemCode = line.ItemCode,
+                        WarehouseCode = "KEFBYC",
+                        RequestedQuantity = line.Quantity,
+                        AvailableQuantity = available
+                    });
+                }
+            }
+
+            return result;
+        }
+    }
+
+    private sealed class RecordingSap
+    {
+        public List<CreateInventoryTransferRequest> Created { get; } = [];
+        public List<InventoryTransfer> Existing { get; init; } = [];
+
+        public ISAPServiceLayerClient AsClient() =>
+            StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+            {
+                nameof(ISAPServiceLayerClient.CreateInventoryTransferAsync) =>
+                    (object)Task.FromResult(Create((CreateInventoryTransferRequest)args![0]!)),
+                nameof(ISAPServiceLayerClient.GetInventoryTransfersByDateRangeAsync) =>
+                    Task.FromResult(Existing),
+                _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+            });
+
+        private InventoryTransfer Create(CreateInventoryTransferRequest request)
+        {
+            Created.Add(request);
+            return new InventoryTransfer
+            {
+                DocEntry = 9000 + Created.Count,
+                DocNum = 9000 + Created.Count,
+                FromWarehouse = request.FromWarehouse,
+                ToWarehouse = request.ToWarehouse
+            };
+        }
+    }
+
+    private sealed class ScopeFactory(DbContextOptions<ApplicationDbContext> options)
+        : IServiceScopeFactory, IServiceScope, IServiceProvider
+    {
+        public IServiceScope CreateScope() => this;
+        public IServiceProvider ServiceProvider => this;
+        public object? GetService(Type serviceType)
+            => serviceType == typeof(ApplicationDbContext) ? new ApplicationDbContext(options) : null;
+        public void Dispose() { }
+    }
+}
