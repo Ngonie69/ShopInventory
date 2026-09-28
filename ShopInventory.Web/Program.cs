@@ -345,6 +345,7 @@ try
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
     builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
+    builder.Services.AddScoped<ISapAvailabilityService, SapAvailabilityService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IFiscalisationSettingsService, FiscalisationSettingsService>();
     builder.Services.AddScoped<IDailyIncomingPaymentSettingsService, DailyIncomingPaymentSettingsService>();

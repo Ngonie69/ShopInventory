@@ -16,6 +16,7 @@ using ShopInventory.Features.Sync.Queries.GetConnectionLogs;
 using ShopInventory.Features.Sync.Queries.GetHealthSummary;
 using ShopInventory.Features.Sync.Queries.GetQueuedItems;
 using ShopInventory.Features.Sync.Queries.GetQueueStatus;
+using ShopInventory.Features.Sync.Queries.GetSapAvailability;
 using ShopInventory.Features.Sync.Queries.GetSyncStatus;
 
 namespace ShopInventory.Controllers;
@@ -46,6 +47,21 @@ public class SyncController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> CheckSapConnection(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new CheckSapConnectionQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Whether SAP is down for the cluster, and how many sales recorded since are waiting for it
+    /// </summary>
+    /// <remarks>
+    /// What the staff banner polls. The outage comes from the availability probe's record, not a live
+    /// SAP call, so this answers instantly while SAP is the thing that is down.
+    /// </remarks>
+    [HttpGet("sap-availability")]
+    [ProducesResponseType(typeof(SapAvailabilityResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSapAvailability(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetSapAvailabilityQuery(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -1,0 +1,98 @@
+@using ShopInventory.Web.Services
+@implements IDisposable
+@inject ISapAvailabilityService SapAvailability
+
+@* Nothing at all while SAP is up and no outage has just ended: no bar, no reserved space. *@
+@if (_status is { IsDown: true } || _status is { EndedAtUtc: not null })
+{
+    <div class="sapo-banner @(_status.IsDown ? "sapo-banner-down" : "sapo-banner-back")" role="status">
+        <i class="ph @(_status.IsDown ? "ph-cloud-slash" : "ph-cloud-check")" aria-hidden="true"></i>
+        <div class="sapo-banner-text">
+            <strong>@Headline</strong>
+            <span>@Detail</span>
+        </div>
+    </div>
+}
+
+@code {
+    // A bar, not a page: a minute late costs nothing, and every staff circuit polls it. The API answers
+    // from its in-memory outage record, so the poll stays cheap while SAP is the thing that is down.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
+
+    private SapAvailabilityResponse? _status;
+    private Timer? _timer;
+
+    private string Headline => _status switch
+    {
+        { IsDown: true, Cause: "SwitchedOff" } => $"The SAP connection is turned off{Since}",
+        { IsDown: true } => $"SAP is unavailable{Since}",
+        _ => $"SAP is back{Ended}"
+    };
+
+    private string Detail => _status switch
+    {
+        { IsDown: true, SalesAwaitingSap: > 0 } =>
+            $"Sales carry on and are kept here. {Sales(_status.SalesAwaitingSap)} recorded since then will post to SAP when it returns.",
+        { IsDown: true } =>
+            "Sales carry on and are kept here, and post to SAP when it returns. Stock transfers and van loads have to wait.",
+        { SalesAwaitingSap: > 0 } =>
+            $"{Sales(_status.SalesAwaitingSap)} from the outage {(_status.SalesAwaitingSap == 1 ? "is" : "are")} still waiting to post. Van sales post at the end of the day as usual.",
+        _ => "Everything recorded during the outage has posted."
+    };
+
+    private string Since => _status?.SinceUtc is { } since ? $" since {Cat(since)}" : string.Empty;
+
+    private string Ended => _status?.EndedAtUtc is { } ended ? $" since {Cat(ended)}" : string.Empty;
+
+    private static string Sales(int count) => count == 1 ? "1 sale" : $"{count:N0} sales";
+
+    // Today's outage by the clock alone; one that began on an earlier day says which.
+    private static string Cat(DateTime utc)
+    {
+        var cat = IAuditService.ToCAT(utc);
+        return cat.Date == IAuditService.ToCAT(DateTime.UtcNow).Date
+            ? cat.ToString("HH:mm")
+            : cat.ToString("ddd d MMM HH:mm");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+        _timer = new Timer(_ => _ = PollAsync(), null, PollInterval, PollInterval);
+    }
+
+    /// <summary>One tick, with its failures kept to itself, as the maintenance banner does.</summary>
+    private async Task PollAsync()
+    {
+        try
+        {
+            await InvokeAsync(RefreshAndRender);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The circuit went away between the tick and the render.
+        }
+        catch (Exception)
+        {
+            // Next tick will try again.
+        }
+    }
+
+    private async Task RefreshAndRender()
+    {
+        await Refresh();
+        StateHasChanged();
+    }
+
+    private async Task Refresh()
+    {
+        // A failed read keeps the last answer: the likeliest time for it to fail is an incident, and
+        // clearing the bar then would tell everybody SAP was fine.
+        if (await SapAvailability.GetAsync() is { } status)
+        {
+            _status = status;
+        }
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}
