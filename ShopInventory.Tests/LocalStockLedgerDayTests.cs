@@ -1,11 +1,13 @@
 ﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
@@ -105,6 +107,50 @@ public sealed class LocalStockLedgerDayTests : IDisposable
         Assert.Equal("DesktopSales.SnapshotNotFound", result.FirstError.Code);
         Assert.Contains(inForce.ToString("yyyy-MM-dd"), result.FirstError.Description);
     }
+
+    [Fact]
+    public async Task Sold_today_is_what_sales_took_off_net_of_returns_and_nothing_else()
+    {
+        // 00:00 puts the ledger day on today, so the real ledger below writes to this snapshot.
+        var today = StockLedgerDay.Today("00:00");
+        await AddSnapshotAsync(today, "ITEM-1", 20m);
+
+        var ledger = new StockLedger(
+            _context,
+            Options.Create(new DailyStockSettings { StockFetchTimeCAT = "00:00", MonitoredWarehouses = [Warehouse] }),
+            NullLogger<StockLedger>.Instance);
+
+        await ledger.TakeSettledAsync([new StockLedgerLine("ITEM-1", Warehouse, 5m)], "van sale", "invoice:S-1");
+        await ledger.ReleaseAsync([new StockLedgerLine("ITEM-1", Warehouse, 2m)], "credit note", "credit:C-1");
+
+        // Neither is a sale: a transfer is the Adjustment column, and a correction is SAP's, not a till's.
+        // Nor is a sale on another day or in another warehouse.
+        _context.StockMovements.AddRange(
+            Movement(today, Warehouse, StockMovementKinds.Transfer, 40m),
+            Movement(today, Warehouse, StockMovementKinds.Reconciliation, -7m),
+            Movement(today.AddDays(-1), Warehouse, StockMovementKinds.Settle, -9m),
+            Movement(today, "KEFBYS", StockMovementKinds.Settle, -11m));
+        await _context.SaveChangesAsync();
+
+        var result = await Handler("00:00").Handle(new GetLocalStockQuery(Warehouse), default);
+
+        Assert.False(result.IsError);
+        var item = Assert.Single(result.Value.Items);
+        Assert.Equal(3m, item.SoldToday);
+
+        // The row the page shows adds up: Original + Adjustment - Sold today = In stock.
+        Assert.Equal(item.OriginalQuantity + item.TransferAdjustment - item.SoldToday, item.AvailableQuantity);
+    }
+
+    private static StockMovementEntity Movement(DateTime day, string warehouse, string kind, decimal quantity) => new()
+    {
+        LedgerDay = day,
+        Kind = kind,
+        ItemCode = "ITEM-1",
+        WarehouseCode = warehouse,
+        Quantity = quantity,
+        Reference = kind
+    };
 
     private GetLocalStockHandler Handler(string fetchTimeCat) =>
         new(_context, Options.Create(new DailyStockSettings

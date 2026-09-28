@@ -6,6 +6,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 
@@ -60,6 +61,21 @@ public sealed class GetLocalStockHandler(
             .Select(g => new { ItemCode = g.Key, TotalAdjustment = g.Sum(a => a.AdjustmentQuantity) })
             .ToDictionaryAsync(x => x.ItemCode, x => x.TotalAdjustment, cancellationToken);
 
+        // What sales took off the rows today, net of what was handed back. Without it the page showed
+        // In stock beside Original and Adjustment with nothing to account for the difference, and a van
+        // that had sold its whole load read as transfers that never arrived. Commit, Settle and Release
+        // are the sales ledger's own kinds; a transfer is already the Adjustment column, and the hourly
+        // SAP correction is not a sale.
+        var salesKinds = new[] { StockMovementKinds.Commit, StockMovementKinds.Settle, StockMovementKinds.Release };
+        var sold = await context.StockMovements
+            .AsNoTracking()
+            .Where(m => m.LedgerDay == snapshotDate
+                        && m.WarehouseCode == query.WarehouseCode
+                        && salesKinds.Contains(m.Kind))
+            .GroupBy(m => m.ItemCode)
+            .Select(g => new { ItemCode = g.Key, Net = g.Sum(m => m.Quantity) })
+            .ToDictionaryAsync(x => x.ItemCode, x => -x.Net, cancellationToken);
+
         // Group by item code and aggregate
         var items = snapshotItems
             .GroupBy(i => i.ItemCode)
@@ -67,6 +83,7 @@ public sealed class GetLocalStockHandler(
             {
                 var first = g.First();
                 adjustments.TryGetValue(g.Key, out var transferAdj);
+                sold.TryGetValue(g.Key, out var soldToday);
 
                 return new LocalStockItemDto(
                     ItemCode: g.Key,
@@ -75,6 +92,7 @@ public sealed class GetLocalStockHandler(
                     AvailableQuantity: g.Sum(i => i.AvailableQuantity),
                     OriginalQuantity: g.Sum(i => i.OriginalQuantity),
                     TransferAdjustment: transferAdj,
+                    SoldToday: soldToday,
                     Batches: g.Select(b => new LocalStockBatchDto(
                         BatchNumber: b.BatchNumber,
                         AvailableQuantity: b.AvailableQuantity,

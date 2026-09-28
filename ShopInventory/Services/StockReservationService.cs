@@ -247,7 +247,7 @@ public class StockReservationService : IStockReservationService
         }
 
         // Validate stock availability (considering existing reservations)
-        var (isValid, validationErrors) = await ValidateStockAvailabilityAsync(request.Lines, null, cancellationToken);
+        var (isValid, validationErrors, localVans) = await CheckStockAsync(request.Lines, null, cancellationToken);
 
         if (!isValid)
         {
@@ -287,11 +287,10 @@ public class StockReservationService : IStockReservationService
         decimal totalValue = 0;
         var explicitBatchQuantitiesInRequest = BuildExplicitBatchQuantityLookup(request.Lines);
 
-        // Vans whose stock was checked by this system's own count because SAP is down. Nothing below may
-        // ask SAP about their lines: the UoM and batch-management reads would fail or hang, and the
-        // reservation the sale is waiting on would never be made. Their batches are chosen when the
-        // invoice posts — see AllocateMissingBatchesAsync.
-        var localVans = await VansCheckedLocallyAsync(request.Lines.Select(line => line.WarehouseCode), cancellationToken);
+        // localVans: the vans whose stock was checked by this system's own count, because SAP is down or
+        // did not answer the check above. Nothing below may ask SAP about their lines: the UoM and
+        // batch-management reads would fail or hang, and the reservation the sale is waiting on would
+        // never be made. Their batches are chosen when the invoice posts — see AllocateMissingBatchesAsync.
         var autoBatchQuantitiesInRequest = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
         // Process each line and allocate batches
@@ -1325,13 +1324,39 @@ public class StockReservationService : IStockReservationService
         string? excludeReservationId = null,
         CancellationToken cancellationToken = default)
     {
+        var (isValid, errors, _) = await CheckStockAsync(lines, excludeReservationId, cancellationToken);
+        return (isValid, errors);
+    }
+
+    /// <summary>
+    /// <see cref="ValidateStockAvailabilityAsync"/>, also naming the vans that were checked by this
+    /// system's own count rather than by SAP.
+    /// </summary>
+    /// <remarks>
+    /// The set is returned rather than decided again by whoever goes on to make the reservation. It can
+    /// be decided by a SAP read that did not answer, which nothing afterwards can see; asked again, the
+    /// reservation would send the van's lines to SAP for their UoM and batches and wait out the same
+    /// silence a second time.
+    /// </remarks>
+    private async Task<(bool IsValid, List<StockReservationErrorDto> Errors, HashSet<string> VansCheckedLocally)> CheckStockAsync(
+        List<CreateStockReservationLineRequest> lines,
+        string? excludeReservationId,
+        CancellationToken cancellationToken)
+    {
         var errors = new List<StockReservationErrorDto>();
         var aggregateLines = new List<(CreateStockReservationLineRequest Line, decimal InventoryQuantity)>();
 
         // While SAP is down a van is checked against what it is carrying by this system's own count
         // instead: SAP cannot answer, and a van with no answer could not sell at all. See
         // LoadVanStockLocallyAsync.
-        var (localVans, uncountedVans) = await LoadVanStockLocallyAsync(lines, cancellationToken);
+        var (localVans, uncountedVans) = SapHeldBack(out var holdBackReason)
+            ? await LoadVanStockLocallyAsync(
+                await VansAmongAsync(lines.Select(line => line.WarehouseCode), cancellationToken),
+                lines,
+                holdBackReason,
+                cancellationToken)
+            : (new Dictionary<string, Dictionary<string, StockQuantityDto>>(StringComparer.OrdinalIgnoreCase),
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
         bool IsCheckedLocally(string? warehouseCode) =>
             warehouseCode is not null
@@ -1342,8 +1367,44 @@ public class StockReservationService : IStockReservationService
         // OITW for every item in the warehouse and pages it 500 rows at a time, so a twenty-line
         // request against a five-thousand-item warehouse spent about 220 SAP round-trips answering
         // twenty single-item questions.
-        var stockByWarehouse = await LoadRequestedStockAsync(
-            lines.Where(line => !IsCheckedLocally(line.WarehouseCode)).ToList(), cancellationToken);
+        var linesForSap = lines.Where(line => !IsCheckedLocally(line.WarehouseCode)).ToList();
+        Dictionary<string, Dictionary<string, StockQuantityDto>> stockByWarehouse;
+
+        try
+        {
+            stockByWarehouse = await LoadRequestedStockAsync(linesForSap, cancellationToken);
+        }
+        catch (Exception ex) when (SapFailureClassifier.IsTransient(ex, cancellationToken))
+        {
+            // SAP did not answer, but nobody has declared it down: the probe only pings, and a Service
+            // Layer that answers a ping can still leave a stock query hanging for its whole budget.
+            // Every van sale then failed here with a 504 after the rep had waited a minute, while the
+            // same sale once the outage was declared would have been checked by the van's own count
+            // and gone through. So a van gets that count now, on this request, without waiting for the
+            // declaration. Anything that is not a van still needs SAP, so a request holding one is not
+            // rescued and the failure stands.
+            var vans = await OnlyVansAsync(linesForSap, cancellationToken);
+            if (vans is null)
+            {
+                throw;
+            }
+
+            _logger.LogWarning(
+                ex,
+                "SAP did not answer the stock read for van(s) {Vans}; checking them by this system's own count instead.",
+                string.Join(", ", vans));
+
+            var (counted, uncounted) = await LoadVanStockLocallyAsync(
+                vans, lines, "SAP did not answer the stock read", cancellationToken);
+
+            foreach (var (warehouseCode, stock) in counted)
+            {
+                localVans[warehouseCode] = stock;
+            }
+
+            uncountedVans.UnionWith(uncounted);
+            stockByWarehouse = new Dictionary<string, Dictionary<string, StockQuantityDto>>(StringComparer.OrdinalIgnoreCase);
+        }
 
         foreach (var (warehouseCode, stock) in localVans)
         {
@@ -1592,14 +1653,21 @@ public class StockReservationService : IStockReservationService
             }
         }
 
-        return (errors.Count == 0, errors);
+        var vansCheckedLocally = new HashSet<string>(localVans.Keys, StringComparer.OrdinalIgnoreCase);
+        vansCheckedLocally.UnionWith(uncountedVans);
+
+        return (errors.Count == 0, errors, vansCheckedLocally);
     }
 
     /// <summary>
-    /// While SAP is held back, the stock of each van in the request by this system's own count, and
-    /// the vans that have no count for the day.
+    /// The stock of each of <paramref name="vans"/> by this system's own count, and the vans that have
+    /// no count for the day.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// Asked while SAP is held back, or when SAP has just failed to answer a stock read for this very
+    /// request (<paramref name="reason"/> says which).
+    /// </para>
     /// <para>
     /// A van's figure here is its opening count, plus loads, less the sales received today — the same
     /// arithmetic as the stock-position endpoint — without the online sales whose reservation is still
@@ -1609,25 +1677,22 @@ public class StockReservationService : IStockReservationService
     /// </para>
     /// <para>
     /// Vans only. A shop's stock lives on the stock ledger and a depot's in SAP, and both keep the SAP
-    /// read. With SAP up nothing changes: SAP is the authority, as before.
+    /// read. With SAP up and answering nothing changes: SAP is the authority, as before.
     /// </para>
     /// </remarks>
     private async Task<(Dictionary<string, Dictionary<string, StockQuantityDto>> Counted, HashSet<string> Uncounted)>
         LoadVanStockLocallyAsync(
+            IReadOnlyCollection<string> vans,
             List<CreateStockReservationLineRequest> lines,
+            string reason,
             CancellationToken cancellationToken)
     {
         var counted = new Dictionary<string, Dictionary<string, StockQuantityDto>>(StringComparer.OrdinalIgnoreCase);
         var uncounted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (_sapCircuit is null || !_sapCircuit.ShouldHoldBackWork(out var reason))
-        {
-            return (counted, uncounted);
-        }
-
         var tradingDate = AuditService.ToCAT(DateTime.UtcNow).Date;
 
-        foreach (var warehouseCode in await VansCheckedLocallyAsync(lines.Select(line => line.WarehouseCode), cancellationToken))
+        foreach (var warehouseCode in vans)
         {
             var position = await VanStockPosition.ReadAsync(
                 _dbContext, warehouseCode, tradingDate, leaveOutSalesStillHeld: true, cancellationToken);
@@ -1673,32 +1738,57 @@ public class StockReservationService : IStockReservationService
         return (counted, uncounted);
     }
 
+    /// <summary>Whether background SAP work is being held back, which is when every van is checked locally.</summary>
+    private bool SapHeldBack(out string reason)
+    {
+        if (_sapCircuit is not null && _sapCircuit.ShouldHoldBackWork(out reason))
+        {
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
     /// <summary>
-    /// The van warehouses among <paramref name="warehouseCodes"/> whose stock is checked by this system's
-    /// own count, which is every van while SAP work is held back and none otherwise.
+    /// The van warehouses among <paramref name="warehouseCodes"/>.
     /// </summary>
-    private async Task<HashSet<string>> VansCheckedLocallyAsync(
+    private async Task<HashSet<string>> VansAmongAsync(
         IEnumerable<string?> warehouseCodes,
         CancellationToken cancellationToken)
     {
-        var vansCheckedLocally = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (_sapCircuit is null || !_sapCircuit.ShouldHoldBackWork(out _))
-        {
-            return vansCheckedLocally;
-        }
-
+        var vansAmong = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var vans = await VanWarehouses.LoadAsync(_dbContext, cancellationToken);
 
         foreach (var code in warehouseCodes)
         {
             if (!string.IsNullOrWhiteSpace(code) && vans.ContainsKey(code))
             {
-                vansCheckedLocally.Add(code);
+                vansAmong.Add(code);
             }
         }
 
-        return vansCheckedLocally;
+        return vansAmong;
+    }
+
+    /// <summary>
+    /// The vans <paramref name="lines"/> are for, or null when any line is for something that is not a
+    /// van — or there are no lines at all.
+    /// </summary>
+    private async Task<HashSet<string>?> OnlyVansAsync(
+        List<CreateStockReservationLineRequest> lines,
+        CancellationToken cancellationToken)
+    {
+        if (lines.Count == 0)
+        {
+            return null;
+        }
+
+        var vans = await VansAmongAsync(lines.Select(line => line.WarehouseCode), cancellationToken);
+
+        return lines.All(line => line.WarehouseCode is not null && vans.Contains(line.WarehouseCode))
+            ? vans
+            : null;
     }
 
     /// <summary>
