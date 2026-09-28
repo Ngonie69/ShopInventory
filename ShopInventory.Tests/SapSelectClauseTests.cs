@@ -40,6 +40,7 @@ public class SapSelectClauseTests
         { "GoodsReceiptPurchaseOrderSelect", "Document" },
         { "PurchaseInvoiceSelect", "Document" },
         { "CreditNoteSelect", "Document" },
+        { "CreditNoteVersionSelect", "Document" },
         { "QuotationSelect", "Document" },
         { "StockTransferSelect", "StockTransfer" },
         { "InventoryTransferRequestSelect", "StockTransfer" },

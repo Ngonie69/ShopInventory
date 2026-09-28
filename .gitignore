@@ -105,3 +105,6 @@ __pycache__/
 
 # Written by NavMenuRoleRenderTests when the sidebar no longer matches NavMenu.roles.txt
 ShopInventory.Tests/NavMenu.roles.actual.txt
+
+# Generated at build time by ShopInventory.Web/StaffStylesheets.targets
+ShopInventory.Web/wwwroot/css/*.bundle.css

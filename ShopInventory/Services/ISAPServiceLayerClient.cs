@@ -692,7 +692,22 @@ public interface ISAPServiceLayerClient
         DateTime fromDate,
         DateTime toDate,
         CancellationToken cancellationToken = default);
-    Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(DateTime fromUpdateDate, DateTime toUpdateDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The version fields of every credit note SAP last changed inside the date range: DocEntry,
+    /// UpdateDate, UpdateTime, DocumentStatus, Cancelled and DocTotal, with no lines.
+    /// </summary>
+    /// <remarks>
+    /// What the projection sweep polls, so that it fetches a whole document only when one of these
+    /// has moved. SAP's UpdateDate carries no time, so the window has to span whole days.
+    /// </remarks>
+    Task<List<SAPCreditNote>> GetCreditNoteVersionsUpdatedSinceAsync(DateTime fromUpdateDate, DateTime toUpdateDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The named credit notes, whole, with their lines, as the date-range reads return them (so
+    /// without UpdateTime). Unknown DocEntries are left out.
+    /// </summary>
+    Task<List<SAPCreditNote>> GetCreditNotesByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
     Task<DateTime?> GetEarliestCreditNoteDateAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Always returns an empty list.</summary>

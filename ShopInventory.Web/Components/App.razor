@@ -39,27 +39,9 @@
        for why this is decided here rather than in HeadContent. *@
     @if (!IsCustomerPortal)
     {
-        <link rel="stylesheet" href="@Assets["css/inventory-transfers.css"]" />
-        <link rel="stylesheet" href="@Assets["css/transfer-forms.css"]" />
-        @* All six sales document forms — the five create/edit screens and
-           /invoices/create, which this replaced create-invoice.css to absorb. *@
-        <link rel="stylesheet" href="@Assets["css/sales-forms.css"]" />
-        <link rel="stylesheet" href="@Assets["css/credit-notes.css"]" />
-        @* Derived from credit-notes.css — the same list-and-drawer shape — for the
-           SAP-held credit memos a manager decides; its palette is aliased from
-           nocturne-tokens.css. *@
-        <link rel="stylesheet" href="@Assets["css/credit-note-approvals.css"]" />
-        @* Generated from credit-note-approvals.css — the same queue-and-drawer shape — for the
-           broken stock vans bring back, counted and confirmed into a transfer to returns. *@
-        <link rel="stylesheet" href="@Assets["css/market-breakages.css"]" />
-        @* The other half of the same story: what the returns warehouse fills up with has to leave
-           SAP's books eventually, and /stock-write-offs is the goods issue that does it. *@
-        <link rel="stylesheet" href="@Assets["css/stock-write-offs.css"]" />
-        @* An SAP count's shorts and overs valued at selling price, from the same Inventory corner. *@
-        <link rel="stylesheet" href="@Assets["css/count-variance.css"]" />
-        <link rel="stylesheet" href="@Assets["css/settings.css"]" />
-        <link rel="stylesheet" href="@Assets["css/batch-status.css"]" />
-        <link rel="stylesheet" href="@Assets["css/exception-center.css"]" />
+        @* The staff pages' sheets that come before the portal's own, concatenated in order at
+           build time. The list is StaffStylesheets.targets, which is where a new page sheet goes. *@
+        <link rel="stylesheet" href="@Assets["css/staff-early.bundle.css"]" />
     }
     <link rel="stylesheet" href="@Assets["css/customer-portal.css"]" />
     @* Directly after the portal's own sheet, whose palette it aliases: the
@@ -68,124 +50,10 @@
     @* Staff routes again, through to the shared field controls below. *@
     @if (!IsCustomerPortal)
     {
-        <link rel="stylesheet" href="@Assets["css/driver-shop-access.css"]" />
-        <link rel="stylesheet" href="@Assets["css/mobile-orders.css"]" />
-        <link rel="stylesheet" href="@Assets["css/approval-process.css"]" />
-        <link rel="stylesheet" href="@Assets["css/business-partners.css"]" />
-        @* The admin side of the portal — who has an account, not what they see
-           once they are in it — so it is a Nocturne page of its own rather than
-           part of customer-portal.css above. *@
-        <link rel="stylesheet" href="@Assets["css/customer-portal-accounts.css"]" />
-        @* Derived from business-partners.css and sharing its palette — see that
-           file's header, and this one's, for what "one system" costs. *@
-        <link rel="stylesheet" href="@Assets["css/products.css"]" />
-        <link rel="stylesheet" href="@Assets["css/dashboard.css"]" />
-        <link rel="stylesheet" href="@Assets["css/operations-dashboard.css"]" />
-        <link rel="stylesheet" href="@Assets["css/sales-rep-dashboard.css"]" />
-        @* The depot controller's half of /dashboard. Derived from the sheet above,
-           which it shares its shape with, but aliasing nocturne-tokens.css rather
-           than carrying that sheet's copy of the palette forward. *@
-        <link rel="stylesheet" href="@Assets["css/depot-dashboard.css"]" />
-        <link rel="stylesheet" href="@Assets["css/pod-dashboard.css"]" />
-        @* Imported from POD Report.dc.html; aliases the palette in
-           nocturne-tokens.css rather than restating it. *@
-        <link rel="stylesheet" href="@Assets["css/pod-report.css"]" />
-        <link rel="stylesheet" href="@Assets["css/route-assignments.css"]" />
-        <link rel="stylesheet" href="@Assets["css/sync-status.css"]" />
-        @* /transfer-listener — whether TransferEventListener is still reading
-           SAP. Shaped after sync-status.css, its sibling monitoring page, but
-           aliasing nocturne-tokens.css rather than restating the palette, so it
-           needs no .dark-theme block of its own. *@
-        <link rel="stylesheet" href="@Assets["css/transfer-listener.css"]" />
-        @* The van sales pages — the round as it happened, the departure compliance
-           sheet and the routes. Aliases nocturne-tokens.css rather than restating it. *@
-        <link rel="stylesheet" href="@Assets["css/van-sales.css"]" />
-        @* /van-sales/attendance-report. Its own sheet rather than more of van-sales.css:
-           the attendance report draws the day as a strip per rep and shares almost
-           none of that page's card vocabulary. `vna-`, not `vat-` — see its header. *@
-        <link rel="stylesheet" href="@Assets["css/van-attendance.css"]" />
-        @* /van-sales-customer-accounts. Its own sheet rather than more of
-           van-sales.css: this one dresses a form and a list of sign-ins, and shares
-           none of the round's card vocabulary. Aliases nocturne-tokens.css. *@
-        <link rel="stylesheet" href="@Assets["css/customer-app-access.css"]" />
-        @* /van-sales/invoices and /van-sales/credit-notes, under `vsd-`. Hand-written
-           from the Van Sales Redesign canvas, on the desktop sales drawer's pattern.
-           Aliases nocturne-tokens.css. *@
-        <link rel="stylesheet" href="@Assets["css/van-sales-documents.css"]" />
-        @* /van-sales/reports/replenishment, under `vrp-`. Built from the Van Replenishment
-           Redesign canvas; its drawer sits outside the page in `.vrp-overlay`, which takes
-           the same aliases of nocturne-tokens.css. *@
-        <link rel="stylesheet" href="@Assets["css/van-replenishment.css"]" />
-        @* /shops — the retail shop master. Generated, not written: the shell, controls
-           and modal come from user-management.css, the table and chips from
-           van-sales.css and the segmented filter from credit-note-approvals.css, all
-           renamed to `shop-`. See scripts/derive_shops_css.py. Aliases
-           nocturne-tokens.css rather than restating the palette. *@
-        <link rel="stylesheet" href="@Assets["css/shops.css"]" />
-        @* /vending — wears shops.css; this adds the depot cards and the vendor page, on its aliases. *@
-        <link rel="stylesheet" href="@Assets["css/vending.css"]" />
-        @* /reports/desktop-sales/payments — shops.css renamed to `dpy-` plus a page footer.
-           Generated: see scripts/derive_daily_payments_css.py. *@
-        <link rel="stylesheet" href="@Assets["css/daily-payments.css"]" />
-    <link rel="stylesheet" href="@Assets["css/whatsapp-console.css"]" />
-        <link rel="stylesheet" href="@Assets["css/quotations.css"]" />
-        <link rel="stylesheet" href="@Assets["css/sales-orders.css"]" />
-        <link rel="stylesheet" href="@Assets["css/invoices.css"]" />
-        <link rel="stylesheet" href="@Assets["css/payments.css"]" />
-        @* One sheet, four purchase registers — quotations, requests, A/P invoices
-           and goods receipt POs. Derived from audit-trail.css; see its header for
-           why the four share a sheet and why /purchase-orders does not. *@
-        <link rel="stylesheet" href="@Assets["css/purchase-documents.css"]" />
-        @* The five purchase forms, straight after the registers they are entered
-           from and whose palette they take. Replaces app.css's `.pdoc-create-*`
-           block and two inline style blocks. *@
-        <link rel="stylesheet" href="@Assets["css/purchase-forms.css"]" />
-        <link rel="stylesheet" href="@Assets["css/pods.css"]" />
-        <link rel="stylesheet" href="@Assets["css/order-fulfillment.css"]" />
-        @* The conversion-factor screen the volume report depends on. Derived from
-           order-fulfillment.css above and sharing its palette — see that sheet's
-           header. It kept this sheet when the two reports moved to the one below. *@
-        <link rel="stylesheet" href="@Assets["css/item-volume.css"]" />
-        @* Imported from Sales Analysis.dc.html: the item volume and customer revenue
-           reports, which are one page reached by two routes. Aliases the palette in
-           nocturne-tokens.css rather than restating it. *@
-        <link rel="stylesheet" href="@Assets["css/sales-analysis.css"]" />
-        @* Sibling of business-partners.css, sharing its palette: the audit trail is
-           the same page shape. See that file's header for what the sharing costs. *@
-        <link rel="stylesheet" href="@Assets["css/audit-trail.css"]" />
-        <link rel="stylesheet" href="@Assets["css/local-stock.css"]" />
-        @* The admin/ops pages. Each is a derivation rather than an import — there
-           are no .dc.html designs for this group — and each sheet's header names
-           the sibling it was taken from. *@
-        <link rel="stylesheet" href="@Assets["css/mobile-push.css"]" />
-        <link rel="stylesheet" href="@Assets["css/notifications.css"]" />
-        <link rel="stylesheet" href="@Assets["css/document-templates.css"]" />
-        <link rel="stylesheet" href="@Assets["css/backups.css"]" />
-        <link rel="stylesheet" href="@Assets["css/security.css"]" />
-        <link rel="stylesheet" href="@Assets["css/ai-assistant.css"]" />
-        <link rel="stylesheet" href="@Assets["css/document-manager.css"]" />
-        <link rel="stylesheet" href="@Assets["css/webhooks.css"]" />
-        <link rel="stylesheet" href="@Assets["css/user-activity.css"]" />
-        <link rel="stylesheet" href="@Assets["css/user-management.css"]" />
-        @* Both merchandiser admin pages, derived from user-management.css above and
-           sharing its shape — see that sheet's header. *@
-        <link rel="stylesheet" href="@Assets["css/merchandiser.css"]" />
-        @* The six operational pages — one `.ops` scope with a vocabulary per page.
-           Five are derived from audit-trail.css; /desktop-sales is an import that
-           joined them. See that sheet's header. *@
-        <link rel="stylesheet" href="@Assets["css/operations.css"]" />
-        @* /reports/management-sales — wears operations.css (.ops-ds, .ops-dsa) and adds
-           only the change markers, paired day bars and health strip, on its tokens. *@
-        <link rel="stylesheet" href="@Assets["css/management-sales.css"]" />
-        @* /reports/desktop-sales — wears operations.css (.ops-ds, .ops-dsa) and adds the pinned
-           head, headline, trading-pattern columns and hour strip from Sales Breakdown.dc.html. *@
-        <link rel="stylesheet" href="@Assets["css/sales-breakdown.css"]" />
-        @* /reports/desktop-sales/review — wears sales-breakdown.css and adds only the findings,
-           stacked hour columns, shop-by-hour grid and health strip, on the same tokens. *@
-        <link rel="stylesheet" href="@Assets["css/sales-review.css"]" />
-        @* /fiscalisation. Derived from van-attendance.css and sharing its shape;
-           both schemes come from nocturne-tokens.css. See that sheet's header. *@
-        <link rel="stylesheet" href="@Assets["css/fiscal-console.css"]" />
+        @* The staff pages' sheets that come after the portal's, up to the shared field controls,
+           concatenated in order at build time. The list is StaffStylesheets.targets, which is
+           where a new page sheet goes. *@
+        <link rel="stylesheet" href="@Assets["css/staff-late.bundle.css"]" />
     }
     @* Not pages: the shared Nocturne field controls, which carry their own copy
        of the palette because a component cannot see a page's own tokens. *@
