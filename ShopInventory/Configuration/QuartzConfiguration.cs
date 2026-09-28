@@ -367,6 +367,10 @@ public static class QuartzConfiguration
             // Always declared: whether the weekly and monthly reviews go out is switched in Settings and
             // read on every run, and with both off the job sends nothing.
             AddCronJob<DesktopSalesReviewEmailJob>(q, DesktopSalesReviewEmailJob.JobName, "0 0 7 * * ?");
+
+            // Nightly at 04:15, clear of the telematics passes (02:30, 03:15, Sunday 03:45) and long
+            // before trading. What each table keeps is listed in the job.
+            AddCronJob<DatabaseRetentionJob>(q, DatabaseRetentionJob.JobName, "0 15 4 * * ?");
         });
 
         // Before Quartz's own hosted service, so this node knows whether the cluster holds a newer
