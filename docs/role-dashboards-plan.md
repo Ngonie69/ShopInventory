@@ -232,7 +232,8 @@ worth carrying over.
 ## Per-phase checklist
 
 - [ ] Page component (+ `.razor.cs` where it earns the split)
-- [ ] Stylesheet, both themes, new prefix, linked from `App.razor`
+- [ ] Stylesheet, both themes, new prefix, listed in `ShopInventory.Web/StaffStylesheets.targets`
+      (bundled at build time; staff page sheets are no longer linked from `App.razor`)
 - [ ] `RoleLandingRoutes.For` updated; route added to `DashboardRoutes`
 - [ ] `RoleLandingRouteTests` rows updated
 - [ ] New `DashIcon` glyphs as inline paths

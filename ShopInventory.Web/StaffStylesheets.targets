@@ -1,0 +1,199 @@
+<Project>
+
+  <!--
+    The staff pages' stylesheets, in cascade order, concatenated at build time into two bundles that
+    App.razor links in place of them.
+
+    Every staff page used to link all of these one by one: about 80 render-blocking stylesheets per
+    page, fetched a handful at a time over HTTP/1.1. Concatenating sheets in the order they were
+    linked is the same cascade - each sheet's rules keep their place - so long as none uses
+    @import, @charset or a relative url(), and all of them sit in wwwroot/css beside the bundle.
+    StaffStylesheetBundleTests holds that.
+
+    A new page sheet goes in whichever list its place in the cascade belongs to, not in App.razor.
+    The bundles are written to wwwroot/css before the static web assets are defined, so they are
+    fingerprinted and precompressed like every other asset, and are not checked in.
+  -->
+
+  <!-- The staff pages' sheets that come before the portal's own: wwwroot/css/staff-early.bundle.css -->
+  <ItemGroup>
+    <StaffStylesheetEarly Include="wwwroot/css/inventory-transfers.css" />
+    <StaffStylesheetEarly Include="wwwroot/css/transfer-forms.css" />
+    <!-- All six sales document forms — the five create/edit screens and /invoices/create, which this
+         replaced create-invoice.css to absorb. -->
+    <StaffStylesheetEarly Include="wwwroot/css/sales-forms.css" />
+    <StaffStylesheetEarly Include="wwwroot/css/credit-notes.css" />
+    <!-- Derived from credit-notes.css — the same list-and-drawer shape — for the SAP-held credit
+         memos a manager decides; its palette is aliased from nocturne-tokens.css. -->
+    <StaffStylesheetEarly Include="wwwroot/css/credit-note-approvals.css" />
+    <!-- Generated from credit-note-approvals.css — the same queue-and-drawer shape — for the broken
+         stock vans bring back, counted and confirmed into a transfer to returns. -->
+    <StaffStylesheetEarly Include="wwwroot/css/market-breakages.css" />
+    <!-- The other half of the same story: what the returns warehouse fills up with has to leave
+         SAP's books eventually, and /stock-write-offs is the goods issue that does it. -->
+    <StaffStylesheetEarly Include="wwwroot/css/stock-write-offs.css" />
+    <!-- An SAP count's shorts and overs valued at selling price, from the same Inventory corner. -->
+    <StaffStylesheetEarly Include="wwwroot/css/count-variance.css" />
+    <StaffStylesheetEarly Include="wwwroot/css/settings.css" />
+    <StaffStylesheetEarly Include="wwwroot/css/batch-status.css" />
+    <StaffStylesheetEarly Include="wwwroot/css/exception-center.css" />
+  </ItemGroup>
+
+  <!-- The staff pages' sheets that come after the portal's, up to the shared field controls:
+       wwwroot/css/staff-late.bundle.css -->
+  <ItemGroup>
+    <StaffStylesheetLate Include="wwwroot/css/driver-shop-access.css" />
+    <StaffStylesheetLate Include="wwwroot/css/mobile-orders.css" />
+    <StaffStylesheetLate Include="wwwroot/css/approval-process.css" />
+    <StaffStylesheetLate Include="wwwroot/css/business-partners.css" />
+    <!-- The admin side of the portal — who has an account, not what they see once they are in it —
+         so it is a Nocturne page of its own rather than part of customer-portal.css above. -->
+    <StaffStylesheetLate Include="wwwroot/css/customer-portal-accounts.css" />
+    <!-- Derived from business-partners.css and sharing its palette — see that file's header, and
+         this one's, for what "one system" costs. -->
+    <StaffStylesheetLate Include="wwwroot/css/products.css" />
+    <StaffStylesheetLate Include="wwwroot/css/dashboard.css" />
+    <StaffStylesheetLate Include="wwwroot/css/operations-dashboard.css" />
+    <StaffStylesheetLate Include="wwwroot/css/sales-rep-dashboard.css" />
+    <!-- The depot controller's half of /dashboard. Derived from the sheet above, which it shares its
+         shape with, but aliasing nocturne-tokens.css rather than carrying that sheet's copy of the
+         palette forward. -->
+    <StaffStylesheetLate Include="wwwroot/css/depot-dashboard.css" />
+    <StaffStylesheetLate Include="wwwroot/css/pod-dashboard.css" />
+    <!-- Imported from POD Report.dc.html; aliases the palette in nocturne-tokens.css rather than
+         restating it. -->
+    <StaffStylesheetLate Include="wwwroot/css/pod-report.css" />
+    <StaffStylesheetLate Include="wwwroot/css/route-assignments.css" />
+    <StaffStylesheetLate Include="wwwroot/css/sync-status.css" />
+    <!-- /transfer-listener — whether TransferEventListener is still reading SAP. Shaped after
+         sync-status.css, its sibling monitoring page, but aliasing nocturne-tokens.css rather than
+         restating the palette, so it needs no .dark-theme block of its own. -->
+    <StaffStylesheetLate Include="wwwroot/css/transfer-listener.css" />
+    <!-- The van sales pages — the round as it happened, the departure compliance sheet and the
+         routes. Aliases nocturne-tokens.css rather than restating it. -->
+    <StaffStylesheetLate Include="wwwroot/css/van-sales.css" />
+    <!-- /van-sales/attendance-report. Its own sheet rather than more of van-sales.css: the
+         attendance report draws the day as a strip per rep and shares almost none of that page's
+         card vocabulary. `vna-`, not `vat-` — see its header. -->
+    <StaffStylesheetLate Include="wwwroot/css/van-attendance.css" />
+    <!-- /van-sales-customer-accounts. Its own sheet rather than more of van-sales.css: this one
+         dresses a form and a list of sign-ins, and shares none of the round's card vocabulary.
+         Aliases nocturne-tokens.css. -->
+    <StaffStylesheetLate Include="wwwroot/css/customer-app-access.css" />
+    <!-- /van-sales/invoices and /van-sales/credit-notes, under `vsd-`. Hand-written from the Van
+         Sales Redesign canvas, on the desktop sales drawer's pattern. Aliases nocturne-tokens.css. -->
+    <StaffStylesheetLate Include="wwwroot/css/van-sales-documents.css" />
+    <!-- /van-sales/reports/replenishment, under `vrp-`. Built from the Van Replenishment Redesign
+         canvas; its drawer sits outside the page in `.vrp-overlay`, which takes the same aliases of
+         nocturne-tokens.css. -->
+    <StaffStylesheetLate Include="wwwroot/css/van-replenishment.css" />
+    <!-- /shops — the retail shop master. Generated, not written: the shell, controls and modal come
+         from user-management.css, the table and chips from van-sales.css and the segmented filter
+         from credit-note-approvals.css, all renamed to `shop-`. See scripts/derive_shops_css.py.
+         Aliases nocturne-tokens.css rather than restating the palette. -->
+    <StaffStylesheetLate Include="wwwroot/css/shops.css" />
+    <!-- /vending — wears shops.css; this adds the depot cards and the vendor page, on its aliases. -->
+    <StaffStylesheetLate Include="wwwroot/css/vending.css" />
+    <!-- /reports/desktop-sales/payments — shops.css renamed to `dpy-` plus a page footer. Generated:
+         see scripts/derive_daily_payments_css.py. -->
+    <StaffStylesheetLate Include="wwwroot/css/daily-payments.css" />
+    <StaffStylesheetLate Include="wwwroot/css/whatsapp-console.css" />
+    <StaffStylesheetLate Include="wwwroot/css/quotations.css" />
+    <StaffStylesheetLate Include="wwwroot/css/sales-orders.css" />
+    <StaffStylesheetLate Include="wwwroot/css/invoices.css" />
+    <StaffStylesheetLate Include="wwwroot/css/payments.css" />
+    <!-- One sheet, four purchase registers — quotations, requests, A/P invoices and goods receipt
+         POs. Derived from audit-trail.css; see its header for why the four share a sheet and why
+         /purchase-orders does not. -->
+    <StaffStylesheetLate Include="wwwroot/css/purchase-documents.css" />
+    <!-- The five purchase forms, straight after the registers they are entered from and whose
+         palette they take. Replaces app.css's `.pdoc-create-*` block and two inline style blocks. -->
+    <StaffStylesheetLate Include="wwwroot/css/purchase-forms.css" />
+    <StaffStylesheetLate Include="wwwroot/css/pods.css" />
+    <StaffStylesheetLate Include="wwwroot/css/order-fulfillment.css" />
+    <!-- The conversion-factor screen the volume report depends on. Derived from
+         order-fulfillment.css above and sharing its palette — see that sheet's header. It kept this
+         sheet when the two reports moved to the one below. -->
+    <StaffStylesheetLate Include="wwwroot/css/item-volume.css" />
+    <!-- Imported from Sales Analysis.dc.html: the item volume and customer revenue reports, which
+         are one page reached by two routes. Aliases the palette in nocturne-tokens.css rather than
+         restating it. -->
+    <StaffStylesheetLate Include="wwwroot/css/sales-analysis.css" />
+    <!-- Sibling of business-partners.css, sharing its palette: the audit trail is the same page
+         shape. See that file's header for what the sharing costs. -->
+    <StaffStylesheetLate Include="wwwroot/css/audit-trail.css" />
+    <StaffStylesheetLate Include="wwwroot/css/local-stock.css" />
+    <!-- The admin/ops pages. Each is a derivation rather than an import — there are no .dc.html
+         designs for this group — and each sheet's header names the sibling it was taken from. -->
+    <StaffStylesheetLate Include="wwwroot/css/mobile-push.css" />
+    <StaffStylesheetLate Include="wwwroot/css/notifications.css" />
+    <StaffStylesheetLate Include="wwwroot/css/document-templates.css" />
+    <StaffStylesheetLate Include="wwwroot/css/backups.css" />
+    <StaffStylesheetLate Include="wwwroot/css/security.css" />
+    <StaffStylesheetLate Include="wwwroot/css/ai-assistant.css" />
+    <StaffStylesheetLate Include="wwwroot/css/document-manager.css" />
+    <StaffStylesheetLate Include="wwwroot/css/webhooks.css" />
+    <StaffStylesheetLate Include="wwwroot/css/user-activity.css" />
+    <StaffStylesheetLate Include="wwwroot/css/user-management.css" />
+    <!-- Both merchandiser admin pages, derived from user-management.css above and sharing its shape
+         — see that sheet's header. -->
+    <StaffStylesheetLate Include="wwwroot/css/merchandiser.css" />
+    <!-- The six operational pages — one `.ops` scope with a vocabulary per page. Five are derived
+         from audit-trail.css; /desktop-sales is an import that joined them. See that sheet's header. -->
+    <StaffStylesheetLate Include="wwwroot/css/operations.css" />
+    <!-- /reports/management-sales — wears operations.css (.ops-ds, .ops-dsa) and adds only the
+         change markers, paired day bars and health strip, on its tokens. -->
+    <StaffStylesheetLate Include="wwwroot/css/management-sales.css" />
+    <!-- /reports/desktop-sales — wears operations.css (.ops-ds, .ops-dsa) and adds the pinned head,
+         headline, trading-pattern columns and hour strip from Sales Breakdown.dc.html. -->
+    <StaffStylesheetLate Include="wwwroot/css/sales-breakdown.css" />
+    <!-- /reports/desktop-sales/review — wears sales-breakdown.css and adds only the findings,
+         stacked hour columns, shop-by-hour grid and health strip, on the same tokens. -->
+    <StaffStylesheetLate Include="wwwroot/css/sales-review.css" />
+    <!-- /fiscalisation. Derived from van-attendance.css and sharing its shape; both schemes come
+         from nocturne-tokens.css. See that sheet's header. -->
+    <StaffStylesheetLate Include="wwwroot/css/fiscal-console.css" />
+  </ItemGroup>
+
+  <UsingTask TaskName="ConcatenateStylesheets" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Sources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <Destination ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var bundle = new System.Text.StringBuilder();
+        foreach (var source in Sources)
+        {
+            bundle.Append("/* ").Append(source.ItemSpec.Replace("\\", "/")).Append(" */\n");
+            bundle.Append(System.IO.File.ReadAllText(source.GetMetadata("FullPath")));
+            bundle.Append("\n");
+        }
+
+        // Written only when it changed, so an unchanged bundle keeps its timestamp.
+        var text = bundle.ToString();
+        if (!System.IO.File.Exists(Destination) || System.IO.File.ReadAllText(Destination) != text)
+        {
+            System.IO.File.WriteAllText(Destination, text, new System.Text.UTF8Encoding(false));
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="BundleStaffStylesheets" BeforeTargets="ResolveProjectStaticWebAssets">
+    <ConcatenateStylesheets Sources="@(StaffStylesheetEarly)" Destination="$(MSBuildProjectDirectory)/wwwroot/css/staff-early.bundle.css" />
+    <ConcatenateStylesheets Sources="@(StaffStylesheetLate)" Destination="$(MSBuildProjectDirectory)/wwwroot/css/staff-late.bundle.css" />
+
+    <!-- On a clean checkout the bundles did not exist when the project was evaluated, so wwwroot's
+         glob missed them; on every later build it found them. Removed by file name - the glob's copy
+         is spelt with backslashes, so a Remove by path does not match it - and declared once, before
+         the static web assets are defined, or the SDK sees the same file twice. -->
+    <ItemGroup>
+      <Content Remove="@(Content)"
+               Condition="'%(Filename)%(Extension)' == 'staff-early.bundle.css' or '%(Filename)%(Extension)' == 'staff-late.bundle.css'" />
+      <Content Include="wwwroot/css/staff-early.bundle.css;wwwroot/css/staff-late.bundle.css" />
+    </ItemGroup>
+  </Target>
+
+</Project>
