@@ -11,7 +11,9 @@ namespace ShopInventory.Tests;
 /// monitored has no snapshot, reads as zero stock, and refuses every sale made from it. Nothing
 /// throws and nothing is logged as wrong — the first sign is a cashier who cannot sell.
 ///
-/// appsettings.json is the only source. <see cref="DailyStockSettings.MonitoredWarehouses"/> is
+/// appsettings.json is the default — the list in force until one is saved from the Local stock page,
+/// and the fallback when the saved one cannot be used (<c>MonitoredWarehouseListTests</c>).
+/// <see cref="DailyStockSettings.MonitoredWarehouses"/> is
 /// deliberately declared empty, because the configuration binder APPENDS to a collection that
 /// already holds items rather than replacing it: while the class carried a 21-warehouse default and
 /// appsettings.json listed the same 21, the bound list held 42 and the snapshot job read SAP twice

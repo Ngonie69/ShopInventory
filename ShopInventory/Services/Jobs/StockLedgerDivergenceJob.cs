@@ -108,7 +108,7 @@ public sealed class StockLedgerDivergenceJob(
                 + "so divergences will be recorded and none of them corrected");
         }
 
-        foreach (var warehouseCode in settings.MonitoredWarehouses)
+        foreach (var warehouseCode in await MonitoredWarehouseList.ReadAsync(db, settings, context.CancellationToken))
         {
             if (context.CancellationToken.IsCancellationRequested)
             {

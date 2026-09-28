@@ -1,6 +1,9 @@
-﻿using Microsoft.Extensions.Diagnostics.HealthChecks;
+﻿using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Health;
 using ShopInventory.Services;
@@ -224,13 +227,21 @@ public sealed class TransferListenerHealthCheckTests
         FakeListener listener,
         List<string>? snapshotted = null)
     {
+        // No saved list, so the configured one decides, as it did before the list could be edited.
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        using var context = new SnapshotSqliteContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(connection).Options);
+        context.Database.EnsureCreated();
+
         var check = new TransferListenerHealthCheck(
             listener,
             Options.Create(new TransferEventListenerSettings()),
             Options.Create(new DailyStockSettings
             {
                 MonitoredWarehouses = snapshotted ?? ["KEFSHOP"]
-            }));
+            }),
+            context);
 
         return await check.CheckHealthAsync(new HealthCheckContext(), default);
     }

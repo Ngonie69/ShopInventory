@@ -18,6 +18,20 @@ otherwise be surprised.
 
 ### Added
 
+- **The warehouses the daily stock snapshot covers are now edited on the Local stock page**
+  (Tracked warehouses, Admin only), through the new
+  `PUT /api/DesktopIntegration/stock/monitored-warehouses`.
+
+  The saved list lives in `SystemConfigs` (`DailyStock.MonitoredWarehouses`) and takes effect on
+  every node at the next read: the 07:00 snapshot, transfer adjustments, the hourly SAP comparison,
+  the negative-stock census and the listener health check all read it. **Once a list has been saved,
+  `DailyStock:MonitoredWarehouses` in appsettings.json no longer decides** — it is the default until
+  then, and the fallback if the saved row is empty or unreadable. `ReconcileWarehouses` is still
+  configuration only. A warehouse added has no snapshot until the next fetch; the page offers to
+  fetch just that one. TransferEventListener keeps its own compiled list, so transfers into a newly
+  tracked warehouse only adjust it once the listener watches it too — /transfer-listener names any
+  that it does not.
+
 - **The van handset's invoice history (`POST /api/vansales/order/history`) now reports a per-sale
   invoice as fiscalised, with the sale's own receipt, and carries the sale number beside the SAP
   identity.**

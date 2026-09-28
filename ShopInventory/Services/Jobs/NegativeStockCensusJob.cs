@@ -60,7 +60,7 @@ public sealed class NegativeStockCensusJob(
         // Company-wide read, narrowed to the warehouses this system actually sells from. A negative
         // in a warehouse nobody here touches is real but is not this system's to answer for, and
         // mixing the two makes the trend unreadable.
-        var monitored = dailyStock.Value.MonitoredWarehouses
+        var monitored = (await MonitoredWarehouseList.ReadAsync(db, dailyStock.Value, context.CancellationToken))
             .Select(code => code.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

@@ -24,9 +24,14 @@ public class DailyStockSettings
     public string EndOfDayTimeCAT { get; set; } = "16:45";
 
     /// <summary>
-    /// Warehouses to include in daily snapshot. Supplied entirely by <c>DailyStock:MonitoredWarehouses</c>
-    /// in appsettings.json — deliberately left empty here.
+    /// Warehouses to include in daily snapshot, until a list is saved from the Local stock page.
+    /// Supplied entirely by <c>DailyStock:MonitoredWarehouses</c> in appsettings.json — deliberately
+    /// left empty here.
     /// </summary>
+    /// <remarks>
+    /// Never read this directly: read <see cref="Services.MonitoredWarehouseList.ReadAsync"/>, which
+    /// returns the saved list when there is one and this only when there is not.
+    /// </remarks>
     /// <remarks>
     /// Every warehouse a till sells from has to be listed in configuration. A sale validates against
     /// the day's snapshot, so a missing warehouse reads as zero stock and refuses every line —

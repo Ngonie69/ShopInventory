@@ -1,5 +1,6 @@
 @page "/local-stock"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,StockController,DepotController")]
@@ -10,6 +11,7 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -290,7 +292,133 @@
                         }
                     </button>
                 </div>
+                @* Hidden while the list could not be read: an editor with nothing to start from
+                   would save whatever was added as the whole list. *@
+                @if (canManageTracked && savedTracked.Count > 0)
+                {
+                    <div class="lst-field">
+                        <span class="lst-label">&nbsp;</span>
+                        <button type="button" class="lst-btn lst-btn-quiet"
+                                aria-expanded="@(isEditingTracked ? "true" : "false")"
+                                title="Choose which warehouses the daily snapshot covers"
+                                @onclick="ToggleTrackedEditor">
+                            <span>Tracked warehouses</span>
+                        </button>
+                    </div>
+                }
             </div>
+
+            @* The whole list is staged here and saved in one call, so a half-made change never reaches
+               the snapshot job. Removing a shop is the dangerous edit: once its snapshot is gone its
+               till reads zero stock and refuses every sale, so pending removals are named before the
+               save rather than discovered after it. *@
+            @if (isEditingTracked)
+            {
+                <section class="lst-track" aria-label="Tracked warehouses">
+                    <div class="lst-track-head">
+                        <h3>Tracked warehouses <span class="lst-track-count">@stagedTracked.Count</span></h3>
+                        <p>
+                            The 07:00 snapshot covers these, and transfers and sales adjust them through the day.
+                            A till selling from a warehouse that is not tracked reads zero stock.
+                        </p>
+                    </div>
+
+                    <ul class="lst-track-list">
+                        @foreach (var trackedCode in stagedTracked)
+                        {
+                            var isNew = !savedTracked.Contains(trackedCode, StringComparer.OrdinalIgnoreCase);
+                            var trackedName = WarehouseName(trackedCode);
+                            <li class="lst-track-item @(isNew ? "lst-track-new" : "")" data-code="@trackedCode">
+                                <span class="lst-track-name">@trackedName</span>
+                                @* A warehouse the cache has no name for would otherwise print its code twice. *@
+                                @if (!string.Equals(trackedName, trackedCode, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <span class="lst-track-code">@trackedCode</span>
+                                }
+                                <button type="button" class="lst-track-remove"
+                                        aria-label="@($"Stop tracking {trackedCode}")" title="@($"Stop tracking {trackedCode}")"
+                                        disabled="@(isSavingTracked || stagedTracked.Count == 1)"
+                                        @onclick="() => RemoveTracked(trackedCode)">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                        <path d="M6 6l12 12M18 6L6 18"></path>
+                                    </svg>
+                                </button>
+                            </li>
+                        }
+                    </ul>
+
+                    <div class="lst-track-add">
+                        <div class="lst-field">
+                            <span class="lst-label">Add a warehouse</span>
+                            <NocturneSelect Class="nsel-block" Options="UntrackedSelectOptions"
+                                            @bind-Value="warehouseToAdd" Caption="Warehouse"
+                                            AriaLabel="Warehouse to track" Placeholder="Choose a warehouse"
+                                            EmptyText="Every active warehouse is tracked" />
+                        </div>
+                        <button type="button" class="lst-btn lst-btn-quiet"
+                                disabled="@(isSavingTracked || string.IsNullOrEmpty(warehouseToAdd))"
+                                @onclick="AddTracked">
+                            Add
+                        </button>
+                    </div>
+
+                    @if (TrackedRemovals.Count > 0)
+                    {
+                        <div class="lst-msg lst-msg-bad lst-track-msg" role="status">
+                            <span>
+                                Removing @string.Join(", ", TrackedRemovals). From the next snapshot on, a till
+                                selling from @(TrackedRemovals.Count == 1 ? "it" : "any of them") reads zero
+                                stock and refuses every sale, and transfers stop adjusting today's figures.
+                            </span>
+                        </div>
+                    }
+
+                    @if (trackedError is not null)
+                    {
+                        <div class="lst-msg lst-msg-bad lst-track-msg" role="alert"><span>@trackedError</span></div>
+                    }
+
+                    <div class="lst-track-actions">
+                        <button type="button" class="lst-btn lst-btn-primary"
+                                disabled="@(isSavingTracked || !TrackedChanged)" @onclick="SaveTracked">
+                            @if (isSavingTracked)
+                            {
+                                <span class="lst-spin" aria-hidden="true"></span>
+                                <span>Saving&#8230;</span>
+                            }
+                            else
+                            {
+                                <span>Save</span>
+                            }
+                        </button>
+                        <button type="button" class="lst-btn lst-btn-quiet" disabled="@isSavingTracked"
+                                @onclick="ToggleTrackedEditor">
+                            Cancel
+                        </button>
+                        <span class="lst-track-note">
+                            TransferEventListener keeps its own list. The Transfer listener page names any
+                            tracked warehouse it does not watch.
+                        </span>
+                    </div>
+                </section>
+            }
+
+            @* A warehouse just added has no snapshot until the next 07:00 fetch; this gives it one now
+               without re-reading every other warehouse. *@
+            @if (justAddedTracked.Count > 0 && !isEditingTracked)
+            {
+                <div class="lst-msg lst-track-msg" role="status">
+                    <span>
+                        @string.Join(", ", justAddedTracked) @(justAddedTracked.Count == 1 ? "has" : "have")
+                        no snapshot until the next 07:00 fetch.
+                    </span>
+                    <button type="button" class="lst-btn lst-btn-quiet lst-track-fetch"
+                            disabled="@isFetching" @onclick="FetchJustAdded">
+                        Fetch @(justAddedTracked.Count == 1 ? "its" : "their") stock now
+                    </button>
+                </div>
+            }
 
             @if (stockResult != null && !string.IsNullOrWhiteSpace(stockResult.LastError))
             {
@@ -484,6 +612,36 @@
     private string? warehouseListError;
 
     private string selectedWarehouse = "";
+
+    // Tracked-warehouse editor. savedTracked is what the API holds; stagedTracked is the edit in progress.
+    private List<WarehouseDto> allWarehouses = new();
+    private List<string> savedTracked = new();
+    private List<string> stagedTracked = new();
+    private List<string> justAddedTracked = new();
+    private string warehouseToAdd = "";
+    private string? trackedError;
+    private bool canManageTracked;
+    private bool isEditingTracked;
+    private bool isSavingTracked;
+
+    private List<string> TrackedRemovals =>
+        savedTracked.Except(stagedTracked, StringComparer.OrdinalIgnoreCase).ToList();
+
+    private bool TrackedChanged =>
+        TrackedRemovals.Count > 0
+        || stagedTracked.Except(savedTracked, StringComparer.OrdinalIgnoreCase).Any();
+
+    private IEnumerable<NocturneSelectOption<string>> UntrackedSelectOptions =>
+        allWarehouses
+            .Where(wh => wh.IsActive && !string.IsNullOrWhiteSpace(wh.WarehouseCode)
+                         && !stagedTracked.Contains(wh.WarehouseCode!, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(wh => wh.WarehouseCode, StringComparer.OrdinalIgnoreCase)
+            .Select(wh => new NocturneSelectOption<string>(
+                wh.WarehouseCode!, wh.WarehouseName ?? wh.WarehouseCode!) { Hint = wh.WarehouseCode });
+
+    private string WarehouseName(string code) =>
+        allWarehouses.FirstOrDefault(wh => string.Equals(wh.WarehouseCode, code, StringComparison.OrdinalIgnoreCase))
+            ?.WarehouseName ?? code;
     private DateTime? snapshotDate;
     private string searchTerm = "";
 
@@ -508,28 +666,12 @@
     {
         snapshotDate = DateTime.UtcNow.Date;
 
-        // Load only warehouses configured for daily stock monitoring
-        var (monitoredCodes, monitoredError) = await DesktopService.GetMonitoredWarehousesAsync();
-        var warehouseList = await MasterDataCache.GetWarehousesAsync();
+        var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        // Admin only, as the API's PUT is: the list decides which warehouses every till can sell from.
+        canManageTracked = user.IsInRole(UserRoles.Admin);
 
-        if (monitoredError is not null)
-        {
-            warehouseListError =
-                $"Could not read which warehouses are monitored, so every active warehouse is listed. {monitoredError}";
-        }
-
-        if (monitoredCodes is { Count: > 0 })
-        {
-            var monitoredSet = new HashSet<string>(monitoredCodes, StringComparer.OrdinalIgnoreCase);
-            warehouses = warehouseList?
-                .Where(w => w.IsActive && w.WarehouseCode is not null && monitoredSet.Contains(w.WarehouseCode))
-                .ToList() ?? new();
-        }
-        else
-        {
-            // Fallback to all active warehouses if API call fails
-            warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
-        }
+        allWarehouses = await MasterDataCache.GetWarehousesAsync() ?? new();
+        await LoadMonitoredWarehousesAsync();
 
         await AuditService.LogAsync(AuditActions.ViewStock, "LocalStock", null);
 
@@ -537,6 +679,110 @@
         HubService.OnStockSnapshotUpdated += OnStockUpdated;
         HubService.OnStockFetchProgress += OnFetchProgress;
         HubService.OnDesktopSaleCreated += OnSaleAffectsStock;
+    }
+
+    private async Task LoadMonitoredWarehousesAsync()
+    {
+        // Load only warehouses configured for daily stock monitoring
+        var (monitoredCodes, monitoredError) = await DesktopService.GetMonitoredWarehousesAsync();
+
+        warehouseListError = monitoredError is null
+            ? null
+            : $"Could not read which warehouses are monitored, so every active warehouse is listed. {monitoredError}";
+
+        if (monitoredCodes is { Count: > 0 })
+        {
+            savedTracked = monitoredCodes;
+            var monitoredSet = new HashSet<string>(monitoredCodes, StringComparer.OrdinalIgnoreCase);
+            warehouses = allWarehouses
+                .Where(w => w.IsActive && w.WarehouseCode is not null && monitoredSet.Contains(w.WarehouseCode))
+                .ToList();
+        }
+        else
+        {
+            // Fallback to all active warehouses if API call fails. Nothing is known to be tracked, so
+            // the editor has nothing to start from and its button is hidden.
+            savedTracked = new();
+            isEditingTracked = false;
+            warehouses = allWarehouses.Where(w => w.IsActive).ToList();
+        }
+    }
+
+    private void ToggleTrackedEditor()
+    {
+        isEditingTracked = !isEditingTracked;
+        stagedTracked = savedTracked.ToList();
+        warehouseToAdd = "";
+        trackedError = null;
+    }
+
+    private void AddTracked()
+    {
+        if (string.IsNullOrWhiteSpace(warehouseToAdd)) return;
+        if (!stagedTracked.Contains(warehouseToAdd, StringComparer.OrdinalIgnoreCase))
+        {
+            stagedTracked.Add(warehouseToAdd);
+        }
+        warehouseToAdd = "";
+    }
+
+    private void RemoveTracked(string code)
+    {
+        // The API refuses an empty list; the last row's button is disabled for the same reason.
+        if (stagedTracked.Count > 1)
+        {
+            stagedTracked.RemoveAll(c => string.Equals(c, code, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private async Task SaveTracked()
+    {
+        isSavingTracked = true;
+        trackedError = null;
+        try
+        {
+            var added = stagedTracked.Except(savedTracked, StringComparer.OrdinalIgnoreCase).ToList();
+            var removed = TrackedRemovals;
+
+            var (saved, error) = await DesktopService.SaveMonitoredWarehousesAsync(stagedTracked);
+            if (saved is null)
+            {
+                trackedError = error ?? "The warehouses could not be saved.";
+                return;
+            }
+
+            await LoadMonitoredWarehousesAsync();
+            justAddedTracked = added;
+            isEditingTracked = false;
+
+            if (removed.Any(code => string.Equals(code, selectedWarehouse, StringComparison.OrdinalIgnoreCase)))
+            {
+                selectedWarehouse = "";
+                stockResult = null;
+            }
+
+            Snackbar.Add($"Tracking {saved.Count} warehouses", Severity.Success);
+        }
+        finally
+        {
+            isSavingTracked = false;
+        }
+    }
+
+    private async Task FetchJustAdded()
+    {
+        var codes = justAddedTracked.ToList();
+        if (codes.Count == 0) return;
+
+        if (await DesktopService.TriggerStockFetchAsync(codes))
+        {
+            justAddedTracked = new();
+            Snackbar.Add($"Fetching stock for {string.Join(", ", codes)} from SAP", Severity.Info);
+        }
+        else
+        {
+            Snackbar.Add($"Could not start the stock fetch for {string.Join(", ", codes)}", Severity.Error);
+        }
     }
 
     private async void OnStockUpdated()

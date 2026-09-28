@@ -8,6 +8,7 @@ using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Events.StockTransferReceived;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
@@ -112,6 +113,31 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         Assert.False(result.IsError);
         Assert.False(result.Value.Adjusted);
         Assert.Equal(10m, await AvailableAsync("WH99", "ITEM-1"));
+    }
+
+    [Fact]
+    public async Task A_warehouse_added_from_the_Local_stock_page_is_adjusted_though_configuration_omits_it()
+    {
+        // WH99 is on no configured list; saving it is what makes the transfer land.
+        await AddSnapshotItemAsync("WH99", "ITEM-1", 10m);
+        await MonitoredWarehouseList.SaveAsync(_context, [Source, Destination, "WH99"], null);
+
+        var result = await Handler().Handle(
+            new ProcessTransferEventCommand("ITEM-1", "WH98", "WH99", 4m, 1, 1), default);
+
+        Assert.True(result.Value.Adjusted);
+        Assert.Equal(14m, await AvailableAsync("WH99", "ITEM-1"));
+    }
+
+    [Fact]
+    public async Task A_warehouse_removed_from_the_Local_stock_page_is_no_longer_adjusted()
+    {
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+        await MonitoredWarehouseList.SaveAsync(_context, [Destination], null);
+
+        await Handler().Handle(Transfer("ITEM-1", 4m), default);
+
+        Assert.Equal(10m, await AvailableAsync(Source, "ITEM-1"));
     }
 
     /// <remarks>
