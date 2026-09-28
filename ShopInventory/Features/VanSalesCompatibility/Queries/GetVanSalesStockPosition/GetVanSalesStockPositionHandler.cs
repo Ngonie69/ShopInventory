@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Mobile;
+using ShopInventory.Common.Stock;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
@@ -62,14 +63,10 @@ public sealed class GetVanSalesStockPositionHandler(
         // miss the van's own row every morning between midnight and seven.
         var tradingDate = AuditService.ToCAT(DateTime.UtcNow).Date;
 
-        var snapshot = await db.DailyStockSnapshots
-            .AsNoTracking()
-            .Where(header => header.WarehouseCode == warehouseCode
-                          && header.SnapshotDate == tradingDate)
-            .Select(header => new { header.Id })
-            .FirstOrDefaultAsync(cancellationToken);
+        var position = await VanStockPosition.ReadAsync(
+            db, warehouseCode, tradingDate, leaveOutSalesStillHeld: false, cancellationToken);
 
-        if (snapshot is null)
+        if (!position.Counted)
         {
             // No opening count, so there is no position to rebuild. Said plainly rather than answered
             // with an empty list, which a handset would render as a van carrying nothing — wrong, and
@@ -90,81 +87,17 @@ public sealed class GetVanSalesStockPositionHandler(
             };
         }
 
-        var opening = await db.DailyStockSnapshotItems
-            .AsNoTracking()
-            .Where(row => row.SnapshotId == snapshot.Id)
-            .GroupBy(row => row.ItemCode)
-            .Select(group => new
+        var lines = position.Items
+            .Select(item => new VanSalesStockPositionResultLine
             {
-                ItemCode = group.Key,
-                Quantity = group.Sum(row => row.OriginalQuantity),
-                Description = group.Max(row => row.ItemDescription)
+                Code = item.ItemCode,
+                Description = item.Description,
+                OpeningQuantity = item.Opening,
+                TransferredQuantity = item.Transferred,
+                SoldQuantity = item.Sold,
+                Quantity = item.Quantity
             })
-            .ToListAsync(cancellationToken);
-
-        var transfers = await db.StockTransferAdjustments
-            .AsNoTracking()
-            .Where(adjustment => adjustment.SnapshotDate == tradingDate
-                              && adjustment.WarehouseCode == warehouseCode)
-            .GroupBy(adjustment => adjustment.ItemCode)
-            .Select(group => new { ItemCode = group.Key, Quantity = group.Sum(a => a.AdjustmentQuantity) })
-            .ToListAsync(cancellationToken);
-
-        // The CAT trading day in UTC terms: CAT runs two hours ahead, so the day opens at 22:00 UTC
-        // the evening before.
-        var from = tradingDate.AddHours(-2);
-        var to = from.AddDays(1);
-
-        var sold = await db.DesktopSaleLines
-            .AsNoTracking()
-            .Where(line => line.WarehouseCode == warehouseCode
-                        && line.Sale.CreatedAt >= from
-                        && line.Sale.CreatedAt < to)
-            .GroupBy(line => line.ItemCode)
-            .Select(group => new { ItemCode = group.Key, Quantity = group.Sum(line => line.Quantity) })
-            .ToListAsync(cancellationToken);
-
-        var openingByItem = opening.ToDictionary(
-            row => row.ItemCode, row => row.Quantity, StringComparer.OrdinalIgnoreCase);
-        var descriptionByItem = opening
-            .Where(row => row.Description is not null)
-            .ToDictionary(row => row.ItemCode, row => row.Description, StringComparer.OrdinalIgnoreCase);
-        var transferByItem = transfers.ToDictionary(
-            row => row.ItemCode, row => row.Quantity, StringComparer.OrdinalIgnoreCase);
-        var soldByItem = sold.ToDictionary(
-            row => row.ItemCode, row => row.Quantity, StringComparer.OrdinalIgnoreCase);
-
-        // Every item any of the three knows about. An item loaded mid-day has no opening row, and one
-        // sold down to nothing still belongs on the list — a rep needs to see the zero rather than
-        // find the item missing and assume the list is wrong.
-        var itemCodes = openingByItem.Keys
-            .Concat(transferByItem.Keys)
-            .Concat(soldByItem.Keys)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase);
-
-        var lines = new List<VanSalesStockPositionResultLine>();
-
-        foreach (var itemCode in itemCodes)
-        {
-            var openingQuantity = openingByItem.GetValueOrDefault(itemCode);
-            var transferred = transferByItem.GetValueOrDefault(itemCode);
-            var soldQuantity = soldByItem.GetValueOrDefault(itemCode);
-
-            lines.Add(new VanSalesStockPositionResultLine
-            {
-                Code = itemCode,
-                Description = descriptionByItem.GetValueOrDefault(itemCode),
-                OpeningQuantity = openingQuantity,
-                TransferredQuantity = transferred,
-                SoldQuantity = soldQuantity,
-
-                // Floored: a van that has sold more than this system thinks it loaded is a real and
-                // known condition — the end-of-day posting reports it as a shortfall — and a negative
-                // here would read to a rep as stock owed rather than stock gone.
-                Quantity = Math.Max(0m, openingQuantity + transferred - soldQuantity)
-            });
-        }
+            .ToList();
 
         return new VanSalesStockPositionResult
         {

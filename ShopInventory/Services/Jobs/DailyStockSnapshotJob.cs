@@ -51,8 +51,10 @@ public sealed class DailyStockSnapshotJob : IJob
     public static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// The repeating trigger that re-reads the unbatched half of a finished snapshot missing it. Its
-    /// Quartz identity carries the <c>-trigger</c> suffix every interval trigger gets.
+    /// The repeating trigger that re-reads the unbatched half of a finished snapshot missing it, and
+    /// fetches again a shop's snapshot for the day that failed or never started. Its Quartz identity
+    /// carries the <c>-trigger</c> suffix every interval trigger gets. The name predates the second
+    /// duty and is kept: a trigger renamed in code stays behind in the clustered store under its old one.
     /// </summary>
     public const string UnbatchedRetryTriggerName = "daily-stock-snapshot-unbatched-retry";
 
@@ -83,6 +85,7 @@ public sealed class DailyStockSnapshotJob : IJob
 
         if (context.Trigger.Key.Name == $"{UnbatchedRetryTriggerName}-trigger")
         {
+            await RetryFailedShopsAsync(scope, warehouses, today, context.CancellationToken);
             await RetryUnbatchedAsync(scope, warehouses, today, context.CancellationToken);
             return;
         }
@@ -214,6 +217,83 @@ public sealed class DailyStockSnapshotJob : IJob
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Retrying unbatched stock for warehouse {Warehouse} failed", warehouse);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fetches again every shop whose snapshot for the day failed or was never started.
+    /// </summary>
+    /// <remarks>
+    /// <para>The morning run retries a failed warehouse once, straight away. When SAP is down at 07:00
+    /// that retry fails too, and until this existed nothing tried again that day: a shop sold from
+    /// yesterday's snapshot until the next morning, when it had none it was allowed to sell from and
+    /// every sale was refused. Now the day's snapshot is fetched as soon as SAP answers, and the
+    /// fetch takes off every till sale SAP has not had, so the shop moves onto today's figures without
+    /// putting anything it sold back on the shelf.</para>
+    ///
+    /// <para>Shops only, the warehouses the hourly reconciliation looks after. A van's row is its
+    /// morning load, and a fetch in the middle of its day would change that number. Not Pending
+    /// snapshots either: something may still be building one, and the startup run is what finishes a
+    /// fetch a restart cut off.</para>
+    ///
+    /// <para>Skipped while SAP is held back, so an outage costs one database read per pass.</para>
+    /// </remarks>
+    private async Task RetryFailedShopsAsync(
+        IServiceScope scope,
+        IReadOnlyCollection<string> warehouses,
+        DateTime today,
+        CancellationToken ct)
+    {
+        var shops = warehouses
+            .Where(code => _settings.ReconcileWarehouses.Contains(code, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (shops.Count == 0)
+        {
+            return;
+        }
+
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var failed = (await UnfinishedAsync(db, shops, today, ct))
+            .Where(entry => entry.Status != StockSnapshotStatus.Pending)
+            .ToList();
+
+        if (failed.Count == 0)
+        {
+            return;
+        }
+
+        if (scope.ServiceProvider.GetService<SapCircuitBreakerState>() is { } circuit
+            && circuit.ShouldHoldBackWork(out var holdBackReason))
+        {
+            _logger.LogDebug(
+                "Not fetching {Count} shop snapshot(s) again yet: {Reason}.", failed.Count, holdBackReason);
+            return;
+        }
+
+        _logger.LogWarning(
+            "{Count} shop(s) have no finished snapshot for {Day:yyyy-MM-dd}, fetching again: {Warehouses}",
+            failed.Count,
+            today,
+            string.Join(", ", failed.Select(entry => $"{entry.WarehouseCode} ({entry.Status?.ToString() ?? "none"})")));
+
+        var handler = scope.ServiceProvider.GetRequiredService<FetchDailyStockHandler>();
+
+        foreach (var (warehouse, _) in failed)
+        {
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
+
+            try
+            {
+                await handler.FetchWarehouseStockAsync(today, warehouse, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Fetching the {Day:yyyy-MM-dd} snapshot again for {Warehouse} failed", today, warehouse);
             }
         }
     }

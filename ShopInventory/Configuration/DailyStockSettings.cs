@@ -86,6 +86,17 @@ public class DailyStockSettings
     public int UnbatchedRetryMinutes { get; set; } = 10;
 
     /// <summary>
+    /// How many days back a shop may keep selling from its last finished snapshot while a recorded SAP
+    /// outage explains the mornings it missed. Default 7; 1 keeps the plain one-day carry-over only.
+    /// </summary>
+    /// <remarks>
+    /// Without an outage to explain the gap the carry-over stays one day, so a fetch that fails for
+    /// any other reason still stops the tills on the second morning and gets a person's attention.
+    /// See <c>StockSnapshotInForce</c>.
+    /// </remarks>
+    public int OutageCarryOverDays { get; set; } = 7;
+
+    /// <summary>
     /// Max number of consolidation groups to process per batch.
     /// </summary>
     public int ConsolidationBatchSize { get; set; } = 10;

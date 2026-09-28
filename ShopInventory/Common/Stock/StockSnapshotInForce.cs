@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Common.Stock;
 
@@ -28,6 +29,15 @@ namespace ShopInventory.Common.Stock;
 /// yesterday's finished one — the rows the tills were already moving, which are still a live figure.
 /// Only one day back: a warehouse that has not had a finished snapshot for two mornings has a problem a
 /// person needs to see, and serving figures that old would hide it.</para>
+///
+/// <para><b>Unless SAP was down.</b> A recorded SAP outage is the one explanation for missed mornings
+/// that needs no person: nothing could have fetched them. So a shop may reach further back, to its
+/// last finished snapshot within <see cref="DailyStockSettings.OutageCarryOverDays"/>, when one outage
+/// was already under way at the first missed morning's fetch and was still going on at this morning's.
+/// The first condition matters: a shop's failed fetch is retried all day, so a day that missed its
+/// snapshot while SAP was up for most of it has some other cause. The rows it sells from are the same rows the tills have been moving all along, so the figure
+/// stays live; and the fetch that finally succeeds takes off every till sale SAP has not had, however
+/// many days old, so nothing sold during the outage goes back on the shelf.</para>
 ///
 /// <para><b>Shops only.</b> The warehouses in <see cref="DailyStockSettings.ReconcileWarehouses"/>. A
 /// van's row is its morning load, which the van reconciliation is computed from, and carrying one van
@@ -67,8 +77,77 @@ public sealed record StockSnapshotInForce(DateTime Day, DateTime Scheduled, bool
             return new StockSnapshotInForce(scheduled, scheduled, true);
         }
 
-        return finished.Contains(previous)
-            ? new StockSnapshotInForce(previous, scheduled, true)
+        if (finished.Contains(previous))
+        {
+            return new StockSnapshotInForce(previous, scheduled, true);
+        }
+
+        var outageDay = mayCarry
+            ? await CarriedThroughOutageAsync(db, warehouseCode, scheduled, settings, cancellationToken)
+            : null;
+
+        return outageDay is { } day
+            ? new StockSnapshotInForce(day, scheduled, true)
             : new StockSnapshotInForce(scheduled, scheduled, false);
     }
+
+    /// <summary>
+    /// The last finished snapshot older than yesterday that a SAP outage lets this shop sell from, or
+    /// null when there is none or no outage explains the gap.
+    /// </summary>
+    private static async Task<DateTime?> CarriedThroughOutageAsync(
+        ApplicationDbContext db,
+        string warehouseCode,
+        DateTime scheduled,
+        DailyStockSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (settings.OutageCarryOverDays <= 1)
+        {
+            return null;
+        }
+
+        var oldest = scheduled.AddDays(-settings.OutageCarryOverDays);
+        var previous = scheduled.AddDays(-1);
+
+        var last = await db.DailyStockSnapshots
+            .AsNoTracking()
+            .Where(snapshot => snapshot.WarehouseCode == warehouseCode
+                            && snapshot.Status == StockSnapshotStatus.Complete
+                            && snapshot.SnapshotDate >= oldest
+                            && snapshot.SnapshotDate < previous)
+            .OrderByDescending(snapshot => snapshot.SnapshotDate)
+            .Select(snapshot => (DateTime?)snapshot.SnapshotDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (last is not { } lastDay)
+        {
+            return null;
+        }
+
+        // The first missed morning is the day after the last finished snapshot. The outage has to have
+        // been under way by that morning's fetch and to have still been going at this morning's. The
+        // slack is for how an outage is dated: from the probe that first failed, which can land a little
+        // after the fetch SAP had already refused.
+        var fetchTime = StockLedgerDay.ParseFetchTime(settings.StockFetchTimeCAT);
+        var firstMissedFetchUtc = FetchInstantUtc(lastDay.AddDays(1), fetchTime);
+        var thisMorningUtc = FetchInstantUtc(scheduled, fetchTime);
+        var startedByUtc = firstMissedFetchUtc.Add(OutageStartSlack);
+
+        var explained = await db.SapOutages
+            .AsNoTracking()
+            .AnyAsync(outage => outage.StartedAtUtc <= startedByUtc
+                             && (outage.EndedAtUtc == null || outage.EndedAtUtc >= thisMorningUtc),
+                cancellationToken);
+
+        return explained ? lastDay : null;
+    }
+
+    /// <summary>
+    /// How long after a missed fetch an outage may be dated and still count as its cause.
+    /// </summary>
+    private static readonly TimeSpan OutageStartSlack = TimeSpan.FromHours(1);
+
+    private static DateTime FetchInstantUtc(DateTime day, TimeSpan fetchTimeCat) =>
+        DateTime.SpecifyKind(AuditService.FromCAT(day.Date.Add(fetchTimeCat)), DateTimeKind.Utc);
 }
