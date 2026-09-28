@@ -1,7 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Stock.Queries.GetWarehouses;
 using ShopInventory.Features.Stock.Queries.GetWarehouseCodes;
@@ -18,10 +17,9 @@ namespace ShopInventory.Controllers;
 public class StockController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>
-    /// Get all warehouses (cached 5 min)
+    /// Get all warehouses
     /// </summary>
     [HttpGet("warehouses")]
-    [OutputCache(PolicyName = "warehouses")]
     public async Task<IActionResult> GetWarehouses(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetWarehousesQuery(), cancellationToken);
@@ -32,7 +30,6 @@ public class StockController(IMediator mediator) : ApiControllerBase
     /// Get just warehouse codes
     /// </summary>
     [HttpGet("warehouse-codes")]
-    [OutputCache(PolicyName = "warehouses")]
     public async Task<IActionResult> GetWarehouseCodes(
         [FromQuery] bool includeInactive = false,
         CancellationToken cancellationToken = default)

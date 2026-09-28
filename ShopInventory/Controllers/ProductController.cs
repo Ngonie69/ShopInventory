@@ -1,7 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Products.Queries.GetAllProducts;
 using ShopInventory.Features.Products.Queries.GetItemGroups;
@@ -21,7 +20,6 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     /// Gets all products/items from SAP
     /// </summary>
     [HttpGet]
-    [OutputCache(PolicyName = "master-data")]
     [ProducesResponseType(typeof(ProductsListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetAllProducts(CancellationToken cancellationToken)
@@ -49,7 +47,6 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     /// </para>
     /// </remarks>
     [HttpGet("van-sale-catalogue")]
-    [OutputCache(PolicyName = "master-data")]
     [ProducesResponseType(typeof(ProductsListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetVanSaleCatalogue(CancellationToken cancellationToken)
@@ -66,7 +63,6 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     /// Gets SAP's item groups, so a group code on a product can be shown as a name
     /// </summary>
     [HttpGet("groups")]
-    [OutputCache(PolicyName = "master-data")]
     [ProducesResponseType(typeof(ItemGroupsListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetItemGroups(CancellationToken cancellationToken)

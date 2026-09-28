@@ -2153,7 +2153,8 @@ The list filter is `documentType`, not `type`.
 
 **Base route:** `/api/Report`  
 **Auth:** Bearer + `reports.view` permission  
-**Cache:** All report endpoints are cached for 15 minutes (900 seconds)
+**Cache:** No HTTP response cache. The API keeps the SAP data a report read for 3 minutes, and a
+computed report for 2, so the same report asked for again within that window does not read SAP again.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

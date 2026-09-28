@@ -52,9 +52,7 @@ public sealed class SapRequestPriorityMiddleware(RequestDelegate next)
 public static class SapRequestPriorityMiddlewareExtensions
 {
     /// <summary>
-    /// Add after routing — the endpoint has to be resolved for the opt-out attribute to be visible
-    /// — and after output caching, so a cached response does not claim a reservation it will never
-    /// use.
+    /// Add after routing — the endpoint has to be resolved for the opt-out attribute to be visible.
     /// </summary>
     public static IApplicationBuilder UseSapRequestPriority(this IApplicationBuilder builder) =>
         builder.UseMiddleware<SapRequestPriorityMiddleware>();

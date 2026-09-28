@@ -142,7 +142,8 @@ The API process hosts:
 - JWT bearer authentication and API key support.
 - Serilog logging.
 - EF Core with PostgreSQL.
-- output caching for selected read-heavy endpoints.
+- in-memory caching of SAP reference data and report reads (no HTTP output cache: every endpoint
+  requires sign-in, which ASP.NET's output cache never serves).
 - rate limiting.
 - health check endpoints for live, ready, deploy-ready, and dependency probes.
 - SignalR notifications at `/hubs/notifications`, and at `/api/hubs/notifications` for callers
