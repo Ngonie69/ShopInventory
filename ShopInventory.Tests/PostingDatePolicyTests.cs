@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,6 +10,7 @@ using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.UpdatePostingDatePolicy;
 using ShopInventory.Features.DesktopIntegration.Queries.GetPostingDatePolicy;
+using ShopInventory.Hubs;
 using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
@@ -22,6 +24,8 @@ public sealed class PostingDatePolicyTests : IDisposable
     private static readonly DateTime Today = new(2026, 9, 25);
 
     private readonly SqliteConnection _connection;
+    private readonly List<(string Group, string Method, object?[] Args)> _sent = [];
+    private bool _hubThrows;
 
     public PostingDatePolicyTests()
     {
@@ -156,6 +160,52 @@ public sealed class PostingDatePolicyTests : IDisposable
         }
     }
 
+    // ---------------------------------------------------------------
+    // The push to open tills
+    // ---------------------------------------------------------------
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Every_connected_till_is_told_the_moment_it_changes(bool allow)
+    {
+        var saved = await UpdateAsync(allow, who: "ngoni");
+
+        var (group, method, args) = Assert.Single(_sent);
+        // Platform-wide, so every till, not one shop's.
+        Assert.Equal("all", group);
+        Assert.Equal(UpdatePostingDatePolicyHandler.ChangedMethodName, method);
+        Assert.Equal(saved, Assert.IsType<PostingDatePolicy>(Assert.Single(args)));
+    }
+
+    [Fact]
+    public async Task A_hub_that_fails_does_not_fail_the_save()
+    {
+        _hubThrows = true;
+
+        var saved = await UpdateAsync(allow: true, who: "ngoni");
+
+        Assert.True(saved.AllowCustomPostingDate);
+        await using var context = NewContext();
+        Assert.True(await PostingDatePolicyKeys.IsAllowedAsync(context, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// The till (KefShop, <c>Models/PostingDatePolicyMDL.cs</c>) binds <c>allowCustomPostingDate</c> and
+    /// <c>todayCat</c> by name. A rename here leaves every till reading "off" and locking the picker, with no
+    /// error anywhere.
+    /// </summary>
+    [Fact]
+    public void The_push_carries_the_names_the_till_reads()
+    {
+        var json = JsonSerializer.SerializeToElement(
+            new PostingDatePolicy(true, Today, DateTime.UtcNow, "ngoni"),
+            new JsonHubProtocolOptions().PayloadSerializerOptions);
+
+        Assert.True(json.GetProperty("allowCustomPostingDate").GetBoolean());
+        Assert.Equal(Today, json.GetProperty("todayCat").GetDateTime());
+    }
+
     private async Task<PostingDatePolicy> UpdateAsync(bool allow, string who)
     {
         await using var context = NewContext();
@@ -168,10 +218,35 @@ public sealed class PostingDatePolicyTests : IDisposable
                 context,
                 mediator,
                 StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
+                Hub(),
                 NullLogger<UpdatePostingDatePolicyHandler>.Instance)
             .Handle(new UpdatePostingDatePolicyCommand(Guid.NewGuid(), who, allow), CancellationToken.None);
 
         return result.Value;
+    }
+
+    /// <summary>
+    /// <c>Clients.Group(g).SendAsync(m, arg, ct)</c> lands on <c>IClientProxy.SendCoreAsync(m, [arg])</c>,
+    /// so that is the one call recorded.
+    /// </summary>
+    private IHubContext<NotificationHub> Hub()
+    {
+        IClientProxy GroupProxy(string group) => StubProxy.For<IClientProxy>((method, args) =>
+        {
+            if (method.Name != nameof(IClientProxy.SendCoreAsync))
+                throw new InvalidOperationException($"IClientProxy.{method.Name} was not expected.");
+            if (_hubThrows) throw new InvalidOperationException("hub down");
+            _sent.Add((group, (string)args![0]!, (object?[])args[1]!));
+            return Task.CompletedTask;
+        });
+
+        var clients = StubProxy.For<IHubClients>((method, args) => method.Name == nameof(IHubClients.Group)
+            ? GroupProxy((string)args![0]!)
+            : throw new InvalidOperationException($"IHubClients.{method.Name} was not expected."));
+
+        return StubProxy.For<IHubContext<NotificationHub>>((method, _) => method.Name == "get_Clients"
+            ? clients
+            : throw new InvalidOperationException($"IHubContext.{method.Name} was not expected."));
     }
 
     private ApplicationDbContext NewContext() =>
