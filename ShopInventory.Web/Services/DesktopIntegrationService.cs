@@ -65,7 +65,12 @@ public interface IDesktopIntegrationService
     // Local Stock Snapshots
     Task<(LocalStockResultDto? Result, string? Error)> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null);
     Task<(List<string>? Result, string? Error)> GetMonitoredWarehousesAsync();
-    Task<bool> TriggerStockFetchAsync();
+
+    // Replaces the whole list and returns it as saved. The API refuses an empty list.
+    Task<(List<string>? Result, string? Error)> SaveMonitoredWarehousesAsync(
+        IReadOnlyCollection<string> warehouses, CancellationToken cancellationToken = default);
+    // Null fetches every monitored warehouse; a list fetches only those, as after one is added.
+    Task<bool> TriggerStockFetchAsync(IReadOnlyCollection<string>? warehouses = null);
 
     // Returns the API's refusal verbatim — "a van cannot be refreshed", "fetch today's stock first",
     // "SAP could not be read" each tell the operator something different to do.
@@ -391,11 +396,41 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         return await ReadAsync<List<string>>("api/DesktopIntegration/stock/monitored-warehouses");
     }
 
-    public async Task<bool> TriggerStockFetchAsync()
+    public async Task<(List<string>? Result, string? Error)> SaveMonitoredWarehousesAsync(
+        IReadOnlyCollection<string> warehouses, CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await _httpClient.PostAsync("api/DesktopIntegration/stock/fetch-daily", null);
+            var response = await _httpClient.PutAsJsonAsync(
+                "api/DesktopIntegration/stock/monitored-warehouses",
+                new { Warehouses = warehouses },
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<List<string>>(cancellationToken);
+            return result is null
+                ? (null, "The API saved the warehouses but returned nothing to show for it.")
+                : (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving the monitored warehouses");
+            return (null, $"The warehouses could not be saved from here: {ex.Message}");
+        }
+    }
+
+    public async Task<bool> TriggerStockFetchAsync(IReadOnlyCollection<string>? warehouses = null)
+    {
+        try
+        {
+            var response = warehouses is null
+                ? await _httpClient.PostAsync("api/DesktopIntegration/stock/fetch-daily", null)
+                : await _httpClient.PostAsJsonAsync(
+                    "api/DesktopIntegration/stock/fetch-daily", new { Warehouses = warehouses });
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)

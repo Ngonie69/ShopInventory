@@ -100,14 +100,28 @@ public sealed class GetTransferListenerStatusHandler(
 
         var watchedSet = watched.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // The two warehouse lists are maintained independently — one in this API's configuration, the
+        // The two warehouse lists are maintained independently — one in this API's database, the
         // other compiled into the listener — so they drift, and nothing else compares them.
         //
         // Distinct because the configured list is not guaranteed to be one: binding a section over a
         // property whose initializer already holds items appends rather than replaces, so
         // MonitoredWarehouses arrives holding every warehouse twice. Reporting a warehouse twice
         // would make the reader doubt the page rather than the list.
-        var unwatched = dailyStockSettings.Value.MonitoredWarehouses
+        //
+        // An unreadable saved list falls back to the configured one rather than failing the page: the
+        // comparison is a side observation, and the listener's own state is what the page is for.
+        List<string> snapshotted;
+        try
+        {
+            snapshotted = await MonitoredWarehouseList.ReadAsync(context, dailyStockSettings.Value, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not read the saved monitored warehouses; comparing the configured list");
+            snapshotted = dailyStockSettings.Value.MonitoredWarehouses;
+        }
+
+        var unwatched = snapshotted
             .Where(warehouse => !string.IsNullOrWhiteSpace(warehouse))
             .Select(warehouse => warehouse.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)

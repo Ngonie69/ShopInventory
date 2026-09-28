@@ -41,7 +41,8 @@ public sealed class FetchDailyStockHandler(
         CancellationToken cancellationToken)
     {
         var snapshotDate = command.SnapshotDate?.Date ?? StockLedgerDay.Today(settings.Value.StockFetchTimeCAT);
-        var warehouses = command.Warehouses ?? settings.Value.MonitoredWarehouses;
+        var warehouses = command.Warehouses
+            ?? await MonitoredWarehouseList.ReadAsync(context, settings.Value, cancellationToken);
         var results = new List<WarehouseSnapshotResult>();
         var totalItemCount = 0;
         var completedCount = 0;

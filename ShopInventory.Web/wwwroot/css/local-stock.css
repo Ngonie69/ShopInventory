@@ -591,7 +591,7 @@
    expected far more typing than it does. */
 .lst-filters {
     display: grid;
-    grid-template-columns: minmax(190px, 340px) minmax(150px, 200px) auto auto;
+    grid-template-columns: minmax(190px, 340px) minmax(150px, 200px) auto auto auto;
     justify-content: start;
     gap: var(--lst-s4);
     padding: 0 var(--lst-s8) var(--lst-s4);
@@ -832,6 +832,151 @@
     display: none;
 }
 
+/* ── Tracked warehouses ────────────────────────────────────────────────── */
+
+/* The editor opens inside the Items panel, under the filter row it is reached
+   from, rather than in a modal: it is a list to read down and prune, and the
+   picker above it is what it changes. */
+.lst-track {
+    margin: 0 var(--lst-s8) var(--lst-s4);
+    padding: var(--lst-s4) var(--lst-s6);
+    border: 1px solid var(--lst-divider);
+    border-radius: var(--lst-r-md);
+    background: var(--lst-surface);
+    display: flex;
+    flex-direction: column;
+    gap: var(--lst-s4);
+}
+
+.lst-track-head h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--lst-ink);
+    display: flex;
+    align-items: center;
+    gap: var(--lst-s2);
+    margin: 0;
+}
+
+.lst-track-count {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--lst-mute-2);
+    padding: 1px 8px;
+    border: 1px solid var(--lst-divider);
+    border-radius: 999px;
+}
+
+.lst-track-head p {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    color: var(--lst-mute-2);
+    text-wrap: pretty;
+}
+
+.lst-track-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: var(--lst-s2);
+}
+
+.lst-track-item {
+    display: flex;
+    align-items: center;
+    gap: var(--lst-s2);
+    min-width: 0;
+    padding: 5px 6px 5px 12px;
+    border: 1px solid var(--lst-divider);
+    border-radius: var(--lst-r-sm);
+    font-size: 13px;
+}
+
+/* Added in this edit and not yet saved. */
+.lst-track-item.lst-track-new {
+    border-color: rgba(var(--lst-fam-good-rgb), .45);
+    background: rgba(var(--lst-fam-good-rgb), .1);
+}
+
+.lst-track-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--lst-ink);
+}
+
+.lst-track-code {
+    flex: none;
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    color: var(--lst-mute-3);
+}
+
+.lst .lst-track-remove {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--lst-r-sm);
+    background: transparent;
+    color: var(--lst-mute-2);
+    cursor: pointer;
+    transition: background-color .14s, color .14s;
+}
+
+.lst .lst-track-remove:hover:not(:disabled) {
+    color: var(--lst-fam-bad);
+    background: rgba(var(--lst-fam-bad-rgb), .12);
+}
+
+.lst .lst-track-remove:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+}
+
+.lst-track-add {
+    display: grid;
+    grid-template-columns: minmax(190px, 340px) auto;
+    justify-content: start;
+    align-items: end;
+    gap: var(--lst-s4);
+}
+
+.lst-track-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--lst-s3);
+}
+
+.lst-track-note {
+    font-size: 12px;
+    color: var(--lst-mute-3);
+    text-wrap: pretty;
+}
+
+/* Inside the editor the notices sit flush with its padding, not the panel's. */
+.lst-track .lst-track-msg {
+    margin: 0;
+}
+
+.lst-msg.lst-track-msg {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.lst .lst-track-fetch {
+    margin-left: auto;
+}
+
 /* ── Notices, empty and loading ────────────────────────────────────────── */
 
 .lst-msg {
@@ -1039,8 +1184,13 @@
         padding-inline: var(--lst-s6);
     }
 
-    .lst-msg {
+    .lst-msg,
+    .lst-track {
         margin-inline: var(--lst-s6);
+    }
+
+    .lst-track-add {
+        grid-template-columns: 1fr;
     }
 
     .lst-snap {

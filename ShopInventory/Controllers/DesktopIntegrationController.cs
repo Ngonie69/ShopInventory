@@ -79,6 +79,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport
 using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
+using ShopInventory.Features.DesktopIntegration.Commands.UpdateMonitoredWarehouses;
 using ShopInventory.Features.DesktopIntegration.Queries.GetVendorsForAccount;
 using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetPriceLists;
@@ -816,12 +817,35 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     #region Daily Stock & Desktop Sales
 
     /// <summary>
-    /// Get the list of monitored warehouses configured for daily stock snapshots.
+    /// Get the list of warehouses the daily stock snapshot covers: the list saved from the Local stock
+    /// page, or appsettings.json's until one is saved.
     /// </summary>
     [HttpGet("stock/monitored-warehouses")]
     public async Task<IActionResult> GetMonitoredWarehouses(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetMonitoredWarehousesQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Replaces the list of warehouses the daily stock snapshot covers. Takes effect on the next read: a
+    /// warehouse added has no snapshot until the next fetch, or a refresh of that warehouse. Admin only:
+    /// the list decides which warehouses every till can sell from.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpPut("stock/monitored-warehouses")]
+    public async Task<IActionResult> UpdateMonitoredWarehouses(
+        [FromBody] UpdateMonitoredWarehousesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new UpdateMonitoredWarehousesCommand(userId.Value, User.Identity?.Name, request.Warehouses ?? []),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

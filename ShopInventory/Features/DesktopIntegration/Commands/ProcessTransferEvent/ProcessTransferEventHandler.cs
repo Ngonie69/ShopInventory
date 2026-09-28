@@ -8,6 +8,7 @@ using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Events.StockTransferReceived;
 using ShopInventory.Models.Entities;
 using Microsoft.Extensions.Options;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 
@@ -29,7 +30,7 @@ public sealed class ProcessTransferEventHandler(
         // adjustment against a snapshot day that does not exist yet, so the row the till is actually
         // selling from never moved and the stock arrived invisibly.
         var today = StockLedgerDay.Today(settings.Value.StockFetchTimeCAT);
-        var monitored = settings.Value.MonitoredWarehouses;
+        var monitored = await MonitoredWarehouseList.ReadAsync(context, settings.Value, cancellationToken);
         var adjustments = new List<StockAdjustmentDetail>();
 
         var sourceIsMonitored = monitored.Contains(command.SourceWarehouse, StringComparer.OrdinalIgnoreCase);

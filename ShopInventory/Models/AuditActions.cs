@@ -185,6 +185,7 @@ public static class AuditActions
     public const string UpdateIncomingPaymentGlMapping = "UpdateIncomingPaymentGlMapping";
     public const string UpdateDesktopSalesReviewSchedule = "UpdateDesktopSalesReviewSchedule";
     public const string UpdatePostingDatePolicy = "UpdatePostingDatePolicy";
+    public const string UpdateMonitoredWarehouses = "UpdateMonitoredWarehouses";
     public const string SendDesktopSalesReview = "SendDesktopSalesReview";
 
     // Timesheet actions

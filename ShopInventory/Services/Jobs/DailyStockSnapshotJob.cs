@@ -78,7 +78,8 @@ public sealed class DailyStockSnapshotJob : IJob
         // resolves it. Computed here rather than taken as "today" so a run that starts a minute
         // either side of 07:00 still stamps the day it is fetching for.
         var today = StockLedgerDay.Today(_settings.StockFetchTimeCAT);
-        var warehouses = _settings.MonitoredWarehouses;
+        var warehouses = await MonitoredWarehouseList.ReadAsync(
+            scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(), _settings, context.CancellationToken);
 
         if (context.Trigger.Key.Name == $"{UnbatchedRetryTriggerName}-trigger")
         {

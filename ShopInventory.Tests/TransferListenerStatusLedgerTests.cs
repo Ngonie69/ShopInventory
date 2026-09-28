@@ -236,7 +236,7 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
     }
 
     /// <summary>
-    /// Both ledger reads compile against PostgreSQL. This suite runs on SQLite, which cannot see
+    /// Both ledger reads, and the read of the saved monitored-warehouse list, compile against PostgreSQL. This suite runs on SQLite, which cannot see
     /// PostgreSQL's two timestamp types; and the handler swallows a failed read into "no ledger", which
     /// on this page reads as every transfer missing. Pointed at a port with nothing behind it, a
     /// translated query fails in the driver and an untranslatable one fails before it — so every logged
@@ -260,7 +260,8 @@ public sealed class TransferListenerStatusLedgerTests : IDisposable
         var result = (await handler.Handle(new GetTransferListenerStatusQuery(), CancellationToken.None)).Value;
 
         Assert.False(result.Ledger.Available);
-        Assert.Equal(2, logger.Exceptions.Count);
+        // Two ledger reads and the saved monitored-warehouse list.
+        Assert.Equal(3, logger.Exceptions.Count);
         Assert.All(logger.Exceptions, exception => Assert.True(
             ReachedTheDriver(exception),
             "A ledger read failed before Npgsql was asked to run it:" + Environment.NewLine + exception));

@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.Services;
 
 namespace ShopInventory.Health;
@@ -30,7 +31,8 @@ namespace ShopInventory.Health;
 public sealed class TransferListenerHealthCheck(
     ITransferEventListenerClient listenerClient,
     IOptions<TransferEventListenerSettings> listenerOptions,
-    IOptions<DailyStockSettings> dailyStockOptions) : IHealthCheck
+    IOptions<DailyStockSettings> dailyStockOptions,
+    ApplicationDbContext context) : IHealthCheck
 {
     private readonly TransferEventListenerSettings _settings = listenerOptions.Value;
 
@@ -190,14 +192,25 @@ public sealed class TransferListenerHealthCheck(
     /// Warehouses this API snapshots that the listener does not raise events for.
     /// </summary>
     /// <remarks>
-    /// The two lists are maintained independently — one in this API's configuration, the other
+    /// The two lists are maintained independently — one in this API's database (or configuration), the other
     /// compiled into the listener's <c>WarehouseConfig</c> — so they drift silently, and the drift is
     /// invisible from either side. A warehouse on this list is snapshotted at 07:00 and then never
     /// adjusted again, which reads as an ordinary quiet day rather than a gap.
     /// </remarks>
     private async Task<List<string>> UnwatchedWarehousesAsync(CancellationToken cancellationToken)
     {
-        var snapshotted = dailyStockOptions.Value.MonitoredWarehouses;
+        List<string> snapshotted;
+        try
+        {
+            snapshotted = await MonitoredWarehouseList.ReadAsync(context, dailyStockOptions.Value, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // The same reasoning as the listener read below: a secondary observation must not mask the
+            // poll status. The configured list is the best answer left.
+            snapshotted = dailyStockOptions.Value.MonitoredWarehouses;
+        }
+
         if (snapshotted.Count == 0)
         {
             return [];
