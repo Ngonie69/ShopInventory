@@ -9,6 +9,7 @@ using ShopInventory.Data;
 using Microsoft.AspNetCore.SignalR;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
+using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Hubs;
 using ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseStock;
 using ShopInventory.Models;
@@ -39,6 +40,13 @@ public sealed class RefreshWarehouseStockTests : IDisposable
     private readonly List<StockQuantityDto> _warehouseStock = new();
     private readonly List<BatchNumber> _warehouseBatches = new();
     private bool _batchReadFails;
+
+    private readonly List<ProcessTransferEventCommand> _transfersFoundByCheck = new();
+    private bool _listenerEnabled = true;
+    private bool _listenerFails;
+    private bool _listenerTimesOut;
+    private bool _listenerChecked;
+    private int _listenerPending;
 
     private readonly DailyStockSettings _settings = new()
     {
@@ -153,20 +161,163 @@ public sealed class RefreshWarehouseStockTests : IDisposable
     }
 
     // ---------------------------------------------------------------
-    // Refusals — each one leaves the ledger exactly as it was
+    // Vans — brought up to date by transfer, never by SAP's figure
     // ---------------------------------------------------------------
 
+    /// <summary>
+    /// The reason vans can be refreshed at all: a load transfer made after the 07:00 fetch. The
+    /// listener's check finds it and delivers it through the webhook, and the van's row moves.
+    /// </summary>
     [Fact]
-    public async Task A_van_is_refused_and_left_at_its_morning_load()
+    public async Task A_van_picks_up_a_transfer_made_after_its_morning_load()
+    {
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _transfersFoundByCheck.Add(new ProcessTransferEventCommand(Item, "KEFGRC", Van, 24m, 88901, 88901));
+
+        var result = await RefreshAsync(Van);
+
+        Assert.False(result.IsError);
+        Assert.True(_listenerChecked);
+        Assert.True(result.Value.ViaTransferListener);
+        Assert.Equal(1, result.Value.TransfersApplied);
+        Assert.Equal(1, result.Value.TransfersToday);
+        Assert.Equal(124m, await AvailableAsync(Van, Item));
+    }
+
+    /// <summary>
+    /// SAP's book figure for a van already has the day's online invoices off it, while the van's row
+    /// loses its sales only at end of day. Copying SAP would take those sales twice — so a van refresh
+    /// must not read SAP's stock at all, and the morning load must stand.
+    /// </summary>
+    [Fact]
+    public async Task A_van_is_never_set_to_SAPs_figure()
     {
         await SeedRowAsync(Van, Item, original: 100m, available: 100m);
         _warehouseStock.Add(Stock(Item, inStock: 40m));
 
+        var result = await RefreshAsync(Van, sapReadsForbidden: true);
+
+        Assert.False(result.IsError);
+        Assert.Equal(0, result.Value.TransfersApplied);
+        Assert.Equal(100m, await AvailableAsync(Van, Item));
+
+        var row = await _context.DailyStockSnapshotItems.AsNoTracking().SingleAsync(item => item.WarehouseCode == Van);
+        Assert.Equal(100m, row.OriginalQuantity);
+    }
+
+    /// <summary>
+    /// A line the ledger already applied is not applied again when a later check sends it once more.
+    /// </summary>
+    [Fact]
+    public async Task A_van_transfer_already_applied_is_not_counted_twice()
+    {
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _transfersFoundByCheck.Add(new ProcessTransferEventCommand(Item, "KEFGRC", Van, 24m, 88901, 88901));
+        await RefreshAsync(Van);
+
+        var second = await RefreshAsync(Van);
+
+        Assert.Equal(0, second.Value.TransfersApplied);
+        Assert.Equal(1, second.Value.TransfersToday);
+        Assert.Equal(124m, await AvailableAsync(Van, Item));
+    }
+
+    [Fact]
+    public async Task A_van_refresh_says_when_lines_are_still_waiting_at_the_listener()
+    {
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _listenerPending = 3;
+
+        var result = await RefreshAsync(Van);
+
+        Assert.Equal(3, result.Value.TransfersPending);
+    }
+
+    [Fact]
+    public async Task A_van_refresh_with_the_listener_switched_off_is_refused()
+    {
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _listenerEnabled = false;
+
         var result = await RefreshAsync(Van);
 
         Assert.True(result.IsError);
-        Assert.Equal(ErrorType.Conflict, result.FirstError.Type);
+        Assert.Equal("DesktopIntegration.TransferListenerDisabled", result.FirstError.Code);
         Assert.Equal(100m, await AvailableAsync(Van, Item));
+    }
+
+    [Fact]
+    public async Task A_van_refresh_says_so_when_the_listener_cannot_be_reached()
+    {
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _listenerFails = true;
+
+        var result = await RefreshAsync(Van);
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopIntegration.TransferListenerUnreachable", result.FirstError.Code);
+        Assert.Equal(100m, await AvailableAsync(Van, Item));
+    }
+
+    /// <summary>
+    /// The listener's cycle runs about twenty seconds against a thirty-second client timeout. A check
+    /// that outlasts it is still running, so it must not be reported as a listener that is down.
+    /// </summary>
+    [Fact]
+    public async Task A_van_refresh_that_outlasts_the_client_timeout_says_the_check_is_still_running()
+    {
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _listenerTimesOut = true;
+
+        var result = await RefreshAsync(Van);
+
+        Assert.True(result.IsError);
+        Assert.Equal("Stock.TransferCheckTimedOut", result.FirstError.Code);
+    }
+
+    /// <summary>
+    /// The SAP-correction switch governs the shop path only; a van's refresh reads no SAP figure.
+    /// </summary>
+    [Fact]
+    public async Task A_van_refresh_does_not_depend_on_the_reconciliation_switch()
+    {
+        _settings.ReconcileLedgerAgainstSap = false;
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _transfersFoundByCheck.Add(new ProcessTransferEventCommand(Item, Van, "KEFGRC", 10m, 88902, 88902));
+
+        var result = await RefreshAsync(Van);
+
+        Assert.False(result.IsError);
+        Assert.Equal(90m, await AvailableAsync(Van, Item));
+    }
+
+    /// <summary>
+    /// No morning load to put transfers on: the van is fetched, exactly as a shop is, and the listener
+    /// is not asked — SAP's figure at the fetch already holds every transfer made so far.
+    /// </summary>
+    [Fact]
+    public async Task A_van_with_no_snapshot_today_is_fetched()
+    {
+        var result = await RefreshAsync(Van);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.SnapshotRefetched);
+        Assert.False(result.Value.ViaTransferListener);
+        Assert.False(_listenerChecked);
+    }
+
+    // ---------------------------------------------------------------
+    // Refusals — each one leaves the ledger exactly as it was
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_warehouse_that_is_not_monitored_is_refused()
+    {
+        var result = await RefreshAsync("KEFXXX");
+
+        Assert.True(result.IsError);
+        Assert.Equal(ErrorType.Conflict, result.FirstError.Type);
+        Assert.False(_listenerChecked);
     }
 
     [Fact]
@@ -294,9 +445,11 @@ public sealed class RefreshWarehouseStockTests : IDisposable
 
     private DateTime LedgerDay => StockLedgerDay.Today(_settings.StockFetchTimeCAT);
 
-    private async Task<ErrorOr<RefreshWarehouseStockResult>> RefreshAsync(string warehouse)
+    private async Task<ErrorOr<RefreshWarehouseStockResult>> RefreshAsync(
+        string warehouse,
+        bool sapReadsForbidden = false)
     {
-        var sap = SapClient();
+        var sap = sapReadsForbidden ? StubProxy.Unused<ISAPServiceLayerClient>() : SapClient();
 
         var handler = new RefreshWarehouseStockHandler(
             _context,
@@ -312,11 +465,67 @@ public sealed class RefreshWarehouseStockTests : IDisposable
                 Options.Create(new TransferEventListenerSettings()),
                 new StockFetchGate(),
                 NullLogger<FetchDailyStockHandler>.Instance),
+            TransferListener(),
             NullLogger<RefreshWarehouseStockHandler>.Instance);
 
         var result = await handler.Handle(new RefreshWarehouseStockCommand(warehouse), CancellationToken.None);
         _context.ChangeTracker.Clear();
         return result;
+    }
+
+    /// <summary>
+    /// The listener, whose check delivers <see cref="_transfersFoundByCheck"/> the way the real one
+    /// does: each line through the transfer webhook's own handler, on a context of its own, as the
+    /// separate request it would be.
+    /// </summary>
+    private ITransferEventListenerClient TransferListener() =>
+        StubProxy.For<ITransferEventListenerClient>((method, _) => method.Name switch
+        {
+            "get_IsEnabled" => _listenerEnabled,
+            "get_BaseUrl" => "http://listener.test:5050/",
+            nameof(ITransferEventListenerClient.TriggerCheckAsync) => CheckAsync(),
+            _ => throw new InvalidOperationException(
+                $"ITransferEventListenerClient.{method.Name} was not expected on this path.")
+        });
+
+    private async Task<TransferListenerCheckResultDto> CheckAsync()
+    {
+        _listenerChecked = true;
+
+        if (_listenerFails)
+        {
+            throw new HttpRequestException("No connection could be made");
+        }
+
+        if (_listenerTimesOut)
+        {
+            // What HttpClient throws when its own Timeout elapses: the caller's token is untouched.
+            throw new TaskCanceledException(
+                "The request was canceled due to the configured HttpClient.Timeout of 30 seconds elapsing.",
+                new TimeoutException());
+        }
+
+        await using var webhookContext = new SnapshotSqliteContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options);
+
+        var webhook = new ProcessTransferEventHandler(
+            webhookContext,
+            Options.Create(_settings),
+            new CapturingPublisher(),
+            NullLogger<ProcessTransferEventHandler>.Instance);
+
+        foreach (var transfer in _transfersFoundByCheck)
+        {
+            await webhook.Handle(transfer, CancellationToken.None);
+        }
+
+        return new TransferListenerCheckResultDto
+        {
+            CheckedAt = DateTime.UtcNow,
+            MonitoredEventsDetected = _transfersFoundByCheck.Count,
+            NotificationsDelivered = _transfersFoundByCheck.Count,
+            PendingNotifications = _listenerPending
+        };
     }
 
     private ISAPServiceLayerClient SapClient() =>
