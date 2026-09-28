@@ -3,6 +3,8 @@
 
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
+        @* Ahead of the route view: leaving a page cancels the reads it bound to its life. *@
+        <PageLifetimeBoundary PageType="routeData.PageType" />
         <LabRestrictedAuthorizeRouteView RouteData="routeData" />
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>

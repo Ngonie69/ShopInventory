@@ -70,6 +70,7 @@ public partial class ManagerDashboard
 
     protected override async Task OnParametersSetAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (AuthTask is null || _initialized) return;
 
         var authState = await AuthTask;

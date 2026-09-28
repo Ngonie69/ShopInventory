@@ -18,6 +18,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>@(IsVanSalesView ? "Van Sales Credit Notes" : "Credit Notes") - Shop Inventory</PageTitle>
 
@@ -830,6 +831,7 @@
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (!firstRender)
         {
             return;
@@ -848,6 +850,7 @@
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (loadedVanSalesView.HasValue && loadedVanSalesView.Value != IsVanSalesView)
         {
             selectedCreditNoteDocEntries.Clear();

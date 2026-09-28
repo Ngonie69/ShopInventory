@@ -5,6 +5,7 @@
 @using ShopInventory.Web.Models
 @attribute [Authorize(Roles = UserRoles.PodRoles)]
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>POD Dashboard - Kefalos Cheese</PageTitle>
 

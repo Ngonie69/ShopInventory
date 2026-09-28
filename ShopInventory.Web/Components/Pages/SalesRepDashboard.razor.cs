@@ -15,6 +15,8 @@ namespace ShopInventory.Web.Components.Pages;
 /// </summary>
 public partial class SalesRepDashboard
 {
+    [Inject] private PageLifetime PageLifetime { get; set; } = default!;
+
     [Inject] private ISalesOrderService SalesOrderService { get; set; } = default!;
     [Inject] private IPodService PodService { get; set; } = default!;
     [Inject] private ITimesheetService TimesheetService { get; set; } = default!;
@@ -186,6 +188,7 @@ public partial class SalesRepDashboard
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         // The shell paints first and the panels fill in: the order window can
         // reach SAP, and a rep should not watch a blank page while it does.
         if (!firstRender) return;

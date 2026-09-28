@@ -144,6 +144,7 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
 
     protected override Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (!string.IsNullOrWhiteSpace(SearchQuery))
         {
             searchTerm = SearchQuery.Trim();
@@ -161,6 +162,7 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         // Once, after the first load: the drawer is opened over the list it was linked to, not before it.
         if (!isLoading && !string.IsNullOrWhiteSpace(OpenQuery))
         {

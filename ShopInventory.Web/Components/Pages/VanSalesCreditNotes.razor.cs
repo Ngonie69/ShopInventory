@@ -107,6 +107,7 @@ public partial class VanSalesCreditNotes : ComponentBase, IDisposable
 
     protected override Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (!string.IsNullOrWhiteSpace(SearchQuery))
         {
             searchTerm = SearchQuery.Trim();

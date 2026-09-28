@@ -2,6 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Till - Kefalos Cheese</PageTitle>
 

@@ -10,6 +10,7 @@
 @inject IAuditService AuditService
 @inject IJSRuntime JSRuntime
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Sales Orders - Shop Inventory</PageTitle>
 
@@ -922,6 +923,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         pageSize = AppSettings.PageSize;
         // Default date range to current month so SAP queries are always date-filtered
         fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
@@ -932,6 +934,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         await base.OnAfterRenderAsync(firstRender);
 
         var recordedAtUtc = selectedOrder is null

@@ -4,6 +4,7 @@
 @using ShopInventory.Web.Models
 @attribute [Authorize(Roles = "Admin,Manager,Cashier")]
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Van Sales Credit Notes - Shop Inventory</PageTitle>
 

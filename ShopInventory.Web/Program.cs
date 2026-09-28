@@ -95,6 +95,9 @@ try
         .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
         .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
         .Enrich.FromLogContext()
+        // A read cancelled because its page was left, logged by a service that logs every failure,
+        // is the user moving on rather than a fault; see PageReads.
+        .Filter.ByExcluding(logEvent => logEvent.Exception is OperationCanceledException && PageReads.HasLeft)
         .WriteTo.Console()
         .WriteTo.File("logs/shopinventory-web-.log", rollingInterval: RollingInterval.Day, retainedFileCountLimit: 31));
 
@@ -137,6 +140,17 @@ try
 
     // Add MudBlazor services
     builder.Services.AddMudServices();
+
+    // A toast raised by code still running for a page the user has left is dropped; see PageReads.
+    var mudSnackbar = builder.Services.Last(descriptor => descriptor.ServiceType == typeof(MudBlazor.ISnackbar));
+    builder.Services.Remove(mudSnackbar);
+    builder.Services.Add(ServiceDescriptor.Describe(
+        typeof(MudBlazor.ISnackbar),
+        sp => new PageAwareSnackbar(mudSnackbar.ImplementationFactory is { } factory
+            ? (MudBlazor.ISnackbar)factory(sp)
+            : (MudBlazor.ISnackbar)ActivatorUtilities.CreateInstance(sp, mudSnackbar.ImplementationType!)),
+        mudSnackbar.Lifetime));
+    builder.Services.AddScoped<PageLifetime>();
 
     // Add Blazored LocalStorage
     builder.Services.AddBlazoredLocalStorage();
@@ -195,7 +209,9 @@ try
     })
     // Cache sweeps started with SapBackgroundPriority.Run tell the API they are background work,
     // so they cannot take the SAP slots it keeps for people. Other requests pass untouched.
-    .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler());
+    .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler())
+    // A page that binds its reads to its own life (PageReads) has them cancelled when it is left.
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
 
     builder.Services.AddHttpClient("ShopInventoryApiLongRunning", client =>
     {
@@ -207,14 +223,17 @@ try
         }
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
-    .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler());
+    .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler())
+    // A page that binds its reads to its own life (PageReads) has them cancelled when it is left.
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
 
     builder.Services.AddHttpClient("ShopInventoryApiUser", client =>
     {
         client.BaseAddress = new Uri(apiBaseUrl);
         client.Timeout = TimeSpan.FromMinutes(5);
         WebApiClientIdentity.IdentifyAsWebPortal(client);
-    });
+    })
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
 
     builder.Services.AddSingleton(_ => new SalesOrderPodStatusCache(TimeProvider.System));
     builder.Services.AddHttpClient<IPodService, PodService>(client =>
@@ -226,7 +245,8 @@ try
             client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
         WebApiClientIdentity.IdentifyAsWebPortal(client);
-    });
+    })
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
 
     // Register a scoped HttpClient that uses the factory
     builder.Services.AddScoped(sp =>

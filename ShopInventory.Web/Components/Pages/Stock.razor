@@ -11,6 +11,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Stock Monitoring - Shop Inventory</PageTitle>
 @* Styles live in wwwroot/css/operations.css (linked from App.razor), shared
@@ -401,6 +402,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         pageSize = AppSettings.PageSize;
         // Check if user has an assigned warehouse (StockController/DepotController)
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();

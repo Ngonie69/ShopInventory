@@ -8,6 +8,7 @@
 @inject NavigationManager Navigation
 @inject IAuditService AuditService
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>@PageHeading</PageTitle>
 
@@ -76,6 +77,7 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (AuthTask == null) return;
 
         var authState = await AuthTask;

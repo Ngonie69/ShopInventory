@@ -110,7 +110,12 @@ public sealed class StockRefreshBatcher : IDisposable
             if (!_pumpRunning)
             {
                 _pumpRunning = true;
-                _ = Task.Run(PumpAsync);
+
+                // The pump has its own cancellation, and serves lines queued by later calls too.
+                using (PageReads.Detach())
+                {
+                    _ = Task.Run(PumpAsync);
+                }
             }
         }
 

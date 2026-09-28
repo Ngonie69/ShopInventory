@@ -16,6 +16,7 @@
 @inject IWebHostEnvironment Env
 @rendermode InteractiveServer
 @implements IDisposable
+@inject PageLifetime PageLifetime
 
 <PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
 
@@ -2369,6 +2370,7 @@ else if (pendingActionTitle is not null)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (firstRender && !_hasLoadedData)
         {
             _hasLoadedData = true;

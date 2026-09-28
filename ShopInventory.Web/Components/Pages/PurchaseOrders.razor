@@ -6,6 +6,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Purchase Orders</PageTitle>
 
@@ -774,6 +775,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         _pageSize = AppSettings.PageSize;
         await LoadOrders();
         await AuditService.LogAsync(AuditActions.ViewPurchaseOrders, "PurchaseOrder", null);

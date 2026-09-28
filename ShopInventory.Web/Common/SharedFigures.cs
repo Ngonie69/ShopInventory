@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using ShopInventory.Web.Services;
 
 namespace ShopInventory.Web.Common;
 
@@ -74,6 +75,9 @@ public static class SharedFigures
         {
             try
             {
+                // Everyone waiting on this figure shares the load; whoever started it leaving the page
+                // must not cancel it for the rest (see PageReads).
+                using var sharedLoad = PageReads.Detach();
                 return await load();
             }
             catch

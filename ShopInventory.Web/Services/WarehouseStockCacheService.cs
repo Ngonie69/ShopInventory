@@ -423,6 +423,8 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
 
     private static async Task<T> InRefreshSlotAsync<T>(Func<Task<T>> refresh)
     {
+        // Shared: the slots are process-wide and the stock read fills every user's cache.
+        using var sharedLoad = PageReads.Detach();
         await _refreshSlots.WaitAsync();
         try
         {

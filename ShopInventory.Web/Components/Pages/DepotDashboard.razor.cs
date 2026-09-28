@@ -28,6 +28,8 @@ namespace ShopInventory.Web.Components.Pages;
 /// </remarks>
 public partial class DepotDashboard
 {
+    [Inject] private PageLifetime PageLifetime { get; set; } = default!;
+
     [Inject] private IInventoryTransferService TransferService { get; set; } = default!;
     [Inject] private IDesktopIntegrationService DesktopService { get; set; } = default!;
     [Inject] private IMasterDataCacheService MasterData { get; set; } = default!;
@@ -266,6 +268,7 @@ public partial class DepotDashboard
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         // The shell paints first and the panels fill in: the movement window
         // and the request queue both reach SAP, and a controller should not
         // watch a blank page while they do.

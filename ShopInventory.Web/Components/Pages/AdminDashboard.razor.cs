@@ -21,6 +21,8 @@ namespace ShopInventory.Web.Components.Pages;
 /// </summary>
 public partial class AdminDashboard
 {
+    [Inject] private PageLifetime PageLifetime { get; set; } = default!;
+
     [Inject] private ISystemHealthService HealthService { get; set; } = default!;
     [Inject] private IExceptionCenterService ExceptionService { get; set; } = default!;
     [Inject] private IInventoryTransferService TransferService { get; set; } = default!;
@@ -113,6 +115,7 @@ public partial class AdminDashboard
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (_initialized) return;
         _initialized = true;
 
