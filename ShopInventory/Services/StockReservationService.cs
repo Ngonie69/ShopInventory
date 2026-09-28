@@ -1366,9 +1366,13 @@ public class StockReservationService : IStockReservationService
                     WarehouseCode = line.WarehouseCode,
                     RequestedQuantity = line.Quantity,
                     AvailableQuantity = 0,
-                    Message = $"SAP is unavailable and van '{line.WarehouseCode}' has not filed today's opening "
-                        + "stock count, so what it is carrying cannot be checked.",
-                    SuggestedAction = "Submit the van's opening stock count, then try the sale again"
+                    // The handset shows this text and nothing else, behind "Error:", so it says what to do.
+                    // Worded clear of the handset's connection keywords, which would turn it into "your
+                    // order may or may not have been submitted".
+                    Message = $"SAP is down, and van {line.WarehouseCode} has not sent today's stock count, so this "
+                        + "sale cannot be checked. Open Start the day, or sync the handset, to send the count, "
+                        + "then try the sale again.",
+                    SuggestedAction = "Open Start the day, or sync the handset, then try the sale again"
                 });
                 continue;
             }
