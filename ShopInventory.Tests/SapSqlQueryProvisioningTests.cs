@@ -156,6 +156,58 @@ public class SapSqlQueryProvisioningTests
         Assert.Equal(2, sap.ExecuteCount);
     }
 
+    /// <summary>
+    /// The race. A first create takes tens of seconds against the real OUQR, so callers arriving
+    /// together each used to probe, find nothing, POST, meet "entry already exists" and PATCH.
+    /// </summary>
+    [Fact]
+    public async Task Callers_that_arrive_together_share_one_probe_and_one_create()
+    {
+        var sap = new FakeServiceLayer { CreateGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var client = CreateClient(sap);
+
+        var callers = Enumerable.Range(0, 10)
+            .Select(_ => Task.Run(() => client.ExecuteRawSqlQueryAsync("SHOP_RACE", "Race query", Sql)))
+            .ToList();
+        await sap.FirstCreateArrived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(200);
+
+        sap.CreateGate.SetResult();
+        await Task.WhenAll(callers);
+
+        Assert.Equal(1, sap.ProbeCount);
+        Assert.Equal(1, sap.CreateCount);
+        Assert.Equal(0, sap.PatchCount);
+        Assert.Equal(10, sap.ExecuteCount);
+    }
+
+    /// <summary>
+    /// A caller that gives up while the create is in flight must not cut it off for the others, nor
+    /// leave SAP half way through committing an object nobody then records.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_that_gives_up_does_not_cut_the_shared_create_short()
+    {
+        var sap = new FakeServiceLayer { CreateGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var client = CreateClient(sap);
+        using var impatient = new CancellationTokenSource();
+
+        var leaving = Task.Run(() => client.ExecuteRawSqlQueryAsync("SHOP_RACE_2", "Race query", Sql, impatient.Token));
+        await sap.FirstCreateArrived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var staying = Task.Run(() => client.ExecuteRawSqlQueryAsync("SHOP_RACE_2", "Race query", Sql));
+        await Task.Delay(200);
+
+        impatient.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => leaving);
+
+        sap.CreateGate.SetResult();
+        await staying;
+
+        Assert.Equal(1, sap.CreateCount);
+        Assert.Equal(0, sap.PatchCount);
+        Assert.True(sap.StoredSql.ContainsKey("SHOP_RACE_2"));
+    }
+
     [Fact]
     public async Task Distinct_statements_are_each_verified_once()
     {
@@ -202,12 +254,23 @@ public class SapSqlQueryProvisioningTests
     /// </summary>
     private sealed class FakeServiceLayer : HttpMessageHandler
     {
-        public Dictionary<string, string> StoredSql { get; } = new(StringComparer.Ordinal);
-        public int ProbeCount { get; private set; }
-        public int CreateCount { get; private set; }
-        public int PatchCount { get; private set; }
-        public int ExecuteCount { get; private set; }
+        private int _probeCount;
+        private int _createCount;
+        private int _patchCount;
+        private int _executeCount;
+
+        public System.Collections.Concurrent.ConcurrentDictionary<string, string> StoredSql { get; } = new(StringComparer.Ordinal);
+        public int ProbeCount => _probeCount;
+        public int CreateCount => _createCount;
+        public int PatchCount => _patchCount;
+        public int ExecuteCount => _executeCount;
         public bool FailNextExecute { get; set; }
+
+        /// <summary>Holds every create until released, as a slow POST against a bloated OUQR does.</summary>
+        public TaskCompletionSource? CreateGate { get; init; }
+
+        /// <summary>Completes when the first create reaches SAP.</summary>
+        public TaskCompletionSource FirstCreateArrived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>
         /// How many further execute requests are answered by dropping the connection instead of a
@@ -229,7 +292,13 @@ public class SapSqlQueryProvisioningTests
 
             if (path.EndsWith("/SQLQueries", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
             {
-                CreateCount++;
+                Interlocked.Increment(ref _createCount);
+                FirstCreateArrived.TrySetResult();
+                if (CreateGate is not null)
+                {
+                    await CreateGate.Task.WaitAsync(cancellationToken);
+                }
+
                 var payload = JsonDocument.Parse(await ReadBodyAsync(request, cancellationToken));
                 StoredSql[payload.RootElement.GetProperty("SqlCode").GetString()!] =
                     payload.RootElement.GetProperty("SqlText").GetString()!;
@@ -248,7 +317,7 @@ public class SapSqlQueryProvisioningTests
                         new IOException("An existing connection was forcibly closed by the remote host."));
                 }
 
-                ExecuteCount++;
+                Interlocked.Increment(ref _executeCount);
                 if (FailNextExecute)
                 {
                     FailNextExecute = false;
@@ -263,7 +332,7 @@ public class SapSqlQueryProvisioningTests
 
             if (request.Method == HttpMethod.Patch)
             {
-                PatchCount++;
+                Interlocked.Increment(ref _patchCount);
                 var payload = JsonDocument.Parse(await ReadBodyAsync(request, cancellationToken));
                 StoredSql[code] = payload.RootElement.GetProperty("SqlText").GetString()!;
                 return Json("{}", HttpStatusCode.NoContent);
@@ -271,7 +340,7 @@ public class SapSqlQueryProvisioningTests
 
             if (request.Method == HttpMethod.Get && query.Contains("SqlText", StringComparison.Ordinal))
             {
-                ProbeCount++;
+                Interlocked.Increment(ref _probeCount);
                 return StoredSql.TryGetValue(code, out var stored)
                     ? Json(JsonSerializer.Serialize(new { SqlText = stored }))
                     : Json("{}", HttpStatusCode.NotFound);
