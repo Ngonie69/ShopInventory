@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Web.Common;
 using ShopInventory.Web.Data;
 using static ShopInventory.Web.Components.Pages.UserActivity;
 
@@ -361,15 +362,25 @@ public class AuditService : IAuditService
 
     public async Task<ActivityStats> GetActivityStatsAsync(DateTime startDate, DateTime endDate)
     {
-        var logs = await GetMergedAuditLogsAsync(startDate, endDate);
+        // The admin and manager dashboards read today's figures on every view, and counting them means
+        // pulling the whole day's audit log from the API 500 rows at a time. Shared by every open
+        // dashboard for a minute instead.
+        return await SharedFigures.GetAsync(
+                   $"activity:{startDate:o}:{endDate:o}",
+                   SharedFigures.LifetimeFor(startDate),
+                   async () =>
+                   {
+                       var logs = await GetMergedAuditLogsAsync(startDate, endDate);
 
-        return new ActivityStats
-        {
-            ActiveUsers = logs.Select(l => l.Username).Where(u => !string.IsNullOrWhiteSpace(u)).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-            TotalActions = logs.Count,
-            LoginCount = logs.Count(l => l.Action.Contains("Login", StringComparison.OrdinalIgnoreCase)),
-            FailedActions = logs.Count(l => !l.IsSuccess)
-        };
+                       return new ActivityStats
+                       {
+                           ActiveUsers = logs.Select(l => l.Username).Where(u => !string.IsNullOrWhiteSpace(u)).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                           TotalActions = logs.Count,
+                           LoginCount = logs.Count(l => l.Action.Contains("Login", StringComparison.OrdinalIgnoreCase)),
+                           FailedActions = logs.Count(l => !l.IsSuccess)
+                       };
+                   })
+               ?? new ActivityStats();
     }
 
     public async Task<List<UserActivitySummary>> GetMostActiveUsersAsync(DateTime startDate, DateTime endDate, int count = 10)

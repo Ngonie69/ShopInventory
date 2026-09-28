@@ -45,15 +45,29 @@ public static class DashboardFigures
     {
         ArgumentNullException.ThrowIfNull(invoiceService);
 
+        // Shared by every open dashboard: the value walks up to ten pages of SAP invoices.
+        var figures = await SharedFigures.GetAsync(
+            $"invoices:{date:yyyy-MM-dd}:{(includeValue ? "value" : "count")}",
+            SharedFigures.LifetimeFor(date),
+            () => ReadInvoiceDayTotalsAsync(invoiceService, date, includeValue));
+
+        return figures is null ? (0, 0m) : (figures.Count, figures.Total);
+    }
+
+    private static async Task<DayFigures?> ReadInvoiceDayTotalsAsync(
+        IInvoiceService invoiceService,
+        DateTime date,
+        bool includeValue)
+    {
         var response = await invoiceService.GetInvoicesByDateRangeAsync(
             date, date, page: 1, pageSize: includeValue ? InvoicePageSize : 1);
 
-        if (response == null) return (0, 0m);
+        if (response == null) return null;
 
         // TotalCount comes from a separate count query, so it is accurate even
         // though the API clamps a page to 100 rows.
         var count = response.TotalCount;
-        if (!includeValue) return (count, 0m);
+        if (!includeValue) return new DayFigures(count, 0m);
 
         var total = response.Invoices?.Sum(invoice => invoice.DocTotal) ?? 0m;
         var fetched = response.Invoices?.Count ?? 0;
@@ -71,7 +85,7 @@ public static class DashboardFigures
             fetched += next.Invoices.Count;
         }
 
-        return (count, total);
+        return new DayFigures(count, total);
     }
 
     /// <summary>Payments received on one day. The endpoint is unpaged, so one call covers it.</summary>
@@ -81,11 +95,21 @@ public static class DashboardFigures
     {
         ArgumentNullException.ThrowIfNull(paymentService);
 
-        var response = await paymentService.GetPaymentsByDateAsync(date);
-        if (response?.Payments == null) return (0, 0m);
+        var figures = await SharedFigures.GetAsync(
+            $"payments:{date:yyyy-MM-dd}",
+            SharedFigures.LifetimeFor(date),
+            async () =>
+            {
+                var response = await paymentService.GetPaymentsByDateAsync(date);
+                return response?.Payments == null
+                    ? null
+                    : new DayFigures(response.Payments.Count, response.Payments.Sum(payment => payment.DocTotal));
+            });
 
-        return (response.Payments.Count, response.Payments.Sum(payment => payment.DocTotal));
+        return figures is null ? (0, 0m) : (figures.Count, figures.Total);
     }
+
+    private sealed record DayFigures(int Count, decimal Total);
 
     /// <summary>
     /// Day-over-day change in document count. Returns no text when neither day
