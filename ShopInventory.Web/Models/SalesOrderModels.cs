@@ -281,4 +281,32 @@ public class SalesOrderListResponse
 
     [JsonPropertyName("orders")]
     public List<SalesOrderDto> Orders { get; set; } = new();
+
+    /// <summary>All-time counts, present when the request asked for them with includeSummary.</summary>
+    [JsonPropertyName("summary")]
+    public SalesOrderListSummary? Summary { get; set; }
+}
+
+/// <summary>
+/// All-time counts for a sales order list's source and view, by the status the list shows. Mirrors the
+/// API's SalesOrderListSummaryDto.
+/// </summary>
+public class SalesOrderListSummary
+{
+    [JsonPropertyName("total")]
+    public int Total { get; set; }
+
+    [JsonPropertyName("draft")]
+    public int Draft { get; set; }
+
+    /// <summary>Pending, including approved orders that have not reached SAP.</summary>
+    [JsonPropertyName("pending")]
+    public int Pending { get; set; }
+
+    /// <summary>Approved and posted to SAP.</summary>
+    [JsonPropertyName("approved")]
+    public int Approved { get; set; }
+
+    [JsonPropertyName("oldestPendingCreatedAt")]
+    public DateTime? OldestPendingCreatedAt { get; set; }
 }

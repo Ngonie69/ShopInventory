@@ -94,7 +94,7 @@
         <section class="mox-stats">
             <div class="mox-stat is-lead">
                 <div class="mox-stat-label"><span class="mox-stat-mark"></span>Total orders</div>
-                <div class="mox-stat-value">@StatValue(totalCount)</div>
+                <div class="mox-stat-value">@StatValue(summary?.Total ?? totalCount)</div>
                 <div class="mox-stat-foot">@(IsVanSalesView ? "All time, van sales" : "All time, mobile app")</div>
             </div>
             <div class="mox-stat">
@@ -109,7 +109,7 @@
             </div>
             <div class="mox-stat">
                 <div class="mox-stat-label"><span class="mox-stat-mark"></span>Approved</div>
-                <div class="mox-stat-value is-quiet">@StatValue(CountByStatus(SalesOrderStatus.Approved))</div>
+                <div class="mox-stat-value is-quiet">@StatValue(summary?.Approved ?? CountByStatus(SalesOrderStatus.Approved))</div>
                 <div class="mox-stat-foot">Posted to SAP</div>
             </div>
         </section>
@@ -189,12 +189,12 @@
                     <div class="mox-field" style="width:146px">
                         <label for="mox-f-ordered">Order date</label>
                         <NocturneDateField Id="mox-f-ordered" @bind-Date="orderDateFilter"
-                                           @bind-Date:after="ResetToFirstPage" />
+                                           @bind-Date:after="OnDateFilterChanged" />
                     </div>
                     <div class="mox-field" style="width:146px">
                         <label for="mox-f-delivery">Delivery</label>
                         <NocturneDateField Id="mox-f-delivery" @bind-Date="deliveryDateFilter"
-                                           @bind-Date:after="ResetToFirstPage" />
+                                           @bind-Date:after="OnDateFilterChanged" />
                     </div>
                     <div class="mox-field" style="width:118px">
                         <label for="mox-f-currency">Currency</label>
@@ -286,6 +286,12 @@
                                                     @onclick="ResetAllFilters">
                                                 Reset filters
                                             </button>
+                                            @if (!showAllHistory)
+                                            {
+                                                <button type="button" class="mox-btn mox-btn-ghost" @onclick="LoadAllHistory">
+                                                    Search older orders too
+                                                </button>
+                                            }
                                         }
                                         else
                                         {
@@ -471,6 +477,13 @@
 
             <div class="mox-foot">
                 <span class="mox-foot-range">@GetRangeLabel(filteredCount)</span>
+                @if (!showAllHistory && orders != null)
+                {
+                    <span class="mox-foot-range">Last @RecentDays days and every open order.</span>
+                    <button type="button" class="mox-btn mox-btn-ghost mox-btn-sm" @onclick="LoadAllHistory">
+                        Load older orders
+                    </button>
+                }
                 <div class="mox-pagesize">
                     <span>Rows</span>
                     <NocturneSelect Class="nsel-sm nsel-end nsel-up" Options="PageSizeSelectOptions"
@@ -891,6 +904,23 @@
     // Pagination
     private int currentPage = 1;
     private int pageSize = 10000;
+
+    /// <summary>
+    /// How far back the list reaches until someone asks for more. Every open order (draft, pending,
+    /// on hold) is loaded whatever its age, so nothing waiting on review is hidden by the window.
+    /// </summary>
+    /// <remarks>
+    /// The page used to load every mobile order ever made, up to ten thousand with their lines, on
+    /// every visit, and filter and sort all of them in the browser session on each keystroke.
+    /// </remarks>
+    private const int RecentDays = 90;
+
+    private bool showAllHistory;
+
+    /// <summary>All-time counts from the API for the tiles; null from an API that predates them.</summary>
+    private SalesOrderListSummary? summary;
+
+    private static DateTime RecentFrom => DateTime.Today.AddDays(-RecentDays);
     private int totalPages = 1;
     private int totalCount = 0;
 
@@ -1044,9 +1074,10 @@
 
         var first = ((_page - 1) * _pageSize) + 1;
         var last = Math.Min(_page * _pageSize, filteredCount);
-        var narrowed = filteredCount == totalCount
+        var loadedCount = orders?.Count ?? 0;
+        var narrowed = filteredCount == loadedCount
             ? string.Empty
-            : $" (filtered from {totalCount:N0})";
+            : $" (filtered from {loadedCount:N0})";
 
         return $"Showing {first:N0}–{last:N0} of {filteredCount:N0} orders{narrowed}";
     }
@@ -1318,26 +1349,23 @@
 
         try
         {
-            var response = await SalesOrderService.GetSalesOrdersAsync(
-                currentPage,
-                pageSize,
-                source: SalesOrderSource.Mobile,
-                vanSalesUsersOnly: IsVanSalesView ? true : null);
+            var response = await FetchOrdersAsync();
             if (loadVersion != ordersLoadVersion)
                 return;
 
             if (response != null)
             {
                 orders = response.Orders;
+                summary = response.Summary;
                 totalCount = response.TotalCount;
                 totalPages = response.TotalPages;
                 TrackAvailableStatusFilters(orders);
                 PruneSelection();
 
-                await PopulateMissingOrderPricesAsync(orders, loadVersion);
-                if (loadVersion != ordersLoadVersion)
-                    return;
-
+                // After the list is shown rather than before: the API prices mobile orders once they are
+                // captured, so this only fills gaps, and it used to hold the whole page on a skeleton
+                // while it priced them one at a time.
+                _ = PopulateMissingOrderPricesAsync(orders, loadVersion);
                 _ = LoadOrderPodStatusesInBackgroundAsync(loadVersion);
             }
             else
@@ -1359,6 +1387,79 @@
                 isLoading = false;
             }
         }
+    }
+
+    /// <summary>
+    /// The recent orders and every open one, as one list; or every order once someone has asked for
+    /// the older ones. Null when either read failed.
+    /// </summary>
+    private async Task<SalesOrderListResponse?> FetchOrdersAsync()
+    {
+        bool? vanSalesUsersOnly = IsVanSalesView ? true : null;
+
+        if (showAllHistory)
+        {
+            return await SalesOrderService.GetSalesOrdersAsync(
+                currentPage,
+                pageSize,
+                source: SalesOrderSource.Mobile,
+                vanSalesUsersOnly: vanSalesUsersOnly,
+                includeSummary: true);
+        }
+
+        var recentRead = SalesOrderService.GetSalesOrdersAsync(
+            1,
+            pageSize,
+            fromDate: RecentFrom,
+            source: SalesOrderSource.Mobile,
+            vanSalesUsersOnly: vanSalesUsersOnly,
+            includeSummary: true);
+        var openRead = SalesOrderService.GetSalesOrdersAsync(
+            1,
+            pageSize,
+            source: SalesOrderSource.Mobile,
+            vanSalesUsersOnly: vanSalesUsersOnly,
+            openOnly: true);
+
+        await Task.WhenAll(recentRead, openRead);
+        var recent = await recentRead;
+        var open = await openRead;
+        if (recent is null || open is null)
+            return null;
+
+        var merged = recent.Orders
+            .Concat(open.Orders)
+            .GroupBy(order => order.Id)
+            .Select(group => group.First())
+            .ToList();
+
+        return new SalesOrderListResponse
+        {
+            Page = 1,
+            PageSize = pageSize,
+            TotalCount = recent.Summary?.Total ?? merged.Count,
+            TotalPages = 1,
+            Orders = merged,
+            Summary = recent.Summary
+        };
+    }
+
+    private async Task LoadAllHistory()
+    {
+        if (showAllHistory)
+            return;
+
+        showAllHistory = true;
+        await LoadOrders();
+    }
+
+    private async Task OnDateFilterChanged()
+    {
+        ResetToFirstPage();
+
+        // A date before the window would otherwise find nothing that exists.
+        if (!showAllHistory && (orderDateFilter < RecentFrom || deliveryDateFilter < RecentFrom))
+            await LoadAllHistory();
     }
 
     private async Task LoadOrderPodStatusesInBackgroundAsync(int loadVersion)
@@ -1850,13 +1951,28 @@
         if (missingPriceOrders.Count == 0)
             return;
 
-        foreach (var order in missingPriceOrders)
+        try
         {
-            await PopulateOrderPricesAsync(order);
-        }
+            // Four at a time rather than one after another. The awaits all resume on this component's
+            // renderer, so the orders are never touched by two threads at once.
+            foreach (var batch in missingPriceOrders.Chunk(4))
+            {
+                if (loadVersion != ordersLoadVersion)
+                    return;
 
-        StateHasChanged();
-        QueueBackgroundLivePriceRefresh(missingPriceOrders, loadVersion);
+                await Task.WhenAll(batch.Select(order => PopulateOrderPricesAsync(order)));
+            }
+
+            if (loadVersion != ordersLoadVersion)
+                return;
+
+            await InvokeAsync(StateHasChanged);
+            QueueBackgroundLivePriceRefresh(missingPriceOrders, loadVersion);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not price the mobile orders that arrived without prices");
+        }
     }
 
     private async Task<bool> PopulateOrderPricesAsync(SalesOrderDto order, bool useLivePricing = false)

@@ -14,5 +14,7 @@ public sealed record GetAllSalesOrdersQuery(
     DateTime? ToDate,
     SalesOrderSource? Source,
     string? Search = null,
-    bool? VanSalesUsersOnly = null
+    bool? VanSalesUsersOnly = null,
+    bool OpenOnly = false,
+    bool IncludeSummary = false
 ) : IRequest<ErrorOr<SalesOrderListResponseDto>>;
