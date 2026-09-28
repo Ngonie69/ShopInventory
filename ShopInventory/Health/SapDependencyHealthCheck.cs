@@ -5,7 +5,8 @@ namespace ShopInventory.Health;
 
 public sealed class SapDependencyHealthCheck(
     IServiceScopeFactory scopeFactory,
-    SapCircuitBreakerState circuitBreakerState) : IHealthCheck
+    SapCircuitBreakerState circuitBreakerState,
+    SapAvailability? availability = null) : IHealthCheck
 {
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
@@ -19,6 +20,19 @@ public sealed class SapDependencyHealthCheck(
         if (circuitSnapshot.IsSwitchedOff)
         {
             return HealthCheckResult.Degraded("SAP connection is turned off in Settings.");
+        }
+
+        // Declared by the probe for the whole cluster, so this node's breaker may well be closed.
+        if (availability?.Current is { InOutage: true } outage)
+        {
+            return HealthCheckResult.Unhealthy(
+                "SAP is unavailable (declared outage).",
+                data: new Dictionary<string, object>
+                {
+                    ["outageId"] = outage.OutageId ?? 0,
+                    ["sinceUtc"] = outage.SinceUtc?.ToString("O") ?? string.Empty,
+                    ["cause"] = outage.Cause ?? string.Empty
+                });
         }
 
         if (circuitSnapshot.IsOpen)

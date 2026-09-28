@@ -37,7 +37,8 @@ public sealed class VanSalesEndOfDayPostingService(
     IDesktopSalePostGuard postGuard,
     DesktopCreditSapPoster creditPoster,
     IOptions<VanSalesPostingSettings> settings,
-    ILogger<VanSalesEndOfDayPostingService> logger)
+    ILogger<VanSalesEndOfDayPostingService> logger,
+    IOptions<SapAvailabilitySettings>? availabilitySettings = null)
 {
     /// <summary>
     /// After this many rejections a sale stops being retried automatically and waits for a human.
@@ -78,12 +79,19 @@ public sealed class VanSalesEndOfDayPostingService(
         // transient, so no sale spends an attempt over it. What it saves is the noise: this route posts
         // one sale at a time, so a pass during an outage is two doomed round trips and one logged error
         // per held sale, every one of them saying the same thing about SAP rather than about the sale.
-        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        if (circuitState.ShouldHoldBackWork(out var holdBackReason))
         {
-            logger.LogInformation(
-                "Skipping van sales posting: the SAP circuit is open for another {RetryAfter}.", retryAfter);
+            logger.LogInformation("Skipping van sales posting: {Reason}.", holdBackReason);
             return new VanSalesPostingRunResult(date, windowStart);
         }
+
+        // Past the configured days to take in a SAP outage: a van sale held up by one must still post.
+        windowStart = await VanSalesPostingWindow.StartAsync(
+            context,
+            settings.Value,
+            availabilitySettings?.Value ?? new SapAvailabilitySettings(),
+            date,
+            cancellationToken);
 
         var pending = await context.DesktopSales
             .Include(s => s.Lines)

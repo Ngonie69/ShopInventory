@@ -774,6 +774,16 @@ public interface ISAPServiceLayerClient
     Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Asks SAP for one warehouse code on the shared session, and throws if it does not answer.
+    /// </summary>
+    /// <remarks>
+    /// What the availability probe calls. Unlike <see cref="TestConnectionAsync"/> it neither forces a
+    /// fresh login nor swallows the failure, and unlike the warehouse list it is never answered from a
+    /// cache, so a success means SAP served a request just now. It is not retried.
+    /// </remarks>
+    Task PingAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Tests the connection to SAP Business One Service Layer using specific credentials
     /// </summary>
     Task<bool> TestConnectionWithCredentialsAsync(

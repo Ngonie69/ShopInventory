@@ -275,6 +275,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   public DbSet<IncomingPaymentGlMappingEntity> IncomingPaymentGlMappings { get; set; }
 
+  /// <summary>When SAP was down, as the cluster saw it. See <see cref="SapOutageEntity"/>.</summary>
+  public DbSet<SapOutageEntity> SapOutages { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);

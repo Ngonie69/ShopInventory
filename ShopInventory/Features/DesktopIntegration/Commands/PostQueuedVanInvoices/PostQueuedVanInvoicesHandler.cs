@@ -72,7 +72,7 @@ public sealed class PostQueuedVanInvoicesHandler(
     {
         // Every confirm would be refused by the Service Layer anyway, and each one that tries adds to the
         // failures that are keeping the breaker open.
-        if (sapCircuitBreakerState.IsOpen)
+        if (sapCircuitBreakerState.ShouldHoldBackWork(out _))
         {
             return new PostQueuedVanInvoicesResult(0, 0, 0);
         }

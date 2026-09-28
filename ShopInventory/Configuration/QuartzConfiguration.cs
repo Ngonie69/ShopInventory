@@ -24,6 +24,8 @@ public static class QuartzConfiguration
         string connectionString)
     {
         var sap = configuration.GetSection("SAP").Get<SAPSettings>() ?? new SAPSettings();
+        var sapAvailability = configuration.GetSection(SapAvailabilitySettings.SectionName)
+            .Get<SapAvailabilitySettings>() ?? new SapAvailabilitySettings();
         var creditNoteSync = configuration.GetSection(CreditNoteSyncSettings.SectionName)
             .Get<CreditNoteSyncSettings>() ?? new CreditNoteSyncSettings();
         var dailyStock = configuration.GetSection("DailyStock").Get<DailyStockSettings>() ?? new DailyStockSettings();
@@ -65,6 +67,17 @@ public static class QuartzConfiguration
             // work. Registered here rather than per job, because the failure it exists to stop is a
             // node nobody remembered to think about (see StaleBuildJobGuard).
             q.AddTriggerListener<StaleBuildJobGuard>();
+
+            // Declares and ends SAP outages for the whole cluster. The posting passes hold back while one
+            // is open, and widen their lookback afterwards to take in the sales it held up.
+            if (sap.Enabled && sapAvailability.Enabled)
+            {
+                AddIntervalJob<SapAvailabilityProbeJob>(
+                    q,
+                    "sap-availability-probe",
+                    TimeSpan.FromSeconds(Math.Max(10, sapAvailability.ProbeIntervalSeconds)),
+                    startDelay: TimeSpan.FromSeconds(20));
+            }
 
             // DB-queue pollers and periodic maintenance → interval triggers (cadence preserved).
             AddIntervalJob<MobileOrderPostProcessingJob>(q, "mobile-order-post-processing", TimeSpan.FromSeconds(5));

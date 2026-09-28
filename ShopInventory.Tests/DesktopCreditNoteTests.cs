@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
@@ -421,6 +422,131 @@ public sealed class DesktopCreditNoteTests : IDisposable
             SapFailureClassifier.MarkNotSent(loginFailure);
             return Task.FromException<SAPCreditNote>(loginFailure);
         }
+    }
+
+    /// <summary>
+    /// SAP being unreachable is not the credit's fault. The sweep runs every minute, so counting it
+    /// spent all six attempts inside six minutes of an outage and left the credit waiting on a person.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_memo_sap_did_not_answer_for_spends_no_attempt_and_keeps_its_marker()
+    {
+        GivenSaleInSap();
+
+        await CreateThroughPosterAsync(() => Task.FromException<SAPCreditNote>(
+            new HttpRequestException("SAP did not answer: 502 from the gateway.", null, HttpStatusCode.BadGateway)));
+
+        var saved = db.DesktopCreditNotes.AsNoTracking().Single();
+        Assert.Equal(DesktopCreditSapStatuses.Failed, saved.SapStatus);
+        Assert.Equal(0, saved.SapAttempts);
+
+        // Not proven unsent, so the memo is still looked for before it is raised again.
+        Assert.NotNull(saved.SapPostIssuedAtUtc);
+    }
+
+    [Fact]
+    public async Task A_credit_memo_sap_refused_still_spends_its_attempt()
+    {
+        GivenSaleInSap();
+
+        await CreateThroughPosterAsync(() => Task.FromException<SAPCreditNote>(
+            new SapRequestRejectedException("create the credit note", HttpStatusCode.BadRequest, "Quantity exceeds the invoice")));
+
+        var saved = db.DesktopCreditNotes.AsNoTracking().Single();
+        Assert.Equal(DesktopCreditSapStatuses.Failed, saved.SapStatus);
+        Assert.Equal(1, saved.SapAttempts);
+    }
+
+    [Fact]
+    public async Task While_sap_is_down_the_sweep_returns_the_units_and_leaves_the_memo_owed()
+    {
+        // Credited at the counter before the sale posted, as a deferred credit is; then the sale posts.
+        GivenSaleInSap(posted: false);
+        var credit = await service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = false }, default);
+        var sale = db.DesktopSales.Single();
+        sale.SapDocEntry = 7001;
+        sale.SapDocNum = 48213;
+        db.SaveChanges();
+        db.ChangeTracker.Clear();
+
+        // The units not yet back on the ledger, as for a credit whose process stopped after ZIMRA took it.
+        db.DesktopCreditNotes.Where(n => n.Id == credit.Id)
+            .ExecuteUpdate(update => update.SetProperty(n => n.UnitsReturnedToLedger, false));
+
+        var returned = new List<StockLedgerLine>();
+        var poster = new DesktopCreditSapPoster(db,
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            StubProxy.For<IStockLedger>((m, args) => m.Name == nameof(IStockLedger.ReleaseAsync)
+                ? Return((IReadOnlyList<StockLedgerLine>)args![0]!) : throw new NotSupportedException(m.Name)),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Options.Create(new DesktopSalePostingSettings()),
+            NullLogger<DesktopCreditSapPoster>.Instance);
+
+        var availability = new SapAvailability(
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<SapAvailability>.Instance);
+        availability.Apply(new SapAvailabilityState(1, DateTime.UtcNow.AddHours(-2), SapOutageCauses.Unreachable));
+
+        var sweep = new DesktopCreditSapSweep(db, poster, Options.Create(new DesktopSalePostingSettings()),
+            NullLogger<DesktopCreditSapSweep>.Instance,
+            new SapCircuitBreakerState(Options.Create(new SAPSettings()), null, availability));
+
+        var run = await sweep.SettleOutstandingAsync();
+
+        Assert.Equal(0, run.Failed);
+        Assert.Equal(2m, Assert.Single(returned).Quantity);
+
+        var after = db.DesktopCreditNotes.AsNoTracking().Single(n => n.Id == credit.Id);
+        Assert.True(after.UnitsReturnedToLedger);
+        Assert.NotEqual(DesktopCreditSapStatuses.Posted, after.SapStatus);
+        Assert.Equal(0, after.SapAttempts);
+        Assert.Null(after.SapPostIssuedAtUtc);
+
+        Task Return(IReadOnlyList<StockLedgerLine> lines)
+        {
+            returned.AddRange(lines);
+            return Task.CompletedTask;
+        }
+    }
+
+    private void GivenSaleInSap(bool posted = true)
+    {
+        var sale = db.DesktopSales.Single();
+        if (posted)
+        {
+            sale.SapDocEntry = 7001;
+            sale.SapDocNum = 48213;
+        }
+
+        sale.Lines.Add(new DesktopSaleLineEntity
+        {
+            LineNum = 1, ItemCode = "ICS025", ItemDescription = "Original product",
+            Quantity = 10, UnitPrice = 10m, LineTotal = 100m, WarehouseCode = "W1"
+        });
+        db.SaveChanges();
+    }
+
+    private async Task CreateThroughPosterAsync(Func<Task<SAPCreditNote>> createMemo)
+    {
+        var posting = new DesktopCreditNoteService(db, gateway,
+            new DesktopCreditSapPoster(db,
+                StubProxy.For<ISAPServiceLayerClient>((m, args) => m.Name switch
+                {
+                    nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)Task.FromResult<SAPCreditNote?>(null),
+                    nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync) =>
+                        Task.FromResult(new RecordingSap().MirroringSalesFrom(db).InvoiceFor((int)args![0]!)),
+                    nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => createMemo(),
+                    _ => throw new NotSupportedException(m.Name)
+                }),
+                StubProxy.For<IStockLedger>((m, _) => m.Name == nameof(IStockLedger.ReleaseAsync)
+                    ? Task.CompletedTask : throw new NotSupportedException(m.Name)),
+                StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                Options.Create(new DesktopSalePostingSettings()),
+                NullLogger<DesktopCreditSapPoster>.Instance),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+
+        await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
     }
 
     [Fact]

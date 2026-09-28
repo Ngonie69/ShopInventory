@@ -96,6 +96,58 @@ public sealed class InventoryTransferQueueDrainTests : IDisposable
     }
 
     [Fact]
+    public async Task A_transfer_refused_because_sap_is_unavailable_gives_its_attempt_back()
+    {
+        // Refused inside this process, so SAP never saw it. Counting it sent every transfer queued
+        // during an outage to review after three short retries.
+        var sap = new RecordingSap
+        {
+            PostFailure = new SapCircuitOpenException("SAP circuit breaker is open.", TimeSpan.FromSeconds(30))
+        };
+        await GivenQueuedTransferAsync();
+
+        var before = DateTime.UtcNow;
+        await DrainAsync(sap, StockAvailable());
+
+        var entry = await ReloadAsync();
+        Assert.Equal(0, entry.RetryCount);
+        Assert.Equal(InventoryTransferQueueStatus.Failed, entry.Status);
+        Assert.True(entry.NextRetryAt >= before.AddSeconds(55), $"NextRetryAt {entry.NextRetryAt} is not a minute out");
+    }
+
+    [Fact]
+    public async Task A_timeout_still_spends_its_attempt_because_the_transfer_may_exist()
+    {
+        // There is no reference to find the transfer by in SAP, so an unknown outcome stays rationed.
+        var sap = new RecordingSap { PostFailure = new TimeoutException("SAP did not answer.") };
+        await GivenQueuedTransferAsync();
+
+        await DrainAsync(sap, StockAvailable());
+
+        Assert.Equal(1, (await ReloadAsync()).RetryCount);
+    }
+
+    [Fact]
+    public async Task Nothing_is_replayed_while_an_outage_is_declared()
+    {
+        var sap = new RecordingSap();
+        await GivenQueuedTransferAsync();
+
+        var availability = new SapAvailability(
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<SapAvailability>.Instance);
+        availability.Apply(new SapAvailabilityState(1, DateTime.UtcNow.AddMinutes(-5), SapOutageCauses.Unreachable));
+
+        await DrainAsync(sap, StockAvailable(),
+            new SapCircuitBreakerState(Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.SAPSettings()), null, availability));
+
+        var entry = await ReloadAsync();
+        Assert.Equal(0, sap.TransferPosts);
+        Assert.Equal(InventoryTransferQueueStatus.Pending, entry.Status);
+        Assert.Equal(0, entry.RetryCount);
+    }
+
+    [Fact]
     public async Task A_transfer_the_warehouse_still_covers_is_posted()
     {
         var sap = new RecordingSap();
@@ -150,9 +202,17 @@ public sealed class InventoryTransferQueueDrainTests : IDisposable
         return await context.InventoryTransferQueue.AsNoTracking().SingleAsync();
     }
 
-    private async Task DrainAsync(RecordingSap sap, IStockValidationService stockValidation)
+    private async Task DrainAsync(
+        RecordingSap sap,
+        IStockValidationService stockValidation,
+        SapCircuitBreakerState? circuit = null)
     {
         var services = new ServiceCollection();
+        if (circuit is not null)
+        {
+            services.AddSingleton(circuit);
+        }
+
         services.AddScoped(_ => new ApplicationDbContext(_options));
         services.AddScoped<IInventoryTransferQueueService>(provider => new InventoryTransferQueueService(
             provider.GetRequiredService<ApplicationDbContext>(),

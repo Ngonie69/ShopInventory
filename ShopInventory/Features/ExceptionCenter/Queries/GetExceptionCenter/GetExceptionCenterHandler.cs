@@ -22,6 +22,7 @@ namespace ShopInventory.Features.ExceptionCenter.Queries.GetExceptionCenter;
 public sealed class GetExceptionCenterHandler(
     ApplicationDbContext context,
     IOptions<VanSalesPostingSettings> vanSalesPostingSettings,
+    IOptions<SapAvailabilitySettings> sapAvailabilitySettings,
     ILogger<GetExceptionCenterHandler> logger
 ) : IRequestHandler<GetExceptionCenterQuery, ErrorOr<ExceptionCenterDashboardDto>>
 {
@@ -95,8 +96,12 @@ public sealed class GetExceptionCenterHandler(
             var pendingTransferItems = await LoadPendingTransferPostFailuresAsync(context, AnalysisScanLimit, cancellationToken);
             var pendingEditItems = await LoadPendingRequestEditApplyFailuresAsync(context, AnalysisScanLimit, cancellationToken);
 
-            var vanSaleWindowStart = vanSalesPostingSettings.Value.WindowStart(
-                VanSalesPostingSettings.CurrentTradingDate());
+            var vanSaleWindowStart = await VanSalesPostingWindow.StartAsync(
+                context,
+                vanSalesPostingSettings.Value,
+                sapAvailabilitySettings.Value,
+                VanSalesPostingSettings.CurrentTradingDate(),
+                cancellationToken);
             var vanSaleItems = await LoadVanSalePostingFailuresAsync(
                 context, vanSaleWindowStart, AnalysisScanLimit, cancellationToken);
 
@@ -130,7 +135,7 @@ public sealed class GetExceptionCenterHandler(
             }
 
             var exactTotals = await LoadExactTotalsAsync(
-                stalledBefore, fiscalDayStuckBeforeLocal, cancellationToken);
+                stalledBefore, fiscalDayStuckBeforeLocal, vanSaleWindowStart, cancellationToken);
             var scannedBySource = items
                 .GroupBy(item => item.Source, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
@@ -382,6 +387,7 @@ public sealed class GetExceptionCenterHandler(
     private async Task<Dictionary<string, int>> LoadExactTotalsAsync(
         DateTime stalledBefore,
         DateTime fiscalDayStuckBeforeLocal,
+        DateTime vanSaleWindowStart,
         CancellationToken cancellationToken)
         => new(StringComparer.OrdinalIgnoreCase)
         {
@@ -436,8 +442,7 @@ public sealed class GetExceptionCenterHandler(
                 e => e.Status == PendingTransferRequestEditStatuses.ApplyFailed, cancellationToken),
 
             [VanSalePostingSource] = await context.DesktopSales.CountAsync(
-                VanSalePostingPredicate(
-                    vanSalesPostingSettings.Value.WindowStart(VanSalesPostingSettings.CurrentTradingDate())),
+                VanSalePostingPredicate(vanSaleWindowStart),
                 cancellationToken),
 
             [FiscalDayLifecycleSource] = await context.FiscalDayStates.CountAsync(
