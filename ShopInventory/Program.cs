@@ -221,15 +221,6 @@ try
     // opens a second pool at the uncapped size.
     builder.Configuration["ConnectionStrings:DefaultConnection"] = defaultConnectionString;
 
-    // Add output caching for read-heavy GET endpoints
-    builder.Services.AddOutputCache(options =>
-    {
-        options.AddBasePolicy(builder => builder.NoCache());
-        options.AddPolicy("warehouses", builder => builder.Cache().Expire(TimeSpan.FromMinutes(5)).SetVaryByQuery("*").Tag("warehouses"));
-        options.AddPolicy("reports", builder => builder.Cache().Expire(TimeSpan.FromMinutes(15)).SetVaryByQuery("*").Tag("reports"));
-        options.AddPolicy("master-data", builder => builder.Cache().Expire(TimeSpan.FromMinutes(30)).SetVaryByQuery("*").Tag("master-data"));
-    });
-
     // Configure PostgreSQL Database
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
     {
@@ -1372,11 +1363,11 @@ try
     // Idempotency check after auth (needs user context for better key scoping)
     app.UseIdempotency();
 
-    // Output caching for GET endpoints
-    app.UseOutputCache();
+    // No output cache: every endpoint requires sign-in, and ASP.NET's output cache never serves an
+    // authenticated request, so the one this had cached nothing. See ApiOutputCacheTests.
 
     // Anything still running at this point is a person waiting on a response, so its SAP calls get
-    // the slots reserved from background work. After UseOutputCache so a cache hit claims nothing.
+    // the slots reserved from background work.
     app.UseSapRequestPriority();
 
     // Map controllers with default rate limiting

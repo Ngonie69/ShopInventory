@@ -67,7 +67,8 @@ public sealed class MaintenancePipelineTests
     public void A_refused_request_is_not_recorded_or_served_from_cache()
     {
         // Ahead of idempotency, so a refusal does not claim the request's key and strand the retry
-        // that follows it; ahead of the output cache, so a 503 is never handed to the next caller.
+        // that follows it. The API has no output cache (see ApiOutputCacheTests); if one comes back it
+        // has to sit after the lockout too, or a 503 would be handed to the next caller.
         var program = ReadProgram();
 
         var lockout = program.IndexOf(
@@ -76,9 +77,8 @@ public sealed class MaintenancePipelineTests
         var outputCache = program.IndexOf("app.UseOutputCache()", StringComparison.Ordinal);
 
         Assert.True(idempotency >= 0, "Program.cs no longer calls UseIdempotency.");
-        Assert.True(outputCache >= 0, "Program.cs no longer calls UseOutputCache.");
         Assert.True(lockout < idempotency, "The lockout must run before UseIdempotency.");
-        Assert.True(lockout < outputCache, "The lockout must run before UseOutputCache.");
+        Assert.True(outputCache < 0 || lockout < outputCache, "The lockout must run before UseOutputCache.");
     }
 
     [Fact]
