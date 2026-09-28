@@ -41,6 +41,21 @@ public class VanSalesApprovedCatalogueTests
     }
 
     /// <summary>
+    /// Item group 150 is kept off the van even when flagged (SUP001 Superior White). This list feeds
+    /// both the warehouse page and the van-sale catalogue, so the one statement is the one place.
+    /// </summary>
+    [Fact]
+    public async Task The_catalogue_leaves_out_item_group_150()
+    {
+        var sap = new RecordingServiceLayer { VanSaleRows = """[{"ItemCode":"CHE011"}]""" };
+        var client = CreateClient(sap);
+
+        await client.GetVanSalesApprovedItemCodesAsync();
+
+        Assert.Contains("T0.\"ItmsGrpCod\" <> 150", sap.CreatedStatements.Single(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A code is matched case-insensitively, because nothing guarantees the warehouse stock query and
     /// the item master hand back the same casing for the same item.
     /// </summary>

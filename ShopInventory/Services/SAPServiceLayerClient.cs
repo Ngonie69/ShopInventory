@@ -3456,7 +3456,8 @@ ORDER BY T0.""ItemCode""";
         => WarehouseItemCodesCacheKeyPrefix + warehouseCode.Trim().ToUpperInvariant();
 
     /// <summary>
-    /// Reads the item codes a van may sell — the items flagged <c>U_VanSale = 'Yes'</c> on the item master.
+    /// Reads the item codes a van may sell — the items flagged <c>U_VanSale = 'Yes'</c> on the item master,
+    /// less item group 150.
     /// </summary>
     /// <remarks>
     /// This is an approval list, not a stock list: it says nothing about what is on the van. Callers
@@ -3493,9 +3494,13 @@ ORDER BY T0.""ItemCode""";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
+        // Item group 150 never reaches a van, even when the item is flagged — SUP001 Superior White
+        // carries U_VanSale = 'Yes' and is in that group. Excluded here rather than at each caller
+        // because this list is the only thing the van app's product routes read.
         const string sqlText = @"SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_VanSale""
 FROM OITM T0
 WHERE T0.""U_VanSale"" = 'Yes'
+AND T0.""ItmsGrpCod"" <> 150
 ORDER BY T0.""ItemCode""";
 
         var queryCode = BuildContentAddressedQueryCode("VAN_SALE_ITEMS", sqlText);
