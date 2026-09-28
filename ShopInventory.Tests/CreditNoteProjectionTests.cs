@@ -1,5 +1,8 @@
+using System.Data.Common;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Caching;
@@ -15,6 +18,7 @@ public sealed class CreditNoteProjectionTests : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
+    private readonly CommandLog _commands = new();
 
     public CreditNoteProjectionTests()
     {
@@ -23,6 +27,7 @@ public sealed class CreditNoteProjectionTests : IDisposable
         _context = new ApplicationDbContext(
             new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseSqlite(_connection)
+                .AddInterceptors(_commands)
                 .Options);
         _context.Database.EnsureCreated();
     }
@@ -268,6 +273,145 @@ public sealed class CreditNoteProjectionTests : IDisposable
         Assert.True(await CreateReadyService().IsReadyForReadsAsync());
     }
 
+    [Fact]
+    public async Task Sweep_fetches_only_the_documents_whose_version_moved_and_rewrites_only_those()
+    {
+        var sap = new FakeCreditNoteSap();
+        sap.Put(SapDocument(7001, total: 100m), "09:00:00");
+        sap.Put(SapDocument(7002, total: 50m), "09:30:00");
+        SeedSweepCheckpoint();
+        var service = CreateSweepService(sap);
+
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+        Assert.Equal([7001, 7002], Assert.Single(sap.Fetched));
+        var firstWrite = await _context.SapCreditNoteSnapshots
+            .ToDictionaryAsync(snapshot => snapshot.SapDocEntry, snapshot => snapshot.SyncedAtUtc);
+
+        // 7002 edited later the same day (same UpdateDate, later UpdateTime); 7003 is new.
+        sap.Put(SapDocument(7002, total: 45m), "11:15:00");
+        sap.Put(SapDocument(7003, total: 20m), "11:20:00");
+        sap.Fetched.Clear();
+
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+
+        Assert.Equal([7002, 7003], Assert.Single(sap.Fetched));
+        var stored = await _context.SapCreditNoteSnapshots
+            .Include(snapshot => snapshot.Lines)
+            .OrderBy(snapshot => snapshot.SapDocEntry)
+            .ToListAsync();
+        Assert.Equal([100m, 45m, 20m], stored.Select(snapshot => snapshot.DocTotal).ToList());
+        Assert.Equal(new TimeOnly(11, 15), stored[1].SapUpdateTime);
+        Assert.Equal(new TimeOnly(11, 20), stored[2].SapUpdateTime);
+        Assert.Equal(45m, Assert.Single(stored[1].Lines).LineTotal);
+        Assert.Equal(firstWrite[7001], stored[0].SyncedAtUtc);
+        Assert.NotEqual(firstWrite[7002], stored[1].SyncedAtUtc);
+        Assert.Equal(3, (await _context.CacheSyncStates.SingleAsync()).ItemCount);
+    }
+
+    [Fact]
+    public async Task A_sweep_with_nothing_new_in_sap_fetches_no_document_and_writes_only_its_own_state()
+    {
+        var sap = new FakeCreditNoteSap();
+        sap.Put(SapDocument(7001, total: 100m), "09:00:00");
+        sap.Put(SapDocument(7002, total: 50m), "09:30:00");
+        SeedSweepCheckpoint();
+        var service = CreateSweepService(sap);
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+
+        sap.Fetched.Clear();
+        sap.Polls = 0;
+        _commands.Clear();
+        await service.SyncAsync();
+
+        Assert.Equal(1, sap.Polls);
+        Assert.Empty(sap.Fetched);
+        var writes = _commands.Writes();
+        Assert.NotEmpty(writes);
+        Assert.All(writes, command => Assert.Contains("\"CacheSyncStates\"", command));
+        Assert.DoesNotContain(_commands.Texts, command => command.Contains("COUNT(", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task A_status_change_that_leaves_update_time_alone_is_still_fetched()
+    {
+        // Closing a credit note by reconciliation is the case in point: nothing says SAP moves the
+        // header's UpdateDate/UpdateTime for it, so the poll compares status and total as well.
+        var sap = new FakeCreditNoteSap();
+        sap.Put(SapDocument(7001, total: 100m), "09:00:00");
+        SeedSweepCheckpoint();
+        var service = CreateSweepService(sap);
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+
+        sap.Put(SapDocument(7001, total: 100m, status: "bost_Close"), "09:00:00");
+        sap.Fetched.Clear();
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+
+        Assert.Equal([7001], Assert.Single(sap.Fetched));
+        Assert.Equal("bost_Close", (await _context.SapCreditNoteSnapshots.SingleAsync()).DocumentStatus);
+    }
+
+    [Fact]
+    public async Task A_version_without_an_update_time_is_fetched_every_pass_but_not_rewritten()
+    {
+        var sap = new FakeCreditNoteSap();
+        sap.Put(SapDocument(7001, total: 100m), updateTime: null);
+        SeedSweepCheckpoint();
+        var service = CreateSweepService(sap);
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+
+        sap.Fetched.Clear();
+        _commands.Clear();
+        await service.SyncAsync();
+
+        Assert.Equal([7001], Assert.Single(sap.Fetched));
+        Assert.DoesNotContain(_commands.Writes(), command => command.Contains("SapCreditNote", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_row_written_before_update_time_was_kept_is_fetched_once_then_left_alone()
+    {
+        // What production holds on the first sweep after deploying: rows with no stored time.
+        await CreateService().UpsertAsync([SapDocument(7001, total: 100m)]);
+        _context.ChangeTracker.Clear();
+        Assert.Null((await _context.SapCreditNoteSnapshots.SingleAsync()).SapUpdateTime);
+        _context.ChangeTracker.Clear();
+
+        var sap = new FakeCreditNoteSap();
+        sap.Put(SapDocument(7001, total: 100m), "09:00:00");
+        SeedSweepCheckpoint();
+        var service = CreateSweepService(sap);
+
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+        Assert.Equal([7001], Assert.Single(sap.Fetched));
+        Assert.Equal(new TimeOnly(9, 0), (await _context.SapCreditNoteSnapshots.SingleAsync()).SapUpdateTime);
+        _context.ChangeTracker.Clear();
+
+        sap.Fetched.Clear();
+        await service.SyncAsync();
+        Assert.Empty(sap.Fetched);
+    }
+
+    [Fact]
+    public async Task Upserting_a_document_sap_returns_unchanged_leaves_its_row_untouched()
+    {
+        var service = CreateService();
+        var creditNote = SapDocument(7001, total: 100m);
+        await service.UpsertAsync([creditNote]);
+        _context.ChangeTracker.Clear();
+
+        _commands.Clear();
+        await service.UpsertAsync([SapDocument(7001, total: 100m)]);
+
+        Assert.Empty(_commands.Writes());
+    }
+
     /// <summary>Records the sync state and checkpoint that let the projection answer reads.</summary>
     private void MarkProjectionReadyForReads()
     {
@@ -334,6 +478,126 @@ public sealed class CreditNoteProjectionTests : IDisposable
             StubProxy.Unused<ISAPServiceLayerClient>(),
             Options.Create(new CreditNoteSyncSettings()),
             NullLogger<CreditNoteProjectionSyncService>.Instance);
+
+    /// <summary>
+    /// A checkpoint past its backfill and already reconciled today, so a sweep runs only its
+    /// incremental poll.
+    /// </summary>
+    private void SeedSweepCheckpoint()
+    {
+        var now = DateTime.UtcNow;
+        _context.SystemConfigs.Add(new SystemConfigEntity
+        {
+            Key = "CreditNoteSync.Checkpoint",
+            ValueType = "json",
+            Category = "Synchronization",
+            IsEditable = false,
+            UpdatedAt = now,
+            Value = JsonSerializer.Serialize(new
+            {
+                BackfillCompleted = true,
+                LastUpdateWatermarkDate = now.Date,
+                LastReconciledAtUtc = now
+            })
+        });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+    }
+
+    private CreditNoteProjectionSyncService CreateSweepService(FakeCreditNoteSap sap) =>
+        new(
+            _context,
+            sap.AsClient(),
+            Options.Create(new CreditNoteSyncSettings { Enabled = true }),
+            NullLogger<CreditNoteProjectionSyncService>.Instance);
+
+    private static SAPCreditNote SapDocument(int docEntry, decimal total, string status = "bost_Open") =>
+        new()
+        {
+            DocEntry = docEntry,
+            DocNum = docEntry + 2000,
+            DocDate = "2026-09-28",
+            UpdateDate = "2026-09-28",
+            CardCode = "C001",
+            CardName = "Projection customer",
+            DocCurrency = "USD",
+            DocTotal = total,
+            VatSum = 0,
+            DocumentStatus = status,
+            Cancelled = "tNO",
+            DocumentLines =
+            [
+                new SAPCreditNoteLine { LineNum = 0, BaseType = 13, BaseEntry = 101, LineTotal = total }
+            ]
+        };
+
+    /// <summary>
+    /// SAP as the sweep sees it: a version poll over every document it holds, and whole documents
+    /// fetched by DocEntry. Records each fetch, and fails the test on any other call.
+    /// </summary>
+    private sealed class FakeCreditNoteSap
+    {
+        private readonly SortedDictionary<int, (SAPCreditNote Document, string? UpdateTime)> _documents = [];
+
+        public List<List<int>> Fetched { get; } = [];
+
+        public int Polls { get; set; }
+
+        public void Put(SAPCreditNote document, string? updateTime) =>
+            _documents[document.DocEntry] = (document, updateTime);
+
+        public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) =>
+            method.Name switch
+            {
+                nameof(ISAPServiceLayerClient.GetCreditNoteVersionsUpdatedSinceAsync) => Poll(),
+                nameof(ISAPServiceLayerClient.GetCreditNotesByDocEntriesAsync) =>
+                    Fetch(((IEnumerable<int>)args![0]!).ToList()),
+                _ => throw new InvalidOperationException($"The sweep was not expected to call {method.Name}.")
+            });
+
+        private Task<List<SAPCreditNote>> Poll()
+        {
+            Polls++;
+            return Task.FromResult(_documents.Values
+                .Select(entry => new SAPCreditNote
+                {
+                    DocEntry = entry.Document.DocEntry,
+                    UpdateDate = entry.Document.UpdateDate,
+                    UpdateTime = entry.UpdateTime,
+                    DocumentStatus = entry.Document.DocumentStatus,
+                    Cancelled = entry.Document.Cancelled,
+                    DocTotal = entry.Document.DocTotal
+                })
+                .ToList());
+        }
+
+        private Task<List<SAPCreditNote>> Fetch(List<int> docEntries)
+        {
+            Fetched.Add(docEntries.Order().ToList());
+            return Task.FromResult(docEntries
+                .Where(_documents.ContainsKey)
+                .Select(docEntry => _documents[docEntry].Document)
+                .ToList());
+        }
+    }
+
+    /// <summary>Every SQL command the context sends, so a test can say what was written.</summary>
+    private sealed class CommandLog : DbCommandInterceptor
+    {
+        public List<string> Texts { get; } = [];
+
+        public void Clear() => Texts.Clear();
+
+        public List<string> Writes() => Texts
+            .Where(text => !text.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        public override DbCommand CommandInitialized(CommandEndEventData eventData, DbCommand result)
+        {
+            Texts.Add(result.CommandText);
+            return result;
+        }
+    }
 
     private static SAPCreditNote BuildCreditNote(
         string cancelled,

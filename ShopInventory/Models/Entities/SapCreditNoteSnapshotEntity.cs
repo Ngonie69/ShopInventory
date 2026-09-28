@@ -47,8 +47,19 @@ public sealed class SapCreditNoteSnapshotEntity
 
     public DateTime? SapUpdateDate { get; set; }
 
+    /// <summary>
+    /// SAP's time of day for <see cref="SapUpdateDate"/>. With the date it is the version the
+    /// projection sweep compares against, to fetch a document again only when it has moved.
+    /// </summary>
+    public TimeOnly? SapUpdateTime { get; set; }
+
+    /// <summary>
+    /// When a read of SAP last changed this row. An unchanged document is not rewritten, so this
+    /// is not a record of the last poll.
+    /// </summary>
     public DateTime LastSeenInSapAtUtc { get; set; }
 
+    /// <summary>When this row was last written, which is also when it last changed.</summary>
     public DateTime SyncedAtUtc { get; set; }
 
     public ICollection<SapCreditNoteLineSnapshotEntity> Lines { get; set; } =
