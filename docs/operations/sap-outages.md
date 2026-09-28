@@ -70,6 +70,50 @@ window opened, or is still open (`SapOutageReach`). The furthest it reaches is
 `SapAvailability:MaxLookbackExtensionDays` (30). The Exception Center uses the same van window, so it
 does not report sales as stranded that the pass is about to post.
 
+## Shop stock while SAP is down
+
+A shop sells from its daily stock snapshot, fetched from SAP at 07:00. When today's snapshot is not
+finished, the shop sells from yesterday's (`StockSnapshotInForce`). That is one day only, so that a fetch
+failing for any other reason stops the tills on the second morning and gets noticed.
+
+**During a recorded outage the shop may reach further back.** It can use its last finished snapshot
+within `DailyStock:OutageCarryOverDays` (default 7), provided one outage:
+- was already under way at the first missed morning's fetch (with an hour of slack for how outages are
+  dated), and
+- was still going on at this morning's fetch.
+
+The rows the tills sell from are the ones they have been moving all along. Every sale is journalled under
+today, as for any carried-over day. Vans are never carried over.
+
+**Retry.** The snapshot job's 10-minute retry trigger (`daily-stock-snapshot-unbatched-retry`) also
+fetches again any shop whose snapshot for the day failed or never started. It is skipped while SAP is
+held back, so the shop moves onto today's figures within about ten minutes of SAP returning. That fetch
+takes off every till sale SAP has not had yet, whatever day it was made, so nothing sold during the
+outage goes back on the shelf.
+
+## Van sales while SAP is down
+
+An online van sale reserves its stock before the receipt is signed, and the reservation used to read
+SAP for the van's stock. During an outage every van sale failed there. While background SAP work is
+held back (`ShouldHoldBackWork`), the reservation now checks a van against this system's own count:
+
+- **The figure.** The van's opening count, plus loads, less today's sales. It is the same arithmetic as
+  `GET /api/vansales/stock/position` (`VanStockPosition`), with one difference: online sales whose
+  reservation is still holding stock are left out, because live holds are subtracted separately.
+- **A shortfall is refused** (`INSUFFICIENT_STOCK`), as at a till.
+- **A van with no opening count for the day is refused** (`STOCK_NOT_COUNTED`), telling the rep to
+  count the van first.
+- **Nothing on the van's lines asks SAP.** UoM conversion is taken as one-to-one, which is what it
+  answers when SAP cannot be reached. Batches the handset named are kept; the rest are left empty.
+- **Only vans** (`VanWarehouses`) are checked locally. Every other warehouse still reads SAP.
+
+The sale is then signed and queued as usual, and `PostQueuedVanInvoices` posts it once SAP is back.
+Just before the invoice goes out, any batch-managed line with no batches gets them chosen FEFO
+(`AllocateMissingBatchesAsync`), with the reservation's own hold set aside. A reservation made while SAP
+was up already has its batches and is not touched. If allocation fails, an unreadable warehouse returns
+the reservation to Pending for the queue to retry, and a real shortfall fails it for a person, as a SAP
+refusal would.
+
 ## Settings
 
 `SapAvailability` section. All keys are optional; the defaults are below.

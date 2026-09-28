@@ -221,6 +221,56 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
         Assert.Empty(await DailyStockSnapshotJob.MissingUnbatchedAsync(_context, [Shop], Today, default));
     }
 
+    // ── The retry, for a shop whose fetch failed ────────
+
+    /// <summary>
+    /// SAP was down at 07:00, so the morning run and its one retry both failed. Before, nothing tried
+    /// again that day and the shop had no snapshot it could sell from the next morning.
+    /// </summary>
+    [Fact]
+    public async Task The_retry_fetches_again_a_shop_whose_snapshot_failed_or_never_started()
+    {
+        _settings.ReconcileWarehouses.AddRange([Shop, Machine]);
+        await SeedAsync(Shop, StockSnapshotStatus.Failed);
+
+        await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+
+        // Groceries has no snapshot either, but it is not a shop the reconciliation looks after.
+        Assert.Equal([Shop, Machine], _sapReads);
+        Assert.Equal(StockSnapshotStatus.Complete, await StatusAsync(Shop));
+        Assert.Equal(StockSnapshotStatus.Complete, await StatusAsync(Machine));
+    }
+
+    [Fact]
+    public async Task The_retry_leaves_a_snapshot_that_is_still_being_built()
+    {
+        _settings.ReconcileWarehouses.Add(Shop);
+        await SeedAsync(Shop, StockSnapshotStatus.Pending);
+
+        await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+
+        Assert.Empty(_sapReads);
+    }
+
+    [Fact]
+    public async Task The_retry_waits_while_sap_is_down()
+    {
+        _settings.ReconcileWarehouses.Add(Shop);
+        await SeedAsync(Shop, StockSnapshotStatus.Failed);
+
+        var availability = new SapAvailability(
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<SapAvailability>.Instance);
+        availability.Apply(new SapAvailabilityState(1, DateTime.UtcNow.AddHours(-1), SapOutageCauses.Unreachable));
+
+        await RunAsync(
+            $"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger",
+            new SapCircuitBreakerState(Options.Create(new SAPSettings()), null, availability));
+
+        Assert.Empty(_sapReads);
+        Assert.Equal(StockSnapshotStatus.Failed, await StatusAsync(Shop));
+    }
+
     [Fact]
     public void The_api_declares_the_unbatched_retry_on_the_morning_runs_job()
     {
@@ -383,7 +433,7 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
             .SingleAsync(snapshot => snapshot.WarehouseCode == warehouse && snapshot.SnapshotDate == Today))
         .Status;
 
-    private async Task RunAsync(string triggerName)
+    private async Task RunAsync(string triggerName, SapCircuitBreakerState? circuit = null)
     {
         var handler = new FetchDailyStockHandler(
             _context,
@@ -398,6 +448,10 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
         var services = new ServiceCollection();
         services.AddSingleton(_context);
         services.AddSingleton(handler);
+        if (circuit is not null)
+        {
+            services.AddSingleton(circuit);
+        }
 
         var job = new DailyStockSnapshotJob(
             services.BuildServiceProvider(),

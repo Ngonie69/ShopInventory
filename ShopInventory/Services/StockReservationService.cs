@@ -157,6 +157,7 @@ public class StockReservationService : IStockReservationService
     private readonly IInvoiceFiscalizationQueue _fiscalizationQueue;
     private readonly INotificationService _notificationService;
     private readonly ILogger<StockReservationService> _logger;
+    private readonly SapCircuitBreakerState? _sapCircuit;
 
     private const int MaxRenewals = 10;
     private const int MaxReservationDurationHours = 24;
@@ -169,7 +170,8 @@ public class StockReservationService : IStockReservationService
         IStockLedger stockLedger,
         IInvoiceFiscalizationQueue fiscalizationQueue,
         INotificationService notificationService,
-        ILogger<StockReservationService> logger)
+        ILogger<StockReservationService> logger,
+        SapCircuitBreakerState? sapCircuit = null)
     {
         _dbContext = dbContext;
         _sapClient = sapClient;
@@ -179,6 +181,7 @@ public class StockReservationService : IStockReservationService
         _fiscalizationQueue = fiscalizationQueue;
         _notificationService = notificationService;
         _logger = logger;
+        _sapCircuit = sapCircuit;
     }
 
     /// <inheritdoc/>
@@ -283,6 +286,12 @@ public class StockReservationService : IStockReservationService
 
         decimal totalValue = 0;
         var explicitBatchQuantitiesInRequest = BuildExplicitBatchQuantityLookup(request.Lines);
+
+        // Vans whose stock was checked by this system's own count because SAP is down. Nothing below may
+        // ask SAP about their lines: the UoM and batch-management reads would fail or hang, and the
+        // reservation the sale is waiting on would never be made. Their batches are chosen when the
+        // invoice posts — see AllocateMissingBatchesAsync.
+        var localVans = await VansCheckedLocallyAsync(request.Lines.Select(line => line.WarehouseCode), cancellationToken);
         var autoBatchQuantitiesInRequest = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
         // Process each line and allocate batches
@@ -302,9 +311,11 @@ public class StockReservationService : IStockReservationService
                 CostCentreCode = lineRequest.CostCentreCode
             };
 
-            // Convert quantity to inventory UoM if needed
+            // Convert quantity to inventory UoM if needed. One-to-one for a van checked locally, which is
+            // what the conversion answers when it cannot reach SAP.
+            var checkedLocally = lineRequest.WarehouseCode is not null && localVans.Contains(lineRequest.WarehouseCode);
             decimal inventoryQuantity = lineRequest.Quantity;
-            if (!string.IsNullOrEmpty(lineRequest.UoMCode))
+            if (!string.IsNullOrEmpty(lineRequest.UoMCode) && !checkedLocally)
             {
                 var uomInfo = await _batchValidation.GetUoMConversionAsync(
                     lineRequest.ItemCode, lineRequest.UoMCode, null, cancellationToken);
@@ -323,6 +334,25 @@ public class StockReservationService : IStockReservationService
             }
             line.LineTotal = lineTotal;
             totalValue += lineTotal;
+
+            if (checkedLocally)
+            {
+                // Batches the handset named are kept as named; anything else is chosen at posting, when
+                // SAP can say what the van holds.
+                foreach (var batchReq in lineRequest.BatchNumbers ?? [])
+                {
+                    line.BatchAllocations.Add(new StockReservationBatchEntity
+                    {
+                        ItemCode = lineRequest.ItemCode,
+                        BatchNumber = batchReq.BatchNumber,
+                        WarehouseCode = lineRequest.WarehouseCode,
+                        ReservedQuantity = batchReq.Quantity
+                    });
+                }
+
+                reservation.Lines.Add(line);
+                continue;
+            }
 
             // Allocate batches for batch-managed items
             var isBatchManaged = await _batchValidation.IsBatchManagedItemAsync(lineRequest.ItemCode, cancellationToken);
@@ -694,6 +724,11 @@ public class StockReservationService : IStockReservationService
                     };
                 }
             }
+
+            // A reservation made while SAP was down carries no batches for the lines only SAP could
+            // allocate. SAP refuses the whole invoice without them, so they are chosen now, FEFO, as the
+            // other deferred routes choose theirs. Lines that have batches keep them.
+            await AllocateMissingBatchesAsync(reservation, invoiceRequest, cancellationToken);
 
             // After the lookup above, so an invoice already in SAP is adopted without touching its lines.
             var linked = baseOrder is not null
@@ -1293,12 +1328,27 @@ public class StockReservationService : IStockReservationService
         var errors = new List<StockReservationErrorDto>();
         var aggregateLines = new List<(CreateStockReservationLineRequest Line, decimal InventoryQuantity)>();
 
+        // While SAP is down a van is checked against what it is carrying by this system's own count
+        // instead: SAP cannot answer, and a van with no answer could not sell at all. See
+        // LoadVanStockLocallyAsync.
+        var (localVans, uncountedVans) = await LoadVanStockLocallyAsync(lines, cancellationToken);
+
+        bool IsCheckedLocally(string? warehouseCode) =>
+            warehouseCode is not null
+            && (localVans.ContainsKey(warehouseCode) || uncountedVans.Contains(warehouseCode));
+
         // One stock read per warehouse, for the item codes actually asked about. This used to be a
         // whole-warehouse read *per line*: GetStockQuantitiesInWarehouseAsync scans OITM joined to
         // OITW for every item in the warehouse and pages it 500 rows at a time, so a twenty-line
         // request against a five-thousand-item warehouse spent about 220 SAP round-trips answering
         // twenty single-item questions.
-        var stockByWarehouse = await LoadRequestedStockAsync(lines, cancellationToken);
+        var stockByWarehouse = await LoadRequestedStockAsync(
+            lines.Where(line => !IsCheckedLocally(line.WarehouseCode)).ToList(), cancellationToken);
+
+        foreach (var (warehouseCode, stock) in localVans)
+        {
+            stockByWarehouse[warehouseCode] = stock;
+        }
 
         // Available batches depend only on the item and warehouse, but were re-fetched once per
         // requested batch number, and again in the aggregate pass below.
@@ -1306,6 +1356,23 @@ public class StockReservationService : IStockReservationService
 
         foreach (var line in lines)
         {
+            if (line.WarehouseCode is not null && uncountedVans.Contains(line.WarehouseCode))
+            {
+                errors.Add(new StockReservationErrorDto
+                {
+                    ErrorCode = ReservationErrorCode.StockNotCounted,
+                    LineNumber = line.LineNum,
+                    ItemCode = line.ItemCode,
+                    WarehouseCode = line.WarehouseCode,
+                    RequestedQuantity = line.Quantity,
+                    AvailableQuantity = 0,
+                    Message = $"SAP is unavailable and van '{line.WarehouseCode}' has not filed today's opening "
+                        + "stock count, so what it is carrying cannot be checked.",
+                    SuggestedAction = "Submit the van's opening stock count, then try the sale again"
+                });
+                continue;
+            }
+
             var stockItem = FindRequestedStock(stockByWarehouse, line.WarehouseCode, line.ItemCode);
 
             if (stockItem == null)
@@ -1324,9 +1391,10 @@ public class StockReservationService : IStockReservationService
                 continue;
             }
 
-            // Convert quantity to inventory UoM
+            // Convert quantity to inventory UoM. Not for a van checked locally: the conversion asks SAP,
+            // which is down, and answers one-to-one when it cannot, which is what this uses.
             decimal inventoryQuantity = line.Quantity;
-            if (!string.IsNullOrEmpty(line.UoMCode))
+            if (!string.IsNullOrEmpty(line.UoMCode) && !IsCheckedLocally(line.WarehouseCode))
             {
                 var uomInfo = await _batchValidation.GetUoMConversionAsync(
                     line.ItemCode, line.UoMCode, null, cancellationToken);
@@ -1363,7 +1431,14 @@ public class StockReservationService : IStockReservationService
                 });
             }
 
-            // Validate batch-level availability for batch-managed items
+            // Validate batch-level availability for batch-managed items. Not for a van checked locally:
+            // this system does not know a van's batches, and the invoice allocates them from SAP when
+            // it posts.
+            if (IsCheckedLocally(line.WarehouseCode))
+            {
+                continue;
+            }
+
             var isBatchManaged = await _batchValidation.IsBatchManagedItemAsync(line.ItemCode, cancellationToken);
             if (isBatchManaged && line.BatchNumbers != null && line.BatchNumbers.Count > 0)
             {
@@ -1463,7 +1538,8 @@ public class StockReservationService : IStockReservationService
                 BatchNumber = batch.BatchNumber,
                 batch.Quantity
             }))
-            .Where(batchInfo => !string.IsNullOrWhiteSpace(batchInfo.BatchNumber))
+            .Where(batchInfo => !string.IsNullOrWhiteSpace(batchInfo.BatchNumber)
+                && !IsCheckedLocally(batchInfo.Line.WarehouseCode))
             .GroupBy(batchInfo => BuildReservationStockKey(
                 batchInfo.Line.ItemCode,
                 batchInfo.Line.WarehouseCode,
@@ -1513,6 +1589,193 @@ public class StockReservationService : IStockReservationService
         }
 
         return (errors.Count == 0, errors);
+    }
+
+    /// <summary>
+    /// While SAP is held back, the stock of each van in the request by this system's own count, and
+    /// the vans that have no count for the day.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A van's figure here is its opening count, plus loads, less the sales received today — the same
+    /// arithmetic as the stock-position endpoint — without the online sales whose reservation is still
+    /// holding stock, because the caller subtracts live holds itself. A van that has not counted is
+    /// refused rather than let through unchecked (decided 2026-09-28): the count is what makes the
+    /// figure worth trusting. So is a shortfall, as a till refuses one.
+    /// </para>
+    /// <para>
+    /// Vans only. A shop's stock lives on the stock ledger and a depot's in SAP, and both keep the SAP
+    /// read. With SAP up nothing changes: SAP is the authority, as before.
+    /// </para>
+    /// </remarks>
+    private async Task<(Dictionary<string, Dictionary<string, StockQuantityDto>> Counted, HashSet<string> Uncounted)>
+        LoadVanStockLocallyAsync(
+            List<CreateStockReservationLineRequest> lines,
+            CancellationToken cancellationToken)
+    {
+        var counted = new Dictionary<string, Dictionary<string, StockQuantityDto>>(StringComparer.OrdinalIgnoreCase);
+        var uncounted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (_sapCircuit is null || !_sapCircuit.ShouldHoldBackWork(out var reason))
+        {
+            return (counted, uncounted);
+        }
+
+        var tradingDate = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        foreach (var warehouseCode in await VansCheckedLocallyAsync(lines.Select(line => line.WarehouseCode), cancellationToken))
+        {
+            var position = await VanStockPosition.ReadAsync(
+                _dbContext, warehouseCode, tradingDate, leaveOutSalesStillHeld: true, cancellationToken);
+
+            if (!position.Counted)
+            {
+                uncounted.Add(warehouseCode);
+                continue;
+            }
+
+            var byItem = position.Items.ToDictionary(
+                item => item.ItemCode,
+                item => new StockQuantityDto
+                {
+                    ItemCode = item.ItemCode,
+                    ItemName = item.Description,
+                    WarehouseCode = warehouseCode,
+                    InStock = item.Quantity,
+                    Available = item.Quantity
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+            // An item the van neither counted nor was loaded with is one it does not carry: none left,
+            // rather than "not found", which would send the rep to check the item code.
+            foreach (var line in lines.Where(line =>
+                         string.Equals(line.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)))
+            {
+                byItem.TryAdd(line.ItemCode, new StockQuantityDto { ItemCode = line.ItemCode, WarehouseCode = warehouseCode });
+            }
+
+            counted[warehouseCode] = byItem;
+        }
+
+        if (counted.Count > 0 || uncounted.Count > 0)
+        {
+            _logger.LogInformation(
+                "Checking van stock by this system's own count ({Reason}): counted {Counted}, not counted {Uncounted}",
+                reason,
+                string.Join(", ", counted.Keys),
+                string.Join(", ", uncounted));
+        }
+
+        return (counted, uncounted);
+    }
+
+    /// <summary>
+    /// The van warehouses among <paramref name="warehouseCodes"/> whose stock is checked by this system's
+    /// own count, which is every van while SAP work is held back and none otherwise.
+    /// </summary>
+    private async Task<HashSet<string>> VansCheckedLocallyAsync(
+        IEnumerable<string?> warehouseCodes,
+        CancellationToken cancellationToken)
+    {
+        var vansCheckedLocally = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (_sapCircuit is null || !_sapCircuit.ShouldHoldBackWork(out _))
+        {
+            return vansCheckedLocally;
+        }
+
+        var vans = await VanWarehouses.LoadAsync(_dbContext, cancellationToken);
+
+        foreach (var code in warehouseCodes)
+        {
+            if (!string.IsNullOrWhiteSpace(code) && vans.ContainsKey(code))
+            {
+                vansCheckedLocally.Add(code);
+            }
+        }
+
+        return vansCheckedLocally;
+    }
+
+    /// <summary>
+    /// Chooses batches for the batch-managed lines of <paramref name="invoiceRequest"/> that carry none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only lines that would otherwise certainly be refused: batch-managed, with no selection. A
+    /// reservation made with SAP up has its batches from creation and none of its lines qualify, so
+    /// this changes nothing for it. The allocation runs on a copy holding just those lines, so a line
+    /// that already names its batches is neither read nor re-validated.
+    /// </para>
+    /// <para>
+    /// The reservation's own hold is disregarded, or its units would be netted off the very stock it
+    /// is about to issue. A failure is thrown worded by <see cref="InvoiceBatchAllocation.DescribeFailure"/>,
+    /// which the caller's transient test reads: an unreadable warehouse returns the reservation to
+    /// Pending for the queue to retry; a real shortfall fails it for a person, as a SAP refusal would.
+    /// </para>
+    /// </remarks>
+    internal async Task AllocateMissingBatchesAsync(
+        StockReservationEntity reservation,
+        CreateInvoiceRequest invoiceRequest,
+        CancellationToken cancellationToken)
+    {
+        var lines = invoiceRequest.Lines ?? [];
+        var needing = new List<int>();
+
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (lines[index].BatchNumbers is { Count: > 0 })
+            {
+                continue;
+            }
+
+            if (await _batchValidation.IsBatchManagedItemAsync(lines[index].ItemCode, cancellationToken))
+            {
+                needing.Add(index);
+            }
+        }
+
+        if (needing.Count == 0)
+        {
+            return;
+        }
+
+        var partial = new CreateInvoiceRequest
+        {
+            CardCode = invoiceRequest.CardCode,
+            DocCurrency = invoiceRequest.DocCurrency,
+            Lines = needing.Select(index => new CreateInvoiceLineRequest
+            {
+                ItemCode = lines[index].ItemCode,
+                Quantity = lines[index].Quantity,
+                UnitPrice = lines[index].UnitPrice,
+                WarehouseCode = lines[index].WarehouseCode,
+                UoMCode = lines[index].UoMCode
+            }).ToList()
+        };
+
+        BatchAllocationResult allocation;
+        using (_batchValidation.DisregardReservations([reservation.ReservationId]))
+        {
+            allocation = await InvoiceBatchAllocation.AllocateAsync(
+                _batchValidation, partial, BatchAllocationStrategy.FEFO, cancellationToken);
+        }
+
+        if (!allocation.IsValid)
+        {
+            throw new InvalidOperationException(
+                InvoiceBatchAllocation.DescribeFailure(allocation, $"reservation {reservation.ReservationId}"));
+        }
+
+        for (var position = 0; position < needing.Count; position++)
+        {
+            lines[needing[position]].BatchNumbers = partial.Lines![position].BatchNumbers;
+        }
+
+        _logger.LogInformation(
+            "Reservation {ReservationId} was made without batches for {Count} line(s); chose them at posting.",
+            reservation.ReservationId,
+            needing.Count);
     }
 
     private static Dictionary<string, decimal> BuildExplicitBatchQuantityLookup(

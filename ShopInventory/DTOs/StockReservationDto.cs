@@ -547,4 +547,10 @@ public static class ReservationErrorCode
     public const string LockConflict = "LOCK_CONFLICT";
     public const string SAPPostingFailed = "SAP_POSTING_FAILED";
     public const string ValidationFailed = "VALIDATION_FAILED";
+
+    /// <summary>
+    /// SAP is down and the van has filed no opening count for the day, so there is no figure to check
+    /// the sale against. The rep counts the van, and the sale can go through.
+    /// </summary>
+    public const string StockNotCounted = "STOCK_NOT_COUNTED";
 }

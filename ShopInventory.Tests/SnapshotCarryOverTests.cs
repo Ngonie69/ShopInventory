@@ -166,6 +166,89 @@ public sealed class SnapshotCarryOverTests : IDisposable
         Assert.Equal([Shop], outcome.UntrackedWarehouses);
     }
 
+    // ── Through a SAP outage ─────────────────────────────
+
+    [Fact]
+    public async Task A_shop_keeps_selling_through_a_sap_outage_that_explains_the_missed_mornings()
+    {
+        // The 07:00 fetch yesterday and today both failed because SAP was down from 08:00 yesterday on.
+        // Before, the second morning refused every sale at the till.
+        await SeedAsync(Today.AddDays(-2), Shop, StockSnapshotStatus.Complete, 10m);
+        await SeedAsync(Yesterday, Shop, StockSnapshotStatus.Failed);
+        await SeedAsync(Today, Shop, StockSnapshotStatus.Failed);
+        await GivenOutageAsync(startedCat: Yesterday.AddHours(8), endedCat: null);
+
+        var outcome = await Ledger().TryCommitAsync([Line(Shop, 3m)], "till sale", "desktop-sale:S-9");
+
+        Assert.True(outcome.Committed);
+        Assert.Empty(outcome.UntrackedWarehouses);
+        Assert.Equal(7m, await AvailableAsync(Today.AddDays(-2), Shop));
+
+        // Journalled under today, like any carried-over sale, so today's fetch takes it off the new rows.
+        Assert.Equal(Today, Assert.Single(await _context.StockMovements.AsNoTracking().ToListAsync()).LedgerDay);
+    }
+
+    [Fact]
+    public async Task The_till_is_offered_the_carried_stock_through_an_outage()
+    {
+        await SeedAsync(Today.AddDays(-3), Shop, StockSnapshotStatus.Complete, 10m);
+        await GivenOutageAsync(startedCat: Today.AddDays(-2).AddHours(6), endedCat: null);
+
+        var stock = await LocalStock().Handle(new GetLocalStockQuery(Shop), default);
+
+        Assert.False(stock.IsError);
+        Assert.Equal(Today.AddDays(-3), stock.Value.SnapshotDate);
+        Assert.Equal(10m, Assert.Single(stock.Value.Items).AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task An_outage_that_was_over_before_this_mornings_fetch_does_not_explain_the_gap()
+    {
+        // SAP came back yesterday afternoon, so today's fetch had every chance. A failure now is
+        // something else, and a person should see it.
+        await SeedAsync(Today.AddDays(-2), Shop, StockSnapshotStatus.Complete, 10m);
+        await GivenOutageAsync(startedCat: Yesterday.AddHours(6), endedCat: Yesterday.AddHours(15));
+
+        var outcome = await Ledger().TryCommitAsync([Line(Shop, 1m)], "till sale", null);
+
+        Assert.Equal([Shop], outcome.UntrackedWarehouses);
+    }
+
+    [Fact]
+    public async Task An_outage_that_began_after_the_first_missed_morning_does_not_explain_it()
+    {
+        // Yesterday's snapshot is missing, but SAP only went down at 06:30 today. The retry had all of
+        // yesterday, with SAP up, to fetch it, so the gap has another cause.
+        await SeedAsync(Today.AddDays(-2), Shop, StockSnapshotStatus.Complete, 10m);
+        await GivenOutageAsync(startedCat: Today.AddHours(6).AddMinutes(30), endedCat: null);
+
+        var outcome = await Ledger().TryCommitAsync([Line(Shop, 1m)], "till sale", null);
+
+        Assert.Equal([Shop], outcome.UntrackedWarehouses);
+    }
+
+    [Fact]
+    public async Task An_outage_does_not_reach_past_the_carry_over_limit()
+    {
+        await SeedAsync(Today.AddDays(-9), Shop, StockSnapshotStatus.Complete, 10m);
+        await GivenOutageAsync(startedCat: Today.AddDays(-8).AddHours(6), endedCat: null);
+
+        var outcome = await Ledger().TryCommitAsync([Line(Shop, 1m)], "till sale", null);
+
+        Assert.Equal([Shop], outcome.UntrackedWarehouses);
+    }
+
+    [Fact]
+    public async Task A_van_is_not_carried_through_an_outage_either()
+    {
+        await SeedAsync(Today.AddDays(-2), Van, StockSnapshotStatus.Complete, 10m);
+        await GivenOutageAsync(startedCat: Yesterday.AddHours(6), endedCat: null);
+
+        var outcome = await Ledger().TryCommitAsync([Line(Van, 1m)], "van sale", null);
+
+        Assert.Equal([Van], outcome.UntrackedWarehouses);
+    }
+
     /// <summary>
     /// The case journalling under today exists for. Had the first commit been journalled under
     /// yesterday, the duplicate check — which reads today — would not see it, and the retry would take
@@ -443,6 +526,22 @@ public sealed class SnapshotCarryOverTests : IDisposable
         }
 
         return snapshot;
+    }
+
+    private async Task GivenOutageAsync(DateTime startedCat, DateTime? endedCat)
+    {
+        var started = AuditService.FromCAT(startedCat);
+        var ended = endedCat is { } end ? AuditService.FromCAT(end) : (DateTime?)null;
+
+        _context.SapOutages.Add(new SapOutageEntity
+        {
+            StartedAtUtc = started,
+            DeclaredAtUtc = started.AddMinutes(2),
+            EndedAtUtc = ended,
+            Cause = SapOutageCauses.Unreachable,
+            LastProbeAtUtc = ended ?? DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
     }
 
     private async Task FinishAsync(DailyStockSnapshotEntity snapshot, decimal quantity)
