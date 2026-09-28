@@ -407,6 +407,9 @@ try
     // Add background service to preload cache on startup
     builder.Services.AddHostedService<CachePreloadService>();
 
+    // Trims the customer portal's security log, expired tokens and stale rate-limit counters daily.
+    builder.Services.AddHostedService<CustomerPortalRetentionService>();
+
     // Configure forwarded headers for IIS behind reverse proxy
     // This ensures the app correctly detects HTTPS scheme and client IP
     // when behind a load balancer or reverse proxy that terminates SSL
