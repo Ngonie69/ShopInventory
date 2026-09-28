@@ -1206,7 +1206,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             "StockTransfers",
             $"({warehouses}) and CreationDate ge '{createdFrom:yyyy-MM-dd}' and CreationDate le '{createdTo:yyyy-MM-dd}'",
             StockMovementTransferSelect,
-            "read stock transfers created for van warehouses",
+            $"read stock transfers created for {string.Join(", ", warehouseCodes)}",
             cancellationToken,
             NoDocumentListCeiling);
 

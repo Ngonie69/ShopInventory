@@ -138,7 +138,10 @@ public sealed class ProcessTransferEventHandler(
         int? docEntry, int? docNum, string? itemDescription,
         CancellationToken cancellationToken)
     {
-        // Check for duplicate adjustment
+        // Check for duplicate adjustment. Two writers put rows here: this handler, and a correction
+        // from SAP (StockLedgerDivergenceJob, the Refresh button) that read SAP's figure after SAP had
+        // booked this transfer and before the listener delivered it. That correction already holds the
+        // transfer and records it under this same key, so it is skipped here rather than taken twice.
         if (docEntry.HasValue)
         {
             var exists = await context.StockTransferAdjustments
@@ -153,7 +156,8 @@ public sealed class ProcessTransferEventHandler(
             if (exists)
             {
                 logger.LogInformation(
-                    "Duplicate transfer adjustment skipped: DocEntry={DocEntry}, Item={ItemCode}, WH={Warehouse}, Dir={Direction}",
+                    "Duplicate transfer adjustment skipped, already on the ledger by an earlier delivery or a "
+                    + "correction from SAP: DocEntry={DocEntry}, Item={ItemCode}, WH={Warehouse}, Dir={Direction}",
                     docEntry, itemCode, warehouseCode, direction);
                 return (null, false);
             }

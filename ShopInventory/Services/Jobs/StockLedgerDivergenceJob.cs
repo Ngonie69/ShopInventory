@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.Extensions.Options;
 using Quartz;
 using ShopInventory.Common.Stock;
@@ -152,6 +153,14 @@ public sealed class StockLedgerDivergenceJob(
                         settings.UnpostedSaleLookbackDays, logger, context.CancellationToken)
                     : [];
 
+                // SAP's transfers for the warehouse, also before the stock read: every one in this
+                // list is then inside the figure the correction moves to, so any the listener has not
+                // delivered yet can be recorded as delivered with it. See UndeliveredTransfers.
+                IReadOnlyList<BookedTransfer> booked = mayCorrect
+                    ? await UndeliveredTransfers.ReadAsync(
+                        sapClient, warehouseCode, ledgerDay, logger, context.CancellationToken)
+                    : [];
+
                 var sapStock = await sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
                     warehouseCode,
                     comparing.Keys,
@@ -222,7 +231,8 @@ public sealed class StockLedgerDivergenceJob(
                 if (targets.Count > 0)
                 {
                     corrected += await ApplyTargetsAsync(
-                        db, sapClient, ledgerDay, warehouseCode, targets, logger, context.CancellationToken);
+                        db, sapClient, ledgerDay, warehouseCode, targets, logger, context.CancellationToken,
+                        booked: booked);
                 }
             }
             catch (Exception ex)
@@ -236,7 +246,7 @@ public sealed class StockLedgerDivergenceJob(
 
                 // Whatever failed, this warehouse may have left half-applied corrections tracked.
                 // They must not ride along on the next warehouse's save.
-                DetachSnapshotRows(db);
+                DetachLedgerWrites(db);
             }
         }
 
@@ -269,7 +279,7 @@ public sealed class StockLedgerDivergenceJob(
                     logger.LogWarning(ex,
                         "Could not search {WarehouseCode} for stock that arrived without a snapshot row",
                         warehouseCode);
-                    DetachSnapshotRows(db);
+                    DetachLedgerWrites(db);
                 }
             }
         }
@@ -393,12 +403,16 @@ public sealed class StockLedgerDivergenceJob(
             db, warehouseCode, ledgerDay, settings.StockFetchTimeCAT,
             settings.UnpostedSaleLookbackDays, logger, cancellationToken);
 
+        // Before the SAP reads too, and read again rather than reused from the comparison: a transfer
+        // booked since then is in the figures below, and must be in this list to be recorded.
+        var booked = await UndeliveredTransfers.ReadAsync(sapClient, warehouseCode, ledgerDay, logger, cancellationToken);
+
         var batches = await sapClient.GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
         var warehouseStock = await sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
 
         return await AddArrivalsAsync(
             db, snapshot.Id, ledgerDay, warehouseCode, known, batches, warehouseStock, outstanding,
-            logger, cancellationToken);
+            logger, cancellationToken, booked);
     }
 
     /// <summary>
@@ -419,7 +433,8 @@ public sealed class StockLedgerDivergenceJob(
         IEnumerable<StockQuantityDto> warehouseStock,
         IReadOnlyDictionary<string, decimal> outstanding,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<BookedTransfer>? booked = null)
     {
         var arrivals = SnapshotComposer.Compose(batches, warehouseStock)
             .Rows
@@ -431,6 +446,11 @@ public sealed class StockLedgerDivergenceJob(
         {
             return 0;
         }
+
+        // An item with no row this morning most often arrives by transfer, and the webhook would put
+        // the same units on the row this adds. See ApplyTargetsAsync.
+        var undelivered = await UndeliveredTransfers.NotYetJournalledAsync(
+            db, warehouseCode, ledgerDay, booked ?? [], arrivals.Select(arrival => arrival.Key), cancellationToken);
 
         var added = 0;
 
@@ -472,8 +492,16 @@ public sealed class StockLedgerDivergenceJob(
 
             added++;
 
+            // The rows hold SAP's figure, so they hold every transfer SAP has booked into the
+            // warehouse for this item. Those the listener has not delivered are recorded as delivered.
+            var transfers = undelivered.GetValueOrDefault(arrival.Key);
+            var explained = transfers is { Count: > 0 }
+                ? UndeliveredTransfers.Record(db, ledgerDay, warehouseCode, transfers, 0m)
+                : 0m;
+
             // These rows open at zero by construction, so the movement is the whole of what the
-            // warehouse now holds — and the invariant covers a row that was born mid-day.
+            // warehouse now holds — and the invariant covers a row that was born mid-day. Less what
+            // the transfers above explain.
             StockMovementJournal.Append(
                 db,
                 ledgerDay,
@@ -481,7 +509,7 @@ public sealed class StockLedgerDivergenceJob(
                 documentKey: null,
                 arrival.Key,
                 warehouseCode,
-                arrived,
+                arrived - explained,
                 arrived,
                 "arrived in SAP with no row in today's snapshot");
 
@@ -493,13 +521,28 @@ public sealed class StockLedgerDivergenceJob(
 
         if (added > 0)
         {
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex)
+            {
+                // The webhook delivered one of the transfers recorded above while this was composing,
+                // and put a row of its own under the item. Standing down leaves that one in place; the
+                // next pass adds whatever is still missing.
+                logger.LogWarning(ex,
+                    "Stock arrivals for {WarehouseCode} were overtaken by a transfer delivery and were "
+                    + "not added; the next pass will look again",
+                    warehouseCode);
+                DetachLedgerWrites(db);
+                return 0;
+            }
         }
         else
         {
             // Rows were built and then netted away to nothing. They must not be left tracked, or the
             // next warehouse's save writes them.
-            DetachSnapshotRows(db);
+            DetachLedgerWrites(db);
         }
 
         return added;
@@ -518,6 +561,13 @@ public sealed class StockLedgerDivergenceJob(
     /// warehouse. Given, it is the whole answer — an item absent from it has no batches — and SAP is
     /// not asked again.
     /// </para>
+    ///
+    /// <para>
+    /// <paramref name="booked"/> is SAP's transfers for the warehouse, read before the stock figure the
+    /// targets came from. A target is SAP's figure, so it already includes every one of them; any the
+    /// listener has not delivered yet are recorded as delivered along with the correction, and the
+    /// webhook skips them when they arrive. See <see cref="UndeliveredTransfers"/>.
+    /// </para>
     /// </remarks>
     internal static async Task<int> ApplyTargetsAsync(
         ApplicationDbContext db,
@@ -527,8 +577,15 @@ public sealed class StockLedgerDivergenceJob(
         Dictionary<string, decimal> targets,
         ILogger logger,
         CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, List<BatchNumber>>? knownBatches = null)
+        IReadOnlyDictionary<string, List<BatchNumber>>? knownBatches = null,
+        IReadOnlyList<BookedTransfer>? booked = null)
     {
+        // Asked now rather than when SAP was read, so a delivery that landed in between is seen and
+        // left to stand. One that lands after this and before the save meets this pass's adjustment
+        // row on the unique key, and the pass stands down below.
+        var undelivered = await UndeliveredTransfers.NotYetJournalledAsync(
+            db, warehouseCode, ledgerDay, booked ?? [], targets.Keys, cancellationToken);
+
         var rowsByItem = (await db.DailyStockSnapshotItems
                 .Where(row => row.Snapshot.SnapshotDate == ledgerDay
                            && row.WarehouseCode == warehouseCode
@@ -593,9 +650,21 @@ public sealed class StockLedgerDivergenceJob(
 
             moved++;
 
+            // Transfers SAP has booked and the listener has not delivered are inside the target, so
+            // the rows now hold them. They are recorded as delivered, under the webhook's own key, so
+            // that its delivery is skipped rather than taking them a second time — but only when the
+            // rows reached the target. A correction the batch bounds cut short does not hold them all,
+            // and the webhook is left to apply them as it always has.
+            var transfers = undelivered.GetValueOrDefault(itemCode);
+            var reachedTarget = Math.Abs(current + applied - target) <= Tolerance;
+            var explained = transfers is { Count: > 0 } && reachedTarget
+                ? UndeliveredTransfers.Record(db, ledgerDay, warehouseCode, transfers, current) - current
+                : 0m;
+
             // A correction moves the balance with no document behind it, which is the one movement
             // a reader would otherwise have no way to account for: before this it was the difference
             // between two numbers nobody recorded. No key — see StockMovementKinds.Reconciliation.
+            // Only what the transfers above do not explain; nothing at all when they explain it all.
             StockMovementJournal.Append(
                 db,
                 ledgerDay,
@@ -603,14 +672,15 @@ public sealed class StockLedgerDivergenceJob(
                 documentKey: null,
                 itemCode,
                 warehouseCode,
-                applied,
+                applied - explained,
                 current + applied,
                 "reconciled to SAP less unposted till sales");
 
             logger.LogInformation(
                 "Stock ledger corrected {ItemCode} in {WarehouseCode} from {From} to {To} "
-                + "(SAP less unposted till sales)",
-                itemCode, warehouseCode, current, current + applied);
+                + "(SAP less unposted till sales); {Transfers} undelivered transfer(s) accounted for {Explained}",
+                itemCode, warehouseCode, current, current + applied,
+                reachedTarget ? transfers?.Count ?? 0 : 0, explained);
         }
 
         if (moved > 0)
@@ -619,21 +689,23 @@ public sealed class StockLedgerDivergenceJob(
             {
                 await db.SaveChangesAsync(cancellationToken);
             }
-            catch (DbUpdateConcurrencyException ex)
+            catch (DbUpdateException ex)
             {
-                // A till sold from one of these rows between the read and the write. Its figure is
-                // the newer one and the correction is an hour from being offered again, so this
-                // stands down rather than retrying over the top of a real sale.
+                // A till sold from one of these rows between the read and the write, or the transfer
+                // webhook delivered one of the transfers this pass was recording and the adjustment's
+                // unique key refused the second copy. Either way the rows have moved under this pass,
+                // its figure is the older one, and the correction is an hour from being offered again,
+                // so this stands down rather than writing over the top.
                 logger.LogWarning(ex,
                     "Stock ledger corrections for {WarehouseCode} were overtaken by a concurrent sale "
-                    + "and were not applied; the next pass will re-offer them",
+                    + "or transfer delivery and were not applied; the next pass will re-offer them",
                     warehouseCode);
 
                 // The refused rows are still sitting in the tracker, and every later save on this
                 // context — the divergence rows at the end of the run, and every warehouse after this
                 // one — would carry them along and fail on them again. Standing down means letting
                 // go of them, or the report is lost with the correction.
-                DetachSnapshotRows(db);
+                DetachLedgerWrites(db);
                 return 0;
             }
         }
@@ -797,7 +869,8 @@ public sealed class StockLedgerDivergenceJob(
         DateTime.TryParse(value, out var parsed) ? parsed : null;
 
     /// <summary>
-    /// Lets go of every snapshot row this pass had changed, leaving the divergence rows tracked.
+    /// Lets go of every snapshot row this pass had changed, and of the journal and transfer rows
+    /// written with them, leaving the divergence rows tracked.
     /// </summary>
     /// <remarks>
     /// The two things this job writes have to be able to fail apart. The divergence record is the
@@ -805,10 +878,22 @@ public sealed class StockLedgerDivergenceJob(
     /// be applied. Sharing one context means a row EF cannot save is retried on every later
     /// SaveChanges, so without this a single refused correction would take the whole run's reporting
     /// down with it, one warehouse at a time.
+    ///
+    /// <para>The journal and adjustment rows go too. They describe a correction that was not made, and
+    /// left tracked they would be saved with the divergence rows at the end of the run — a journal
+    /// entry for a movement that never happened, and a transfer marked delivered that the ledger does
+    /// not hold.</para>
     /// </remarks>
-    internal static void DetachSnapshotRows(ApplicationDbContext db)
+    internal static void DetachLedgerWrites(ApplicationDbContext db)
     {
-        foreach (var entry in db.ChangeTracker.Entries<DailyStockSnapshotItemEntity>().ToList())
+        var entries = db.ChangeTracker.Entries<DailyStockSnapshotItemEntity>().Cast<EntityEntry>()
+            .Concat(db.ChangeTracker.Entries<StockMovementEntity>()
+                .Where(entry => entry.State == EntityState.Added))
+            .Concat(db.ChangeTracker.Entries<StockTransferAdjustmentEntity>()
+                .Where(entry => entry.State == EntityState.Added))
+            .ToList();
+
+        foreach (var entry in entries)
         {
             entry.State = EntityState.Detached;
         }

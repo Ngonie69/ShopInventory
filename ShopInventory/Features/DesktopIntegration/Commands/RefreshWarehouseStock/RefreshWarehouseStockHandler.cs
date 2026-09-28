@@ -127,6 +127,11 @@ public sealed class RefreshWarehouseStockHandler(
             db, warehouseCode, ledgerDay, settings.StockFetchTimeCAT,
             settings.UnpostedSaleLookbackDays, logger, cancellationToken);
 
+        // Also before SAP's stock, so every transfer in it is inside the figures read below. A press
+        // between SAP booking a transfer and the listener delivering it would otherwise take the
+        // transfer with SAP's figure and again with the webhook. See UndeliveredTransfers.
+        var booked = await UndeliveredTransfers.ReadAsync(sapClient, warehouseCode, ledgerDay, logger, cancellationToken);
+
         List<BatchNumber> batches;
         List<StockQuantityDto> warehouseStock;
 
@@ -194,7 +199,7 @@ public sealed class RefreshWarehouseStockHandler(
         if (targets.Count > 0)
         {
             corrected = await StockLedgerDivergenceJob.ApplyTargetsAsync(
-                db, sapClient, ledgerDay, warehouseCode, targets, logger, cancellationToken, batchesByItem);
+                db, sapClient, ledgerDay, warehouseCode, targets, logger, cancellationToken, batchesByItem, booked);
         }
 
         var added = await StockLedgerDivergenceJob.AddArrivalsAsync(
@@ -207,7 +212,8 @@ public sealed class RefreshWarehouseStockHandler(
             warehouseStock,
             outstanding,
             logger,
-            cancellationToken);
+            cancellationToken,
+            booked);
 
         logger.LogInformation(
             "Stock for {WarehouseCode} refreshed from SAP by hand: {Checked} item(s) checked, "
