@@ -4435,6 +4435,7 @@ The health of this API's link to SAP, and the offline queue that holds documents
 |--------|----------|-------------|
 | GET | `/api/Sync/status` | The sync dashboard |
 | GET | `/api/Sync/sap-connection` | Whether SAP is reachable now |
+| GET | `/api/Sync/sap-availability` | Whether a SAP outage is declared, and the sales recorded since that SAP does not have yet (the staff banner) |
 | GET | `/api/Sync/health` | Health summary |
 | GET | `/api/Sync/queue` | Offline queue status |
 | GET | `/api/Sync/queue/status` | The same action on a second route |
