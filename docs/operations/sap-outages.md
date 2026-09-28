@@ -114,6 +114,20 @@ was up already has its batches and is not touched. If allocation fails, an unrea
 the reservation to Pending for the queue to retry, and a real shortfall fails it for a person, as a SAP
 refusal would.
 
+## Decided, and deliberately not built (2026-09-28)
+
+- **Van loading stays blocked while SAP is down.** The handset's `inventory/request` and
+  `inventory/confirm`, and the till's transfer requests, go straight to SAP and fail during an outage.
+  Pre-load vans generously when an outage is expected. Recording loads locally and posting them later
+  was considered and not built, because the outages seen so far have lasted hours.
+- **Month-end keeps the original date.** A sale that reaches SAP after its posting period has closed is
+  refused (`SapPostingPeriodException`), parks after its attempts, and is grouped in the Exception
+  Center as "posting period closed". Reopen the period, then use the Exception Center's batch retry.
+  Nothing re-dates a sale, so the SAP invoice keeps the date of its fiscal receipt.
+- **The desktop invoice and transfer routes** (`POST api/DesktopIntegration/invoices`,
+  `invoices/queued`, `transfers`, `transfers/queued`) have no caller in the Web app, the till or the van
+  handset, so they get no outage handling.
+
 ## Settings
 
 `SapAvailability` section. All keys are optional; the defaults are below.
