@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -197,7 +198,81 @@ public class WarehouseBatchSnapshotTests
         Assert.Equal(2, sap.ExecutedBatchQueries.Count);
     }
 
-    private static SAPServiceLayerClient CreateClient(RecordingServiceLayer sap)
+    // ── One read per warehouse at a time, and none without a deadline ───────
+
+    /// <summary>
+    /// The moment the two-minute snapshot expires, every catalogue view open on that warehouse finds
+    /// it missing at once. Each used to start its own whole-warehouse read, the kind that hangs.
+    /// </summary>
+    [Fact]
+    public async Task Catalogue_views_that_find_the_snapshot_missing_together_share_one_sap_read()
+    {
+        var sap = new RecordingServiceLayer { ListGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var client = CreateClient(sap);
+
+        var views = Enumerable.Range(0, 20)
+            .Select(_ => Task.Run(() => client.GetBatchNumbersForItemsInWarehouseAsync(
+                PageCodes, "SFX-SNAP", allowCachedSnapshot: true)))
+            .ToList();
+        await sap.FirstListArrived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(200);
+
+        sap.ListGate.SetResult();
+        var results = await Task.WhenAll(views);
+
+        Assert.Single(sap.ExecutedBatchQueries);
+        Assert.All(results, batches => Assert.Equal(PageCodes, batches.Select(batch => batch.ItemCode)));
+    }
+
+    [Fact]
+    public async Task Catalogue_pages_that_find_the_item_codes_missing_together_share_one_sap_read()
+    {
+        var sap = new RecordingServiceLayer { ListGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var client = CreateClient(sap);
+
+        var pages = Enumerable.Range(0, 20)
+            .Select(_ => Task.Run(() => client.GetPagedItemsInWarehouseAsync("SFX-CODES", 1, 50)))
+            .ToList();
+        await sap.FirstListArrived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(200);
+
+        sap.ListGate.SetResult();
+        await Task.WhenAll(pages);
+
+        Assert.Single(sap.ExecutedBatchQueries);
+    }
+
+    public static TheoryData<string> WholeWarehouseReads =>
+        ["batch snapshot", "batches by family", "item codes", "stock quantities"];
+
+    /// <summary>
+    /// A read SAP takes and never answers gives its slot back at the stock budget, as every other
+    /// stock read already did, rather than holding it for the five-minute client timeout.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(WholeWarehouseReads))]
+    public async Task A_whole_warehouse_read_that_sap_never_answers_gives_up_at_the_stock_budget(string read)
+    {
+        var sap = new RecordingServiceLayer { HangLists = true };
+        var client = CreateClient(sap, stockBudgetSeconds: 5);
+        var warehouse = "SFX-HANG-" + read.Replace(' ', '-').ToUpperInvariant();
+
+        Func<Task> call = read switch
+        {
+            "batch snapshot" => () => client.GetBatchNumbersForItemsInWarehouseAsync(PageCodes, warehouse, allowCachedSnapshot: true),
+            "batches by family" => () => client.GetBatchNumbersForItemsInWarehouseAsync(PageCodes, warehouse),
+            "item codes" => () => client.GetPagedItemsInWarehouseAsync(warehouse, 1, 50),
+            _ => () => client.GetPagedStockQuantitiesInWarehouseAsync(warehouse, 1, 50)
+        };
+
+        var clock = Stopwatch.StartNew();
+        var error = await Assert.ThrowsAsync<TimeoutException>(call);
+
+        Assert.Contains("5-second budget", error.Message, StringComparison.Ordinal);
+        Assert.InRange(clock.Elapsed, TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(20));
+    }
+
+    private static SAPServiceLayerClient CreateClient(RecordingServiceLayer sap, int stockBudgetSeconds = 60)
     {
         var httpClient = new HttpClient(sap)
         {
@@ -209,7 +284,12 @@ public class WarehouseBatchSnapshotTests
         return new SAPServiceLayerClient(
             httpClient,
             new SingleClientFactory(httpClient),
-            Options.Create(new SAPSettings { ServiceLayerUrl = "https://sap.invalid/b1s/v1/", Enabled = true }),
+            Options.Create(new SAPSettings
+            {
+                ServiceLayerUrl = "https://sap.invalid/b1s/v1/",
+                Enabled = true,
+                StockSqlRequestTimeoutSeconds = stockBudgetSeconds
+            }),
             new StubHostEnvironment(),
             NullLogger<SAPServiceLayerClient>.Instance,
             new MemoryCache(new MemoryCacheOptions()),
@@ -243,6 +323,15 @@ public class WarehouseBatchSnapshotTests
         /// </summary>
         public bool BatchQueryMissingAfterFirstPage { get; init; }
 
+        /// <summary>Holds every List read until released, so concurrent callers pile up behind it.</summary>
+        public TaskCompletionSource? ListGate { get; init; }
+
+        /// <summary>Completes when the first List read reaches SAP.</summary>
+        public TaskCompletionSource FirstListArrived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>SAP takes every List read and never answers it.</summary>
+        public bool HangLists { get; init; }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -259,26 +348,47 @@ public class WarehouseBatchSnapshotTests
             {
                 var body = await request.Content!.ReadAsStringAsync(cancellationToken);
                 var created = JsonDocument.Parse(body).RootElement;
-                CreatedCodes.Add(created.GetProperty("SqlCode").GetString()!);
-                CreatedStatements.Add(created.GetProperty("SqlText").GetString()!);
+                lock (CreatedCodes)
+                {
+                    CreatedCodes.Add(created.GetProperty("SqlCode").GetString()!);
+                    CreatedStatements.Add(created.GetProperty("SqlText").GetString()!);
+                }
+
                 return Json("{}", HttpStatusCode.Created);
+            }
+
+            if (path.Contains("/Items", StringComparison.Ordinal))
+            {
+                return Json("{\"value\":[]}");
             }
 
             if (path.EndsWith("/List", StringComparison.Ordinal))
             {
+                FirstListArrived.TrySetResult();
+
+                if (HangLists)
+                {
+                    await Task.Delay(Timeout.Infinite, cancellationToken);
+                }
+
+                if (ListGate is not null)
+                {
+                    await ListGate.Task.WaitAsync(cancellationToken);
+                }
+
                 var queryCode = ExtractQueryCode(path);
                 var isFirstPage = uri.Query.Contains("$skip=0", StringComparison.Ordinal) ||
                                   !uri.Query.Contains("$skip=", StringComparison.Ordinal);
 
                 if (BatchQueryMissing)
                 {
-                    ExecutedBatchQueries.Add(queryCode);
+                    lock (ExecutedBatchQueries) ExecutedBatchQueries.Add(queryCode);
                     return Json("{}", HttpStatusCode.NotFound);
                 }
 
                 if (isFirstPage)
                 {
-                    ExecutedBatchQueries.Add(queryCode);
+                    lock (ExecutedBatchQueries) ExecutedBatchQueries.Add(queryCode);
 
                     var rows = Rows(StatementFor(queryCode));
 
@@ -302,8 +412,11 @@ public class WarehouseBatchSnapshotTests
         /// <summary>The statement stored under a code, so a List read can honour its prefix filter.</summary>
         private string StatementFor(string queryCode)
         {
-            var index = CreatedCodes.LastIndexOf(queryCode);
-            return index < 0 ? string.Empty : CreatedStatements[index];
+            lock (CreatedCodes)
+            {
+                var index = CreatedCodes.LastIndexOf(queryCode);
+                return index < 0 ? string.Empty : CreatedStatements[index];
+            }
         }
 
         /// <summary>One row per stocked code the statement selects — all of them, or one family.</summary>

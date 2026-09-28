@@ -93,6 +93,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // codes say "in stock" while its batches say nothing is a page of items that silently vanish.
     private static readonly TimeSpan WarehouseBatchSnapshotLifetime = TimeSpan.FromMinutes(2);
 
+    // One load at a time per whole-warehouse cache key, shared by every caller that finds the entry
+    // missing. Static because this typed client is created per request, as the cache locks are.
+    private static readonly SingleFlight WarehouseReadsInFlight = new();
+
     // How many rows the U_OrderNumber duplicate probe pulls back. U_OrderNumber is meant to be
     // unique, so this only needs enough headroom to spot and report pre-existing duplicates.
     private const int DuplicateOrderProbePageSize = 5;
@@ -3362,9 +3366,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             return cachedItemCodes;
         }
 
-        var itemCodes = await QueryAllItemCodesInWarehouseAsync(warehouseCode, cancellationToken);
-        _memoryCache.Set(cacheKey, itemCodes, TimeSpan.FromMinutes(2));
-        return itemCodes;
+        return await WarehouseReadsInFlight.JoinAsync(cacheKey, async () =>
+        {
+            var itemCodes = await QueryAllItemCodesInWarehouseAsync(warehouseCode, CancellationToken.None);
+            _memoryCache.Set(cacheKey, itemCodes, TimeSpan.FromMinutes(2));
+            return itemCodes;
+        }, cancellationToken);
     }
 
     private async Task<List<string>> QueryAllItemCodesInWarehouseAsync(
@@ -3406,10 +3413,8 @@ ORDER BY T0.""ItemCode""";
                 return request;
             }
 
-            var response = await SendSapRequestWithTransientRetryAsync(
-                _httpClient,
+            var response = await SendStockRequestWithBudgetAsync(
                 CreateRequest,
-                HttpCompletionOption.ResponseContentRead,
                 $"read all item codes for warehouse {warehouseCode} from row {skip}",
                 cancellationToken);
 
@@ -3418,10 +3423,8 @@ ORDER BY T0.""ItemCode""";
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
                 response.Dispose();
 
-                response = await SendSapRequestWithTransientRetryAsync(
-                    _httpClient,
+                response = await SendStockRequestWithBudgetAsync(
                     CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
                     $"read all item codes for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
                     cancellationToken);
             }
@@ -4721,10 +4724,12 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
             return cached;
         }
 
-        var batches = await GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
-        _memoryCache.Set(cacheKey, batches, WarehouseBatchSnapshotLifetime);
-
-        return batches;
+        return await WarehouseReadsInFlight.JoinAsync(cacheKey, async () =>
+        {
+            var batches = await GetAllBatchNumbersInWarehouseAsync(warehouseCode, CancellationToken.None);
+            _memoryCache.Set(cacheKey, batches, WarehouseBatchSnapshotLifetime);
+            return batches;
+        }, cancellationToken);
     }
 
     private async Task<List<BatchNumber>> ExecuteBatchQueryAsync(
@@ -4751,10 +4756,8 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
             }
 
             var currentSession = _sessionId;
-            var response = await SendSapRequestWithTransientRetryAsync(
-                _httpClient,
+            var response = await SendStockRequestWithBudgetAsync(
                 CreateRequest,
-                HttpCompletionOption.ResponseContentRead,
                 $"read batch numbers for warehouse {warehouseCode} from row {skip}",
                 cancellationToken);
 
@@ -4763,10 +4766,8 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
                 response.Dispose();
 
-                response = await SendSapRequestWithTransientRetryAsync(
-                    _httpClient,
+                response = await SendStockRequestWithBudgetAsync(
                     CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
                     $"read batch numbers for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
                     cancellationToken);
             }
@@ -8365,10 +8366,8 @@ ORDER BY T1."WhsCode", T1."ItemCode"
         // loses nothing: everything the hand-rolled catches, the shared helper classifies as
         // transient too.
         var currentSession = _sessionId;
-        var response = await SendSapRequestWithTransientRetryAsync(
-            _httpClient,
+        var response = await SendStockRequestWithBudgetAsync(
             CreateRequest,
-            HttpCompletionOption.ResponseContentRead,
             $"read stock for warehouse {warehouseCode} from row {skip}",
             cancellationToken);
 
@@ -8377,10 +8376,8 @@ ORDER BY T1."WhsCode", T1."ItemCode"
             await HandleAuthFailureAsync(currentSession, cancellationToken);
             response.Dispose();
 
-            response = await SendSapRequestWithTransientRetryAsync(
-                _httpClient,
+            response = await SendStockRequestWithBudgetAsync(
                 CreateRequest,
-                HttpCompletionOption.ResponseContentRead,
                 $"read stock for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
                 cancellationToken);
         }
