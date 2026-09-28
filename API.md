@@ -2947,7 +2947,7 @@ already holds the fiscalised receipt and passes what it was given.
 | GET | `/api/DesktopIntegration/stock/monitored-warehouses` | Which warehouses are snapshotted |
 | PUT | `/api/DesktopIntegration/stock/monitored-warehouses` | Replace that list (Admin); body `{ "warehouses": [...] }`, never empty |
 | POST | `/api/DesktopIntegration/stock/fetch-daily` | Take today's snapshot now |
-| POST | `/api/DesktopIntegration/stock/{warehouseCode}/refresh` | Move a shop warehouse's ledger to SAP's figure now, less unposted till sales — for a GRPO the ledger never saw. Writes no movement rows; 409 for vans or no snapshot today |
+| POST | `/api/DesktopIntegration/stock/{warehouseCode}/refresh` | Shops: move the ledger to SAP's figure now, less unposted till sales — for a GRPO the ledger never saw; writes no movement rows. Vans: have TransferEventListener check SAP now so transfers since the morning load reach the ledger (`viaTransferListener`, `transfersApplied`/`Today`/`Pending`). A failed or missing snapshot is fetched again; 409 while one is being fetched or for an unmonitored warehouse |
 
 #### Transfers
 

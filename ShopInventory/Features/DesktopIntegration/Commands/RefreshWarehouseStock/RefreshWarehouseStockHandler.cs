@@ -2,6 +2,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Errors;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -32,11 +33,20 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// rows are moved and the change is logged. That is deliberate — a receipt is SAP's document, and
 /// this is only catching the ledger up with it.</para>
 ///
-/// <para><b>Refuses rather than guesses.</b> Vans and any warehouse outside
-/// <see cref="DailyStockSettings.ReconcileWarehouses"/> are refused, because a van's row is its
-/// morning load and correcting it destroys the van reconciliation. So is a snapshot still being
-/// fetched, and a SAP read that comes back empty — OITW holds a row for every item a warehouse has
-/// ever carried, so empty is a failed read, and acting on it would zero the shop.</para>
+/// <para><b>Vans are brought up to date by transfer, never by SAP's figure.</b> A van's row is its
+/// morning load plus the transfers since, and its sales come off only at end of day. SAP's book figure
+/// already has the day's online invoices taken off, so copying it would take those sales twice and
+/// destroy the van reconciliation. What a van misses after 07:00 is a load transfer, and the transfers
+/// are TransferEventListener's job: a van refresh makes the listener poll SAP now, through its own
+/// session, and deliver anything new to the transfer webhook, which moves the rows as it always does.
+/// That is every warehouse in <see cref="DailyStockSettings.MonitoredWarehouses"/> outside
+/// <see cref="DailyStockSettings.ReconcileWarehouses"/>. One check covers every van, not only the one
+/// pressed.</para>
+///
+/// <para><b>Refuses rather than guesses.</b> A warehouse that is not monitored at all is refused. So
+/// is a snapshot still being fetched, and a SAP read that comes back empty — OITW holds a row for
+/// every item a warehouse has ever carried, so empty is a failed read, and acting on it would zero the
+/// shop.</para>
 ///
 /// <para><b>A failed or missing snapshot is fetched again, not refused.</b> There are no rows to
 /// correct then, and the tills are selling from yesterday's snapshot meanwhile (see
@@ -52,6 +62,7 @@ public sealed class RefreshWarehouseStockHandler(
     IStockLedger ledger,
     IOptions<DailyStockSettings> dailyStock,
     FetchDailyStockHandler fetch,
+    ITransferEventListenerClient transferListener,
     ILogger<RefreshWarehouseStockHandler> logger
 ) : IRequestHandler<RefreshWarehouseStockCommand, ErrorOr<RefreshWarehouseStockResult>>
 {
@@ -63,22 +74,31 @@ public sealed class RefreshWarehouseStockHandler(
         CancellationToken cancellationToken)
     {
         var settings = dailyStock.Value;
+        var requested = command.WarehouseCode?.Trim();
         var warehouseCode = settings.ReconcileWarehouses.FirstOrDefault(code =>
-            string.Equals(code, command.WarehouseCode?.Trim(), StringComparison.OrdinalIgnoreCase));
+            string.Equals(code, requested, StringComparison.OrdinalIgnoreCase));
+
+        if (warehouseCode is null)
+        {
+            var van = settings.MonitoredWarehouses.FirstOrDefault(code =>
+                string.Equals(code, requested, StringComparison.OrdinalIgnoreCase));
+
+            if (van is null)
+            {
+                return Error.Conflict(
+                    "Stock.RefreshNotAllowed",
+                    $"{command.WarehouseCode} is not a warehouse this system keeps stock for "
+                    + "(DailyStock:MonitoredWarehouses), so there is nothing to refresh.");
+            }
+
+            return await RefreshVanAsync(van, cancellationToken);
+        }
 
         if (!settings.ReconcileLedgerAgainstSap)
         {
             return Error.Conflict(
                 "Stock.RefreshDisabled",
                 "Refreshing stock from SAP is switched off (DailyStock:ReconcileLedgerAgainstSap).");
-        }
-
-        if (warehouseCode is null)
-        {
-            return Error.Conflict(
-                "Stock.RefreshNotAllowed",
-                $"{command.WarehouseCode} cannot be refreshed from SAP. Only the shop warehouses in "
-                + "DailyStock:ReconcileWarehouses can be — a van's figure is its morning load.");
         }
 
         var ledgerDay = ledger.CurrentLedgerDay;
@@ -91,10 +111,7 @@ public sealed class RefreshWarehouseStockHandler(
 
         if (snapshot is { Status: StockSnapshotStatus.Pending })
         {
-            return Error.Conflict(
-                "Stock.FetchInProgress",
-                $"{warehouseCode}'s stock for {ledgerDay:dd MMM yyyy} is being fetched from SAP now. "
-                + "Wait for it to finish, then refresh.");
+            return FetchInProgress(warehouseCode, ledgerDay);
         }
 
         if (snapshot is not { Status: StockSnapshotStatus.Complete })
@@ -231,10 +248,7 @@ public sealed class RefreshWarehouseStockHandler(
 
         if (fetched.Status == "AlreadyRunning")
         {
-            return Error.Conflict(
-                "Stock.FetchInProgress",
-                $"{warehouseCode}'s stock for {ledgerDay:dd MMM yyyy} is being fetched from SAP now. "
-                + "Wait for it to finish, then refresh.");
+            return FetchInProgress(warehouseCode, ledgerDay);
         }
 
         logger.LogInformation(
@@ -245,4 +259,99 @@ public sealed class RefreshWarehouseStockHandler(
             warehouseCode, ledgerDay, 0, 0, 0, DateTime.UtcNow,
             SnapshotRefetched: true, RowsFetched: fetched.ItemCount);
     }
+
+    /// <summary>
+    /// Brings a van's rows up to date with the transfers SAP holds for it, by having
+    /// TransferEventListener poll now. See the remarks on this class.
+    /// </summary>
+    /// <remarks>
+    /// The rows are moved by the transfer webhook while the listener's check runs, not here, so the
+    /// counts are read from the adjustments journalled against the van before and after. The check
+    /// replays lines the listener was still holding too, which is what a van that stopped moving
+    /// mid-morning usually needs.
+    /// </remarks>
+    private async Task<ErrorOr<RefreshWarehouseStockResult>> RefreshVanAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var ledgerDay = ledger.CurrentLedgerDay;
+
+        var status = await db.DailyStockSnapshots
+            .AsNoTracking()
+            .Where(header => header.SnapshotDate == ledgerDay && header.WarehouseCode == warehouseCode)
+            .Select(header => (StockSnapshotStatus?)header.Status)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (status is StockSnapshotStatus.Pending)
+        {
+            return FetchInProgress(warehouseCode, ledgerDay);
+        }
+
+        // No morning load to put transfers on. The fetch reads SAP's figure, which already has them.
+        if (status is not StockSnapshotStatus.Complete)
+        {
+            return await RebuildSnapshotAsync(warehouseCode, ledgerDay, status is null, cancellationToken);
+        }
+
+        if (!transferListener.IsEnabled)
+        {
+            return Errors.DesktopIntegration.TransferListenerDisabled();
+        }
+
+        var before = await TransferLinesAsync(warehouseCode, ledgerDay, cancellationToken);
+
+        TransferListenerCheckResultDto check;
+        try
+        {
+            check = await transferListener.TriggerCheckAsync(cancellationToken);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The client's timeout, not the caller's. The listener's cycle runs about twenty seconds
+            // and carries on after this side stops waiting, so what it finds still reaches the van.
+            logger.LogWarning(
+                ex, "Refresh for {WarehouseCode}: TransferEventListener's check outlasted the client timeout",
+                warehouseCode);
+            return Error.Failure(
+                "Stock.TransferCheckTimedOut",
+                $"The transfer listener is still checking SAP for {warehouseCode}'s transfers. Anything it "
+                + "finds is applied when it finishes — load the stock again in a minute.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex, "Refresh for {WarehouseCode}: TransferEventListener's check failed against {BaseUrl}",
+                warehouseCode, transferListener.BaseUrl);
+            return Errors.DesktopIntegration.TransferListenerUnreachable(transferListener.BaseUrl, ex.Message);
+        }
+
+        var after = await TransferLinesAsync(warehouseCode, ledgerDay, cancellationToken);
+
+        logger.LogInformation(
+            "Stock for {WarehouseCode} refreshed through TransferEventListener: {Applied} transfer line(s) "
+            + "applied now, {Today} today; the check found {Detected} new line(s) across all warehouses "
+            + "and {Pending} still wait",
+            warehouseCode, after - before, after, check.MonitoredEventsDetected, check.PendingNotifications);
+
+        return new RefreshWarehouseStockResult(
+            warehouseCode, ledgerDay, 0, 0, 0, DateTime.UtcNow,
+            ViaTransferListener: true,
+            TransfersApplied: after - before,
+            TransfersToday: after,
+            TransfersPending: check.PendingNotifications);
+    }
+
+    /// <summary>Transfer lines the ledger has applied to the warehouse on <paramref name="ledgerDay"/>.</summary>
+    private Task<int> TransferLinesAsync(string warehouseCode, DateTime ledgerDay, CancellationToken cancellationToken)
+        => db.StockTransferAdjustments
+            .AsNoTracking()
+            .CountAsync(
+                adjustment => adjustment.SnapshotDate == ledgerDay && adjustment.WarehouseCode == warehouseCode,
+                cancellationToken);
+
+    private static Error FetchInProgress(string warehouseCode, DateTime ledgerDay) =>
+        Error.Conflict(
+            "Stock.FetchInProgress",
+            $"{warehouseCode}'s stock for {ledgerDay:dd MMM yyyy} is being fetched from SAP now. "
+            + "Wait for it to finish, then refresh.");
 }

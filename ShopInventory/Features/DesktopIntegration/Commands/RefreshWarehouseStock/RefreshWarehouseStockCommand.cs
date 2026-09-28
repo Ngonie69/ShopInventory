@@ -13,6 +13,9 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// at 07:00 and has not sold since stays at its morning figure until tomorrow however much arrives.
 /// This asks about every item in the warehouse. It records nothing about the receipt itself: the
 /// ledger rows are moved to SAP's figure and no movement or divergence row is written.
+///
+/// A van is refreshed differently: its row is its morning load plus the day's transfers, so the
+/// refresh has TransferEventListener check SAP for transfers now instead of copying SAP's figure.
 /// </remarks>
 public sealed record RefreshWarehouseStockCommand(string WarehouseCode)
     : IRequest<ErrorOr<RefreshWarehouseStockResult>>;
@@ -28,6 +31,16 @@ public sealed record RefreshWarehouseStockCommand(string WarehouseCode)
 /// corrected. The three counts above are zero then; <paramref name="RowsFetched"/> says what arrived.
 /// </param>
 /// <param name="RowsFetched">Snapshot rows the fetch wrote, when <paramref name="SnapshotRefetched"/>.</param>
+/// <param name="ViaTransferListener">
+/// A van, brought up to date by TransferEventListener's check rather than by SAP's figure. The three
+/// item counts are zero then; the transfer counts below say what happened.
+/// </param>
+/// <param name="TransfersApplied">Transfer lines applied to the warehouse during this refresh.</param>
+/// <param name="TransfersToday">Transfer lines applied to the warehouse on <paramref name="LedgerDay"/>, these included.</param>
+/// <param name="TransfersPending">
+/// Lines, for any warehouse, the listener still holds undelivered after its check. Not zero means some
+/// transfer is not on the ledger yet.
+/// </param>
 public sealed record RefreshWarehouseStockResult(
     string WarehouseCode,
     DateTime LedgerDay,
@@ -36,4 +49,8 @@ public sealed record RefreshWarehouseStockResult(
     int ItemsAdded,
     DateTime RefreshedAt,
     bool SnapshotRefetched = false,
-    int RowsFetched = 0);
+    int RowsFetched = 0,
+    bool ViaTransferListener = false,
+    int TransfersApplied = 0,
+    int TransfersToday = 0,
+    int TransfersPending = 0);

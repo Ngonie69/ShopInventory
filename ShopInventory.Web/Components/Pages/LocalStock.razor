@@ -274,11 +274,13 @@
                 </div>
                 @* Today's ledger only, and one warehouse at a time: it re-reads every item in
                    the warehouse from SAP, which is what a goods receipt PO needs and what the
-                   hourly pass deliberately does not do. *@
+                   hourly pass deliberately does not do. A van is not re-read: the API has the
+                   transfer listener check SAP for transfers instead, since a van's figure is its
+                   morning load plus the day's transfers. *@
                 <div class="lst-field">
                     <span class="lst-label">&nbsp;</span>
                     <button type="button" class="lst-btn lst-btn-quiet"
-                            title="Re-read this warehouse's quantities from SAP now, less till sales SAP has not received yet. A failed snapshot is fetched again."
+                            title="Shops: re-read the quantities from SAP now, less till sales SAP has not received yet. Vans: pick up transfers made since the morning load. A failed snapshot is fetched again."
                             disabled="@(isRefreshing || isLoading || string.IsNullOrEmpty(selectedWarehouse))"
                             @onclick="RefreshFromSap">
                         @if (isRefreshing)
@@ -897,6 +899,23 @@
                 Snackbar.Add(error ?? "The refresh failed.", Severity.Error);
 
                 // A failed re-fetch records its reason on the snapshot; reload so the page shows it.
+                await LoadStock();
+                return;
+            }
+
+            if (result.ViaTransferListener)
+            {
+                Snackbar.Add(
+                    (result.TransfersApplied == 0
+                        ? $"No new transfers for {result.WarehouseCode} "
+                        : $"{result.TransfersApplied:N0} new transfer line(s) applied to {result.WarehouseCode} ")
+                    + $"({result.TransfersToday:N0} today)"
+                    + (result.TransfersPending > 0
+                        ? $". {result.TransfersPending:N0} transfer line(s) are still waiting at the transfer listener."
+                        : ""),
+                    result.TransfersPending > 0 ? Severity.Warning : Severity.Success);
+
+                snapshotDate = result.LedgerDay;
                 await LoadStock();
                 return;
             }
