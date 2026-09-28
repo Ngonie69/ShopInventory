@@ -28,7 +28,11 @@ public sealed record LocalStockItemDto(
     decimal AvailableQuantity,
     decimal OriginalQuantity,
     decimal TransferAdjustment,
-    List<LocalStockBatchDto> Batches
+    List<LocalStockBatchDto> Batches,
+    // Units sales took off the item today, net of returns: the stock ledger's Commit, Settle and
+    // Release movements for the snapshot day. Original + TransferAdjustment - SoldToday is In stock
+    // unless something outside the sales ledger moved the row (an hourly SAP correction, a refresh).
+    decimal SoldToday = 0
 );
 
 public sealed record LocalStockBatchDto(

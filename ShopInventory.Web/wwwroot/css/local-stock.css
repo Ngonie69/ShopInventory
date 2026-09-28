@@ -86,8 +86,8 @@
     --lst-r-md: var(--noct-r-md);
     --lst-r-lg: var(--noct-r-lg);
 
-    /* The item grid's seven columns — this page's own, not the system's. */
-    --lst-cols: 26px 150px minmax(0, 1fr) 116px 116px 116px 84px;
+    /* The item grid's eight columns — this page's own, not the system's. */
+    --lst-cols: 26px 150px minmax(0, 1fr) 108px 108px 108px 108px 84px;
 
     color-scheme: var(--lst-scheme);
 }
@@ -675,7 +675,7 @@
 }
 
 .lst-grid {
-    min-width: 940px;
+    min-width: 1020px;
 }
 
 .lst-thead,
@@ -792,6 +792,12 @@
 
 .lst-adj-nil {
     color: var(--lst-faint);
+}
+
+/* Sold today is what takes In stock below Original + Adjustment. It is the row's
+   arithmetic, not a warning, so it reads in ink rather than a family colour. */
+.lst-sold {
+    color: var(--lst-ink-2);
 }
 
 .lst-batches {

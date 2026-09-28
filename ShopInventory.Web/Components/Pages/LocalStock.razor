@@ -502,6 +502,7 @@
                                 <span role="columnheader" class="lst-n">In stock</span>
                                 <span role="columnheader" class="lst-n">Original</span>
                                 <span role="columnheader" class="lst-n">Adjustment</span>
+                                <span role="columnheader" class="lst-n">Sold today</span>
                                 <span role="columnheader" class="lst-batches">Batches</span>
                             </div>
 
@@ -533,6 +534,9 @@
                                     </span>
                                     <span class="lst-n @GetAdjClass(adj)" role="cell">
                                         <span class="lst-rl">Adjustment</span>@(adj > 0 ? "+" : "")@QuantityDisplay.Format(Math.Abs(adj))
+                                    </span>
+                                    <span class="lst-n @(item.SoldToday == 0 ? "lst-adj-nil" : "lst-sold")" role="cell">
+                                        <span class="lst-rl">Sold today</span>@QuantityDisplay.Format(item.SoldToday)
                                     </span>
                                     <span class="lst-batches" role="cell">
                                         <span class="lst-rl">Batches</span>@item.Batches.Count

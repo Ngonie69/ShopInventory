@@ -1267,6 +1267,9 @@ public class LocalStockItemDto
     public decimal AvailableQuantity { get; set; }
     public decimal OriginalQuantity { get; set; }
     public decimal TransferAdjustment { get; set; }
+
+    /// <summary>Units sales took off the item on the snapshot day, net of returns.</summary>
+    public decimal SoldToday { get; set; }
     public List<LocalStockBatchDto> Batches { get; set; } = new();
 }
 
