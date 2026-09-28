@@ -97,6 +97,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // missing. Static because this typed client is created per request, as the cache locks are.
     private static readonly SingleFlight WarehouseReadsInFlight = new();
 
+    // One probe-and-create per SQL query code and statement at a time; see EnsureSqlQueryAsync.
+    private static readonly SingleFlight SqlQueryProvisioning = new();
+
     // How many rows the U_OrderNumber duplicate probe pulls back. U_OrderNumber is meant to be
     // unique, so this only needs enough headroom to spot and report pre-existing duplicates.
     private const int DuplicateOrderProbePageSize = 5;
@@ -5063,9 +5066,38 @@ ORDER BY T0."DistNumber"
     /// method, and the codes are content-addressed, so a confirmed pairing cannot go stale on its
     /// own. Without the memo every SQL-backed call cost a GET before its execute, which for the
     /// typical single-page report or stock query doubled the SAP round-trips.
+    ///
+    /// <para>
+    /// Callers that arrive together before the pairing is established share one probe and one
+    /// create (<see cref="SqlQueryProvisioning"/>). Each used to run its own: a first POST against
+    /// the oversized OUQR takes 30 to 40 seconds, so the second caller's probe still found nothing,
+    /// its POST met "entry already exists", and it PATCHed the object the first had just written.
+    /// The shared run ignores any one caller's token, as a stock read's provisioning already sat
+    /// outside its budget: a create cut off part-way leaves SAP committing an object the next
+    /// caller then tries to create again.
+    /// </para>
     /// </remarks>
     private async Task EnsureSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken)
     {
+        if (IsSqlQueryVerified(queryCode, sqlText))
+        {
+            return;
+        }
+
+        await SqlQueryProvisioning.JoinAsync(
+            $"{queryCode}|{ComputeSqlFingerprint(sqlText)}",
+            async () =>
+            {
+                await ProvisionSqlQueryAsync(queryCode, queryName, sqlText, CancellationToken.None);
+                return true;
+            },
+            cancellationToken);
+    }
+
+    /// <summary>The probe, and the create or repair it calls for, behind <see cref="EnsureSqlQueryAsync"/>.</summary>
+    private async Task ProvisionSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken)
+    {
+        // A run that finished just before this one started has already done the work.
         if (IsSqlQueryVerified(queryCode, sqlText))
         {
             return;
