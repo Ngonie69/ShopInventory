@@ -94,8 +94,20 @@ outage goes back on the shelf.
 ## Van sales while SAP is down
 
 An online van sale reserves its stock before the receipt is signed, and the reservation used to read
-SAP for the van's stock. During an outage every van sale failed there. While background SAP work is
-held back (`ShouldHoldBackWork`), the reservation now checks a van against this system's own count:
+SAP for the van's stock. During an outage every van sale failed there. The reservation now checks a
+van against this system's own count in either of two cases:
+
+- **SAP work is held back** (`ShouldHoldBackWork`): switched off, a declared outage, or this node's
+  circuit open.
+- **SAP did not answer this request's stock read**: a timeout, a dropped connection or an open circuit
+  (`SapFailureClassifier.IsTransient`), when every line that went to SAP is for a van. The probe only
+  pings, and a Service Layer that answers a ping can leave the stock query hanging for its whole
+  60-second budget, so no outage is ever declared. Until 2026-09-28 every van sale then failed with a
+  504 ("a downstream service did not respond in time") with nothing signed. A request that also names
+  a depot or shop still fails, since their stock is only in SAP. A refusal from SAP is SAP answering,
+  and is not rescued. The API logs `SAP did not answer the stock read for van(s) …` each time.
+
+Either way:
 
 - **The figure.** The van's opening count, plus loads, less today's sales. It is the same arithmetic as
   `GET /api/vansales/stock/position` (`VanStockPosition`), with one difference: online sales whose

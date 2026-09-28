@@ -154,6 +154,129 @@ public sealed class VanStockCheckedLocallyTests : IDisposable
         Assert.Equal(1, _sapStockReads);
     }
 
+    // ── SAP not answering, before anyone has declared it down ─────
+
+    /// <summary>
+    /// The probe only pings SAP, so a Service Layer that answers a ping and leaves the stock query hanging
+    /// is never declared down. Every van sale then ran out the stock read's budget and came back to the
+    /// rep as a 504 — "a downstream service did not respond in time" — with nothing signed.
+    /// </summary>
+    [Fact]
+    public async Task When_sap_does_not_answer_the_stock_read_a_counted_van_is_checked_by_its_own_count()
+    {
+        await GivenOpeningCountAsync(10m);
+
+        var (valid, errors) = await Service(sapFails: SapReadTimedOut())
+            .ValidateStockAvailabilityAsync([Line(Van, 4m)]);
+
+        Assert.True(valid, string.Join("; ", errors.Select(e => e.Message)));
+        Assert.Equal(1, _sapStockReads);
+    }
+
+    [Fact]
+    public async Task When_sap_does_not_answer_a_sale_the_van_cannot_cover_is_still_refused()
+    {
+        await GivenOpeningCountAsync(10m);
+        await GivenSaleTodayAsync("VAN5-OFFLINE-2", SaleSourceSystems.VanSales, 7m);
+
+        var (valid, errors) = await Service(sapFails: SapReadTimedOut())
+            .ValidateStockAvailabilityAsync([Line(Van, 4m)]);
+
+        Assert.False(valid);
+        var error = Assert.Single(errors);
+        Assert.Equal(ReservationErrorCode.InsufficientStock, error.ErrorCode);
+        Assert.Equal(3m, error.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task When_sap_does_not_answer_a_van_that_has_not_counted_is_refused_with_a_reason_it_can_act_on()
+    {
+        var (valid, errors) = await Service(sapFails: SapReadTimedOut())
+            .ValidateStockAvailabilityAsync([Line(Van, 1m)]);
+
+        Assert.False(valid);
+        Assert.Equal(ReservationErrorCode.StockNotCounted, Assert.Single(errors).ErrorCode);
+    }
+
+    /// <summary>
+    /// The stock check passing is not the sale going through: the reservation behind it asked SAP again,
+    /// for the UoM and whether each item is batch-managed, and would wait out the same silence.
+    /// </summary>
+    [Fact]
+    public async Task When_sap_does_not_answer_the_van_reservation_is_made_without_asking_sap_again()
+    {
+        await GivenOpeningCountAsync(10m);
+
+        var created = await Service(
+                sapFails: SapReadTimedOut(),
+                batchValidation: StubProxy.Unused<IBatchInventoryValidationService>())
+            .CreateReservationAsync(new CreateStockReservationRequest
+            {
+                ExternalReferenceId = "VAN5-ONLINE-10",
+                SourceSystem = SaleSourceSystems.VanSales,
+                CardCode = "VAN010",
+                Currency = "USD",
+                ReservationDurationMinutes = 60,
+                Lines = [Line(Van, 4m, uom: "CS")]
+            }, "van5");
+
+        Assert.True(created.Success, created.Message + " " + string.Join("; ", created.Errors?.Select(e => e.Message) ?? []));
+        var line = Assert.Single(Assert.Single(await _context.StockReservations.Include(r => r.Lines).ThenInclude(l => l.BatchAllocations).ToListAsync()).Lines);
+        Assert.Equal(4m, line.ReservedQuantity);
+        Assert.Empty(line.BatchAllocations);
+        Assert.Equal(1, _sapStockReads);
+    }
+
+    [Fact]
+    public async Task When_sap_does_not_answer_a_warehouse_that_is_not_a_van_still_fails()
+    {
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            Service(sapFails: SapReadTimedOut()).ValidateStockAvailabilityAsync([Line("KEFGRS", 4m)]));
+    }
+
+    /// <summary>
+    /// A van line cannot carry a depot line through: the depot's stock is only in SAP.
+    /// </summary>
+    [Fact]
+    public async Task When_sap_does_not_answer_a_request_mixing_a_van_with_another_warehouse_still_fails()
+    {
+        await GivenOpeningCountAsync(10m);
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            Service(sapFails: SapReadTimedOut()).ValidateStockAvailabilityAsync(
+                [Line(Van, 1m), Line("KEFGRS", 1m, lineNum: 2)]));
+    }
+
+    /// <summary>
+    /// SAP answering with a refusal is SAP being up. The van's own count stands in for an answer that did
+    /// not come, never for one that did.
+    /// </summary>
+    [Fact]
+    public async Task When_sap_answers_with_an_error_the_van_is_not_checked_by_its_own_count()
+    {
+        await GivenOpeningCountAsync(10m);
+
+        await Assert.ThrowsAsync<SapRequestRejectedException>(() =>
+            Service(sapFails: new SapRequestRejectedException(
+                    "read stock", System.Net.HttpStatusCode.BadRequest, "Invalid SQL query"))
+                .ValidateStockAvailabilityAsync([Line(Van, 4m)]));
+    }
+
+    [Fact]
+    public async Task A_caller_that_gives_up_is_not_read_as_sap_failing_to_answer()
+    {
+        await GivenOpeningCountAsync(10m);
+        using var gaveUp = new CancellationTokenSource();
+        await gaveUp.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Service(sapFails: new OperationCanceledException(gaveUp.Token))
+                .ValidateStockAvailabilityAsync([Line(Van, 4m)], null, gaveUp.Token));
+    }
+
+    private static TimeoutException SapReadTimedOut() =>
+        new("SAP stock read exceeded its 60-second budget (read stock for warehouse VAN005 from row 0).");
+
     // ── Making the reservation, and posting it later ─────
 
     /// <summary>
@@ -305,12 +428,13 @@ public sealed class VanStockCheckedLocallyTests : IDisposable
 
     private StockReservationService Service(
         decimal sapInStock = 0m,
-        IBatchInventoryValidationService? batchValidation = null) => new(
+        IBatchInventoryValidationService? batchValidation = null,
+        Exception? sapFails = null) => new(
         _context,
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetStockQuantitiesForItemsInWarehouseAsync) => ReadSap(
-                (string)args![0]!, (IEnumerable<string>)args[1]!, sapInStock),
+                (string)args![0]!, (IEnumerable<string>)args[1]!, sapInStock, sapFails),
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
         }),
         batchValidation ?? StubProxy.For<IBatchInventoryValidationService>((method, _) => method.Name switch
@@ -325,18 +449,25 @@ public sealed class VanStockCheckedLocallyTests : IDisposable
         NullLogger<StockReservationService>.Instance,
         new SapCircuitBreakerState(Options.Create(new SAPSettings()), null, _availability));
 
-    private Task<List<StockQuantityDto>> ReadSap(string warehouse, IEnumerable<string> items, decimal inStock)
+    private Task<List<StockQuantityDto>> ReadSap(
+        string warehouse, IEnumerable<string> items, decimal inStock, Exception? fails)
     {
         _sapStockReads++;
+
+        if (fails is not null)
+        {
+            return Task.FromException<List<StockQuantityDto>>(fails);
+        }
+
         return Task.FromResult(items
             .Select(item => new StockQuantityDto { ItemCode = item, WarehouseCode = warehouse, InStock = inStock })
             .ToList());
     }
 
     private static CreateStockReservationLineRequest Line(
-        string warehouse, decimal quantity, string item = Item, string? uom = null) => new()
+        string warehouse, decimal quantity, string item = Item, string? uom = null, int lineNum = 1) => new()
     {
-        LineNum = 1,
+        LineNum = lineNum,
         ItemCode = item,
         WarehouseCode = warehouse,
         Quantity = quantity,
