@@ -18,6 +18,7 @@ public class RevmaxClient : IRevmaxClient
     private readonly HttpClient _httpClient;
     private readonly RevmaxSettings _settings;
     private readonly ILogger<RevmaxClient> _logger;
+    private readonly RevmaxReachability _reachability;
     private readonly JsonSerializerOptions _jsonOptions;
 
     // HTTP status codes that should trigger retry
@@ -34,11 +35,13 @@ public class RevmaxClient : IRevmaxClient
     public RevmaxClient(
         HttpClient httpClient,
         IOptions<RevmaxSettings> settings,
-        ILogger<RevmaxClient> logger)
+        ILogger<RevmaxClient> logger,
+        RevmaxReachability? reachability = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _reachability = reachability ?? new RevmaxReachability();
 
         // Configure HttpClient
         _httpClient.BaseAddress = new Uri(_settings.BaseUrl.TrimEnd('/') + "/");
@@ -152,8 +155,13 @@ public class RevmaxClient : IRevmaxClient
     private async Task<T?> GetWithRetryAsync<T>(string endpoint, CancellationToken cancellationToken)
         where T : class
     {
-        var response = await ExecuteWithRetryAsync(
-            () => _httpClient.GetAsync(endpoint, cancellationToken),
+        if (_reachability.RefusingUntil is { } until)
+        {
+            throw new RevmaxUnreachableException(until);
+        }
+
+        var response = await AnsweredOrMarkedAsync(
+            () => ExecuteWithRetryAsync(() => _httpClient.GetAsync(endpoint, cancellationToken), cancellationToken),
             cancellationToken);
 
         response.EnsureSuccessStatusCode();
@@ -193,7 +201,9 @@ public class RevmaxClient : IRevmaxClient
         // second fiscal receipt for one invoice, which can only be undone with a manual credit note.
         // One attempt; an indeterminate outcome is reconciled by asking GetInvoice what happened, in
         // RevmaxFiscalizationService.
-        var response = await _httpClient.PostAsync(endpoint, jsonContent, cancellationToken);
+        var response = await AnsweredOrMarkedAsync(
+            () => _httpClient.PostAsync(endpoint, jsonContent, cancellationToken),
+            cancellationToken);
 
         response.EnsureSuccessStatusCode();
 
@@ -262,19 +272,9 @@ public class RevmaxClient : IRevmaxClient
 
                 await Task.Delay(delay, cancellationToken);
             }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && attempt < maxRetries)
-            {
-                // Timeout - retry
-                lastException = ex;
-                var delayIndex = Math.Min(attempt, delays.Length - 1);
-                var delay = delays[delayIndex];
-
-                _logger.LogWarning(
-                    "Request timed out. Retrying in {Delay}ms (attempt {Attempt}/{MaxRetries})",
-                    delay, attempt + 1, maxRetries);
-
-                await Task.Delay(delay, cancellationToken);
-            }
+            // A timeout is not retried. The device held the request for the whole client timeout (90
+            // seconds), so asking again is another full wait, and a hung device used to cost six minutes
+            // per lookup this way. RevmaxReachability then refuses reads for a minute.
         }
 
         // All retries exhausted
@@ -289,6 +289,32 @@ public class RevmaxClient : IRevmaxClient
         }
 
         throw new InvalidOperationException("Unexpected retry loop exit");
+    }
+
+    /// <summary>
+    /// Sends a request and records in <see cref="RevmaxReachability"/> whether the device answered.
+    /// </summary>
+    private async Task<HttpResponseMessage> AnsweredOrMarkedAsync(
+        Func<Task<HttpResponseMessage>> send,
+        CancellationToken cancellationToken)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await send();
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && RevmaxReachability.IsNoAnswer(ex))
+        {
+            _reachability.MarkUnreachable();
+            _logger.LogWarning(
+                "REVMax did not answer ({Error}); reads are refused for the next {Seconds} seconds.",
+                ex.GetBaseException().Message,
+                (int)RevmaxReachability.Cooldown.TotalSeconds);
+            throw;
+        }
+
+        _reachability.MarkAnswered();
+        return response;
     }
 
     private static bool ShouldRetry(HttpStatusCode statusCode)
