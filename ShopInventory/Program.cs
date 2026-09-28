@@ -241,6 +241,10 @@ try
     // Registered ahead of the Quartz scheduler, so a node reads the SAP switch before any job can post.
     builder.Services.AddSingleton<SapConnectionSwitch>();
     builder.Services.AddHostedService<SapConnectionSwitchRefresher>();
+    // The cluster's record of SAP outages, read before any job can post for the same reason.
+    builder.Services.AddSingleton<SapAvailability>();
+    builder.Services.AddHostedService<SapAvailabilityRefresher>();
+    builder.Services.AddScoped<SapAvailabilityProbe>();
     builder.Services.AddSingleton<SapCircuitBreakerState>();
     // Retained as a Postgres advisory-lock primitive used by the price-catalog sync command
     // handlers to prevent concurrent syncs (a scheduled Quartz run vs a manual trigger).
@@ -267,6 +271,7 @@ try
     builder.Services.Configure<PostgresConnectionPolicyOptions>(builder.Configuration.GetSection(PostgresConnectionPolicyOptions.SectionName));
     builder.Services.Configure<ThreadPoolPerformanceOptions>(builder.Configuration.GetSection(ThreadPoolPerformanceOptions.SectionName));
     builder.Services.Configure<SAPSettings>(builder.Configuration.GetSection("SAP"));
+    builder.Services.Configure<SapAvailabilitySettings>(builder.Configuration.GetSection(SapAvailabilitySettings.SectionName));
     builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));

@@ -35,6 +35,16 @@ public sealed class InventoryTransferPostingJob : IJob
     private async Task ProcessQueueAsync(CancellationToken stoppingToken)
     {
         using var scope = _serviceProvider.CreateScope();
+
+        // Every entry here was queued because SAP could not be reached. Replaying them into an outage
+        // only fails them again, so the pass waits for SAP rather than working through the queue.
+        if (scope.ServiceProvider.GetService<SapCircuitBreakerState>() is { } circuit
+            && circuit.ShouldHoldBackWork(out var holdBackReason))
+        {
+            _logger.LogDebug("Skipping queued inventory transfers: {Reason}.", holdBackReason);
+            return;
+        }
+
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var queueService = scope.ServiceProvider.GetRequiredService<IInventoryTransferQueueService>();
         var sapService = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
@@ -265,6 +275,27 @@ public sealed class InventoryTransferPostingJob : IJob
         if (errorMessage.Length > 1900)
         {
             errorMessage = errorMessage[..1900] + "...";
+        }
+
+        // Never sent: refused inside this process because SAP is off or its circuit is open, or a
+        // login that failed before the post. Not an attempt, so it is handed back and the entry waits
+        // a minute. Anything else that is transient — a timeout, a dropped connection — may have
+        // reached SAP, and with no reference to look the transfer up by, it still counts: retrying
+        // those without limit is how one transfer becomes two.
+        if (SapFailureClassifier.IsTransient(ex, stoppingToken) && SapFailureClassifier.DefinitelyNotCommitted(ex))
+        {
+            await queueService.ReleaseAttemptAsync(queueEntry.Id, stoppingToken);
+            await queueService.UpdateQueueEntryAsync(
+                queueEntry.Id,
+                InventoryTransferQueueStatus.Failed,
+                error: errorMessage,
+                nextRetryAt: DateTime.UtcNow.AddMinutes(1),
+                cancellationToken: stoppingToken);
+
+            _logger.LogInformation(
+                "Inventory transfer was not sent because SAP is unavailable; it will retry: ExternalRef={ExternalReference}",
+                queueEntry.ExternalReference);
+            return;
         }
 
         // MarkAsProcessingAsync counted this attempt, so the entity already carries it.

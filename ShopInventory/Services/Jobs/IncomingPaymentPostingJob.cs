@@ -32,6 +32,15 @@ public sealed class IncomingPaymentPostingJob : IJob
     private async Task ProcessQueueAsync(CancellationToken stoppingToken)
     {
         using var scope = _serviceProvider.CreateScope();
+
+        // Queued because SAP could not be reached; replaying into an outage only fails them again.
+        if (scope.ServiceProvider.GetService<SapCircuitBreakerState>() is { } circuit
+            && circuit.ShouldHoldBackWork(out var holdBackReason))
+        {
+            _logger.LogDebug("Skipping queued incoming payments: {Reason}.", holdBackReason);
+            return;
+        }
+
         var queueService = scope.ServiceProvider.GetRequiredService<IIncomingPaymentQueueService>();
         var sapClient = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
         var auditService = scope.ServiceProvider.GetRequiredService<IAuditService>();
@@ -106,6 +115,21 @@ public sealed class IncomingPaymentPostingJob : IJob
                 queueEntry.Id);
 
             var retryable = SapFailureClassifier.IsTransient(ex, stoppingToken);
+
+            // Refused before it left this process (SAP off, circuit open, login failed first): not an
+            // attempt. A payment carries no reference SAP can be asked about, so any other failure
+            // still counts — a timeout may have committed it, and a second payment is real money.
+            if (retryable && SapFailureClassifier.DefinitelyNotCommitted(ex))
+            {
+                await queueService.ReleaseAttemptAsync(queueEntry.Id, stoppingToken);
+                await queueService.UpdateQueueEntryAsync(
+                    queueEntry.Id,
+                    IncomingPaymentQueueStatus.Failed,
+                    error: ex.GetBaseException().Message,
+                    cancellationToken: stoppingToken);
+                return;
+            }
+
             var newStatus = retryable && queueEntry.RetryCount < queueEntry.MaxRetries
                 ? IncomingPaymentQueueStatus.Failed
                 : IncomingPaymentQueueStatus.RequiresReview;

@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sap;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopCreditNotes;
 
@@ -22,19 +24,39 @@ namespace ShopInventory.Features.DesktopCreditNotes;
 /// Without it a credit whose SAP half failed once would stay failed for good, and ZIMRA and SAP would
 /// disagree about a return permanently, with nothing but a row to say so.
 /// </para>
+/// <para>
+/// While SAP is down the pass still runs, because returning a credit's units to the ledger needs
+/// nothing from SAP; it only stops short of the memo. Its window reaches back past its own lookback
+/// to cover an outage (see <see cref="SapOutageReach"/>), so credits held up by a long one are not
+/// dropped once SAP returns.
+/// </para>
 /// </remarks>
 public sealed class DesktopCreditSapSweep(
     ApplicationDbContext db,
     DesktopCreditSapPoster poster,
     IOptions<DesktopSalePostingSettings> settings,
-    ILogger<DesktopCreditSapSweep> logger)
+    ILogger<DesktopCreditSapSweep> logger,
+    SapCircuitBreakerState? circuit = null,
+    IOptions<SapAvailabilitySettings>? availabilitySettings = null)
 {
     public async Task<DesktopCreditSapRunResult> SettleOutstandingAsync(
         CancellationToken cancellationToken = default)
     {
         var options = settings.Value;
         var result = new DesktopCreditSapRunResult();
-        var cutoff = DateTime.UtcNow.Date.AddDays(-options.LookbackDays);
+        var cutoff = await SapOutageReach.ExtendAsync(
+            db,
+            DateTime.UtcNow.Date.AddDays(-options.LookbackDays),
+            (availabilitySettings?.Value ?? new SapAvailabilitySettings()).MaxLookbackExtensionDays,
+            DateTime.UtcNow,
+            cancellationToken);
+
+        var mayPostToSap = true;
+        if (circuit is not null && circuit.ShouldHoldBackWork(out var holdBackReason))
+        {
+            mayPostToSap = false;
+            logger.LogDebug("Credit sweep returns units to the ledger only: {Reason}.", holdBackReason);
+        }
 
         var outstanding = await db.DesktopCreditNotes
             .AsNoTracking()
@@ -78,7 +100,7 @@ public sealed class DesktopCreditSapSweep(
             {
                 // One at a time, and the poster saves as it goes: a memo may be in SAP by the time this
                 // returns, and losing that to a crash later in the batch is how a second one gets raised.
-                await poster.SettleAsync(id, cancellationToken);
+                await poster.SettleAsync(id, mayPostToSap, cancellationToken);
                 result.Settled++;
             }
             catch (Exception ex)

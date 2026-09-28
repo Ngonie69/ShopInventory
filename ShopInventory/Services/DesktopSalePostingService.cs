@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Sap;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -38,7 +39,8 @@ public sealed class DesktopSalePostingService(
     IDesktopSalePostGuard postGuard,
     DesktopCreditSapPoster creditPoster,
     IOptions<DesktopSalePostingSettings> settings,
-    ILogger<DesktopSalePostingService> logger)
+    ILogger<DesktopSalePostingService> logger,
+    IOptions<SapAvailabilitySettings>? availabilitySettings = null)
 {
     public async Task<DesktopSalePostingRunResult> PostPendingSalesAsync(
         CancellationToken cancellationToken = default)
@@ -49,16 +51,21 @@ public sealed class DesktopSalePostingService(
         // Do not start a pass while SAP is known to be down. This job fires every minute, so without
         // this an outage would burn every sale's attempt budget in a few minutes and park a whole day's
         // takings behind a human.
-        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        if (circuitState.ShouldHoldBackWork(out var holdBackReason))
         {
-            logger.LogInformation(
-                "Skipping desktop sale posting: the SAP circuit is open for another {RetryAfter}.", retryAfter);
+            logger.LogInformation("Skipping desktop sale posting: {Reason}.", holdBackReason);
             return result;
         }
 
         // A window rather than a single trading date. A till sale should reach SAP within minutes, and
-        // one that failed at 23:55 must not be stranded when the date rolls over.
-        var cutoff = DateTime.UtcNow.Date.AddDays(-options.LookbackDays);
+        // one that failed at 23:55 must not be stranded when the date rolls over. Widened past its own
+        // days to cover a SAP outage, so a sale made on the first day of a long one is still posted.
+        var cutoff = await SapOutageReach.ExtendAsync(
+            context,
+            DateTime.UtcNow.Date.AddDays(-options.LookbackDays),
+            (availabilitySettings?.Value ?? new SapAvailabilitySettings()).MaxLookbackExtensionDays,
+            DateTime.UtcNow,
+            cancellationToken);
 
         // A sale whose post went out and got no clear answer stays out of the pass until its hold
         // ends, rather than being loaded so SAP can be asked and the sale then not sent. Asking is

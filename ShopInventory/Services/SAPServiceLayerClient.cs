@@ -1544,6 +1544,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             _logger.LogError("Failed to create invoice: {StatusCode} - {Error}", response.StatusCode, sanitizedSapError);
 
+            // No SAP error envelope: something in front of the Service Layer answered — the balancer's
+            // 502/503/504 page — not SAP. That is not a refusal. SAP may never have seen the post, or
+            // may have committed it behind a gateway that gave up waiting, so the invoice's existence is
+            // unknown. An HttpRequestException says exactly that: transient to the posting passes, so
+            // an outage does not spend a sale's attempts, and not DefinitelyNotCommitted, so the sale
+            // is looked up before it is sent again. It used to be a rejection, which did both wrong.
+            if (sapError is null && SapFailureClassifier.IsTransientStatusCode(response.StatusCode))
+            {
+                throw new HttpRequestException(
+                    $"SAP did not answer the invoice post: {(int)response.StatusCode} {response.ReasonPhrase} from the gateway. "
+                    + "The invoice may or may not exist.",
+                    null,
+                    response.StatusCode);
+            }
+
             // SapRequestRejectedException rather than a bare Exception, and the type is the point:
             // SAP answered, and the answer was no, so the invoice definitively does not exist. The
             // posting services need that distinction to decide whether a sale may be posted again —
@@ -16766,6 +16781,40 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             _logger.LogWarning(ex, "SAP connection test failed");
             return false;
+        }
+    }
+
+    public async Task PingAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, "Warehouses?$select=WarehouseCode&$top=1");
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
+
+        var response = await _httpClient.SendAsync(CreateRequest(), cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            response.Dispose();
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response = await _httpClient.SendAsync(CreateRequest(), cancellationToken);
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"SAP answered the availability probe with {(int)response.StatusCode} {response.ReasonPhrase}.".Trim(),
+                    null,
+                    response.StatusCode);
+            }
         }
     }
 

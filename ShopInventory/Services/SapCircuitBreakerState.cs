@@ -9,10 +9,16 @@ namespace ShopInventory.Services;
 /// and the desktop invoice, transfer and payment endpoints that queue instead of posting) does the same
 /// while SAP is off. The connection switch is optional so that code built without it, such as a test,
 /// keeps the breaker's own behaviour.
+/// <para>
+/// Background work asks <see cref="ShouldHoldBackWork"/> instead, which adds the cluster's view (see
+/// <see cref="SapAvailability"/>): an outage the probe has declared holds every pass back on every node,
+/// including in the half of each minute when this node's breaker happens to be closed.
+/// </para>
 /// </remarks>
 public sealed class SapCircuitBreakerState(
     IOptions<SAPSettings> settings,
-    SapConnectionSwitch? connectionSwitch = null)
+    SapConnectionSwitch? connectionSwitch = null,
+    SapAvailability? availability = null)
 {
     /// <summary>
     /// The wait reported to callers while SAP is switched off. It is not a promise that SAP comes back
@@ -86,6 +92,38 @@ public sealed class SapCircuitBreakerState(
         }
 
         retryAfter = TimeSpan.Zero;
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a background pass that writes to SAP should skip this round, and why.
+    /// </summary>
+    /// <remarks>
+    /// For passes nobody is waiting on. A person pressing Post keeps to <see cref="ShouldShortCircuit"/>,
+    /// so a request can still be tried while an outage is declared, and the probe is not held back by the
+    /// outage it is measuring.
+    /// </remarks>
+    public bool ShouldHoldBackWork(out string reason)
+    {
+        if (IsSwitchedOff)
+        {
+            reason = "the SAP connection is turned off in Settings";
+            return true;
+        }
+
+        if (availability?.Current is { InOutage: true } outage)
+        {
+            reason = $"SAP has been unavailable since {outage.SinceUtc:u} (outage {outage.OutageId})";
+            return true;
+        }
+
+        if (ShouldShortCircuit(out var retryAfter))
+        {
+            reason = $"the SAP circuit is open for another {retryAfter}";
+            return true;
+        }
+
+        reason = string.Empty;
         return false;
     }
 

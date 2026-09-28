@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Sap;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
@@ -47,7 +48,8 @@ public sealed class DailyIncomingPaymentService(
     SapCircuitBreakerState circuitState,
     IOptions<DesktopSalePostingSettings> settings,
     IEmailService emailService,
-    ILogger<DailyIncomingPaymentService> logger)
+    ILogger<DailyIncomingPaymentService> logger,
+    IOptions<SapAvailabilitySettings>? availabilitySettings = null)
 {
     private const int MaxErrorLength = 2000;
 
@@ -75,11 +77,9 @@ public sealed class DailyIncomingPaymentService(
     {
         var result = new DailyIncomingPaymentRunResult();
 
-        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        if (circuitState.ShouldHoldBackWork(out var holdBackReason))
         {
-            logger.LogInformation(
-                "Skipping the daily incoming payment pass: the SAP circuit is open for another {RetryAfter}.",
-                retryAfter);
+            logger.LogInformation("Skipping the daily incoming payment pass: {Reason}.", holdBackReason);
             return result;
         }
 
@@ -273,7 +273,13 @@ public sealed class DailyIncomingPaymentService(
         CancellationToken cancellationToken)
     {
         var options = settings.Value;
-        var lookbackStart = paymentDate.AddDays(-Math.Max(1, options.DailyPaymentLookbackDays));
+        // Widened by a SAP outage: its invoices post late with their own dates, and must still be paid.
+        var lookbackStart = await SapOutageReach.ExtendAsync(
+            context,
+            paymentDate.AddDays(-Math.Max(1, options.DailyPaymentLookbackDays)),
+            (availabilitySettings?.Value ?? new SapAvailabilitySettings()).MaxLookbackExtensionDays,
+            DateTime.UtcNow,
+            cancellationToken);
 
         // A customer with any payment for the day is left alone, so a second pass never starts a second
         // payment. Invoices posted since the first wait for tomorrow's.
@@ -492,7 +498,7 @@ public sealed class DailyIncomingPaymentService(
 
         foreach (var payment in due)
         {
-            if (cancellationToken.IsCancellationRequested || circuitState.ShouldShortCircuit(out _))
+            if (cancellationToken.IsCancellationRequested || circuitState.ShouldHoldBackWork(out _))
             {
                 break;
             }

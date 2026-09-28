@@ -30,6 +30,14 @@ public interface IIncomingPaymentQueueService
         CancellationToken cancellationToken = default);
 
     Task MarkAsProcessingAsync(int queueId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hands back the attempt <see cref="MarkAsProcessingAsync"/> counted, for a failure that proves the
+    /// document never left this process — SAP switched off, the circuit open, a login that failed
+    /// before the post. An outage is not the entry's fault, and counting it sent every entry queued
+    /// during one to review within minutes.
+    /// </summary>
+    Task ReleaseAttemptAsync(int queueId, CancellationToken cancellationToken = default);
 }
 
 public sealed class IncomingPaymentQueueService(
@@ -183,6 +191,22 @@ public sealed class IncomingPaymentQueueService(
         entry.RetryCount += 1;
         entry.LastError = null;
         entry.NextRetryAt = null;
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task ReleaseAttemptAsync(int queueId, CancellationToken cancellationToken = default)
+    {
+        var entry = await context.IncomingPaymentQueue
+            .AsTracking()
+            .FirstOrDefaultAsync(q => q.Id == queueId, cancellationToken);
+
+        if (entry == null)
+        {
+            return;
+        }
+
+        entry.RetryCount = Math.Max(0, entry.RetryCount - 1);
 
         await context.SaveChangesAsync(cancellationToken);
     }

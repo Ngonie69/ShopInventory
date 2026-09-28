@@ -46,7 +46,16 @@ public sealed class DesktopCreditSapPoster(
     /// Carries one credit as far towards SAP as it can go now. Safe to call on a credit that is
     /// already posted, or on one that has nothing owing.
     /// </summary>
-    public async Task SettleAsync(Guid creditNoteId, CancellationToken cancellationToken)
+    public Task SettleAsync(Guid creditNoteId, CancellationToken cancellationToken) =>
+        SettleAsync(creditNoteId, mayPostToSap: true, cancellationToken);
+
+    /// <param name="creditNoteId">The credit to carry forward.</param>
+    /// <param name="mayPostToSap">
+    /// False while the sweep is holding SAP work back for an outage. The units still go back to the
+    /// ledger, which needs nothing from SAP; the memo waits, and no attempt is spent on it.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the reads before anything is sent.</param>
+    public async Task SettleAsync(Guid creditNoteId, bool mayPostToSap, CancellationToken cancellationToken)
     {
         var note = await db.DesktopCreditNotes
             .FirstOrDefaultAsync(n => n.Id == creditNoteId, cancellationToken);
@@ -63,7 +72,7 @@ public sealed class DesktopCreditSapPoster(
         // sweep.
         await db.Entry(note).ReloadAsync(cancellationToken);
 
-        await SettleAsync(note, cancellationToken);
+        await SettleAsync(note, cancellationToken, mayPostToSap);
     }
 
     /// <summary>
@@ -86,7 +95,10 @@ public sealed class DesktopCreditSapPoster(
         }
     }
 
-    private async Task SettleAsync(DesktopCreditNoteEntity note, CancellationToken cancellationToken)
+    private async Task SettleAsync(
+        DesktopCreditNoteEntity note,
+        CancellationToken cancellationToken,
+        bool mayPostToSap = true)
     {
         if (note.Status != DesktopCreditStatuses.Fiscalised)
         {
@@ -133,6 +145,12 @@ public sealed class DesktopCreditSapPoster(
         if (sale.SapDocEntry is not > 0)
         {
             // Still waiting for the sale to post. Not a failure and not an attempt — nothing was sent.
+            return;
+        }
+
+        if (!mayPostToSap)
+        {
+            // SAP is down. The memo is owed and stays owed; the next pass after SAP returns raises it.
             return;
         }
 
@@ -285,6 +303,15 @@ public sealed class DesktopCreditSapPoster(
             note.SapStatus = DesktopCreditSapStatuses.Failed;
             note.SapError = Truncate(ex.Message, 2000);
 
+            // SAP being unreachable is not the credit's fault. The sweep runs every minute, so counting
+            // an outage spent all six attempts in six minutes and left every credit whose sale had
+            // posted waiting on a person to press Retry. The lookup before the post, and the hold on a
+            // post that got no reply, are what keep a retry from raising a second memo — not the cap.
+            if (SapFailureClassifier.IsTransient(ex, cancellationToken))
+            {
+                note.SapAttempts--;
+            }
+
             // SAP answered, and the answer was no. Nothing was created, so the marker comes off or the
             // next pass would only ever ask about a document that will never appear.
             if (SapFailureClassifier.DefinitelyNotCommitted(ex))
@@ -313,12 +340,18 @@ public sealed class DesktopCreditSapPoster(
 
     /// <remarks>
     /// Spends an attempt, so an invoice that has gone for good stops being asked about at the cap
-    /// rather than on every pass for the lookback window. Nothing was sent, so no marker is set.
+    /// rather than on every pass for the lookback window — unless SAP could not be reached at all,
+    /// which says nothing about the invoice. Nothing was sent, so no marker is set.
     /// </remarks>
     private async Task RecordUnreadableInvoiceAsync(
         DesktopCreditNoteEntity note, DesktopSaleEntity sale, string reason, Exception? cause)
     {
-        note.SapAttempts++;
+        // Not when SAP was simply unreachable: the invoice has not gone, SAP has.
+        if (cause is null || !SapFailureClassifier.IsTransient(cause))
+        {
+            note.SapAttempts++;
+        }
+
         note.SapStatus = DesktopCreditSapStatuses.Failed;
         note.SapError = Truncate(
             $"Could not read invoice {sale.SapDocNum} from SAP to take its batches: {reason}", 2000);
