@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
@@ -31,6 +32,13 @@ public interface ICreditNoteProjectionSyncService
 /// Maintains a line-level PostgreSQL projection of SAP A/R credit memos. Reads overlap by one day
 /// and upserts are idempotent, so a retry or Quartz misfire cannot duplicate lines.
 /// </summary>
+/// <remarks>
+/// The sweep runs every two minutes and SAP's UpdateDate has no time, so its window always spans
+/// yesterday and today. It used to read every credit note in that window whole, with lines, and
+/// rewrite every one of their rows, about 720 times a day for some thirty new documents. It now
+/// polls only each document's version (UpdateDate, UpdateTime, status, cancellation and total),
+/// fetches whole only the documents whose version moved, and writes only rows that changed.
+/// </remarks>
 public sealed class CreditNoteProjectionSyncService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
@@ -70,12 +78,13 @@ public sealed class CreditNoteProjectionSyncService(
                     cancellationToken);
             }
 
-            checkpoint = await RunIncrementalAsync(
+            (checkpoint, var inserted) = await RunIncrementalAsync(
                 checkpointRow,
                 checkpoint,
                 now,
                 cancellationToken);
 
+            var reconciled = false;
             if (!checkpoint.LastReconciledAtUtc.HasValue ||
                 checkpoint.LastReconciledAtUtc.Value.Date < now.Date)
             {
@@ -84,14 +93,20 @@ public sealed class CreditNoteProjectionSyncService(
                     reconciliationFrom,
                     now.Date,
                     cancellationToken);
-                await UpsertAsync(recentCreditNotes, cancellationToken);
+                await UpsertCoreAsync(recentCreditNotes, polledUpdateTimes: null, cancellationToken);
+                reconciled = true;
 
                 checkpoint = checkpoint with { LastReconciledAtUtc = now };
                 await SaveCheckpointAsync(checkpointRow, checkpoint, cancellationToken);
             }
 
+            // Counted again only when this pass can have grown the table. A document added between
+            // sweeps by RefreshDocumentAsync is counted by the next daily reconciliation.
             var previousItemCount = syncState.ItemCount;
-            syncState.ItemCount = await context.SapCreditNoteSnapshots.CountAsync(cancellationToken);
+            if (inserted > 0 || reconciled || syncState.ItemCount == 0)
+            {
+                syncState.ItemCount = await context.SapCreditNoteSnapshots.CountAsync(cancellationToken);
+            }
             syncState.LastSyncedAt = now;
             syncState.LastError = null;
             syncState.LastErrorAt = null;
@@ -171,11 +186,28 @@ public sealed class CreditNoteProjectionSyncService(
 
     public async Task UpsertAsync(
         IReadOnlyCollection<SAPCreditNote> creditNotes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await UpsertCoreAsync(creditNotes, polledUpdateTimes: null, cancellationToken);
+
+    /// <summary>
+    /// Writes each document that differs from its row, and only those; returns how many rows it
+    /// added. A document read back unchanged leaves its row, lines and timestamps untouched.
+    /// </summary>
+    /// <param name="creditNotes">Whole documents, as any credit-note read returns them.</param>
+    /// <param name="polledUpdateTimes">
+    /// The UpdateTime the version poll reported for each document. Whole reads do not carry one, so
+    /// this is the only way a row's <see cref="SapCreditNoteSnapshotEntity.SapUpdateTime"/> is set,
+    /// and a whole read without it leaves the stored time alone.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the read and the write.</param>
+    private async Task<int> UpsertCoreAsync(
+        IReadOnlyCollection<SAPCreditNote> creditNotes,
+        IReadOnlyDictionary<int, TimeOnly>? polledUpdateTimes,
+        CancellationToken cancellationToken)
     {
         if (creditNotes.Count == 0)
         {
-            return;
+            return 0;
         }
 
         var normalizedCreditNotes = creditNotes
@@ -186,7 +218,7 @@ public sealed class CreditNoteProjectionSyncService(
 
         if (normalizedCreditNotes.Count == 0)
         {
-            return;
+            return 0;
         }
 
         var docEntries = normalizedCreditNotes.Select(note => note.DocEntry).ToList();
@@ -196,10 +228,12 @@ public sealed class CreditNoteProjectionSyncService(
             .Where(snapshot => docEntries.Contains(snapshot.SapDocEntry))
             .ToDictionaryAsync(snapshot => snapshot.SapDocEntry, cancellationToken);
         var syncedAt = DateTime.UtcNow;
+        var inserted = 0;
 
         foreach (var source in normalizedCreditNotes)
         {
-            if (!existing.TryGetValue(source.DocEntry, out var snapshot))
+            var isNew = !existing.TryGetValue(source.DocEntry, out var snapshot);
+            if (snapshot is null)
             {
                 snapshot = new SapCreditNoteSnapshotEntity
                 {
@@ -207,13 +241,40 @@ public sealed class CreditNoteProjectionSyncService(
                 };
                 context.SapCreditNoteSnapshots.Add(snapshot);
                 existing.Add(source.DocEntry, snapshot);
+                inserted++;
             }
 
             MapHeader(snapshot, source, syncedAt);
-            UpsertLines(snapshot, source.DocumentLines ?? []);
+            if (polledUpdateTimes?.TryGetValue(source.DocEntry, out var updateTime) == true)
+            {
+                snapshot.SapUpdateTime = updateTime;
+            }
+
+            var linesRemoved = UpsertLines(snapshot, source.DocumentLines ?? []);
+
+            if (isNew || linesRemoved || HasPendingChanges(snapshot))
+            {
+                snapshot.LastSeenInSapAtUtc = syncedAt;
+                snapshot.SyncedAtUtc = syncedAt;
+            }
         }
 
         await context.SaveChangesAsync(cancellationToken);
+        return inserted;
+    }
+
+    /// <summary>
+    /// Asks the change tracker about this document's own entries only: the daily reconciliation
+    /// holds thousands, and a whole-context scan per document would grow with the square of that.
+    /// </summary>
+    private bool HasPendingChanges(SapCreditNoteSnapshotEntity snapshot) =>
+        IsPending(context.Entry(snapshot)) ||
+        snapshot.Lines.Any(line => IsPending(context.Entry(line)));
+
+    private static bool IsPending(EntityEntry entry)
+    {
+        entry.DetectChanges();
+        return entry.State != EntityState.Unchanged;
     }
 
     public async Task RefreshDocumentAsync(
@@ -291,7 +352,7 @@ public sealed class CreditNoteProjectionSyncService(
         return checkpoint;
     }
 
-    private async Task<ProjectionCheckpoint> RunIncrementalAsync(
+    private async Task<(ProjectionCheckpoint Checkpoint, int Inserted)> RunIncrementalAsync(
         SystemConfigEntity checkpointRow,
         ProjectionCheckpoint checkpoint,
         DateTime now,
@@ -300,15 +361,85 @@ public sealed class CreditNoteProjectionSyncService(
         var updateFrom = (checkpoint.LastUpdateWatermarkDate ?? now.Date.AddDays(-1))
             .Date
             .AddDays(-1);
-        var updatedCreditNotes = await sapClient.GetCreditNotesUpdatedSinceAsync(
+        var versions = await sapClient.GetCreditNoteVersionsUpdatedSinceAsync(
             updateFrom,
             now.Date,
             cancellationToken);
-        await UpsertAsync(updatedCreditNotes, cancellationToken);
+
+        var inserted = 0;
+        var moved = await FindMovedAsync(versions, cancellationToken);
+        if (moved.Count > 0)
+        {
+            // The time is the one polled, not one read with the document. An edit landing between
+            // the poll and the read is then stored under the older time, and the next poll fetches
+            // the document again; the other way round, it would be stored as already seen.
+            var polledUpdateTimes = versions
+                .Where(version => moved.Contains(version.DocEntry))
+                .Select(version => (version.DocEntry, Time: ParseSapTime(version.UpdateTime)))
+                .Where(version => version.Time.HasValue)
+                .GroupBy(version => version.DocEntry)
+                .ToDictionary(group => group.Key, group => group.First().Time!.Value);
+            var creditNotes = await sapClient.GetCreditNotesByDocEntriesAsync(moved, cancellationToken);
+            inserted = await UpsertCoreAsync(creditNotes, polledUpdateTimes, cancellationToken);
+        }
 
         checkpoint = checkpoint with { LastUpdateWatermarkDate = now.Date };
         await SaveCheckpointAsync(checkpointRow, checkpoint, cancellationToken);
-        return checkpoint;
+        return (checkpoint, inserted);
+    }
+
+    /// <summary>
+    /// The polled documents that are new to the projection or whose version differs from their
+    /// row. A version without an UpdateTime cannot tell two edits on one day apart, so it always
+    /// counts as moved, as does a row written before the projection kept UpdateTime.
+    /// </summary>
+    private async Task<List<int>> FindMovedAsync(
+        IReadOnlyCollection<SAPCreditNote> versions,
+        CancellationToken cancellationToken)
+    {
+        var polled = versions
+            .Where(version => version.DocEntry > 0)
+            .GroupBy(version => version.DocEntry)
+            .Select(group => group.First())
+            .ToList();
+        if (polled.Count == 0)
+        {
+            return [];
+        }
+
+        var docEntries = polled.Select(version => version.DocEntry).ToList();
+        var stored = await context.SapCreditNoteSnapshots
+            .AsNoTracking()
+            .Where(snapshot => docEntries.Contains(snapshot.SapDocEntry))
+            .Select(snapshot => new
+            {
+                snapshot.SapDocEntry,
+                snapshot.SapUpdateDate,
+                snapshot.SapUpdateTime,
+                snapshot.DocumentStatus,
+                snapshot.IsCancelled,
+                snapshot.DocTotal
+            })
+            .ToDictionaryAsync(snapshot => snapshot.SapDocEntry, cancellationToken);
+
+        return polled
+            .Where(version =>
+            {
+                if (!stored.TryGetValue(version.DocEntry, out var row))
+                {
+                    return true;
+                }
+
+                var updateTime = ParseSapTime(version.UpdateTime);
+                return updateTime is null ||
+                    row.SapUpdateTime != updateTime ||
+                    row.SapUpdateDate != ParseSapDate(version.UpdateDate) ||
+                    row.DocumentStatus != version.DocumentStatus?.Trim() ||
+                    row.IsCancelled != IsCancelled(version.Cancelled) ||
+                    row.DocTotal != Math.Round(version.DocTotal, 2, MidpointRounding.AwayFromZero);
+            })
+            .Select(version => version.DocEntry)
+            .ToList();
     }
 
     private async Task<(SystemConfigEntity Row, ProjectionCheckpoint Checkpoint)> GetCheckpointAsync(
@@ -370,7 +501,13 @@ public sealed class CreditNoteProjectionSyncService(
         ProjectionCheckpoint checkpoint,
         CancellationToken cancellationToken)
     {
-        row.Value = JsonSerializer.Serialize(checkpoint);
+        var value = JsonSerializer.Serialize(checkpoint);
+        if (value == row.Value)
+        {
+            return;
+        }
+
+        row.Value = value;
         row.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(cancellationToken);
     }
@@ -414,11 +551,10 @@ public sealed class CreditNoteProjectionSyncService(
         target.DocumentStatus = source.DocumentStatus?.Trim();
         target.IsCancelled = IsCancelled(source.Cancelled);
         target.SapUpdateDate = ParseSapDate(source.UpdateDate);
-        target.LastSeenInSapAtUtc = syncedAt;
-        target.SyncedAtUtc = syncedAt;
     }
 
-    private static void UpsertLines(
+    /// <summary>Returns whether any stored line was dropped because SAP no longer returns it.</summary>
+    private static bool UpsertLines(
         SapCreditNoteSnapshotEntity snapshot,
         IReadOnlyCollection<SAPCreditNoteLine> sourceLines)
     {
@@ -447,12 +583,15 @@ public sealed class CreditNoteProjectionSyncService(
             target.CreditReason = source.CreditReason?.Trim();
         }
 
-        foreach (var staleLine in snapshot.Lines
-                     .Where(line => !incomingLineNumbers.Contains(line.LineNum))
-                     .ToList())
+        var staleLines = snapshot.Lines
+            .Where(line => !incomingLineNumbers.Contains(line.LineNum))
+            .ToList();
+        foreach (var staleLine in staleLines)
         {
             snapshot.Lines.Remove(staleLine);
         }
+
+        return staleLines.Count > 0;
     }
 
     private static DateTime? ParseSapDate(string? value)
@@ -469,6 +608,11 @@ public sealed class CreditNoteProjectionSyncService(
 
         return DateTime.SpecifyKind(parsed.Date, DateTimeKind.Utc);
     }
+
+    private static TimeOnly? ParseSapTime(string? value) =>
+        TimeOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var parsed)
+            ? parsed
+            : null;
 
     private static bool IsCancelled(string? value) =>
         string.Equals(value, "tYES", StringComparison.OrdinalIgnoreCase) ||

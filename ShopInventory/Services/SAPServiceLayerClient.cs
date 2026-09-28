@@ -298,6 +298,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // SAP rejects them here. ResolveOriginalInvoiceDocEntry already reads the header field with a
     // fallback to the lines, and the fallback was always what actually answered.
     private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,UpdateDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
+    // The projection sweep's poll: enough to tell whether a document it holds has moved, and small
+    // enough to ask for every two minutes. Only this select asks for UpdateTime, so a Service Layer
+    // that refused it would fail the sweep alone and leave every credit-note list and detail read
+    // as they were.
+    private const string CreditNoteVersionSelect = "$select=DocEntry,UpdateDate,UpdateTime,DocumentStatus,Cancelled,DocTotal";
+    private const int CreditNoteDocEntryChunkSize = 20;
     private const string QuotationSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,ContactPersonCode,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,U_OrderNumber,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,ShipToCode,PayToCode,DocumentLines";
     // The quotation list shows header fields only, so it asks for no DocumentLines. On a company with
     // ~1,500 quotations the nested lines were the bulk of the payload and none of it was rendered;
@@ -15990,17 +15996,44 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         return creditNotes;
     }
 
-    public async Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(
+    public async Task<List<SAPCreditNote>> GetCreditNoteVersionsUpdatedSinceAsync(
         DateTime fromUpdateDate,
         DateTime toUpdateDate,
         CancellationToken cancellationToken = default)
     {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
         var fromDateStr = fromUpdateDate.ToString("yyyy-MM-dd");
         var toDateStr = toUpdateDate.ToString("yyyy-MM-dd");
-        return await ReadCreditNotePagesAsync(
+        return await ReadDocumentPagesAsync<SAPCreditNote>(
+            "CreditNotes",
             $"UpdateDate ge '{fromDateStr}' and UpdateDate le '{toDateStr}'",
-            $"update date {fromDateStr} to {toDateStr}",
-            cancellationToken);
+            CreditNoteVersionSelect,
+            $"get credit-note versions by update date {fromDateStr} to {toDateStr}",
+            cancellationToken,
+            NoDocumentListCeiling);
+    }
+
+    public async Task<List<SAPCreditNote>> GetCreditNotesByDocEntriesAsync(
+        IEnumerable<int> docEntries,
+        CancellationToken cancellationToken = default)
+    {
+        var entries = docEntries.Where(docEntry => docEntry > 0).Distinct().Order().ToList();
+        if (entries.Count == 0)
+        {
+            return [];
+        }
+
+        var creditNotes = new List<SAPCreditNote>();
+        foreach (var chunk in entries.Chunk(CreditNoteDocEntryChunkSize))
+        {
+            creditNotes.AddRange(await ReadCreditNotePagesAsync(
+                string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}")),
+                $"{chunk.Length} DocEntr{(chunk.Length == 1 ? "y" : "ies")}",
+                cancellationToken));
+        }
+
+        return creditNotes;
     }
 
     public async Task<DateTime?> GetEarliestCreditNoteDateAsync(

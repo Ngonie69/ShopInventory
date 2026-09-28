@@ -22,6 +22,13 @@ public class SAPCreditNote
     [JsonPropertyName("UpdateDate")]
     public string? UpdateDate { get; set; }
 
+    /// <summary>
+    /// The time of day of UpdateDate, as "HH:mm:ss". Only the projection sweep's version poll asks
+    /// for it; every other credit-note read leaves it null.
+    /// </summary>
+    [JsonPropertyName("UpdateTime")]
+    public string? UpdateTime { get; set; }
+
     [JsonPropertyName("CardCode")]
     public string? CardCode { get; set; }
 
