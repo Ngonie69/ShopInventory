@@ -9,7 +9,7 @@ namespace ShopInventory.Web.Services;
 
 public interface ISalesOrderService
 {
-    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null);
+    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null, bool openOnly = false, bool includeSummary = false);
     Task<SalesOrderDto?> GetSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetLocalSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber);
@@ -72,7 +72,8 @@ public class SalesOrderService : ISalesOrderService
     }
 
     public async Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20,
-        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null)
+        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null,
+        bool openOnly = false, bool includeSummary = false)
     {
         try
         {
@@ -92,6 +93,10 @@ public class SalesOrderService : ISalesOrderService
                 queryParams.Add($"search={Uri.EscapeDataString(search)}");
             if (vanSalesUsersOnly.HasValue)
                 queryParams.Add($"vanSalesUsersOnly={vanSalesUsersOnly.Value.ToString().ToLowerInvariant()}");
+            if (openOnly)
+                queryParams.Add("openOnly=true");
+            if (includeSummary)
+                queryParams.Add("includeSummary=true");
 
             var url = $"api/salesorder?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching sales orders from API: {Url}", url);

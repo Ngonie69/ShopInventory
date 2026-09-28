@@ -27,7 +27,9 @@ public sealed class GetAllSalesOrdersHandler(
         var sapToDate = NormalizeUtcDate(request.ToDate);
         var localToExclusive = sapToDate?.AddDays(1);
 
-        if (request.Source.HasValue)
+        // An open order has not been posted, so it exists only in the local tables and openOnly never
+        // needs SAP either.
+        if (request.Source.HasValue || request.OpenOnly)
         {
             // Deliberately no SAP work on this path. Listing source-filtered orders is answered
             // entirely from the local tables; relinking orders whose SAP metadata went missing is
@@ -43,7 +45,9 @@ public sealed class GetAllSalesOrdersHandler(
                 request.Source,
                 orderSearch,
                 request.VanSalesUsersOnly,
-                cancellationToken);
+                cancellationToken,
+                request.OpenOnly,
+                request.IncludeSummary);
         }
 
         var localOffset = Math.Max(0, (page - 1) * pageSize);
@@ -141,7 +145,9 @@ public sealed class GetAllSalesOrdersHandler(
                 request.Source,
                 orderSearch,
                 request.VanSalesUsersOnly,
-                cancellationToken);
+                cancellationToken,
+                request.OpenOnly,
+                request.IncludeSummary);
         }
     }
 
@@ -153,12 +159,20 @@ public sealed class GetAllSalesOrdersHandler(
         DateTime? toExclusive,
         SalesOrderSource? source,
         string? orderSearch,
-        bool? vanSalesUsersOnly)
+        bool? vanSalesUsersOnly,
+        bool openOnly = false)
     {
         var query = context.SalesOrders.AsNoTracking().AsQueryable();
 
         if (unsyncedOnly)
             query = query.Where(o => !o.IsSynced);
+
+        if (openOnly)
+            query = query.Where(o =>
+                o.Status == SalesOrderStatus.Draft
+                || o.Status == SalesOrderStatus.Pending
+                || o.Status == SalesOrderStatus.OnHold
+                || (o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0)));
 
         if (status.HasValue)
             query = query.Where(o => o.Status == status.Value);
@@ -235,9 +249,11 @@ public sealed class GetAllSalesOrdersHandler(
         SalesOrderSource? source,
         string? orderSearch,
         bool? vanSalesUsersOnly,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool openOnly = false,
+        bool includeSummary = false)
     {
-        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch, vanSalesUsersOnly);
+        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch, vanSalesUsersOnly, openOnly);
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await ProjectSalesOrderListItems(
             query.OrderByDescending(o => o.OrderDate)
@@ -252,9 +268,51 @@ public sealed class GetAllSalesOrdersHandler(
             PageSize = pageSize,
             TotalCount = totalCount,
             TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-            Orders = orders
+            Orders = orders,
+            Summary = includeSummary
+                ? await BuildSummaryAsync(source, vanSalesUsersOnly, cancellationToken)
+                : null
         };
     }
+
+    /// <summary>
+    /// All-time counts for the orders a source and view cover, whatever the page's other filters.
+    /// </summary>
+    /// <remarks>
+    /// The Mobile Orders page used to load every order ever made so that its tiles could count them.
+    /// It now loads the recent and the open ones, and reads the counts from here. Pending and Approved
+    /// are the statuses the list shows (see <see cref="ProjectSalesOrderListItems"/>): an approved order
+    /// that has not reached SAP reads as Pending.
+    /// </remarks>
+    private async Task<SalesOrderListSummaryDto> BuildSummaryAsync(
+        SalesOrderSource? source,
+        bool? vanSalesUsersOnly,
+        CancellationToken cancellationToken)
+    {
+        var summary = await SummaryQuery(BuildLocalOrdersQuery(false, null, null, null, null, source, null, vanSalesUsersOnly))
+            // Single, not First: one group is one row or none.
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return summary ?? new SalesOrderListSummaryDto();
+    }
+
+    /// <summary>The counts <see cref="BuildSummaryAsync"/> reads, as one grouped query.</summary>
+    internal static IQueryable<SalesOrderListSummaryDto> SummaryQuery(IQueryable<SalesOrderEntity> source) =>
+        source
+            .GroupBy(_ => 1)
+            .Select(orders => new SalesOrderListSummaryDto
+            {
+                Total = orders.Count(),
+                Draft = orders.Count(o => o.Status == SalesOrderStatus.Draft),
+                Pending = orders.Count(o => o.Status == SalesOrderStatus.Pending
+                    || (o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0))),
+                Approved = orders.Count(o => o.Status == SalesOrderStatus.Approved && o.SAPDocNum > 0),
+                OldestPendingCreatedAt = orders.Min(o =>
+                    o.Status == SalesOrderStatus.Pending
+                    || (o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0))
+                        ? (DateTime?)o.CreatedAt
+                        : null)
+            });
 
     private static async Task<List<SalesOrderDto>> ProjectSalesOrderListItems(
         IQueryable<SalesOrderEntity> query,

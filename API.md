@@ -1254,7 +1254,13 @@ neither the picker nor the payload may hard-code it. `value` is what goes on the
 | POST | `/api/SalesOrder/backfill-web-order-tax` | Admin role | One-off tax repair (`dryRun` **true**, `maxPostedOrders` 200) |
 
 **Query parameters:** `page` (1), `pageSize` (20), `status`, `cardCode`, `fromDate`, `toDate`,
-`source`, `search`, `vanSalesUsersOnly`
+`source`, `search`, `vanSalesUsersOnly`, `openOnly` (false), `includeSummary` (false)
+
+`openOnly=true` returns only orders still waiting on someone (Draft, Pending, OnHold, and an approved
+order not yet in SAP, which the list shows as Pending), from the local tables alone.
+`includeSummary=true` adds `summary` — `total`, `draft`, `pending`, `approved` and
+`oldestPendingCreatedAt`, all time for the `source` and `vanSalesUsersOnly` given, whatever the other
+filters.
 
 Approving, posting and deleting are three separate permissions, not one: `salesorders.approve`
 decides, `salesorders.post_to_sap` commits, and neither implies the other. The backfill defaults to

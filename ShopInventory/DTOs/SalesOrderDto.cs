@@ -189,6 +189,27 @@ public class SalesOrderListResponseDto
     public int TotalCount { get; set; }
     public int TotalPages { get; set; }
     public List<SalesOrderDto> Orders { get; set; } = new();
+
+    /// <summary>All-time counts, when the request asked for them with <c>includeSummary</c>.</summary>
+    public SalesOrderListSummaryDto? Summary { get; set; }
+}
+
+/// <summary>
+/// All-time counts for a sales order list's source and view, by the status the list shows.
+/// </summary>
+public class SalesOrderListSummaryDto
+{
+    public int Total { get; set; }
+    public int Draft { get; set; }
+
+    /// <summary>Pending, including approved orders that have not reached SAP, as the list shows them.</summary>
+    public int Pending { get; set; }
+
+    /// <summary>Approved and posted to SAP.</summary>
+    public int Approved { get; set; }
+
+    /// <summary>When the longest-waiting pending order arrived, or null when none is pending.</summary>
+    public DateTime? OldestPendingCreatedAt { get; set; }
 }
 
 #endregion
