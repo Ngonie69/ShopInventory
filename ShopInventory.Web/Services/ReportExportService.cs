@@ -8896,7 +8896,7 @@ public partial class ReportExportService : IReportExportService
     {
         using var workbook = NewWorkbook("Local Stock Snapshot");
         var ws = AddSheet(workbook, "Local Stock");
-        const int cols = 8;
+        const int cols = 9;
 
         var row = WriteReportHeader(ws, "Local Stock Snapshot", cols,
             subtitle: $"Warehouse: {stock.WarehouseCode}  |  Date: {stock.SnapshotDate:dd MMM yyyy}  |  Status: {stock.SnapshotStatus}");
@@ -8915,7 +8915,7 @@ public partial class ReportExportService : IReportExportService
         // which made the sheet unsortable and unfilterable and left the batch
         // quantities sitting in the item quantity columns where a SUM would
         // double-count them. Batches now get their own row type, flagged in column 1.
-        var headers = new[] { "Row", "Item Code", "Description", "Available Qty", "Original Qty", "Adjustment", "Batches", "Warehouse" };
+        var headers = new[] { "Row", "Item Code", "Description", "Available Qty", "Original Qty", "Adjustment", "Sold Today", "Batches", "Warehouse" };
         for (int i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
@@ -8942,11 +8942,13 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 6).Value = item.TransferAdjustment;
             ws.Cell(row, 6).Style.NumberFormat.Format = "+#,##0.00;[Red]-#,##0.00;0.00";
             if (item.TransferAdjustment > 0) ws.Cell(row, 6).Style.Font.FontColor = SuccessGreen;
-            ws.Cell(row, 7).Value = item.Batches.Count;
-            ws.Cell(row, 7).Style.NumberFormat.Format = FormatCount;
-            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 8).Value = item.WarehouseCode;
+            ws.Cell(row, 7).Value = item.SoldToday;
+            ws.Cell(row, 7).Style.NumberFormat.Format = FormatQuantity;
+            ws.Cell(row, 8).Value = item.Batches.Count;
+            ws.Cell(row, 8).Style.NumberFormat.Format = FormatCount;
             ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 9).Value = item.WarehouseCode;
+            ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             row++;
 
             // Batch detail rows
@@ -8964,8 +8966,8 @@ public partial class ReportExportService : IReportExportService
                     ws.Cell(row, 4).Style.NumberFormat.Format = FormatQuantity;
                     ws.Cell(row, 5).Value = batch.OriginalQuantity;
                     ws.Cell(row, 5).Style.NumberFormat.Format = FormatQuantity;
-                    ws.Cell(row, 8).Value = item.WarehouseCode;
-                    ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    ws.Cell(row, 9).Value = item.WarehouseCode;
+                    ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                     ws.Range(row, 1, row, cols).Style.Font.FontSize = 9;
                     ws.Range(row, 1, row, cols).Style.Font.FontColor = MutedText;
                     row++;
@@ -8984,8 +8986,9 @@ public partial class ReportExportService : IReportExportService
         ws.Cell(row, 3).Style.Font.FontSize = 8;
         WriteSubtotal(ws, row, 4, dataStart, lastData, FormatQuantity);
         WriteSubtotal(ws, row, 5, dataStart, lastData, FormatQuantity);
-        WriteSubtotal(ws, row, 7, dataStart, lastData, FormatCount);
-        ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(ws, row, 7, dataStart, lastData, FormatQuantity);
+        WriteSubtotal(ws, row, 8, dataStart, lastData, FormatCount);
+        ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         StyleTotalsRow(ws, row, cols);
 
         WriteFooter(ws, row, cols);
