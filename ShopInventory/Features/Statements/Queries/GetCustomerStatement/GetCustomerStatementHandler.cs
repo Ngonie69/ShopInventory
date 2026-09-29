@@ -22,6 +22,19 @@ public sealed class GetCustomerStatementHandler(
     // its own permanent OUQR row: the date range moves daily and each customer has a different
     // code, so nothing was ever reused. That is the leak commit 8235dcb removed elsewhere, and it
     // compounds, because a large OUQR is what makes creating the next query slow.
+    /// <summary>
+    /// How many SAP reads one statement has in flight at once.
+    /// </summary>
+    /// <remarks>
+    /// A statement reads three things per linked account (opening balance, ledger, open items) plus the
+    /// payment terms, and used to start them all at once, at interactive priority: 3n + 1 reads for a
+    /// customer with n accounts, which for a consolidated customer is more than the six SAP slots the
+    /// whole API has, the two kept for people included. Two leaves room for everyone else.
+    /// </remarks>
+    internal const int MaxConcurrentSapReads = 2;
+
+    private readonly SemaphoreSlim _sapReads = new(MaxConcurrentSapReads, MaxConcurrentSapReads);
+
     internal const string OpeningBalanceQueryCode = "STMT_OPENING_BALANCE";
     internal const string LedgerQueryCode = "STMT_LEDGER_ROWS";
     internal const string OpenItemsQueryCode = "STMT_OPEN_ITEMS";
@@ -176,7 +189,9 @@ WHERE T1."ShortName" = :cardCode
             ? TimeLegAsync(
                 "payment terms",
                 requestedCardCode,
-                () => sapClient.GetPaymentTermsByCodeAsync(customer.PayTermGrpCode.Value, cancellationToken))
+                () => ReadSapAsync(
+                    () => sapClient.GetPaymentTermsByCodeAsync(customer.PayTermGrpCode.Value, cancellationToken),
+                    cancellationToken))
             : Task.FromResult<PaymentTermsDto?>(null);
         var openingBalanceTask = TimeLegAsync(
             "opening balance",
@@ -259,6 +274,20 @@ WHERE T1."ShortName" = :cardCode
         return response;
     }
 
+    /// <summary>Runs one SAP read once this statement has fewer than <see cref="MaxConcurrentSapReads"/> in flight.</summary>
+    private async Task<T> ReadSapAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
+    {
+        await _sapReads.WaitAsync(cancellationToken);
+        try
+        {
+            return await read();
+        }
+        finally
+        {
+            _sapReads.Release();
+        }
+    }
+
     /// <summary>
     /// Times one leg of the build so a statement that runs long says which SAP read it spent the
     /// time in, rather than only that it did.
@@ -302,7 +331,7 @@ WHERE T1."ShortName" = :cardCode
         DateTime fromDate,
         CancellationToken cancellationToken)
     {
-        var rows = await sapClient.ExecuteParameterisedSqlQueryAsync(
+        var rows = await ReadSapAsync(() => sapClient.ExecuteParameterisedSqlQueryAsync(
             OpeningBalanceQueryCode,
             "Statement Opening Balance",
             OpeningBalanceSql,
@@ -310,8 +339,7 @@ WHERE T1."ShortName" = :cardCode
             {
                 ["cardCode"] = cardCode,
                 ["fromDate"] = FormatSqlDate(fromDate)
-            },
-            cancellationToken);
+            }, cancellationToken), cancellationToken);
 
         return rows.Count == 0
             ? 0m
@@ -330,7 +358,7 @@ WHERE T1."ShortName" = :cardCode
         CancellationToken cancellationToken)
     {
         var rowsPerCardCode = await Task.WhenAll(cardCodes.Select(cardCode =>
-            sapClient.ExecuteParameterisedSqlQueryAsync(
+            ReadSapAsync(() => sapClient.ExecuteParameterisedSqlQueryAsync(
                 LedgerQueryCode,
                 "Statement Ledger Rows",
                 LedgerSql,
@@ -339,8 +367,7 @@ WHERE T1."ShortName" = :cardCode
                     ["cardCode"] = cardCode,
                     ["fromDate"] = FormatSqlDate(fromDate),
                     ["toDate"] = FormatSqlDate(toDate)
-                },
-                cancellationToken)));
+                }, cancellationToken), cancellationToken)));
 
         var rows = rowsPerCardCode.SelectMany(cardCodeRows => cardCodeRows);
 
@@ -382,7 +409,7 @@ WHERE T1."ShortName" = :cardCode
         try
         {
             var rowsPerCardCode = await Task.WhenAll(cardCodes.Select(cardCode =>
-                sapClient.ExecuteParameterisedSqlQueryAsync(
+                ReadSapAsync(() => sapClient.ExecuteParameterisedSqlQueryAsync(
                     OpenItemsQueryCode,
                     "Statement Open Items",
                     OpenItemsSql,
@@ -390,8 +417,7 @@ WHERE T1."ShortName" = :cardCode
                     {
                         ["cardCode"] = cardCode,
                         ["toDate"] = FormatSqlDate(toDate)
-                    },
-                    cancellationToken)));
+                    }, cancellationToken), cancellationToken)));
 
             return rowsPerCardCode
                 .SelectMany(rows => rows)
