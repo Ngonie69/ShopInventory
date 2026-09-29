@@ -1,3 +1,4 @@
+using ShopInventory.Common.Stock;
 ﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -75,7 +76,8 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
 
         var read = await new GetLocalStockHandler(
                 _context,
-                Options.Create(new DailyStockSettings { MonitoredWarehouses = [Warehouse] }))
+                Options.Create(new DailyStockSettings { MonitoredWarehouses = [Warehouse] }),
+                new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings { MonitoredWarehouses = [Warehouse] }), NullLogger<UnpostedTillClaims>.Instance))
             .Handle(new GetLocalStockQuery(Warehouse, Today), default);
 
         Assert.False(read.IsError);

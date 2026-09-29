@@ -44,11 +44,14 @@ can.
 **2. If you have to use the SAP client** (a document ShopInventory does not offer, or ShopInventory is
 down), leave the sold units behind yourself:
 
-1. Open `/desktop-sales`. Set the period to **Last 30 days**, **Warehouse** to the warehouse you are
-   moving stock out of, and **Consolidation** to **Awaiting close** and **Failed**.
-2. Every sale listed has been sold and is not yet in SAP. Open the sales that contain the items you are
-   moving, and add up their quantities per item.
-3. For each item, move at most: *what SAP shows* − *that total*.
+1. Open `/local-stock`, pick the warehouse you are moving stock out of, and load today's snapshot.
+2. Read the **Not in SAP** column. It is how many units of each item the tills have sold that SAP has
+   not invoiced yet, and it is the same figure ShopInventory holds a transfer to. It shows orange when
+   above zero, and it is blank on a past date because it describes now.
+3. For each item, move at most: *what SAP shows* − *Not in SAP*.
+
+To see which sales make up the figure, open `/desktop-sales` with the period **Last 30 days**, that
+**Warehouse**, and **Consolidation** set to **Awaiting close** and **Failed**.
 
 **3. Never load "everything SAP shows" from these warehouses.** That figure includes units already sold.
 

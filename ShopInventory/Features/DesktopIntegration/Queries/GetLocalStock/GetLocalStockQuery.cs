@@ -32,7 +32,11 @@ public sealed record LocalStockItemDto(
     // Units sales took off the item today, net of returns: the stock ledger's Commit, Settle and
     // Release movements for the snapshot day. Original + TransferAdjustment - SoldToday is In stock
     // unless something outside the sales ledger moved the row (an hourly SAP correction, a refresh).
-    decimal SoldToday = 0
+    decimal SoldToday = 0,
+    // Units the tills have sold that SAP has not invoiced yet, from any day: what SAP shows for this
+    // item and must not be moved out of the warehouse. The position now, so null on a past snapshot.
+    // The same figure a transfer out of the warehouse is held to — see IUnpostedTillClaims.
+    decimal? SoldNotInSap = null
 );
 
 public sealed record LocalStockBatchDto(

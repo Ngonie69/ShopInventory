@@ -1270,6 +1270,12 @@ public class LocalStockItemDto
 
     /// <summary>Units sales took off the item on the snapshot day, net of returns.</summary>
     public decimal SoldToday { get; set; }
+
+    /// <summary>
+    /// Units the tills have sold that SAP has not invoiced yet. SAP still counts them, so they must not
+    /// be moved out of the warehouse. Null on a past snapshot: it is the position now.
+    /// </summary>
+    public decimal? SoldNotInSap { get; set; }
     public List<LocalStockBatchDto> Batches { get; set; } = new();
 }
 

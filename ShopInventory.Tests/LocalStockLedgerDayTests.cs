@@ -142,6 +142,90 @@ public sealed class LocalStockLedgerDayTests : IDisposable
         Assert.Equal(item.OriginalQuantity + item.TransferAdjustment - item.SoldToday, item.AvailableQuantity);
     }
 
+    // ── Sold, not in SAP ────────────────────────────────
+    //
+    // The one number a depot needs before keying a transfer out of this warehouse in the SAP client,
+    // which cannot see these sales (docs/operations/stock-out-of-till-warehouses.md).
+
+    [Fact]
+    public async Task The_current_snapshot_says_how_much_of_each_item_is_sold_but_not_in_SAP()
+    {
+        var inForce = StockLedgerDay.Today("00:00");
+        await AddSnapshotAsync(inForce, "YOG145", 677m);
+        await AddTillSaleAsync("YOG145", 5m, DesktopSaleConsolidationStatus.Pending);
+        await AddTillSaleAsync("YOG145", 3m, DesktopSaleConsolidationStatus.Failed);
+
+        var result = await Handler("00:00").Handle(new GetLocalStockQuery(Warehouse, inForce), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal(8m, Assert.Single(result.Value.Items).SoldNotInSap);
+    }
+
+    [Fact]
+    public async Task An_item_with_nothing_outstanding_reads_zero_not_blank()
+    {
+        var inForce = StockLedgerDay.Today("00:00");
+        await AddSnapshotAsync(inForce, "YOG145", 685m);
+
+        var result = await Handler("00:00").Handle(new GetLocalStockQuery(Warehouse), default);
+
+        Assert.Equal(0m, Assert.Single(result.Value.Items).SoldNotInSap);
+    }
+
+    [Fact]
+    public async Task A_sale_SAP_has_invoiced_is_not_counted()
+    {
+        var inForce = StockLedgerDay.Today("00:00");
+        await AddSnapshotAsync(inForce, "YOG145", 677m);
+        await AddTillSaleAsync("YOG145", 8m, DesktopSaleConsolidationStatus.Consolidated);
+
+        var result = await Handler("00:00").Handle(new GetLocalStockQuery(Warehouse), default);
+
+        Assert.Equal(0m, Assert.Single(result.Value.Items).SoldNotInSap);
+    }
+
+    [Fact]
+    public async Task A_past_snapshot_carries_no_figure_rather_than_todays()
+    {
+        var past = StockLedgerDay.Today("00:00").AddDays(-3);
+        await AddSnapshotAsync(past, "YOG145", 677m);
+        await AddTillSaleAsync("YOG145", 8m, DesktopSaleConsolidationStatus.Pending);
+
+        var result = await Handler("00:00").Handle(new GetLocalStockQuery(Warehouse, past), default);
+
+        Assert.False(result.IsError);
+        Assert.Null(Assert.Single(result.Value.Items).SoldNotInSap);
+    }
+
+    private async Task AddTillSaleAsync(string itemCode, decimal quantity, DesktopSaleConsolidationStatus status)
+    {
+        var sale = new DesktopSaleEntity
+        {
+            ExternalReferenceId = $"KEF-FAC-{Guid.NewGuid():N}",
+            SourceSystem = ShopInventory.Common.Sales.SaleSourceSystems.ShopTill,
+            CardCode = "CIS006",
+            WarehouseCode = Warehouse,
+            ConsolidationStatus = status,
+            CreatedAt = DateTime.UtcNow,
+            DocDate = DateTime.UtcNow.Date
+        };
+
+        _context.DesktopSales.Add(sale);
+        await _context.SaveChangesAsync();
+
+        _context.DesktopSaleLines.Add(new DesktopSaleLineEntity
+        {
+            SaleId = sale.Id,
+            LineNum = 1,
+            ItemCode = itemCode,
+            WarehouseCode = Warehouse,
+            Quantity = quantity
+        });
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
     private static StockMovementEntity Movement(DateTime day, string warehouse, string kind, decimal quantity) => new()
     {
         LedgerDay = day,
@@ -152,12 +236,16 @@ public sealed class LocalStockLedgerDayTests : IDisposable
         Reference = kind
     };
 
-    private GetLocalStockHandler Handler(string fetchTimeCat) =>
-        new(_context, Options.Create(new DailyStockSettings
+    private GetLocalStockHandler Handler(string fetchTimeCat)
+    {
+        var settings = Options.Create(new DailyStockSettings
         {
             StockFetchTimeCAT = fetchTimeCat,
             MonitoredWarehouses = [Warehouse]
-        }));
+        });
+
+        return new(_context, settings, new UnpostedTillClaims(_context, settings, NullLogger<UnpostedTillClaims>.Instance));
+    }
 
     private async Task AddSnapshotAsync(DateTime snapshotDate, string itemCode, decimal quantity)
     {

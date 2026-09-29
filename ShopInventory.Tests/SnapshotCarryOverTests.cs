@@ -498,7 +498,7 @@ public sealed class SnapshotCarryOverTests : IDisposable
     private GetLocalStockHandler LocalStock()
     {
         _context.ChangeTracker.Clear();
-        return new GetLocalStockHandler(_context, Options.Create(_settings));
+        return new GetLocalStockHandler(_context, Options.Create(_settings), new UnpostedTillClaims(_context, Options.Create(_settings), NullLogger<UnpostedTillClaims>.Instance));
     }
 
     private static StockLedgerLine Line(string warehouse, decimal quantity) => new(Item, warehouse, quantity);
