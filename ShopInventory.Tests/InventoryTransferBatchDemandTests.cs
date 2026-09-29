@@ -1,3 +1,6 @@
+using ShopInventory.Configuration;
+using ShopInventory.Common.Stock;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
@@ -166,6 +169,7 @@ public sealed class InventoryTransferBatchDemandTests
         var service = new StockValidationService(
             context,
             SapAnswering(warehouseBatches),
+            StubProxy.For<IUnpostedTillClaims>((_, _) => Task.FromResult<IReadOnlyDictionary<string, decimal>>(new Dictionary<string, decimal>())),
             NullLogger<StockValidationService>.Instance);
 
         return await service.ValidateInventoryTransferStockAsync(request, CancellationToken.None);

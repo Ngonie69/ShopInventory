@@ -12352,36 +12352,12 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             throw new InvalidOperationException($"Transfer request {requestDocEntry} is already closed and cannot be converted");
         }
 
-        // Build the transfer lines from the request. Allocation is deliberately not done here:
-        // CreateInventoryTransferAsync resolves the management flags and allocates every line of
-        // the document it is about to post, so a second implementation here could only disagree
-        // with it — and did, by allocating each line from the full batch pool regardless of what
-        // the other lines had already claimed.
-        var transferLines = transferRequest.StockTransferLines?
-            .Select(requestLine => new CreateInventoryTransferLineRequest
-            {
-                ItemCode = requestLine.ItemCode,
-                Quantity = requestLine.Quantity,
-                FromWarehouseCode = requestLine.FromWarehouseCode ?? transferRequest.FromWarehouse ?? "01",
-                ToWarehouseCode = requestLine.WarehouseCode ?? transferRequest.ToWarehouse
-            })
-            .ToList() ?? [];
+        var createTransferRequest = InventoryTransferRequestConversion.ToTransfer(transferRequest);
 
-        if (transferLines.Count == 0)
+        if (createTransferRequest.Lines!.Count == 0)
         {
             throw new InvalidOperationException("Transfer request has no line items to convert");
         }
-
-        // Create the inventory transfer request object
-        var createTransferRequest = new CreateInventoryTransferRequest
-        {
-            FromWarehouse = transferRequest.FromWarehouse,
-            ToWarehouse = transferRequest.ToWarehouse,
-            DocDate = DateTime.Today.ToString("yyyy-MM-dd"),
-            DueDate = transferRequest.DueDate,
-            Comments = $"Converted from Transfer Request #{transferRequest.DocNum}. {transferRequest.Comments}".Trim(),
-            Lines = transferLines
-        };
 
         _logger.LogInformation("Creating inventory transfer from request {RequestDocEntry} with {LineCount} lines",
             requestDocEntry, createTransferRequest.Lines.Count);

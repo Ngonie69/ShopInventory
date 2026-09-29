@@ -205,6 +205,17 @@ public class StockValidationError
     public string? ReadFailureReason { get; set; }
 
     /// <summary>
+    /// Units SAP still shows that a till has already sold and not yet invoiced, and which were taken
+    /// off before <see cref="AvailableQuantity"/> was worked out. Zero when nothing was held back.
+    /// </summary>
+    /// <remarks>
+    /// Said in <see cref="Message"/> because otherwise the figures contradict SAP: someone checking
+    /// the warehouse in the SAP client sees more than "Available", and the reason is sales SAP has
+    /// not been told about yet. See <c>IUnpostedTillClaims</c>.
+    /// </remarks>
+    public decimal HeldForUnpostedSales { get; set; }
+
+    /// <summary>
     /// Human-readable error message
     /// </summary>
     public string Message => StockReadFailed
@@ -213,7 +224,11 @@ public class StockValidationError
           + $"({ReadFailureReason})"
         : BatchNumber != null
             ? $"Insufficient stock for item '{ItemCode}' batch '{BatchNumber}' in warehouse '{WarehouseCode}'. Requested: {RequestedQuantity}, Available: {AvailableQuantity}, Shortage: {Shortage}"
-            : $"Insufficient stock for item '{ItemCode}' in warehouse '{WarehouseCode}'. Requested: {RequestedQuantity}, Available: {AvailableQuantity}, Shortage: {Shortage}";
+            : $"Insufficient stock for item '{ItemCode}' in warehouse '{WarehouseCode}'. Requested: {RequestedQuantity}, Available: {AvailableQuantity}, Shortage: {Shortage}"
+              + (HeldForUnpostedSales > 0
+                  ? $". SAP holds {AvailableQuantity + HeldForUnpostedSales}, but {HeldForUnpostedSales} of them are already "
+                    + "sold at the till and not yet in SAP, so they cannot be moved"
+                  : string.Empty);
 }
 
 /// <summary>

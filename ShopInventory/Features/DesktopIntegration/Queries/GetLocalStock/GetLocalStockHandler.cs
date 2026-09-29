@@ -12,7 +12,8 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 
 public sealed class GetLocalStockHandler(
     ApplicationDbContext context,
-    IOptions<DailyStockSettings> dailyStock
+    IOptions<DailyStockSettings> dailyStock,
+    IUnpostedTillClaims tillClaims
 ) : IRequestHandler<GetLocalStockQuery, ErrorOr<LocalStockResult>>
 {
     public async Task<ErrorOr<LocalStockResult>> Handle(
@@ -76,6 +77,16 @@ public sealed class GetLocalStockHandler(
             .Select(g => new { ItemCode = g.Key, Net = g.Sum(m => m.Quantity) })
             .ToDictionaryAsync(x => x.ItemCode, x => -x.Net, cancellationToken);
 
+        // What SAP still shows that the tills have already sold. A depot keying a transfer into the SAP
+        // client cannot see it and must leave it behind (docs/operations/stock-out-of-till-warehouses.md);
+        // this is the one number that rule needs, per item. It describes now, not the snapshot's day, so
+        // a past snapshot gets none rather than today's figure under yesterday's date. The snapshot in
+        // force counts as current even when it is yesterday's, standing in while today's is fetched.
+        IReadOnlyDictionary<string, decimal>? notInSap =
+            query.SnapshotDate is null || snapshotDate >= StockLedgerDay.Today(dailyStock.Value.StockFetchTimeCAT)
+                ? await tillClaims.ForWarehouseAsync(query.WarehouseCode, cancellationToken)
+                : null;
+
         // Group by item code and aggregate
         var items = snapshotItems
             .GroupBy(i => i.ItemCode)
@@ -93,6 +104,7 @@ public sealed class GetLocalStockHandler(
                     OriginalQuantity: g.Sum(i => i.OriginalQuantity),
                     TransferAdjustment: transferAdj,
                     SoldToday: soldToday,
+                    SoldNotInSap: notInSap is null ? null : notInSap.GetValueOrDefault(g.Key),
                     Batches: g.Select(b => new LocalStockBatchDto(
                         BatchNumber: b.BatchNumber,
                         AvailableQuantity: b.AvailableQuantity,

@@ -503,6 +503,7 @@
                                 <span role="columnheader" class="lst-n">Original</span>
                                 <span role="columnheader" class="lst-n">Adjustment</span>
                                 <span role="columnheader" class="lst-n">Sold today</span>
+                                <span role="columnheader" class="lst-n" title="@NotInSapHint">Not in SAP</span>
                                 <span role="columnheader" class="lst-batches">Batches</span>
                             </div>
 
@@ -537,6 +538,12 @@
                                     </span>
                                     <span class="lst-n @(item.SoldToday == 0 ? "lst-adj-nil" : "lst-sold")" role="cell">
                                         <span class="lst-rl">Sold today</span>@QuantityDisplay.Format(item.SoldToday)
+                                    </span>
+                                    @* Blank on a past snapshot: the figure is the position now, and
+                                       showing it under an old date would read as that day's. *@
+                                    <span class="lst-n @(item.SoldNotInSap > 0 ? "lst-held" : "lst-adj-nil")" role="cell"
+                                          title="@NotInSapHint">
+                                        <span class="lst-rl">Not in SAP</span>@(item.SoldNotInSap is { } held ? QuantityDisplay.Format(held) : "—")
                                     </span>
                                     <span class="lst-batches" role="cell">
                                         <span class="lst-rl">Batches</span>@item.Batches.Count
@@ -1066,6 +1073,15 @@
     }
 
     // The four steps a quantity can be in; the sheet colours each from a family.
+    /// <summary>
+    /// What the Not in SAP column means, for the header and every cell. A depot reads it before keying
+    /// a transfer in the SAP client, which cannot see these sales — see
+    /// docs/operations/stock-out-of-till-warehouses.md.
+    /// </summary>
+    private const string NotInSapHint =
+        "Sold at the tills and not yet invoiced in SAP. SAP still counts these units, so leave them in the "
+        + "warehouse: never move more than SAP shows less this figure.";
+
     private static string GetQtyClass(decimal qty) => qty switch
     {
         > 100 => "lst-q-good",

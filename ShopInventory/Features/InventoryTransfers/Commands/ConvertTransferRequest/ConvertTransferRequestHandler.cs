@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
@@ -19,6 +20,8 @@ public sealed class ConvertTransferRequestHandler(
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     INotificationService notificationService,
+    IStockValidationService stockValidation,
+    IUnpostedTillClaims tillClaims,
     IOptions<SAPSettings> settings,
     ILogger<ConvertTransferRequestHandler> logger)
     : IRequestHandler<ConvertTransferRequestCommand, ErrorOr<TransferRequestConvertedResponseDto>>
@@ -121,6 +124,9 @@ public sealed class ConvertTransferRequestHandler(
             var message = decision.Value.Message;
             if (decision.Value.ApprovalProcessComplete && command.GenerateDocument)
             {
+                if (await RefuseIfTillSalesWouldBeTakenAsync(document, cancellationToken) is { } refusal)
+                    return refusal;
+
                 var transfer = await sapClient.ConvertTransferRequestToTransferAsync(command.DocEntry, cancellationToken);
                 transferDto = transfer.ToDto();
                 await approvalService.MarkGeneratedAsync(command.DocEntry, transfer.DocEntry, transfer.DocNum, command.UserId, true, cancellationToken);
@@ -170,6 +176,68 @@ public sealed class ConvertTransferRequestHandler(
                 catch (Exception ex) { logger.LogWarning(ex, "Failed to release transfer approval decision lock"); }
             }
         }
+    }
+
+    /// <summary>
+    /// Refuses the conversion when the transfer would take units a till has sold out of the source
+    /// warehouse and SAP has not yet invoiced. Null when it may go ahead.
+    /// </summary>
+    /// <remarks>
+    /// <para>A van's stock request is how most stock leaves a depot, and converting one posts straight
+    /// to SAP: nothing else checks it first. KEFGRC is both a depot the Harare vans load from and a
+    /// vending depot, and on 2026-09-28 transfer 89450 to VAN002 took all 685 YOG145 SAP held, 8 of
+    /// them already sold on a vending receipt three minutes earlier. That sale could then not be
+    /// invoiced. See <see cref="IUnpostedTillClaims"/>.</para>
+    ///
+    /// <para>The till-sale check is asked first because it is a local read, and only when it names one
+    /// of the requested items is SAP's stock read — so a conversion from a warehouse no till sells from,
+    /// which is most of them, costs nothing more than it did.</para>
+    ///
+    /// <para>A stock read that fails refuses rather than posts. Converting anyway is exactly the case
+    /// this exists for, and a till sale normally reaches SAP within a minute, so waiting is cheap.</para>
+    /// </remarks>
+    private async Task<Error?> RefuseIfTillSalesWouldBeTakenAsync(
+        InventoryTransferRequest document,
+        CancellationToken cancellationToken)
+    {
+        var transfer = InventoryTransferRequestConversion.ToTransfer(document);
+        var lines = transfer.Lines ?? [];
+
+        var anyHeld = false;
+        foreach (var source in lines.GroupBy(line => line.FromWarehouseCode!, StringComparer.OrdinalIgnoreCase))
+        {
+            var claims = await tillClaims.ForWarehouseAsync(source.Key, cancellationToken);
+            if (source.Any(line => line.ItemCode is { } itemCode && claims.ContainsKey(itemCode)))
+            {
+                anyHeld = true;
+                break;
+            }
+        }
+
+        if (!anyHeld)
+            return null;
+
+        var validation = await stockValidation.ValidateInventoryTransferStockAsync(transfer, cancellationToken);
+
+        if (!validation.StockWasFullyRead)
+        {
+            return Errors.InventoryTransfer.SapConnectionError(
+                $"Could not read stock from SAP for {string.Join(", ", validation.UnreadableWarehouses)}, so request "
+                + $"#{document.DocNum} cannot be checked against sales the tills have made that SAP does not have yet. "
+                + "Nothing was transferred; try again in a minute.");
+        }
+
+        if (validation.IsValid)
+            return null;
+
+        logger.LogWarning(
+            "Refused to convert transfer request {DocNum} from {Warehouse}: {Shortages}",
+            document.DocNum, document.FromWarehouse, string.Join("; ", validation.Errors.Select(error => error.Message)));
+
+        return Errors.InventoryTransfer.InsufficientStock(
+            $"Request #{document.DocNum} was not converted, and nothing was transferred. "
+            + string.Join("; ", validation.Errors.Select(error => error.Message))
+            + ". Till sales normally reach SAP within a minute, so try again shortly, or reduce the request.");
     }
 
     /// <summary>
@@ -295,6 +363,9 @@ public sealed class ConvertTransferRequestHandler(
                 case IdempotencyAcquireOutcome.RequestMismatch: return Errors.Idempotency.RequestMismatch("transfer request conversion");
                 case IdempotencyAcquireOutcome.Acquired: idempotencyRequestId = acquired.RequestId; release = true; break;
             }
+
+            if (await RefuseIfTillSalesWouldBeTakenAsync(document, cancellationToken) is { } refusal)
+                return refusal;
 
             var transfer = await sapClient.ConvertTransferRequestToTransferAsync(command.DocEntry, cancellationToken);
             await approvalService.MarkGeneratedAsync(

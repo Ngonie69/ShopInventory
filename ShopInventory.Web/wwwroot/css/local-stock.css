@@ -86,8 +86,9 @@
     --lst-r-md: var(--noct-r-md);
     --lst-r-lg: var(--noct-r-lg);
 
-    /* The item grid's eight columns — this page's own, not the system's. */
-    --lst-cols: 26px 150px minmax(0, 1fr) 108px 108px 108px 108px 84px;
+    /* The item grid's nine columns — this page's own, not the system's. The five
+       quantities are 96px so the ninth (Not in SAP) fits in the width eight did. */
+    --lst-cols: 26px 132px minmax(0, 1fr) 96px 96px 96px 96px 96px 72px;
 
     color-scheme: var(--lst-scheme);
 }
@@ -816,6 +817,18 @@
    arithmetic, not a warning, so it reads in ink rather than a family colour. */
 .lst-sold {
     color: var(--lst-ink-2);
+}
+
+/* Not in SAP above zero is a figure somebody has to act on — units SAP still shows
+   that must not be moved — so, unlike Sold today, it takes the warn family. */
+.lst-held {
+    color: var(--lst-fam-warn);
+    font-weight: 600;
+}
+
+/* Only the figure is emphasised; the card layout's label stays like its neighbours. */
+.lst-held .lst-rl {
+    font-weight: 400;
 }
 
 .lst-batches {

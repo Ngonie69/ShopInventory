@@ -1,3 +1,4 @@
+using ShopInventory.Common.Stock;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -218,7 +219,7 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
     private Task<StockValidationResult> Validate(
         StockReadStub sap,
         params CreateInventoryTransferLineRequest[] lines) =>
-        new StockValidationService(_context, sap.AsClient(), NullLogger<StockValidationService>.Instance)
+        new StockValidationService(_context, sap.AsClient(), new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings()), NullLogger<UnpostedTillClaims>.Instance), NullLogger<StockValidationService>.Instance)
             .ValidateInventoryTransferStockAsync(new CreateInventoryTransferRequest
             {
                 FromWarehouse = "WH-1",

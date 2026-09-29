@@ -591,6 +591,7 @@ try
     // Register batch inventory validation service - CRITICAL for batch-managed items
     // Implements FIFO/FEFO auto-allocation and prevents negative batch quantities
     builder.Services.AddScoped<IStockLedger, StockLedger>();
+    builder.Services.AddScoped<ShopInventory.Common.Stock.IUnpostedTillClaims, ShopInventory.Common.Stock.UnpostedTillClaims>();
 
     // Batch validation, stock reservations, and the reserved-quantity provider that nets the second
     // off the first's SAP figures. Registered together; see AddStockReservations.
