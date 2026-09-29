@@ -464,6 +464,8 @@ public sealed class CounterSapStockCheckTests : IDisposable
     {
         await SeedLedgerAsync(Cheese, 30m);
         _sapBatches.Add(("B1", 21m));
+        // Today as the till counts it: the CAT date, which is what the handler compares a chosen day
+        // with. The UTC date would be yesterday from 00:00 to 02:00 CAT, and refused.
         _postingDate = AuditService.ToCAT(DateTime.UtcNow).Date.ToString("yyyy-MM-dd");
 
         var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
