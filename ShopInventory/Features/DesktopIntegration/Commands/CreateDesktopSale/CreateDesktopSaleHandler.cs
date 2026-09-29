@@ -531,8 +531,12 @@ public sealed class CreateDesktopSaleHandler(
     /// </remarks>
     internal static string? TaxCodeFor(
         CreateDesktopSaleLineRequest line,
-        IReadOnlyDictionary<string, string> vatGroups)
-        => ItemVatGroups.TaxCodeFor(line.ItemCode, line.TaxCode, vatGroups);
+        IReadOnlyDictionary<string, string> vatGroups,
+        string currency)
+        => ItemVatGroups.TaxCodeFor(line.ItemCode, line.TaxCode, vatGroups, currency);
+
+    /// <summary>The currency a sale is recorded, fiscalised and posted in.</summary>
+    internal static string SaleCurrency(CreateDesktopSaleRequest req) => req.DocCurrency ?? "ZWG";
 
     private async Task<ErrorOr<DesktopSaleResponseDto>> ValidateDeductAndCreateSaleAsync(
         CreateDesktopSaleRequest req,
@@ -595,6 +599,7 @@ public sealed class CreateDesktopSaleHandler(
         // standard rate, so a zero-rated item was charged 15.5% the customer did not owe and the
         // receipt declared to ZIMRA said the same thing.
         var vatGroups = await ResolveVatGroupsAsync(req.Lines.Select(l => l.ItemCode), ct);
+        var currency = SaleCurrency(req);
 
         // The till's own line numbers are kept only when they are a distinct positive set. A till
         // numbering from zero used to be stored 0,1,2 -> 1,1,2 (a zero became position + 1), and a
@@ -626,10 +631,10 @@ public sealed class CreateDesktopSaleHandler(
                 // The master's answer wins over the request's. Nothing that reaches this handler
                 // sends a tax code today, and the day something does, the item master is still the
                 // one that decides what an item is taxed at.
-                TaxCode = TaxCodeFor(l, vatGroups),
+                TaxCode = TaxCodeFor(l, vatGroups, currency),
                 // Recorded on the line, not just implied by the total, so the basket can be explained
                 // afterwards and the receipt can be rebuilt without re-deriving it.
-                TaxPercent = tax.RateFor(TaxCodeFor(l, vatGroups)) * 100m,
+                TaxPercent = tax.RateFor(TaxCodeFor(l, vatGroups, currency)) * 100m,
                 DiscountPercent = l.DiscountPercent,
                 UoMCode = l.UoMCode
             };
@@ -675,7 +680,7 @@ public sealed class CreateDesktopSaleHandler(
             Comments = req.Comments,
             TotalAmount = totalAmount,
             VatAmount = vatAmount,
-            Currency = req.DocCurrency ?? "ZWG",
+            Currency = currency,
             WarehouseCode = account.WarehouseCode,
             CostCentreCode = account.CostCentreCode,
             // Stored in its canonical spelling so reporting can group on it and the posting job can

@@ -79,17 +79,21 @@ public static class ItemVatGroups
 
     /// <summary>
     /// The tax code one line is charged and declared under: the item master first, and what the caller
-    /// already had only where the master has no answer.
+    /// already had only where the master has no answer — then put in the sale's own currency, because
+    /// the master's <c>O1</c> is the ZiG group. See <see cref="CurrencyTaxCodes"/>.
     /// </summary>
     public static string? TaxCodeFor(
         string? itemCode,
         string? requestedTaxCode,
-        IReadOnlyDictionary<string, string> vatGroups)
+        IReadOnlyDictionary<string, string> vatGroups,
+        string? currency)
     {
         var code = itemCode?.Trim();
 
-        return !string.IsNullOrEmpty(code) && vatGroups.TryGetValue(code, out var vatGroup)
+        var taxCode = !string.IsNullOrEmpty(code) && vatGroups.TryGetValue(code, out var vatGroup)
             ? vatGroup
             : requestedTaxCode;
+
+        return CurrencyTaxCodes.ForCurrency(taxCode, currency);
     }
 }

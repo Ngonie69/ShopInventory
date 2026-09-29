@@ -56,6 +56,32 @@ public sealed class InvoiceLineVatGroupTests
         Assert.Null(sap.PostedLineProperty(lineIndex: 0, "VatGroup"));
     }
 
+    [Theory]
+    [InlineData("USD")]
+    [InlineData(" usd ")]
+    public async Task A_usd_invoice_line_on_the_zig_group_is_posted_under_the_usd_group(string currency)
+    {
+        // O1 is 15.5% output VAT for ZiG and is what the item master holds for most of the catalogue.
+        // Whatever sent it - the till, a handset, the consolidation - a USD invoice posts O01.
+        var sap = new DocumentServiceLayer();
+
+        await CreateClient(sap).CreateInvoiceAsync(Invoice(currency, taxCode: "O1"));
+
+        Assert.Equal("O01", sap.PostedLineProperty(lineIndex: 0, "TaxCode"));
+        Assert.Equal("O01", sap.PostedLineProperty(lineIndex: 0, "VatGroup"));
+    }
+
+    [Fact]
+    public async Task A_zig_invoice_line_keeps_the_zig_group()
+    {
+        var sap = new DocumentServiceLayer();
+
+        await CreateClient(sap).CreateInvoiceAsync(Invoice("ZiG", taxCode: "O1"));
+
+        Assert.Equal("O1", sap.PostedLineProperty(lineIndex: 0, "TaxCode"));
+        Assert.Null(sap.PostedLineProperty(lineIndex: 0, "VatGroup"));
+    }
+
     [Fact]
     public async Task A_line_with_no_tax_code_names_no_group()
     {
