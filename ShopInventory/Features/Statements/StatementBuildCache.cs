@@ -108,6 +108,16 @@ public sealed class StatementBuildCache(
                 return running;
             }
 
+            // Asked again under the lock. The build can finish between the caller's cache check and
+            // here: it caches, completes, and the check above then passes it over as done — so
+            // without this a retry that raced the finish started a second build of a statement
+            // already sitting in the cache (CI, 2026-09-30).
+            if (memoryCache.TryGetValue(key, out CustomerStatementResponseDto? cached) && cached is not null)
+            {
+                logger.LogInformation("Serving statement {StatementKey} from cache", key);
+                return Task.FromResult<ErrorOr<CustomerStatementResponseDto>>(cached);
+            }
+
             PruneCompletedBuilds();
 
             var started = RunDetachedAsync(key, build);
