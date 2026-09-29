@@ -586,16 +586,34 @@
 
 /* ── Filters ───────────────────────────────────────────────────────────── */
 
-/* Capped rather than fractional: there are only four controls, and stretched
-   across a 1400px panel a warehouse name and a date read as though the page
-   expected far more typing than it does. */
+/* Capped rather than fractional: there are only a handful of controls, and
+   stretched across a 1400px panel a warehouse name and a date read as though the
+   page expected far more typing than it does.
+
+   A wrapping row, not a grid: a grid squeezes its button columns below their
+   labels as the panel narrows, and a nowrap label then paints over its
+   neighbour. Here a button that does not fit drops to the next line whole. */
 .lst-filters {
-    display: grid;
-    grid-template-columns: minmax(190px, 340px) minmax(150px, 200px) auto auto auto;
-    justify-content: start;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
     gap: var(--lst-s4);
     padding: 0 var(--lst-s8) var(--lst-s4);
-    align-items: end;
+    align-items: flex-end;
+}
+
+.lst-filters > .lst-field {
+    flex: none;
+}
+
+.lst-filters > .lst-field-warehouse {
+    flex: 0 1 340px;
+    min-width: 190px;
+}
+
+.lst-filters > .lst-field-date {
+    flex: 0 1 200px;
+    min-width: 150px;
 }
 
 .lst-field {
@@ -1203,7 +1221,9 @@
         margin-left: 0;
     }
 
+    /* One control per line, each the full width of the panel. */
     .lst-filters {
+        display: grid;
         grid-template-columns: 1fr;
     }
 

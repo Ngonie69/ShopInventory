@@ -253,7 +253,7 @@
             </div>
 
             <div class="lst-filters">
-                <label class="lst-field">
+                <label class="lst-field lst-field-warehouse">
                     <span class="lst-label">Warehouse</span>
                     <NocturneSelect Class="nsel-block" Options="WarehouseSelectOptions"
                                     @bind-Value="selectedWarehouse" Caption="Warehouse"
@@ -261,7 +261,7 @@
                 </label>
                 @* Not a <label>: the field carries a button and a popup, which a
                    label would swallow the clicks of. *@
-                <div class="lst-field">
+                <div class="lst-field lst-field-date">
                     <span class="lst-label">Snapshot date</span>
                     <NocturneDateField @bind-Date="snapshotDate" AriaLabel="Snapshot date" />
                 </div>
