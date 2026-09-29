@@ -205,6 +205,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncProductsFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(ProductsCacheKey);
+        using var sharedLoad = PageReads.Detach();
         var phases = new SyncPhaseReporter(progress, 4);
         await loadLock.WaitAsync();
 
@@ -355,6 +356,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(ProductsCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync(cancellationToken);
         try
         {
@@ -456,6 +458,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(cacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
         try
         {
@@ -524,6 +527,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncPricesFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(ItemPricesCacheKey);
+        using var sharedLoad = PageReads.Detach();
         // Four phases here rather than the internal method's three: this path
         // pulls SAP into the API's catalog first, which is usually the slowest
         // part of the whole sync.
@@ -761,6 +765,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(ItemPricesCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
         try
         {
@@ -850,6 +855,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncBusinessPartnersFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(BusinessPartnersCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
 
         try
@@ -1036,6 +1042,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(BusinessPartnersCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync(cancellationToken);
         try
         {
@@ -1139,6 +1146,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncWarehousesFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(WarehousesCacheKey);
+        using var sharedLoad = PageReads.Detach();
         var phases = new SyncPhaseReporter(progress, 3);
         await loadLock.WaitAsync();
 
@@ -1240,6 +1248,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(WarehousesCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync(cancellationToken);
         try
         {
@@ -1383,6 +1392,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncItemGroupsFromApiAsync()
     {
         var loadLock = GetLoadLock(ItemGroupsCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
 
         try
@@ -1455,6 +1465,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncBusinessPartnerGroupsFromApiAsync()
     {
         var loadLock = GetLoadLock(BusinessPartnerGroupsCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
 
         try
@@ -1532,6 +1543,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncGLAccountsFromApiAsync()
     {
         var loadLock = GetLoadLock(GLAccountsCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
 
         try
@@ -1622,6 +1634,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(GLAccountsCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
         try
         {
@@ -1718,6 +1731,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     public async Task<int> SyncCostCentresFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(CostCentresCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync();
 
         try
@@ -1862,6 +1876,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(CostCentresCacheKey);
+        using var sharedLoad = PageReads.Detach();
         await loadLock.WaitAsync(cancellationToken);
         try
         {

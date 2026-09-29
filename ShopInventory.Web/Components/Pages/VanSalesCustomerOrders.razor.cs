@@ -1,4 +1,5 @@
 using ShopInventory.Web.Models;
+using ShopInventory.Web.Services;
 
 namespace ShopInventory.Web.Components.Pages;
 
@@ -31,6 +32,7 @@ public partial class VanSalesCustomerOrders
 
     private async Task ReloadAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         isBusy = true;
 
         try

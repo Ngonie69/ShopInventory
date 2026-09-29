@@ -78,6 +78,7 @@ public partial class VanReplenishment
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         // CAT, not the server's clock: a trading day belongs to the van.
         var today = DateTime.UtcNow.AddHours(2).Date;
         fromDate = today.AddDays(-29);

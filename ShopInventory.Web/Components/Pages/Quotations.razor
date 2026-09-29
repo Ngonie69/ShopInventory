@@ -16,6 +16,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Quotations - Shop Inventory</PageTitle>
 
@@ -1031,6 +1032,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         pageSize = PageSizes.Contains(AppSettings.PageSize) ? AppSettings.PageSize : 25;
         await LoadQuotations();
         await AuditService.LogAsync(AuditActions.ViewQuotations, "Quotation", null);

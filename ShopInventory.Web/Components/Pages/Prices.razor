@@ -11,6 +11,7 @@
 @inject ILogger<Prices> Logger
 @inject IAuditService AuditService
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Price List - Shop Inventory</PageTitle>
 
@@ -480,6 +481,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         await LoadPriceLists();
         await AuditService.LogAsync(AuditActions.ViewPrices, "PriceList", null);
     }

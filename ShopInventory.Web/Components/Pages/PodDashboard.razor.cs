@@ -158,6 +158,7 @@ public partial class PodDashboard
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         // The shell paints first and the panels fill in: the compliance window
         // reaches SAP, and an operator should not watch a blank page while it
         // does.

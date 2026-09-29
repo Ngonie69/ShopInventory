@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @rendermode InteractiveServer
 @implements IDisposable
+@inject PageLifetime PageLifetime
 
 <PageTitle>Invoices - Shop Inventory</PageTitle>
 
@@ -1052,6 +1053,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         _pageSize = AppSettings.PageSize;
         await LoadInvoices();
         await AuditService.LogAsync(AuditActions.ViewInvoices, "Invoice", null);

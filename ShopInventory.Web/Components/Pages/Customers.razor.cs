@@ -136,6 +136,7 @@ public partial class Customers : ComponentBase
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         pageSize = PageSizes.Contains(AppSettings.PageSize) ? AppSettings.PageSize : 25;
         await LoadCustomers();
         lastSyncTime = await BusinessPartnerService.GetLastSyncTimeAsync();

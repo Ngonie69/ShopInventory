@@ -112,6 +112,7 @@ public partial class Products : IDisposable
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         if (!firstRender || hasLoadedWarehouses)
             return;
 

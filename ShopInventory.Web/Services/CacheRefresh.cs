@@ -70,6 +70,9 @@ public static class CacheRefresh
 
         try
         {
+            // Every other caller skipped because this one claimed the key, so it must finish for
+            // them even if its own page is left (see PageReads).
+            using var sharedLoad = PageReads.Detach();
             return await refresh();
         }
         finally

@@ -7,6 +7,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @rendermode InteractiveServer
+@inject PageLifetime PageLifetime
 
 <PageTitle>Incoming Payments - Shop Inventory</PageTitle>
 
@@ -481,6 +482,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageReads = PageReads.Bind(PageLifetime);
         _pageSize = AppSettings.PageSize;
         pageSize = AppSettings.PageSize;
         Logger.LogInformation("Payments page: OnInitializedAsync started");
