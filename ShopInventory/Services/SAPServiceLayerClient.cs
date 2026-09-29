@@ -92,7 +92,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // product page — which codes the warehouse holds, and how much of each — then come from the same
     // moment. Reading one live against the other cached is what lets them disagree, and a page whose
     // codes say "in stock" while its batches say nothing is a page of items that silently vanish.
-    private static readonly TimeSpan WarehouseBatchSnapshotLifetime = TimeSpan.FromMinutes(2);
+    // Internal because VanSalesAwaitingSap has to know how old the figure it is netted against can be.
+    internal static readonly TimeSpan WarehouseBatchSnapshotLifetime = TimeSpan.FromMinutes(2);
 
     // One load at a time per whole-warehouse cache key, shared by every caller that finds the entry
     // missing. Static because this typed client is created per request, as the cache locks are.

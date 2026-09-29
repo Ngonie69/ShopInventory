@@ -168,7 +168,7 @@ public sealed class VanOverSaleVisibilityTests
     private static StockLedger Ledger(ApplicationDbContext context) =>
         new(context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance);
 
-    /// <summary>A van that filed a morning count, the way ReportVanSalesStockPosition writes one.</summary>
+    /// <summary>A van with its morning snapshot, as the 07:00 read from SAP writes one.</summary>
     private static async Task<ApplicationDbContext> VanCarrying(decimal units)
     {
         var context = EmptyContext();

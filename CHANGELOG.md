@@ -18,6 +18,17 @@ otherwise be surprised.
 
 ### Added
 
+- **The van catalogue read (`GET /api/product/warehouse/{warehouseCode}/paged?vanSaleOnly=true`) now
+  carries `quantityAwaitingSap` on every product**: units of the van's own sales that this server holds
+  and SAP's figure on the same row does not reflect yet.
+
+  That is uploaded offline sales not yet posted, online sales waiting on the invoice queue or being
+  posted, and anything SAP took in the last three minutes, since the SAP figure the page is built from
+  can be two minutes old. Zero, never absent, on a van read; null on every other read of the route,
+  including the web's master-data cache. The van handset takes it off SAP's figure instead of every
+  sale it made that day, which it had been taking off twice since van sales began posting within
+  minutes (VAN004 on 2026-09-29 showed YOG008 at 1 against SAP's 6). Handsets built before it ignore it.
+
 - **The warehouses the daily stock snapshot covers are now edited on the Local stock page**
   (Tracked warehouses, Admin only), through the new
   `PUT /api/DesktopIntegration/stock/monitored-warehouses`.
@@ -268,6 +279,17 @@ otherwise be surprised.
   probe gets a `404` and reports `Unhealthy`, so deploy the listener first.
 
 ### Changed
+
+- **A van's count (`POST /api/vansales/stock/position`) no longer becomes the van's opening stock.**
+
+  The route still answers `accepted`, so handsets mark the day filed and stop resending, but writes
+  nothing: a van's `DailyStockSnapshot` now comes only from the 07:00 read from SAP. A count that
+  arrived first used to win, filed under the account's first warehouse with nothing checking it was
+  the van the handset's ledger belonged to — on 2026-09-29 VAN004 opened on VAN005's stock (YOG020 30,
+  YOG023 10 where SAP held none), and Local stock showed it all day because vans are left out of the
+  hourly correction. Before 07:00 a van now has no snapshot for the day, so `GET /api/vansales/stock/position`
+  answers `counted: false` until the read runs, and the SAP-outage stock check for online van sales has
+  no figure to check against in that window.
 
 - **`GET /api/DesktopIntegration/sales/analysis` now counts online van sales.** With no
   `sourceSystem` it used to leave out `KefalosVanSalesOnline`, on the grounds that those sales are
