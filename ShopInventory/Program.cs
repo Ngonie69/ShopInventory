@@ -29,7 +29,6 @@ using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
 using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.VanSalesCustomerAuth;
 using ShopInventory.Features.VanSalesOrders;
-using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
 using ShopInventory.Health;
 using ShopInventory.Middleware;
 using ShopInventory.Models;
@@ -1176,14 +1175,8 @@ try
             // Provision the Quartz job-store tables before the scheduler starts.
             await ShopInventory.Configuration.QuartzSchema.EnsureAsync(defaultConnectionString, "ShopInventoryApi");
 
-            var mediator = services.GetRequiredService<IMediator>();
-            var backfillResult = await mediator.Send(new BackfillSalesOrderCardNamesCommand(), CancellationToken.None);
-            if (backfillResult.IsError)
-            {
-                logger.LogWarning(
-                    "Sales order card-name backfill failed during startup: {Errors}",
-                    string.Join("; ", backfillResult.Errors.Select(error => error.Description)));
-            }
+            // The sales order customer-name backfill used to run here, before readiness. It is a
+            // clustered job now, fired once after start; see SalesOrderCardNameBackfillJob.
 
             // Load the stored rate limits before the first request rather than on the first stale
             // read. The limiter builds a client's partition once, from whatever limits are current

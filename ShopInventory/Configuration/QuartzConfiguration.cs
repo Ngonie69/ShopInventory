@@ -99,6 +99,20 @@ public static class QuartzConfiguration
             AddIntervalJob<PodReportWarmJob>(
                 q, "pod-report-warm", TimeSpan.FromMinutes(5), startDelay: TimeSpan.FromMinutes(2));
 
+            if (sap.Enabled)
+            {
+                // Once, a few minutes after each start, on whichever node takes it: it used to run
+                // inline before the node was marked ready. See SalesOrderCardNameBackfillJob.
+                q.AddJob<SalesOrderCardNameBackfillJob>(job => job
+                    .WithIdentity(SalesOrderCardNameBackfillJob.JobName)
+                    .StoreDurably());
+                AddStartupTrigger(
+                    services,
+                    SalesOrderCardNameBackfillJob.JobName,
+                    SalesOrderCardNameBackfillJob.StartupTriggerName,
+                    SalesOrderCardNameBackfillJob.StartupDelay);
+            }
+
             if (sap.Enabled && creditNoteSync.Enabled)
             {
                 AddIntervalJob<CreditNoteProjectionSyncJob>(
