@@ -5,5 +5,7 @@ using ShopInventory.DTOs;
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetTransfersByWarehouse;
 
 public sealed record GetTransfersByWarehouseQuery(
-    string WarehouseCode
+    string WarehouseCode,
+    DateTime? FromDate = null,
+    DateTime? ToDate = null
 ) : IRequest<ErrorOr<List<InventoryTransferDto>>>;

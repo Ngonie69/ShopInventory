@@ -7,7 +7,7 @@ namespace ShopInventory.Services;
 public interface ISAPServiceLayerClient
 {
     // Inventory Transfer Operations
-    Task<List<InventoryTransfer>> GetInventoryTransfersToWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+    Task<List<InventoryTransfer>> GetInventoryTransfersToWarehouseAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetPagedInventoryTransfersToWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetPagedInventoryTransfersByOffsetAsync(string warehouseCode, int skip, int pageSize, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetInventoryTransfersByDateAsync(string warehouseCode, DateTime date, CancellationToken cancellationToken = default);
@@ -59,7 +59,7 @@ public interface ISAPServiceLayerClient
     /// <summary>
     /// Gets all inventory transfer requests to a specific warehouse
     /// </summary>
-    Task<List<InventoryTransferRequest>> GetInventoryTransferRequestsByWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+    Task<List<InventoryTransferRequest>> GetInventoryTransferRequestsByWarehouseAsync(string warehouseCode, DateTime fromDate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets inventory transfer requests with pagination, newest first. <paramref name="documentStatus"/>

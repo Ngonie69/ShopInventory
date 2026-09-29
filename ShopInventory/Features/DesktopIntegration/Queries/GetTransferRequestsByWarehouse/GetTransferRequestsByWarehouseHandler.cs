@@ -1,3 +1,4 @@
+using ShopInventory.Common;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
@@ -21,8 +22,9 @@ public sealed class GetTransferRequestsByWarehouseHandler(
         if (!sapSettings.Value.Enabled)
             return Errors.DesktopIntegration.SapDisabled;
 
+        var (from, _) = TransferReadWindow.Resolve(query.FromDate, null, DateTime.Today);
         var requests = await sapClient.GetInventoryTransferRequestsByWarehouseAsync(
-            query.WarehouseCode, cancellationToken);
+            query.WarehouseCode, from, cancellationToken);
 
         return requests.Select(r => r.ToDto()).ToList();
     }
