@@ -424,16 +424,18 @@ public sealed class CounterSapStockCheckTests : IDisposable
         await SeedLedgerAsync(Cheese, 30m);
         _sapBatches.Add(("B1", 21m));
         await AllowCustomPostingDatesAsync(true);
-        var yesterday = AuditService.ToCAT(DateTime.UtcNow).Date.AddDays(-1);
-        _postingDate = yesterday.ToString("yyyy-MM-dd");
+        // Three days back, not one. The trading day is still the UTC date, so from 00:00 to 02:00
+        // CAT it is CAT's yesterday, and a one-day-back posting date fell on it (CI, 2026-09-30 00:04).
+        var earlier = AuditService.ToCAT(DateTime.UtcNow).Date.AddDays(-3);
+        _postingDate = earlier.ToString("yyyy-MM-dd");
 
         var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
 
         Assert.False(result.IsError);
         var sale = await _context.DesktopSales.Include(s => s.Lines).SingleAsync();
-        Assert.Equal(yesterday, sale.PostingDate);
+        Assert.Equal(earlier, sale.PostingDate);
         // The trading day, and so the fiscal receipt's date, is not moved.
-        Assert.NotEqual(yesterday, sale.DocDate);
+        Assert.NotEqual(earlier, sale.DocDate);
 
         var invoice = DesktopSaleInvoiceRequestBuilder.Build(sale);
         Assert.Equal(_postingDate, invoice.DocDate);
