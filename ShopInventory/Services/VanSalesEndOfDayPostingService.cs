@@ -117,6 +117,9 @@ public sealed class VanSalesEndOfDayPostingService(
             // it happened to be uploaded in.
             .OrderBy(s => s.DocDate)
             .ThenBy(s => s.ReceiptGlobalNo)
+            .ThenBy(s => s.Id)
+            // A batch, not the whole backlog: see VanSalesPostingSettings.BatchSize.
+            .Take(Math.Max(1, settings.Value.BatchSize))
             .ToListAsync(cancellationToken);
 
         var result = new VanSalesPostingRunResult(date, windowStart);
