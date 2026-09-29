@@ -4171,6 +4171,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order. Posted to SAP by the post-save queue once priced, without waiting for approval on the web; an order over its credit limit stays Pending for web approval |
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
+| GET | `/api/vansales/sale/{vanOrder}` | `invoices.view` | Whether the sale posted under that `van_order` landed, for a handset whose `POST order` lost its reply: sale number, receipt, and SAP numbers once the queue has posted it. Read off the sale row, so a sale signed and not yet in SAP is answered — invoice history, which reads SAP, has nothing. **Always `200`**: not found, and another van's sale, are both `found: false`, because the handset reads a `404` as a server without this route. Returned **bare**, not enveloped |
 | GET | `/api/vansales/fiscal` | `invoices.view` | Fiscal device details for the handset |
 | GET | `/api/vansales/fiscal/lease` | `invoices.create` | Optional `pendingSales`. Returned **bare**, not enveloped |
 | POST | `/api/vansales/fiscal/day-close` | `invoices.create` | The close a handset signed for its own fiscal day. Held rather than forwarded — the day is packaged once its receipts have landed |
