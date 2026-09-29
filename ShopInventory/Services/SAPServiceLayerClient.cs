@@ -7372,7 +7372,7 @@ ORDER BY T0.""ItemCode""";
         return new SpecialPriceLookupResult(result, lookupComplete);
     }
 
-    private static BusinessPartnerSpecialPriceDto? ParseCurrentBusinessPartnerSpecialPrice(JsonElement item, DateTime todayUtc)
+    internal static BusinessPartnerSpecialPriceDto? ParseCurrentBusinessPartnerSpecialPrice(JsonElement item, DateTime todayUtc)
     {
         var cardCode = item.TryGetProperty("CardCode", out var cardCodeProp)
             ? cardCodeProp.GetString()?.Trim()
@@ -7386,13 +7386,11 @@ ORDER BY T0.""ItemCode""";
             return null;
         }
 
-        if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price))
+        if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price, out var validFrom, out var validTo))
         {
             return null;
         }
 
-        var validFrom = TryGetNamedDate(item, "DateFrom", "ValidFrom", "EffectiveFrom", "FromDate", "StartDate");
-        var validTo = TryGetNamedDate(item, "DateTo", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
         var isActive = !TryGetSpecialPriceActiveFlag(item, out var active) || active;
 
         return new BusinessPartnerSpecialPriceDto
@@ -7447,16 +7445,35 @@ ORDER BY T0.""ItemCode""";
     }
 
     private static bool TryExtractCurrentSpecialPrice(JsonElement item, DateTime todayUtc, out decimal price)
+        => TryExtractCurrentSpecialPrice(item, todayUtc, out price, out _, out _);
+
+    /// <summary>
+    /// The special price SAP would charge today, and the validity window of the row it came from:
+    /// a period discount's own dates when one is current, otherwise the header's.
+    /// </summary>
+    /// <remarks>
+    /// The window has to be the source row's. The catalogue stores it and filters on it between
+    /// syncs, so a period price stored under the header's open-ended window keeps being charged
+    /// after SAP has stopped charging it.
+    /// </remarks>
+    private static bool TryExtractCurrentSpecialPrice(
+        JsonElement item,
+        DateTime todayUtc,
+        out decimal price,
+        out DateTime? validFrom,
+        out DateTime? validTo)
     {
         price = 0m;
+        validFrom = null;
+        validTo = null;
 
         if (TryGetSpecialPriceActiveFlag(item, out var isActive) && !isActive)
             return false;
 
-        if (TryGetSpecialPriceFromDataAreas(item, todayUtc, out price))
+        if (TryGetSpecialPriceFromDataAreas(item, todayUtc, out price, out validFrom, out validTo))
             return true;
 
-        if (TryGetSpecialPriceDateRange(item, out var validFrom, out var validTo) &&
+        if (TryGetSpecialPriceDateRange(item, out validFrom, out validTo) &&
             !IsSpecialPriceDateRangeActive(validFrom, validTo, todayUtc))
         {
             return false;
@@ -7465,11 +7482,21 @@ ORDER BY T0.""ItemCode""";
         return TryGetSpecialPriceValue(item, out price);
     }
 
-    private static bool TryGetSpecialPriceFromDataAreas(JsonElement item, DateTime todayUtc, out decimal price)
+    private static bool TryGetSpecialPriceFromDataAreas(
+        JsonElement item,
+        DateTime todayUtc,
+        out decimal price,
+        out DateTime? validFrom,
+        out DateTime? validTo)
     {
         price = 0m;
+        validFrom = null;
+        validTo = null;
 
-        if (!item.TryGetProperty("SpecialPricesDataAreas", out var dataAreas) ||
+        // SpecialPriceDataAreas, as the Service Layer metadata spells it. This read
+        // "SpecialPricesDataAreas", which SAP never sends, so a current period discount was ignored
+        // and the header price charged instead, where SAP charges the period.
+        if (!item.TryGetProperty("SpecialPriceDataAreas", out var dataAreas) ||
             dataAreas.ValueKind != JsonValueKind.Array)
         {
             return false;
@@ -7484,11 +7511,14 @@ ORDER BY T0.""ItemCode""";
             if (TryGetSpecialPriceActiveFlag(area, out var isAreaActive) && !isAreaActive)
                 continue;
 
-            if (TryGetSpecialPriceDateRange(area, out var validFrom, out var validTo) &&
-                !IsSpecialPriceDateRangeActive(validFrom, validTo, todayUtc))
+            if (TryGetSpecialPriceDateRange(area, out var areaFrom, out var areaTo) &&
+                !IsSpecialPriceDateRangeActive(areaFrom, areaTo, todayUtc))
             {
                 continue;
             }
+
+            validFrom = areaFrom;
+            validTo = areaTo;
 
             if (TryGetSpecialPriceValue(area, out price))
                 return true;
@@ -7497,6 +7527,8 @@ ORDER BY T0.""ItemCode""";
                 return true;
         }
 
+        validFrom = null;
+        validTo = null;
         return hasAreas ? false : TryGetSpecialPriceValue(item, out price);
     }
 
@@ -7515,10 +7547,16 @@ ORDER BY T0.""ItemCode""";
         return false;
     }
 
+    /// <remarks>
+    /// <c>Dateto</c>, lower-case t, is how the Service Layer spells the end of a period discount
+    /// (<c>SpecialPriceDataArea</c>; the header says <c>ValidTo</c>). Property lookup is
+    /// case-sensitive, so a period discount that had ended would read as open-ended and be charged
+    /// for ever. Until 2026-09-29 no period was read at all (see TryGetSpecialPriceFromDataAreas).
+    /// </remarks>
     private static bool TryGetSpecialPriceDateRange(JsonElement element, out DateTime? validFrom, out DateTime? validTo)
     {
         validFrom = TryGetNamedDate(element, "DateFrom", "ValidFrom", "EffectiveFrom", "FromDate", "StartDate");
-        validTo = TryGetNamedDate(element, "DateTo", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
+        validTo = TryGetNamedDate(element, "Dateto", "DateTo", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
         return validFrom.HasValue || validTo.HasValue;
     }
 
