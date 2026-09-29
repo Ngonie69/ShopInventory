@@ -1,3 +1,4 @@
+using ShopInventory.Common.Stock;
 using System.Net;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +54,7 @@ public sealed class InventoryTransferPostingPerformanceTests
         var service = new StockValidationService(
             context,
             sap.AsClient(),
+            StubProxy.For<IUnpostedTillClaims>((_, _) => Task.FromResult<IReadOnlyDictionary<string, decimal>>(new Dictionary<string, decimal>())),
             NullLogger<StockValidationService>.Instance);
 
         var result = await service.ValidateInventoryTransferStockAsync(new CreateInventoryTransferRequest

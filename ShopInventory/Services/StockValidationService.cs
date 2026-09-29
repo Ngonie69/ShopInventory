@@ -1,3 +1,4 @@
+using ShopInventory.Common.Stock;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -484,15 +485,18 @@ public class StockValidationService : IStockValidationService
 {
     private readonly ApplicationDbContext _dbContext;
     private readonly ISAPServiceLayerClient _sapClient;
+    private readonly IUnpostedTillClaims _tillClaims;
     private readonly ILogger<StockValidationService> _logger;
 
     public StockValidationService(
         ApplicationDbContext dbContext,
         ISAPServiceLayerClient sapClient,
+        IUnpostedTillClaims tillClaims,
         ILogger<StockValidationService> logger)
     {
         _dbContext = dbContext;
         _sapClient = sapClient;
+        _tillClaims = tillClaims;
         _logger = logger;
     }
 
@@ -827,6 +831,8 @@ public class StockValidationService : IStockValidationService
             }
         }
 
+        await CheckAgainstUnpostedTillSalesAsync(request, warehouseStockCache, result, cancellationToken);
+
         if (result.Errors.Count > 0)
         {
             result.Suggestions.Add("Verify source warehouse has sufficient stock before transfer");
@@ -843,6 +849,90 @@ public class StockValidationService : IStockValidationService
 
         return result;
     }
+
+    /// <summary>
+    /// Refuses a document that would leave a source warehouse holding less of an item than its tills
+    /// have already sold and SAP has not yet invoiced.
+    /// </summary>
+    /// <remarks>
+    /// <para>The checks above compare each line with what SAP holds. SAP still holds a till sale's
+    /// units until that sale's invoice posts, so a transfer read in between takes them, and the sale —
+    /// already fiscalised — is then refused. See <see cref="IUnpostedTillClaims"/>.</para>
+    ///
+    /// <para>Per item, not per line: every line of the item draws on the same units, batch-chosen or
+    /// not, and the sale's post will allocate from whichever batches are left. Reported against the
+    /// item's first line, the way the batch check reports a shared batch, so a partial post drops that
+    /// line and measures again.</para>
+    ///
+    /// <para>A warehouse whose stock was not read is left alone: there is no figure to take the sales
+    /// off, and <see cref="StockValidationResult.UnreadableWarehouses"/> already stops a post. A line
+    /// that is short against SAP on its own already carries an error and gets no second one.</para>
+    /// </remarks>
+    private async Task CheckAgainstUnpostedTillSalesAsync(
+        CreateInventoryTransferRequest request,
+        IReadOnlyDictionary<string, List<StockQuantityDto>?> warehouseStock,
+        StockValidationResult result,
+        CancellationToken cancellationToken)
+    {
+        var demandByWarehouse = request.Lines!
+            .Select((line, index) => (
+                Warehouse: line.FromWarehouseCode ?? request.FromWarehouse ?? "01",
+                ItemCode: line.ItemCode ?? "",
+                line.Quantity,
+                LineNumber: index + 1))
+            .Where(line => line.ItemCode.Length > 0 && line.Quantity > 0)
+            .GroupBy(line => line.Warehouse, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var warehouse in demandByWarehouse)
+        {
+            if (!warehouseStock.TryGetValue(warehouse.Key, out var stock) || stock is null)
+                continue;
+
+            var claims = await _tillClaims.ForWarehouseAsync(warehouse.Key, cancellationToken);
+            if (claims.Count == 0)
+                continue;
+
+            foreach (var item in warehouse.GroupBy(line => line.ItemCode, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!claims.TryGetValue(item.Key, out var held))
+                    continue;
+
+                var lineNumbers = item.Select(line => line.LineNumber).ToHashSet();
+                if (result.Errors.Any(error => lineNumbers.Contains(error.LineNumber)))
+                    continue;
+
+                var inStock = stock
+                    .FirstOrDefault(row => string.Equals(row.ItemCode, item.Key, StringComparison.OrdinalIgnoreCase))
+                    ?.InStock ?? 0;
+                var movable = Math.Max(0, inStock - held);
+                var requested = item.Sum(line => line.Quantity);
+
+                if (requested <= movable)
+                    continue;
+
+                result.Errors.Add(new StockValidationError
+                {
+                    LineNumber = lineNumbers.Min(),
+                    ItemCode = item.Key,
+                    WarehouseCode = warehouse.Key,
+                    RequestedQuantity = Plain(requested),
+                    AvailableQuantity = Plain(movable),
+                    HeldForUnpostedSales = Plain(Math.Min(held, inStock))
+                });
+
+                _logger.LogWarning(
+                    "Transfer out of {Warehouse} asks for {Requested} {ItemCode}; SAP holds {InStock} but {Held} "
+                    + "are sold at the till and not yet in SAP, so only {Movable} may move",
+                    warehouse.Key, requested, item.Key, inStock, held, movable);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The same value without trailing zeros. Quantities read back from a <c>decimal(18,6)</c> column
+    /// keep its scale, and the message would otherwise tell a depot "8.000000 of them are sold".
+    /// </summary>
+    private static decimal Plain(decimal value) => value / 1.000000000000000000000000000000000m;
 
     /// <inheritdoc/>
     public List<string> ValidatePositiveQuantities(IEnumerable<QuantityValidationItem> items)

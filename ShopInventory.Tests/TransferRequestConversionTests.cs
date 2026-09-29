@@ -1,3 +1,4 @@
+using ShopInventory.Common.Stock;
 ﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -369,6 +370,9 @@ public sealed class TransferRequestConversionTests : IDisposable
     private ConvertTransferRequestHandler Handler(RecordingSapClient sap) =>
         new(sap.AsClient(), ApprovalService(), new TransferWarehouseAuthorizer(_context),
             new AlwaysAcquiresStore(), new NoOpAuditService(), _published,
+            // No till has sold from Source, so the stock check must not even be asked.
+            StubProxy.Unused<IStockValidationService>(),
+            new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings()), NullLogger<UnpostedTillClaims>.Instance),
             Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<ConvertTransferRequestHandler>.Instance);
 
