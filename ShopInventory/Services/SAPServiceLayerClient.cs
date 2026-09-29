@@ -7372,7 +7372,7 @@ ORDER BY T0.""ItemCode""";
         return new SpecialPriceLookupResult(result, lookupComplete);
     }
 
-    private static BusinessPartnerSpecialPriceDto? ParseCurrentBusinessPartnerSpecialPrice(JsonElement item, DateTime todayUtc)
+    internal static BusinessPartnerSpecialPriceDto? ParseCurrentBusinessPartnerSpecialPrice(JsonElement item, DateTime todayUtc)
     {
         var cardCode = item.TryGetProperty("CardCode", out var cardCodeProp)
             ? cardCodeProp.GetString()?.Trim()
@@ -7446,7 +7446,7 @@ ORDER BY T0.""ItemCode""";
         return $"{filter} and ({itemFilter})";
     }
 
-    private static bool TryExtractCurrentSpecialPrice(JsonElement item, DateTime todayUtc, out decimal price)
+    internal static bool TryExtractCurrentSpecialPrice(JsonElement item, DateTime todayUtc, out decimal price)
     {
         price = 0m;
 
@@ -7465,22 +7465,22 @@ ORDER BY T0.""ItemCode""";
         return TryGetSpecialPriceValue(item, out price);
     }
 
+    // The period rows (SPP1) of a special price. A row in force today wins; with none in force the
+    // caller falls through to the header, because SAP does the same: CompanyService_GetItemPrice on
+    // KEFALOS_TEST_3 (2026-09-29) priced MAC002/YOG001 at its header special price on 2023-12-15,
+    // after its only period row had ended but while the header was still valid.
     private static bool TryGetSpecialPriceFromDataAreas(JsonElement item, DateTime todayUtc, out decimal price)
     {
         price = 0m;
 
-        if (!item.TryGetProperty("SpecialPricesDataAreas", out var dataAreas) ||
+        if (!item.TryGetProperty("SpecialPriceDataAreas", out var dataAreas) ||
             dataAreas.ValueKind != JsonValueKind.Array)
         {
             return false;
         }
 
-        var hasAreas = false;
-
         foreach (var area in dataAreas.EnumerateArray())
         {
-            hasAreas = true;
-
             if (TryGetSpecialPriceActiveFlag(area, out var isAreaActive) && !isAreaActive)
                 continue;
 
@@ -7492,12 +7492,9 @@ ORDER BY T0.""ItemCode""";
 
             if (TryGetSpecialPriceValue(area, out price))
                 return true;
-
-            if (TryGetSpecialPriceValue(item, out price))
-                return true;
         }
 
-        return hasAreas ? false : TryGetSpecialPriceValue(item, out price);
+        return false;
     }
 
     private static bool TryGetSpecialPriceValue(JsonElement element, out decimal price)
@@ -7518,7 +7515,8 @@ ORDER BY T0.""ItemCode""";
     private static bool TryGetSpecialPriceDateRange(JsonElement element, out DateTime? validFrom, out DateTime? validTo)
     {
         validFrom = TryGetNamedDate(element, "DateFrom", "ValidFrom", "EffectiveFrom", "FromDate", "StartDate");
-        validTo = TryGetNamedDate(element, "DateTo", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
+        // "Dateto" is how SpecialPriceDataArea spells it, and property lookup is case-sensitive.
+        validTo = TryGetNamedDate(element, "DateTo", "Dateto", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
         return validFrom.HasValue || validTo.HasValue;
     }
 
