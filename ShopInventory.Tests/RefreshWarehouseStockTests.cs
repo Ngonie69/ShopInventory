@@ -41,6 +41,9 @@ public sealed class RefreshWarehouseStockTests : IDisposable
     private readonly List<BatchNumber> _warehouseBatches = new();
     private bool _batchReadFails;
 
+    /// <summary>The stock transfers SAP has booked for the shop.</summary>
+    private readonly List<SapStockMovementDocument> _sapTransfers = new();
+
     private readonly List<ProcessTransferEventCommand> _transfersFoundByCheck = new();
     private bool _listenerEnabled = true;
     private bool _listenerFails;
@@ -84,6 +87,47 @@ public sealed class RefreshWarehouseStockTests : IDisposable
         Assert.False(result.IsError);
         Assert.Equal(1, result.Value.ItemsCorrected);
         Assert.Equal(140m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// The button pressed between SAP booking a transfer out of the shop and the listener delivering
+    /// it. The refresh moves the shop to SAP's figure, which has the transfer already, so the delivery
+    /// that follows must find it recorded rather than take it off a second time.
+    /// </summary>
+    [Fact]
+    public async Task A_transfer_SAP_booked_before_the_press_is_not_taken_again_by_the_webhook()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        _warehouseStock.Add(Stock(Item, inStock: 80m));
+        _sapTransfers.Add(new SapStockMovementDocument
+        {
+            DocEntry = 6001,
+            DocNum = 9001,
+            FromWarehouse = Shop,
+            ToWarehouse = "VAN006",
+            StockTransferLines =
+            [
+                new SapStockMovementLine { ItemCode = Item, Quantity = 20, FromWarehouseCode = Shop, WarehouseCode = "VAN006" }
+            ]
+        });
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.False(result.IsError);
+        Assert.Equal(80m, await AvailableAsync(Shop, Item));
+
+        await using var webhookContext = new SnapshotSqliteContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options);
+
+        var delivery = await new ProcessTransferEventHandler(
+                webhookContext,
+                Options.Create(_settings),
+                new CapturingPublisher(),
+                NullLogger<ProcessTransferEventHandler>.Instance)
+            .Handle(new ProcessTransferEventCommand(Item, Shop, "VAN006", 20m, 6001, 9001), CancellationToken.None);
+
+        Assert.False(delivery.Value.Adjusted);
+        Assert.Equal(80m, await AvailableAsync(Shop, Item));
     }
 
     [Fact]
@@ -537,6 +581,10 @@ public sealed class RefreshWarehouseStockTests : IDisposable
 
             nameof(ISAPServiceLayerClient.GetStockQuantitiesInWarehouseAsync) =>
                 Task.FromResult(_warehouseStock.ToList()),
+
+            // Read ahead of the stock, so a transfer SAP holds is recorded rather than taken twice.
+            nameof(ISAPServiceLayerClient.GetStockTransfersCreatedAsync) =>
+                Task.FromResult(_sapTransfers.ToList()),
 
             // Only the re-fetch of a failed snapshot asks for this; SAP holding nothing unbatched.
             nameof(ISAPServiceLayerClient.GetNonBatchStockQuantitiesInWarehouseAsync) =>

@@ -9,6 +9,7 @@ using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -53,6 +54,13 @@ public sealed class StockLedgerReconcileTests : IDisposable
     /// <summary>What the whole-warehouse reads answer, which is what arrival discovery searches.</summary>
     private readonly List<StockQuantityDto> _warehouseStock = new();
     private readonly List<BatchNumber> _warehouseBatches = new();
+
+    /// <summary>The stock transfers SAP has booked, whether or not the listener has delivered them.</summary>
+    private readonly List<SapStockMovementDocument> _sapTransfers = new();
+    private bool _transferReadFails;
+
+    /// <summary>Which SAP reads the pass made, in order.</summary>
+    private readonly List<string> _sapReads = new();
 
     private DailyStockSettings _settings = new()
     {
@@ -579,7 +587,7 @@ public sealed class StockLedgerReconcileTests : IDisposable
     /// What this does <i>not</i> reach is the harder half of the same problem. The two things this
     /// job writes share one database context, so a snapshot row EF cannot save is retried on every
     /// later save — which would take down the next warehouse's write and, at the end, the divergence
-    /// rows for every warehouse that had succeeded. <c>DetachSnapshotRows</c> is what lets go of
+    /// rows for every warehouse that had succeeded. <c>DetachLedgerWrites</c> is what lets go of
     /// them. Reaching it needs a <c>DbUpdateConcurrencyException</c>, and this suite cannot raise
     /// one: <c>SnapshotSqliteContext</c> turns the row's concurrency token off outright, which is why
     /// <c>StockLedgerTests</c> records the ledger's own retry-on-conflict path as unreachable here
@@ -837,6 +845,242 @@ public sealed class StockLedgerReconcileTests : IDisposable
         Assert.Equal(await AvailableAsync(Shop, Item), opening + journalled);
     }
 
+    // ---------------------------------------------------------------
+    // A transfer SAP has booked that the listener has not delivered yet
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// KEFGRC, 2026-09-28 (the depot is <see cref="Shop"/> here). Transfer 129199 to VAN006 was in
+    /// SAP when the 09:10 pass read it, so the pass drew VHU002, MUE001 and YOG020 down to SAP's
+    /// figure. The listener delivered the same transfer at 09:12 and the webhook took it off again,
+    /// and the till sat 320 VHU002 short, refusing sales, until the 10:13 pass put them back.
+    /// </summary>
+    /// <remarks>
+    /// The whole sequence in order: the pass after SAP booked 129199, the webhook delivering 129199
+    /// and then 129203 (booked after the pass read SAP), and the next pass. Each figure is asserted
+    /// as soon as it is written, because the fault was the hour spent at the wrong one.
+    /// </remarks>
+    [Fact]
+    public async Task A_transfer_the_pass_took_from_SAP_is_not_taken_again_when_the_webhook_delivers_it()
+    {
+        // 09:07:20, transfer -1920 already delivered: VHU002 at 3129.
+        await SeedRowAsync(Shop, Item, original: 5049m, available: 3129m);
+        await SeedMovementAsync(StockMovementKinds.Transfer, -1920m, balanceAfter: 3129m);
+        await SeedRowAsync(Shop, "MUE001", original: 358m, available: 358m);
+        await SeedRowAsync(Shop, "YOG020", original: 40m, available: 40m);
+
+        // 129199 is booked, so SAP's figures include it, and the listener has not polled yet. Its
+        // DocNum is not in the report, so any number serves.
+        _sapTransfers.Add(SapTransfer(129199, 89397, Shop, "VAN006", (Item, 320m), ("MUE001", 48m), ("YOG020", 10m)));
+        _sapIssuable[Item] = 2809m;
+        _sapIssuable["MUE001"] = 310m;
+        _sapIssuable["YOG020"] = 30m;
+
+        // 09:10:12
+        await RunAsync();
+
+        Assert.Equal(2809m, await AvailableAsync(Shop, Item));
+        Assert.Equal(310m, await AvailableAsync(Shop, "MUE001"));
+        Assert.Equal(30m, await AvailableAsync(Shop, "YOG020"));
+
+        // 09:12:06, the listener delivers 129199 line by line.
+        var late = await DeliverAsync(new ProcessTransferEventCommand(Item, Shop, "VAN006", 320m, 129199, 89397));
+        await DeliverAsync(new ProcessTransferEventCommand("MUE001", Shop, "VAN006", 48m, 129199, 89397));
+        await DeliverAsync(new ProcessTransferEventCommand("YOG020", Shop, "VAN006", 10m, 129199, 89397));
+
+        Assert.False(late.Adjusted);
+        Assert.Equal(2809m, await AvailableAsync(Shop, Item));
+        Assert.Equal(310m, await AvailableAsync(Shop, "MUE001"));
+        Assert.Equal(30m, await AvailableAsync(Shop, "YOG020"));
+
+        // And 129203, booked after the pass read SAP, which only the webhook can apply.
+        await DeliverAsync(new ProcessTransferEventCommand(Item, Shop, "VAN004", 320m, 129203, 89401));
+
+        // Right as soon as the webhook lands, not an hour later.
+        Assert.Equal(2489m, await AvailableAsync(Shop, Item));
+
+        // 10:13:12. SAP now holds both transfers, and there is nothing left to correct.
+        _sapTransfers.Add(SapTransfer(129203, 89401, Shop, "VAN004", (Item, 320m)));
+        _sapIssuable[Item] = 2489m;
+
+        await RunAsync();
+
+        Assert.Equal(2489m, await AvailableAsync(Shop, Item));
+        Assert.Equal(310m, await AvailableAsync(Shop, "MUE001"));
+        Assert.Equal(30m, await AvailableAsync(Shop, "YOG020"));
+
+        // The journal reads as the day happened: three transfers out and no correction at all,
+        // because the 09:10 movement was 129199 and is recorded as 129199.
+        var journal = await _context.StockMovements
+            .AsNoTracking()
+            .Where(movement => movement.WarehouseCode == Shop)
+            .OrderBy(movement => movement.Id)
+            .ToListAsync();
+
+        Assert.DoesNotContain(journal, movement => movement.Kind == StockMovementKinds.Reconciliation);
+        Assert.Equal(
+            [(-1920m, 3129m), (-320m, 2809m), (-320m, 2489m)],
+            journal.Where(movement => movement.ItemCode == Item)
+                .Select(movement => (movement.Quantity, movement.BalanceAfter)));
+        Assert.Equal(
+            ["transfer:129199:OUT", "transfer:129203:OUT"],
+            journal.Where(movement => movement.ItemCode == Item && movement.DocumentKey != null)
+                .Select(movement => movement.DocumentKey!));
+
+        // One adjustment per item of each document, whichever writer made it.
+        var adjustments = await _context.StockTransferAdjustments.AsNoTracking().ToListAsync();
+        Assert.Equal(4, adjustments.Count);
+        Assert.All(adjustments, adjustment => Assert.Equal("OUT", adjustment.Direction));
+
+        foreach (var itemCode in new[] { Item, "MUE001", "YOG020" })
+        {
+            await AssertJournalAddsUpAsync(itemCode);
+        }
+    }
+
+    /// <summary>
+    /// The same race pointed the other way. A delivery to a shop booked in SAP before the pass and
+    /// delivered after it was added by both, and the ledger promised stock the shop did not have.
+    /// </summary>
+    [Fact]
+    public async Task An_inbound_transfer_the_pass_took_from_SAP_is_not_added_again_by_the_webhook()
+    {
+        await SeedRowAsync(Shop, Item, original: 10m, available: 10m);
+        _sapTransfers.Add(SapTransfer(5001, 7001, "KEFBYC", Shop, (Item, 24m)));
+        _sapIssuable[Item] = 34m;
+
+        await RunAsync();
+        Assert.Equal(34m, await AvailableAsync(Shop, Item));
+
+        var delivery = await DeliverAsync(new ProcessTransferEventCommand(Item, "KEFBYC", Shop, 24m, 5001, 7001));
+
+        Assert.False(delivery.Adjusted);
+        Assert.Equal(34m, await AvailableAsync(Shop, Item));
+        await AssertJournalAddsUpAsync(Item);
+    }
+
+    /// <summary>
+    /// The listener delivering while the pass is reading SAP. The rows already hold the transfer when
+    /// the correction is made, so there is nothing to correct and nothing to record a second time.
+    /// </summary>
+    [Fact]
+    public async Task A_transfer_delivered_while_the_pass_reads_SAP_is_taken_once()
+    {
+        await SeedRowAsync(Shop, Item, original: 3129m, available: 3129m);
+        _sapTransfers.Add(SapTransfer(129199, 89397, Shop, "VAN006", (Item, 320m)));
+        _sapIssuable[Item] = 2809m;
+
+        _duringStockRead = () => DeliverAsync(
+            new ProcessTransferEventCommand(Item, Shop, "VAN006", 320m, 129199, 89397)).GetAwaiter().GetResult();
+
+        await RunAsync();
+
+        Assert.Equal(2809m, await AvailableAsync(Shop, Item));
+        Assert.Single(await _context.StockTransferAdjustments.AsNoTracking().ToListAsync());
+        Assert.DoesNotContain(
+            await _context.StockMovements.AsNoTracking().ToListAsync(),
+            movement => movement.Kind == StockMovementKinds.Reconciliation);
+    }
+
+    /// <summary>
+    /// Read after the stock figure, the list could hold a transfer booked in between that the figure
+    /// does not include, and recording that one as delivered would lose it from the ledger outright.
+    /// </summary>
+    [Fact]
+    public async Task SAP_transfers_are_read_before_SAP_stock()
+    {
+        await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
+        _sapIssuable[Item] = 92m;
+
+        await RunAsync();
+
+        Assert.Equal(
+            [nameof(ISAPServiceLayerClient.GetStockTransfersCreatedAsync),
+             nameof(ISAPServiceLayerClient.GetStockQuantitiesForItemsInWarehouseAsync)],
+            _sapReads.Take(2));
+    }
+
+    /// <summary>
+    /// Losing the transfer read must not cost the hour's corrections. The pass corrects as it always
+    /// did and records nothing as delivered, which leaves the webhook to apply what it delivers.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_transfer_read_still_corrects_and_records_nothing()
+    {
+        await SeedRowAsync(Shop, Item, original: 3129m, available: 3129m);
+        _sapTransfers.Add(SapTransfer(129199, 89397, Shop, "VAN006", (Item, 320m)));
+        _sapIssuable[Item] = 2809m;
+        _transferReadFails = true;
+
+        await RunAsync();
+
+        Assert.Equal(2809m, await AvailableAsync(Shop, Item));
+        Assert.Empty(await _context.StockTransferAdjustments.AsNoTracking().ToListAsync());
+    }
+
+    /// <summary>
+    /// A correction the batch bounds stop short of the target does not hold the transfer, so it must
+    /// not tell the webhook that it does. Here the batch read fails and nothing can be put back at
+    /// all, and the delivery is what brings the stock in.
+    /// </summary>
+    [Fact]
+    public async Task A_correction_that_could_not_reach_SAP_leaves_the_transfer_to_the_webhook()
+    {
+        await SeedRowAsync(Shop, Item, original: 15m, available: 0m, batch: "B1");
+        _sapTransfers.Add(SapTransfer(5001, 7001, "KEFBYC", Shop, (Item, 24m)));
+        _sapIssuable[Item] = 24m;
+        _batchReadFails = true;
+
+        await RunAsync();
+        Assert.Equal(0m, await AvailableAsync(Shop, Item));
+        Assert.Empty(await _context.StockTransferAdjustments.AsNoTracking().ToListAsync());
+
+        var delivery = await DeliverAsync(new ProcessTransferEventCommand(Item, "KEFBYC", Shop, 24m, 5001, 7001));
+
+        Assert.True(delivery.Adjusted);
+        Assert.Equal(24m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// A van is never moved to SAP's figure, so its transfers only reach it through the webhook and
+    /// are never recorded as delivered by the pass.
+    /// </summary>
+    [Fact]
+    public async Task A_vans_transfers_are_left_to_the_webhook()
+    {
+        await SeedRowAsync(Van, Item, original: 10m, available: 5m);
+        _sapTransfers.Add(SapTransfer(129199, 89397, Shop, Van, (Item, 320m)));
+        _sapIssuable[Item] = 325m;
+
+        await RunAsync();
+
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.GetStockTransfersCreatedAsync), _sapReads);
+        Assert.Equal(5m, await AvailableAsync(Van, Item));
+        Assert.Empty(await _context.StockTransferAdjustments.AsNoTracking().ToListAsync());
+    }
+
+    /// <summary>
+    /// An item a transfer brings in with no row this morning. Arrival discovery adds the row at SAP's
+    /// figure, which includes the transfer, and the webhook then found that row and added the
+    /// transfer to it again.
+    /// </summary>
+    [Fact]
+    public async Task An_item_that_arrived_by_transfer_is_not_added_twice()
+    {
+        await SeedSnapshotAsync(Shop);
+        _warehouseStock.Add(Stock("NEW001", inStock: 24m));
+        _sapTransfers.Add(SapTransfer(5001, 7001, "KEFBYC", Shop, ("NEW001", 24m)));
+
+        await RunAsync();
+        Assert.Equal(24m, await AvailableAsync(Shop, "NEW001"));
+
+        var delivery = await DeliverAsync(new ProcessTransferEventCommand("NEW001", "KEFBYC", Shop, 24m, 5001, 7001));
+
+        Assert.False(delivery.Adjusted);
+        Assert.Equal(24m, await AvailableAsync(Shop, "NEW001"));
+        await AssertJournalAddsUpAsync("NEW001");
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private DateTime LedgerDay => StockLedgerDay.Today(_settings.StockFetchTimeCAT);
@@ -858,9 +1102,71 @@ public sealed class StockLedgerReconcileTests : IDisposable
         _context.ChangeTracker.Clear();
     }
 
+    /// <summary>A stock transfer as SAP holds it, created today.</summary>
+    private static SapStockMovementDocument SapTransfer(
+        int docEntry, int docNum, string from, string to, params (string ItemCode, decimal Quantity)[] lines) => new()
+    {
+        DocEntry = docEntry,
+        DocNum = docNum,
+        CreationDate = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+        FromWarehouse = from,
+        ToWarehouse = to,
+        StockTransferLines = lines
+            .Select(line => new SapStockMovementLine
+            {
+                ItemCode = line.ItemCode,
+                Quantity = (double)line.Quantity,
+                FromWarehouseCode = from,
+                WarehouseCode = to
+            })
+            .ToList(),
+        Kind = SapStockDocumentKind.StockTransfer
+    };
+
+    /// <summary>
+    /// The listener delivering one line, through the webhook's own handler, on a context of its own
+    /// as the separate request it would be.
+    /// </summary>
+    private async Task<ProcessTransferEventResult> DeliverAsync(ProcessTransferEventCommand command)
+    {
+        await using var webhookContext = new SnapshotSqliteContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options);
+
+        var result = await new ProcessTransferEventHandler(
+                webhookContext,
+                Options.Create(_settings),
+                new CapturingPublisher(),
+                NullLogger<ProcessTransferEventHandler>.Instance)
+            .Handle(command, CancellationToken.None);
+
+        Assert.False(result.IsError);
+        return result.Value;
+    }
+
+    /// <summary>Opening quantity plus everything journalled is what the rows hold.</summary>
+    private async Task AssertJournalAddsUpAsync(string itemCode)
+    {
+        var opening = await _context.DailyStockSnapshotItems
+            .AsNoTracking()
+            .Where(row => row.WarehouseCode == Shop && row.ItemCode == itemCode)
+            .SumAsync(row => row.OriginalQuantity);
+
+        var journalled = await _context.StockMovements
+            .AsNoTracking()
+            .Where(movement => movement.WarehouseCode == Shop && movement.ItemCode == itemCode)
+            .SumAsync(movement => movement.Quantity);
+
+        Assert.Equal(await AvailableAsync(Shop, itemCode), opening + journalled);
+    }
+
     private ISAPServiceLayerClient SapClient() =>
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
+            nameof(ISAPServiceLayerClient.GetStockTransfersCreatedAsync) =>
+                _transferReadFails
+                    ? throw new InvalidOperationException("SAP transfer read failed")
+                    : TransfersFor((IReadOnlyCollection<string>)args![0]!),
+
             nameof(ISAPServiceLayerClient.GetStockQuantitiesForItemsInWarehouseAsync) =>
                 string.Equals((string)args![0]!, _failStockReadFor, StringComparison.OrdinalIgnoreCase)
                     ? throw new InvalidOperationException("SAP stock read failed")
@@ -997,8 +1303,20 @@ public sealed class StockLedgerReconcileTests : IDisposable
         _context.ChangeTracker.Clear();
     }
 
+    private Task<List<SapStockMovementDocument>> TransfersFor(IReadOnlyCollection<string> warehouses)
+    {
+        _sapReads.Add(nameof(ISAPServiceLayerClient.GetStockTransfersCreatedAsync));
+
+        // Header warehouses, as the real read filters them.
+        return Task.FromResult(_sapTransfers
+            .Where(transfer => warehouses.Contains(transfer.FromWarehouse!, StringComparer.OrdinalIgnoreCase)
+                            || warehouses.Contains(transfer.ToWarehouse!, StringComparer.OrdinalIgnoreCase))
+            .ToList());
+    }
+
     private Task<List<StockQuantityDto>> AfterStockRead(List<StockQuantityDto> reading)
     {
+        _sapReads.Add(nameof(ISAPServiceLayerClient.GetStockQuantitiesForItemsInWarehouseAsync));
         _duringStockRead?.Invoke();
         return Task.FromResult(reading);
     }
