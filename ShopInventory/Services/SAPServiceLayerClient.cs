@@ -12,6 +12,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common;
 using ShopInventory.Common.Caching;
+using ShopInventory.Common.Sales;
 using ShopInventory.Common.Security;
 using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
@@ -1397,14 +1398,15 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 Quantity = line.Quantity,
                 UnitPrice = line.UnitPrice,
                 WarehouseCode = line.WarehouseCode,
-                TaxCode = line.TaxCode,
+                // O01 in place of the item master's O1 on a USD document - O1 is the ZiG group, and
+                // copied onto a USD line it posts USD tax to the ZiG VAT account. See CurrencyTaxCodes.
+                TaxCode = CurrencyTaxCodes.ForCurrency(line.TaxCode, request.DocCurrency),
                 // Where the line's tax actually lives on this company: SAP does not read TaxCode, so a
                 // group sent only there loses to the customer card's own. Every van card carries O8,
                 // 15.5% ZiG, whose tax account is locked to ZiG, and a USD van sale was refused with
                 // -1250000090 after its receipt had been signed. Local-currency (USD) documents only:
-                // the item master's groups are the USD ones, and a ZiG customer's card is right for a
-                // ZiG document.
-                VatGroup = docCurrency is null ? line.TaxCode : null,
+                // a ZiG customer's card is right for a ZiG document.
+                VatGroup = docCurrency is null ? CurrencyTaxCodes.ForCurrency(line.TaxCode, request.DocCurrency) : null,
                 DiscountPercent = line.DiscountPercent,
                 UoMCode = line.UoMCode,
                 AccountCode = line.AccountCode,

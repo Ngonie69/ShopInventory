@@ -58,7 +58,8 @@ public sealed class ItemTaxGroupStampingTests : IDisposable
     {
         var code = CreateDesktopSaleHandler.TaxCodeFor(
             new CreateDesktopSaleLineRequest { ItemCode = "CHE011" },
-            Master(("CHE011", "O0")));
+            Master(("CHE011", "O0")),
+            "USD");
 
         Assert.Equal("O0", code);
     }
@@ -71,7 +72,8 @@ public sealed class ItemTaxGroupStampingTests : IDisposable
         // a sale to ZIMRA.
         var code = CreateDesktopSaleHandler.TaxCodeFor(
             new CreateDesktopSaleLineRequest { ItemCode = "CHE011", TaxCode = "O01" },
-            Master(("CHE011", "O0")));
+            Master(("CHE011", "O0")),
+            "USD");
 
         Assert.Equal("O0", code);
     }
@@ -84,9 +86,48 @@ public sealed class ItemTaxGroupStampingTests : IDisposable
         // the sale is never refused over a tax lookup with a customer at the counter.
         var code = CreateDesktopSaleHandler.TaxCodeFor(
             new CreateDesktopSaleLineRequest { ItemCode = "NRI049" },
-            Master(("CHE011", "O0")));
+            Master(("CHE011", "O0")),
+            "USD");
 
         Assert.Null(code);
+    }
+
+    [Fact]
+    public void A_usd_sale_charges_the_usd_group_where_the_master_holds_the_zig_one()
+    {
+        // O1 is 15.5% output VAT for ZiG, and most of the catalogue carries it in the item master.
+        // On a USD sale it would post USD tax to the ZiG VAT account; O01 is the USD group.
+        var code = CreateDesktopSaleHandler.TaxCodeFor(
+            new CreateDesktopSaleLineRequest { ItemCode = "BUT001" },
+            Master(("BUT001", "O1")),
+            "USD");
+
+        Assert.Equal("O01", code);
+    }
+
+    [Fact]
+    public void A_zig_sale_keeps_the_masters_zig_group()
+    {
+        var code = CreateDesktopSaleHandler.TaxCodeFor(
+            new CreateDesktopSaleLineRequest { ItemCode = "BUT001" },
+            Master(("BUT001", "O1")),
+            "ZWG");
+
+        Assert.Equal("O1", code);
+    }
+
+    [Fact]
+    public void A_sale_that_names_no_currency_is_recorded_as_zig_and_keeps_o1()
+    {
+        // The till's long-standing default. The currency the lines are charged in has to be the one
+        // the sale is recorded and posted in, or the invoice and its lines disagree.
+        var request = new CreateDesktopSaleRequest();
+
+        Assert.Equal("ZWG", CreateDesktopSaleHandler.SaleCurrency(request));
+        Assert.Equal("O1", CreateDesktopSaleHandler.TaxCodeFor(
+            new CreateDesktopSaleLineRequest { ItemCode = "BUT001" },
+            Master(("BUT001", "O1")),
+            CreateDesktopSaleHandler.SaleCurrency(request)));
     }
 
     [Fact]

@@ -508,12 +508,13 @@ public sealed class VanSaleFiscalFirstPoster(
     {
         var vatGroups = await ItemVatGroups.ResolveAsync(
             db, reservation.Lines.Select(line => line.ItemCode), logger, cancellationToken);
+        var currency = string.IsNullOrWhiteSpace(reservation.Currency) ? "USD" : reservation.Currency;
 
         var lines = reservation.Lines
             .OrderBy(line => line.LineNum)
             .Select(line =>
             {
-                var taxCode = ItemVatGroups.TaxCodeFor(line.ItemCode, line.TaxCode, vatGroups);
+                var taxCode = ItemVatGroups.TaxCodeFor(line.ItemCode, line.TaxCode, vatGroups, currency);
                 var effectivePrice = line.UnitPrice * (1 - line.DiscountPercent / 100m);
 
                 // Net, as SAP takes it: the invoice posts UnitPrice before tax and applies the line's own
@@ -555,7 +556,7 @@ public sealed class VanSaleFiscalFirstPoster(
             Comments = request.Comments,
             TotalAmount = subtotal + vat,
             VatAmount = vat,
-            Currency = string.IsNullOrWhiteSpace(reservation.Currency) ? "USD" : reservation.Currency,
+            Currency = currency,
             WarehouseCode = lines.Select(line => line.WarehouseCode).FirstOrDefault(code => !string.IsNullOrEmpty(code))
                             ?? string.Empty,
             CostCentreCode = lines.Select(line => line.CostCentreCode).FirstOrDefault(code => !string.IsNullOrEmpty(code)),
