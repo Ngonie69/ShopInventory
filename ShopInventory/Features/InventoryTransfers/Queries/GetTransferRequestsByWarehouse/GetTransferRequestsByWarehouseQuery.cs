@@ -4,4 +4,4 @@ using ShopInventory.DTOs;
 
 namespace ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestsByWarehouse;
 
-public sealed record GetTransferRequestsByWarehouseQuery(string WarehouseCode) : IRequest<ErrorOr<TransferRequestListResponseDto>>;
+public sealed record GetTransferRequestsByWarehouseQuery(string WarehouseCode, DateTime? FromDate = null) : IRequest<ErrorOr<TransferRequestListResponseDto>>;

@@ -1,3 +1,4 @@
+using ShopInventory.Common;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
@@ -27,7 +28,8 @@ public sealed class GetTransfersByWarehouseHandler(
 
         try
         {
-            var transfers = await sapClient.GetInventoryTransfersToWarehouseAsync(request.WarehouseCode, cancellationToken);
+            var (from, to) = TransferReadWindow.Resolve(request.FromDate, request.ToDate, DateTime.Today);
+            var transfers = await sapClient.GetInventoryTransfersToWarehouseAsync(request.WarehouseCode, from, to, cancellationToken);
 
             logger.LogInformation("Retrieved {Count} inventory transfers to warehouse {Warehouse}", transfers.Count, request.WarehouseCode);
 

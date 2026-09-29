@@ -576,14 +576,16 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     /// <summary>
-    /// A warehouse's transfers
+    /// A warehouse's transfers, the last 90 days unless fromDate / toDate say otherwise
     /// </summary>
     [HttpGet("transfers/warehouse/{warehouseCode}")]
     public async Task<IActionResult> GetTransfersByWarehouse(
         string warehouseCode,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
         CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetTransfersByWarehouseQuery(warehouseCode), cancellationToken);
+        var result = await mediator.Send(new GetTransfersByWarehouseQuery(warehouseCode, fromDate, toDate), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -665,14 +667,15 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     /// <summary>
-    /// A warehouse's requests
+    /// A warehouse's requests: those raised in the last 90 days (or since fromDate), and every one still open
     /// </summary>
     [HttpGet("transfer-requests/warehouse/{warehouseCode}")]
     public async Task<IActionResult> GetTransferRequestsByWarehouse(
         string warehouseCode,
+        [FromQuery] DateTime? fromDate,
         CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetTransferRequestsByWarehouseQuery(warehouseCode), cancellationToken);
+        var result = await mediator.Send(new GetTransferRequestsByWarehouseQuery(warehouseCode, fromDate), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

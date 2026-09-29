@@ -257,13 +257,18 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     #endregion
 
     /// <summary>
-    /// Transfers for a warehouse — the bare {} segment is a warehouse code, not a DocEntry
+    /// Transfers for a warehouse — the bare {} segment is a warehouse code, not a DocEntry. The last 90
+    /// days unless fromDate / toDate say otherwise
     /// </summary>
     [HttpGet("{warehouseCode}")]
     [ProducesResponseType(typeof(InventoryTransferListResponseDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetInventoryTransfersByWarehouse(string warehouseCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetInventoryTransfersByWarehouse(
+        string warehouseCode,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetTransfersByWarehouseQuery(warehouseCode), cancellationToken);
+        var result = await mediator.Send(new GetTransfersByWarehouseQuery(warehouseCode, fromDate, toDate), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -492,13 +497,16 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>
-    /// A warehouse's transfer requests
+    /// A warehouse's transfer requests: those raised in the last 90 days (or since fromDate), and every one still open
     /// </summary>
     [HttpGet("requests/{warehouseCode}")]
     [ProducesResponseType(typeof(TransferRequestListResponseDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetTransferRequestsByWarehouse(string warehouseCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetTransferRequestsByWarehouse(
+        string warehouseCode,
+        [FromQuery] DateTime? fromDate,
+        CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetTransferRequestsByWarehouseQuery(warehouseCode), cancellationToken);
+        var result = await mediator.Send(new GetTransferRequestsByWarehouseQuery(warehouseCode, fromDate), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

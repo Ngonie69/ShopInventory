@@ -1676,7 +1676,7 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 |--------|----------|-------------|
 | POST | `/api/InventoryTransfer` | Submit an inventory transfer for approval (`stock.transfer` or `inventory.transfer`) |
 | GET | `/api/InventoryTransfer/detail/{docEntry}` | Get one transfer's details |
-| GET | `/api/InventoryTransfer/{warehouseCode}` | Transfers for a warehouse — the bare `{}` segment is a **warehouse code, not a DocEntry** |
+| GET | `/api/InventoryTransfer/{warehouseCode}` | Transfers for a warehouse — the bare `{}` segment is a **warehouse code, not a DocEntry**. The last 90 days unless `fromDate` / `toDate` say otherwise |
 | GET | `/api/InventoryTransfer/{warehouseCode}/paged` | The same, paginated |
 | GET | `/api/InventoryTransfer/{warehouseCode}/date/{date}` | A warehouse's transfers on one date |
 | GET | `/api/InventoryTransfer/{warehouseCode}/daterange` | A warehouse's transfers between two dates |
@@ -1694,7 +1694,7 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 | PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, WashBay, DepotController, Manager |
 | POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, WashBay, DepotController |
 | POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, WashBay, DepotController |
-| GET | `/api/InventoryTransfer/requests/{warehouseCode}` | A warehouse's transfer requests |
+| GET | `/api/InventoryTransfer/requests/{warehouseCode}` | A warehouse's transfer requests: those raised in the last 90 days (or since `fromDate`), and every one still open |
 | GET | `/api/InventoryTransfer/request/{docEntry}` | One transfer request |
 | GET | `/api/InventoryTransfer/request-edits` | List changes held for approval (`status`, `requestDocEntry`, `page`, `pageSize`) |
 | GET | `/api/InventoryTransfer/request-edits/{id}` | One held change |
@@ -2967,13 +2967,13 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | POST | `/api/DesktopIntegration/transfers/queued` | Admin, ApiUser | Queue one |
 | POST | `/api/DesktopIntegration/transfers/validate` | (class) | Validate before posting |
 | GET | `/api/DesktopIntegration/transfers/{docEntry}` | (class) | One transfer |
-| GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}` | (class) | A warehouse's transfers |
+| GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}` | (class) | A warehouse's transfers, the last 90 days unless `fromDate` / `toDate` say otherwise |
 | GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/paged` | (class) | The same, paginated |
 | GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/date-range` | (class) | Transfers between two dates where the warehouse is either end of the header or of any line |
 | POST | `/api/DesktopIntegration/transfer-requests` | (class) | Raise a transfer request |
 | GET | `/api/DesktopIntegration/transfer-requests/items` | (class) | Items a till may request (SAP sales items, `OITM.U_SalesItem = 'Yes'`) |
 | GET | `/api/DesktopIntegration/transfer-requests/{docEntry}` | (class) | One request |
-| GET | `/api/DesktopIntegration/transfer-requests/warehouse/{warehouseCode}` | (class) | A warehouse's requests |
+| GET | `/api/DesktopIntegration/transfer-requests/warehouse/{warehouseCode}` | (class) | A warehouse's requests: those raised in the last 90 days (or since `fromDate`), and every one still open |
 | GET | `/api/DesktopIntegration/transfer-requests/paged` | (class) | Requests, paginated |
 | POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/convert` | Admin, StockController, WashBay, DepotController | Authorise and generate the transfer |
 | POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/close` | Admin, StockController, WashBay, DepotController | Close without converting |

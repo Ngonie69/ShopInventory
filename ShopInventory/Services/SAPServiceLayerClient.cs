@@ -900,68 +900,30 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    /// <summary>
+    /// A warehouse's transfers, in or out, dated between <paramref name="fromDate"/> and
+    /// <paramref name="toDate"/>, newest first, with their lines.
+    /// </summary>
+    /// <remarks>
+    /// Bounded by date: this used to read every transfer the warehouse had ever made. Paged through
+    /// <see cref="ReadDocumentPagesAsync{T}"/> like every other document list.
+    /// </remarks>
     public async Task<List<InventoryTransfer>> GetInventoryTransfersToWarehouseAsync(
         string warehouseCode,
+        DateTime fromDate,
+        DateTime toDate,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
 
         var safeWarehouse = SanitizeODataValue(warehouseCode);
-        var allTransfers = new List<InventoryTransfer>();
-        int skip = 0;
-        const int pageSize = 500;
-        bool hasMore = true;
-
-        while (hasMore)
-        {
-            var url = $"StockTransfers?$filter=(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}')&{StockTransferSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Failed to get inventory transfers: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(content);
-            var valueArray = doc.RootElement.GetProperty("value");
-            var pageItems = JsonSerializer.Deserialize<List<InventoryTransfer>>(valueArray.GetRawText()) ?? new List<InventoryTransfer>();
-
-            if (pageItems.Count == 0)
-            {
-                hasMore = false;
-            }
-            else
-            {
-                allTransfers.AddRange(pageItems);
-                skip += pageItems.Count;
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
-                          pageItems.Count == pageSize;
-            }
-        }
-
-        return allTransfers;
+        return await ReadDocumentPagesAsync<InventoryTransfer>(
+            "StockTransfers",
+            $"(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}') and DocDate ge '{fromDate:yyyy-MM-dd}' and DocDate le '{toDate:yyyy-MM-dd}'",
+            StockTransferSelect,
+            $"get inventory transfers for warehouse {warehouseCode} from {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}",
+            cancellationToken,
+            NoDocumentListCeiling);
     }
 
     public async Task<List<InventoryTransfer>> GetPagedInventoryTransfersToWarehouseAsync(
@@ -12270,29 +12232,28 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     }
 
     /// <summary>
-    /// Gets all inventory transfer requests to a specific warehouse
+    /// The transfer requests a warehouse has raised: every one dated on or after
+    /// <paramref name="fromDate"/>, and every older one still open. Newest first, with lines.
     /// </summary>
+    /// <remarks>
+    /// This sent no <c>Prefer: odata.maxpagesize</c>, so SAP answered with its default 20 rows: a shop
+    /// saw only its latest 20 requests, and an older one still waiting for stock dropped off the list.
+    /// Open requests are kept whatever their age for that reason.
+    /// </remarks>
     public async Task<List<InventoryTransferRequest>> GetInventoryTransferRequestsByWarehouseAsync(
         string warehouseCode,
+        DateTime fromDate,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
 
-        var filter = Uri.EscapeDataString($"ToWarehouse eq '{SanitizeODataValue(warehouseCode)}'");
-        var url = $"InventoryTransferRequests?$filter={filter}&{InventoryTransferRequestSelect}&$orderby=DocEntry desc";
-
-        var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var sapResponse = JsonSerializer.Deserialize<SAPResponse<InventoryTransferRequest>>(content);
-
-        return sapResponse?.Value ?? new List<InventoryTransferRequest>();
+        return await ReadDocumentPagesAsync<InventoryTransferRequest>(
+            "InventoryTransferRequests",
+            $"ToWarehouse eq '{SanitizeODataValue(warehouseCode)}' and (DocDate ge '{fromDate:yyyy-MM-dd}' or DocumentStatus eq 'bost_Open')",
+            InventoryTransferRequestSelect,
+            $"get transfer requests for warehouse {warehouseCode} from {fromDate:yyyy-MM-dd} or still open",
+            cancellationToken,
+            NoDocumentListCeiling);
     }
 
     /// <summary>

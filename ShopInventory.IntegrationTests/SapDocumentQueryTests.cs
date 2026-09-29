@@ -70,7 +70,7 @@ public class SapDocumentQueryTests(SapClientFixture fixture)
 
         await ShouldBeAccepted(() => fixture.Client.GetPagedInventoryTransfersToWarehouseAsync(warehouseCode!, 1, 5));
         await ShouldBeAccepted(() => fixture.Client.GetInventoryTransfersByDateRangeAsync(warehouseCode!, FromDate, ToDate));
-        await ShouldBeAccepted(() => fixture.Client.GetInventoryTransferRequestsByWarehouseAsync(warehouseCode!));
+        await ShouldBeAccepted(() => fixture.Client.GetInventoryTransferRequestsByWarehouseAsync(warehouseCode!, FromDate));
     }
 
     [SapFact]
