@@ -66,9 +66,11 @@ public class NotificationService : INotificationService
     private readonly IHubContext<NotificationHub> _hubContext;
     private readonly IPushNotificationService _pushService;
     private readonly IWebhookService _webhookService;
+    private readonly INotificationFanOutQueue? _fanOut;
 
-    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger, IHubContext<NotificationHub> hubContext, IPushNotificationService pushService, IWebhookService webhookService)
+    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger, IHubContext<NotificationHub> hubContext, IPushNotificationService pushService, IWebhookService webhookService, INotificationFanOutQueue? fanOut = null)
     {
+        _fanOut = fanOut;
         _context = context;
         _logger = logger;
         _hubContext = hubContext;
@@ -111,23 +113,64 @@ public class NotificationService : INotificationService
         _logger.LogInformation("Created notification: {Title} for {Target}", request.Title, request.TargetUsername ?? request.TargetRole ?? "all");
 
         var dto = MapToDto(notification, request.Data);
-        var broadcastAudienceRoles = NotificationAudienceRules.GetBroadcastAudienceRoles(request.Category, normalizedActionUrl);
+        var work = new NotificationFanOutWork(
+            dto,
+            request,
+            notification.Id,
+            notification.CreatedAt,
+            normalizedActionUrl,
+            NotificationAudienceRules.GetBroadcastAudienceRoles(request.Category, normalizedActionUrl));
+
+        // The row is stored, so the notification exists whatever happens next. Telling people about
+        // it (the SignalR broadcast, a push to every device of every audience role through Firebase,
+        // one role after another, and the webhook fan-out) is handed to a queue so the save that
+        // raised it does not wait on Google. Inline only when no queue is registered, or it is full.
+        if (_fanOut?.TryEnqueue(work) == true)
+        {
+            return dto;
+        }
+
+        await FanOutAsync(work, _context, _hubContext, _pushService, _webhookService, _logger, cancellationToken);
+        return dto;
+    }
+
+    /// <summary>
+    /// Broadcasts a stored notification over SignalR, pushes it to devices and publishes its webhook
+    /// event. Each fan-out is independent: one that fails is logged and the others still run.
+    /// </summary>
+    /// <remarks>
+    /// Runs on the request when no <see cref="INotificationFanOutQueue"/> is registered, and otherwise
+    /// in the queue's own scope, which is why everything it touches is passed in.
+    /// </remarks>
+    internal static async Task FanOutAsync(
+        NotificationFanOutWork work,
+        ApplicationDbContext context,
+        IHubContext<NotificationHub> hubContext,
+        IPushNotificationService pushService,
+        IWebhookService webhookService,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var request = work.Request;
+        var dto = work.Dto;
+        var normalizedActionUrl = work.NormalizedActionUrl;
+        var broadcastAudienceRoles = work.BroadcastAudienceRoles;
 
         // Broadcast via SignalR
         try
         {
             if (!string.IsNullOrEmpty(request.TargetUsername))
-                await _hubContext.Clients.Group($"user:{request.TargetUsername}").SendAsync("ReceiveNotification", dto);
+                await hubContext.Clients.Group($"user:{request.TargetUsername}").SendAsync("ReceiveNotification", dto);
             else if (!string.IsNullOrEmpty(request.TargetRole))
-                await _hubContext.Clients.Group($"role:{request.TargetRole}").SendAsync("ReceiveNotification", dto);
+                await hubContext.Clients.Group($"role:{request.TargetRole}").SendAsync("ReceiveNotification", dto);
             else if (broadcastAudienceRoles.Length > 0)
-                await _hubContext.Clients.Groups(broadcastAudienceRoles.Select(role => $"role:{role}").ToList()).SendAsync("ReceiveNotification", dto);
+                await hubContext.Clients.Groups(broadcastAudienceRoles.Select(role => $"role:{role}").ToList()).SendAsync("ReceiveNotification", dto);
             else
-                await _hubContext.Clients.Group("all").SendAsync("ReceiveNotification", dto);
+                await hubContext.Clients.Group("all").SendAsync("ReceiveNotification", dto);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to broadcast notification via SignalR");
+            logger.LogWarning(ex, "Failed to broadcast notification via SignalR");
         }
 
         // Send mobile push notification
@@ -136,7 +179,7 @@ public class NotificationService : INotificationService
             Guid? targetUserId = request.TargetUserId;
             if (!targetUserId.HasValue && !string.IsNullOrWhiteSpace(request.TargetUsername))
             {
-                targetUserId = await _context.Users
+                targetUserId = await context.Users
                     .AsNoTracking()
                     .WhereUsernameMatches(request.TargetUsername)
                     .Select(user => (Guid?)user.Id)
@@ -144,7 +187,7 @@ public class NotificationService : INotificationService
 
                 if (!targetUserId.HasValue)
                 {
-                    _logger.LogWarning(
+                    logger.LogWarning(
                         "Could not resolve user id for targeted push notification to username {Username}",
                         request.TargetUsername);
                 }
@@ -152,7 +195,7 @@ public class NotificationService : INotificationService
 
             var pushData = new Dictionary<string, string>
             {
-                ["notificationId"] = notification.Id.ToString(),
+                ["notificationId"] = work.NotificationId.ToString(),
                 ["type"] = request.Type,
                 ["category"] = request.Category
             };
@@ -172,21 +215,21 @@ public class NotificationService : INotificationService
 
             int sentCount;
             if (targetUserId.HasValue)
-                sentCount = await _pushService.SendToUserAsync(targetUserId.Value, request.Title, request.Message, pushData, cancellationToken);
+                sentCount = await pushService.SendToUserAsync(targetUserId.Value, request.Title, request.Message, pushData, cancellationToken);
             else if (!string.IsNullOrEmpty(request.TargetUsername))
-                sentCount = await _pushService.SendToUsernameAsync(request.TargetUsername, request.Title, request.Message, pushData, cancellationToken);
+                sentCount = await pushService.SendToUsernameAsync(request.TargetUsername, request.Title, request.Message, pushData, cancellationToken);
             else if (!string.IsNullOrEmpty(request.TargetRole))
-                sentCount = await _pushService.SendToRoleAsync(request.TargetRole, request.Title, request.Message, pushData, cancellationToken);
+                sentCount = await pushService.SendToRoleAsync(request.TargetRole, request.Title, request.Message, pushData, cancellationToken);
             else if (broadcastAudienceRoles.Length > 0)
             {
                 sentCount = 0;
                 foreach (var targetRole in broadcastAudienceRoles)
                 {
-                    sentCount += await _pushService.SendToRoleAsync(targetRole, request.Title, request.Message, pushData, cancellationToken);
+                    sentCount += await pushService.SendToRoleAsync(targetRole, request.Title, request.Message, pushData, cancellationToken);
                 }
             }
             else
-                sentCount = await _pushService.SendToAllAsync(request.Title, request.Message, pushData, cancellationToken);
+                sentCount = await pushService.SendToAllAsync(request.Title, request.Message, pushData, cancellationToken);
 
             if (sentCount == 0)
             {
@@ -198,26 +241,26 @@ public class NotificationService : INotificationService
 
                 if (TryTakeNoDeviceReport(target, out var suppressedSince))
                 {
-                    _logger.LogInformation(
+                    logger.LogInformation(
                         "Push notifications for {Target} are reaching no registered device — {Count} in the last hour, " +
                         "most recently notification {NotificationId}. They are still readable in-app; a device has to be " +
                         "registered for that target, or it should not be a push audience.",
                         target,
                         suppressedSince + 1,
-                        notification.Id);
+                        work.NotificationId);
                 }
             }
             else
             {
-                _logger.LogInformation(
+                logger.LogInformation(
                     "Push notification {NotificationId} sent to {SentCount} device(s)",
-                    notification.Id,
+                    work.NotificationId,
                     sentCount);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to send mobile push notification");
+            logger.LogWarning(ex, "Failed to send mobile push notification");
         }
 
         // Third fan-out, on the same terms as the two above: a subscriber that cannot be reached does
@@ -236,22 +279,22 @@ public class NotificationService : INotificationService
                     // Not thrown: the notification itself is fine and the caller's work is done. Logged
                     // as an error because the alternative is a subscriber waiting on an event that no
                     // longer exists under that name, which looks exactly like nothing happening.
-                    _logger.LogError(
+                    logger.LogError(
                         "Notification {NotificationId} asked for unknown webhook event {WebhookEvent}; nothing was published",
-                        notification.Id,
+                        work.NotificationId,
                         request.WebhookEvent);
                 }
                 else
                 {
                     var webhookData = new Dictionary<string, object?>
                     {
-                        ["notificationId"] = notification.Id,
+                        ["notificationId"] = work.NotificationId,
                         ["title"] = request.Title,
                         ["message"] = request.Message,
                         ["category"] = request.Category,
                         ["entityType"] = request.EntityType,
                         ["entityId"] = request.EntityId,
-                        ["occurredAt"] = notification.CreatedAt
+                        ["occurredAt"] = work.CreatedAt
                     };
 
                     if (request.Data != null)
@@ -264,16 +307,14 @@ public class NotificationService : INotificationService
                         }
                     }
 
-                    await _webhookService.TriggerEventAsync(request.WebhookEvent, webhookData);
+                    await webhookService.TriggerEventAsync(request.WebhookEvent, webhookData);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to publish webhook event {WebhookEvent}", request.WebhookEvent);
+                logger.LogWarning(ex, "Failed to publish webhook event {WebhookEvent}", request.WebhookEvent);
             }
         }
-
-        return dto;
     }
 
     /// <summary>

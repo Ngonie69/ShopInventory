@@ -619,6 +619,11 @@ try
     builder.Services.Configure<FirebaseSettings>(builder.Configuration.GetSection("Firebase"));
     builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
     builder.Services.AddScoped<INotificationService, NotificationService>();
+    // A stored notification's SignalR broadcast, device push and webhook go out after the request
+    // that raised it has answered; see NotificationFanOutQueue.
+    builder.Services.AddSingleton<NotificationFanOutQueue>();
+    builder.Services.AddSingleton<INotificationFanOutQueue>(sp => sp.GetRequiredService<NotificationFanOutQueue>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<NotificationFanOutQueue>());
 
     // Register email service
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
