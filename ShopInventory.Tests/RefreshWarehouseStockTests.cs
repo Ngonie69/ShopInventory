@@ -350,6 +350,27 @@ public sealed class RefreshWarehouseStockTests : IDisposable
         Assert.False(_listenerChecked);
     }
 
+    /// <summary>
+    /// A van added from Tracked warehouses is snapshotted every morning without being in
+    /// appsettings.json. Its refresh has to go through, as VAN002's did not on 2026-09-29.
+    /// </summary>
+    [Fact]
+    public async Task A_van_tracked_only_in_the_saved_list_is_refreshed()
+    {
+        const string SavedVan = "VAN002";
+        await MonitoredWarehouseList.SaveAsync(_context, [Shop, Van, SavedVan], updatedByUserId: null);
+        _context.ChangeTracker.Clear();
+        await SeedRowAsync(SavedVan, Item, original: 100m, available: 100m);
+        _transfersFoundByCheck.Add(new ProcessTransferEventCommand(Item, "KEFGRC", SavedVan, 24m, 88903, 88903));
+
+        var result = await RefreshAsync(SavedVan);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.True(result.Value.ViaTransferListener);
+        Assert.Equal(1, result.Value.TransfersApplied);
+        Assert.Equal(124m, await AvailableAsync(SavedVan, Item));
+    }
+
     // ---------------------------------------------------------------
     // Refusals — each one leaves the ledger exactly as it was
     // ---------------------------------------------------------------

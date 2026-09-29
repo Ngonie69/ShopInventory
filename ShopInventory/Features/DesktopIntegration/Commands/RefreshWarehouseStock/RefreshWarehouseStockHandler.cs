@@ -39,7 +39,7 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// destroy the van reconciliation. What a van misses after 07:00 is a load transfer, and the transfers
 /// are TransferEventListener's job: a van refresh makes the listener poll SAP now, through its own
 /// session, and deliver anything new to the transfer webhook, which moves the rows as it always does.
-/// That is every warehouse in <see cref="DailyStockSettings.MonitoredWarehouses"/> outside
+/// That is every warehouse in <see cref="MonitoredWarehouseList"/> outside
 /// <see cref="DailyStockSettings.ReconcileWarehouses"/>. One check covers every van, not only the one
 /// pressed.</para>
 ///
@@ -80,7 +80,11 @@ public sealed class RefreshWarehouseStockHandler(
 
         if (warehouseCode is null)
         {
-            var van = settings.MonitoredWarehouses.FirstOrDefault(code =>
+            // The list in force, not the options: a van added from Local stock's Tracked warehouses is
+            // snapshotted every morning but absent from appsettings.json. On 2026-09-29 VAN002 was
+            // refused here while its snapshot sat Complete on the same page.
+            var monitored = await MonitoredWarehouseList.ReadAsync(db, settings, cancellationToken);
+            var van = monitored.FirstOrDefault(code =>
                 string.Equals(code, requested, StringComparison.OrdinalIgnoreCase));
 
             if (van is null)
@@ -88,7 +92,7 @@ public sealed class RefreshWarehouseStockHandler(
                 return Error.Conflict(
                     "Stock.RefreshNotAllowed",
                     $"{command.WarehouseCode} is not a warehouse this system keeps stock for "
-                    + "(DailyStock:MonitoredWarehouses), so there is nothing to refresh.");
+                    + "(Tracked warehouses on Local stock), so there is nothing to refresh.");
             }
 
             return await RefreshVanAsync(van, cancellationToken);
