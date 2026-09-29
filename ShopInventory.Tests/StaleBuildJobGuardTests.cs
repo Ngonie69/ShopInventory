@@ -85,15 +85,17 @@ public sealed class StaleBuildJobGuardTests : IAsyncLifetime
                 .Build());
         var before = DateTimeOffset.UtcNow;
         await scheduler.TriggerJob(new JobKey("daily-job"));
-        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        // Waited for rather than slept on: on a loaded machine the refusal can take a while to come round.
+        var copy = Assert.Single(await WaitForRefireCopiesAsync(scheduler));
+        var seen = DateTimeOffset.UtcNow;
 
         Assert.False(RecordingJob.Ran.Task.IsCompleted);
-        var copy = Assert.Single(await RefireCopiesAsync(scheduler));
         Assert.Equal(new JobKey("daily-job"), copy.JobKey);
         Assert.InRange(
             copy.StartTimeUtc,
             before.Add(StaleBuildJobGuard.RefireDelay).AddSeconds(-1),
-            before.Add(StaleBuildJobGuard.RefireDelay).AddSeconds(5));
+            seen.Add(StaleBuildJobGuard.RefireDelay).AddSeconds(1));
     }
 
     [Fact]
@@ -110,10 +112,8 @@ public sealed class StaleBuildJobGuardTests : IAsyncLifetime
                 .UsingJobData("pass", "hourly")
                 .WithCronSchedule("0/1 * * * * ?")
                 .Build());
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        var copies = await WaitForRefireCopiesAsync(scheduler);
         await scheduler.PauseTrigger(new TriggerKey("cartrack-day-rollup-hourly-trigger"));
-
-        var copies = await RefireCopiesAsync(scheduler);
         Assert.NotEmpty(copies);
         Assert.All(copies, copy =>
         {
@@ -151,10 +151,9 @@ public sealed class StaleBuildJobGuardTests : IAsyncLifetime
         await scheduler.ScheduleJob(
             JobBuilder.Create<RecordingJob>().WithIdentity("daily-job").Build(),
             TriggerBuilder.Create().WithIdentity("daily-job-trigger").WithCronSchedule("0/1 * * * * ?").Build());
-        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        Assert.NotEmpty(await WaitForRefireCopiesAsync(scheduler));
         await scheduler.PauseTrigger(new TriggerKey("daily-job-trigger"));
         Assert.False(RecordingJob.Ran.Task.IsCompleted);
-        Assert.NotEmpty(await RefireCopiesAsync(scheduler));
 
         // Stands in for a node on the newer build taking the copy: the newer peer goes away, so this
         // node is no longer held back when the copy comes due.
@@ -194,6 +193,22 @@ public sealed class StaleBuildJobGuardTests : IAsyncLifetime
         RecordingJob.TriggerGroup = null;
         await _scheduler.Start();
         return (registry, _scheduler);
+    }
+
+    /// <summary>The copies, once there is at least one, or none after a generous wait.</summary>
+    private static async Task<List<ITrigger>> WaitForRefireCopiesAsync(IScheduler scheduler)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (true)
+        {
+            var copies = await RefireCopiesAsync(scheduler);
+            if (copies.Count > 0 || DateTime.UtcNow > deadline)
+            {
+                return copies;
+            }
+
+            await Task.Delay(100);
+        }
     }
 
     private static async Task<List<ITrigger>> RefireCopiesAsync(IScheduler scheduler)
