@@ -51,9 +51,14 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     /// Defaults to the configured lookback rather than a value chosen here, so the tests that do not
     /// care about the window exercise what production actually runs with.
     /// </summary>
-    private VanSalesEndOfDayPostingService BuildService(int? lookbackDays = null, int? graceMinutes = null)
+    private VanSalesEndOfDayPostingService BuildService(int? lookbackDays = null, int? graceMinutes = null, int? batchSize = null)
     {
         var settings = new VanSalesPostingSettings();
+        if (batchSize.HasValue)
+        {
+            settings.BatchSize = batchSize.Value;
+        }
+
         if (lookbackDays.HasValue)
         {
             settings.LookbackDays = lookbackDays.Value;
@@ -74,6 +79,72 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
             DesktopCreditPosters.Idle(_context),
             Options.Create(settings),
             NullLogger<VanSalesEndOfDayPostingService>.Instance);
+    }
+
+    /// <summary>
+    /// A weekend without signal, or a SAP outage, can leave hundreds pending. A pass takes a batch of
+    /// them, oldest trading day first, and the next pass takes the rest.
+    /// </summary>
+    [Fact]
+    public async Task A_pass_takes_a_batch_oldest_first_and_leaves_the_rest_for_the_next()
+    {
+        AddSale("VAN006-INV-TODAY", receiptGlobalNo: 503).DocDate = TradingDate.Date;
+        AddSale("VAN006-INV-YESTERDAY", receiptGlobalNo: 502).DocDate = TradingDate.Date.AddDays(-1);
+        AddSale("VAN006-INV-TWO-DAYS-AGO", receiptGlobalNo: 501).DocDate = TradingDate.Date.AddDays(-2);
+        await _context.SaveChangesAsync();
+
+        var first = await BuildService(batchSize: 2).PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(2, first.Posted);
+        Assert.Equal(
+            ["VAN006-INV-TWO-DAYS-AGO", "VAN006-INV-YESTERDAY"],
+            _sap.Created.Select(c => c.U_Van_saleorder).ToArray());
+
+        var second = await BuildService(batchSize: 2).PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(1, second.Posted);
+        Assert.Equal("VAN006-INV-TODAY", _sap.Created[^1].U_Van_saleorder);
+    }
+
+    /// <summary>
+    /// What SAP has issued is written down before the next sale goes: a pass that dies part-way
+    /// must not leave an invoiced sale looking Pending, to be found again or invoiced twice.
+    /// </summary>
+    /// <remarks>
+    /// The loop itself saves only at the end, and that is fine because the post path commits each sale
+    /// several times over: the post guard records the SAP document as soon as SAP answers, the stock
+    /// ledger saves what left the van, and the next sale's "post issued" marker is saved before its
+    /// request goes. Removing any one of those still passes this; the test is here so that all of them
+    /// cannot quietly go.
+    /// </remarks>
+    [Fact]
+    public async Task Each_sale_is_saved_before_the_next_one_goes_to_sap()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        AddSale("VAN006-INV-20260810-BBB222", receiptGlobalNo: 502);
+        await _context.SaveChangesAsync();
+
+        (DesktopSaleConsolidationStatus Status, int? DocEntry)? firstAsStored = null;
+        _sap.BeforeCreate = request =>
+        {
+            if (request.U_Van_saleorder != "VAN006-INV-20260810-BBB222")
+            {
+                return;
+            }
+
+            // Read through a context of its own: what is committed, not what this one is tracking.
+            using var observer = new ApplicationDbContext(
+                new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options);
+            var stored = observer.DesktopSales.AsNoTracking()
+                .Single(sale => sale.ExternalReferenceId == "VAN006-INV-20260810-AAA111");
+            firstAsStored = (stored.ConsolidationStatus, stored.SapDocEntry);
+        };
+
+        await BuildService().PostPendingSalesAsync(TradingDate);
+
+        Assert.NotNull(firstAsStored);
+        Assert.Equal(DesktopSaleConsolidationStatus.Consolidated, firstAsStored.Value.Status);
+        Assert.NotNull(firstAsStored.Value.DocEntry);
     }
 
     [Fact]
@@ -557,6 +628,9 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         /// <summary>References SAP cannot be reached for, as opposed to ones it refuses.</summary>
         public HashSet<string> UnreachableFor { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Runs as each invoice reaches SAP, before it is created.</summary>
+        public Action<CreateInvoiceRequest>? BeforeCreate { get; set; }
+
         private int _nextDocNum = 1000;
 
         public ISAPServiceLayerClient Client => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
@@ -572,6 +646,8 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
 
         private Task<Invoice> CreateInvoice(CreateInvoiceRequest request)
         {
+            BeforeCreate?.Invoke(request);
+
             if (UnreachableFor.Contains(request.U_Van_saleorder ?? string.Empty))
             {
                 throw new TimeoutException("The SAP Service Layer did not respond in time.");

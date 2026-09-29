@@ -86,6 +86,18 @@ public sealed class VanSalesPostingSettings
     public int LookbackDays { get; set; } = 7;
 
     /// <summary>
+    /// The most sales one pass takes, oldest first; the rest wait for the next pass.
+    /// </summary>
+    /// <remarks>
+    /// A pass used to take every pending sale in the window at once, lines and all, however many a
+    /// weekend without signal or a SAP outage had piled up. Each sale is an SAP lookup by its
+    /// <c>U_Van_saleorder</c> and then an invoice, a few seconds together at worst, so 150 keeps a pass
+    /// well inside <see cref="IntervalMinutes"/> while still clearing several hundred in a couple of
+    /// passes. Larger than the till route's 25 because this route runs every half hour, not every minute.
+    /// </remarks>
+    public int BatchSize { get; set; } = 150;
+
+    /// <summary>
     /// The CAT trading day a run happening now asks for. CAT rather than UTC because a run after
     /// 22:00 CAT is already tomorrow in UTC, and would go looking for a day that has not started.
     /// </summary>
