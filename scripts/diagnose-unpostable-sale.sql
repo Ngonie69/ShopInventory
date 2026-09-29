@@ -19,9 +19,9 @@ SELECT  s."Id",
         s."ExternalReferenceId",
         s."FiscalReceiptNumber",
         s."WarehouseCode",
-        s."CreatedAt"                                  AS created_utc,
-        s."CreatedAt" + interval '2 hours'             AS created_cat,
-        s."CreatedAt" >= timestamp '2026-09-15 23:42'  AS counter_check_was_live,
+        s."CreatedAt" AT TIME ZONE 'UTC'              AS created_utc,
+        s."CreatedAt" AT TIME ZONE 'Africa/Harare'             AS created_cat,
+        s."CreatedAt" >= timestamptz '2026-09-15 23:42+00'  AS counter_check_was_live,
         s."FiscalizationStatus",
         s."ConsolidationStatus",
         s."PostingAttempts",
@@ -56,7 +56,7 @@ WITH target AS (
     WHERE  s."ExternalReferenceId" = :ref OR s."FiscalReceiptNumber" = :ref
 )
 SELECT  o."ExternalReferenceId",
-        o."CreatedAt" + interval '2 hours' AS created_cat,
+        o."CreatedAt" AT TIME ZONE 'Africa/Harare' AS created_cat,
         o."ConsolidationStatus",
         o."PostingAttempts",
         o."SapDocNum",
@@ -77,7 +77,7 @@ ORDER BY o."CreatedAt" DESC;
 
 \echo ''
 \echo '== 4. Was the ledger known to disagree with SAP on these items that day? =='
-SELECT  d."CheckedAt" + interval '2 hours' AS checked_cat,
+SELECT  d."CheckedAt" AT TIME ZONE 'Africa/Harare' AS checked_cat,
         d."ItemCode", d."WarehouseCode", d."Source",
         d."LedgerQuantity", d."SapIssuableQuantity", d."Difference"
 FROM    "StockLedgerDivergences" d
@@ -105,6 +105,93 @@ FROM    "ProductBatches";
 -- check the API host environment. The API logs a warning per sale when it is off:
 --   "Sale {Reference} was not checked against SAP stock: DailyStock:CheckSapStockAtCounter is off"
 SELECT 'Check the API log for the warning quoted above, around ' ||
-       to_char(s."CreatedAt" + interval '2 hours', 'YYYY-MM-DD HH24:MI') || ' CAT' AS next_step
+       to_char(s."CreatedAt" AT TIME ZONE 'Africa/Harare', 'YYYY-MM-DD HH24:MI') || ' CAT' AS next_step
 FROM   "DesktopSales" s
 WHERE  s."ExternalReferenceId" = :ref OR s."FiscalReceiptNumber" = :ref;
+
+\echo ''
+\echo '== 7. Was SAP down (or slow enough to be declared down) when the sale was taken? =='
+-- CounterSapStockCheck sells UNCHECKED when SAP does not answer within CounterSapCheckSeconds (15).
+-- An outage overlapping created_cat is the whole answer: the guard never saw SAP's figure. A slow
+-- read that was not an outage leaves no row here, only the API log line
+--   "Sold <ref> unchecked: SAP stock for <warehouse> did not answer within 15s"
+-- so an empty result does not rule this cause out; grep the log for the reference.
+SELECT  o."Id",
+        o."StartedAtUtc" AT TIME ZONE 'Africa/Harare'  AS started_cat,
+        o."EndedAtUtc"   AT TIME ZONE 'Africa/Harare'  AS ended_cat,
+        o."Cause",
+        o."FailedProbes",
+        o."FirstError"
+FROM    "SapOutages" o
+JOIN    "DesktopSales" s ON (s."ExternalReferenceId" = :ref OR s."FiscalReceiptNumber" = :ref)
+WHERE   o."StartedAtUtc" <= s."CreatedAt" + interval '5 minutes'
+  AND   COALESCE(o."EndedAtUtc", now()) >= s."CreatedAt" - interval '5 minutes';
+
+\echo ''
+\echo '== 8. Reservations netted off SAP at posting, on the same items and warehouse =='
+-- The posting allocation takes live reservations off SAP's batch quantities before it allocates, and
+-- it does so whenever the reservation was made -- including one made AFTER this sale was taken. A
+-- reservation still Pending here can be why SAP's figure reads as 0 while SAP itself holds stock.
+SELECT  r."ReservationId", r."ExternalReferenceId", r."SourceSystem", r."Status",
+        r."CreatedAt" AT TIME ZONE 'Africa/Harare' AS created_cat,
+        r."ExpiresAt" AT TIME ZONE 'Africa/Harare' AS expires_cat,
+        rl."ItemCode", rl."ReservedQuantity", rl."WarehouseCode"
+FROM    "StockReservations" r
+JOIN    "StockReservationLines" rl ON rl."ReservationId" = r."Id"
+JOIN    "DesktopSales" s ON (s."ExternalReferenceId" = :ref OR s."FiscalReceiptNumber" = :ref)
+WHERE   rl."WarehouseCode" = s."WarehouseCode"
+  AND   rl."ItemCode" IN (SELECT l."ItemCode" FROM "DesktopSaleLines" l WHERE l."SaleId" = s."Id")
+  AND   r."Status" = 'Pending'
+ORDER BY r."CreatedAt";
+
+\echo ''
+\echo '== 9. Every fiscalised sale SAP is refusing for stock right now (the size of the problem) =='
+-- Same signature as this one: fiscalised (1 = Success), not yet in SAP, last error a stock refusal.
+-- Each needs the same remedy: put the stock where SAP can see it, then Post to SAP.
+SELECT  s."ExternalReferenceId",
+        s."WarehouseCode",
+        s."CreatedAt" AT TIME ZONE 'Africa/Harare' AS created_cat,
+        s."PostingAttempts",
+        s."LastPostingError"
+FROM    "DesktopSales" s
+WHERE   s."SapDocNum" IS NULL
+  AND   s."FiscalizationStatus" = 1
+  AND   s."ConsolidationStatus" IN (0, 2)
+  AND   (s."LastPostingError" ILIKE '%insufficient%'
+         OR s."LastPostingError" ILIKE '%negative inventory%'
+         OR s."LastPostingError" ILIKE '%quantity falls%')
+ORDER BY s."CreatedAt";
+
+\echo ''
+\echo '== 10. Every movement of the sale''s items in its warehouse, that day, in time order =='
+-- The ledger's own journal (Commit/Settle/Release/Transfer/Reconciliation) beside the transfers
+-- TransferEventListener reported. A large Reconciliation drop is the ledger being told SAP lost stock
+-- that no document here explains: something was keyed straight into SAP. Its time brackets when.
+WITH target AS (
+    SELECT s."Id", s."CreatedAt", s."WarehouseCode"
+    FROM   "DesktopSales" s
+    WHERE  s."ExternalReferenceId" = :ref OR s."FiscalReceiptNumber" = :ref
+)
+SELECT  m."OccurredAt" AT TIME ZONE 'Africa/Harare' AS at_cat,
+        m."ItemCode",
+        'ledger:' || m."Kind"                      AS source,
+        m."Quantity",
+        m."BalanceAfter",
+        m."Reference"                              AS detail
+FROM    "StockMovements" m
+JOIN    target t ON m."WarehouseCode" = t."WarehouseCode"
+WHERE   m."ItemCode" IN (SELECT l."ItemCode" FROM "DesktopSaleLines" l WHERE l."SaleId" = t."Id")
+  AND   (m."OccurredAt" AT TIME ZONE 'Africa/Harare')::date = (t."CreatedAt" AT TIME ZONE 'Africa/Harare')::date
+UNION ALL
+SELECT  a."DetectedAt" AT TIME ZONE 'Africa/Harare',
+        a."ItemCode",
+        'transfer:' || a."Direction",
+        a."AdjustmentQuantity",
+        NULL,
+        'DocNum ' || COALESCE(a."TransferDocNum"::text, '?') || ' '
+            || COALESCE(a."SourceWarehouse", '?') || ' -> ' || COALESCE(a."DestinationWarehouse", '?')
+FROM    "StockTransferAdjustments" a
+JOIN    target t ON a."WarehouseCode" = t."WarehouseCode"
+WHERE   a."ItemCode" IN (SELECT l."ItemCode" FROM "DesktopSaleLines" l WHERE l."SaleId" = t."Id")
+  AND   (a."DetectedAt" AT TIME ZONE 'Africa/Harare')::date = (t."CreatedAt" AT TIME ZONE 'Africa/Harare')::date
+ORDER BY 1, 2;
