@@ -220,7 +220,7 @@ public class OptionsCollectionBindingTests
             .Value
             .MonitoredWarehouses;
 
-        Assert.Equal(21, warehouses.Count);
+        Assert.Equal(22, warehouses.Count);
         Assert.Equal(warehouses.Count, warehouses.Distinct().Count());
     }
 

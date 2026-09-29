@@ -49,7 +49,7 @@ public class MonitoredWarehouseConfigTests
     [
         "KEFSHOP", "CORMACH", "CORMACH2", "KEFGRS", "KEFGRC",
         "KEFBYC", "KEFBYS",
-        "VAN001", "VAN004", "VAN005", "VAN006", "VAN008", "VAN009",
+        "VAN001", "VAN002", "VAN004", "VAN005", "VAN006", "VAN008", "VAN009",
         "VAN010", "VAN011", "VAN012", "VAN013", "VAN014", "VAN015",
         "VAN016", "VAN018"
     ];
