@@ -7386,13 +7386,11 @@ ORDER BY T0.""ItemCode""";
             return null;
         }
 
-        if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price))
+        if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price, out var validFrom, out var validTo))
         {
             return null;
         }
 
-        var validFrom = TryGetNamedDate(item, "DateFrom", "ValidFrom", "EffectiveFrom", "FromDate", "StartDate");
-        var validTo = TryGetNamedDate(item, "DateTo", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
         var isActive = !TryGetSpecialPriceActiveFlag(item, out var active) || active;
 
         return new BusinessPartnerSpecialPriceDto
@@ -7447,16 +7445,35 @@ ORDER BY T0.""ItemCode""";
     }
 
     internal static bool TryExtractCurrentSpecialPrice(JsonElement item, DateTime todayUtc, out decimal price)
+        => TryExtractCurrentSpecialPrice(item, todayUtc, out price, out _, out _);
+
+    /// <summary>
+    /// The special price SAP would charge today, and the validity window of the row it came from:
+    /// a period discount's own dates when one is current, otherwise the header's.
+    /// </summary>
+    /// <remarks>
+    /// The window has to be the source row's. The catalogue stores it and filters on it between
+    /// syncs, so a period price stored under the header's open-ended window keeps being charged
+    /// after SAP has stopped charging it.
+    /// </remarks>
+    private static bool TryExtractCurrentSpecialPrice(
+        JsonElement item,
+        DateTime todayUtc,
+        out decimal price,
+        out DateTime? validFrom,
+        out DateTime? validTo)
     {
         price = 0m;
+        validFrom = null;
+        validTo = null;
 
         if (TryGetSpecialPriceActiveFlag(item, out var isActive) && !isActive)
             return false;
 
-        if (TryGetSpecialPriceFromDataAreas(item, todayUtc, out price))
+        if (TryGetSpecialPriceFromDataAreas(item, todayUtc, out price, out validFrom, out validTo))
             return true;
 
-        if (TryGetSpecialPriceDateRange(item, out var validFrom, out var validTo) &&
+        if (TryGetSpecialPriceDateRange(item, out validFrom, out validTo) &&
             !IsSpecialPriceDateRangeActive(validFrom, validTo, todayUtc))
         {
             return false;
@@ -7469,9 +7486,16 @@ ORDER BY T0.""ItemCode""";
     // caller falls through to the header, because SAP does the same: CompanyService_GetItemPrice on
     // KEFALOS_TEST_3 (2026-09-29) priced MAC002/YOG001 at its header special price on 2023-12-15,
     // after its only period row had ended but while the header was still valid.
-    private static bool TryGetSpecialPriceFromDataAreas(JsonElement item, DateTime todayUtc, out decimal price)
+    private static bool TryGetSpecialPriceFromDataAreas(
+        JsonElement item,
+        DateTime todayUtc,
+        out decimal price,
+        out DateTime? validFrom,
+        out DateTime? validTo)
     {
         price = 0m;
+        validFrom = null;
+        validTo = null;
 
         if (!item.TryGetProperty("SpecialPriceDataAreas", out var dataAreas) ||
             dataAreas.ValueKind != JsonValueKind.Array)
@@ -7484,16 +7508,21 @@ ORDER BY T0.""ItemCode""";
             if (TryGetSpecialPriceActiveFlag(area, out var isAreaActive) && !isAreaActive)
                 continue;
 
-            if (TryGetSpecialPriceDateRange(area, out var validFrom, out var validTo) &&
-                !IsSpecialPriceDateRangeActive(validFrom, validTo, todayUtc))
+            if (TryGetSpecialPriceDateRange(area, out var areaFrom, out var areaTo) &&
+                !IsSpecialPriceDateRangeActive(areaFrom, areaTo, todayUtc))
             {
                 continue;
             }
+
+            validFrom = areaFrom;
+            validTo = areaTo;
 
             if (TryGetSpecialPriceValue(area, out price))
                 return true;
         }
 
+        validFrom = null;
+        validTo = null;
         return false;
     }
 

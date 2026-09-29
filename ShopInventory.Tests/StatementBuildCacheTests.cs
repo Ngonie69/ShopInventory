@@ -172,6 +172,68 @@ public class StatementBuildCacheTests
         Assert.Equal("OTHER", second.Value.Customer.CardCode);
     }
 
+    [Fact]
+    public async Task A_retry_that_races_the_build_finishing_is_answered_from_the_cache()
+    {
+        // The window CI fell into on 2026-09-30: the retry's cache check misses, the build then
+        // caches and completes, and the retry finds only a finished in-flight entry. The hook makes
+        // that interleaving happen every time instead of once in a few thousand runs.
+        var memory = new MissHookCache();
+        var cache = new StatementBuildCache(memory, NullLogger<StatementBuildCache>.Instance);
+        var release = new TaskCompletionSource();
+
+        var first = cache.GetOrBuildAsync(
+            "key",
+            _ => release.Task.ContinueWith(_ => (ErrorOr<CustomerStatementResponseDto>)Statement("ABS006")),
+            CancellationToken.None);
+
+        memory.OnNextMiss = () =>
+        {
+            release.SetResult();
+            first.GetAwaiter().GetResult();
+        };
+
+        var rebuilt = false;
+        var retry = await cache.GetOrBuildAsync(
+            "key",
+            _ =>
+            {
+                rebuilt = true;
+                return Task.FromResult<ErrorOr<CustomerStatementResponseDto>>(Statement("REBUILT"));
+            },
+            CancellationToken.None);
+
+        Assert.False(rebuilt, "the retry started a second build of a statement already in the cache");
+        Assert.Equal("ABS006", retry.Value.Customer.CardCode);
+    }
+
+    /// <summary>A memory cache that runs a hook the next time a read misses.</summary>
+    private sealed class MissHookCache : IMemoryCache
+    {
+        private readonly MemoryCache _inner = new(new MemoryCacheOptions());
+
+        public Action? OnNextMiss { get; set; }
+
+        public bool TryGetValue(object key, out object? value)
+        {
+            if (_inner.TryGetValue(key, out value))
+            {
+                return true;
+            }
+
+            var hook = OnNextMiss;
+            OnNextMiss = null;
+            hook?.Invoke();
+            return false;
+        }
+
+        public ICacheEntry CreateEntry(object key) => _inner.CreateEntry(key);
+
+        public void Remove(object key) => _inner.Remove(key);
+
+        public void Dispose() => _inner.Dispose();
+    }
+
     private static StatementBuildCache NewCache() =>
         new(new MemoryCache(new MemoryCacheOptions()), NullLogger<StatementBuildCache>.Instance);
 
