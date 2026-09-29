@@ -2,7 +2,9 @@ using ErrorOr;
 using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -12,7 +14,9 @@ namespace ShopInventory.Features.Products.Queries.GetPagedProductsInWarehouse;
 public sealed class GetPagedProductsInWarehouseHandler(
     ISAPServiceLayerClient sapClient,
     ILocalPriceCatalogService localPriceCatalogService,
+    ApplicationDbContext db,
     IOptions<SAPSettings> settings,
+    IOptions<DailyStockSettings> dailyStockSettings,
     ILogger<GetPagedProductsInWarehouseHandler> logger
 ) : IRequestHandler<GetPagedProductsInWarehouseQuery, ErrorOr<WarehouseProductsPagedResponseDto>>
 {
@@ -54,6 +58,11 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 .ToDictionary(g => g.Key, g => g.ToList());
 
             var products = items.Select(item => MapToProductDto(item, batchesByItem, priceMap)).ToList();
+
+            if (request.VanSaleOnly)
+            {
+                await StampAwaitingSapAsync(products, request.WarehouseCode, itemCodes, cancellationToken);
+            }
 
             var response = new WarehouseProductsPagedResponseDto
             {
@@ -117,6 +126,54 @@ public sealed class GetPagedProductsInWarehouseHandler(
             request.WarehouseCode, request.Page, request.PageSize, request.VanSaleOnly, cancellationToken);
 
         return (items, hasMore, null);
+    }
+
+    /// <summary>
+    /// Tells the van handset how much of each item it has sold that SAP's figure on this page still
+    /// counts, so it does not have to guess.
+    /// </summary>
+    /// <remarks>
+    /// Asked after SAP was read, so a sale posted in between is still counted here: a figure a little
+    /// low for a few minutes, never one that hands back goods that have gone. Zero rather than absent
+    /// for an item with nothing waiting, because absent is how a handset recognises a server that
+    /// cannot answer this and falls back to its own count.
+    ///
+    /// <para>A failure here leaves the field absent rather than failing the page. The handset then reads
+    /// the page the way it did before this existed — low, never high — where a refused page is a van
+    /// that cannot load what it sells.</para>
+    /// </remarks>
+    private async Task StampAwaitingSapAsync(
+        List<ProductDto> products,
+        string warehouseCode,
+        IReadOnlyCollection<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<string, decimal> awaiting;
+
+        try
+        {
+            awaiting = await VanSalesAwaitingSap.ByItemAsync(
+                db,
+                warehouseCode,
+                itemCodes,
+                DateTime.UtcNow,
+                dailyStockSettings.Value.UnpostedSaleLookbackDays,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex,
+                "Could not work out which of {Warehouse}'s sales SAP has yet to take; the page goes out "
+                + "without them and the handset falls back to its own count", warehouseCode);
+            return;
+        }
+
+        foreach (var product in products)
+        {
+            product.QuantityAwaitingSap = product.ItemCode is not null
+                ? awaiting.GetValueOrDefault(product.ItemCode)
+                : 0m;
+        }
     }
 
     private async Task<Dictionary<string, decimal>> BuildPriceMapAsync(

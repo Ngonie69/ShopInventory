@@ -20,8 +20,8 @@ namespace ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesStockP
 /// arithmetic here changes nothing about how a sale is recorded, posted or reported, and gives the
 /// same number.</para>
 ///
-/// <para><b>Why these three terms.</b> <c>OriginalQuantity</c> is the handset's own opening count and
-/// is the one figure on a van row that nothing else writes. Transfer adjustments are how a mid-day
+/// <para><b>Why these three terms.</b> <c>OriginalQuantity</c> is SAP's book stock at the 07:00 read,
+/// the one figure on a van row nothing moves during the day. Transfer adjustments are how a mid-day
 /// load reaches this system. Sales are counted whether or not they have posted, because the question
 /// is what is on the van, not what SAP has been told — which is the opposite of the choice the hourly
 /// reconcile makes, and for the opposite reason.</para>
@@ -58,9 +58,8 @@ public sealed class GetVanSalesStockPositionHandler(
                 "An assigned warehouse is required before a van can be asked what it is carrying.");
         }
 
-        // The CAT calendar date, because that is how the post that files a van's count dates it. The
-        // ledger day used elsewhere rolls at the 07:00 fetch instead, and asking for it here would
-        // miss the van's own row every morning between midnight and seven.
+        // The CAT calendar date. The 07:00 read files the van's row under the ledger day, which is the
+        // same date from then on; before seven there is no row for today, and the answer is "unknown".
         var tradingDate = AuditService.ToCAT(DateTime.UtcNow).Date;
 
         var position = await VanStockPosition.ReadAsync(
@@ -73,7 +72,7 @@ public sealed class GetVanSalesStockPositionHandler(
             // the kind of wrong that stops a day's selling.
             logger.LogInformation(
                 "Van {WarehouseCode} was asked what it is carrying on {TradingDate:yyyy-MM-dd} but has "
-                + "filed no opening count for the day",
+                + "no opening stock for the day yet",
                 warehouseCode, tradingDate);
 
             return new VanSalesStockPositionResult
@@ -82,8 +81,8 @@ public sealed class GetVanSalesStockPositionHandler(
                 TradingDate = tradingDate.ToString("yyyy-MM-dd"),
                 Counted = false,
                 LineCount = 0,
-                Message = "This van has not filed an opening stock count for today, so its position "
-                        + "is not known here. The handset's own count is the only record."
+                Message = "This van has no opening stock for today yet — it is read from SAP at 07:00 — so "
+                        + "its position is not known here. The handset's own count is the only record."
             };
         }
 

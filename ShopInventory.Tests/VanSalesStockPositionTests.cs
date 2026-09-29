@@ -11,16 +11,15 @@ using ShopInventory.Services;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// A van counting what it is carrying, and filing that count as its own stock snapshot.
+/// A van counting what it is carrying — taken, and never filed as the van's opening stock.
 ///
-/// The portal's van stock report reads nothing but these snapshots, and until this route existed a van
-/// wrote none: the job that fills them reads SAP — a day behind for a van, whose sales are still queued
-/// on the handset — and only visits the warehouses named in its configured list. A van absent from that
-/// list produced an empty report page rather than an error, which is the failure mode that hides.
+/// The count used to become the van's snapshot for the day when it beat the 07:00 read from SAP, and on
+/// 2026-09-29 that put VAN005's stock into VAN004's day: the handset still held VAN005's ledger, and the
+/// server filed it under the account's new warehouse. A van's day now opens on SAP's figure alone, which
+/// is current by the morning since van sales post during the day.
 ///
-/// The invariant worth the most here is that the first count of a day wins. The report compares a
-/// morning's opening position against the previous morning's less what sold in between, so a position
-/// that can be rewritten at lunchtime would absorb exactly the variance the report exists to surface.
+/// The answer is still <c>accepted</c>, because that is what makes every handset in the field mark the
+/// day filed and stop resending.
 /// </summary>
 public sealed class VanSalesStockPositionTests : IDisposable
 {
@@ -145,41 +144,80 @@ public sealed class VanSalesStockPositionTests : IDisposable
     };
 
     /// <summary>
-    /// The count lands as a complete snapshot for the van's own warehouse, on the day the handset
-    /// counted.
+    /// The count is answered as accepted, and no snapshot is written for it.
     /// </summary>
     [Fact]
-    public async Task A_reported_position_becomes_the_vans_snapshot_for_the_day()
+    public async Task A_reported_count_is_accepted_and_does_not_become_the_vans_snapshot()
     {
         var response = await ReportAsync(BuildPosition());
 
         Assert.True(response.Accepted);
         Assert.False(response.Duplicate);
         Assert.Equal("VAN006", response.WarehouseCode);
-        Assert.Equal(CapturedDay.ToString("yyyy-MM-dd"), response.TradingDate);
+        Assert.Equal(1, response.LineCount);
 
-        var snapshot = await _context.DailyStockSnapshots.Include(s => s.Items).SingleAsync();
-        Assert.Equal("VAN006", snapshot.WarehouseCode);
-        Assert.Equal(CapturedDay, snapshot.SnapshotDate);
-
-        // Complete, or the report will not read it: it filters snapshots on this status.
-        Assert.Equal(StockSnapshotStatus.Complete, snapshot.Status);
-
-        var item = Assert.Single(snapshot.Items);
-        Assert.Equal("CHE011", item.ItemCode);
-        Assert.Equal("B2609", item.BatchNumber);
-        Assert.Equal(new DateTime(2026, 9, 30), item.ExpiryDate);
-
-        // OriginalQuantity is the morning figure the report reads. AvailableQuantity is the working one
-        // the desktop paths decrement; nothing decrements it for a van, which is why the report reads
-        // the other. Both start at what was counted.
-        Assert.Equal(24m, item.OriginalQuantity);
-        Assert.Equal(24m, item.AvailableQuantity);
+        Assert.Empty(_context.DailyStockSnapshots);
+        Assert.Empty(_context.DailyStockSnapshotItems);
     }
 
     /// <summary>
-    /// The trading day is the handset's, not the server's — the same rule the sales upload follows. A
-    /// van that counts at 05:42 files against that morning wherever the server happens to be.
+    /// The 2026-09-29 case. The account has been moved to another van while its handset still holds the
+    /// old van's ledger; the count used to be filed as the new van's opening position. Now it changes
+    /// nothing, and the new van opens on SAP's own figure.
+    /// </summary>
+    [Fact]
+    public async Task A_count_from_a_handset_still_holding_another_vans_ledger_changes_nothing()
+    {
+        var user = await _context.Users.SingleAsync(u => u.Id == VanUser);
+        user.AssignedWarehouseCode = "VAN004";
+        await _context.SaveChangesAsync();
+
+        // What VAN005 was carrying, reported by a handset now signed in to a VAN004 account.
+        var position = BuildPosition(quantity: 30m);
+        position.Lines[0].Code = "YOG020";
+
+        var response = await ReportAsync(position);
+
+        Assert.True(response.Accepted);
+        Assert.Equal("VAN004", response.WarehouseCode);
+        Assert.Empty(_context.DailyStockSnapshots);
+    }
+
+    /// <summary>
+    /// A snapshot the 07:00 read from SAP has already written is left exactly as it was.
+    /// </summary>
+    [Fact]
+    public async Task A_count_leaves_the_snapshot_SAP_wrote_as_it_was()
+    {
+        _context.DailyStockSnapshots.Add(new DailyStockSnapshotEntity
+        {
+            SnapshotDate = CapturedDay,
+            WarehouseCode = "VAN006",
+            Status = StockSnapshotStatus.Complete,
+            ItemCount = 1,
+            Items =
+            [
+                new DailyStockSnapshotItemEntity
+                {
+                    ItemCode = "CHE011",
+                    WarehouseCode = "VAN006",
+                    BatchNumber = "B2609"
+                }.Opening(24m)
+            ]
+        });
+        await _context.SaveChangesAsync();
+
+        await ReportAsync(BuildPosition(quantity: 11m));
+
+        var snapshot = await _context.DailyStockSnapshots.Include(s => s.Items).SingleAsync();
+        Assert.Equal(1, snapshot.ItemCount);
+        Assert.Equal(24m, snapshot.Items.Single().OriginalQuantity);
+        Assert.Equal(24m, snapshot.Items.Single().AvailableQuantity);
+    }
+
+    /// <summary>
+    /// The trading day in the reply is the handset's, not the server's — the handset logs it as the day
+    /// it filed for.
     /// </summary>
     [Fact]
     public async Task The_trading_day_comes_from_the_handset()
@@ -187,42 +225,14 @@ public sealed class VanSalesStockPositionTests : IDisposable
         var position = BuildPosition();
         position.CapturedAt = CapturedAtCat("23:40:00");
 
-        await ReportAsync(position);
+        var response = await ReportAsync(position);
 
-        var snapshot = await _context.DailyStockSnapshots.SingleAsync();
-        Assert.Equal(CapturedDay, snapshot.SnapshotDate);
+        Assert.Equal(CapturedDay.ToString("yyyy-MM-dd"), response.TradingDate);
     }
 
     /// <summary>
-    /// A handset that lost the reply re-sends, and the count already held is the one kept.
+    /// An empty count is still refused, so the contract handsets were built against does not move.
     /// </summary>
-    /// <remarks>
-    /// The second count is not merely ignored — it must be answered as a success, or the handset
-    /// retries it forever. And the held figure must not move: it is the opening position the next
-    /// morning's variance is measured against.
-    /// </remarks>
-    [Fact]
-    public async Task A_resent_position_is_a_duplicate_and_the_first_count_stands()
-    {
-        await ReportAsync(BuildPosition(quantity: 24m));
-
-        var second = await ReportAsync(BuildPosition(quantity: 11m));
-
-        Assert.True(second.Accepted);
-        Assert.True(second.Duplicate);
-
-        var snapshot = await _context.DailyStockSnapshots.Include(s => s.Items).SingleAsync();
-        Assert.Equal(24m, snapshot.Items.Single().OriginalQuantity);
-    }
-
-    /// <summary>
-    /// An empty count is refused rather than filed.
-    /// </summary>
-    /// <remarks>
-    /// A van genuinely carrying nothing and a handset whose ledger failed to load report exactly the
-    /// same thing, and only one of them is true. Filing it would open the day at zero and report the
-    /// whole load as a variance the next morning — a number nobody would read as a bug.
-    /// </remarks>
     [Fact]
     public async Task An_empty_count_is_refused()
     {
@@ -253,21 +263,5 @@ public sealed class VanSalesStockPositionTests : IDisposable
 
         Assert.True(result.IsError);
         Assert.Equal("VanSalesCompatibility.MissingWarehouse", result.FirstError.Code);
-    }
-
-    /// <summary>
-    /// A line with no expiry is not a line that expired at the epoch. The expiry view lists what is
-    /// close to going off, and a guessed date puts a good batch on that list.
-    /// </summary>
-    [Fact]
-    public async Task A_line_with_no_expiry_records_none()
-    {
-        var position = BuildPosition();
-        position.Lines[0].ExpiryDate = null;
-
-        await ReportAsync(position);
-
-        var snapshot = await _context.DailyStockSnapshots.Include(s => s.Items).SingleAsync();
-        Assert.Null(snapshot.Items.Single().ExpiryDate);
     }
 }

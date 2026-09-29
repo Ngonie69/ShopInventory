@@ -165,7 +165,7 @@ public sealed class VanSalesStockPositionReadTests : IDisposable
         Assert.False(result.IsError);
         Assert.False(result.Value.Counted);
         Assert.Empty(result.Value.Lines);
-        Assert.Contains("has not filed an opening stock count", result.Value.Message);
+        Assert.Contains("has no opening stock for today yet", result.Value.Message);
     }
 
     /// <summary>

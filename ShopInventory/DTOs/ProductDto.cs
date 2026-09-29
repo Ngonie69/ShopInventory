@@ -33,6 +33,18 @@ public class ProductDto
     public int? ItemsGroupCode { get; set; }
 
     public List<BatchDto>? Batches { get; set; }
+
+    /// <summary>
+    /// Units of the warehouse's own sales that this server holds and SAP's figure above does not yet
+    /// reflect — see <see cref="ShopInventory.Common.Stock.VanSalesAwaitingSap"/>. The van handset takes
+    /// it off SAP's figure instead of every sale it made that day.
+    /// </summary>
+    /// <remarks>
+    /// Filled only on the van catalogue read (<c>vanSaleOnly=true</c>), where it is never null — zero
+    /// when nothing is awaiting — so a handset can tell a server that knows from one that predates this.
+    /// Null everywhere else.
+    /// </remarks>
+    public decimal? QuantityAwaitingSap { get; set; }
 }
 
 /// <summary>

@@ -8,10 +8,11 @@ namespace ShopInventory.Common.Stock;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Nothing decrements a van's snapshot during trading, so the stored <c>AvailableQuantity</c> is not
-/// the answer. <c>OriginalQuantity</c> is the handset's own opening count, transfer adjustments are how
-/// a mid-day load reaches this system, and sales count whether or not they have posted, because the
-/// question is what is on the van, not what SAP has been told.
+/// The stored <c>AvailableQuantity</c> moves only when a sale posts, so it lags the van and is not the
+/// answer. <c>OriginalQuantity</c> is SAP's book stock at the 07:00 read — a handset's count no longer
+/// becomes it, see <c>ReportVanSalesStockPositionHandler</c> — transfer adjustments are how a mid-day
+/// load reaches this system, and sales count whether or not they have posted, because the question is
+/// what is on the van, not what SAP has been told.
 /// </para>
 /// <para>
 /// Two readers. The stock-position endpoint answers a rep, and counts every sale. The reservation
@@ -20,8 +21,8 @@ namespace ShopInventory.Common.Stock;
 /// off twice and refuse a sale the van can make.
 /// </para>
 /// <para>
-/// Dated by the CAT calendar date, which is how the post that files a van's count dates it — not the
-/// ledger day, which rolls at 07:00 and would miss the van's own row every morning before then.
+/// Dated by the CAT calendar date. The 07:00 read writes the day's row under the ledger day, which is
+/// the same date from then on; before it there is no row for the day and the position is unknown.
 /// </para>
 /// </remarks>
 public static class VanStockPosition
