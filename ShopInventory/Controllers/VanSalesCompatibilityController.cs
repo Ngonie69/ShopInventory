@@ -41,6 +41,7 @@ using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscal;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscalLease;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesOrderHistory;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesPodDeliveries;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesSaleByVanOrder;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesSalesOrderHistory;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesTransferRequests;
 using ShopInventory.Features.MarketBreakages.Commands.ReportMarketBreakage;
@@ -560,6 +561,31 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(
             value => Ok(new VanSalesEnvelope<List<VanSalesLegacyOrderDto>> { Success = value }),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Whether the sale posted under this <c>van_order</c> landed, for a handset whose <c>POST order</c>
+    /// lost its reply.
+    /// </summary>
+    /// <remarks>
+    /// Always 200 for an authorised caller: a sale that is not there, or is not the caller's to see, is
+    /// <c>found: false</c>. A 404 would read to the handset as a server that predates this route. Returned
+    /// bare, not enveloped.
+    /// </remarks>
+    [HttpGet("sale/{vanOrder}")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewInvoices)]
+    [ProducesResponseType(typeof(VanSalesSaleLookupResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSaleByVanOrder(string vanOrder, CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new GetVanSalesSaleByVanOrderQuery(userId.Value, vanOrder), cancellationToken);
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
     /// <summary>
