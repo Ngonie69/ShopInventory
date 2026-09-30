@@ -15,6 +15,12 @@ public interface IDesktopCreditFiscalDays
     /// within its day) on our device went into, when a receipt of that same day proves it; otherwise null.
     /// </summary>
     Task<int?> ResolveAsync(DesktopSaleEntity sale, long receiptGlobalNo, int receiptCounter, CancellationToken ct);
+
+    /// <summary>
+    /// The same proof for a receipt no sale of ours carries — an invoice the REVMax vendor's SAP add-on
+    /// filed — looking for neighbours around <paramref name="aroundUtc"/>, when the receipt was filed.
+    /// </summary>
+    Task<int?> ResolveAsync(DateTime aroundUtc, long receiptGlobalNo, int receiptCounter, CancellationToken ct);
 }
 
 /// <summary>
@@ -48,17 +54,25 @@ public sealed class DesktopCreditFiscalDays(ApplicationDbContext db, IRevmaxClie
     /// <summary>Device lookups per side. The nearest stamped receipts are the likeliest to share the day.</summary>
     private const int PerSide = 3;
 
-    public async Task<int?> ResolveAsync(DesktopSaleEntity sale, long receiptGlobalNo, int receiptCounter,
-        CancellationToken ct)
+    public Task<int?> ResolveAsync(DesktopSaleEntity sale, long receiptGlobalNo, int receiptCounter,
+        CancellationToken ct) =>
+        ResolveAsync(sale.CreatedAt, receiptGlobalNo, receiptCounter, sale.Id, sale.ExternalReferenceId, ct);
+
+    public Task<int?> ResolveAsync(DateTime aroundUtc, long receiptGlobalNo, int receiptCounter,
+        CancellationToken ct) =>
+        ResolveAsync(aroundUtc, receiptGlobalNo, receiptCounter, excludeSaleId: null, forReference: null, ct);
+
+    private async Task<int?> ResolveAsync(DateTime aroundUtc, long receiptGlobalNo, int receiptCounter,
+        int? excludeSaleId, string? forReference, CancellationToken ct)
     {
         if (receiptCounter <= 0 || receiptCounter > receiptGlobalNo)
             return null;
         var dayKey = receiptGlobalNo - receiptCounter;
         var device = settings.Value.DefaultRefDeviceId;
-        var from = sale.CreatedAt - Window;
-        var to = sale.CreatedAt + Window;
+        var from = aroundUtc - Window;
+        var to = aroundUtc + Window;
         var rows = await db.DesktopSales.AsNoTracking()
-            .Where(s => s.Id != sale.Id && s.CreatedAt >= from && s.CreatedAt <= to
+            .Where(s => s.Id != excludeSaleId && s.CreatedAt >= from && s.CreatedAt <= to
                 && s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success
                 && (s.FiscalDeviceId == null || s.FiscalDeviceId == device)
                 && s.FiscalDayNo != null && s.FiscalReceiptNumber != null && s.ExternalReferenceId != null)
@@ -80,9 +94,10 @@ public sealed class DesktopCreditFiscalDays(ApplicationDbContext db, IRevmaxClie
             if (await CounterOffsetAsync(candidate.Reference, candidate.Global, device, ct) != dayKey)
                 continue;
             logger.LogInformation(
-                "Sale {Sale}'s receipt {Receipt} has no recorded fiscal day; placed on day {Day} with receipt {Neighbour} "
+                "Receipt {Receipt} ({Sale}) has no recorded fiscal day; placed on day {Day} with receipt {Neighbour} "
                 + "of sale {NeighbourSale}, which shares its global-minus-counter {DayKey}",
-                sale.ExternalReferenceId, receiptGlobalNo, candidate.Day, candidate.Global, candidate.Reference, dayKey);
+                receiptGlobalNo, forReference ?? "no sale of ours", candidate.Day, candidate.Global, candidate.Reference,
+                dayKey);
             return candidate.Day;
         }
         return null;
