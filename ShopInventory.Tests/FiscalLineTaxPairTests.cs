@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -13,7 +14,7 @@ namespace ShopInventory.Tests;
 /// accepts.
 ///
 /// The platform matches a line's id and percentage together against the device's taxes, and reads an
-/// absent percentage as exempt. The platform client sent ids only, so from the cut-over on 30 September
+/// absent percentage as exempt, and FDMS behind it refuses a percentage written with more than two decimals. The platform client sent ids only, so from the cut-over on 30 September
 /// 2026 every till sale was refused: "Line 1 taxId 515 with taxPercent exempt/null is not active in
 /// FDMS config". The shipped mappings are read from appsettings.json, so a mapping that drifts off the
 /// device fails here rather than at a till.
@@ -145,6 +146,16 @@ public sealed class FiscalLineTaxPairTests
 
         Assert.True(accepted,
             $"taxId {line.TaxId} with taxPercent {line.TaxPercent?.ToString() ?? "exempt/null"} is not a tax on the device.");
+
+        // FDMS types the field decimal(5,2) and refuses a longer scale even when the digits are zeros:
+        // 15.500 was answered "provided value TaxPercent do not satisfy decimal(5,2)" on INV4925's retry.
+        // The platform forwards the number as written, so the check is on the JSON, not the value.
+        if (line.TaxPercent.HasValue)
+        {
+            var written = JsonSerializer.Serialize(line.TaxPercent.Value);
+            var decimals = written.Contains('.') ? written.Length - written.IndexOf('.') - 1 : 0;
+            Assert.True(decimals <= 2, $"taxPercent is written {written}, which FDMS refuses as not decimal(5,2).");
+        }
     }
 
     [Theory]
