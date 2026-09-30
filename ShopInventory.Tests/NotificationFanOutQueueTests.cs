@@ -120,6 +120,25 @@ public sealed class NotificationFanOutQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task What_is_queued_still_goes_out_when_the_app_stops_before_the_queue_has_begun_reading()
+    {
+        // A stop straight after the start, before the thread pool has run the reader: BackgroundService
+        // cancels a reader that has not begun, and everything queued behind it was dropped.
+        _push.Release();
+        var queue = _provider.GetRequiredService<NotificationFanOutQueue>();
+        await queue.StartAsync(CancellationToken.None);
+
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.True(queue.TryEnqueue(QueuedWork(i)));
+        }
+
+        await queue.StopAsync(CancellationToken.None).WaitAsync(Soon);
+
+        Assert.Equal(3, _push.Sent.Count);
+    }
+
+    [Fact]
     public async Task A_queued_push_resolves_its_user_from_its_own_scope_after_the_request_has_gone()
     {
         Guid userId;
@@ -170,6 +189,9 @@ public sealed class NotificationFanOutQueueTests : IAsyncLifetime
         Category = "Invoice",
         TargetRole = "Cashier"
     };
+
+    private static NotificationFanOutWork QueuedWork(int id) =>
+        new(new NotificationDto { Id = id }, RoleNotification($"POD uploaded {id}"), id, DateTime.UtcNow, null, []);
 
     private static IHubContext<NotificationHub> SilentHub()
     {
