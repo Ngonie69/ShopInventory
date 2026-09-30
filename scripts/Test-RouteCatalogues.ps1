@@ -141,7 +141,8 @@ $ExternalPaths = @(
     'api/receipts/submit',          # fiscalisation platform - fiscalise a desktop/POS receipt
     'api/receipts/check',           # fiscalisation platform - read fiscal status back
     'api/fiscal-config',            # fiscalisation platform - device configuration
-    'api/fiscal-status'             # fiscalisation platform - device status
+    'api/fiscal-status',            # fiscalisation platform - device status
+    'api/devices/known'             # fiscalisation platform - device ids, for the Settings key test
 )
 
 # ---------------------------------------------------------------- file access

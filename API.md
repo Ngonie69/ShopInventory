@@ -3211,6 +3211,7 @@ provider-agnostic and are marked where they differ.
 | Fiscalise a desktop/POS invoice before it reaches SAP | `POST /api/receipts/submit` — full receipt payload |
 | Read fiscal status back | `GET /api/receipts/check?deviceId=0&invoiceNo=…&receiptType=…` |
 | Device configuration (QR base URL, serial, active taxes) | `GET /api/fiscal-config` — no `deviceId` unless one is pinned |
+| Which devices the console has, for the Settings key test | `GET /api/devices/known` — needs a key with no device allowlist |
 
 Authentication is an `X-API-Key` header. The key is configured as `Fiscalisation__ApiKey` and needs the
 `receipt.submit`, `sap.fiscalise` and `device.read` scopes, and no device allowlist — a device-scoped key
