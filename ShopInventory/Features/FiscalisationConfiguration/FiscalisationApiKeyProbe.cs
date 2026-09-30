@@ -38,6 +38,13 @@ public sealed record FiscalisationApiKeyProbeResult(FiscalisationApiKeyVerdict V
 /// </remarks>
 public static class FiscalisationApiKeyProbe
 {
+    /// <summary>
+    /// How many of the platform's devices an unpinned probe reads before giving up. The list includes
+    /// devices the console has merely seen, and each read is a round trip to FDMS, so a console full
+    /// of retired handsets must not turn a save into a minute-long wait.
+    /// </summary>
+    internal const int MaxDevicesTried = 3;
+
     public static async Task<FiscalisationApiKeyProbeResult> RunAsync(
         IFiscalisationApiClient client,
         string? apiKey,
@@ -45,9 +52,66 @@ public static class FiscalisationApiKeyProbe
         ILogger logger,
         CancellationToken cancellationToken)
     {
+        // The device the last read asked for, so a failure can say which one it was about. Zero is the
+        // platform's own device, which only an unpinned read that found no list to choose from asks for.
+        var attemptedDeviceId = deviceId;
+
+        async Task<FiscalConfigApiResponse> ReadAsync()
+        {
+            if (deviceId > 0)
+            {
+                return await client.GetFiscalConfigWithApiKeyAsync(apiKey, deviceId, cancellationToken);
+            }
+
+            // Leaving the device off lets the platform answer for its own Fdms:DeviceId, and a console
+            // that fiscalises across several devices leaves that unset — then the read is refused as
+            // "DeviceId is required" and a good key reads as unverifiable. So ask which devices it has
+            // and read one of those. A key refused the list is refused, full stop: the list is served to
+            // every key with no device allowlist, and that is the only kind this API can use.
+            IReadOnlyList<int> known;
+            try
+            {
+                known = await client.GetKnownDeviceIdsWithApiKeyAsync(apiKey, cancellationToken);
+            }
+            catch (FiscalisationApiException ex) when (
+                ex.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+            {
+                logger.LogInformation(
+                    "Fiscalisation platform did not list its devices (HTTP {StatusCode}/{ErrorCode}); "
+                    + "letting it choose the device",
+                    (int)ex.StatusCode,
+                    ex.ErrorCode);
+                known = [];
+            }
+
+            FiscalisationApiException? lastFailure = null;
+            foreach (var candidate in known.Where(id => id > 0).Distinct().Take(MaxDevicesTried))
+            {
+                attemptedDeviceId = candidate;
+                try
+                {
+                    return await client.GetFiscalConfigWithApiKeyAsync(apiKey, candidate, cancellationToken);
+                }
+                catch (FiscalisationApiException ex) when (
+                    ex.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+                {
+                    // A retired or unreachable device says nothing about the key; try the next one.
+                    lastFailure = ex;
+                }
+            }
+
+            if (lastFailure is not null)
+            {
+                throw lastFailure;
+            }
+
+            attemptedDeviceId = 0;
+            return await client.GetFiscalConfigWithApiKeyAsync(apiKey, 0, cancellationToken);
+        }
+
         try
         {
-            var config = await client.GetFiscalConfigWithApiKeyAsync(apiKey, deviceId, cancellationToken);
+            var config = await ReadAsync();
 
             var taxpayer = string.IsNullOrWhiteSpace(config.TaxPayerName)
                 ? "the configured taxpayer"
@@ -55,7 +119,7 @@ public static class FiscalisationApiKeyProbe
 
             // Naming a device here would be a lie when we did not ask for one: the platform picked it,
             // and it is free to pick a different one next time.
-            var named = deviceId > 0 ? $"device {deviceId}" : "the console's own device";
+            var named = attemptedDeviceId > 0 ? $"device {attemptedDeviceId}" : "the console's own device";
             var device = string.IsNullOrWhiteSpace(config.DeviceSerialNo)
                 ? named
                 : $"{named} ({config.DeviceSerialNo})";
@@ -90,12 +154,12 @@ public static class FiscalisationApiKeyProbe
             logger.LogWarning(
                 ex,
                 "Fiscalisation key probe failed on device {DeviceId} with HTTP {StatusCode}/{ErrorCode}",
-                deviceId,
+                attemptedDeviceId,
                 (int)ex.StatusCode,
                 ex.ErrorCode);
 
             var reason = ex.HasProblemDocument
-                ? $"reading {(deviceId > 0 ? $"device {deviceId}" : "the console's own device")} failed: "
+                ? $"reading {(attemptedDeviceId > 0 ? $"device {attemptedDeviceId}" : "the console's own device")} failed: "
                   + ex.Message
                 : $"the platform at this address answered HTTP {(int)ex.StatusCode} with no explanation, "
                   + "which usually means it is not a Fiscalisation console.";

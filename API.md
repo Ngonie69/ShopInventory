@@ -3230,6 +3230,14 @@ answer `400 ValidationFailed` ("DeviceId is required and must be greater than 0"
 `deviceId=0`. `GET /api/receipts/check` is the exception that does take `deviceId=0`, meaning "search
 every device".
 
+"The console's own device" is the platform's `Fdms:DeviceId`, and a console that fiscalises across
+several devices — production's does — leaves it unset, so leaving `deviceId` off is refused with the
+same 400. The key test below therefore does not rely on it: with no device pinned it reads
+`GET /api/devices/known` and then `GET /api/fiscal-config?deviceId=…` for the first of those devices
+that answers (at most three), and only falls back to the unpinned read when the platform lists nothing.
+`/api/devices/known` is served only to a key with no device allowlist, so a 403 there fails the test,
+which is correct: a device-scoped key breaks failover.
+
 **Managing that key**
 
 **Base route:** `/api/fiscalisation-settings`

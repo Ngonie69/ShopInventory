@@ -139,14 +139,33 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         return await ReadResponseAsync<FiscalConfigApiResponse>(response, cancellationToken);
     }
 
-    public async Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
+    public Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
         string? apiKey,
         int deviceId,
+        CancellationToken cancellationToken = default) =>
+        GetWithApiKeyAsync<FiscalConfigApiResponse>(
+            "api/fiscal-config" + DeviceQuery(deviceId),
+            apiKey,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<int>> GetKnownDeviceIdsWithApiKeyAsync(
+        string? apiKey,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            "api/fiscal-config" + DeviceQuery(deviceId));
+        var response = await GetWithApiKeyAsync<KnownDevicesApiResponse>(
+            "api/devices/known",
+            apiKey,
+            cancellationToken);
+
+        return response.DeviceIds;
+    }
+
+    private async Task<TResponse> GetWithApiKeyAsync<TResponse>(
+        string requestUri,
+        string? apiKey,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
 
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
@@ -163,7 +182,7 @@ public class FiscalisationApiClient : IFiscalisationApiClient
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
 
-        return await ReadResponseAsync<FiscalConfigApiResponse>(response, cancellationToken);
+        return await ReadResponseAsync<TResponse>(response, cancellationToken);
     }
 
     public async Task<FiscalStatusApiResponse> GetFiscalStatusAsync(
