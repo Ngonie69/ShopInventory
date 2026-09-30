@@ -122,6 +122,7 @@ public sealed class FiscalReceiptTotalTests
             client,
             new NoConfigCache(),
             Options.Create(new FiscalisationSettings { Enabled = true, DefaultTaxId = 517 }),
+            Options.Create(Tax),
             NullLogger<FiscalizationService>.Instance);
 
         await service.FiscalizePreSapInvoiceAsync(
@@ -208,6 +209,7 @@ public sealed class FiscalReceiptTotalTests
             client,
             new NoConfigCache(),
             Options.Create(new FiscalisationSettings { Enabled = true, DefaultTaxId = 517 }),
+            Options.Create(Tax),
             NullLogger<FiscalizationService>.Instance);
 
         await service.FiscalizePreSapInvoiceAsync(

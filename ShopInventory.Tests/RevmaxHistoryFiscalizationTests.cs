@@ -222,6 +222,7 @@ public sealed class RevmaxHistoryFiscalizationTests
                 platform.Client,
                 StubProxy.For<IFiscalDeviceConfigCache>((_, _) => Task.FromResult<FiscalConfigApiResponse?>(null)),
                 fiscalisation,
+                Options.Create(new TaxSettings()),
                 NullLogger<FiscalizationService>.Instance),
             new RevmaxFiscalizationService(
                 revmax.Client,
