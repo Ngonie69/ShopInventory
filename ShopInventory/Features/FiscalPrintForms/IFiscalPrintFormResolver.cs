@@ -8,7 +8,8 @@ namespace ShopInventory.Features.FiscalPrintForms;
 public interface IFiscalPrintFormResolver
 {
     /// <summary>
-    /// The partner's chosen form for a till, vending or van sale; <see cref="ReceiptPrintForm.InvoiceA4"/>
+    /// The partner's chosen form for a till, vending or van sale, or a till credit note against one (pass
+    /// the original sale's source); <see cref="ReceiptPrintForm.InvoiceA4"/>
     /// for any other source, for a partner with no choice saved, and when the choice cannot be read.
     /// </summary>
     Task<ReceiptPrintForm> ResolveAsync(string? sourceSystem, string? cardCode, CancellationToken cancellationToken);

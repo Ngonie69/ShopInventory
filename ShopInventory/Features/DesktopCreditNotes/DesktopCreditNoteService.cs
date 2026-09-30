@@ -6,15 +6,18 @@ using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.DesktopCreditNotes;
 
 public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCreditFiscalGateway fiscal,
     DesktopCreditSapPoster sapPoster, IAuditService audit,
     IOptions<FiscalisationSettings> fiscalisationSettings, ILogger<DesktopCreditNoteService> logger,
-    IDesktopCreditTillNotifier? tillNotifier = null, IOptions<RevmaxSettings>? revmaxSettings = null)
+    IDesktopCreditTillNotifier? tillNotifier = null, IOptions<RevmaxSettings>? revmaxSettings = null,
+    IFiscalPrintFormResolver? printForms = null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -104,6 +107,14 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         // posted is the same credit, and its retry must return it rather than be refused.
         var fiscalOnly = RequireAction(sale, request);
         var source = await fiscal.ReadOriginalAsync(sale, ct);
+        // The credit follows the original sale's partner: a partner whose till, vending or van sales are
+        // 48 mm receipts gets its credits as 48 mm receipts too. Read before the serializable
+        // reservation below so it adds nothing to that transaction's read set. It is saved in the plan,
+        // so a retry files the same form. The REVMax gateway has no field for it and lays out its own
+        // document; it takes effect once a credit is filed on the platform.
+        var printForm = printForms is null
+            ? ReceiptPrintForm.InvoiceA4
+            : await printForms.ResolveAsync(sale.SourceSystem, sale.CardCode, ct);
         DesktopCreditNoteEntity note;
         // The reservation of quantities and amount is serializable across app instances. No HTTP
         // request runs inside this transaction; it only reserves the immutable credit plan.
@@ -112,6 +123,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
             var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id).ToListAsync(ct);
             var plan = DesktopCreditPlanner.Build(source, request, Reserved(notes), ReservedAmount(notes), DateTime.UtcNow);
             plan.Receipt.Username = caller.ToString();
+            plan.Receipt.ReceiptPrintForm = printForm;
             note = new DesktopCreditNoteEntity
             {
                 Id = Guid.NewGuid(), SaleId = sale.Id, RequestKey = request.RequestKey, RequestHash = hash,
