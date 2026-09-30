@@ -111,6 +111,35 @@ public class SapCustomerFanOutTests
         Assert.Equal(900, resolved["ORD-1"].DocEntry);
     }
 
+    [Theory]
+    [InlineData("all")]
+    [InlineData("dated")]
+    [InlineData("dated-with-lines")]
+    public async Task A_customers_invoices_carry_the_till_sale_they_were_posted_for(string read)
+    {
+        // The till's Invoice history is this read, and a copy printed from it finds the sale it reprints
+        // by U_Van_saleorder. Left out of $select, SAP never sent it, so every copy came from the SAP
+        // invoice instead — without the ZIMRA QR code, the verification code, the receipt number or the
+        // fiscal day, and without the warning the till gives when the sale cannot be found.
+        var sap = new QueryRecorder
+        {
+            InvoiceRows = { new { DocEntry = 2394292, DocNum = 2394292, CardCode = "SHOP01", U_Van_saleorder = "KEF-FAC-20260930-ABC" } }
+        };
+        var client = CreateClient(sap);
+        var from = new DateTime(2026, 9, 30);
+
+        var invoices = read switch
+        {
+            "all" => await client.GetInvoicesByCustomerAsync("SHOP01"),
+            "dated" => await client.GetInvoicesByCustomerAsync("SHOP01", from, from),
+            _ => await client.GetInvoicesByCustomerAsync("SHOP01", from, from, includeDocumentLines: true)
+        };
+
+        var select = Uri.UnescapeDataString(Assert.Single(sap.Urls)).Split("$select=")[1].Split('&')[0];
+        Assert.Contains("U_Van_saleorder", select.Split(','));
+        Assert.Equal("KEF-FAC-20260930-ABC", Assert.Single(invoices).U_Van_saleorder);
+    }
+
     private static SAPServiceLayerClient CreateClient(QueryRecorder sap)
     {
         var httpClient = new HttpClient(sap) { BaseAddress = new Uri("https://sap.invalid/b1s/v1/") };
@@ -136,6 +165,9 @@ public class SapCustomerFanOutTests
         public Dictionary<string, int> OrdersByNumber { get; } = [];
 
         public string? DuplicateFor { get; set; }
+
+        /// <summary>What an Invoices read answers, one page of it.</summary>
+        public List<object> InvoiceRows { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -167,6 +199,11 @@ public class SapCustomerFanOutTests
                 }
 
                 return Task.FromResult(Json(JsonSerializer.Serialize(new { value = rows })));
+            }
+
+            if (target.Contains("/Invoices?", StringComparison.Ordinal))
+            {
+                return Task.FromResult(Json(JsonSerializer.Serialize(new { value = InvoiceRows })));
             }
 
             return Task.FromResult(Json("{\"value\":[]}"));
