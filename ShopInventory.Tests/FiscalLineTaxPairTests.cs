@@ -163,6 +163,10 @@ public sealed class FiscalLineTaxPairTests
     [InlineData("O1", 515, 15.5)]
     [InlineData("O8", 515, 15.5)]
     [InlineData("O0", 2, 0)]
+    // Zero Rated and Non-Claimable in SAP, confirmed zero-rated on 2026-09-30. Until then both were
+    // unmapped and charged and declared at the standard rate.
+    [InlineData("O3", 2, 0)]
+    [InlineData("O4", 2, 0)]
     public async Task A_till_line_declares_its_tax_id_with_the_rate_it_was_charged(
         string taxCode, int expectedTaxId, double expectedPercent)
     {
