@@ -89,7 +89,14 @@ REVMax stays switched on after the cut-over and files nothing new. Its licence r
 
 Set `Fiscalisation__Provider=Revmax` in web.config and recycle the pool. This is a last resort. REVMax
 has never seen the receipts the platform filed in between, so the same double-filing risk now runs the
-other way. Do not re-fiscalise anything dated after the cut-over while rolled back.
+other way. Do not re-fiscalise anything dated after the cut-over while rolled back. If the platform has
+filed nothing yet (section 3 of `scripts/Check-PlatformCutover.ps1` is empty), that risk does not apply.
+
+`scripts/Set-FiscalProviderOverride.ps1 -Provider Revmax` makes the edit. Run it on the API box as an
+administrator, with `-DryRun` first. It edits both API slots, because a deploy seeds the new slot from
+the live slot's web.config. Each file is backed up next to itself. It then recycles the live slot's
+pool and waits for the startup line `Fiscalisation provider: REVMax at …`. `-Provider Platform`
+removes the override again once `Fiscalisation__ApiKey` is set.
 
 ## Retiring REVMax
 
