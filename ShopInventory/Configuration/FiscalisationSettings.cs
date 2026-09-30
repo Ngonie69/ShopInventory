@@ -6,18 +6,20 @@ namespace ShopInventory.Configuration;
 public enum FiscalisationProvider
 {
     /// <summary>
-    /// The REVMax device at <c>Revmax:BaseUrl</c>. The ZIMRA-approved path, and the default.
+    /// The REVMax device at <c>Revmax:BaseUrl</c>, which filed everything before the platform took over.
     /// </summary>
+    /// <remarks>
+    /// Kept as the rollback, and as the fallback for an unset value, while REVMax's licence runs.
+    /// </remarks>
     Revmax = 0,
 
     /// <summary>
     /// The in-house Fiscalisation platform at <c>Fiscalisation:BaseUrl</c>.
     /// </summary>
     /// <remarks>
-    /// The intended replacement for REVMax, and a wholly separate system from it. It is not selected
-    /// yet only because ZIMRA has not issued a production device for it — not because of anything
-    /// wrong with the platform. Select this once that device exists; until then it has nothing to
-    /// file against.
+    /// The live path since ZIMRA issued it three Online devices in September 2026, and REVMax's
+    /// replacement. While <c>Revmax:Enabled</c> stays on, REVMax is still asked about what it filed and
+    /// still credits it. See <see cref="Services.RevmaxHistoryFiscalizationService"/>.
     /// </remarks>
     Platform = 1
 }
@@ -26,10 +28,9 @@ public enum FiscalisationProvider
 /// Configuration for the ZIMRA FDMS Fiscalisation platform.
 /// </summary>
 /// <remarks>
-/// The platform is present but dormant until ZIMRA issues it a production device — the blocker is a
-/// device, not approval of the software. <see cref="Provider"/> decides which implementation
-/// <see cref="Services.IFiscalizationService"/> resolves to, and it defaults to REVMax. Everything
-/// below this line configures the platform and has no effect while that is so.
+/// <see cref="Provider"/> decides which implementation <see cref="Services.IFiscalizationService"/>
+/// resolves to. appsettings.json selects the platform. Everything below it configures the platform and
+/// has no effect while the provider is REVMax.
 /// </remarks>
 public class FiscalisationSettings
 {
@@ -39,8 +40,9 @@ public class FiscalisationSettings
     /// Which device fiscalisation actually goes to.
     /// </summary>
     /// <remarks>
-    /// Defaults to <see cref="FiscalisationProvider.Revmax"/>, deliberately: an unset or unparseable
-    /// value must land on the device ZIMRA has issued, never on the one still waiting for one.
+    /// Defaults to <see cref="FiscalisationProvider.Revmax"/> when unset or unparseable, which is the
+    /// rollback. appsettings.json sets the platform explicitly. Once REVMax is retired, move the default
+    /// to the platform.
     /// </remarks>
     public FiscalisationProvider Provider { get; set; } = FiscalisationProvider.Revmax;
 

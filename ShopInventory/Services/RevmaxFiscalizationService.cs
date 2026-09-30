@@ -40,10 +40,10 @@ public class RevmaxFiscalizationService : IFiscalizationService
     private const string CreditNoteStatus = "02";
 
     /// <summary><c>Data.receiptType</c> on a filed invoice.</summary>
-    private const string InvoiceReceiptType = "FiscalInvoice";
+    public const string InvoiceReceiptType = "FiscalInvoice";
 
     /// <summary><c>Data.receiptType</c> on a filed credit note.</summary>
-    private const string CreditNoteReceiptType = "CreditNote";
+    public const string CreditNoteReceiptType = "CreditNote";
 
     private readonly IRevmaxClient _client;
     private readonly RevmaxSettings _settings;
@@ -462,6 +462,65 @@ public class RevmaxFiscalizationService : IFiscalizationService
             invoiceNumber);
 
         return AdoptedReceipt(existing, invoiceNumber);
+    }
+
+    /// <summary>
+    /// Asks REVMax, and only asks, whether our device holds a receipt of this kind under this number.
+    /// </summary>
+    /// <remarks>
+    /// For the platform, once REVMax has stopped filing: see <c>RevmaxHistoryFiscalizationService</c>.
+    /// Unlike <see cref="FindFiledReceiptAsync"/> it does not treat "could not ask" as "holds nothing",
+    /// because nothing downstream catches the difference any more. On this provider the device's own
+    /// duplicate check stands behind the lookup. On the platform nothing does: the platform has never
+    /// seen REVMax's receipts, so it would sign a second one without complaint.
+    ///
+    /// So it answers <see cref="RevmaxReceiptLookupOutcome.Unknown"/> whenever the answer is anything
+    /// short of the device's own "Invoice not Found". That includes its busy state, which comes back in
+    /// the same shape.
+    /// </remarks>
+    public async Task<RevmaxReceiptLookup> LookUpOwnReceiptAsync(
+        string invoiceNumber,
+        string expectedReceiptType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(invoiceNumber))
+        {
+            return RevmaxReceiptLookup.NotFound;
+        }
+
+        InvoiceResponse? existing;
+
+        try
+        {
+            existing = await _client.GetInvoiceAsync(invoiceNumber, cancellationToken);
+        }
+        catch (Exception ex) when (
+            ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            return RevmaxReceiptLookup.Unknown(
+                $"REVMax could not be asked whether it holds {invoiceNumber}: {ex.Message}");
+        }
+
+        if (existing is null)
+        {
+            return RevmaxReceiptLookup.Unknown(
+                $"REVMax returned no answer when asked whether it holds {invoiceNumber}.");
+        }
+
+        if (!existing.Success)
+        {
+            return existing.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true
+                ? RevmaxReceiptLookup.NotFound
+                : RevmaxReceiptLookup.Unknown(
+                    $"REVMax did not say whether it holds {invoiceNumber} "
+                    + $"(Code {existing.Code}: {existing.Message}).");
+        }
+
+        // Another device's receipt, or the other receipt type, under this number is not ours. That is a
+        // positive "ours holds nothing", for the reasons IsOurReceipt gives.
+        return IsOurReceipt(existing, invoiceNumber, expectedReceiptType)
+            ? RevmaxReceiptLookup.Found(AdoptedReceipt(existing, invoiceNumber))
+            : RevmaxReceiptLookup.NotFound;
     }
 
     /// <summary>
@@ -1605,4 +1664,32 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
     private static string? Serialize(object? value)
         => value is null ? null : JsonSerializer.Serialize(value, JsonOptions);
+}
+
+/// <summary>What <see cref="RevmaxFiscalizationService.LookUpOwnReceiptAsync"/> learned.</summary>
+public enum RevmaxReceiptLookupOutcome
+{
+    /// <summary>Our device holds a receipt of the kind asked about.</summary>
+    Found,
+
+    /// <summary>REVMax said plainly that our device holds nothing under this number.</summary>
+    NotFound,
+
+    /// <summary>REVMax could not be asked, or did not give a straight answer.</summary>
+    Unknown
+}
+
+/// <summary>A REVMax receipt lookup and, when found, the receipt as this application's result type.</summary>
+public sealed record RevmaxReceiptLookup(
+    RevmaxReceiptLookupOutcome Outcome,
+    FiscalizationResult? Receipt,
+    string? Reason)
+{
+    public static RevmaxReceiptLookup NotFound { get; } = new(RevmaxReceiptLookupOutcome.NotFound, null, null);
+
+    public static RevmaxReceiptLookup Found(FiscalizationResult receipt) =>
+        new(RevmaxReceiptLookupOutcome.Found, receipt, null);
+
+    public static RevmaxReceiptLookup Unknown(string reason) =>
+        new(RevmaxReceiptLookupOutcome.Unknown, null, reason);
 }

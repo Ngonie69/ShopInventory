@@ -16,6 +16,24 @@ otherwise be surprised.
 
 ## Unreleased
 
+### Changed
+
+- **Fiscalisation moves from REVMax to the in-house platform** (`Fiscalisation:Provider=Platform`),
+  on the three live Online devices ZIMRA issued in September 2026. Everything new is filed at
+  <https://fiscal.kefaloscheese.com/>. REVMax files nothing new, but it stays on (`Revmax:Enabled`) for
+  what it already holds:
+  - A SAP document dated on or before `Revmax:LastFilingDate` is checked on REVMax first, and REVMax's
+    receipt is adopted if it has one.
+  - Credit notes against REVMax invoices, and till credit notes on REVMax-filed sales, are still filed
+    there.
+  - Invoice status reads fall back to REVMax.
+
+  A filing that REVMax cannot vouch for fails with the new error code `REVMAX_HISTORY_UNAVAILABLE` and
+  is retried later, rather than risk a second receipt. Handsets with no fiscal device of their own now
+  get the tax table with the platform's ids instead of an error. `Fiscalisation:TaxIdMappings` moves to
+  the live FDMS ids: 515 standard-rated and 2 zero-rated. Merging this is the go-live. Follow
+  `docs/operations/revmax-to-platform-cutover.md`.
+
 ### Added
 
 - **The van catalogue read (`GET /api/product/warehouse/{warehouseCode}/paged?vanSaleOnly=true`) now

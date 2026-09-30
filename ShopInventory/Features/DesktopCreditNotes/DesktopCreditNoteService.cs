@@ -14,7 +14,7 @@ namespace ShopInventory.Features.DesktopCreditNotes;
 public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCreditFiscalGateway fiscal,
     DesktopCreditSapPoster sapPoster, IAuditService audit,
     IOptions<FiscalisationSettings> fiscalisationSettings, ILogger<DesktopCreditNoteService> logger,
-    IDesktopCreditTillNotifier? tillNotifier = null)
+    IDesktopCreditTillNotifier? tillNotifier = null, IOptions<RevmaxSettings>? revmaxSettings = null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -295,17 +295,18 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
                 + "on the handset.");
         }
 
-        // No platform credit gateway exists — Program.cs registers only the REVMax one. Under the
-        // platform a van sale's receipt is signed on the handset's own chain, and a device has one
-        // chain with one writer, so this server cannot sign a credit onto it however the code is
-        // arranged. Said plainly rather than as "REVMax must be enabled", which reads like a setting
-        // somebody could go and switch on.
-        if (fiscalisationSettings.Value.UsesPlatform)
+        // No platform credit gateway exists. Program.cs registers only the REVMax one. After the switch
+        // to the platform, REVMax still credits the receipts it filed for as long as Revmax:Enabled
+        // stays on. The gateway asks REVMax for this sale's receipt, so a sale filed on the platform is
+        // refused there, with a message saying so. Once REVMax is retired nothing here can credit a
+        // receipt. That is said plainly rather than as "REVMax must be enabled", which reads like a
+        // setting somebody could go and switch on.
+        if (fiscalisationSettings.Value.UsesPlatform && !(revmaxSettings?.Value ?? new RevmaxSettings()).Enabled)
         {
             throw new InvalidOperationException(
-                "Credit notes are filed on the REVMax device, and this server is set to the in-house "
-                + "fiscalisation platform. Nothing here can credit a receipt while that is so — raise it "
-                + "on the device.");
+                "Till credit notes are filed on the REVMax device, and REVMax has been retired now that "
+                + "the fiscalisation platform files everything. Nothing here can credit a receipt — "
+                + "raise the credit note in SAP.");
         }
     }
 

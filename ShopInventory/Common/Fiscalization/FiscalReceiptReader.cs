@@ -57,6 +57,47 @@ internal sealed class PlatformFiscalReceiptReader : IFiscalReceiptReader
             _client, _configCache, docNum, receiptType, logger, cancellationToken);
 }
 
+/// <summary>
+/// Read-back against the platform first and then REVMax, for while REVMax still holds receipts filed
+/// before the platform took over.
+/// </summary>
+/// <remarks>
+/// The platform alone would answer "not fiscalised" for every invoice REVMax filed that has no row in
+/// our log. The REVMax vendor's SAP add-on files invoices like that, and the status sync records the
+/// answer permanently as a "Not Fiscalised" row with a Fiscalise button beside it. So a platform "no"
+/// is passed on only once REVMax has said no too. If REVMax cannot be asked, the answer is "could not
+/// find out", and nothing is recorded.
+/// </remarks>
+internal sealed class RevmaxHistoryFiscalReceiptReader : IFiscalReceiptReader
+{
+    private readonly IFiscalReceiptReader _platform;
+    private readonly IFiscalReceiptReader _revmax;
+
+    public RevmaxHistoryFiscalReceiptReader(IFiscalReceiptReader platform, IFiscalReceiptReader revmax)
+    {
+        _platform = platform ?? throw new ArgumentNullException(nameof(platform));
+        _revmax = revmax ?? throw new ArgumentNullException(nameof(revmax));
+    }
+
+    public async Task<FiscalReceiptSnapshot?> TryLookupAsync(
+        int docNum,
+        ReceiptType receiptType,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var platform = await _platform.TryLookupAsync(docNum, receiptType, logger, cancellationToken);
+
+        if (platform is null or { IsFiscalised: true })
+        {
+            return platform;
+        }
+
+        var revmax = await _revmax.TryLookupAsync(docNum, receiptType, logger, cancellationToken);
+
+        return revmax is null or { IsFiscalised: true } ? revmax : platform;
+    }
+}
+
 /// <summary>Read-back against the REVMax device.</summary>
 /// <remarks>
 /// REVMax composes the QR code and verification code itself and returns them on the response, so
@@ -105,6 +146,21 @@ internal sealed class RevmaxFiscalReceiptReader : IFiscalReceiptReader
         if (response is null)
         {
             // No answer at all is a failed lookup, not an absent receipt.
+            return null;
+        }
+
+        if (!response.Success
+            && response.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) != true)
+        {
+            // The device's busy state ("Init error -1") comes back in the same shape as "Invoice not
+            // Found" (Code "0", no data). Only the second is an answer. Recording the first as "not
+            // fiscalised" writes a permanent row that the status sync never revisits.
+            logger.LogWarning(
+                "REVMax did not say whether it holds {ReceiptType} {DocNum} (Code {Code}: {Message}).",
+                receiptType,
+                docNum,
+                response.Code,
+                response.Message);
             return null;
         }
 

@@ -3187,22 +3187,21 @@ removed on 2026-08-10 and were not restored when REVMax itself was. Device statu
 fiscal-day open/close and the receipt archive are functions of the provider's own console or device,
 not of this API.
 
-**There are two providers, and only one is live.** `Fiscalisation:Provider` selects between them:
+**There are two providers, and the platform is the live one.** `Fiscalisation:Provider` selects between them:
 
 | Provider | What it is | State |
 |----------|------------|-------|
-| `Revmax` (default) | The vendor device on the LAN at `Revmax:BaseUrl` | **Live.** Everything is filed here |
-| `Platform` | The in-house ZIMRA FDMS platform at <https://fiscal.kefaloscheese.com/> | Registered, wired, dormant |
+| `Platform` (appsettings.json) | The in-house ZIMRA FDMS platform at <https://fiscal.kefaloscheese.com/> | **Live.** Everything new is filed here |
+| `Revmax` (fallback) | The vendor device on the LAN at `Revmax:BaseUrl` | Holds everything filed before the switch. Rollback |
 
-REVMax was decommissioned from this codebase on 2026-08-10 and restored on 2026-09-09. That reversal is
-not a verdict on the platform: ZIMRA has not issued it a production device, so it has nothing to file
-against. `Fiscalisation:Provider=Platform` is the whole switch once that device exists. An unset or
-unparseable value lands on REVMax deliberately.
+While `Revmax:Enabled` is on, REVMax is still asked about documents it may have filed and still credits
+its own receipts. A SAP document dated on or before `Revmax:LastFilingDate` is checked against REVMax
+before the platform files it. If REVMax cannot answer, the filing fails with `REVMAX_HISTORY_UNAVAILABLE`
+and is retried later, rather than risk a second receipt. See [32a. REVMax](#32a-revmax).
 
 What follows describes the **platform**: how this API calls it, its `X-API-Key` and the settings
-endpoints that manage it have no effect while the provider is REVMax. The fiscal fields on an invoice
-and the fiscalise endpoint at the end are provider-agnostic and are marked where they differ. For the
-live path see [32a. REVMax](#32a-revmax).
+endpoints that manage it. The fiscal fields on an invoice and the fiscalise endpoint at the end are
+provider-agnostic and are marked where they differ.
 
 **How this API uses the platform**
 
@@ -3300,7 +3299,9 @@ no longer an on-demand backfill endpoint.
 
 ### 32a. REVMax
 
-**The live fiscal path.** A vendor device on the LAN at `Revmax:BaseUrl` (`http://172.16.16.201:8001`),
+**The fiscal path before the platform, and the holder of everything filed on it.** Under
+`Fiscalisation:Provider=Platform` it files nothing new, but while `Revmax:Enabled` is on it answers
+"did REVMax already file this?" and credits its own receipts. A vendor device on the LAN at `Revmax:BaseUrl` (`http://172.16.16.201:8001`),
 reached through `IRevmaxClient` and driven by `RevmaxFiscalizationService`. **No route on it carries any
 authentication**, which is one reason it is not proxied: exposing it through this API would put an
 unauthenticated fiscal device behind an authenticated one.
@@ -3356,10 +3357,10 @@ drift apart, and `VerifyDeclaredTaxAsync` reads the filed receipt back and raise
 exists, and resubmitting would only add a second.
 
 **Van sales are fiscalised server-side under this provider.** The device is on the LAN, not in the van,
-so no handset can sign for it: offline sales arrive unstamped and `DesktopSaleFiscalisationSweep`
-fiscalises them after the fact. `VanSalesSignedReceiptIngestService` no-ops, and
-`RefusesUnstampedVanSales` is false — enforcing a signature requirement here would refuse every van sale
-in the fleet for want of a signature that cannot exist.
+so no handset can sign for it: online sales are fiscalised as they arrive.
+`VanSalesSignedReceiptIngestService` no-ops, and `RefusesUnstampedVanSales` is false. Enforcing a
+signature requirement here would refuse every van sale in the fleet for want of a signature that cannot
+exist. The same holds under the platform while its devices are all Online.
 
 **Fields the device ignores.** `AMT` and `InvoiceAmount` are recomputed — each line as `QTY × PRICE` and
 the document as the sum of those — so `PRICE` is the only lever and cent-level drift against SAP is
