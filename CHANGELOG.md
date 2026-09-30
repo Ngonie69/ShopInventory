@@ -34,6 +34,14 @@ otherwise be surprised.
   the live FDMS ids: 515 standard-rated and 2 zero-rated. Merging this is the go-live. Follow
   `docs/operations/revmax-to-platform-cutover.md`.
 
+- **Online van sales are no longer flagged "Never stamped" after the platform cut-over.** The server
+  fiscalised each one, but the row was marked `Unstamped` because the code assumed every van signs for
+  itself under the platform. It now marks a sale `Unstamped` only when the van's user holds a fiscal
+  device of its own, and `Fiscalisation:RequireStampedVanSales` refuses only those handsets' unstamped
+  sales. Rows written from the cut-over until this deploy keep the flag: run
+  `scripts/Repair-OnlineVanSaleUnstampedFlags.ps1` on the API box (a dry run by default, `-Apply` to
+  commit).
+
 ### Added
 
 - **The van catalogue read (`GET /api/product/warehouse/{warehouseCode}/paged?vanSaleOnly=true`) now
