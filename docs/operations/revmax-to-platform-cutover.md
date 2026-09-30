@@ -76,7 +76,11 @@ REVMax stays switched on after the cut-over and files nothing new. Its licence r
 3. **Merge**, and let the 19:30 deploy take it.
 4. **Check the startup log** for the line
    `Fiscalisation provider: the platform at https://fiscal.kefaloscheese.com/. REVMax at … files nothing new`.
-   It should also give the date from step 1.
+   It should also give the date from step 1. `/api/health` has no fiscal-provider check, so this has to
+   be read on the server. `scripts/Check-PlatformCutover.ps1` does it read-only on the API box: it prints
+   each slot's `Fiscalisation__`/`Revmax__` overrides (secrets as their length only), this log line and
+   any fiscal warnings, and what has been filed since the cut-over by device. 22862 is REVMax; 46668–46670
+   are the platform.
 5. **Smoke test.** Fiscalise one till sale and one SAP invoice. Check that each appears on the
    platform's receipt list, and that the invoice PDF prints the QR code. Open one REVMax-era invoice and
    check that it still reads *Fiscalised* with its REVMax receipt number.
