@@ -2,8 +2,9 @@ name: Deploy to production
 
 # A merge deploys once Tests go green on main, unless that happens during trading hours. A cutover
 # drops every request in flight, so a merge between 07:00 and 19:00 CAT waits for the 19:30 CAT run,
-# which deploys main's head. Running the workflow by hand deploys at once, whatever the time. The
-# rule is in scripts/DeployWindow/deploy_window.py, and its tests are beside it.
+# which deploys main's head. Running the workflow by hand deploys at once, whatever the time. Setting
+# the repository variable DEPLOY_ANYTIME_ON to a CAT date (yyyy-MM-dd) lets merges deploy during trading
+# hours on that day only. The rule is in scripts/DeployWindow/deploy_window.py, and its tests are beside it.
 #
 # Setup is in docs/operations/github-actions-deploy-runner.md. The deploy job cannot run on a
 # GitHub-hosted runner: production is 10.10.10.9, a private address no Azure runner can route to. It
@@ -90,6 +91,7 @@ jobs:
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAD_SHA: ${{ github.sha }}
           TESTS_PASSED: ${{ steps.tests.outputs.passed }}
+          ANYTIME_ON: ${{ vars.DEPLOY_ANYTIME_ON }}
         run: python3 scripts/DeployWindow/deploy_window.py
 
       - name: Say why nothing deploys
