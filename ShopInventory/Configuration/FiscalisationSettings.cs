@@ -217,16 +217,39 @@ public class FiscalisationSettings
     public bool RequireStampedVanSales { get; set; }
 
     /// <summary>
-    /// Whether an unstamped van sale is actually refused.
+    /// Whether a van handset is meant to sign its own receipts, given the fiscal device its user holds.
     /// </summary>
     /// <remarks>
-    /// <see cref="RequireStampedVanSales"/> and the provider together, and every caller must ask this
-    /// one rather than the raw setting. A handset stamps with a device key the in-house platform holds;
-    /// under <see cref="FiscalisationProvider.Revmax"/> no handset can stamp at all, and the server
-    /// fiscalises the sale itself once it arrives. Enforcing the requirement there would refuse every
-    /// van sale in the fleet for want of a signature that cannot exist.
+    /// <para>
+    /// Only under the platform, and only for a handset that holds a device of its own. A handset signs
+    /// with a device key the platform holds; under <see cref="FiscalisationProvider.Revmax"/> no handset
+    /// can sign at all. Under the platform it takes an Offline-mode device, and ZIMRA registered the
+    /// platform's live devices (46668-46670) in Online mode, which sign on the server. So a user with no
+    /// <c>FiscalDeviceId</c> gets an office-fiscalised lease (see <c>GetVanSalesFiscalLeaseHandler</c>) and
+    /// the server fiscalises its sales, exactly as under REVMax. That is the whole fleet today.
+    /// </para>
+    /// <para>
+    /// This decides what an unstamped van sale means. Where the handset should have signed, it is a
+    /// handset to update, recorded as <see cref="Models.Entities.DesktopSaleReceiptIngestStatus.Unstamped"/>.
+    /// Where it was never meant to, it is an ordinary office-fiscalised sale with nothing to hand over.
+    /// Recording those as Unstamped put every online van sale made after the cut-over on the fiscalisation
+    /// console as "Never stamped — do not retry", though the server had fiscalised each one.
+    /// </para>
     /// </remarks>
-    public bool RefusesUnstampedVanSales => UsesPlatform && RequireStampedVanSales;
+    public bool HandsetSigns(int? userFiscalDeviceId) => UsesPlatform && userFiscalDeviceId is > 0;
+
+    /// <summary>
+    /// Whether an unstamped van sale from this user's handset is actually refused.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RequireStampedVanSales"/> and <see cref="HandsetSigns"/> together, and every caller must
+    /// ask this one rather than the raw setting. Enforcing the requirement on a handset that cannot sign
+    /// would refuse every one of its sales for want of a signature that cannot exist. With the fleet on
+    /// office-fiscalised leases the "Never stamped" count is zero, which is the moment the setting's own
+    /// advice says to turn it on, so this guard is what makes that advice safe to follow.
+    /// </remarks>
+    public bool RefusesUnstampedVanSalesFrom(int? userFiscalDeviceId) =>
+        RequireStampedVanSales && HandsetSigns(userFiscalDeviceId);
 
     public FiscalisationPreflightSettings Preflight { get; set; } = new();
 
