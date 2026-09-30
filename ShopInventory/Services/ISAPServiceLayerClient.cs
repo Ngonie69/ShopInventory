@@ -282,8 +282,8 @@ public interface ISAPServiceLayerClient
     Task<Dictionary<string, string>> GetItemVatGroupsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads every sellable item's sales VAT group from SAP now, and replaces the cached answer
-    /// <see cref="GetItemVatGroupsAsync"/> serves.
+    /// Reads every sellable item's sales VAT group and foreign name (its HS code) from SAP now, and
+    /// replaces the cached answer <see cref="GetItemVatGroupsAsync"/> serves.
     /// </summary>
     /// <remarks>
     /// For when somebody has just changed an item's tax group in SAP and needs it in force. The cached
@@ -292,7 +292,7 @@ public interface ISAPServiceLayerClient
     /// than returning the pages it got: a partial answer would be cached for six hours and reported as
     /// the whole catalogue.
     /// </remarks>
-    Task<Dictionary<string, string>> RefreshItemVatGroupsAsync(CancellationToken cancellationToken = default);
+    Task<Dictionary<string, SapItemTaxMaster>> RefreshItemTaxMasterAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Resolves item names for the given codes, for display next to a bare item code.

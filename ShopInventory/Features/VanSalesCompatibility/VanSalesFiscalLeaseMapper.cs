@@ -152,7 +152,8 @@ public static class VanSalesFiscalLeaseMapper
         IReadOnlyDictionary<string, string> vatGroupsByItem,
         FiscalisationSettings settings,
         IEnumerable<VanSalesFiscalTaxDto> taxes,
-        out IReadOnlyCollection<string> unmappedVatGroups)
+        out IReadOnlyCollection<string> unmappedVatGroups,
+        IReadOnlyDictionary<string, string>? hsCodesByItem = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
@@ -162,20 +163,26 @@ public static class VanSalesFiscalLeaseMapper
             settings.DefaultTaxId,
             settings.DefaultHsCode,
             taxes,
-            out unmappedVatGroups);
+            out unmappedVatGroups,
+            hsCodesByItem);
     }
 
     /// <summary>
     /// The same mapping against whichever provider's tax ids apply, since REVMax and the in-house
     /// platform key the identical SAP VAT groups to ids of their own that must never be interchanged.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="hsCodesByItem"/> is each item's own HS code from <c>OITM.FrgnName</c>;
+    /// <paramref name="defaultHsCode"/> is only for an item SAP gives no usable code.
+    /// </remarks>
     public static List<VanSalesFiscalItemTaxDto> BuildItemTaxes(
         IReadOnlyDictionary<string, string> vatGroupsByItem,
         IReadOnlyDictionary<string, int> taxIdsByVatGroup,
         int defaultTaxId,
         string? defaultHsCode,
         IEnumerable<VanSalesFiscalTaxDto> taxes,
-        out IReadOnlyCollection<string> unmappedVatGroups)
+        out IReadOnlyCollection<string> unmappedVatGroups,
+        IReadOnlyDictionary<string, string>? hsCodesByItem = null)
     {
         ArgumentNullException.ThrowIfNull(vatGroupsByItem);
         ArgumentNullException.ThrowIfNull(taxIdsByVatGroup);
@@ -211,7 +218,9 @@ public static class VanSalesFiscalLeaseMapper
             {
                 ItemCode = itemCode,
                 TaxId = taxId,
-                HsCode = defaultHsCode
+                HsCode = hsCodesByItem is not null && hsCodesByItem.TryGetValue(itemCode, out var hsCode)
+                    ? hsCode
+                    : defaultHsCode
             });
         }
 

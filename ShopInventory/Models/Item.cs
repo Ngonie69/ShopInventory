@@ -3,6 +3,12 @@ using System.Text.Json.Serialization;
 namespace ShopInventory.Models;
 
 /// <summary>
+/// What the item master says about how one item is taxed and declared: its sales VAT group, and the
+/// raw <c>FrgnName</c> that holds its HS code.
+/// </summary>
+public sealed record SapItemTaxMaster(string VatGroup, string? ForeignName);
+
+/// <summary>
 /// Represents an item/product in SAP Business One
 /// </summary>
 public class Item
@@ -32,6 +38,13 @@ public class Item
     /// </remarks>
     [JsonPropertyName("SalesVATGroup")]
     public string? VatGroup { get; set; }
+
+    /// <summary>
+    /// <c>OITM.FrgnName</c>, which this company uses for the item's HS code. Null unless the query that
+    /// fetched this item asked for it.
+    /// </summary>
+    [JsonPropertyName("ForeignName")]
+    public string? ForeignName { get; set; }
 
     [JsonPropertyName("BarCode")]
     public string? BarCode { get; set; }

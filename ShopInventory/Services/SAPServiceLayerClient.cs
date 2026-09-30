@@ -3856,18 +3856,22 @@ ORDER BY T0.""ItemCode""";
             return cached;
         }
 
-        return await ReadItemVatGroupsAsync(throwOnFailedPage: false, cancellationToken);
+        var master = await ReadItemTaxMasterAsync(throwOnFailedPage: false, cancellationToken);
+        return VatGroupsOf(master);
     }
 
     /// <inheritdoc />
-    public Task<Dictionary<string, string>> RefreshItemVatGroupsAsync(CancellationToken cancellationToken = default)
-        => ReadItemVatGroupsAsync(throwOnFailedPage: true, cancellationToken);
+    public Task<Dictionary<string, SapItemTaxMaster>> RefreshItemTaxMasterAsync(CancellationToken cancellationToken = default)
+        => ReadItemTaxMasterAsync(throwOnFailedPage: true, cancellationToken);
 
-    private async Task<Dictionary<string, string>> ReadItemVatGroupsAsync(
+    private static Dictionary<string, string> VatGroupsOf(Dictionary<string, SapItemTaxMaster> master)
+        => master.ToDictionary(pair => pair.Key, pair => pair.Value.VatGroup, StringComparer.OrdinalIgnoreCase);
+
+    private async Task<Dictionary<string, SapItemTaxMaster>> ReadItemTaxMasterAsync(
         bool throwOnFailedPage,
         CancellationToken cancellationToken)
     {
-        var vatGroupsByCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var masterByCode = new Dictionary<string, SapItemTaxMaster>(StringComparer.OrdinalIgnoreCase);
         const int pageSize = 200;
         var skip = 0;
 
@@ -3876,7 +3880,7 @@ ORDER BY T0.""ItemCode""";
             cancellationToken.ThrowIfCancellationRequested();
 
             var endpoint =
-                $"Items?$select=ItemCode,SalesVATGroup&$filter=ItemType eq 'itItems' and Valid eq 'tYES'" +
+                $"Items?$select=ItemCode,SalesVATGroup,ForeignName&$filter=ItemType eq 'itItems' and Valid eq 'tYES'" +
                 $"&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
 
             var requestSession = _sessionId;
@@ -3930,7 +3934,7 @@ ORDER BY T0.""ItemCode""";
                     continue;
                 }
 
-                vatGroupsByCode[code] = item.VatGroup.Trim();
+                masterByCode[code] = new SapItemTaxMaster(item.VatGroup.Trim(), item.ForeignName?.Trim());
             }
 
             if (page.Count < pageSize)
@@ -3943,9 +3947,9 @@ ORDER BY T0.""ItemCode""";
 
         // Item VAT groups change about as often as the price book, and a stale entry is caught by the
         // handset's own gate, so this is cached hard rather than re-read per lease.
-        _memoryCache.Set(ItemVatGroupsCacheKey, vatGroupsByCode, TimeSpan.FromHours(6));
+        _memoryCache.Set(ItemVatGroupsCacheKey, VatGroupsOf(masterByCode), TimeSpan.FromHours(6));
 
-        return vatGroupsByCode;
+        return masterByCode;
     }
 
     /// <inheritdoc />

@@ -34,5 +34,12 @@ public class SapItemTaxGroupEntity
     /// </remarks>
     public string VatGroup { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The item master's <c>FrgnName</c>, which holds the item's HS code, normalised by
+    /// <see cref="Common.Sales.ItemHsCodes.Normalize"/>. Null when SAP has none or it is not 4 or 8
+    /// digits, and the receipt line then falls back to the configured default.
+    /// </summary>
+    public string? HsCode { get; set; }
+
     public DateTime ResolvedAtUtc { get; set; }
 }

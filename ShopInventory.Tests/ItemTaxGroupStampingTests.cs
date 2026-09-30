@@ -5,6 +5,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.Sync.Commands.SyncItemTaxGroups;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -48,6 +49,10 @@ public sealed class ItemTaxGroupStampingTests : IDisposable
         rows.ToDictionary(r => r.Item, r => r.Group, StringComparer.OrdinalIgnoreCase);
 
     private Task<SyncItemTaxGroupsHandler.ApplyOutcome> WarmAsync(Dictionary<string, string> master) =>
+        WarmAsync(master.ToDictionary(
+            pair => pair.Key, pair => new SapItemTaxMaster(pair.Value, null), StringComparer.OrdinalIgnoreCase));
+
+    private Task<SyncItemTaxGroupsHandler.ApplyOutcome> WarmAsync(Dictionary<string, SapItemTaxMaster> master) =>
         SyncItemTaxGroupsHandler.ApplyAsync(
             _context, master, DateTime.UtcNow, NullLogger.Instance, CancellationToken.None);
 

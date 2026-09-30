@@ -129,8 +129,10 @@ public class FiscalisationSettings
     public int DefaultTaxId { get; set; }
 
     /// <summary>
-    /// HS code used when a line carries none. FDMS requires one on every invoice line for a
-    /// VAT-registered taxpayer, and it must be 4 or 8 digits. Credit and debit notes are exempt.
+    /// HS code for an item whose <c>OITM.FrgnName</c> holds no usable one. Each line otherwise declares
+    /// its item's own code (see <see cref="Common.Sales.ItemHsCodes"/>). FDMS requires one on every
+    /// invoice line for a VAT-registered taxpayer, and it must be 4 or 8 digits. Credit and debit notes
+    /// are exempt.
     /// </summary>
     public string? DefaultHsCode { get; set; }
 
