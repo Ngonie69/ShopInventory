@@ -125,20 +125,36 @@ public sealed class DesktopCreditNoteTests : IDisposable
     }
 
     [Fact]
-    public async Task The_in_house_platform_is_refused_rather_than_reported_as_a_setting()
+    public async Task Under_the_platform_REVMax_still_credits_the_sales_it_filed()
     {
-        // There is no platform credit gateway, and under the platform a van sale's receipt is signed
-        // on the handset's own chain — a device has one chain with one writer, so this server cannot
-        // sign a credit onto it however the code is arranged.
+        // The platform files everything new, but a till sale REVMax signed before the switch can only
+        // be credited on REVMax. The gateway reads the receipt from REVMax, so it is what decides.
         var platform = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
             Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Platform }),
-            NullLogger<DesktopCreditNoteService>.Instance);
+            NullLogger<DesktopCreditNoteService>.Instance,
+            revmaxSettings: Options.Create(new RevmaxSettings { Enabled = true }));
+
+        await platform.PrepareAsync(caller, "TILL-123", default);
+
+        Assert.Equal(1, gateway.Reads);
+    }
+
+    [Fact]
+    public async Task Once_REVMax_is_retired_a_till_credit_is_refused_rather_than_reported_as_a_setting()
+    {
+        // There is no platform credit gateway. With REVMax retired nothing here can credit a receipt,
+        // and saying "REVMax must be enabled" would read like a setting somebody could switch back on.
+        var platform = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Platform }),
+            NullLogger<DesktopCreditNoteService>.Instance,
+            revmaxSettings: Options.Create(new RevmaxSettings { Enabled = false }));
 
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
             () => platform.PrepareAsync(caller, "TILL-123", default));
 
-        Assert.Contains("REVMax device", refusal.Message);
+        Assert.Contains("raise the credit note in SAP", refusal.Message);
         Assert.DoesNotContain("must be enabled", refusal.Message);
         Assert.Equal(0, gateway.Reads);
     }

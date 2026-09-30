@@ -25,10 +25,10 @@ flowchart LR
     Web --> WebDb[(PostgreSQL\nWebAppDbContext)]
 
     Api --> SAP[SAP Business One\nService Layer]
-    Api --> REV[REVMax Device
+    Api --> FDMS[ZIMRA FDMS Platform
 live fiscal path]
-    Api -.-> FDMS[ZIMRA FDMS Platform
-dormant]
+    Api -.-> REV[REVMax Device
+history and its own credits]
     Api --> Pay[Payment Gateways\nPayNow / Innbucks / Ecocash]
     Api --> Push[Push / Notification Providers]
     Api --> OpenWA[OpenWA WhatsApp Gateway]
@@ -220,9 +220,17 @@ Architecturally, SAP sits behind client abstractions and queue-based workflows s
 
 ### Fiscalisation
 
-There are **two fiscal providers, and only one of them is live**. `Fiscalisation:Provider` selects between them: `Revmax` is the default and the live path, and `Platform` is the in-house ZIMRA FDMS platform at https://fiscal.kefaloscheese.com/. An unset or unparseable value lands on REVMax deliberately — the fallback must be the device ZIMRA has actually issued, never the one waiting on one.
+There are **two fiscal providers, and the platform is the live one**. `Fiscalisation:Provider` selects between them. `Platform` is the in-house ZIMRA FDMS platform at https://fiscal.kefaloscheese.com/, which appsettings.json selects. ZIMRA issued it three live Online devices (46668-46670) in September 2026. `Revmax` is the vendor device that filed everything before that, and it is the rollback. An unset or unparseable value also lands on REVMax.
 
-REVMax was decommissioned from this codebase on 2026-08-10 and restored on 2026-09-09. The reversal is not a verdict on the platform, which is finished and wired in: ZIMRA has not issued it a production device, so it has nothing to file against. When that device arrives, `Fiscalisation:Provider=Platform` is the whole switch. Everything under the `Fiscalisation` configuration section configures the platform and has no effect while the provider is REVMax.
+The switch is not a clean break, because REVMax still holds everything it filed. Under `Platform`, while `Revmax:Enabled` stays on, `IFiscalizationService` resolves to `RevmaxHistoryFiscalizationService` and `IFiscalReceiptReader` to `RevmaxHistoryFiscalReceiptReader`:
+
+- New documents are filed on the platform.
+- A SAP document dated on or before `Revmax:LastFilingDate` is checked against REVMax first. If REVMax holds it, that receipt is adopted. If REVMax cannot answer, the filing is held back with `REVMAX_HISTORY_UNAVAILABLE` rather than risk a second receipt.
+- A pre-SAP retry asks the platform, then REVMax.
+- A status read passes on a platform "not fiscalised" only once REVMax agrees. The platform has never seen REVMax's receipts, so on its own it would record them as "Not Fiscalised" and offer to file them again.
+- A credit note goes to wherever its original lives. The platform refuses an original it has not archived (RCPT032), so a REVMax original is credited on REVMax. Till credit notes (`RevmaxDesktopCreditGateway`) still work for sales REVMax filed.
+
+Setting `Revmax:Enabled` false retires REVMax: the plain platform service takes over and REVMax is never asked again. The cut-over steps are in `docs/operations/revmax-to-platform-cutover.md`.
 
 Two seams follow the provider, and callers touch only these: `IFiscalizationService` for writes and `IFiscalReceiptReader` for read-back — status syncs, invoice reads, PDFs. Never call a fiscal device directly from a controller or page. Code that must administer the platform specifically — the fiscalisation console, handset registration, signed-receipt ingest — may take `IFiscalisationApiClient` directly, but must guard on `FiscalisationSettings.UsesPlatform`.
 
@@ -230,7 +238,7 @@ Common to both providers: invoice and credit-note workflows may continue beyond 
 
 ### REVMax
 
-The live fiscal path: a vendor-supplied device on the LAN at `Revmax:BaseUrl` (`http://172.16.16.201:8001`), reached through `IRevmaxClient` and driven by `RevmaxFiscalizationService`. There is no authentication on any of its routes and no fiscal proxy in this API — nothing under `/api/revmax/*` is exposed.
+The fiscal path until the platform took over, and now the holder of everything filed before it: a vendor-supplied device on the LAN at `Revmax:BaseUrl` (`http://172.16.16.201:8001`), reached through `IRevmaxClient` and driven by `RevmaxFiscalizationService`. There is no authentication on any of its routes and no fiscal proxy in this API — nothing under `/api/revmax/*` is exposed.
 
 Documents are filed with `TransactM` or `TransactMExt`, and the choice is the routing decision that matters. `TransactM` files what the apps on this API raise: invoices, and credit notes reversing a receipt this device filed. `TransactMExt` is for a credit note whose original was filed on **another** device. Both accept the back-reference fields, so only the endpoint distinguishes the two cases and picking the wrong one fails silently — route on the original receipt's `DeviceID` against `Revmax:DefaultRefDeviceId`.
 
@@ -238,17 +246,17 @@ Documents are filed with `TransactM` or `TransactMExt`, and the choice is the ro
 
 Two behaviours differ from the platform and shape the code around them. Every refusal arrives as **HTTP 200 carrying `Code: "0"`**, never a 4xx. And the QR payload and verification code are **composed by the device** and returned on the response, where the platform returns neither and they are built here instead.
 
-Because the device sits on the LAN rather than in a van, no handset can sign for it. Offline van sales therefore arrive unstamped and are fiscalised server-side by `DesktopSaleFiscalisationSweep`; `VanSalesSignedReceiptIngestService` no-ops under this provider, and the unstamped-sale requirement is read through `RefusesUnstampedVanSales`, which is false here — enforcing it would refuse every van sale for want of a signature that cannot exist.
+Because the device sits on the LAN rather than in a van, no handset can sign for it. Online van sales are fiscalised server-side as they arrive. `VanSalesSignedReceiptIngestService` no-ops under this provider, and the unstamped-sale requirement is read through `RefusesUnstampedVanSales`, which is false here. Enforcing it would refuse every van sale for want of a signature that cannot exist.
 
 `Revmax:TaxIdMappings` are REVMax's own tax ids and are **not** the FDMS ids in `Fiscalisation:TaxIdMappings`; the device maps its own on the way through to FDMS. The rate that accompanies an id comes from `Tax:RatesByTaxCode`, so the rate charged and the rate declared cannot drift apart, and `VerifyDeclaredTaxAsync` reads the filed receipt back to confirm it.
 
 `scripts/RevmaxProbe` drives the real service read-only against the live device and prints the payload it would send without sending it. Use it rather than posting: a filed receipt cannot be withdrawn, and a duplicate is undone only by a manual credit note.
 
-### Fiscalisation platform (dormant)
+### Fiscalisation platform
 
 The API is a client of the platform, authenticating with an `X-API-Key`. Documents already in SAP are fiscalised by DocEntry alone — the platform reads the document from SAP itself — while desktop/POS sales, which are fiscalised before they reach SAP, submit a full receipt payload.
 
-The reason it discovers nothing on its own is that its SAP bridge only fires on a print event in the SAP client. It also carries the whole van/handset offline signed-receipt subsystem — device registration, offline leases, fiscal day lifecycle — which has no REVMax equivalent and is dormant alongside it.
+The reason it discovers nothing on its own is that its SAP bridge only fires on a print event in the SAP client. It also carries the whole van/handset offline signed-receipt subsystem: device registration, offline leases and the fiscal day lifecycle. That subsystem needs an Offline-mode ZIMRA device per handset. The live devices are Online, which signs on the server, so no handset signs today. The office fiscalises van sales server-side as it did under REVMax, and the lease answers a handset with no device with the tax table (platform ids) and no signing authority. Keep `RequireStampedVanSales` false: with no handset able to stamp, turning it on refuses every van sale.
 
 ### Payment Gateways
 

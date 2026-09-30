@@ -8,9 +8,31 @@ public class RevmaxSettings
     public const string SectionName = "Revmax";
 
     /// <summary>
-    /// Whether REVMax integration is enabled.
+    /// Whether REVMax is still in use.
     /// </summary>
+    /// <remarks>
+    /// Under <see cref="FiscalisationProvider.Revmax"/> this switches fiscalisation itself. Under
+    /// <see cref="FiscalisationProvider.Platform"/> REVMax files nothing new. This switch then decides
+    /// whether REVMax is still asked about what it filed before the switch, and whether it may still
+    /// credit those receipts. Leave it on until nothing REVMax filed is left to credit. Turning it off
+    /// is what retires REVMax.
+    /// </remarks>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// The last local date REVMax filed anything, once the platform has taken over.
+    /// </summary>
+    /// <remarks>
+    /// A SAP document dated after this cannot be on REVMax, so the platform files it without asking
+    /// REVMax first. A document dated on or before it is checked against REVMax first, and is held back
+    /// if REVMax cannot answer. Null means every document is checked. That is the safe setting until the
+    /// cut-over day is known, and it makes a REVMax outage hold back new invoices too.
+    ///
+    /// This holds only if REVMax really did stop filing on this date. The REVMax vendor's own SAP B1
+    /// add-on files invoices straight from the SAP client, so it has to be switched off on every
+    /// workstation at the cut-over.
+    /// </remarks>
+    public DateTime? LastFilingDate { get; set; }
 
     /// <summary>
     /// Base URL for REVMax API (e.g., http://172.16.16.201:8001)
@@ -43,7 +65,7 @@ public class RevmaxSettings
     /// <remarks>
     /// These are REVMax's own tax ids and are NOT the FDMS tax ids in
     /// <c>Fiscalisation:TaxIdMappings</c> — that section belongs to the in-house platform, which talks
-    /// to FDMS directly and uses this taxpayer's FDMS ids (517 standard-rated). REVMax sits in front of
+    /// to FDMS directly and uses this taxpayer's FDMS ids. REVMax sits in front of
     /// FDMS and maps its own small ids on the way through. Do not copy one section into the other.
     ///
     /// The rate that accompanies the id comes from <c>Tax:RatesByTaxCode</c>, so the rate charged on

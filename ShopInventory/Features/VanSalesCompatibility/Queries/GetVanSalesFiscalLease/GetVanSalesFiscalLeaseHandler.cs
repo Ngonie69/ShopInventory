@@ -75,17 +75,22 @@ public sealed class GetVanSalesFiscalLeaseHandler(
         // catalogue at one standard percentage — including the zero-rated part of it.
         if (!settings.UsesPlatform)
         {
-            return await BuildOfficeFiscalisedLeaseAsync(settings, cancellationToken);
+            var revmax = revmaxOptions.Value;
+            return await BuildOfficeFiscalisedLeaseAsync(
+                settings, revmax.TaxIdMappings, revmax.DefaultTaxId, "REVMax", cancellationToken);
         }
 
         var deviceId = user.FiscalDeviceId ?? 0;
         if (deviceId <= 0)
         {
-            // Not an error state so much as an un-provisioned one: this handset has never been registered
-            // with ZIMRA, so there is no chain for it to sign into.
-            return Error.Validation(
-                "VanSalesCompatibility.NoFiscalDevice",
-                "This user's handset is not registered as a fiscal device, so it cannot trade offline.");
+            // This handset has no ZIMRA device of its own, so there is no chain for it to sign into. That
+            // is the fleet as it stands: ZIMRA registers the platform's devices in Online mode, which
+            // signs on the server, and a handset needs an Offline-mode device to sign for itself. So the
+            // office fiscalises this van's sales exactly as it did under REVMax, and the handset gets the
+            // same answer it got then. That is the tax table, with the platform's tax ids, and no signing
+            // authority. Refusing here instead would take the rates away from the whole fleet.
+            return await BuildOfficeFiscalisedLeaseAsync(
+                settings, settings.TaxIdMappings, settings.DefaultTaxId, "platform", cancellationToken);
         }
 
         // Only the nominated handset may sign on this device's chain, and it is settled before the
@@ -196,7 +201,7 @@ public sealed class GetVanSalesFiscalLeaseHandler(
     /// address, no certificate, no day, and a sequence of zero. That is deliberate and it is what the
     /// handset checks: a lease naming no device is refused as a signing credential by
     /// <c>OfflineSalePolicy.EvaluateLease</c>, so this cannot become a licence to sign offline if the
-    /// handset is ever put back into its on-device mode while this server is on REVMax.
+    /// handset is ever put back into its on-device mode while the office is fiscalising its sales.
     ///
     /// <para>The rates still have to arrive, and today they do not — the handset discards a lease with
     /// no device before it reads them. Fixing that is the matching change in the handset repo; issuing
@@ -204,23 +209,25 @@ public sealed class GetVanSalesFiscalLeaseHandler(
     /// </remarks>
     private async Task<ErrorOr<VanSalesFiscalLeaseDto>> BuildOfficeFiscalisedLeaseAsync(
         FiscalisationSettings settings,
+        IReadOnlyDictionary<string, int> taxIdsByVatGroup,
+        int defaultTaxId,
+        string provider,
         CancellationToken cancellationToken)
     {
-        var revmax = revmaxOptions.Value;
-
         var taxes = VanSalesFiscalLeaseMapper.BuildProviderTaxes(
-            revmax.TaxIdMappings,
-            revmax.DefaultTaxId,
+            taxIdsByVatGroup,
+            defaultTaxId,
             taxOptions.Value,
             out var conflictingTaxIds);
 
         if (conflictingTaxIds.Count > 0)
         {
             logger.LogWarning(
-                "Left {ConflictCount} REVMax tax id(s) out of the van sales tax table because two VAT "
-                + "groups gave them different rates: {TaxIds}. Revmax:TaxIdMappings and Tax:RatesByTaxCode "
-                + "disagree, and items in those groups cannot be priced on a handset.",
+                "Left {ConflictCount} {Provider} tax id(s) out of the van sales tax table because two VAT "
+                + "groups gave them different rates: {TaxIds}. The provider's TaxIdMappings and "
+                + "Tax:RatesByTaxCode disagree, and items in those groups cannot be priced on a handset.",
                 conflictingTaxIds.Count,
+                provider,
                 string.Join(", ", conflictingTaxIds.Order()));
         }
 
@@ -246,8 +253,8 @@ public sealed class GetVanSalesFiscalLeaseHandler(
 
         var itemTaxes = VanSalesFiscalLeaseMapper.BuildItemTaxes(
             vatGroupsByItem,
-            revmax.TaxIdMappings,
-            revmax.DefaultTaxId,
+            taxIdsByVatGroup,
+            defaultTaxId,
             settings.DefaultHsCode,
             taxes,
             out var unmappedGroups);
@@ -255,15 +262,17 @@ public sealed class GetVanSalesFiscalLeaseHandler(
         if (unmappedGroups.Count > 0)
         {
             logger.LogWarning(
-                "Left {UnmappedCount} VAT group(s) out of the van sales tax table because no REVMax tax "
+                "Left {UnmappedCount} VAT group(s) out of the van sales tax table because no {Provider} tax "
                 + "id resolves for them: {Groups}.",
                 unmappedGroups.Count,
+                provider,
                 string.Join(", ", unmappedGroups.Order()));
         }
 
         logger.LogInformation(
-            "Issued an office-fiscalised van sales tax table: {TaxCount} taxes, {ItemCount} items. No "
-            + "signing authority is leased under Fiscalisation:Provider REVMax.",
+            "Issued an office-fiscalised van sales tax table with {Provider} tax ids: {TaxCount} taxes, "
+            + "{ItemCount} items. No signing authority is leased, because the office fiscalises these sales.",
+            provider,
             taxes.Count,
             itemTaxes.Count);
 

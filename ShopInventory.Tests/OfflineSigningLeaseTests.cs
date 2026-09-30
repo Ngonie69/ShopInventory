@@ -461,8 +461,33 @@ public sealed class OfflineSigningLeaseTests : IDisposable
         Assert.Equal(0, result.Value.DeviceId);
     }
 
+    [Fact]
+    public async Task Under_the_platform_a_handset_with_no_device_gets_the_platform_rates()
+    {
+        // The platform's devices are Online, so no handset signs. The office fiscalises its sales, as it
+        // did under REVMax, and the handset still needs the rates. It is answered with the platform's
+        // tax ids, never REVMax's, and with no signing authority.
+        var van = await SeedVanAsync("VAN012", deviceId: null);
+
+        var result = await RequestOfficeFiscalisedLeaseAsync(
+            van.Id, configCache: null!, provider: FiscalisationProvider.Platform);
+
+        Assert.False(result.IsError);
+        var lease = result.Value;
+        Assert.Equal(0, lease.DeviceId);
+        Assert.Equal(0, lease.NextGlobalNo);
+        Assert.Equal(15.5m, Assert.Single(lease.Taxes, tax => tax.TaxId == 515).Percent);
+        Assert.Equal(0m, Assert.Single(lease.Taxes, tax => tax.TaxId == 2).Percent);
+        Assert.DoesNotContain(lease.Taxes, tax => tax.TaxId == 1);
+        Assert.Equal(515, Assert.Single(lease.ItemTaxes, item => item.ItemCode == "CHEESE01").TaxId);
+        Assert.Equal(2, Assert.Single(lease.ItemTaxes, item => item.ItemCode == "BREAD01").TaxId);
+    }
+
     private Task<ErrorOr.ErrorOr<ShopInventory.DTOs.VanSalesFiscalLeaseDto>>
-        RequestOfficeFiscalisedLeaseAsync(Guid userId, IFiscalDeviceConfigCache? configCache = null)
+        RequestOfficeFiscalisedLeaseAsync(
+            Guid userId,
+            IFiscalDeviceConfigCache? configCache = null,
+            FiscalisationProvider provider = FiscalisationProvider.Revmax)
     {
         var handler = new GetVanSalesFiscalLeaseHandler(
             _context,
@@ -486,7 +511,14 @@ public sealed class OfflineSigningLeaseTests : IDisposable
             Options.Create(new FiscalisationSettings
             {
                 Enabled = true,
-                Provider = FiscalisationProvider.Revmax
+                Provider = provider,
+                DefaultTaxId = 515,
+                TaxIdMappings = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["O01"] = 515,
+                    ["O8"] = 515,
+                    ["O0"] = 2
+                }
             }),
             Options.Create(new RevmaxSettings
             {

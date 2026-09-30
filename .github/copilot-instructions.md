@@ -167,19 +167,23 @@ Other integrations:
 
 - Keep fiscalisation behind `IFiscalizationService` (writes) and `IFiscalReceiptReader` (read-back);
   never call a fiscal device directly from a controller or page. Both resolve by
-  `Fiscalisation:Provider`: **REVMax is the ZIMRA-approved device and the live default**, while the
-  in-house platform (`IFiscalisationApiClient`) is registered but dormant until ZIMRA issues it a
-  production device — the blocker is a device, not approval of the software.
+  `Fiscalisation:Provider`. **The in-house platform (`IFiscalisationApiClient`) is live**, on three
+  Online ZIMRA devices issued in September 2026. REVMax files nothing new, but while `Revmax:Enabled`
+  is on it is still asked about what it filed (`RevmaxHistoryFiscalizationService`,
+  `RevmaxHistoryFiscalReceiptReader`) and still credits its own receipts. Never file a document dated
+  on or before `Revmax:LastFilingDate` on the platform without asking REVMax first: the platform has
+  never seen REVMax's receipts, so it would sign a second one.
   Code that must talk to the platform specifically — the fiscalisation console, handset
   registration, signed-receipt ingest — may take `IFiscalisationApiClient` directly, but must guard
   on `FiscalisationSettings.UsesPlatform`.
 - The van sales fiscal lease (`GetVanSalesFiscalLeaseHandler`) guards on that too, but **answers rather
   than refusing**, and the distinction is load-bearing. A lease is two halves: the signing half (device,
-  QR url, day, counters), which only the platform can issue and which is omitted entirely under REVMax
-  — a lease naming no device is refused as a signing credential by the handset's own
-  `OfflineSalePolicy`; and the tax half, which is *not* a fiscal-device fact. The handset's
-  `SalesTaxContext` binds those rates into every money figure on every screen, so under REVMax they are
-  built from `Revmax:TaxIdMappings` + `Tax:RatesByTaxCode` instead. Refusing outright drops the fleet
+  QR url, day, counters), which only the platform can issue, and only to a handset with its own
+  Offline-mode device. It is omitted entirely under REVMax, and for a handset with no device. A lease
+  naming no device is refused as a signing credential by the handset's own `OfflineSalePolicy`. The
+  other half is the tax table, which is *not* a fiscal-device fact. The handset's `SalesTaxContext`
+  binds those rates into every money figure on every screen, so the table is always sent, built from
+  the provider's `TaxIdMappings` + `Tax:RatesByTaxCode`. Refusing outright drops the fleet
   onto a single hardcoded percentage and prices zero-rated (`O0`) stock at 15.5%, which looks entirely
   normal on a handset.
 - Keep PayNow, Innbucks, and Ecocash behind payment gateway abstractions.

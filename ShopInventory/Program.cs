@@ -894,10 +894,10 @@ try
     // Register exchange rate service (depends on SAP Service Layer client)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
 
-    // Register the REVMax fiscal device client. REVMax is the ZIMRA-approved path; the Fiscalisation
-    // platform registered below is present but dormant until ZIMRA issues it a production device --
-    // the blocker is a device, not approval of the software. Which one IFiscalizationService resolves
-    // to is decided by Fiscalisation:Provider, further down.
+    // Register the REVMax fiscal device client. REVMax filed everything until ZIMRA issued the in-house
+    // platform its production devices. Under Fiscalisation:Provider=Platform it files nothing new, but it
+    // is still asked about what it filed before, and it still credits those receipts, until
+    // Revmax:Enabled is turned off. See RevmaxHistoryFiscalizationService.
     builder.Services.Configure<RevmaxSettings>(
         builder.Configuration.GetSection(RevmaxSettings.SectionName));
 
@@ -993,20 +993,32 @@ try
             + "closed and no offline file reaches ZIMRA, however many receipts are stamped.");
     }
 
-    if (fiscalisationStartupSettings?.UsesPlatform == true)
+    var revmaxStartupSettings = builder.Configuration
+        .GetSection(RevmaxSettings.SectionName)
+        .Get<RevmaxSettings>() ?? new RevmaxSettings();
+
+    if (fiscalisationStartupSettings?.UsesPlatform == true && revmaxStartupSettings.Enabled)
     {
-        Log.Warning(
-            "Fiscalisation is pointed at the in-house platform ({BaseUrl}), which ZIMRA has not yet "
-            + "issued a production device for. Receipts filed through it are filed for real. Set "
-            + "Fiscalisation__Provider=Revmax to use the approved device.",
+        Log.Information(
+            "Fiscalisation provider: the platform at {BaseUrl}. REVMax at {RevmaxBaseUrl} files nothing "
+            + "new. It is still asked about documents dated up to {LastFilingDate}, and it still credits "
+            + "the receipts it filed.",
+            fiscalisationStartupSettings.BaseUrl,
+            revmaxStartupSettings.BaseUrl,
+            revmaxStartupSettings.LastFilingDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                ?? "any date (Revmax:LastFilingDate is not set)");
+    }
+    else if (fiscalisationStartupSettings?.UsesPlatform == true)
+    {
+        Log.Information(
+            "Fiscalisation provider: the platform at {BaseUrl}. REVMax is retired.",
             fiscalisationStartupSettings.BaseUrl);
     }
     else
     {
         Log.Information(
-            "Fiscalisation provider: REVMax at {BaseUrl}. The in-house platform is registered but "
-            + "dormant.",
-            builder.Configuration[$"{RevmaxSettings.SectionName}:BaseUrl"] ?? new RevmaxSettings().BaseUrl);
+            "Fiscalisation provider: REVMax at {BaseUrl}. The platform is registered but files nothing.",
+            revmaxStartupSettings.BaseUrl);
     }
 
     builder.Services.AddHttpClient<IFiscalisationApiClient, FiscalisationApiClient>((serviceProvider, client) =>
@@ -1060,21 +1072,31 @@ try
         var fiscalisation = serviceProvider
             .GetRequiredService<IOptions<FiscalisationSettings>>().Value;
 
-        if (fiscalisation.Provider == FiscalisationProvider.Platform)
+        var revmax = serviceProvider.GetRequiredService<IOptions<RevmaxSettings>>().Value;
+
+        if (fiscalisation.Provider != FiscalisationProvider.Platform)
         {
-            return serviceProvider.GetRequiredService<PlatformFiscalReceiptReader>();
+            return new RevmaxFiscalReceiptReader(
+                serviceProvider.GetRequiredService<IRevmaxClient>(), revmax);
         }
 
-        return new RevmaxFiscalReceiptReader(
-            serviceProvider.GetRequiredService<IRevmaxClient>(),
-            serviceProvider.GetRequiredService<IOptions<RevmaxSettings>>().Value);
+        var platform = serviceProvider.GetRequiredService<PlatformFiscalReceiptReader>();
+
+        // While REVMax is still in use, a platform "not fiscalised" is only half an answer. See
+        // RevmaxHistoryFiscalReceiptReader.
+        return revmax.Enabled
+            ? new RevmaxHistoryFiscalReceiptReader(
+                platform,
+                new RevmaxFiscalReceiptReader(serviceProvider.GetRequiredService<IRevmaxClient>(), revmax))
+            : platform;
     });
 
-    // REVMax is the ZIMRA-approved device and the default. The platform implementation stays
-    // registered by concrete type so the fiscalisation console and settings screens still work while
-    // it waits for approval — but nothing fiscalises through it unless Fiscalisation:Provider says so.
+    // Both implementations stay registered by concrete type. Fiscalisation:Provider picks the one that
+    // files, below. The other stays reachable because the platform-plus-REVMax service and the desktop
+    // credit gateway still need REVMax after the switch.
     builder.Services.AddScoped<FiscalizationService>();
     builder.Services.AddScoped<RevmaxFiscalizationService>();
+    builder.Services.AddScoped<RevmaxHistoryFiscalizationService>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditFiscalGateway,
         ShopInventory.Features.DesktopCreditNotes.RevmaxDesktopCreditGateway>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditExternalCredits,
@@ -1097,9 +1119,16 @@ try
         var provider = serviceProvider
             .GetRequiredService<IOptions<FiscalisationSettings>>().Value.Provider;
 
-        return provider == FiscalisationProvider.Platform
-            ? serviceProvider.GetRequiredService<FiscalizationService>()
-            : serviceProvider.GetRequiredService<RevmaxFiscalizationService>();
+        if (provider != FiscalisationProvider.Platform)
+        {
+            return serviceProvider.GetRequiredService<RevmaxFiscalizationService>();
+        }
+
+        // New documents go to the platform either way. While REVMax is still in use, anything it may
+        // already hold is checked there first, and credits against its receipts are filed there.
+        return serviceProvider.GetRequiredService<IOptions<RevmaxSettings>>().Value.Enabled
+            ? serviceProvider.GetRequiredService<RevmaxHistoryFiscalizationService>()
+            : serviceProvider.GetRequiredService<FiscalizationService>();
     });
 
     builder.Services.Configure<OpenWASettings>(builder.Configuration.GetSection(OpenWASettings.SectionName));
