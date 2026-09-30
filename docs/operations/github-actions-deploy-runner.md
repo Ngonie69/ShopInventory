@@ -19,6 +19,7 @@ on writing it, so the customer left with no receipt.
 | --- | --- |
 | Tests pass on a push to `main`, outside 07:00–19:00 CAT | The commit that passed, straight away |
 | Tests pass inside 07:00–19:00 CAT | Nothing. The run's summary says it waits for the evening deploy |
+| Tests pass inside 07:00–19:00 CAT, on the date in `DEPLOY_ANYTIME_ON` | The commit that passed, straight away |
 | The evening run, 19:30 CAT every day | `main`'s head, if Tests passed for it and it is not already live |
 | **Run workflow** by hand | The chosen ref, straight away, whatever the time: the way to ship an urgent fix |
 
@@ -27,6 +28,16 @@ CORMACH2 trades on Sundays), an hour before opening for vans, and the 17:00 inco
 18:00 consolidation. The rule is `scripts/DeployWindow/deploy_window.py`. Change the hours there, and
 run `python scripts/DeployWindow/test_deploy_window.py`, which also fails if the workflow's cron no
 longer matches the evening deploy time.
+
+To let merges deploy straight away for one day, set the repository variable `DEPLOY_ANYTIME_ON` to
+that day's date in CAT:
+
+```bash
+gh variable set DEPLOY_ANYTIME_ON --body 2026-09-30
+```
+
+It lapses at midnight CAT without anyone touching it; a stale date is harmless. Every merge that day
+still cuts over mid-trading and drops the requests in flight, so warn the shops first.
 
 The evening run knows what is live from `production-live-commit.txt` in the runner's work folder
 (`RUNNER_WORKSPACE`), written after every deploy of both applications that verified. Delete the file

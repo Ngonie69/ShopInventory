@@ -13,6 +13,9 @@ So a merge no longer deploys during trading hours:
     workflow_run (Tests passed on a push to main)
         outside 07:00-19:00 CAT   deploy the commit that passed
         inside it                 do not; the evening run deploys it
+        inside it, on a day the   deploy the commit that passed
+        DEPLOY_ANYTIME_ON repo
+        variable names
     schedule (19:30 CAT)          deploy main's head, if Tests passed for it
                                   (the deploy job skips a commit that is already live)
     workflow_dispatch             deploy now, whatever the time: the way to ship an urgent fix
@@ -23,6 +26,9 @@ Reads its inputs from the environment and writes deploy, sha and reason to $GITH
     TESTED_SHA      github.event.workflow_run.head_sha (workflow_run only)
     HEAD_SHA        github.sha
     TESTS_PASSED    "true" when Tests passed for HEAD_SHA (schedule only)
+    ANYTIME_ON      a CAT date, yyyy-MM-dd, on which merges deploy during trading hours: the
+                    DEPLOY_ANYTIME_ON repository variable. It lapses at midnight CAT by itself, so
+                    nobody has to remember to switch the window back on.
     DEPLOY_NOW      an ISO time in UTC, for tests; the real clock otherwise
 
     python scripts/DeployWindow/test_deploy_window.py   # the decision table
@@ -53,7 +59,13 @@ def trading(now_utc: datetime) -> bool:
     return TRADING_STARTS <= local < TRADING_ENDS
 
 
-def decide(event: str, now_utc: datetime, tested_sha: str, head_sha: str, tests_passed: bool):
+def anytime_today(now_utc: datetime, anytime_on: str) -> bool:
+    """Whether anytime_on names the CAT date of now_utc."""
+    return anytime_on.strip() == now_utc.astimezone(CAT).date().isoformat()
+
+
+def decide(event: str, now_utc: datetime, tested_sha: str, head_sha: str, tests_passed: bool,
+           anytime_on: str = ""):
     """(deploy, sha, reason) for one run."""
     local = now_utc.astimezone(CAT).strftime("%H:%M")
     window = f"{TRADING_STARTS:%H:%M}-{TRADING_ENDS:%H:%M} CAT"
@@ -64,6 +76,11 @@ def decide(event: str, now_utc: datetime, tested_sha: str, head_sha: str, tests_
     if event == "workflow_run":
         if not tested_sha:
             return False, "", "No tested commit on the triggering run, so there is nothing known good to deploy."
+
+        if trading(now_utc) and anytime_today(now_utc, anytime_on):
+            return True, tested_sha, (
+                f"Tests passed at {local} CAT, inside trading hours ({window}), but DEPLOY_ANYTIME_ON is "
+                f"{anytime_on.strip()}, so merges deploy straight away today.")
 
         if trading(now_utc):
             return False, tested_sha, (
@@ -97,6 +114,7 @@ def main() -> int:
         os.environ.get("TESTED_SHA", ""),
         os.environ.get("HEAD_SHA", ""),
         os.environ.get("TESTS_PASSED", "").lower() == "true",
+        os.environ.get("ANYTIME_ON", ""),
     )
 
     print(f"deploy={str(deploy).lower()} sha={sha}")

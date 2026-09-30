@@ -66,6 +66,38 @@ class MergesDuringTrading(unittest.TestCase):
         self.assertFalse(deploy)
 
 
+class AnytimeDay(unittest.TestCase):
+    def test_a_merge_deploys_during_trading_on_the_named_day(self):
+        for moment in ["07:00", "11:00", "18:59"]:
+            deploy, sha, reason = dw.decide("workflow_run", cat(moment), TESTED, HEAD, tests_passed=True,
+                                            anytime_on="2026-09-14")
+            self.assertTrue(deploy, moment)
+            self.assertEqual(sha, TESTED)
+            self.assertIn("DEPLOY_ANYTIME_ON", reason)
+
+    def test_the_named_day_is_a_cat_date(self):
+        # 23:30 UTC on the 13th is already 01:30 CAT on the 14th, and 22:30 UTC on the 14th is 00:30 on the
+        # 15th. Only the CAT date counts, so a variable left set does not carry into the next morning.
+        self.assertTrue(dw.anytime_today(datetime(2026, 9, 13, 23, 30, tzinfo=timezone.utc), "2026-09-14"))
+        self.assertFalse(dw.anytime_today(datetime(2026, 9, 14, 22, 30, tzinfo=timezone.utc), "2026-09-14"))
+
+    def test_the_window_holds_on_any_other_day(self):
+        for anytime_on in ["2026-09-13", "2026-09-15", "", "  ", "yes", "true"]:
+            deploy, _, reason = dw.decide("workflow_run", cat("11:00"), TESTED, HEAD, tests_passed=True,
+                                          anytime_on=anytime_on)
+            self.assertFalse(deploy, anytime_on)
+            self.assertIn("19:30", reason)
+
+    def test_the_named_day_does_not_deploy_an_untested_commit(self):
+        deploy, _, _ = dw.decide("workflow_run", cat("11:00"), "", HEAD, tests_passed=True,
+                                 anytime_on="2026-09-14")
+        self.assertFalse(deploy)
+
+    def test_the_workflow_passes_the_variable_to_the_rule(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("ANYTIME_ON: ${{ vars.DEPLOY_ANYTIME_ON }}", text)
+
+
 class EveningDeploy(unittest.TestCase):
     def test_mains_head_deploys_when_its_tests_passed(self):
         deploy, sha, _ = dw.decide("schedule", cat("19:30"), "", HEAD, tests_passed=True)
