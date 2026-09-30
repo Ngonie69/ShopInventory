@@ -59,12 +59,26 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                 "Only invoice payloads are supported by the direct van sales invoice endpoint.");
         }
 
+        var user = await db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == command.UserId, cancellationToken);
+
+        if (user is null || !user.IsActive)
+        {
+            return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
+        }
+
+        // Whether this handset was meant to sign for itself. Every van since the platform's devices came up
+        // Online holds an office-fiscalised lease, and its unstamped sales are the normal case.
+        var handsetSigns = fiscalisationOptions.Value.HandsetSigns(user.FiscalDeviceId);
+
         // Before anything reaches SAP, and that ordering is the whole point of putting it here.
         //
         // The switch says an unstamped van sale may not be accepted. Checking it after the post would
         // "refuse" a sale that already exists in SAP as a real A/R invoice — the handset would be told no,
         // would keep the sale, and the invoice would sit there with nothing pointing at it.
-        if (fiscalisationOptions.Value.RefusesUnstampedVanSales && !command.Request.ClaimsReceiptSequence())
+        if (fiscalisationOptions.Value.RefusesUnstampedVanSalesFrom(user.FiscalDeviceId) &&
+            !command.Request.ClaimsReceiptSequence())
         {
             logger.LogError(
                 "Van sale {Reference} was refused before posting: it carries no fiscal receipt and " +
@@ -76,15 +90,6 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                 "VanSalesCompatibility.UnstampedSale",
                 "This sale carries no fiscal receipt. Stamped receipts are now required, so it cannot be " +
                 "accepted — update the handset to a build that signs receipts.");
-        }
-
-        var user = await db.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == command.UserId, cancellationToken);
-
-        if (user is null || !user.IsActive)
-        {
-            return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
         }
 
         var warehouseCode = VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode(user);
@@ -124,7 +129,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
         // carries its receipt and keeps the path below, where the server must not sign it a second time.
         if (!command.Request.ClaimsReceiptSequence())
         {
-            return await FiscaliseThenPostAsync(command, invoiceRequest, cancellationToken);
+            return await FiscaliseThenPostAsync(command, invoiceRequest, handsetSigns, cancellationToken);
         }
 
         var result = await mediator.Send(
@@ -174,6 +179,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     private async Task<ErrorOr<VanSalesDirectInvoiceResponse>> FiscaliseThenPostAsync(
         CreateVanSalesDirectInvoiceCommand command,
         CreateDesktopInvoiceRequest invoiceRequest,
+        bool handsetSigns,
         CancellationToken cancellationToken)
     {
         var reference = command.Request.VanOrder?.Trim();
@@ -235,11 +241,13 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
         // record of a sale that happened.
         var persist = CancellationToken.None;
 
-        if (outcome.Sale is not null && fiscalisationOptions.Value.UsesPlatform && outcome.IsFiscalised)
+        if (outcome.Sale is not null && handsetSigns && outcome.IsFiscalised)
         {
-            // Where handsets are meant to stamp for themselves, a sale that arrives unstamped is still the
-            // rollout signal the fiscalisation console counts. Under REVMax no handset stamps and there is no
-            // chain for it to be missing from, so the row says there is nothing to ingest.
+            // Where the handset is meant to stamp for itself, a sale that arrives unstamped is still the
+            // rollout signal the fiscalisation console counts. Where it is not — under REVMax, and under the
+            // platform for every handset on an office-fiscalised lease — there is no chain for it to be
+            // missing from, so the row says there is nothing to ingest. Marking those Unstamped listed every
+            // online van sale after the cut-over as "Never stamped — do not retry", fiscalised or not.
             outcome.Sale.ReceiptIngestStatus = DesktopSaleReceiptIngestStatus.Unstamped;
             await db.SaveChangesAsync(persist);
         }

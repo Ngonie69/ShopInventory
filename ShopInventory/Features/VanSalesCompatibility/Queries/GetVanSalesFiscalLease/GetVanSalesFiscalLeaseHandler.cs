@@ -80,8 +80,10 @@ public sealed class GetVanSalesFiscalLeaseHandler(
                 settings, revmax.TaxIdMappings, revmax.DefaultTaxId, "REVMax", cancellationToken);
         }
 
+        // The same test the van endpoints use to decide what an unstamped sale means, so a handset handed
+        // an office-fiscalised lease here is never then flagged for failing to sign.
         var deviceId = user.FiscalDeviceId ?? 0;
-        if (deviceId <= 0)
+        if (!settings.HandsetSigns(user.FiscalDeviceId))
         {
             // This handset has no ZIMRA device of its own, so there is no chain for it to sign into. That
             // is the fleet as it stands: ZIMRA registers the platform's devices in Online mode, which

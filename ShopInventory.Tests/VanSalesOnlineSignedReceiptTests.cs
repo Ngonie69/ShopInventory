@@ -456,6 +456,53 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.Equal(DesktopSaleReceiptIngestStatus.Ingested, sale.ReceiptIngestStatus);
     }
 
+    // --- The handsets that are not meant to stamp ---
+
+    /// <summary>
+    /// The fleet as it stands. ZIMRA registered the platform's live devices in Online mode, so no van holds
+    /// a device of its own, the lease is office-fiscalised, and the server signing an unstamped sale is the
+    /// normal path, not a straggler. This used to be flagged Unstamped, and every online van sale after the
+    /// cut-over sat on the fiscalisation console as "Never stamped — do not retry" though each one had been
+    /// fiscalised.
+    /// </summary>
+    [Fact]
+    public async Task An_unstamped_online_sale_from_a_van_with_no_device_of_its_own_is_not_flagged()
+    {
+        var response = await SellAsync(Unstamped("VAN006-INV-20260810-CCC333"));
+        Assert.True(response.Success);
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(SaleSourceSystems.VanSalesOnline, sale.SourceSystem);
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+        Assert.Equal(DesktopSaleReceiptIngestStatus.NotApplicable, sale.ReceiptIngestStatus);
+    }
+
+    /// <summary>
+    /// The trap the fix above would otherwise set. With no van meant to stamp, the "Never stamped" count
+    /// reaches zero, which is exactly when RequireStampedVanSales says to turn it on, and turning it on
+    /// then refused every sale in the fleet for want of a signature no handset can make.
+    /// </summary>
+    [Fact]
+    public async Task With_stamped_receipts_required_a_van_with_no_device_of_its_own_still_trades()
+    {
+        _fiscalisation.RequireStampedVanSales = true;
+
+        var response = await SellAsync(Unstamped("VAN006-INV-20260810-CCC333"));
+
+        Assert.True(response.Success);
+        Assert.Equal(
+            DesktopSaleFiscalizationStatus.Success,
+            (await _context.DesktopSales.SingleAsync()).FiscalizationStatus);
+    }
+
+    /// <summary>A handset that holds a platform device of its own, and so is meant to sign.</summary>
+    private async Task GiveTheVanItsOwnDeviceAsync()
+    {
+        var van = await _context.Users.SingleAsync(user => user.Id == VanUser);
+        van.FiscalDeviceId = DeviceNumber;
+        await _context.SaveChangesAsync();
+    }
+
     // --- The handsets that cannot stamp yet ---
 
     /// <summary>
@@ -467,6 +514,8 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     [Fact]
     public async Task An_unstamped_online_sale_is_accepted_and_flagged_without_stopping_the_device()
     {
+        await GiveTheVanItsOwnDeviceAsync();
+
         var response = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
         Assert.True(response.Success);
 
@@ -504,6 +553,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     [Fact]
     public async Task With_stamped_receipts_required_an_unstamped_online_sale_is_refused_before_sap()
     {
+        await GiveTheVanItsOwnDeviceAsync();
         _fiscalisation.RequireStampedVanSales = true;
 
         var result = await BuildHandler().Handle(
