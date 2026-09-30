@@ -23,6 +23,7 @@ public class PreSapFiscalInvoiceNumberTests
             new UnusedClient(),
             new UnusedConfigCache(),
             Options.Create(new FiscalisationSettings { PreSapInvoiceNoPrefix = prefix }),
+            Options.Create(new TaxSettings()),
             NullLogger<FiscalizationService>.Instance);
 
     [Theory]

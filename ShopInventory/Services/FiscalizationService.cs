@@ -194,17 +194,20 @@ public class FiscalizationService : IFiscalizationService
     private readonly IFiscalisationApiClient _client;
     private readonly IFiscalDeviceConfigCache _configCache;
     private readonly FiscalisationSettings _settings;
+    private readonly TaxSettings _tax;
     private readonly ILogger<FiscalizationService> _logger;
 
     public FiscalizationService(
         IFiscalisationApiClient client,
         IFiscalDeviceConfigCache configCache,
         IOptions<FiscalisationSettings> settings,
+        IOptions<TaxSettings> taxSettings,
         ILogger<FiscalizationService> logger)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _configCache = configCache ?? throw new ArgumentNullException(nameof(configCache));
         _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
+        _tax = taxSettings?.Value ?? throw new ArgumentNullException(nameof(taxSettings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -762,6 +765,16 @@ public class FiscalizationService : IFiscalizationService
     /// <remarks>
     /// Prices are tax-inclusive gross, and negative for a credit note — the platform rejects a credit
     /// note whose line prices are positive.
+    ///
+    /// Every line declares its tax percentage alongside its tax id. The platform matches the pair
+    /// against the device's taxes and reads an absent percentage as exempt, so a standard-rated id with
+    /// no percentage is refused with RCPT025 — every till sale was, from the cut-over on 30 September
+    /// 2026. The percentage is the rate the line was charged at (<c>Tax:RatesByTaxCode</c>), not one
+    /// looked up from the id, so a mapping that pairs a code with the wrong id is refused rather than
+    /// filed under a rate the customer was not charged.
+    ///
+    /// The code is <see cref="InvoiceLineDto.TaxCode"/>, or <see cref="InvoiceLineDto.VatGroup"/> on a
+    /// line read back from SAP, where TaxCode is null and the VAT group is where the code lives.
     /// </remarks>
     private List<LineApiRequest> MapLines(InvoiceDto invoice, ReceiptType receiptType)
     {
@@ -777,6 +790,7 @@ public class FiscalizationService : IFiscalizationService
             {
                 var quantity = Math.Abs(line.Quantity);
                 var price = RoundCurrency(GetPriceAfterVat(line));
+                var taxCode = string.IsNullOrWhiteSpace(line.TaxCode) ? line.VatGroup : line.TaxCode;
 
                 return new LineApiRequest
                 {
@@ -788,7 +802,8 @@ public class FiscalizationService : IFiscalizationService
                     HsCode = _settings.DefaultHsCode,
                     Quantity = quantity <= 0m ? 1m : quantity,
                     Price = sign * price,
-                    TaxId = ResolveTaxId(line.TaxCode)
+                    TaxId = ResolveTaxId(taxCode),
+                    TaxPercent = _tax.RateFor(taxCode) * 100m
                 };
             })
             .ToList();
