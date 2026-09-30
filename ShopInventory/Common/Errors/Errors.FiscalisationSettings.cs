@@ -20,5 +20,10 @@ public static partial class Errors
         /// </summary>
         public static Error ApiKeyRejected(string message) =>
             Error.Validation("FiscalisationSettings.ApiKeyRejected", message);
+
+        public static Error PrintFormNotFound(string cardCode) =>
+            Error.NotFound(
+                "FiscalisationSettings.PrintFormNotFound",
+                $"{cardCode} has no document type set, so it is already fiscalised as an A4 invoice.");
     }
 }

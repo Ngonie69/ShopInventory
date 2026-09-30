@@ -152,7 +152,7 @@ public sealed class VanSaleFiscalFirstPosterTests : IDisposable
             fiscalisation,
             notifications,
             Options.Create(_tax),
-            NullLogger<DesktopSaleFiscaliser>.Instance);
+            NoFiscalPrintFormChoices.Instance, NullLogger<DesktopSaleFiscaliser>.Instance);
 
         return new VanSaleFiscalFirstPoster(
             _context,

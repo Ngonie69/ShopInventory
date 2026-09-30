@@ -747,6 +747,9 @@ try
     // Signing a till or vending sale, and the sweep that signs the ones left for later. Shared so the
     // inline path and the background path cannot drift on how a result is recorded.
     builder.Services.AddScoped<DesktopSaleFiscaliser>();
+    // Receipt48 or A4 per business partner, for till, vending and van sales only (Settings → Fiscalisation).
+    builder.Services.AddScoped<ShopInventory.Features.FiscalPrintForms.IFiscalPrintFormResolver,
+        ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver>();
     builder.Services.AddScoped<VanSaleFiscalFirstPoster>();
     builder.Services.AddScoped<DesktopSaleFiscalisationSweep>();
 

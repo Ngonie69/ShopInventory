@@ -790,7 +790,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
             _ => throw new InvalidOperationException($"INotificationService.{method.Name} was not expected.")
         }),
         Options.Create(new TaxSettings()),
-        NullLogger<DesktopSaleFiscaliser>.Instance);
+        NoFiscalPrintFormChoices.Instance, NullLogger<DesktopSaleFiscaliser>.Instance);
 
     private static IInventoryLockService Locks() =>
         StubProxy.For<IInventoryLockService>((method, _) => method.Name switch

@@ -597,6 +597,21 @@
 
 /* ── Controls ───────────────────────────────────────────────────────────── */
 
+/* The shared Nocturne pickers (the Fiscalisation card's partner and document type), closed to the
+   metrics and fill of .stg-input beside them. Aliases of --stg-*, so they flip with the theme. */
+.stg {
+    --npick-h: 32px;
+    --npick-fs: 14px;
+    --npick-fill: var(--stg-surface);
+    --npick-edge: var(--stg-divider);
+    --npick-radius: var(--stg-radius-md);
+    --nsel-h: 32px;
+    --nsel-fs: 14px;
+    --nsel-fill: var(--stg-surface);
+    --nsel-edge: var(--stg-divider);
+    --nsel-radius: var(--stg-radius-md);
+}
+
 .stg .stg-input {
     width: 100%;
     min-height: 32px;

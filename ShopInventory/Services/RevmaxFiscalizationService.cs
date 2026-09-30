@@ -101,12 +101,16 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// payment breakdown itself. The parameter stays on the interface because the platform path needs
     /// it, and dropping it here would silently change that path's behaviour if the provider is
     /// switched back.
+    ///
+    /// <paramref name="printForm"/> is accepted and not sent either, for the same reason: REVMax lays
+    /// out its own receipt, and the choice belongs to the platform path.
     /// </remarks>
     public Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
         string externalReference,
         CustomerFiscalDetails? customerDetails = null,
         MoneyType? paymentType = null,
+        ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);

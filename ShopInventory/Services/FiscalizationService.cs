@@ -40,12 +40,17 @@ public interface IFiscalizationService
     /// mapped through <see cref="ShopInventory.Common.Sales.TenderTypes.ToMoneyType"/>. A caller with
     /// no tender to declare passes null and the receipt falls back to cash — which is only right for a
     /// till that takes nothing else, so pass the real tender wherever one was captured.
+    ///
+    /// <paramref name="printForm"/> is the fiscal document the receipt is filed as. Till, vending and van
+    /// sales take the partner's choice from <see cref="Features.FiscalPrintForms.IFiscalPrintFormResolver"/>;
+    /// everything else is an A4 invoice.
     /// </remarks>
     Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
         string externalReference,
         CustomerFiscalDetails? customerDetails = null,
         MoneyType? paymentType = null,
+        ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -341,6 +346,7 @@ public class FiscalizationService : IFiscalizationService
         string externalReference,
         CustomerFiscalDetails? customerDetails = null,
         MoneyType? paymentType = null,
+        ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);
@@ -397,7 +403,7 @@ public class FiscalizationService : IFiscalizationService
             Lines = lines,
             Buyer = MapBuyer(customerDetails),
             ReceiptNotes = invoice.Comments,
-            ReceiptPrintForm = ReceiptPrintForm.InvoiceA4
+            ReceiptPrintForm = printForm
         };
 
         var rawRequestJson = Serialize(request);

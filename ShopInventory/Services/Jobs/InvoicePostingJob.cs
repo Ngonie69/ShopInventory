@@ -6,6 +6,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoices;
+using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
@@ -75,6 +76,7 @@ public sealed class InvoicePostingJob : IJob
         using var scope = _serviceProvider.CreateScope();
         var queueService = scope.ServiceProvider.GetRequiredService<IInvoiceQueueService>();
         var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
+        var printForms = scope.ServiceProvider.GetRequiredService<IFiscalPrintFormResolver>();
         var vatRate = scope.ServiceProvider
             .GetRequiredService<IOptions<TaxSettings>>().Value.VatRate;
 
@@ -101,6 +103,7 @@ public sealed class InvoicePostingJob : IJob
                 queueEntry,
                 queueService,
                 fiscalizationService,
+                printForms,
                 vatRate,
                 stoppingToken);
         }
@@ -110,6 +113,7 @@ public sealed class InvoicePostingJob : IJob
         InvoiceQueueEntity queueEntry,
         IInvoiceQueueService queueService,
         IFiscalizationService? fiscalizationService,
+        IFiscalPrintFormResolver printForms,
         decimal vatRate,
         CancellationToken stoppingToken)
     {
@@ -177,6 +181,8 @@ public sealed class InvoicePostingJob : IJob
                     queueEntry.ExternalReference,
                     customerDetails: null,
                     paymentType: TenderTypes.ToMoneyType(request.PaymentMethod),
+                    printForm: await printForms.ResolveAsync(
+                        queueEntry.SourceSystem, request.CardCode, stoppingToken),
                     cancellationToken: stoppingToken);
 
                 if (fiscalResult.Success)

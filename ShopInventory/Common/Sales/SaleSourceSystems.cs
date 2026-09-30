@@ -107,6 +107,15 @@ public static class SaleSourceSystems
     /// </summary>
     public static readonly string[] PostedByDesktopSaleJob = [ShopTill, Vending];
 
+    /// <summary>
+    /// The sources whose fiscal document follows the business partner's chosen print form — a 48 mm
+    /// receipt or an A4 invoice. Every other source is fiscalised as an A4 invoice.
+    /// </summary>
+    public static readonly string[] ChoosesPrintForm = [ShopTill, Vending, VanSales, VanSalesOnline];
+
+    public static bool ChoosesFiscalPrintForm(string? sourceSystem) =>
+        ChoosesPrintForm.Any(source => string.Equals(sourceSystem?.Trim(), source, StringComparison.OrdinalIgnoreCase));
+
     public static bool IsSupportedTillSource(string? sourceSystem) =>
         TillSources.Any(source => string.Equals(sourceSystem?.Trim(), source, StringComparison.OrdinalIgnoreCase));
 
