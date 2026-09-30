@@ -168,71 +168,50 @@
             </div>
         </div>
 
+        @* Follows the live provider. Under the platform it is the platform's own devices; REVMax's
+           figures are history then and stay in Compliance evidence. The rule is FiscalConsoleBand's. *@
+        @{ var band = Band; }
         <div class="fcx-band-side">
             <div class="fcx-band-figures">
-                <div class="fcx-band-fact">
-                    <div class="fcx-fact-label">Receipts filed</div>
-                    <div class="fcx-fact-value">@(revmax is null ? "—" : revmax.Totals.ReceiptsFiled.ToString("N0"))</div>
-                    <div class="fcx-fact-note">
-                        @(revmax?.Totals.FirstReceiptGlobalNo is null
-                            ? "no receipt numbers in this window"
-                            : $"no. {revmax.Totals.FirstReceiptGlobalNo} to {revmax.Totals.LastReceiptGlobalNo}")
+                @foreach (var fact in band.Facts)
+                {
+                    <div class="fcx-band-fact">
+                        <div class="fcx-fact-label">@fact.Label</div>
+                        <div class="fcx-fact-value">@fact.Value</div>
+                        <div class="fcx-fact-note">@fact.Note</div>
                     </div>
-                </div>
-                <div class="fcx-band-fact">
-                    <div class="fcx-fact-label">Documents filed</div>
-                    <div class="fcx-fact-value">@(revmax is null ? "—" : revmax.Totals.DocumentsFiled.ToString("N0"))</div>
-                    <div class="fcx-fact-note">counted once each</div>
-                </div>
-                <div class="fcx-band-fact">
-                    <div class="fcx-fact-label">Fiscal days</div>
-                    <div class="fcx-fact-value">@(days is null ? "—" : days.TotalCount.ToString("N0"))</div>
-                    <div class="fcx-fact-note">
-                        @(days is null
-                            ? "not read"
-                            : days.OutstandingCount == 0 ? "all submitted" : $"{days.OutstandingCount:N0} not submitted")
-                    </div>
-                </div>
-                <div class="fcx-band-fact">
-                    <div class="fcx-fact-label">Last filed</div>
-                    <div class="fcx-fact-value">@(revmax is null ? "—" : Clock(revmax.Totals.LastAtUtc))</div>
-                    <div class="fcx-fact-note">@(revmax is null ? "REVMax not read" : Day(revmax.Totals.LastAtUtc))</div>
-                </div>
+                }
             </div>
 
-            @if (revmax?.Device is not null)
+            @if (band.Device is { } bandDevice)
             {
                 <div class="fcx-band-split"></div>
                 <div class="fcx-band-device">
                     <i class="bi bi-hdd-stack" aria-hidden="true"></i>
                     <div class="fcx-band-device-body">
                         <div class="fcx-band-device-name">
-                            Device @(revmax.Device.DeviceId ?? "—")
-                            @if (!string.IsNullOrWhiteSpace(revmax.Device.SerialNumber))
+                            @bandDevice.Name
+                            @if (bandDevice.Serial is not null)
                             {
-                                <span class="fcx-device-serial">@revmax.Device.SerialNumber</span>
+                                @* Explicit: the name is an expression, so no literal whitespace separates it from this. *@
+                                @(" ")<span class="fcx-device-serial">@bandDevice.Serial</span>
                             }
                         </div>
-                        <div class="fcx-band-device-sub">
-                            @(string.IsNullOrWhiteSpace(revmax.Device.CompanyName) ? "taxpayer unstated" : revmax.Device.CompanyName)
-                            @if (!string.IsNullOrWhiteSpace(revmax.Device.Tin))
-                            {
-                                <text> · TIN @revmax.Device.Tin</text>
-                            }
-                        </div>
+                        <div class="fcx-band-device-sub">@bandDevice.Detail</div>
                     </div>
-                    <span class="fcx-tag @(IsRevmaxDayOpen() ? "fcx-tag-good" : "fcx-tag-warn")">
-                        @(string.IsNullOrWhiteSpace(revmax.Device.FiscalDayStatus)
-                            ? "Day unknown"
-                            : revmax.Device.FiscalDayStatus)
-                        @if (revmax.Device.LastFiscalDayNo is { } dayNo)
-                        {
-                            <text> @dayNo</text>
-                        }
-                    </span>
-                    <button type="button" class="fcx-band-link" @onclick="() => tab = ConsoleTab.Days">
-                        Fiscal days <i class="bi bi-arrow-right" aria-hidden="true"></i>
-                    </button>
+                    <span class="fcx-tag @($"fcx-tag-{bandDevice.Family}")">@bandDevice.Status</span>
+                    @if (bandDevice.LinksToDevices)
+                    {
+                        <button type="button" class="fcx-band-link" @onclick="() => tab = ConsoleTab.Devices">
+                            Devices <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="fcx-band-link" @onclick="() => tab = ConsoleTab.Days">
+                            Fiscal days <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                        </button>
+                    }
                 </div>
             }
         </div>
@@ -1288,6 +1267,9 @@
     private bool isLoadingDays = true;
     private bool isLoadingRevmax = true;
 
+    /// <summary>No device list has been read yet, or the last read failed. <c>devices</c> is then empty, not true.</summary>
+    private bool devicesUnread = true;
+
     private DateTime? revmaxFrom;
     private DateTime? revmaxTo;
     private string? loadError;
@@ -1345,6 +1327,10 @@
     private bool IsBusy =>
         isLoadingDevices || isLoadingQueue || isLoadingDays || isLoadingRevmax
         || retryingKey is not null || isBulkRunning;
+
+    /// <summary>The band's figures and device line, from whichever provider is live.</summary>
+    private FiscalConsoleBandView Band =>
+        FiscalConsoleBand.Build(revmax, isLoadingRevmax, devicesUnread ? null : devices, isLoadingDevices, days, DateTime.Now);
 
     @* Both menus live in FiscalConsoleMenus, alongside the function that colours the dot on the rows
        they select. Inline they were a second switch over the same statuses, and one that had already
@@ -1456,9 +1442,10 @@
         StateHasChanged();
 
         // Both of these reach across the network and may wait on something that does not answer, so
-        // they come after the two panels that are read straight from SQL. The band shows REVMax's
-        // figures and loads them last on purpose: where they sit is about what matters, when they load
-        // is about what it costs, and a device that is silent must not hold up a queue that is not.
+        // they come after the two panels that are read straight from SQL. The band's filing figures
+        // come from one of them — REVMax's under REVMax, the platform devices' under the platform — and
+        // load last on purpose: where they sit is about what matters, when they load is about what it
+        // costs, and a device that is silent must not hold up a queue that is not.
         await LoadRevmaxAsync();
         StateHasChanged();
 
@@ -1526,10 +1513,12 @@
         {
             loadError = "The device list could not be read. Nothing on this page is stale — it is unread.";
             devices = [];
+            devicesUnread = true;
         }
         else
         {
             devices = loaded;
+            devicesUnread = false;
         }
 
         isLoadingDevices = false;
@@ -1976,24 +1965,6 @@
     /// <summary>A UTC instant in the reader's own clock.</summary>
     private static string Moment(DateTime? utc) =>
         utc is null ? "—" : utc.Value.ToLocalTime().ToString("dd MMM HH:mm");
-
-    /// <summary>The time alone, for the band, where the date is on the line under it.</summary>
-    private static string Clock(DateTime? utc) =>
-        utc is null ? "—" : utc.Value.ToLocalTime().ToString("HH:mm");
-
-    private static string Day(DateTime? utc)
-    {
-        if (utc is null)
-        {
-            return "nothing filed in this window";
-        }
-
-        var local = utc.Value.ToLocalTime();
-
-        return local.Date == DateTime.Now.Date
-            ? $"today, {local:dd MMM}"
-            : local.ToString("dd MMM yyyy");
-    }
 
     /// <summary>
     /// A wall-clock time rendered exactly as stored. Never converted: the fiscal day it belongs to is
