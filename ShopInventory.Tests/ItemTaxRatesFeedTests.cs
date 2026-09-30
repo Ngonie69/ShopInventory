@@ -108,10 +108,10 @@ public sealed class ItemTaxRatesFeedTests : IDisposable
     [Fact]
     public async Task A_group_with_no_rate_of_its_own_falls_to_the_standard_rate()
     {
-        // O3 and O4 are real groups SAP rates at zero and deliberately left out of the rate table,
-        // because neither has an FDMS tax id yet. Charging zero while declaring the standard rate is
-        // worse than the overcharge, so they stay standard-rated until somebody maps them.
-        await StoreAsync(("RMA003", "O3"));
+        // A group left out of the rate table, as O3 and O4 were until they had an FDMS tax id.
+        // Charging zero while declaring the standard rate is worse than the overcharge, so an
+        // unmapped group stays standard-rated until somebody maps it.
+        await StoreAsync(("RMA003", "OX"));
 
         var rates = await ReadAsync();
 
