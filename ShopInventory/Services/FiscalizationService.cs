@@ -803,11 +803,21 @@ public class FiscalizationService : IFiscalizationService
                     Quantity = quantity <= 0m ? 1m : quantity,
                     Price = sign * price,
                     TaxId = ResolveTaxId(taxCode),
-                    TaxPercent = _tax.RateFor(taxCode) * 100m
+                    TaxPercent = ToFdmsTaxPercent(_tax.RateFor(taxCode))
                 };
             })
             .ToList();
     }
+
+    /// <summary>A rate as FDMS takes it: a percentage with at most two decimal places.</summary>
+    /// <remarks>
+    /// FDMS types the field decimal(5,2) and refuses anything with a longer scale, even when the extra
+    /// digits are zeros. <c>0.155m * 100m</c> is <c>15.500m</c> — a decimal keeps the scale of its
+    /// operands — and the platform forwards it as written, so FDMS answered "provided value TaxPercent do
+    /// not satisfy decimal(5,2)" to the first till sale after the tax percent was added.
+    /// </remarks>
+    internal static decimal ToFdmsTaxPercent(decimal rate)
+        => Math.Round(rate * 100m, 2, MidpointRounding.AwayFromZero);
 
     private int ResolveTaxId(string? taxCode)
     {
