@@ -113,6 +113,20 @@ public interface IFiscalisationApiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The device ids the platform knows, read with a caller-supplied API key (null or blank for the
+    /// configured one).
+    /// </summary>
+    /// <remarks>
+    /// The settings screen's key test needs a device to read, and on a console that leaves its own
+    /// <c>Fdms:DeviceId</c> unset — as a multi-device console does — "let the platform choose" is
+    /// refused as "DeviceId is required". The platform only serves this list to a key with no device
+    /// allowlist, which is the key this API needs anyway, so a 403 here is a true answer about the key.
+    /// </remarks>
+    Task<IReadOnlyList<int>> GetKnownDeviceIdsWithApiKeyAsync(
+        string? apiKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Live fiscal day status for a device, or for the console's own device when
     /// <paramref name="deviceId"/> is 0.
     /// </summary>

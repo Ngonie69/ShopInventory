@@ -63,6 +63,10 @@ public sealed class FiscalReceiptTotalTests
             string? apiKey, int deviceId, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No config call expected.");
 
+        public Task<IReadOnlyList<int>> GetKnownDeviceIdsWithApiKeyAsync(
+            string? apiKey, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<FiscalStatusApiResponse> GetFiscalStatusAsync(
             int deviceId, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No status call expected.");

@@ -3211,6 +3211,7 @@ provider-agnostic and are marked where they differ.
 | Fiscalise a desktop/POS invoice before it reaches SAP | `POST /api/receipts/submit` — full receipt payload |
 | Read fiscal status back | `GET /api/receipts/check?deviceId=0&invoiceNo=…&receiptType=…` |
 | Device configuration (QR base URL, serial, active taxes) | `GET /api/fiscal-config` — no `deviceId` unless one is pinned |
+| Which devices the console has, for the Settings key test | `GET /api/devices/known` — needs a key with no device allowlist |
 
 Authentication is an `X-API-Key` header. The key is configured as `Fiscalisation__ApiKey` and needs the
 `receipt.submit`, `sap.fiscalise` and `device.read` scopes, and no device allowlist — a device-scoped key
@@ -3229,6 +3230,14 @@ On a submission it means "any device". On a read it is a validation error — `G
 answer `400 ValidationFailed` ("DeviceId is required and must be greater than 0") to an explicit
 `deviceId=0`. `GET /api/receipts/check` is the exception that does take `deviceId=0`, meaning "search
 every device".
+
+"The console's own device" is the platform's `Fdms:DeviceId`, and a console that fiscalises across
+several devices — production's does — leaves it unset, so leaving `deviceId` off is refused with the
+same 400. The key test below therefore does not rely on it: with no device pinned it reads
+`GET /api/devices/known` and then `GET /api/fiscal-config?deviceId=…` for the first of those devices
+that answers (at most three), and only falls back to the unpinned read when the platform lists nothing.
+`/api/devices/known` is served only to a key with no device allowlist, so a 403 there fails the test,
+which is correct: a device-scoped key breaks failover.
 
 **Managing that key**
 

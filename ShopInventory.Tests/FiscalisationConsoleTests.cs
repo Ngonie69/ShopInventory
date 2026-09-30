@@ -1167,6 +1167,10 @@ public sealed class FiscalisationConsoleTests : IDisposable
         public Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(string? apiKey, int deviceId, CancellationToken cancellationToken = default) =>
             GetFiscalConfigAsync(deviceId, cancellationToken);
 
+        public Task<IReadOnlyList<int>> GetKnownDeviceIdsWithApiKeyAsync(
+            string? apiKey, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<SubmitReceiptApiResponse> SubmitSapReceiptAsync(SapFiscaliseReceiptApiRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

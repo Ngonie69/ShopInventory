@@ -1263,5 +1263,9 @@ public sealed class FiscalDayLifecycleTests : IDisposable
         public Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
             string? apiKey, int deviceId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<int>> GetKnownDeviceIdsWithApiKeyAsync(
+            string? apiKey, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

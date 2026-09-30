@@ -237,6 +237,11 @@ public sealed class PreflightReceiptApiResponse
     public List<string> Failures { get; set; } = [];
 }
 
+public sealed class KnownDevicesApiResponse
+{
+    public List<int> DeviceIds { get; set; } = [];
+}
+
 public sealed class FiscalConfigApiResponse
 {
     public string OperationID { get; set; } = string.Empty;

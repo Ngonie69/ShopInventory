@@ -127,6 +127,101 @@ public class FiscalisationApiKeySettingTests
         Assert.Contains("ZIM-0001", probe.Message);
     }
 
+    // ── A console with no device of its own ─────────────────────────────
+
+    /// <summary>
+    /// Production's console fiscalises across several devices and leaves its own <c>Fdms:DeviceId</c>
+    /// unset, so an unpinned read is refused as "DeviceId is required and must be greater than 0". A
+    /// good key read as unverifiable there on 2026-09-30. The probe has to pick a device itself.
+    /// </summary>
+    [Fact]
+    public async Task AnUnpinnedProbeReadsADeviceThePlatformListsWhenItHasNoneOfItsOwn()
+    {
+        var handler = new CapturingHandler(path => path switch
+        {
+            "/api/devices/known" => (HttpStatusCode.OK, """{"deviceIds":[36189]}"""),
+            "/api/fiscal-config?deviceId=36189" => (HttpStatusCode.OK, FiscalConfigJson),
+            _ => (HttpStatusCode.BadRequest, DeviceIdRequiredJson)
+        });
+
+        var probe = await Probe(handler, deviceId: 0);
+
+        Assert.Equal(FiscalisationApiKeyVerdict.Accepted, probe.Verdict);
+        Assert.Contains("device 36189", probe.Message);
+        Assert.Equal(["/api/devices/known", "/api/fiscal-config?deviceId=36189"], handler.Paths);
+        // Both calls carry the key being tested.
+        Assert.Equal(["candidate-key", "candidate-key"], handler.ApiKeys);
+    }
+
+    [Fact]
+    public async Task ADeviceThatCannotBeReadIsSkippedForTheNext()
+    {
+        var handler = new CapturingHandler(path => path switch
+        {
+            "/api/devices/known" => (HttpStatusCode.OK, """{"deviceIds":[35410,37499]}"""),
+            "/api/fiscal-config?deviceId=37499" => (HttpStatusCode.OK, FiscalConfigJson),
+            _ => (HttpStatusCode.BadRequest, """{"errorCode":"DownstreamRequestFailed","detail":"DEV06"}""")
+        });
+
+        var probe = await Probe(handler, deviceId: 0);
+
+        Assert.Equal(FiscalisationApiKeyVerdict.Accepted, probe.Verdict);
+        Assert.Contains("device 37499", probe.Message);
+    }
+
+    [Fact]
+    public async Task NoMoreThanAFewDevicesAreTriedBeforeGivingUp()
+    {
+        var handler = new CapturingHandler(path => path == "/api/devices/known"
+            ? (HttpStatusCode.OK, """{"deviceIds":[1,2,3,4,5,6]}""")
+            : (HttpStatusCode.BadRequest, """{"errorCode":"DownstreamRequestFailed","detail":"FDMS down"}"""));
+
+        var probe = await Probe(handler, deviceId: 0);
+
+        Assert.Equal(FiscalisationApiKeyVerdict.Inconclusive, probe.Verdict);
+        Assert.Equal(1 + FiscalisationApiKeyProbe.MaxDevicesTried, handler.Paths.Count);
+        // Names the device it last asked about, not "the console's own", which it never asked for.
+        Assert.Contains($"device {FiscalisationApiKeyProbe.MaxDevicesTried}", probe.Message);
+    }
+
+    [Fact]
+    public async Task AKeyRefusedTheDeviceListIsRejected()
+    {
+        // The list is served to every key with no device allowlist, so a 403 is the platform saying
+        // this key is device-scoped — which breaks failover, and is the one thing the screen warns of.
+        var handler = new CapturingHandler(path => path == "/api/devices/known"
+            ? (HttpStatusCode.Forbidden, """{"errorCode":"Forbidden","detail":"This operation requires a key that is allowed to access all devices."}""")
+            : (HttpStatusCode.OK, FiscalConfigJson));
+
+        var probe = await Probe(handler, deviceId: 0);
+
+        Assert.Equal(FiscalisationApiKeyVerdict.Rejected, probe.Verdict);
+    }
+
+    [Fact]
+    public async Task APlatformWithoutTheDeviceListStillAnswersForItsOwnDevice()
+    {
+        // An older console build: no such route, which answers an empty 400.
+        var handler = new CapturingHandler(path => path == "/api/devices/known"
+            ? (HttpStatusCode.BadRequest, string.Empty)
+            : (HttpStatusCode.OK, FiscalConfigJson));
+
+        var probe = await Probe(handler, deviceId: 0);
+
+        Assert.Equal(FiscalisationApiKeyVerdict.Accepted, probe.Verdict);
+        Assert.Equal("/api/fiscal-config", handler.Paths.Last());
+    }
+
+    [Fact]
+    public async Task APinnedProbeDoesNotAskForTheDeviceList()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK, FiscalConfigJson);
+
+        await Probe(handler, deviceId: 7);
+
+        Assert.Equal(["/api/fiscal-config?deviceId=7"], handler.Paths);
+    }
+
     // ── What each platform answer means for the key ─────────────────────
 
     [Fact]
@@ -250,6 +345,10 @@ public class FiscalisationApiKeySettingTests
         }
         """;
 
+    private const string DeviceIdRequiredJson = """
+        {"errorCode":"ValidationFailed","detail":"DeviceId is required and must be greater than 0"}
+        """;
+
     private const string FiscalStatusJson = """
         {
           "deviceId": 36189,
@@ -341,6 +440,7 @@ public class FiscalisationApiKeySettingTests
         private readonly HttpStatusCode _status;
         private readonly string _body;
         private readonly Exception? _failure;
+        private readonly Func<string, (HttpStatusCode Status, string Body)>? _route;
 
         public CapturingHandler(HttpStatusCode status, string body)
         {
@@ -351,6 +451,13 @@ public class FiscalisationApiKeySettingTests
         public CapturingHandler(Exception failure)
         {
             _failure = failure;
+            _body = string.Empty;
+        }
+
+        /// <summary>Answers each request by its path and query, for a probe that makes more than one call.</summary>
+        public CapturingHandler(Func<string, (HttpStatusCode Status, string Body)> route)
+        {
+            _route = route;
             _body = string.Empty;
         }
 
@@ -369,9 +476,11 @@ public class FiscalisationApiKeySettingTests
                 throw _failure;
             }
 
-            return Task.FromResult(new HttpResponseMessage(_status)
+            var (status, body) = _route?.Invoke(request.RequestUri.PathAndQuery) ?? (_status, _body);
+
+            return Task.FromResult(new HttpResponseMessage(status)
             {
-                Content = new StringContent(_body, System.Text.Encoding.UTF8, "application/json")
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
             });
         }
     }
