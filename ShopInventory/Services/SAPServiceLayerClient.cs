@@ -2466,7 +2466,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
-        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
+        // U_Van_saleorder is how the till's Invoice history finds the sale an invoice was posted for, and
+        // reprints from it with the ZIMRA QR code and verification code. Without it every copy printed from
+        // the SAP invoice, with no fiscal block. The dated overload below selects it for the same reason.
+        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,U_Van_saleorder";
         var allInvoices = new List<Invoice>();
         int skip = 0;
         const int pageSize = 500;
@@ -2552,8 +2555,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
         var selectFields = includeDocumentLines
-            ? "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,DocumentLines"
-            : "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
+            ? "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,U_Van_saleorder,DocumentLines"
+            : "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,U_Van_saleorder";
         var selectClause = $"&$select={selectFields}";
         var allInvoices = new List<Invoice>();
         int skip = 0;
