@@ -4,7 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -43,13 +45,13 @@ public sealed class SyncItemTaxGroupsHandler(
                 return Errors.Sync.ItemTaxGroupSyncAlreadyRunning;
             }
 
-            Dictionary<string, string> vatGroupsByItem;
+            Dictionary<string, SapItemTaxMaster> masterByItem;
 
             try
             {
                 // Never the cached read: it can be six hours old, so a sync run because somebody just
                 // changed an item in SAP would copy the group they changed it from.
-                vatGroupsByItem = await sapClient.RefreshItemVatGroupsAsync(cancellationToken);
+                masterByItem = await sapClient.RefreshItemTaxMasterAsync(cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -60,7 +62,9 @@ public sealed class SyncItemTaxGroupsHandler(
             }
 
             var now = DateTime.UtcNow;
-            var outcome = await ApplyAsync(context, vatGroupsByItem, now, logger, cancellationToken);
+            var outcome = await ApplyAsync(context, masterByItem, now, logger, cancellationToken);
+            var vatGroupsByItem = masterByItem.ToDictionary(
+                pair => pair.Key, pair => pair.Value.VatGroup, StringComparer.OrdinalIgnoreCase);
 
             if (vatGroupsByItem.Count == 0)
             {
@@ -68,8 +72,10 @@ public sealed class SyncItemTaxGroupsHandler(
             }
 
             logger.LogInformation(
-                "Item VAT groups synced: {Total} read, {Added} new, {Changed} changed.",
-                vatGroupsByItem.Count, outcome.Added, outcome.Changed.Count);
+                "Item VAT groups synced: {Total} read, {Added} new, {Changed} changed, {HsChanged} HS code(s) changed.",
+                vatGroupsByItem.Count, outcome.Added, outcome.Changed.Count, outcome.HsCodesChanged);
+
+            ReportUnusableHsCodes(masterByItem);
 
             return new ItemTaxGroupSyncResult(
                 vatGroupsByItem.Count,
@@ -147,6 +153,45 @@ public sealed class SyncItemTaxGroupsHandler(
     }
 
     /// <summary>
+    /// Names the items whose foreign name is not an HS code FDMS will take.
+    /// </summary>
+    /// <remarks>
+    /// Each of them is declared to ZIMRA under <c>Fiscalisation:DefaultHsCode</c>, which is wrong for
+    /// anything that is not yoghurt, and the only fix is in SAP, so the log says which items to fix.
+    /// </remarks>
+    private void ReportUnusableHsCodes(IReadOnlyDictionary<string, SapItemTaxMaster> masterByItem)
+    {
+        var blank = masterByItem
+            .Where(pair => string.IsNullOrWhiteSpace(pair.Value.ForeignName))
+            .Select(pair => pair.Key)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var invalid = masterByItem
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value.ForeignName)
+                && ItemHsCodes.Normalize(pair.Value.ForeignName) is null)
+            .Select(pair => $"{pair.Key} ('{pair.Value.ForeignName}')")
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (blank.Count > 0)
+        {
+            logger.LogWarning(
+                "{Count} sellable item(s) have no HS code in OITM.FrgnName and are declared under the "
+                + "default HS code: {Items}",
+                blank.Count, string.Join(", ", blank));
+        }
+
+        if (invalid.Count > 0)
+        {
+            logger.LogWarning(
+                "{Count} sellable item(s) have an OITM.FrgnName that is not a 4- or 8-digit HS code, so they "
+                + "are declared under the default HS code: {Items}",
+                invalid.Count, string.Join(", ", invalid));
+        }
+    }
+
+    /// <summary>
     /// Merges what SAP answered into the stored copy.
     /// </summary>
     /// <remarks>
@@ -155,7 +200,7 @@ public sealed class SyncItemTaxGroupsHandler(
     /// </remarks>
     internal static async Task<ApplyOutcome> ApplyAsync(
         ApplicationDbContext dbContext,
-        IReadOnlyDictionary<string, string> vatGroupsByItem,
+        IReadOnlyDictionary<string, SapItemTaxMaster> masterByItem,
         DateTime now,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -163,7 +208,7 @@ public sealed class SyncItemTaxGroupsHandler(
         // An empty answer is not "every item lost its tax group". Taking it literally would empty
         // the table and put every till back on the standard rate for everything - the exact fault
         // this table exists to prevent, caused by the sync meant to prevent it.
-        if (vatGroupsByItem.Count == 0)
+        if (masterByItem.Count == 0)
         {
             logger.LogWarning(
                 "SAP returned no item VAT groups. Keeping the {Count} already stored.",
@@ -175,17 +220,22 @@ public sealed class SyncItemTaxGroupsHandler(
             .ToDictionaryAsync(row => row.ItemCode, StringComparer.OrdinalIgnoreCase, cancellationToken);
 
         var added = 0;
+        var hsCodesChanged = 0;
         var changed = new List<ItemTaxGroupChange>();
 
-        foreach (var (itemCode, vatGroup) in vatGroupsByItem)
+        foreach (var (itemCode, master) in masterByItem)
         {
-            if (string.IsNullOrWhiteSpace(itemCode) || string.IsNullOrWhiteSpace(vatGroup))
+            if (string.IsNullOrWhiteSpace(itemCode) || string.IsNullOrWhiteSpace(master.VatGroup))
             {
                 continue;
             }
 
             var code = itemCode.Trim();
-            var group = vatGroup.Trim();
+            var group = master.VatGroup.Trim();
+
+            // SAP is the authority in both directions: a foreign name cleared in SAP clears the stored
+            // code, so the line falls back to the default rather than keeping one SAP withdrew.
+            var hsCode = ItemHsCodes.Normalize(master.ForeignName);
 
             if (existing.TryGetValue(code, out var row))
             {
@@ -202,6 +252,16 @@ public sealed class SyncItemTaxGroupsHandler(
                     row.VatGroup = group;
                 }
 
+                if (!string.Equals(row.HsCode, hsCode, StringComparison.Ordinal))
+                {
+                    logger.LogInformation(
+                        "Item {ItemCode} moved from HS code {Was} to {Now}.",
+                        code, row.HsCode ?? "(none)", hsCode ?? "(none)");
+
+                    row.HsCode = hsCode;
+                    hsCodesChanged++;
+                }
+
                 row.ResolvedAtUtc = now;
                 continue;
             }
@@ -210,6 +270,7 @@ public sealed class SyncItemTaxGroupsHandler(
             {
                 ItemCode = code,
                 VatGroup = group,
+                HsCode = hsCode,
                 ResolvedAtUtc = now
             });
             added++;
@@ -220,8 +281,9 @@ public sealed class SyncItemTaxGroupsHandler(
         // would otherwise lose its tax group and be sold at the standard rate.
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return new ApplyOutcome(added, changed.OrderBy(change => change.ItemCode).ToList());
+        return new ApplyOutcome(added, changed.OrderBy(change => change.ItemCode).ToList(), hsCodesChanged);
     }
 
-    internal readonly record struct ApplyOutcome(int Added, IReadOnlyList<ItemTaxGroupChange> Changed);
+    internal readonly record struct ApplyOutcome(
+        int Added, IReadOnlyList<ItemTaxGroupChange> Changed, int HsCodesChanged = 0);
 }

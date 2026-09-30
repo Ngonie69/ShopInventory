@@ -1097,6 +1097,7 @@ try
     // Both implementations stay registered by concrete type. Fiscalisation:Provider picks the one that
     // files, below. The other stays reachable because the platform-plus-REVMax service and the desktop
     // credit gateway still need REVMax after the switch.
+    builder.Services.AddScoped<IItemHsCodes, ItemHsCodes>();
     builder.Services.AddScoped<FiscalizationService>();
     builder.Services.AddScoped<RevmaxFiscalizationService>();
     builder.Services.AddScoped<RevmaxHistoryFiscalizationService>();

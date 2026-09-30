@@ -257,7 +257,8 @@ public sealed class GetVanSalesFiscalLeaseHandler(
             defaultTaxId,
             settings.DefaultHsCode,
             taxes,
-            out var unmappedGroups);
+            out var unmappedGroups,
+            await ReadHsCodesAsync(cancellationToken));
 
         if (unmappedGroups.Count > 0)
         {
@@ -305,6 +306,31 @@ public sealed class GetVanSalesFiscalLeaseHandler(
     }
 
     /// <summary>
+    /// Each item's HS code from the local copy of <c>OITM.FrgnName</c>, which the Item Tax Groups sync
+    /// fills. Empty on failure: the items then carry the default HS code, as they all did before.
+    /// </summary>
+    private async Task<Dictionary<string, string>> ReadHsCodesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rows = await db.SapItemTaxGroups
+                .AsNoTracking()
+                .Where(row => row.HsCode != null)
+                .Select(row => new { row.ItemCode, row.HsCode })
+                .ToListAsync(cancellationToken);
+
+            return rows
+                .GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().HsCode!, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not read item HS codes; the lease carries the default HS code throughout.");
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
     /// Reads SAP's VAT groups and hands them to <see cref="VanSalesFiscalLeaseMapper"/>.
     /// </summary>
     private async Task<List<VanSalesFiscalItemTaxDto>> BuildItemTaxesAsync(
@@ -332,7 +358,7 @@ public sealed class GetVanSalesFiscalLeaseHandler(
         }
 
         var itemTaxes = VanSalesFiscalLeaseMapper.BuildItemTaxes(
-            vatGroupsByItem, settings, taxes, out var unmappedGroups);
+            vatGroupsByItem, settings, taxes, out var unmappedGroups, await ReadHsCodesAsync(cancellationToken));
 
         if (unmappedGroups.Count > 0)
         {

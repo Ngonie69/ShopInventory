@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Services.Fiscalisation;
@@ -201,14 +202,17 @@ public class FiscalizationService : IFiscalizationService
     private readonly FiscalisationSettings _settings;
     private readonly TaxSettings _tax;
     private readonly ILogger<FiscalizationService> _logger;
+    private readonly IItemHsCodes? _itemHsCodes;
 
     public FiscalizationService(
         IFiscalisationApiClient client,
         IFiscalDeviceConfigCache configCache,
         IOptions<FiscalisationSettings> settings,
         IOptions<TaxSettings> taxSettings,
-        ILogger<FiscalizationService> logger)
+        ILogger<FiscalizationService> logger,
+        IItemHsCodes? itemHsCodes = null)
     {
+        _itemHsCodes = itemHsCodes;
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _configCache = configCache ?? throw new ArgumentNullException(nameof(configCache));
         _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
@@ -365,7 +369,11 @@ public class FiscalizationService : IFiscalizationService
             return Disabled(invoiceNo);
         }
 
-        var lines = MapLines(invoice, ReceiptType.FiscalInvoice);
+        var hsCodes = _itemHsCodes is null || invoice.Lines is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : await _itemHsCodes.ResolveAsync(invoice.Lines.Select(line => line.ItemCode), cancellationToken);
+
+        var lines = MapLines(invoice, ReceiptType.FiscalInvoice, hsCodes);
         if (lines.Count == 0)
         {
             return new FiscalizationResult
@@ -781,8 +789,16 @@ public class FiscalizationService : IFiscalizationService
     ///
     /// The code is <see cref="InvoiceLineDto.TaxCode"/>, or <see cref="InvoiceLineDto.VatGroup"/> on a
     /// line read back from SAP, where TaxCode is null and the VAT group is where the code lives.
+    ///
+    /// The HS code is the item's own, from <c>OITM.FrgnName</c> (see <see cref="ItemHsCodes"/>), the
+    /// same field the platform reads for a document it fiscalises out of SAP. Only an item SAP gives
+    /// no usable code falls back to <see cref="FiscalisationSettings.DefaultHsCode"/>. Every till line
+    /// used to take the default, so every item was declared to ZIMRA as 04031000.
     /// </remarks>
-    private List<LineApiRequest> MapLines(InvoiceDto invoice, ReceiptType receiptType)
+    private List<LineApiRequest> MapLines(
+        InvoiceDto invoice,
+        ReceiptType receiptType,
+        IReadOnlyDictionary<string, string> hsCodesByItem)
     {
         if (invoice.Lines is null || invoice.Lines.Count == 0)
         {
@@ -797,6 +813,10 @@ public class FiscalizationService : IFiscalizationService
                 var quantity = Math.Abs(line.Quantity);
                 var price = RoundCurrency(GetPriceAfterVat(line));
                 var taxCode = string.IsNullOrWhiteSpace(line.TaxCode) ? line.VatGroup : line.TaxCode;
+                var itemCode = line.ItemCode?.Trim();
+                var hsCode = !string.IsNullOrEmpty(itemCode) && hsCodesByItem.TryGetValue(itemCode, out var itemHsCode)
+                    ? itemHsCode
+                    : _settings.DefaultHsCode;
 
                 return new LineApiRequest
                 {
@@ -805,7 +825,7 @@ public class FiscalizationService : IFiscalizationService
                     Name = Truncate(
                         string.IsNullOrWhiteSpace(line.ItemDescription) ? line.ItemCode : line.ItemDescription,
                         200),
-                    HsCode = _settings.DefaultHsCode,
+                    HsCode = hsCode,
                     Quantity = quantity <= 0m ? 1m : quantity,
                     Price = sign * price,
                     TaxId = ResolveTaxId(taxCode),

@@ -338,6 +338,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.VatGroup)
             .IsRequired()
             .HasMaxLength(50);
+
+      entity.Property(e => e.HsCode)
+            .HasMaxLength(8);
     });
 
     modelBuilder.Entity<SapItemUomMappingEntity>(entity =>
