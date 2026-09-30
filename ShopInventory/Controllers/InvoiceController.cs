@@ -6,6 +6,7 @@ using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
 using ShopInventory.Models;
 using ShopInventory.Features.Crates.Commands.UploadInvoiceCratePod;
+using ShopInventory.Features.FiscalisationConfiguration.Queries.GetRevmaxCreditReference;
 using ShopInventory.Features.Invoices.Commands.CancelInvoice;
 using ShopInventory.Features.Invoices.Commands.CreateInvoice;
 using ShopInventory.Features.Invoices.Commands.FiscalizeInvoice;
@@ -152,6 +153,26 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
                 restrictToAssignedCustomers ? caller.Value.UserId : null,
                 restrictToAssignedCustomers),
             cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// The REVMax receipt for an invoice, as a credit note on the fiscalisation platform must cite it
+    /// </summary>
+    /// <remarks>
+    /// Device, receipt global number and the fiscal day it went into, with the original's currency, total
+    /// and taxes. <c>fiscalDayNo</c> is null, with <c>fiscalDayUnresolvedReason</c>, when no receipt of ours
+    /// proves the day — it is never taken from REVMax's envelope, which is the device's day now. A read,
+    /// not a proxy: nothing is passed through to the device.
+    /// </remarks>
+    [HttpGet("by-docnum/{docNum:int}/revmax-credit-reference")]
+    [Authorize(Roles = "Admin,Manager,ApiUser")]
+    [ProducesResponseType(typeof(RevmaxCreditReferenceResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetRevmaxCreditReference(int docNum, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetRevmaxCreditReferenceQuery(docNum), cancellationToken);
         return result.Match(Ok, Problem);
     }
 

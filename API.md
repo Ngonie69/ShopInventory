@@ -3323,6 +3323,24 @@ Nothing in the table below is reachable on this API.
 `ZReport` **closes the fiscal day** and is never called from this API — a separate Windows service owns
 the daily close. Do not call it to read anything.
 
+**Crediting a REVMax invoice on the platform: `GET /api/Invoice/by-docnum/{docNum}/revmax-credit-reference`**
+(Admin, Manager or ApiUser). A read, not a proxy — it answers one question about an invoice and passes
+nothing through. A credit note filed on the platform against an invoice REVMax filed (the 15% invoices
+credited after VAT moved to 15.5%) must cite the original's device, receipt global number and fiscal day,
+and the platform validates it against the original's currency, total and taxes. This reads all of them off
+`GetInvoice`, applying the same `DeviceID`/`receiptType` checks as the read-back, plus an `invoiceNo` match.
+
+| Field | Meaning |
+|-------|---------|
+| `deviceId`, `receiptGlobalNo`, `receiptCounter` | The original receipt |
+| `fiscalDayNo` | The day it went into, **proved** from a sale of ours the device confirms shares its `global - counter` (`DesktopCreditFiscalDays`). `null` when nothing proves it, with `fiscalDayUnresolvedReason` — never the envelope's `FiscalDay`, which is the device's day now |
+| `receiptDate`, `receiptCurrency`, `receiptTotal`, `taxes[]` | As filed; `taxes` carries each tax's `taxId`, `taxPercent` and `taxCode` |
+
+`404 RevmaxCredit.NotFiscalised` means REVMax answered that it holds no receipt; `409
+RevmaxCredit.NotOurReceipt` that the number belongs to another device, type or invoice; a device that is
+busy or unreachable is `400 RevmaxCredit.DeviceUnavailable` and must not be read as "not fiscalised". The
+consumer is the ZIG credit notes WinForms app.
+
 **Picking the endpoint is the routing decision that matters.** The request type is shared and both
 endpoints accept the `refDeviceId` / `refReceiptGlobalNo` / `refFiscalDayNo` back-reference, so only the
 endpoint distinguishes the two cases and choosing wrong is silent — it files the credit note as though it
