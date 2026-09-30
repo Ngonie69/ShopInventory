@@ -3249,6 +3249,16 @@ which is correct: a device-scoped key breaks failover.
 | GET | `/api/fiscalisation-settings` | Current fiscalisation settings; the API key comes back masked |
 | PUT | `/api/fiscalisation-settings` | Store a new API key |
 | POST | `/api/fiscalisation-settings/test-connection` | Check a key against the platform |
+| GET | `/api/fiscalisation-settings/print-forms` | The business partners with a fiscal document type set |
+| PUT | `/api/fiscalisation-settings/print-forms/{cardCode}` | Set a partner's document type: `Receipt48` or `InvoiceA4` |
+| DELETE | `/api/fiscalisation-settings/print-forms/{cardCode}` | Return a partner to the A4 invoice default (204; 404 if none was set) |
+
+**Document type by business partner.** A partner's till, vending and van sales (`KefalosShopTill`,
+`KefalosVending`, `KefalosVanSales`, `KefalosVanSalesOnline`), and the till credit notes raised against
+them, are fiscalised as the form set here. Every other document, and every partner with no row, is an
+`InvoiceA4`. A van sale's partner is the van's own, not the shop's. `PUT` takes
+`{ "cardName": "…", "printForm": "Receipt48" }` and answers the saved row:
+`{ "cardCode", "cardName", "printForm", "updatedAtUtc", "updatedBy" }`. Only the two names are accepted.
 
 The key is written into `web.config`'s `environmentVariables`, the same way SAP connection settings are,
 so it survives a deployment without being committed. It is live once the app pool recycles, which

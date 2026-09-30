@@ -338,7 +338,7 @@ public sealed class PostOnlineVanSaleOnRequestTests : IDisposable
         var poster = new VanSaleFiscalFirstPoster(
             _context,
             reservations,
-            new DesktopSaleFiscaliser(fiscalisation, notifications, tax, NullLogger<DesktopSaleFiscaliser>.Instance),
+            new DesktopSaleFiscaliser(fiscalisation, notifications, tax, NoFiscalPrintFormChoices.Instance, NullLogger<DesktopSaleFiscaliser>.Instance),
             DesktopCreditPosters.Idle(_context),
             tax,
             NullLogger<VanSaleFiscalFirstPoster>.Instance);

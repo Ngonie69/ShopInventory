@@ -855,7 +855,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             _fiscal.Service,
             StubProxy.For<INotificationService>((_, _) => Task.FromResult(0)),
             Options.Create(new TaxSettings()),
-            NullLogger<DesktopSaleFiscaliser>.Instance);
+            NoFiscalPrintFormChoices.Instance, NullLogger<DesktopSaleFiscaliser>.Instance);
 
     /// <summary>
     /// The server's fiscal device for the unstamped path. A receipt signed once is remembered, so a resend

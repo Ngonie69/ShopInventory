@@ -706,6 +706,7 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
         services.AddDbContext<ApplicationDbContext>(options => options.UseSqlite(_connection));
         services.AddSingleton(StubProxy.Unused<IStockLedger>());
         services.AddScoped<IInvoiceQueueService, InvoiceQueueService>();
+        services.AddScoped<ShopInventory.Features.FiscalPrintForms.IFiscalPrintFormResolver, ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver>();
         services.AddSingleton(fiscalisation);
         services.AddSingleton(Options.Create(new TaxSettings()));
         services.AddSingleton(StubProxy.For<ISender>((method, _) => method.Name == nameof(ISender.Send)

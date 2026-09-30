@@ -275,6 +275,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   public DbSet<IncomingPaymentGlMappingEntity> IncomingPaymentGlMappings { get; set; }
 
+  /// <summary>Which partners' till, vending and van sales are fiscalised as a 48 mm receipt rather than A4.</summary>
+  public DbSet<BusinessPartnerFiscalPrintFormEntity> BusinessPartnerFiscalPrintForms { get; set; }
+
   /// <summary>When SAP was down, as the cluster saw it. See <see cref="SapOutageEntity"/>.</summary>
   public DbSet<SapOutageEntity> SapOutages { get; set; }
 
@@ -2259,6 +2262,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .HasMaxLength(10);
 
       entity.HasData(IncomingPaymentGlMappingSeed.Rows);
+    });
+
+    modelBuilder.Entity<BusinessPartnerFiscalPrintFormEntity>(entity =>
+    {
+      entity.Property(e => e.PrintForm)
+            .HasConversion<string>()
+            .HasMaxLength(20);
     });
 
     // Stock Transfer Adjustment

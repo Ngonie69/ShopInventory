@@ -1,0 +1,273 @@
+@using ShopInventory.Web.Features.FiscalPrintForms
+@using ShopInventory.Web.Features.FiscalPrintForms.Commands.DeleteFiscalPrintForm
+@using ShopInventory.Web.Features.FiscalPrintForms.Commands.SaveFiscalPrintForm
+@using ShopInventory.Web.Features.FiscalPrintForms.Queries.GetFiscalPrintForms
+@using ShopInventory.Web.Services
+@inject MediatR.IMediator Mediator
+@inject IMasterDataCacheService MasterDataCache
+
+@* Settings → Fiscalisation: whether a business partner's till, vending and van sales are fiscalised as a
+   48 mm receipt or an A4 invoice. The API applies it to those three channels only; everything else, and
+   every partner with no row, is an A4 invoice. Styled by settings.css under `stg-`, which the host page
+   loads; the pickers are the shared Nocturne controls. *@
+
+<section class="stg-card">
+    <div class="stg-section-head">
+        <span class="stg-section-icon"><i class="ph ph-printer"></i></span>
+        <div class="stg-section-text">
+            <h2>Document Type by Business Partner</h2>
+            <p>Fiscalise a partner's till, vending and van sales as a 48 mm receipt or an A4 invoice.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="stg-alert stg-alert-error">
+            <i class="ph ph-warning-circle"></i>
+            <span>@error</span>
+            <button type="button" class="stg-alert-close" @onclick="() => error = null"><i class="ph ph-x"></i></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(saved))
+    {
+        <div class="stg-alert stg-alert-success">
+            <i class="ph ph-check-circle"></i>
+            <span>@saved</span>
+            <button type="button" class="stg-alert-close" @onclick="() => saved = null"><i class="ph ph-x"></i></button>
+        </div>
+    }
+
+    <div class="stg-row stg-row-top">
+        <div class="stg-row-info">
+            <div class="stg-row-label"><span>Set a Partner</span></div>
+            <span class="stg-row-desc">
+                Only shop till, vending and van sales follow this, and the till credit notes raised against
+                them. Every other document, and every partner not listed below, is fiscalised as an A4 invoice.
+                For a van, choose the van's own business partner — the one its invoices are raised to.
+            </span>
+        </div>
+        <div class="stg-row-control stg-row-control-stack">
+            <NocturnePicker Class="npick-block npick-end" Id="stg-fdt-partner"
+                            Options="partnerOptions" @bind-Value="newCardCode"
+                            Loading="isLoadingPartners" LoadingText="Loading partners…"
+                            Placeholder="Select business partner"
+                            EmptyText="No partners cached — sync them from Data Sync first."
+                            AriaLabel="Business partner" />
+            <NocturneSelect Class="nsel-block nsel-end" TValue="string"
+                            Options="TypeOptions" @bind-Value="newPrintForm"
+                            AriaLabel="Document type" />
+            <button type="button" class="stg-btn stg-btn-primary" @onclick="AddAsync"
+                    disabled="@(isSaving || string.IsNullOrWhiteSpace(newCardCode))">
+                @if (isSaving)
+                {
+                    <span class="stg-spin"></span>
+                }
+                else
+                {
+                    <i class="ph ph-floppy-disk"></i>
+                }
+                Save document type
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="stg-pane-loading"><span class="stg-spin"></span><span>Loading document types…</span></div>
+    }
+    else if (rows.Count == 0)
+    {
+        <div class="stg-row">
+            <div class="stg-row-info">
+                <span class="stg-row-desc">No partner is set, so every sale is fiscalised as an A4 invoice.</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        @foreach (var row in rows)
+        {
+            var cardCode = row.CardCode;
+            <div class="stg-row" @key="cardCode">
+                <div class="stg-row-info">
+                    <div class="stg-row-label">
+                        <span>@(string.IsNullOrWhiteSpace(row.CardName) ? row.CardCode : row.CardName)</span>
+                        <span class="stg-tag stg-tag-neutral">@row.CardCode</span>
+                    </div>
+                    <span class="stg-row-meta">
+                        <i class="ph ph-pencil-simple"></i>@FiscalDocumentTypes.Label(row.PrintForm)@Changed(row)
+                    </span>
+                </div>
+                <div class="stg-row-control">
+                    <NocturneSelect Class="nsel-block nsel-end" TValue="string"
+                                    Options="TypeOptions" Value="row.PrintForm"
+                                    Disabled="@(busyCardCode == cardCode)"
+                                    ValueChanged="@(value => ChangeAsync(row, value))"
+                                    AriaLabel="@($"Document type for {cardCode}")" />
+                    <button type="button" class="stg-btn stg-btn-ghost stg-btn-icon"
+                            title="Back to A4 invoice" aria-label="@($"Return {cardCode} to the A4 invoice default")"
+                            disabled="@(busyCardCode == cardCode)" @onclick="() => RemoveAsync(row)">
+                        <i class="ph ph-trash"></i>
+                    </button>
+                </div>
+            </div>
+        }
+    }
+
+    <div class="stg-footnote">
+        <i class="ph ph-info"></i>
+        <span>
+            A change applies to the next sale fiscalised for the partner; receipts already filed keep the type they
+            were filed as. A van sale signed on the handset while out of coverage is filed as the 48 mm receipt the
+            handset printed.
+        </span>
+    </div>
+</section>
+
+@code {
+    private static readonly NocturneSelectOption<string>[] TypeOptions =
+    [
+        new(FiscalDocumentTypes.Receipt48, FiscalDocumentTypes.Label(FiscalDocumentTypes.Receipt48)),
+        new(FiscalDocumentTypes.InvoiceA4, FiscalDocumentTypes.Label(FiscalDocumentTypes.InvoiceA4))
+    ];
+
+    private List<FiscalPrintForm> rows = [];
+    private List<NocturnePickerOption> partnerOptions = [];
+    private string? newCardCode;
+    private string? newPrintForm = FiscalDocumentTypes.Receipt48;
+    private string? busyCardCode;
+    private bool isLoading = true;
+    private bool isLoadingPartners = true;
+    private bool isSaving;
+    private string? error;
+    private string? saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadRowsAsync(), LoadPartnersAsync());
+    }
+
+    private async Task LoadRowsAsync()
+    {
+        isLoading = true;
+        var result = await Mediator.Send(new GetFiscalPrintFormsQuery());
+
+        if (result.IsError)
+        {
+            error = result.FirstError.Description;
+        }
+        else
+        {
+            rows = result.Value;
+        }
+
+        isLoading = false;
+    }
+
+    private async Task LoadPartnersAsync()
+    {
+        try
+        {
+            partnerOptions = BusinessPartnerOptions.From(await MasterDataCache.GetBusinessPartnersAsync());
+        }
+        catch (Exception)
+        {
+            // An empty picker says "sync them first", which is the fix; the page stays usable.
+            partnerOptions = [];
+        }
+        finally
+        {
+            isLoadingPartners = false;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newCardCode))
+        {
+            return;
+        }
+
+        isSaving = true;
+        var cardCode = newCardCode;
+        var name = partnerOptions.FirstOrDefault(option => option.Value == cardCode)?.Label;
+
+        if (await SaveAsync(cardCode, name, newPrintForm ?? FiscalDocumentTypes.Receipt48))
+        {
+            newCardCode = null;
+        }
+
+        isSaving = false;
+    }
+
+    private async Task ChangeAsync(FiscalPrintForm row, string? printForm)
+    {
+        if (printForm is null || string.Equals(printForm, row.PrintForm, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        busyCardCode = row.CardCode;
+        await SaveAsync(row.CardCode, row.CardName, printForm);
+        busyCardCode = null;
+    }
+
+    private async Task<bool> SaveAsync(string cardCode, string? cardName, string printForm)
+    {
+        error = null;
+        saved = null;
+
+        var result = await Mediator.Send(
+            new SaveFiscalPrintFormCommand(cardCode, new SaveFiscalPrintFormBody(cardName, printForm)));
+
+        if (result.IsError)
+        {
+            error = result.FirstError.Description;
+            return false;
+        }
+
+        rows = rows
+            .Where(existing => !string.Equals(existing.CardCode, result.Value.CardCode, StringComparison.OrdinalIgnoreCase))
+            .Append(result.Value)
+            .OrderBy(existing => existing.CardCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        saved = $"{result.Value.CardCode} is now fiscalised as {Article(result.Value.PrintForm)}.";
+        return true;
+    }
+
+    private async Task RemoveAsync(FiscalPrintForm row)
+    {
+        error = null;
+        saved = null;
+        busyCardCode = row.CardCode;
+
+        var result = await Mediator.Send(new DeleteFiscalPrintFormCommand(row.CardCode));
+
+        if (result.IsError)
+        {
+            error = result.FirstError.Description;
+        }
+        else
+        {
+            rows.Remove(row);
+            saved = $"{row.CardCode} is back to the A4 invoice default.";
+        }
+
+        busyCardCode = null;
+    }
+
+    private static string Article(string printForm) =>
+        string.Equals(printForm, FiscalDocumentTypes.Receipt48, StringComparison.OrdinalIgnoreCase)
+            ? "a 48 mm receipt"
+            : "an A4 invoice";
+
+    private static string Changed(FiscalPrintForm row)
+    {
+        var when = IAuditService.ToCAT(row.UpdatedAtUtc)
+            .ToString("d MMM yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+        return string.IsNullOrWhiteSpace(row.UpdatedBy) ? $" · set {when}" : $" · set by {row.UpdatedBy}, {when}";
+    }
+}

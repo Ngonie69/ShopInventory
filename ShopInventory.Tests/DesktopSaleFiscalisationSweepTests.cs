@@ -104,7 +104,7 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
             fiscalisation,
             notifications,
             Options.Create(new TaxSettings()),
-            NullLogger<DesktopSaleFiscaliser>.Instance);
+            NoFiscalPrintFormChoices.Instance, NullLogger<DesktopSaleFiscaliser>.Instance);
     }
 
     private DesktopSaleFiscalisationSweep BuildSweep(

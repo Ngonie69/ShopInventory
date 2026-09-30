@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Models.Entities;
 
@@ -24,6 +25,7 @@ public sealed class DesktopSaleFiscaliser(
     IFiscalizationService fiscalizationService,
     INotificationService notificationService,
     IOptions<TaxSettings> tax,
+    IFiscalPrintFormResolver printForms,
     ILogger<DesktopSaleFiscaliser> logger)
 {
     /// <summary>
@@ -125,6 +127,9 @@ public sealed class DesktopSaleFiscaliser(
                 }).ToList()
             };
 
+            // A 48 mm receipt or an A4 invoice, as the partner is set up on Settings → Fiscalisation.
+            var printForm = await printForms.ResolveAsync(sale.SourceSystem, sale.CardCode, cancellationToken);
+
             // The external reference is the invoice number: unique, traceable, and stable across
             // retries, which is what the platform's idempotency key requires. Regenerating it on a
             // retry would sign the same sale twice under two numbers.
@@ -132,6 +137,7 @@ public sealed class DesktopSaleFiscaliser(
                 invoiceDto,
                 sale.ExternalReferenceId!,
                 paymentType: TenderTypes.ToMoneyType(sale.PaymentMethod),
+                printForm: printForm,
                 cancellationToken: cancellationToken);
 
             if (result.Success && !result.Skipped)

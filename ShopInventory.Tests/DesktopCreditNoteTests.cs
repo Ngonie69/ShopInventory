@@ -177,6 +177,40 @@ public sealed class DesktopCreditNoteTests : IDisposable
         Assert.Single(db.DesktopCreditNotes);
     }
 
+    /// <summary>
+    /// A till credit takes the original sale's partner's document type, and saves it in the plan so a
+    /// retry files the same form.
+    /// </summary>
+    [Theory]
+    [InlineData(true, ShopInventory.Services.Fiscalisation.ReceiptPrintForm.Receipt48)]
+    [InlineData(false, ShopInventory.Services.Fiscalisation.ReceiptPrintForm.InvoiceA4)]
+    public async Task A_credit_takes_the_partners_document_type(
+        bool partnerChoseReceipt, ShopInventory.Services.Fiscalisation.ReceiptPrintForm expected)
+    {
+        if (partnerChoseReceipt)
+        {
+            db.BusinessPartnerFiscalPrintForms.Add(new BusinessPartnerFiscalPrintFormEntity
+            {
+                CardCode = "C1",
+                PrintForm = ShopInventory.Services.Fiscalisation.ReceiptPrintForm.Receipt48
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var withPrintForms = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance,
+            printForms: new ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver(
+                db, NullLogger<ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver>.Instance));
+
+        await withPrintForms.CreateAsync(caller, "TILL-123", Request(), default);
+
+        var plan = JsonSerializer.Deserialize<DesktopCreditPlan>(
+            db.DesktopCreditNotes.AsNoTracking().Single().PlanJson, DesktopCreditNoteService.Json)!;
+        Assert.Equal(expected, plan.Receipt.ReceiptPrintForm);
+        Assert.Equal(1, gateway.Submissions);
+    }
+
     [Fact]
     public async Task Fiscalise_and_post_to_SAP_is_refused_while_the_sale_has_no_SAP_invoice()
     {

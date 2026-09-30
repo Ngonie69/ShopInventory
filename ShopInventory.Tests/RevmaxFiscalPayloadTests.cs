@@ -1208,7 +1208,7 @@ public class RevmaxFiscalPayloadTests
             _ => throw new InvalidOperationException($"INotificationService.{method.Name} was not expected.")
         }),
         Options.Create(Tax),
-        NullLogger<DesktopSaleFiscaliser>.Instance);
+        NoFiscalPrintFormChoices.Instance, NullLogger<DesktopSaleFiscaliser>.Instance);
 
     [Fact]
     public async Task A_till_sale_records_the_receipt_number_and_fiscal_day_fdms_holds()

@@ -183,6 +183,7 @@ public static class AuditActions
     public const string UpdateFiscalisationSettings = "UpdateFiscalisationSettings";
     public const string UpdateDailyIncomingPaymentSettings = "UpdateDailyIncomingPaymentSettings";
     public const string UpdateIncomingPaymentGlMapping = "UpdateIncomingPaymentGlMapping";
+    public const string UpdateFiscalPrintForm = "UpdateFiscalPrintForm";
     public const string UpdateDesktopSalesReviewSchedule = "UpdateDesktopSalesReviewSchedule";
     public const string UpdatePostingDatePolicy = "UpdatePostingDatePolicy";
     public const string UpdateMonitoredWarehouses = "UpdateMonitoredWarehouses";

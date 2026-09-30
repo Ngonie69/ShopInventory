@@ -264,7 +264,7 @@ public sealed class RetryDesktopSaleFiscalisationTests : IDisposable
         });
 
         var fiscaliser = new DesktopSaleFiscaliser(
-            fiscalisation, notifications, Options.Create(new TaxSettings()), NullLogger<DesktopSaleFiscaliser>.Instance);
+            fiscalisation, notifications, Options.Create(new TaxSettings()), NoFiscalPrintFormChoices.Instance, NullLogger<DesktopSaleFiscaliser>.Instance);
 
         return new RetryDesktopSaleFiscalisationHandler(
                 _context,
