@@ -55,6 +55,22 @@ public sealed class GetVanSalesPerformanceReportHandler(
         var visits = await LoadVisitsAsync(query, from, to, cancellationToken);
         var newOutlets = await LoadNewOutletsAsync(from, to, cancellationToken);
 
+        // Built before the route filter and, under a rep filter, from the whole fleet: the other rep
+        // on a truck is half of every call rate, whatever this report was asked to show.
+        var fleetWide = !query.UserId.HasValue;
+        var trucks = await VanTruckDays.LoadAsync(
+            db,
+            from,
+            to,
+            fleetWide ? sales : null,
+            fleetWide ? visits : null,
+            fleetWide ? days.Values.ToList() : null,
+            cancellationToken);
+
+        // From here on a rep-day's departure record is its truck's: a rep who sold without tapping
+        // Start Day ran the round their truck-mate opened. See VanTruckDays.RouteDayOf.
+        days = trucks.RouteDaysFor(sales.Select(sale => sale.Key));
+
         // A route filter must not be satisfied by a sale that cannot be shown to belong to the route.
         // Same rule, and the same reason, as the compliance report: nothing on a sale whose rep never
         // opened a day says which route it was made on.
@@ -74,16 +90,16 @@ public sealed class GetVanSalesPerformanceReportHandler(
             sales.Select(sale => sale.UserId).Distinct(),
             cancellationToken);
 
-        var routes = BuildRoutes(sales, days, visits);
+        var routes = BuildRoutes(sales, days, trucks);
         var priorLines = await LoadPriorLinesAsync(query, from, to, days, cancellationToken);
 
         var result = new VanSalesPerformanceReportResult(
             FromDate: from,
             ToDate: to,
-            Summary: BuildSummary(sales, lines, days, visits, routes, newOutlets),
+            Summary: BuildSummary(sales, lines, days, trucks, routes, newOutlets),
             Territories: BuildTerritories(routes),
             Routes: routes,
-            Reps: BuildReps(sales, lines, days, visits, newOutlets, names),
+            Reps: BuildReps(sales, lines, days, visits, trucks, newOutlets, names),
             Items: BuildItems(lines, query.TopItems),
             LapsedItems: BuildLapsedItems(lines, priorLines, to),
             Trend: BuildTrend(sales, from, to),
@@ -260,7 +276,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
     private static List<VanSalesRouteResult> BuildRoutes(
         List<VanSaleFact> sales,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
-        Dictionary<VanSalesDayKey, HashSet<string>> visits)
+        VanTruckDays trucks)
     {
         var grouped = sales
             .GroupBy(sale => VanSalesMeasures.RouteKeyOf(sale.Key, days))
@@ -268,7 +284,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             {
                 var key = group.Key;
                 var dayKeys = group.Select(sale => sale.Key).Distinct().ToList();
-                var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, group, visits);
+                var pcr = trucks.MeasureProductiveCalls(dayKeys);
                 var dayRecords = dayKeys
                     .Select(dayKey => days.TryGetValue(dayKey, out var day) ? day : null)
                     .Where(day => day is not null)
@@ -282,11 +298,12 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     Territory: key.Territory,
                     RepCount: group.Select(sale => sale.UserId).Distinct().Count(),
                     TradingDayCount: dayKeys.Count,
-                    PlannedCalls: dayRecords.Count > 0 ? dayRecords.Sum(day => day.PlannedCustomerCount) : null,
-                    Calls: VanSalesMeasures.CountCalls(dayKeys, visits),
+                    // The truck's plan and its calls, once each, however many of its reps opened the day.
+                    PlannedCalls: trucks.SumPlanned(dayKeys),
+                    Calls: trucks.CountCalls(dayKeys),
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(group),
                     CustomerCount: VanSalesMeasures.CountOutletsThatBought(group),
-                    KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
+                    KilometresTravelled: trucks.SumKilometres(dayKeys),
                     TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
                     PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
                     PcrCalls: pcr?.Calls);
@@ -328,6 +345,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
         List<VanSaleLineFact> lines,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
         Dictionary<VanSalesDayKey, HashSet<string>> visits,
+        VanTruckDays trucks,
         Dictionary<Guid, HashSet<string>> newOutlets,
         Dictionary<Guid, VanSalesMeasures.UserName> names)
     {
@@ -345,7 +363,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             {
                 var userId = group.Key;
                 var dayKeys = group.Select(sale => sale.Key).Distinct().ToList();
-                var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, group, visits);
+                var pcr = trucks.MeasureProductiveCalls(dayKeys);
                 var dayRecords = dayKeys
                     .Select(dayKey => days.TryGetValue(dayKey, out var day) ? day : null)
                     .Where(day => day is not null)
@@ -381,7 +399,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     // figure rather than a redefinition of the first.
                     NewOutletsWhoBought: captured is null ? 0 : captured.Count(bought.Contains),
                     ItemCount: itemsByRep.TryGetValue(userId, out var itemCount) ? itemCount : 0,
-                    KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
+                    KilometresTravelled: trucks.SumKilometres(dayKeys),
                     TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
                     PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
                     PcrCalls: pcr?.Calls);
@@ -722,7 +740,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
         List<VanSaleFact> sales,
         List<VanSaleLineFact> lines,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
-        Dictionary<VanSalesDayKey, HashSet<string>> visits,
+        VanTruckDays trucks,
         List<VanSalesRouteResult> routes,
         Dictionary<Guid, HashSet<string>> newOutlets)
     {
@@ -734,7 +752,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             .ToList();
 
         var reps = sales.Select(sale => sale.UserId).ToHashSet();
-        var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, sales, visits);
+        var pcr = trucks.MeasureProductiveCalls(dayKeys);
 
         return new VanSalesPerformanceSummaryResult(
             RepCount: reps.Count,
@@ -746,7 +764,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 .Count(),
             TradingDayCount: dayKeys.Count,
             DocumentCount: sales.Count,
-            Calls: VanSalesMeasures.CountCalls(dayKeys, visits),
+            Calls: trucks.CountCalls(dayKeys),
             ProductiveCalls: VanSalesMeasures.CountProductiveCalls(sales),
             CustomerCount: VanSalesMeasures.CountOutletsThatBought(sales),
             ItemCount: lines.Select(line => line.ItemCode)
@@ -754,7 +772,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             NewOutlets: newOutlets
                 .Where(pair => reps.Contains(pair.Key))
                 .Sum(pair => pair.Value.Count),
-            KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
+            KilometresTravelled: trucks.SumKilometres(dayKeys),
             TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales),
             PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
             PcrCalls: pcr?.Calls);

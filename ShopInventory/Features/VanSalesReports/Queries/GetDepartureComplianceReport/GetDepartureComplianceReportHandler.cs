@@ -65,6 +65,10 @@ public sealed class GetDepartureComplianceReportHandler(
         var sales = await LoadSalesAsync(query, from, to, cancellationToken);
         var newCustomers = await LoadNewCustomersAsync(windowStartUtc, windowEndUtc, cancellationToken);
 
+        // The rates are the truck's, and the other rep on a truck is outside any rep or route filter,
+        // so the truck-days are always read for the whole fleet. See VanTruckDays.
+        var trucks = await VanTruckDays.LoadAsync(db, from, to, null, null, null, cancellationToken);
+
         // Every key any of the three knows about. A rep who checked in but never opened a day still
         // gets a row — the missing departure record is itself the finding, and dropping the row would
         // hide it.
@@ -128,7 +132,7 @@ public sealed class GetDepartureComplianceReportHandler(
                     PlateFor(days, routeTrucks, key), key, day, rollups, fleet, status)
                 : null;
 
-            rows.Add(BuildRow(key, day, visit, sale, newCustomerCount, name, telematicsDay));
+            rows.Add(BuildRow(key, day, visit, sale, trucks, newCustomerCount, name, telematicsDay));
         }
 
         var ordered = rows
@@ -156,10 +160,14 @@ public sealed class GetDepartureComplianceReportHandler(
         VanRouteDayEntity? day,
         VisitTotals? visit,
         SaleTotals? sale,
+        VanTruckDays trucks,
         int newCustomerCount,
         UserName? name,
         DepartureComplianceTelematicsDto? telematics)
     {
+        var repDay = new VanSalesDayKey(key.UserId, key.TradingDate);
+        var truck = trucks.Find(repDay);
+
         return new DepartureComplianceDayDto(
             VanRouteDayId: day?.Id,
             UserId: key.UserId,
@@ -179,14 +187,15 @@ public sealed class GetDepartureComplianceReportHandler(
             PlannedCustomerCount: day?.PlannedCustomerCount ?? 0,
             CustomersVisited: visit?.CustomersVisited ?? 0,
             ProductiveCalls: sale?.ProductiveCalls ?? 0,
-            // Zero on a day with no check-ins: the PCR has nothing to measure there, and a sale alone
-            // must not make a day look fully productive.
-            PcrCalls: visit is null
-                ? 0
-                : VanSalesMeasures.CountCallsMade(
-                    visit.CheckedInto,
-                    sale?.BoughtCodes ?? [],
-                    sale?.HasUnattributedSale ?? false),
+
+            // The truck's figures, pooled across both reps on it, which the CCR and PCR are taken
+            // from. PcrCalls is zero on a truck-day with no check-ins: the PCR has nothing to measure
+            // there, and a sale alone must not make a day look fully productive.
+            TruckKey: trucks.KeyOf(repDay).Truck,
+            TruckPlannedCustomerCount: truck?.Planned ?? 0,
+            TruckCustomersVisited: truck?.CheckedInto.Count ?? 0,
+            TruckProductiveCalls: truck?.ProductiveCalls ?? 0,
+            PcrCalls: truck is { HasCheckIns: true } ? truck.CallsMade : 0,
 
             RtiOut: day?.RtiOut,
             RtiReturned: day?.RtiReturned,
@@ -222,15 +231,22 @@ public sealed class GetDepartureComplianceReportHandler(
             .Select(value => value!.Value)
             .ToList();
 
+        // Each truck-day once: both reps' rows carry the same truck figures, and adding them would
+        // count the truck's plan and calls twice.
+        var truckDays = rows
+            .GroupBy(row => (row.TruckKey, row.TradingDate))
+            .Select(group => group.First())
+            .ToList();
+
         return new DepartureComplianceSummary(
             DayCount: rows.Count,
-            PlannedCustomerCount: rows.Sum(row => row.PlannedCustomerCount),
-            CustomersVisited: rows.Sum(row => row.CustomersVisited),
+            PlannedCustomerCount: truckDays.Sum(row => row.TruckPlannedCustomerCount),
+            CustomersVisited: truckDays.Sum(row => row.TruckCustomersVisited),
             ProductiveCalls: rows.Sum(row => row.ProductiveCalls),
-            // Only the days the PCR could measure, on both sides, or a day of sales with no check-ins
-            // would add buyers on top with no calls beneath them.
-            PcrProductiveCalls: rows.Where(row => row.PcrCalls > 0).Sum(row => row.ProductiveCalls),
-            PcrCalls: rows.Sum(row => row.PcrCalls),
+            // Only the truck-days the PCR could measure, on both sides, or a day of sales with no
+            // check-ins would add buyers on top with no calls beneath them.
+            PcrProductiveCalls: truckDays.Where(row => row.PcrCalls > 0).Sum(row => row.TruckProductiveCalls),
+            PcrCalls: truckDays.Sum(row => row.PcrCalls),
             TotalSales: rows.Sum(row => row.SystemTotalSales),
             NewCustomers: rows.Sum(row => row.NewCustomers),
             KilometresTravelled: kilometres.Count > 0 ? kilometres.Sum() : null);
@@ -410,7 +426,8 @@ public sealed class GetDepartureComplianceReportHandler(
                     group.First().Username,
                     // Distinct, because a rep who checks in twice at one shop made one call.
                     group.Select(entry => entry.CustomerCode)
-                        .ToHashSet(StringComparer.OrdinalIgnoreCase)));
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count()));
     }
 
     /// <summary>
@@ -501,17 +518,12 @@ public sealed class GetDepartureComplianceReportHandler(
 
     private readonly record struct DayKey(Guid UserId, DateTime TradingDate);
 
-    private sealed record VisitTotals(string Username, HashSet<string> CheckedInto)
-    {
-        public int CustomersVisited => CheckedInto.Count;
-    }
+    private sealed record VisitTotals(string Username, int CustomersVisited);
 
     private sealed record UserName(string Username, string? FullName);
 
     private sealed record SaleTotals(
         int ProductiveCalls,
-        IReadOnlyCollection<string> BoughtCodes,
-        bool HasUnattributedSale,
         decimal Cash,
         decimal Ecocash,
         decimal Innbucks,
@@ -579,8 +591,6 @@ public sealed class GetDepartureComplianceReportHandler(
 
         public SaleTotals ToTotals() => new(
             _customers.Count + (_hasUnattributed ? 1 : 0),
-            _customers,
-            _hasUnattributed,
             _cash,
             _ecocash,
             _innbucks,

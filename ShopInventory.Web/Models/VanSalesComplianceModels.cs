@@ -117,9 +117,18 @@ public class DepartureComplianceDay
     public int CustomersVisited { get; set; }
     public int ProductiveCalls { get; set; }
 
+    /// <summary>Opaque key grouping the rows of one truck: both reps on a van share it.</summary>
+    public string TruckKey { get; set; } = string.Empty;
+
+    // The truck's figures, pooled across both reps on it. The CCR and PCR are taken from these, so
+    // both reps' rows show the truck's rates; the rep's own counts are the three above.
+    public int TruckPlannedCustomerCount { get; set; }
+    public int TruckCustomersVisited { get; set; }
+    public int TruckProductiveCalls { get; set; }
+
     /// <summary>
-    /// The PCR's calls: shops checked into plus shops that bought without a check-in. Zero on a day
-    /// with no check-ins at all, which leaves that day without a PCR.
+    /// The PCR's calls: shops either rep checked into plus shops that bought without a check-in. Zero
+    /// on a truck-day with no check-ins at all, which leaves that day without a PCR.
     /// </summary>
     public int PcrCalls { get; set; }
 
@@ -151,10 +160,10 @@ public class DepartureComplianceDay
     // again here from the same figures. Kept identical to the API's definitions on purpose.
 
     public double? CallComplianceRate =>
-        PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
+        TruckPlannedCustomerCount > 0 ? (double)TruckCustomersVisited / TruckPlannedCustomerCount : null;
 
     public double? ProductiveCallRate =>
-        PcrCalls > 0 ? (double)ProductiveCalls / PcrCalls : null;
+        PcrCalls > 0 ? (double)TruckProductiveCalls / PcrCalls : null;
 
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;

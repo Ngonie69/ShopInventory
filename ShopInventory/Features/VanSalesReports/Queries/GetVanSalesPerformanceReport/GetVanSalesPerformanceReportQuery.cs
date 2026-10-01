@@ -98,9 +98,10 @@ public sealed record VanSalesRouteResult(
         PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     /// <summary>
-    /// The calls that bought, over the calls made, both counted over the rep-days that have check-ins.
-    /// A shop that bought counts as called on even without a check-in, so this cannot pass 1.0 — see
-    /// <see cref="VanSalesMeasures.CountCallsMade"/>. Missing check-ins still show, in the CCR.
+    /// The calls that bought, over the calls made, both counted over the truck-days that have
+    /// check-ins and pooled across the two reps on each truck — see <see cref="VanTruckDays"/>. A shop
+    /// that bought counts as called on even without a check-in, so this cannot pass 1.0. Missing
+    /// check-ins still show, in the CCR.
     /// </summary>
     public double? ProductiveCallRate =>
         PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;

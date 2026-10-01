@@ -323,7 +323,7 @@
                                     </span>
                                     <span class="vsc-rate-note">
                                         @(day.PlannedCustomerCount > 0
-                                            ? $"{day.CustomersVisited}/{day.PlannedCustomerCount}"
+                                            ? $"{day.TruckCustomersVisited}/{day.TruckPlannedCustomerCount}"
                                             : "no plan")
                                     </span>
                                 </span>
@@ -337,7 +337,7 @@
                                     </span>
                                     <span class="vsc-rate-note">
                                         @(day.PcrCalls > 0
-                                            ? $"{day.ProductiveCalls}/{day.PcrCalls}"
+                                            ? $"{day.TruckProductiveCalls}/{day.PcrCalls}"
                                             : "no calls")
                                     </span>
                                 </span>
@@ -780,20 +780,28 @@
             Clean = rows.Count(row => row.Gaps == Gaps.None)
         };
 
+        var truckDays = new HashSet<(string, DateTime)>();
+
         foreach (var row in rows)
         {
             var day = row.Day;
 
-            totals.Planned += day.PlannedCustomerCount;
-            totals.Visited += day.CustomersVisited;
             totals.Productive += day.ProductiveCalls;
 
-            // The PCR counts only days with check-ins, on both sides — see DepartureComplianceDay.PcrCalls.
-            if (day.PcrCalls > 0)
+            // The rates are the truck's, and both reps' rows carry the same truck figures, so each
+            // truck-day is added once. The PCR counts only truck-days with check-ins, on both sides.
+            if (truckDays.Add((day.TruckKey, day.TradingDate)))
             {
-                totals.PcrProductive += day.ProductiveCalls;
-                totals.PcrCalls += day.PcrCalls;
+                totals.Planned += day.TruckPlannedCustomerCount;
+                totals.Visited += day.TruckCustomersVisited;
+
+                if (day.PcrCalls > 0)
+                {
+                    totals.PcrProductive += day.TruckProductiveCalls;
+                    totals.PcrCalls += day.PcrCalls;
+                }
             }
+
             totals.Sales += day.SystemTotalSales;
 
             if (day.KilometresTravelled is { } kilometres)

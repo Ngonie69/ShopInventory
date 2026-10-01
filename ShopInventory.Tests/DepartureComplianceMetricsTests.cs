@@ -294,7 +294,12 @@ public sealed class DepartureComplianceMetricsTests
             PlannedCustomerCount: planned,
             CustomersVisited: visited,
             ProductiveCalls: productive,
-            // Every buyer in these fixtures was also checked into, so the PCR's calls are the visits.
+            // One rep alone on the truck, and every buyer also checked into: the truck's figures are
+            // the rep's, and the PCR's calls are the visits.
+            TruckKey: "VAN010",
+            TruckPlannedCustomerCount: planned,
+            TruckCustomersVisited: visited,
+            TruckProductiveCalls: productive,
             PcrCalls: visited,
             RtiOut: rtiOut,
             RtiReturned: rtiReturned,
