@@ -628,20 +628,36 @@ function Resolve-ApiKeyExpiry {
         throw "No API key named 'MainIntegration' in $AppSettingsPath. Add it, or the deployed expiry would land on another key."
     }
 
-    $expiryText = $ConfiguredExpiry
-    if ([string]::IsNullOrWhiteSpace($expiryText)) {
-        $expiryText = [string]$apiKeys[$mainIntegrationIndex].ExpiresAt
+    # PowerShell 7's ConvertFrom-Json turns an ISO-8601 string into a [DateTime], while Windows PowerShell
+    # 5.1 (the deploy runner's shell) keeps it a string. Casting that DateTime back to [string] renders it
+    # as invariant MM/dd/yyyy, which a culture-sensitive parse then reads as dd/MM under en-GB and shifts
+    # by the local offset, so take a DateTime as it is and parse any text invariantly as UTC.
+    $expiryValue = $ConfiguredExpiry
+    if ([string]::IsNullOrWhiteSpace($expiryValue)) {
+        $expiryValue = $apiKeys[$mainIntegrationIndex].ExpiresAt
     }
 
-    if ([string]::IsNullOrWhiteSpace($expiryText)) {
-        throw "MainIntegration ExpiresAt is missing. Set it in appsettings.json or pass -ApiKeyExpiresAt."
+    if ($expiryValue -is [DateTime]) {
+        if ($expiryValue.Kind -eq [DateTimeKind]::Unspecified) {
+            $expiryValue = [DateTime]::SpecifyKind($expiryValue, [DateTimeKind]::Utc)
+        }
+        $expiry = ([DateTimeOffset]$expiryValue).ToUniversalTime()
     }
+    else {
+        $expiryText = [string]$expiryValue
+        if ([string]::IsNullOrWhiteSpace($expiryText)) {
+            throw "MainIntegration ExpiresAt is missing. Set it in appsettings.json or pass -ApiKeyExpiresAt."
+        }
 
-    try {
-        $expiry = [DateTimeOffset]::Parse($expiryText).ToUniversalTime()
-    }
-    catch {
-        throw "ApiKeyExpiresAt '$expiryText' is not a valid date/time. Use an ISO-8601 value such as 2026-10-11T23:59:59Z."
+        try {
+            $expiry = [DateTimeOffset]::Parse(
+                $expiryText,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal)
+        }
+        catch {
+            throw "ApiKeyExpiresAt '$expiryText' is not a valid date/time. Use an ISO-8601 value such as 2026-10-11T23:59:59Z."
+        }
     }
 
     if ($expiry -le [DateTimeOffset]::UtcNow) {
