@@ -284,13 +284,20 @@ public static class FiscalConsoleBand
     }
 
     /// <summary>The fiscal day lifecycle, which is this system's own table under either provider.</summary>
+    /// <remarks>
+    /// The table holds only handset-signed days; the platform runs its Online devices' days itself. So an
+    /// empty table is "none signed by a handset", never "all submitted" — that read as a clean bill for days
+    /// this system had never seen.
+    /// </remarks>
     private static FiscalBandFact FiscalDays(FiscalDayStateListResponse? days) =>
         days is null
             ? new FiscalBandFact("Fiscal days", "—", "not read")
             : new FiscalBandFact(
                 "Fiscal days",
                 days.TotalCount.ToString("N0", CultureInfo.CurrentCulture),
-                days.OutstandingCount == 0 ? "all submitted" : $"{days.OutstandingCount:N0} not submitted");
+                days.TotalCount == 0 ? "none signed by a handset"
+                : days.OutstandingCount == 0 ? "all submitted"
+                : $"{days.OutstandingCount:N0} not submitted");
 
     private static bool IsPlatformDayOpen(FiscalConsoleDeviceResponse device) =>
         string.Equals(device.FiscalDayStatus, PlatformDayOpen, StringComparison.OrdinalIgnoreCase);

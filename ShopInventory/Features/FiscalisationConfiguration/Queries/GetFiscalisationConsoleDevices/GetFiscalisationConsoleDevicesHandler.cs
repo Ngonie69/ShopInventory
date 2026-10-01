@@ -14,9 +14,12 @@ namespace ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalisa
 /// Assembles the console's device section.
 /// </summary>
 /// <remarks>
-/// The device list is built from what this application has actually seen — handsets registered against a
-/// device, nominations, receipts, fiscal days — rather than asked of the platform, which has no
-/// "list devices" route on the API-key surface. The configured default device is added on top so a
+/// The device list is what this application has actually seen — handsets registered against a device,
+/// nominations, receipts, fiscal days — joined with the platform's own <c>GET api/devices/known</c>. The
+/// local half is all a handset-signing fleet needs, but the platform's Online devices leave none of it
+/// behind: the server signs for them, nobody is registered against them, and a multi-device console
+/// leaves the default device unset. Without the platform's list those devices, which file every receipt
+/// in production, were simply absent from the page. The configured default device is added on top so a
 /// freshly installed system still shows the one device it will fiscalise on.
 ///
 /// A device the platform will not answer for is still returned, with the reason. Dropping it would make
@@ -34,7 +37,7 @@ public sealed class GetFiscalisationConsoleDevicesHandler(
         CancellationToken cancellationToken)
     {
         var current = settings.CurrentValue;
-        var deviceIds = await CollectDeviceIdsAsync(current.DefaultDeviceId, cancellationToken);
+        var deviceIds = await CollectDeviceIdsAsync(current, cancellationToken);
 
         if (deviceIds.Count == 0)
         {
@@ -73,7 +76,7 @@ public sealed class GetFiscalisationConsoleDevicesHandler(
     /// with no device at all; the restriction is also what lets the scan lead with the composite index's
     /// first column instead of walking the table.
     /// </remarks>
-    private async Task<List<int>> CollectDeviceIdsAsync(int defaultDeviceId, CancellationToken cancellationToken)
+    private async Task<List<int>> CollectDeviceIdsAsync(FiscalisationSettings current, CancellationToken cancellationToken)
     {
         // Inactive handsets included, unlike the offline signing overview. That screen is nominating
         // someone and so wants people who can be nominated; this one is listing devices, and a device
@@ -108,20 +111,58 @@ public sealed class GetFiscalisationConsoleDevicesHandler(
             .Distinct()
             .ToListAsync(cancellationToken);
 
+        var fromPlatform = await ListPlatformDevicesAsync(current, cancellationToken);
+
         var deviceIds = fromHandsets
             .Concat(fromLeases)
             .Concat(fromReceipts)
             .Concat(fromFiscalDays)
+            .Concat(fromPlatform.Where(id => id > 0))
             .ToHashSet();
 
         // 0 means "whichever device the platform is set up on", which is a submission instruction rather
         // than a device this console can describe.
-        if (defaultDeviceId > 0)
+        if (current.DefaultDeviceId > 0)
         {
-            deviceIds.Add(defaultDeviceId);
+            deviceIds.Add(current.DefaultDeviceId);
         }
 
         return deviceIds.Order().ToList();
+    }
+
+    /// <summary>
+    /// The devices the platform itself knows: every device it holds receipts for, plus the ones it is
+    /// configured with.
+    /// </summary>
+    /// <remarks>
+    /// A failure here is logged and costs only the platform's half of the list. The locally known devices
+    /// still come back, each with its own platform reading, so an outage shows as devices that do not
+    /// answer rather than as an empty fleet. Asked under the same conditions as the per-device reads, so
+    /// a console that will not ask about a device does not ask for the list either.
+    /// </remarks>
+    private async Task<IReadOnlyList<int>> ListPlatformDevicesAsync(
+        FiscalisationSettings current,
+        CancellationToken cancellationToken)
+    {
+        if (!current.Enabled || string.IsNullOrWhiteSpace(current.ApiKey))
+        {
+            return [];
+        }
+
+        try
+        {
+            // A null key sends the installed one.
+            return await client.GetKnownDeviceIdsWithApiKeyAsync(null, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "The fiscalisation platform would not list its devices; showing only the devices seen locally.");
+            return [];
+        }
     }
 
     private async Task<Dictionary<(int DeviceId, DesktopSaleReceiptIngestStatus Status), int>> CountReceiptsByStatusAsync(

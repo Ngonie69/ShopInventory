@@ -859,8 +859,9 @@
                 <div class="fcx-empty">
                     <div class="fcx-empty-title">No fiscal device is known here yet</div>
                     <div class="fcx-empty-note">
-                        Devices appear once a handset is registered against one, a receipt is signed on one, or
-                        a default device is named in fiscalisation settings.
+                        Devices appear once the fiscalisation platform lists one, a handset is registered against
+                        one, a receipt is signed on one, or a default device is named in fiscalisation settings.
+                        If the platform has devices, check its API key and that it is answering.
                     </div>
                 </div>
             }
@@ -1058,7 +1059,7 @@
                     <div class="fcx-fact fcx-fact-step">
                         <div class="fcx-fact-label">Days tracked</div>
                         <div class="fcx-fact-value">@days.TotalCount.ToString("N0")</div>
-                        <div class="fcx-fact-note">opened on a device, or named by a receipt</div>
+                        <div class="fcx-fact-note">handset-signed days; Online days are the platform's</div>
                     </div>
                     <div class="fcx-fact fcx-fact-step">
                         <div class="fcx-fact-label">Submitted</div>
@@ -1112,10 +1113,15 @@
             }
             else if (days.Days.Count == 0)
             {
+                @* Empty is the normal state while every device is Online: the platform opens and closes
+                   those days itself and this table never hears of them. Saying only "nothing tracked yet"
+                   read as though no day had ever been closed. *@
                 <div class="fcx-empty">
-                    <div class="fcx-empty-title">No fiscal day has been tracked yet</div>
+                    <div class="fcx-empty-title">No fiscal day is tracked here</div>
                     <div class="fcx-empty-note">
-                        A row appears the first time a device's day is opened or a signed receipt names one.
+                        This list follows the days of devices whose receipts a handset signs. Online devices'
+                        days are opened and closed by the fiscalisation platform itself and never appear here;
+                        each one's current day is on the Devices tab.
                     </div>
                 </div>
             }
