@@ -550,6 +550,270 @@
     background: var(--fcx-fam-bad);
 }
 
+/* ── Device ledger ────────────────────────────────────────────────────────── */
+
+/* The Devices tab: four fleet figures, then one row per device. A row that needs
+   a person sorts first and gets one coloured edge and one plain sentence; raw
+   platform errors sit behind a details toggle, never in the row itself. */
+.fcx-dv-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--noct-s3);
+    margin-bottom: var(--noct-s4);
+}
+
+.fcx-dv-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    padding: 14px var(--noct-s6);
+    border-radius: var(--fcx-radius);
+    background: var(--fcx-surface);
+    box-shadow: var(--fcx-ring);
+}
+
+.fcx-dv-stat-label,
+.fcx-dv-stat-note {
+    font-size: 12px;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-dv-stat-value {
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--fcx-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.fcx-dv-stat-of {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-dv-stat-good .fcx-dv-stat-value {
+    color: var(--fcx-fam-good);
+}
+
+.fcx-dv-stat-warn .fcx-dv-stat-value {
+    color: var(--fcx-fam-warn);
+}
+
+.fcx-dv-stat-bad .fcx-dv-stat-value {
+    color: var(--fcx-fam-bad);
+}
+
+.fcx-dv-ledger {
+    border-radius: var(--fcx-radius);
+    background: var(--fcx-surface);
+    box-shadow: var(--fcx-ring);
+    overflow: hidden;
+}
+
+.fcx-dv-row {
+    display: grid;
+    grid-template-columns:
+        minmax(170px, 1.4fr) minmax(160px, 1.3fr) minmax(110px, .9fr)
+        minmax(170px, 1.2fr) minmax(80px, .6fr) minmax(110px, .9fr);
+    column-gap: var(--noct-s8);
+    align-items: start;
+}
+
+.fcx-dv-head {
+    padding: 10px var(--noct-s8);
+    border-bottom: 1px solid var(--fcx-divider);
+    font-size: 12px;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-dv {
+    padding: 16px var(--noct-s8);
+    border-bottom: 1px solid var(--fcx-rule);
+}
+
+.fcx-dv:last-child {
+    border-bottom: 0;
+}
+
+/* An inset edge rather than a border so a flagged row's content stays aligned
+   with the quiet rows around it. */
+.fcx-dv-warn {
+    box-shadow: inset 3px 0 0 var(--fcx-fam-warn);
+}
+
+.fcx-dv-bad {
+    box-shadow: inset 3px 0 0 var(--fcx-fam-bad);
+    background: rgba(var(--fcx-fam-bad-rgb), .05);
+}
+
+.fcx-dv-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.fcx-dv-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.fcx-dv-split {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.fcx-dv-id {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--fcx-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.fcx-dv-value {
+    font-size: 14px;
+    color: var(--fcx-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.fcx-dv-strong {
+    font-weight: 500;
+}
+
+.fcx-dv-soft {
+    color: var(--fcx-mute);
+}
+
+.fcx-dv-quiet {
+    color: var(--fcx-mute-3);
+}
+
+.fcx-dv-warn-text {
+    color: var(--fcx-fam-warn);
+}
+
+.fcx-dv-bad-text {
+    color: var(--fcx-fam-bad);
+}
+
+.fcx-dv-sub {
+    font-size: 12px;
+    color: var(--fcx-mute-3);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+/* The column name, shown in the cell only once the header row is hidden. */
+.fcx-dv-label {
+    display: none;
+    font-size: 11px;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-dv .fcx-meter {
+    margin-top: 4px;
+}
+
+/* A day that is not open: drawn as an outline so "closed" never reads as a fault.
+   Doubled up to outrank .fcx-dot, which comes later in this sheet. */
+.fcx-dot.fcx-dot-hollow {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--fcx-mute-3);
+}
+
+.fcx-dv-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.fcx-dv-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fcx-mute);
+}
+
+.fcx-dv-note > i {
+    flex: none;
+    margin-top: 1px;
+}
+
+.fcx-dv-note strong {
+    font-weight: 600;
+    color: var(--fcx-ink);
+}
+
+.fcx-dv-note-warn > i {
+    color: var(--fcx-fam-warn);
+}
+
+.fcx-dv-note-bad > i {
+    color: var(--fcx-fam-bad);
+}
+
+.fcx-dv-details {
+    margin-top: 6px;
+}
+
+.fcx-dv-details summary {
+    cursor: pointer;
+    width: fit-content;
+    font-size: 12px;
+    color: var(--fcx-accent);
+}
+
+.fcx-dv-details pre {
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--fcx-recess);
+    box-shadow: inset 0 0 0 1px var(--fcx-rule);
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--fcx-mute-3);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.fcx-dv-footer {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: var(--noct-s4);
+    padding: 12px var(--noct-s6);
+    border-radius: var(--fcx-radius);
+    box-shadow: var(--fcx-ring);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fcx-mute);
+}
+
+.fcx-dv-footer > i {
+    flex: none;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-dv-footer strong {
+    font-weight: 600;
+    color: var(--fcx-ink);
+}
+
+.fcx-dv-footer ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
 /* ── Tags ─────────────────────────────────────────────────────────────────── */
 
 .fcx-tag {
@@ -945,6 +1209,33 @@
 
     .fcx-devices {
         grid-template-columns: 1fr;
+    }
+
+    /* The ledger folds to two cells a row with the device across the top, and
+       each cell names its own column once the header row is gone. */
+    .fcx-dv-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .fcx-dv-head {
+        display: none;
+    }
+
+    .fcx-dv {
+        padding: 14px var(--noct-s6);
+    }
+
+    .fcx-dv-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px var(--noct-s6);
+    }
+
+    .fcx-dv-row > .fcx-dv-cell:first-child {
+        grid-column: 1 / -1;
+    }
+
+    .fcx-dv-label {
+        display: block;
     }
 
     .fcx-filters {
