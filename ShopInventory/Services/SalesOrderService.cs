@@ -780,7 +780,13 @@ public class SalesOrderService : ISalesOrderService
             if (queueEntry.PricesResolvedAt == null)
             {
                 await ResolveMobileOrderPricesAsync(order, cancellationToken);
-                await RecordMobileOrderCreditPositionAsync(order, cancellationToken);
+
+                // A van order is not held on credit (see IsVanSalesOrderAsync), so a "held on credit"
+                // note on it would be false.
+                if (!queueEntry.AutoPostToSap)
+                {
+                    await RecordMobileOrderCreditPositionAsync(order, cancellationToken);
+                }
 
                 queueEntry.PricesResolvedAt = DateTime.UtcNow;
                 queueEntry.LastError = null;
@@ -841,17 +847,16 @@ public class SalesOrderService : ISalesOrderService
 
     /// <summary>
     /// Approves a freshly priced van sales order and posts it to SAP, through the same path a web
-    /// approval takes — the credit gate, the posting lock and the duplicate guards included.
+    /// approval takes — the posting lock and the duplicate guards included, but not the credit gate
+    /// (see <see cref="IsVanSalesOrderAsync"/>).
     /// </summary>
     /// <remarks>
     /// The point is the invoice that follows. A van converts the order into an invoice, and that
     /// invoice can only be based on the order in SAP if the order is already there.
     ///
-    /// A credit refusal finishes the stage rather than failing it: the approval has already written
-    /// the refusal onto the order's <c>SyncError</c>, the order stays Pending, and approving it on the
-    /// web once the account is inside its limit is the way forward. Retrying here would only ask SAP
-    /// the same question five times. Any other failure is thrown, so the queue retries it with backoff
-    /// and a persistent one reaches the exception centre.
+    /// A failure is thrown, so the queue retries it with backoff and a persistent one reaches the
+    /// exception centre. The credit catch below is for an order the queue no longer recognises as a
+    /// van order — it finishes the stage rather than asking the same question five times.
     /// </remarks>
     private async Task AutoPostMobileOrderAsync(SalesOrderEntity order, CancellationToken cancellationToken)
     {
@@ -1791,7 +1796,12 @@ public class SalesOrderService : ISalesOrderService
         // carries its real prices — a mobile order is priced after capture, so this is the first
         // moment its true value is known. It sits after the already-linked check on purpose, so
         // reconciling an order SAP has already accepted cannot be refused on credit.
-        await EnsureWithinCreditLimitAsync(order.CardCode, order.DocTotal, cancellationToken);
+        //
+        // Van sales orders are exempt, whoever approves them — see IsVanSalesOrderAsync.
+        if (!await IsVanSalesOrderAsync(order.Id, cancellationToken))
+        {
+            await EnsureWithinCreditLimitAsync(order.CardCode, order.DocTotal, cancellationToken);
+        }
 
         var sapPostingMarkerRequest = new { orderNumber = order.OrderNumber };
         long? idempotencyRequestId = null;
@@ -2814,6 +2824,30 @@ public class SalesOrderService : ISalesOrderService
                 originalException?.GetType().Name ?? "a database update failure");
         }
     }
+
+    /// <summary>
+    /// Whether the order was raised by the van sales app, which is what makes it post to SAP without
+    /// an approval and without the credit gate.
+    /// </summary>
+    /// <remarks>
+    /// The marker is the post-save queue entry's <c>AutoPostToSap</c>, written in the same transaction
+    /// as the order and only by the van sales handler — the order row itself carries nothing that says
+    /// so reliably.
+    /// <para>
+    /// No credit gate, because a van order is posted against the van's own business partner, not the
+    /// shop's, so the limit it would be measured against is the van's running balance, and holding
+    /// the order Pending strands the invoice the van is about to raise against it. Decided 2026-10-01.
+    /// SAP itself still refuses an invoice for an account over its limit.
+    /// </para>
+    /// <para>
+    /// Answered from the queue on every post rather than from the auto-post path alone, so a van order
+    /// someone approves by hand after the queue gave up on it is not refused on credit there instead.
+    /// </para>
+    /// </remarks>
+    internal Task<bool> IsVanSalesOrderAsync(int orderId, CancellationToken cancellationToken) =>
+        _context.MobileOrderPostProcessingQueue
+            .AsNoTracking()
+            .AnyAsync(q => q.SalesOrderId == orderId && q.AutoPostToSap, cancellationToken);
 
     internal static bool CanPostToSap(SalesOrderStatus status) =>
         status is SalesOrderStatus.Draft

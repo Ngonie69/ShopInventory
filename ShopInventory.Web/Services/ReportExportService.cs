@@ -44,6 +44,7 @@ public interface IReportExportService
     byte[] ExportVanAttendanceReportToExcel(VanVisitReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
 
     byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
+    byte[] ExportAdrPerformanceToExcel(AdrPerformanceReportResponse report);
 
     byte[] ExportVanSalesCoverageToExcel(VanSalesCoverageReportResponse report);
 
@@ -5114,6 +5115,123 @@ public partial class ReportExportService : IReportExportService
         BuildVanPerformanceDropSheet(workbook, report, now);
 
         return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// The ADR report: the group's contribution first, then the league table. Money stays text per
+    /// currency, for the reason given above the van performance export.
+    /// </summary>
+    public byte[] ExportAdrPerformanceToExcel(AdrPerformanceReportResponse report)
+    {
+        using var workbook = NewWorkbook("ADR Performance");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildAdrContributionSheet(workbook, report, now);
+        BuildAdrLeagueSheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildAdrContributionSheet(
+        XLWorkbook workbook,
+        AdrPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Contribution");
+        TsApplyDefaults(ws);
+
+        var period = $"ADR PERFORMANCE  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        var overall = report.Overall;
+        var leadOrders = overall.Orders.FirstOrDefault();
+        var leadSales = overall.Sales.FirstOrDefault();
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("ADRs Active", $"{overall.ActiveAdrCount:N0} of {overall.AdrCount:N0}", null),
+            ("Orders", overall.OrderCounts.Total.ToString("N0"), null),
+            ("In SAP", overall.OrderCounts.InSap.ToString("N0"), null),
+            ("Not Yet In SAP", overall.OrderCounts.Pending.ToString("N0"), null),
+            ("Share of Orders", leadOrders is null ? "—" : $"{RateText(leadOrders.Share)} {leadOrders.Currency}", null),
+            ("Share of Sales", leadSales is null ? "—" : $"{RateText(leadSales.Share)} {leadSales.Currency}", null));
+
+        TsSectionTitle(ws, row, lastCol, "ADR CONTRIBUTION TO ALL VANS");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Measure", "Currency", "ADR Documents", "ADR Value", "All Van Documents", "All Van Value", "ADR Share"]);
+
+        int index = 0;
+        foreach (var (measure, contribution) in overall.Orders.Select(c => ("Sales orders", c))
+                     .Concat(overall.Sales.Select(c => ("Van sales", c))))
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = measure;
+            ws.Cell(row, 2).Value = contribution.Currency;
+            ws.Cell(row, 3).Value = contribution.AdrDocumentCount;
+            ws.Cell(row, 4).Value = contribution.AdrGross;
+            ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 5).Value = contribution.VanDocumentCount;
+            ws.Cell(row, 6).Value = contribution.VanGross;
+            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 7).Value = RateText(contribution.Share);
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildAdrLeagueSheet(
+        XLWorkbook workbook,
+        AdrPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 14;
+        var ws = workbook.Worksheets.Add("ADRs");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "ADR LEAGUE TABLE", lastCol, now);
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "ADR", "Van Account", "Days Active", "Orders", "In SAP", "Fulfilled", "Not Yet In SAP",
+            "Cancelled", "Shops Ordered For", "Order Value", "Sales Value", "Shops Sold To",
+            "Share of Orders", "Share of Sales"
+        ]);
+
+        int index = 0;
+        foreach (var adr in report.Adrs)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = adr.IsActive ? adr.DisplayName : $"{adr.DisplayName} (inactive)";
+            ws.Cell(row, 2).Value = adr.VanAccountCode ?? "—";
+            ws.Cell(row, 3).Value = adr.ActiveDays;
+            ws.Cell(row, 4).Value = adr.OrderCounts.Total;
+            ws.Cell(row, 5).Value = adr.OrderCounts.InSap;
+            ws.Cell(row, 6).Value = adr.OrderCounts.Fulfilled;
+            ws.Cell(row, 7).Value = adr.OrderCounts.Pending;
+            ws.Cell(row, 8).Value = adr.OrderCounts.Cancelled;
+            ws.Cell(row, 9).Value = adr.OrderCustomerCount;
+            ws.Cell(row, 10).Value = MoneyText(adr.OrderTotalsByCurrency);
+            ws.Cell(row, 11).Value = MoneyText(adr.SalesTotalsByCurrency);
+            ws.Cell(row, 12).Value = adr.SaleCustomerCount;
+            ws.Cell(row, 13).Value = AdrShareText(adr.Shares, share => share.OrderShare);
+            ws.Cell(row, 14).Value = AdrShareText(adr.Shares, share => share.SalesShare);
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static string AdrShareText(List<AdrShare> shares, Func<AdrShare, double?> pick)
+    {
+        var parts = shares
+            .Where(share => pick(share) is not null)
+            .Select(share => $"{RateText(pick(share))} {share.Currency}")
+            .ToList();
+
+        return parts.Count == 0 ? "—" : string.Join(", ", parts);
     }
 
     private static void BuildVanPerformanceOverviewSheet(
