@@ -131,7 +131,11 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// </summary>
     /// <param name="fromDate">First CAT trading day, inclusive. Defaults to 30 days ago.</param>
     /// <param name="toDate">Last CAT trading day, inclusive. Defaults to today.</param>
-    /// <param name="userId">Narrows the rows to one ADR; the shares stay measured against every van.</param>
+    /// <param name="userId">
+    /// Narrows the rows to one ADR and adds their shops, items and orders; the shares stay measured
+    /// against every van.
+    /// </param>
+    /// <param name="topItems">How many of the one ADR's items to rank. Zero or less returns all of them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("adr-performance-report")]
     [RequirePermission(Permission.ViewVanSalesAttendance)]
@@ -141,6 +145,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
         [FromQuery] Guid? userId = null,
+        [FromQuery] int topItems = 25,
         CancellationToken cancellationToken = default)
     {
         var today = AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -149,7 +154,8 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             new GetAdrPerformanceReportQuery(
                 fromDate?.Date ?? today.AddDays(-30),
                 toDate?.Date ?? today,
-                userId),
+                userId,
+                topItems),
             cancellationToken);
 
         return result.Match(

@@ -21,7 +21,8 @@ public interface IVanSalesReportService
     Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
-        Guid? userId = null);
+        Guid? userId = null,
+        int topItems = 25);
 
     Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
         DateTime? fromDate = null,
@@ -169,12 +170,13 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
     public async Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
-        Guid? userId = null)
+        Guid? userId = null,
+        int topItems = 25)
     {
         try
         {
             // Dates only: these are CAT trading days, not instants.
-            var queryParams = new List<string>();
+            var queryParams = new List<string> { $"topItems={topItems}" };
 
             if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
             if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");

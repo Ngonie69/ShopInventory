@@ -4155,3 +4155,31 @@
     color: var(--vs-warn);
     font-weight: 600;
 }
+
+/* The ADRs' own row among everyone who raised orders. */
+.vs .vsadr-self td {
+    background: rgba(var(--vs-accent-rgb), 0.08);
+}
+
+.vs .vsadr-self td:first-child {
+    box-shadow: inset 3px 0 0 var(--vs-accent);
+}
+
+/* A cancelled order stays in the list, struck through: it was raised, and
+   losing it is part of the record. */
+.vs .vsadr-cancelled td {
+    color: var(--vs-mute-3);
+    text-decoration: line-through;
+}
+
+.vs .vsadr-cancelled td .vs-chip {
+    text-decoration: none;
+}
+
+.vs .vsadr-share-cell {
+    min-width: 140px;
+}
+
+.vs .vsadr-share + .vsadr-share {
+    margin-top: 0.4rem;
+}
