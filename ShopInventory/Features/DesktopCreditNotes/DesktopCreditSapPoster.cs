@@ -492,6 +492,8 @@ public sealed class DesktopCreditSapPoster(
             // Server-set, as on every other path: it is the only thing in SAP that identifies this memo
             // as this credit's, and a caller must never be able to name it.
             SapReference = note.SapReference,
+            // The DCN- number the platform filed the credit under, so it can find this memo by it.
+            FiscalReference = note.Number,
             Lines = lines
         };
     }

@@ -356,6 +356,25 @@ public class CreateCreditNoteRequest
     [System.Text.Json.Serialization.JsonIgnore]
     public string? SapReference { get; set; }
 
+    /// <summary>
+    /// The invoice number the credit was fiscalised under, written into SAP's <c>U_Van_saleorder</c>
+    /// on a credit note this system fiscalised before raising it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fiscalisation platform links a receipt it filed to its SAP document by this field, as it does
+    /// for a till invoice. Without it, Credit Note Tracking shows such a credit as "Not in SAP yet" even
+    /// after its memo has posted. <see cref="SapReference"/> already holds the same value, but in
+    /// <c>NumAtCard</c>, which the platform does not search.
+    /// </para>
+    /// <para>
+    /// Server-set and never bound, for the same reason as <see cref="SapReference"/>. Left out of the
+    /// SAP payload when null, so a credit note SAP fiscalises after it posts carries nothing here.
+    /// </para>
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? FiscalReference { get; set; }
+
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
     public List<CreateCreditNoteLineRequest> Lines { get; set; } = new();

@@ -113,8 +113,9 @@ raises the memo the moment the invoice exists. A sweep behind that catches what 
 sale adopted rather than posted, a process that died between the two, and any memo SAP refused.
 
 The memo is based on the invoice line by line. It credits only the lines and quantities the credit
-names, and carries the credit's `DCN-` number in `NumAtCard` so a retry finds a memo whose reply was
-lost rather than raising a second.
+names, and carries the credit's `DCN-` number in two places. `NumAtCard` lets a retry find a memo
+whose reply was lost rather than raising a second. `U_Van_saleorder` lets the fiscalisation platform
+link the credit it filed to this memo, so Credit Note Tracking shows the memo's DocNum.
 
 Basing a line on the invoice does **not** make SAP take its batches: a batch-managed line that names
 none is refused ("Cannot add row without complete selection of batch/serial numbers") and the whole

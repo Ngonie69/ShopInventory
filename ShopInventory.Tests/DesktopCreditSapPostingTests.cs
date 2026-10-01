@@ -173,6 +173,25 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         Assert.Equal(DesktopCreditSapStatuses.Posted, (await Reload(note.Id)).SapStatus);
     }
 
+    /// <remarks>
+    /// The fiscalisation platform finds the SAP memo of a credit it filed by the credit's own invoice
+    /// number in <c>U_Van_saleorder</c>. With only <c>NumAtCard</c> set, Credit Note Tracking showed a
+    /// posted memo as "Not in SAP yet".
+    /// </remarks>
+    [Fact]
+    public async Task The_memo_carries_the_credits_fiscal_number_for_the_platform_to_find_it_by()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 772109);
+        var note = await GivenCreditAsync(sale);
+        Assert.StartsWith("DCN-", note.Number);
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        var request = Assert.Single(_sap.Created);
+        Assert.Equal(note.Number, request.FiscalReference);
+        Assert.Equal(note.Number, request.SapReference);
+    }
+
     // ── Partial credits ──────────────────────────────────────────────────
 
     [Fact]

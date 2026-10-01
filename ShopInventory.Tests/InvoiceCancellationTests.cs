@@ -90,6 +90,42 @@ public sealed class InvoiceCancellationTests
         Assert.False(sap.LineHasProperty("CreditNotes", lineIndex: 0, "U_Reasons"));
     }
 
+    /// <remarks>
+    /// The fiscalisation platform links a credit it filed to its SAP memo by <c>U_Van_saleorder</c>.
+    /// A credit SAP fiscalises after it posts has no such number, and must not send an empty one.
+    /// </remarks>
+    [Theory]
+    [InlineData(4242)]
+    [InlineData(null)]
+    public async Task A_credit_fiscalised_first_carries_its_fiscal_number_and_any_other_leaves_it_out(int? baseEntry)
+    {
+        var fiscalised = new ReasonAwareServiceLayer();
+        await CreateClient(fiscalised).CreateCreditNoteAsync(new CreateCreditNoteRequest
+        {
+            CardCode = "C-1",
+            Reason = "Wrongly Invoiced",
+            OriginalInvoiceDocEntry = baseEntry,
+            SapReference = "DCN-2fa124f61309442981e8b881b2603fc2",
+            FiscalReference = "DCN-2fa124f61309442981e8b881b2603fc2",
+            Lines = [new() { ItemCode = "ITEM-A", Quantity = 1, UnitPrice = 1m, OriginalInvoiceLineId = 0 }]
+        });
+
+        Assert.Equal("DCN-2fa124f61309442981e8b881b2603fc2", fiscalised.HeaderText("CreditNotes", "U_Van_saleorder"));
+        Assert.Equal("DCN-2fa124f61309442981e8b881b2603fc2", fiscalised.HeaderText("CreditNotes", "NumAtCard"));
+
+        var plain = new ReasonAwareServiceLayer();
+        await CreateClient(plain).CreateCreditNoteAsync(new CreateCreditNoteRequest
+        {
+            CardCode = "C-1",
+            Reason = "Crates back",
+            OriginalInvoiceDocEntry = baseEntry,
+            SapReference = "CN-abc",
+            Lines = [new() { ItemCode = "ITEM-A", Quantity = 1, UnitPrice = 1m, OriginalInvoiceLineId = 0 }]
+        });
+
+        Assert.False(plain.HeaderHasProperty("CreditNotes", "U_Van_saleorder"));
+    }
+
     [Fact]
     public async Task Reasons_are_found_by_field_name_not_by_a_field_id()
     {
@@ -219,6 +255,18 @@ public sealed class InvoiceCancellationTests
                 .EnumerateArray()
                 .Select(line => line.GetProperty("U_Reasons").GetString()!)
                 .ToList();
+        }
+
+        public string? HeaderText(string resource, string propertyName)
+        {
+            using var document = JsonDocument.Parse(_posted[resource]);
+            return document.RootElement.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+        }
+
+        public bool HeaderHasProperty(string resource, string propertyName)
+        {
+            using var document = JsonDocument.Parse(_posted[resource]);
+            return document.RootElement.TryGetProperty(propertyName, out _);
         }
 
         public bool LineHasProperty(string resource, int lineIndex, string propertyName)
