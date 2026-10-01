@@ -18,6 +18,11 @@ public interface IVanSalesReportService
         string? routeCode = null,
         int topItems = 50);
 
+    Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        Guid? userId = null);
+
     Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
@@ -90,7 +95,8 @@ public interface IVanSalesReportService
 /// way for this codebase to break quietly: a route that no longer exists returns 404, the catch below
 /// swallows it, and the page reports "no data" as though the vans had a quiet month. Both paths are
 /// checked against <c>VanSalesReportController</c> — <c>api/van-sales/compliance-report</c>,
-/// <c>api/van-sales/performance-report</c>, <c>api/van-sales/coverage-report</c>,
+/// <c>api/van-sales/performance-report</c>, <c>api/van-sales/adr-performance-report</c>,
+/// <c>api/van-sales/coverage-report</c>,
 /// <c>api/van-sales/replenishment-report</c>, <c>api/van-sales/stock-report</c> and
 /// <c>api/van-sales/routes</c>, <c>api/van-sales/route-stops</c>,
 /// <c>api/van-sales/route-stops/reorder</c>, <c>api/van-sales/telematics/vehicles</c>,
@@ -156,6 +162,33 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching the van sales performance report");
+            return null;
+        }
+    }
+
+    public async Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        Guid? userId = null)
+    {
+        try
+        {
+            // Dates only: these are CAT trading days, not instants.
+            var queryParams = new List<string>();
+
+            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+
+            var url = queryParams.Count > 0
+                ? $"api/van-sales/adr-performance-report?{string.Join("&", queryParams)}"
+                : "api/van-sales/adr-performance-report";
+
+            return await httpClient.GetFromJsonAsync<AdrPerformanceReportResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the ADR performance report");
             return null;
         }
     }

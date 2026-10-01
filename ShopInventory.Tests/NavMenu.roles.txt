@@ -127,6 +127,7 @@ Van Sales
 Van Reports
     Van Activity  /van-sales/activity
     Sales Performance  /van-sales/reports/performance
+    ADR Performance  /van-sales/reports/adr-performance
     Sales Breakdown  /van-sales/reports/sales-breakdown
     Coverage & Outlets  /van-sales/reports/coverage
     Van Stock  /van-sales/reports/stock
@@ -331,6 +332,7 @@ Van Sales
 Van Reports
     Van Activity  /van-sales/activity
     Sales Performance  /van-sales/reports/performance
+    ADR Performance  /van-sales/reports/adr-performance
     Sales Breakdown  /van-sales/reports/sales-breakdown
     Coverage & Outlets  /van-sales/reports/coverage
     Van Stock  /van-sales/reports/stock

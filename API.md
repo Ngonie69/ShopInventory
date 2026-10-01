@@ -3489,6 +3489,7 @@ handlers and are not recorded twice.
 |--------|----------|------------|-------------|
 | GET | `/api/van-sales/compliance-report` | `vansales.attendance.view` | Departure compliance: a row per rep per trading day |
 | GET | `/api/van-sales/performance-report` | `vansales.attendance.view` | What sold, by territory and route, by rep, by item, over time |
+| GET | `/api/van-sales/adr-performance-report` | `vansales.attendance.view` | Each ADR's sales orders and van sales, and the ADRs' share of every van's |
 | GET | `/api/van-sales/sales-analysis` | `vansales.attendance.view` | The sales breakdown for the vans: takings by tender, day, hour, van, customer, channel, rep and item |
 | GET | `/api/van-sales/coverage-report` | `vansales.attendance.view` | Who the vans are reaching and who they are losing |
 | GET | `/api/van-sales/replenishment-report` | `vansales.attendance.view` | How well the depots are keeping the vans stocked |
@@ -3721,6 +3722,24 @@ or an untendered sale was reported short by exactly the money they had no way to
 
 **Response:** `VanSalesPerformanceReportResult` — the period cut by territory and route, by rep, by
 item and over time, with the price actually achieved per item and the shape of the drops.
+
+##### GET `/api/van-sales/adr-performance-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `userId` | — | One ADR by id. Narrows the rows only; every share is still measured against every van |
+
+**Response:** `AdrPerformanceReportResult` — `overall` (ADR accounts, how many were active, the ADRs'
+order counts, and per currency the ADRs' order and sales value against every van rep's) and `adrs`, one
+row per ADR: days active, order counts (`inSap`, `fulfilled`, `pending` = not yet in SAP, `cancelled`),
+shops ordered for and sold to, order and sales totals per currency, and per-currency shares. An ADR is a
+user with role `ADR`; "every van" is every `ADR` and `Sales` account. A van sales order is a `Mobile`
+order raised by one of them, dated by the CAT day of `OrderDate`; cancelled and rejected orders are
+counted but carry no value. Sales read through `VanSalesFactReader`, so they match the performance
+report. Orders and sales are never added together — a converted order's invoice is a sale. Inactive
+ADRs are listed only when the period holds something of theirs. Page: `/van-sales/reports/adr-performance`.
 
 ##### GET `/api/van-sales/sales-analysis`
 
@@ -4234,7 +4253,7 @@ of that dialect matter before you call anything here:
 | GET | `/api/vansales/customer/{code}/history` | `customers.view` | What that one shop has bought and still has on order (`from`, `to`). The same detail the office's route customer report reads |
 | GET | `/api/vansales/customer/general-trade` | `customers.view` | Every customer the office has classified as General Trade (`OCRD.U_Channel`), company-wide. The only customer read here that is not scoped to the caller's route, so the handler admits `Admin` and `StockController` only. Carries `customers.view` rather than `invoices.view` because a stock controller holds the first and not the second |
 | GET | `/api/vansales/customer/{code}/invoices` | `customers.view` | Every invoice SAP holds against one customer, whoever raised it (`from`, `to`, `page`, `pageSize`). Distinct from `{code}/history` above, which answers for a shop on the caller's own route out of this platform's tables; this reads SAP and is not route-scoped. Same two roles |
-| POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order. Posted to SAP by the post-save queue once priced, without waiting for approval on the web; an order over its credit limit stays Pending for web approval |
+| POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order. Posted to SAP by the post-save queue once priced, without waiting for approval on the web and without the credit-limit gate — it posts against the van's own account, and SAP still blocks an invoice for an account over its limit. One that SAP refuses five times stays Pending and reaches the Exception Center |
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
 | GET | `/api/vansales/sale/{vanOrder}` | `invoices.view` | Whether the sale posted under that `van_order` landed, for a handset whose `POST order` lost its reply: sale number, receipt, and SAP numbers once the queue has posted it. Read off the sale row, so a sale signed and not yet in SAP is answered — invoice history, which reads SAP, has nothing. **Always `200`**: not found, and another van's sale, are both `found: false`, because the handset reads a `404` as a server without this route. Returned **bare**, not enveloped |

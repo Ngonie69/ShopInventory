@@ -1,0 +1,469 @@
+@page "/van-sales/reports/adr-performance"
+@* Admin and Manager only, like the other van performance reports. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>ADR Performance - Shop Inventory</PageTitle>
+
+@* Each ADR's sales orders and van sales, and what the ADRs together brought in against every van.
+
+   Carried by wwwroot/css/van-sales.css in both schemes: the shared `vs-` chrome, the
+   performance page's `vsp-` tiles and headings (both scoped under `.vs`), and `vsadr-` for
+   the little only this page draws.
+
+   Orders and sales sit side by side and are never added: a van turns an order into an
+   invoice, so their sum would count the same goods twice. Money is per currency, as on
+   every van report, and a share is measured within one currency. *@
+
+<div class="vs vsadr">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">ADR performance</h2>
+            <p class="vs-subtitle">
+                What each ADR ordered and sold over the period, and the ADRs' share of every van's
+                orders and sales.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                Export
+            </button>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsadr-from">From</label>
+                <NocturneDateField Id="vsadr-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsadr-to">To</label>
+                <NocturneDateField Id="vsadr-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-4">
+                <label class="vs-filter-label" for="vsadr-adr">ADR</label>
+                <NocturneSelect Id="vsadr-adr" Class="nsel-block" TValue="string"
+                                Options="AdrFilterOptions" @bind-Value="selectedAdrId"
+                                OnChanged="LoadAsync" AriaLabel="Filter by ADR"
+                                Placeholder="All ADRs" />
+            </div>
+            <div class="col-md-2 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the period…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else if (report.Adrs.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No ADRs to report on</div>
+            <div>No active ADR account, and none with orders or sales in this period.</div>
+        </div>
+    }
+    else
+    {
+        var overall = report.Overall;
+        var leadOrders = overall.Orders.FirstOrDefault();
+        var leadSales = overall.Sales.FirstOrDefault();
+
+        @* The group's tiles stay on screen with one ADR chosen: the ADR's own figures are the
+           panel below, and the comparison is the point of choosing one. *@
+        <div class="vsp-kpis">
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@overall.ActiveAdrCount.ToString("N0")</div>
+                <div class="vsp-kpi-label">ADRs active</div>
+                <div class="vsp-kpi-sub">of @overall.AdrCount.ToString("N0") ADR accounts</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@overall.OrderCounts.Total.ToString("N0")</div>
+                <div class="vsp-kpi-label">Orders captured</div>
+                <div class="vsp-kpi-sub">
+                    @overall.OrderCounts.InSap.ToString("N0") in SAP,
+                    @overall.OrderCounts.Pending.ToString("N0") not yet
+                </div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@AdrMoney(leadOrders)</div>
+                <div class="vsp-kpi-label">Order value</div>
+                <div class="vsp-kpi-sub">@ContributionNote(overall.Orders)</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@Rate(leadOrders?.Share)</div>
+                <div class="vsp-kpi-label">Share of van orders</div>
+                <div class="vsp-kpi-sub">@(leadOrders is null ? "no van orders" : $"of {leadOrders.Currency} {leadOrders.VanGross:N2}")</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@AdrMoney(leadSales)</div>
+                <div class="vsp-kpi-label">Van sales</div>
+                <div class="vsp-kpi-sub">@ContributionNote(overall.Sales)</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@Rate(leadSales?.Share)</div>
+                <div class="vsp-kpi-label">Share of van sales</div>
+                <div class="vsp-kpi-sub">@(leadSales is null ? "no van sales" : $"of {leadSales.Currency} {leadSales.VanGross:N2}")</div>
+            </div>
+        </div>
+
+        @if (SelectedAdr is { } adr)
+        {
+            <h3 class="vsp-heading">@adr.DisplayName</h3>
+            <div class="vsadr-detail">
+                <dl class="vsadr-facts">
+                    <div><dt>Van account</dt><dd>@(adr.VanAccountCode ?? "—")</dd></div>
+                    <div><dt>Account</dt><dd>@(adr.IsActive ? "Active" : "Inactive")</dd></div>
+                    <div><dt>Days active</dt><dd>@adr.ActiveDays.ToString("N0")</dd></div>
+                    <div><dt>Orders</dt><dd>@adr.OrderCounts.Total.ToString("N0")</dd></div>
+                    <div><dt>In SAP</dt><dd>@adr.OrderCounts.InSap.ToString("N0")</dd></div>
+                    <div><dt>Fulfilled</dt><dd>@adr.OrderCounts.Fulfilled.ToString("N0")</dd></div>
+                    <div><dt>Not yet in SAP</dt><dd>@adr.OrderCounts.Pending.ToString("N0")</dd></div>
+                    <div><dt>Cancelled</dt><dd>@adr.OrderCounts.Cancelled.ToString("N0")</dd></div>
+                    <div><dt>Shops ordered for</dt><dd>@adr.OrderCustomerCount.ToString("N0")</dd></div>
+                    <div><dt>Shops sold to</dt><dd>@adr.SaleCustomerCount.ToString("N0")</dd></div>
+                </dl>
+
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Currency</th>
+                                <th class="vs-num">Orders</th>
+                                <th class="vs-num">Order value</th>
+                                <th class="vs-num">Share of van orders</th>
+                                <th class="vs-num">Sales</th>
+                                <th class="vs-num">Sales value</th>
+                                <th class="vs-num">Share of van sales</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var currency in CurrenciesOf(adr))
+                            {
+                                var orders = Find(adr.OrderTotalsByCurrency, currency);
+                                var sales = Find(adr.SalesTotalsByCurrency, currency);
+                                var share = adr.Shares.FirstOrDefault(s => SameCurrency(s.Currency, currency));
+                                <tr>
+                                    <td>@currency</td>
+                                    <td class="vs-num">@(orders?.DocumentCount.ToString("N0") ?? "—")</td>
+                                    <td class="vs-num">@(orders is null ? "—" : orders.Gross.ToString("N2"))</td>
+                                    <td class="vs-num">@ShareCell(share?.OrderShare)</td>
+                                    <td class="vs-num">@(sales?.DocumentCount.ToString("N0") ?? "—")</td>
+                                    <td class="vs-num">@(sales is null ? "—" : sales.Gross.ToString("N2"))</td>
+                                    <td class="vs-num">@ShareCell(share?.SalesShare)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <h3 class="vsp-heading">ADR contribution to all vans</h3>
+        <p class="vsp-note">
+            Every van rep — ADR and Sales accounts — makes up the whole. Cancelled and rejected
+            orders are counted but carry no value.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Measure</th>
+                        <th>Currency</th>
+                        <th class="vs-num">ADRs</th>
+                        <th class="vs-num">ADR value</th>
+                        <th class="vs-num">All vans</th>
+                        <th class="vs-num">All van value</th>
+                        <th class="vs-num">ADR share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var (measure, contribution) in Contributions(overall))
+                    {
+                        <tr>
+                            <td>@measure</td>
+                            <td>@contribution.Currency</td>
+                            <td class="vs-num">@contribution.AdrDocumentCount.ToString("N0")</td>
+                            <td class="vs-num">@contribution.AdrGross.ToString("N2")</td>
+                            <td class="vs-num">@contribution.VanDocumentCount.ToString("N0")</td>
+                            <td class="vs-num">@contribution.VanGross.ToString("N2")</td>
+                            <td class="vs-num">@ShareCell(contribution.Share)</td>
+                        </tr>
+                    }
+                    @if (overall.Orders.Count == 0 && overall.Sales.Count == 0)
+                    {
+                        <tr><td colspan="7" class="vs-metric-none">No van orders or sales in this period.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <h3 class="vsp-heading">ADR league table</h3>
+        <p class="vsp-note">
+            Ranked on sales in the vans' main currency, then orders. Choose an ADR's name to see them
+            on their own. Each share is of every van, in the currency named under it.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>ADR</th>
+                        <th>Van</th>
+                        <th class="vs-num">Days</th>
+                        <th class="vs-num">Orders</th>
+                        <th class="vs-num">In SAP</th>
+                        <th class="vs-num">Fulfilled</th>
+                        <th class="vs-num">Not in SAP</th>
+                        <th class="vs-num">Shops ordered</th>
+                        <th>Order value</th>
+                        <th class="vs-num">Share</th>
+                        <th>Sales value</th>
+                        <th class="vs-num">Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in report.Adrs)
+                    {
+                        <tr>
+                            <td>
+                                <button type="button" class="vsadr-name" @onclick="() => SelectAdrAsync(row.UserId)">
+                                    @row.DisplayName
+                                </button>
+                                @if (!row.IsActive)
+                                {
+                                    <span class="vsp-sub">inactive</span>
+                                }
+                            </td>
+                            <td>@(row.VanAccountCode ?? "—")</td>
+                            <td class="vs-num">@row.ActiveDays.ToString("N0")</td>
+                            <td class="vs-num">@row.OrderCounts.Total.ToString("N0")</td>
+                            <td class="vs-num">@row.OrderCounts.InSap.ToString("N0")</td>
+                            <td class="vs-num">@row.OrderCounts.Fulfilled.ToString("N0")</td>
+                            <td class="vs-num @(row.OrderCounts.Pending > 0 ? "vsadr-warn" : null)">@row.OrderCounts.Pending.ToString("N0")</td>
+                            <td class="vs-num">@row.OrderCustomerCount.ToString("N0")</td>
+                            <td>@MoneyList(row.OrderTotalsByCurrency)</td>
+                            <td class="vs-num">@LeadShareCell(row, row.OrderTotalsByCurrency, share => share.OrderShare)</td>
+                            <td>@MoneyList(row.SalesTotalsByCurrency)</td>
+                            <td class="vs-num">@LeadShareCell(row, row.SalesTotalsByCurrency, share => share.SalesShare)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private AdrPerformanceReportResponse? report;
+
+    /// <summary>
+    /// The ADRs the last unfiltered load held. Kept apart from <see cref="report"/> because a load
+    /// for one ADR returns one row, and building the picker from that would leave nobody else to
+    /// choose.
+    /// </summary>
+    private List<AdrPerformanceRow> adrs = [];
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedAdrId;
+
+    private bool isLoading;
+    private string? loadError;
+
+    private IEnumerable<INocturneSelectOption<string>> AdrFilterOptions =>
+        new[] { NocturneSelectOption.All("All ADRs") }
+            .Concat(adrs
+                .OrderBy(adr => adr.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .Select(adr => new NocturneSelectOption<string>(adr.UserId.ToString("N"), adr.DisplayName)
+                {
+                    Hint = adr.VanAccountCode
+                }));
+
+    private AdrPerformanceRow? SelectedAdr =>
+        Guid.TryParse(selectedAdrId, out var id) ? report?.Adrs.FirstOrDefault(adr => adr.UserId == id) : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // CAT, not the server's clock: a trading day belongs to the van.
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-29);
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private async Task SelectAdrAsync(Guid userId)
+    {
+        selectedAdrId = userId.ToString("N");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            Guid? adrId = Guid.TryParse(selectedAdrId, out var parsed) ? parsed : null;
+
+            report = await VanSalesReportService.GetAdrPerformanceReportAsync(fromDate, toDate, adrId);
+
+            if (report is null)
+            {
+                loadError = "The ADR performance report could not be loaded. Check that the API is reachable.";
+                return;
+            }
+
+            if (adrId is null)
+            {
+                adrs = report.Adrs;
+            }
+            else if (report.Adrs.Count == 0)
+            {
+                // An ADR the new period does not hold would leave the page empty with no reason given.
+                selectedAdrId = null;
+                await LoadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load the ADR performance report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = ExportService.ExportAdrPerformanceToExcel(report);
+            var fileName = $"AdrPerformance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            loadError = $"The export could not be downloaded: {ex.Message}";
+        }
+    }
+
+    // ── Formatting ──────────────────────────────────────────────────────────────
+    //
+    // An em dash for every unavailable value, never a zero standing in for one.
+
+    private static IEnumerable<(string Measure, AdrContribution Contribution)> Contributions(AdrPerformanceOverall overall) =>
+        overall.Orders.Select(contribution => ("Sales orders", contribution))
+            .Concat(overall.Sales.Select(contribution => ("Van sales", contribution)));
+
+    private static string AdrMoney(AdrContribution? contribution) =>
+        contribution is null ? "—" : $"{contribution.Currency} {contribution.AdrGross:N2}";
+
+    /// <summary>Names the other currencies behind a tile that can only show one.</summary>
+    private static string ContributionNote(List<AdrContribution> totals) =>
+        totals.Count switch
+        {
+            0 => "none in this period",
+            1 => $"{totals[0].AdrDocumentCount:N0} documents",
+            _ => $"plus {string.Join(", ", totals.Skip(1).Select(total => $"{total.Currency} {total.AdrGross:N0}"))}"
+        };
+
+    private static string MoneyList(List<VanSalesMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+
+    private static RenderFragment ShareCell(double? share) => builder =>
+    {
+        builder.AddContent(0, Rate(share));
+
+        if (share is { } value)
+        {
+            builder.OpenElement(1, "span");
+            builder.AddAttribute(2, "class", "vs-meter");
+            builder.OpenElement(3, "span");
+            builder.AddAttribute(4, "class", "vs-meter-fill");
+            builder.AddAttribute(5, "style",
+                $"width:{Math.Clamp(value * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture)}%");
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+    };
+
+    /// <summary>
+    /// A league-table share: in the currency the ADR took most in on that measure, and named, because
+    /// an ADR's orders and sales can lead in different currencies. The detail panel shows them all.
+    /// </summary>
+    private static RenderFragment LeadShareCell(
+        AdrPerformanceRow row,
+        List<VanSalesMoney> totals,
+        Func<AdrShare, double?> pick) => builder =>
+    {
+        var lead = totals.FirstOrDefault()?.Currency;
+        var share = lead is null ? null : row.Shares.FirstOrDefault(s => SameCurrency(s.Currency, lead));
+
+        builder.AddContent(0, ShareCell(share is null ? null : pick(share)));
+
+        if (share is not null && pick(share) is not null)
+        {
+            builder.OpenElement(1, "span");
+            builder.AddAttribute(2, "class", "vsp-sub");
+            builder.AddContent(3, lead);
+            builder.CloseElement();
+        }
+    };
+
+    private static IEnumerable<string> CurrenciesOf(AdrPerformanceRow row) =>
+        row.SalesTotalsByCurrency.Select(total => total.Currency)
+            .Concat(row.OrderTotalsByCurrency.Select(total => total.Currency))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .DefaultIfEmpty("USD");
+
+    private static VanSalesMoney? Find(List<VanSalesMoney> totals, string currency) =>
+        totals.FirstOrDefault(total => SameCurrency(total.Currency, currency));
+
+    private static bool SameCurrency(string left, string right) =>
+        string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+}
