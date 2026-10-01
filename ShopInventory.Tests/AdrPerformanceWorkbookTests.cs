@@ -29,7 +29,9 @@ public class AdrPerformanceWorkbookTests
         var contribution = TextOf(workbook.Worksheet("Contribution"));
         Assert.Contains("WHO RAISED THE ORDER BOOK", contribution);
         Assert.Contains("Merchandisers", contribution);
-        Assert.Contains("30% of USD", contribution);
+        // Built with the export's own format rather than written out: "P0" is culture-bound, and the
+        // CI runner writes "30 %" where a desktop writes "30%".
+        Assert.Contains($"{0.3.ToString("P0")} of USD", contribution);
     }
 
     [Fact]
@@ -73,7 +75,7 @@ public class AdrPerformanceWorkbookTests
 
         var header = sheet.CellsUsed().First(cell => cell.GetString() == "Strike Rate").Address;
 
-        Assert.Equal("50%", sheet.Cell(header.RowNumber + 1, header.ColumnNumber).GetFormattedString());
+        Assert.Equal(0.5.ToString("P0"), sheet.Cell(header.RowNumber + 1, header.ColumnNumber).GetFormattedString());
         Assert.Equal("—", sheet.Cell(header.RowNumber + 2, header.ColumnNumber).GetFormattedString());
     }
 
