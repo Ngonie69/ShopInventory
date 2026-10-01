@@ -3489,6 +3489,7 @@ handlers and are not recorded twice.
 |--------|----------|------------|-------------|
 | GET | `/api/van-sales/compliance-report` | `vansales.attendance.view` | Departure compliance: a row per rep per trading day |
 | GET | `/api/van-sales/performance-report` | `vansales.attendance.view` | What sold, by territory and route, by rep, by item, over time |
+| GET | `/api/van-sales/adr-performance-report` | `vansales.attendance.view` | Each ADR's sales orders and van sales, and the ADRs' share of every van's |
 | GET | `/api/van-sales/sales-analysis` | `vansales.attendance.view` | The sales breakdown for the vans: takings by tender, day, hour, van, customer, channel, rep and item |
 | GET | `/api/van-sales/coverage-report` | `vansales.attendance.view` | Who the vans are reaching and who they are losing |
 | GET | `/api/van-sales/replenishment-report` | `vansales.attendance.view` | How well the depots are keeping the vans stocked |
@@ -3693,6 +3694,24 @@ or an untendered sale was reported short by exactly the money they had no way to
 
 **Response:** `VanSalesPerformanceReportResult` — the period cut by territory and route, by rep, by
 item and over time, with the price actually achieved per item and the shape of the drops.
+
+##### GET `/api/van-sales/adr-performance-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `userId` | — | One ADR by id. Narrows the rows only; every share is still measured against every van |
+
+**Response:** `AdrPerformanceReportResult` — `overall` (ADR accounts, how many were active, the ADRs'
+order counts, and per currency the ADRs' order and sales value against every van rep's) and `adrs`, one
+row per ADR: days active, order counts (`inSap`, `fulfilled`, `pending` = not yet in SAP, `cancelled`),
+shops ordered for and sold to, order and sales totals per currency, and per-currency shares. An ADR is a
+user with role `ADR`; "every van" is every `ADR` and `Sales` account. A van sales order is a `Mobile`
+order raised by one of them, dated by the CAT day of `OrderDate`; cancelled and rejected orders are
+counted but carry no value. Sales read through `VanSalesFactReader`, so they match the performance
+report. Orders and sales are never added together — a converted order's invoice is a sale. Inactive
+ADRs are listed only when the period holds something of theirs. Page: `/van-sales/reports/adr-performance`.
 
 ##### GET `/api/van-sales/sales-analysis`
 

@@ -18,6 +18,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Models;
@@ -118,6 +119,37 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 userId,
                 routeCode,
                 topItems),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Each ADR's sales orders and van sales over a period, and the ADRs' share of every van's.
+    /// </summary>
+    /// <param name="fromDate">First CAT trading day, inclusive. Defaults to 30 days ago.</param>
+    /// <param name="toDate">Last CAT trading day, inclusive. Defaults to today.</param>
+    /// <param name="userId">Narrows the rows to one ADR; the shares stay measured against every van.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("adr-performance-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(AdrPerformanceReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetAdrPerformanceReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] Guid? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetAdrPerformanceReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                userId),
             cancellationToken);
 
         return result.Match(
