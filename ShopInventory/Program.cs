@@ -1101,8 +1101,11 @@ try
     builder.Services.AddScoped<FiscalizationService>();
     builder.Services.AddScoped<RevmaxFiscalizationService>();
     builder.Services.AddScoped<RevmaxHistoryFiscalizationService>();
+    // A till credit is filed where its original was: the router asks the platform, then REVMax.
+    builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.RevmaxDesktopCreditGateway>();
+    builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.PlatformDesktopCreditGateway>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditFiscalGateway,
-        ShopInventory.Features.DesktopCreditNotes.RevmaxDesktopCreditGateway>();
+        ShopInventory.Features.DesktopCreditNotes.DesktopCreditFiscalRouter>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditExternalCredits,
         ShopInventory.Features.DesktopCreditNotes.DesktopCreditExternalCredits>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditFiscalDays,

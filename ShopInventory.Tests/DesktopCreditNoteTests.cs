@@ -41,15 +41,8 @@ public sealed class DesktopCreditNoteTests : IDisposable
         db.SaveChanges();
         service = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+            NullLogger<DesktopCreditNoteService>.Instance);
     }
-
-    /// <summary>
-    /// The live provider. Credits are filed on the REVMax device, and the service refuses outright
-    /// under the in-house platform — see <c>RequireCreditableHere</c>.
-    /// </summary>
-    internal static IOptions<FiscalisationSettings> Revmax =>
-        Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Revmax });
 
     /// <summary>
     /// An online van sale this server signed is creditable here, in SAP or not.
@@ -124,41 +117,6 @@ public sealed class DesktopCreditNoteTests : IDisposable
         Assert.Equal(0, gateway.Reads);
     }
 
-    [Fact]
-    public async Task Under_the_platform_REVMax_still_credits_the_sales_it_filed()
-    {
-        // The platform files everything new, but a till sale REVMax signed before the switch can only
-        // be credited on REVMax. The gateway reads the receipt from REVMax, so it is what decides.
-        var platform = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
-            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Platform }),
-            NullLogger<DesktopCreditNoteService>.Instance,
-            revmaxSettings: Options.Create(new RevmaxSettings { Enabled = true }));
-
-        await platform.PrepareAsync(caller, "TILL-123", default);
-
-        Assert.Equal(1, gateway.Reads);
-    }
-
-    [Fact]
-    public async Task Once_REVMax_is_retired_a_till_credit_is_refused_rather_than_reported_as_a_setting()
-    {
-        // There is no platform credit gateway. With REVMax retired nothing here can credit a receipt,
-        // and saying "REVMax must be enabled" would read like a setting somebody could switch back on.
-        var platform = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
-            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Platform }),
-            NullLogger<DesktopCreditNoteService>.Instance,
-            revmaxSettings: Options.Create(new RevmaxSettings { Enabled = false }));
-
-        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => platform.PrepareAsync(caller, "TILL-123", default));
-
-        Assert.Contains("raise the credit note in SAP", refusal.Message);
-        Assert.DoesNotContain("must be enabled", refusal.Message);
-        Assert.Equal(0, gateway.Reads);
-    }
-
     internal static DesktopCreditSource Source() => new("TILL-123", "USD", 100m, 22862, 525, 456, null,
         [new DesktopCreditLine(1, "Original product", 10m, 10m, 7, 15.5m, "O01", "12345678")]);
     private static CreateDesktopCreditRequest Request(decimal quantity = 2m, string? key = null) =>
@@ -199,7 +157,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
 
         var withPrintForms = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance,
+            NullLogger<DesktopCreditNoteService>.Instance,
             printForms: new ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver(
                 db, NullLogger<ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver>.Instance));
 
@@ -267,7 +225,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
             NullLogger<DesktopCreditSapPoster>.Instance);
         var fiscalOnly = new DesktopCreditNoteService(db, gateway, untouched,
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+            NullLogger<DesktopCreditNoteService>.Instance);
 
         var result = await fiscalOnly.CreateAsync(caller, "TILL-123",
             Request() with { PostToSap = false, SaleInSap = true }, default);
@@ -331,7 +289,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+            NullLogger<DesktopCreditNoteService>.Instance);
 
         var result = await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
 
@@ -384,7 +342,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+            NullLogger<DesktopCreditNoteService>.Instance);
 
         var result = await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
 
@@ -453,7 +411,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+            NullLogger<DesktopCreditNoteService>.Instance);
 
         var result = await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
 
@@ -594,7 +552,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 Options.Create(new DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+            NullLogger<DesktopCreditNoteService>.Instance);
 
         await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
     }
@@ -703,7 +661,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
     private DesktopCreditNoteService ServiceWith(IDesktopCreditTillNotifier notifier) =>
         new(db, gateway, DesktopCreditPosters.Idle(db),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            Revmax, NullLogger<DesktopCreditNoteService>.Instance, notifier);
+            NullLogger<DesktopCreditNoteService>.Instance, notifier);
 
     private sealed class RecordingTillNotifier : IDesktopCreditTillNotifier
     {

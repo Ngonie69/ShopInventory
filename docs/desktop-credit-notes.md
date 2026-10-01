@@ -1,7 +1,7 @@
-# Desktop fiscal credit notes (REVMax)
+# Desktop fiscal credit notes
 
 From **Desktop Sales**, open a fiscalised sale and choose **Credit notes**. The form reads the original
-REVMax receipt, shows quantities remaining after saved credits, and accepts quantities, a reason and an
+receipt from the device that filed it, shows quantities remaining after saved credits, and accepts quantities, a reason and an
 optional note. The reason is picked from SAP's own return-reason list, because it becomes each memo
 line's return reason and SAP refuses a value the list does not define; free text is offered only when
 that list cannot be read. The note is printed on the credit receipt after the reason.
@@ -17,6 +17,39 @@ The form has two actions:
     reversing, is the case it was added for. The credit shows *SAP: not raised — fiscalised only*.
 - **Fiscalise and post to SAP** — once the sale is in SAP. The credit is filed with REVMax and the
   credit memo is raised against the invoice in the same request.
+
+Wherever this page says REVMax below, read "the device that filed the sale": see the next section.
+
+## Which device files the credit
+
+A credit can only be filed against its original on the device chain the original sits on, so it goes
+where the sale was filed (`DesktopCreditFiscalRouter`):
+
+- **The fiscalisation platform**, for every sale filed since the switch on 2026-09-30. The platform is
+  asked first, under the sale's pre-SAP invoice number (`SI-` prefix for a numeric reference). If it
+  cannot be asked, the form says so and nothing else is tried.
+- **REVMax**, only when the platform says plainly that it holds nothing, and only while
+  `Revmax:Enabled` is on. Once REVMax is retired, such a sale is refused with "raise the credit note in
+  SAP".
+
+The platform's lookup returns a receipt's header (device, fiscal day, global number, FDMS receipt id,
+currency, total) but not its lines. `PlatformDesktopCreditGateway` rebuilds the lines from the sale
+through the same mapping that filed them — prices, tax ids and rates, HS codes — and accepts them only
+if their rounded line totals add up to the archived receipt total to the cent, which is how the platform
+computes it. If they do not (a tax rate or mapping changed since the sale was filed, say), the form is
+refused and the credit has to be raised in SAP. A line sold at no charge is listed as not offered.
+
+Differences from REVMax on the platform:
+
+- The credit is filed with `/api/receipts/submit` under its `DCN-` number, with `creditDebitNote`
+  naming the original's FDMS receipt id, device, day and global number. The platform assigns the date.
+- The credit takes the sale's partner's document type (48 mm receipt or A4 invoice).
+- The platform is the authority on what the receipt can still take, SAP credit memos included. Credits
+  filed elsewhere are not listed on the form; a credit that would overrun is refused by the platform,
+  nothing is filed, and the credit is released to be created again.
+- A refusal the platform answered with releases the credit. A 5xx other than `FdmsRequestNotSent`, a
+  409, a reply with no problem document or a lost connection leaves it reserved for **Check fiscal
+  status**, which asks the platform for the `DCN-` number and never resubmits.
 
 The API checks the choice against the sale, and against what the form showed: a form read before the
 sale posted cannot post to SAP, and its Fiscalise only is refused rather than silently becoming the
@@ -113,14 +146,14 @@ and `20260912020300_AddDesktopCreditNoteSapPosting`. The second adds the back-of
 backfills every existing credit as `Deferred`, so credits saved before it are picked up and posted
 rather than stranded.
 The migration creates a separate durable credit table and prevents deletion of a referenced sale.
-No change or deployment to the dormant Fiscalisation repository is needed. REVMax must be enabled
-and selected as the fiscal provider. The new endpoints use the existing authenticated API access and
+Under `Fiscalisation:Provider=Platform` the API key needs `receipt.submit` (it already does, for till
+sales). REVMax is needed only for crediting sales it filed. The new endpoints use the existing authenticated API access and
 warehouse scope checks.
 
 Migration metadata can be generated or checked without loading operational credentials by passing
 `-- --metadata-only` to the EF tool. This mode is for metadata commands, not database updates.
 
-Tests use SQLite and stubbed REVMax responses. No live fiscal receipt is issued during verification.
+Tests use SQLite and stubbed REVMax and platform responses. No live fiscal receipt is issued during verification.
 
 ## Finding and chasing credits: `/desktop-credit-notes`
 

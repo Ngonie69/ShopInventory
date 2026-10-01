@@ -228,7 +228,7 @@ The switch is not a clean break, because REVMax still holds everything it filed.
 - A SAP document dated on or before `Revmax:LastFilingDate` is checked against REVMax first. If REVMax holds it, that receipt is adopted. If REVMax cannot answer, the filing is held back with `REVMAX_HISTORY_UNAVAILABLE` rather than risk a second receipt.
 - A pre-SAP retry asks the platform, then REVMax.
 - A status read passes on a platform "not fiscalised" only once REVMax agrees. The platform has never seen REVMax's receipts, so on its own it would record them as "Not Fiscalised" and offer to file them again.
-- A credit note goes to wherever its original lives. The platform refuses an original it has not archived (RCPT032), so a REVMax original is credited on REVMax. Till credit notes (`RevmaxDesktopCreditGateway`) still work for sales REVMax filed.
+- A credit note goes to wherever its original lives. The platform refuses an original it has not archived (RCPT032), so a REVMax original is credited on REVMax. Till credit notes follow the same rule: `DesktopCreditFiscalRouter` asks the platform for the sale's receipt first and credits it there (`PlatformDesktopCreditGateway`), and asks REVMax (`RevmaxDesktopCreditGateway`) only when the platform holds nothing. The platform's lookup carries no lines, so a platform credit rebuilds them from the sale through the mapping that filed them and refuses unless they come to the archived total to the cent.
 
 Setting `Revmax:Enabled` false retires REVMax: the plain platform service takes over and REVMax is never asked again. The cut-over steps are in `docs/operations/revmax-to-platform-cutover.md`.
 

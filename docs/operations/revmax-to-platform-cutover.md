@@ -17,7 +17,7 @@ under *Before merging* is done.
 | A SAP document dated on or before `Revmax:LastFilingDate` | REVMax | Checked on REVMax first. Adopted if REVMax holds it, otherwise filed on the platform |
 | Credit note against a REVMax invoice | REVMax | REVMax |
 | Credit note against a platform invoice | n/a | Platform |
-| Till credit note (desktop credit) | REVMax | REVMax, and only for sales REVMax filed |
+| Till credit note (desktop credit) | REVMax | Where the sale was filed: the platform for its own sales, REVMax for sales REVMax filed |
 | Invoice status read-back | REVMax | Platform, then REVMax |
 | Handset tax table (van lease) | REVMax ids | Platform ids. No handset signs, because the devices are Online |
 
@@ -103,5 +103,7 @@ removes the override again once `Fiscalisation__ApiKey` is set.
 Set `Revmax__Enabled=false` once no REVMax receipt is left to credit and nothing from before the switch is
 pending. The plain platform service takes over and REVMax is never asked again. Do this **before
 21 Nov 2026**, when the licence ends. After that, a credit note against a REVMax invoice is refused
-(RCPT032), because the platform only credits originals in its own archive. Lifting that needs a change
+(RCPT032), because the platform only credits originals in its own archive. Till credit notes on sales
+the platform filed are unaffected; those on REVMax-filed sales are refused with "raise the credit note
+in SAP". Lifting that needs a change
 to the platform that lets it reference a receipt another device filed.

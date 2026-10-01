@@ -1,10 +1,8 @@
 using System.Data;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
-using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Models.Entities;
@@ -15,8 +13,7 @@ namespace ShopInventory.Features.DesktopCreditNotes;
 
 public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCreditFiscalGateway fiscal,
     DesktopCreditSapPoster sapPoster, IAuditService audit,
-    IOptions<FiscalisationSettings> fiscalisationSettings, ILogger<DesktopCreditNoteService> logger,
-    IDesktopCreditTillNotifier? tillNotifier = null, IOptions<RevmaxSettings>? revmaxSettings = null,
+    ILogger<DesktopCreditNoteService> logger, IDesktopCreditTillNotifier? tillNotifier = null,
     IFiscalPrintFormResolver? printForms = null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -110,8 +107,8 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         // The credit follows the original sale's partner: a partner whose till, vending or van sales are
         // 48 mm receipts gets its credits as 48 mm receipts too. Read before the serializable
         // reservation below so it adds nothing to that transaction's read set. It is saved in the plan,
-        // so a retry files the same form. The REVMax gateway has no field for it and lays out its own
-        // document; it takes effect once a credit is filed on the platform.
+        // so a retry files the same form. The platform prints it; the REVMax gateway has no field for it
+        // and lays out its own document.
         var printForm = printForms is null
             ? ReceiptPrintForm.InvoiceA4
             : await printForms.ResolveAsync(sale.SourceSystem, sale.CardCode, ct);
@@ -222,7 +219,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         if (result is null && note.Status == DesktopCreditStatuses.ReconciliationRequired
             && Stored(note) is { } stored && DeviceRefused(stored))
             return await SaveOutcome(note.Id, DesktopCreditStatuses.Rejected, null,
-                $"{stored.Message ?? "The device refused the credit."} REVMax holds no receipt under this number, "
+                $"{stored.Message ?? "The device refused the credit."} The device holds no receipt under this number, "
                 + "so nothing was filed. The credit was released and can be created again.");
         return await MapAsync(note, ct) with { Message = "No receipt was confirmed. The credit remains reserved for reconciliation; nothing was resubmitted." };
     }
@@ -278,12 +275,13 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     /// Refuses the sales this dialog cannot credit, saying which, before anything is prepared.
     /// </summary>
     /// <remarks>
-    /// Both of these already failed — deep inside <c>RevmaxDesktopCreditGateway</c>, several reads in,
-    /// with a message about REVMax returning a different invoice or not being enabled. That is a true
-    /// statement about the plumbing and no help at all to the person holding the goods, who needs to be
-    /// told either where to go instead or that nobody can do this today.
+    /// This used to fail deep inside the gateway, several reads in, with a message about the device
+    /// returning a different invoice. That is a true statement about the plumbing and no help at all to
+    /// the person holding the goods, who needs to be told where to go instead. Which device holds a
+    /// receipt this server signed is the gateway's question, not this one's — see
+    /// <see cref="DesktopCreditFiscalRouter"/>.
     /// </remarks>
-    private void RequireCreditableHere(DesktopSaleEntity sale)
+    private static void RequireCreditableHere(DesktopSaleEntity sale)
     {
         // Whoever holds the receipt is the only one who can credit it, and on a van sale that is not
         // settled by the source system. An online van row is a receipt carrier either way, but there
@@ -291,8 +289,8 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         //
         //  • This server signed it, before the invoice went anywhere — VanSaleFiscalFirstPoster calls
         //    FiscalizePreSapInvoiceAsync under the reservation's own reference, the same call the till
-        //    uses. REVMax then holds the receipt under BuildPreSapInvoiceNo(reference), which is
-        //    exactly the number the gateway below asks for, so this is creditable here and a sale
+        //    uses. The device it was filed on holds the receipt under BuildPreSapInvoiceNo(reference),
+        //    which is exactly the number the gateway asks for, so this is creditable here and a sale
         //    whose invoice SAP has not taken is creditable here too — that is the whole point of
         //    signing first.
         //  • A handset signed it, off its own device's chain, and the row carries the signature so it
@@ -305,20 +303,6 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
                 "This sale's receipt was signed on the handset's own fiscal device, so the credit has to "
                 + "be filed on that device's chain and nothing on this server can write to it. Credit it "
                 + "on the handset.");
-        }
-
-        // No platform credit gateway exists. Program.cs registers only the REVMax one. After the switch
-        // to the platform, REVMax still credits the receipts it filed for as long as Revmax:Enabled
-        // stays on. The gateway asks REVMax for this sale's receipt, so a sale filed on the platform is
-        // refused there, with a message saying so. Once REVMax is retired nothing here can credit a
-        // receipt. That is said plainly rather than as "REVMax must be enabled", which reads like a
-        // setting somebody could go and switch on.
-        if (fiscalisationSettings.Value.UsesPlatform && !(revmaxSettings?.Value ?? new RevmaxSettings()).Enabled)
-        {
-            throw new InvalidOperationException(
-                "Till credit notes are filed on the REVMax device, and REVMax has been retired now that "
-                + "the fiscalisation platform files everything. Nothing here can credit a receipt — "
-                + "raise the credit note in SAP.");
         }
     }
 
