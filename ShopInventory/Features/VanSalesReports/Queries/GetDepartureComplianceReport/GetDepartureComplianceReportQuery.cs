@@ -135,6 +135,7 @@ public sealed record DepartureComplianceDayDto(
     int PlannedCustomerCount,
     int CustomersVisited,
     int ProductiveCalls,
+    int PcrCalls,
 
     int? RtiOut,
     int? RtiReturned,
@@ -178,9 +179,13 @@ public sealed record DepartureComplianceDayDto(
     /// Productive calls over calls made — how many of the visits the rep actually made produced a
     /// sale. Measured against visits rather than against the plan on purpose: this is the rep's
     /// conversion on the doors they got to, and the doors they missed are already counted by the CCR.
+    ///
+    /// The calls are <see cref="PcrCalls"/>, not <see cref="CustomersVisited"/>: a shop that bought
+    /// was called on whether or not the rep checked in, so the rate cannot pass 100%. Null on a day
+    /// with no check-ins, where <see cref="PcrCalls"/> is zero.
     /// </summary>
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)ProductiveCalls / PcrCalls : null;
 
     /// <summary>Average order value: takings over the calls that bought, not over every call.</summary>
     public decimal? AverageOrderValue =>
@@ -291,6 +296,8 @@ public sealed record DepartureComplianceSummary(
     int PlannedCustomerCount,
     int CustomersVisited,
     int ProductiveCalls,
+    int PcrProductiveCalls,
+    int PcrCalls,
     decimal TotalSales,
     int NewCustomers,
     int? KilometresTravelled
@@ -299,8 +306,9 @@ public sealed record DepartureComplianceSummary(
     public double? CallComplianceRate =>
         PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
 
+    /// <summary>Over the days with check-ins only, on both sides. See the day's own rate.</summary>
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)PcrProductiveCalls / PcrCalls : null;
 
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(TotalSales / ProductiveCalls, 2) : null;

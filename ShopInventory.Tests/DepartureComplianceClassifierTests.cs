@@ -34,6 +34,7 @@ public class DepartureComplianceClassifierTests
         PlannedCustomerCount = 10,
         CustomersVisited = 10,
         ProductiveCalls = 10,
+        PcrCalls = 10,
         SystemCash = 500m,
         SystemTotalSales = 500m,
         DeclaredCash = 500m
@@ -384,6 +385,7 @@ public class DepartureComplianceClassifierTests
         day.PlannedCustomerCount = 0;
         day.CustomersVisited = 0;
         day.ProductiveCalls = 0;
+        day.PcrCalls = 0;
 
         var gaps = DepartureComplianceClassifier.GapsOf(day);
 

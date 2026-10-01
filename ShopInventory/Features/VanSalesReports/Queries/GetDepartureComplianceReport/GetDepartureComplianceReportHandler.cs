@@ -179,6 +179,14 @@ public sealed class GetDepartureComplianceReportHandler(
             PlannedCustomerCount: day?.PlannedCustomerCount ?? 0,
             CustomersVisited: visit?.CustomersVisited ?? 0,
             ProductiveCalls: sale?.ProductiveCalls ?? 0,
+            // Zero on a day with no check-ins: the PCR has nothing to measure there, and a sale alone
+            // must not make a day look fully productive.
+            PcrCalls: visit is null
+                ? 0
+                : VanSalesMeasures.CountCallsMade(
+                    visit.CheckedInto,
+                    sale?.BoughtCodes ?? [],
+                    sale?.HasUnattributedSale ?? false),
 
             RtiOut: day?.RtiOut,
             RtiReturned: day?.RtiReturned,
@@ -219,6 +227,10 @@ public sealed class GetDepartureComplianceReportHandler(
             PlannedCustomerCount: rows.Sum(row => row.PlannedCustomerCount),
             CustomersVisited: rows.Sum(row => row.CustomersVisited),
             ProductiveCalls: rows.Sum(row => row.ProductiveCalls),
+            // Only the days the PCR could measure, on both sides, or a day of sales with no check-ins
+            // would add buyers on top with no calls beneath them.
+            PcrProductiveCalls: rows.Where(row => row.PcrCalls > 0).Sum(row => row.ProductiveCalls),
+            PcrCalls: rows.Sum(row => row.PcrCalls),
             TotalSales: rows.Sum(row => row.SystemTotalSales),
             NewCustomers: rows.Sum(row => row.NewCustomers),
             KilometresTravelled: kilometres.Count > 0 ? kilometres.Sum() : null);
@@ -398,8 +410,7 @@ public sealed class GetDepartureComplianceReportHandler(
                     group.First().Username,
                     // Distinct, because a rep who checks in twice at one shop made one call.
                     group.Select(entry => entry.CustomerCode)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Count()));
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase)));
     }
 
     /// <summary>
@@ -490,12 +501,17 @@ public sealed class GetDepartureComplianceReportHandler(
 
     private readonly record struct DayKey(Guid UserId, DateTime TradingDate);
 
-    private sealed record VisitTotals(string Username, int CustomersVisited);
+    private sealed record VisitTotals(string Username, HashSet<string> CheckedInto)
+    {
+        public int CustomersVisited => CheckedInto.Count;
+    }
 
     private sealed record UserName(string Username, string? FullName);
 
     private sealed record SaleTotals(
         int ProductiveCalls,
+        IReadOnlyCollection<string> BoughtCodes,
+        bool HasUnattributedSale,
         decimal Cash,
         decimal Ecocash,
         decimal Innbucks,
@@ -563,6 +579,8 @@ public sealed class GetDepartureComplianceReportHandler(
 
         public SaleTotals ToTotals() => new(
             _customers.Count + (_hasUnattributed ? 1 : 0),
+            _customers,
+            _hasUnattributed,
             _cash,
             _ecocash,
             _innbucks,

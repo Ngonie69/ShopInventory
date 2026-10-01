@@ -117,6 +117,12 @@ public class DepartureComplianceDay
     public int CustomersVisited { get; set; }
     public int ProductiveCalls { get; set; }
 
+    /// <summary>
+    /// The PCR's calls: shops checked into plus shops that bought without a check-in. Zero on a day
+    /// with no check-ins at all, which leaves that day without a PCR.
+    /// </summary>
+    public int PcrCalls { get; set; }
+
     public int? RtiOut { get; set; }
     public int? RtiReturned { get; set; }
 
@@ -148,7 +154,7 @@ public class DepartureComplianceDay
         PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
 
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)ProductiveCalls / PcrCalls : null;
 
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;
@@ -228,6 +234,8 @@ public class DepartureComplianceSummary
     public int PlannedCustomerCount { get; set; }
     public int CustomersVisited { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int PcrCalls { get; set; }
     public decimal TotalSales { get; set; }
     public int NewCustomers { get; set; }
     public int? KilometresTravelled { get; set; }
@@ -236,7 +244,7 @@ public class DepartureComplianceSummary
         PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
 
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)PcrProductiveCalls / PcrCalls : null;
 
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(TotalSales / ProductiveCalls, 2) : null;

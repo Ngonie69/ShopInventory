@@ -231,6 +231,8 @@ public sealed class DepartureComplianceMetricsTests
             PlannedCustomerCount: 200,
             CustomersVisited: 198,
             ProductiveCalls: 99,
+            PcrProductiveCalls: 99,
+            PcrCalls: 198,
             TotalSales: 990m,
             NewCustomers: 0,
             KilometresTravelled: 160);
@@ -292,6 +294,8 @@ public sealed class DepartureComplianceMetricsTests
             PlannedCustomerCount: planned,
             CustomersVisited: visited,
             ProductiveCalls: productive,
+            // Every buyer in these fixtures was also checked into, so the PCR's calls are the visits.
+            PcrCalls: visited,
             RtiOut: rtiOut,
             RtiReturned: rtiReturned,
             SystemCash: sales,

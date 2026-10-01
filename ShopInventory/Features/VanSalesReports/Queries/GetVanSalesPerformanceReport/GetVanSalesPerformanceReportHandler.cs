@@ -268,6 +268,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             {
                 var key = group.Key;
                 var dayKeys = group.Select(sale => sale.Key).Distinct().ToList();
+                var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, group, visits);
                 var dayRecords = dayKeys
                     .Select(dayKey => days.TryGetValue(dayKey, out var day) ? day : null)
                     .Where(day => day is not null)
@@ -286,7 +287,9 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(group),
                     CustomerCount: VanSalesMeasures.CountOutletsThatBought(group),
                     KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
-                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group));
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
+                    PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+                    PcrCalls: pcr?.Calls);
             })
             .ToList();
 
@@ -342,6 +345,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             {
                 var userId = group.Key;
                 var dayKeys = group.Select(sale => sale.Key).Distinct().ToList();
+                var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, group, visits);
                 var dayRecords = dayKeys
                     .Select(dayKey => days.TryGetValue(dayKey, out var day) ? day : null)
                     .Where(day => day is not null)
@@ -378,7 +382,9 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     NewOutletsWhoBought: captured is null ? 0 : captured.Count(bought.Contains),
                     ItemCount: itemsByRep.TryGetValue(userId, out var itemCount) ? itemCount : 0,
                     KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
-                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group));
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
+                    PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+                    PcrCalls: pcr?.Calls);
             })
             .OrderByDescending(rep => rep.TotalsByCurrency.Sum(total => total.DocumentCount))
             .ThenBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -728,6 +734,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             .ToList();
 
         var reps = sales.Select(sale => sale.UserId).ToHashSet();
+        var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, sales, visits);
 
         return new VanSalesPerformanceSummaryResult(
             RepCount: reps.Count,
@@ -748,7 +755,9 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 .Where(pair => reps.Contains(pair.Key))
                 .Sum(pair => pair.Value.Count),
             KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
-            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales));
+            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales),
+            PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+            PcrCalls: pcr?.Calls);
     }
 
     private static VanSalesCoverageResult BuildCoverage(

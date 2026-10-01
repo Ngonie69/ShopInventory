@@ -105,6 +105,48 @@ public sealed class DepartureComplianceReportTests : IDisposable
     }
 
     /// <summary>
+    /// Shops that bought without a check-in were still called on. The CCR keeps check-ins over plan,
+    /// so the missing check-ins still count against the rep there — but the PCR counts every buyer as
+    /// a call, and one check-in against three buyers is 100%, not 300%.
+    /// </summary>
+    [Fact]
+    public async Task Buyers_without_a_check_in_count_as_calls_for_the_pcr()
+    {
+        AddDay(plannedCustomers: 10);
+        AddVisit("TUCK01", Utc(8, 30));
+        AddOfflineSale("OFF-1", "TUCK01", total: 40m);
+        AddOfflineSale("OFF-2", "NEW1", total: 20m);
+        AddOfflineSale("OFF-3", "NEW2", total: 20m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var day = Assert.Single(report.Days);
+
+        Assert.Equal(1, day.CustomersVisited);
+        Assert.Equal(3, day.ProductiveCalls);
+        Assert.Equal(3, day.PcrCalls);
+        Assert.Equal(1.0, day.ProductiveCallRate);
+        Assert.Equal(0.1, day.CallComplianceRate);
+        Assert.Equal(1.0, report.Summary.ProductiveCallRate);
+    }
+
+    /// <summary>A day of sales with no check-ins has no PCR, rather than a perfect one.</summary>
+    [Fact]
+    public async Task A_day_with_sales_and_no_check_ins_has_no_pcr()
+    {
+        AddDay(plannedCustomers: 10);
+        AddOfflineSale("OFF-1", "TUCK01", total: 40m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var day = Assert.Single(report.Days);
+
+        Assert.Equal(0, day.PcrCalls);
+        Assert.Null(day.ProductiveCallRate);
+        Assert.Null(report.Summary.ProductiveCallRate);
+    }
+
+    /// <summary>
     /// Sales with no shop on them are one bucket, not one shop each — otherwise the day a handset
     /// stopped reporting shops becomes the busiest the route has ever had.
     /// </summary>

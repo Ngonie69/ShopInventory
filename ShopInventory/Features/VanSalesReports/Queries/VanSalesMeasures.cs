@@ -74,6 +74,81 @@ public static class VanSalesMeasures
         return known.Count == 0 ? null : known.Sum(key => visits[key].Count);
     }
 
+    /// <summary>The two halves of a productive call rate, measured over the same rep-days.</summary>
+    public sealed record ProductiveCallBasis(int ProductiveCalls, int Calls);
+
+    /// <summary>
+    /// The calls one rep-day made, for the PCR's denominator: the shops checked into plus the shops
+    /// that bought without a check-in. Never fewer than the day's productive calls, so the rate it
+    /// divides cannot pass 100%.
+    /// </summary>
+    /// <remarks>
+    /// A sale is proof the rep was at the counter, so a shop that bought was called on whether or not
+    /// the handset recorded the check-in. Dividing by check-ins alone put 34 buying shops over 2
+    /// check-ins and printed a PCR of 1,700%.
+    ///
+    /// This is the PCR's denominator only. The CCR keeps check-ins over plan, because a missed
+    /// check-in is exactly what that rate exists to show.
+    ///
+    /// The unattributed bucket is assumed to be one of the shops checked into, and adds a call only
+    /// when every check-in is already accounted for by a named sale — a van whose sales carry no route
+    /// customer still has its visits carry the code.
+    /// </remarks>
+    public static int CountCallsMade(
+        IEnumerable<string> checkedInto,
+        IReadOnlyCollection<string> boughtCodes,
+        bool hasUnattributedSale)
+    {
+        var called = new HashSet<string>(checkedInto, StringComparer.OrdinalIgnoreCase);
+        var bought = new HashSet<string>(boughtCodes, StringComparer.OrdinalIgnoreCase);
+        called.UnionWith(bought);
+
+        return Math.Max(called.Count, bought.Count + (hasUnattributedSale ? 1 : 0));
+    }
+
+    /// <summary>
+    /// Productive calls over calls made, both counted over the rep-days that have check-ins and only
+    /// those. Null when none of the days has one.
+    /// </summary>
+    /// <remarks>
+    /// Both halves must come from the same days. Counting every day's sales on top while the bottom
+    /// only sees days with check-ins is what let a route with three rep-days and one day of check-ins
+    /// report its whole period's buyers against a single day's calls.
+    /// </remarks>
+    public static ProductiveCallBasis? MeasureProductiveCalls(
+        IEnumerable<VanSalesDayKey> dayKeys,
+        IEnumerable<VanSaleFact> facts,
+        IReadOnlyDictionary<VanSalesDayKey, HashSet<string>> visits)
+    {
+        var salesByDay = facts.ToLookup(fact => fact.Key);
+        var productive = 0;
+        var calls = 0;
+        var measured = false;
+
+        foreach (var key in dayKeys.Distinct())
+        {
+            if (!visits.TryGetValue(key, out var checkedInto))
+            {
+                continue;
+            }
+
+            var daySales = salesByDay[key].ToList();
+            var bought = daySales
+                .Where(fact => fact.RouteCustomerCode is not null)
+                .Select(fact => fact.RouteCustomerCode!)
+                .ToList();
+
+            measured = true;
+            productive += CountProductiveCalls(daySales);
+            calls += CountCallsMade(
+                checkedInto,
+                bought,
+                daySales.Any(fact => fact.RouteCustomerCode is null));
+        }
+
+        return measured ? new ProductiveCallBasis(productive, calls) : null;
+    }
+
     /// <summary>
     /// Distinct shops called on across the period — a different measure from calls, because a shop
     /// visited on Monday and Thursday is two calls and one outlet.

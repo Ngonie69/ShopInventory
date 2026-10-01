@@ -18,6 +18,13 @@ otherwise be surprised.
 
 ### Changed
 
+- **The van sales PCR (strike rate) can no longer pass 100%.** On the performance, coverage and
+  compliance reports, a shop that bought without a check-in now counts as a call. Only rep-days
+  that have check-ins count, on both sides of the rate. Before this, a route printed 1,700%: a
+  whole period's buyers divided by one day's check-ins. CCR is unchanged and still uses check-ins
+  only. The responses gain `pcrCalls`, plus `pcrProductiveCalls` on rows that cover more than one
+  rep-day. The rate is now computed from these two fields, not from `calls` / `customersVisited`.
+
 - **Fiscalisation moves from REVMax to the in-house platform** (`Fiscalisation:Provider=Platform`),
   on the three live Online devices ZIMRA issued in September 2026. Everything new is filed at
   <https://fiscal.kefaloscheese.com/>. REVMax files nothing new, but it stays on (`Revmax:Enabled`) for

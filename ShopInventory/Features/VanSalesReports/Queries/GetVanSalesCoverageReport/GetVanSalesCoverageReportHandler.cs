@@ -455,6 +455,8 @@ public sealed class GetVanSalesCoverageReportHandler(
                     .Distinct()
                     .ToList();
 
+                var pcr = VanSalesMeasures.MeasureProductiveCalls(activeDayKeys, bucketSales, visitsByDay);
+
                 return new VanSalesCoverageTrendPointResult(
                     Label: bucket.Label,
                     BucketStart: start,
@@ -467,7 +469,9 @@ public sealed class GetVanSalesCoverageReportHandler(
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(bucketSales),
                     OutletsBought: VanSalesMeasures.CountOutletsThatBought(bucketSales),
                     DaysWithoutPlan: bucketDays.Count(day => day.PlannedCustomerCount == 0),
-                    RepDaysWithoutRouteDay: activeDayKeys.Count(key => !days.ContainsKey(key)));
+                    RepDaysWithoutRouteDay: activeDayKeys.Count(key => !days.ContainsKey(key)),
+                    PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+                    PcrCalls: pcr?.Calls);
             })
             .ToList();
 
@@ -524,6 +528,8 @@ public sealed class GetVanSalesCoverageReportHandler(
                     .Select(key => days[key])
                     .ToList();
 
+                var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, repSales, visitsByDay);
+
                 var account = rep?.AccountCode;
 
                 // A van selling to real business partners records no shop on its sales at all, so
@@ -578,7 +584,9 @@ public sealed class GetVanSalesCoverageReportHandler(
                     CallsAgainstPlan: CallsOnPlannedDays(planned, visitsByDay),
                     KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
                     EfficiencyByCurrency: BuildEfficiency(repSales, days),
-                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(repSales));
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(repSales),
+                    PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+                    PcrCalls: pcr?.Calls);
             })
             .OrderByDescending(rep => rep.TotalsByCurrency.Sum(total => total.Gross))
             .ThenBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -1092,6 +1100,7 @@ public sealed class GetVanSalesCoverageReportHandler(
             .ToList();
 
         var dayRecords = dayKeys.Where(days.ContainsKey).Select(key => days[key]).ToList();
+        var pcr = VanSalesMeasures.MeasureProductiveCalls(dayKeys, sales, visitsByDay);
 
         // Every departure with a plan, as the trend counts them, so the two cannot disagree.
         var planned = days.Values.Where(day => day.PlannedCustomerCount > 0).ToList();
@@ -1131,7 +1140,9 @@ public sealed class GetVanSalesCoverageReportHandler(
             PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
             CallsAgainstPlan: CallsOnPlannedDays(planned, visitsByDay),
             KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
-            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales));
+            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales),
+            PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+            PcrCalls: pcr?.Calls);
     }
 
     private static VanSalesCoverageQualityResult BuildQuality(

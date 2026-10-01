@@ -97,6 +97,8 @@ public class VanSalesRouteRow
     public int? PlannedCalls { get; set; }
     public int? Calls { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int? PcrCalls { get; set; }
     public int CustomerCount { get; set; }
     public int? KilometresTravelled { get; set; }
     public List<VanSalesMoney> TotalsByCurrency { get; set; } = [];
@@ -105,7 +107,7 @@ public class VanSalesRouteRow
         PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
-        Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+        PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 
     /// <summary>
     /// What to print in the route column. The three states read differently on purpose — a reader has
@@ -142,6 +144,8 @@ public class VanSalesRepRow
     public int? Calls { get; set; }
     public int? OutletsVisited { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int? PcrCalls { get; set; }
     public int CustomerCount { get; set; }
     public int NewOutlets { get; set; }
     public int NewOutletsWhoBought { get; set; }
@@ -151,7 +155,7 @@ public class VanSalesRepRow
 
     public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName;
 
-    public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+    public double? StrikeRate => PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 
     public double? CallsPerDay =>
         TradingDayCount > 0 && Calls is { } calls ? (double)calls / TradingDayCount : null;
@@ -316,13 +320,15 @@ public class VanSalesPerformanceSummary
     public int DocumentCount { get; set; }
     public int? Calls { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int? PcrCalls { get; set; }
     public int CustomerCount { get; set; }
     public int ItemCount { get; set; }
     public int NewOutlets { get; set; }
     public int? KilometresTravelled { get; set; }
     public List<VanSalesMoney> TotalsByCurrency { get; set; } = [];
 
-    public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+    public double? StrikeRate => PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 }
 
 /// <summary>

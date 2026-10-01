@@ -3589,6 +3589,7 @@ answer for July — rendering July as "the van never moved" reads as a finding.
       "plannedCustomerCount": 32,
       "customersVisited": 29,
       "productiveCalls": 24,
+      "pcrCalls": 29,
       "rtiOut": 40,
       "rtiReturned": 38,
       "systemCash": 1840.00,
@@ -3650,6 +3651,8 @@ answer for July — rendering July as "the van never moved" reads as a finding.
     "plannedCustomerCount": 704,
     "customersVisited": 631,
     "productiveCalls": 512,
+    "pcrProductiveCalls": 512,
+    "pcrCalls": 631,
     "totalSales": 47320.00,
     "newCustomers": 14,
     "kilometresTravelled": 3180,
@@ -3659,6 +3662,14 @@ answer for July — rendering July as "the van never moved" reads as a finding.
   }
 }
 ```
+
+**The PCR divides by `pcrCalls`, not `customersVisited`.** `pcrCalls` is the shops checked into plus
+the shops that bought without a check-in, because a sale proves the rep was at the counter. So
+`productiveCallRate` cannot pass 1.0. The CCR still uses `customersVisited`, so a missing check-in
+still counts against the rep there. A day with no check-ins has `pcrCalls` 0 and no PCR. The
+summary's `pcrProductiveCalls` and `pcrCalls` total only the days that have check-ins. The van sales
+performance and coverage reports carry the same `pcrProductiveCalls` / `pcrCalls` pair on every row
+that shows a strike rate.
 
 **The cash variance is measured against `systemDeclarableTakings`, not `systemTotalSales`.** The
 declaration has three boxes — cash, ecocash, innbucks — and the handset offers no fourth, so two

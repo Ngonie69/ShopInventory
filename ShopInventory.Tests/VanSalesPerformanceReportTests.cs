@@ -214,11 +214,12 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
     }
 
     /// <summary>
-    /// A strike rate above 100% means sales exist with no recorded visit. That is a real discrepancy
-    /// and clamping it would hide the very thing worth looking at.
+    /// A shop that bought without a check-in was still called on. Calls stays the check-ins, so the
+    /// CCR still shows the missing one, but the strike rate counts the sale as a call and cannot pass
+    /// 100%.
     /// </summary>
     [Fact]
-    public async Task A_strike_rate_over_one_is_reported_rather_than_clamped()
+    public async Task A_shop_that_bought_without_a_check_in_counts_as_called_on()
     {
         AddRouteDay(Rep, planned: 10, routeCode: "GURUVE", territory: "Mash Central");
         AddVisit(Rep, "TUCK01", Utc(8, 30));
@@ -226,11 +227,45 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
         AddOfflineSale(Rep, "OFF-2", "NEVER-VISITED", total: 20m);
         await _context.SaveChangesAsync();
 
-        var rep = Assert.Single((await RunAsync()).Reps);
+        var report = await RunAsync();
+        var rep = Assert.Single(report.Reps);
+        var route = Assert.Single(report.Routes);
 
         Assert.Equal(1, rep.Calls);
         Assert.Equal(2, rep.ProductiveCalls);
-        Assert.Equal(2.0, rep.StrikeRate);
+        Assert.Equal(2, rep.PcrCalls);
+        Assert.Equal(1.0, rep.StrikeRate);
+        Assert.Equal(1.0, route.ProductiveCallRate);
+        Assert.Equal(0.1, route.CallComplianceRate);
+    }
+
+    /// <summary>
+    /// The routes table once divided every day's buyers by the check-ins of the one day that had any,
+    /// and printed 1,700%. A day with no check-ins has nothing to measure a PCR on and stays out of
+    /// both halves.
+    /// </summary>
+    [Fact]
+    public async Task Sales_on_a_day_without_check_ins_stay_out_of_the_strike_rate()
+    {
+        AddRouteDay(Rep, planned: 10, routeCode: "GURUVE", territory: "Mash Central");
+        AddVisit(Rep, "TUCK01", Utc(8, 30));
+        AddVisit(Rep, "SHOP2", Utc(9, 30));
+        AddOfflineSale(Rep, "OFF-1", "TUCK01", total: 40m);
+        foreach (var shop in new[] { "B1", "B2", "B3", "B4", "B5" })
+        {
+            AddOfflineSale(Rep, $"NEXT-{shop}", shop, total: 10m, docDate: Day.AddDays(1));
+        }
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(to: Day.AddDays(1));
+        var rep = Assert.Single(report.Reps);
+
+        Assert.Equal(6, rep.ProductiveCalls);
+        Assert.Equal(2, rep.Calls);
+        Assert.Equal(1, rep.PcrProductiveCalls);
+        Assert.Equal(2, rep.PcrCalls);
+        Assert.Equal(0.5, rep.StrikeRate);
+        Assert.Equal(0.5, report.Summary.StrikeRate);
     }
 
     /// <summary>An odometer that was never read is not a van that never moved.</summary>
