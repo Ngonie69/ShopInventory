@@ -829,6 +829,42 @@ public sealed class FiscalisationConsoleTests : IDisposable
     }
 
     [Fact]
+    public async Task The_platforms_online_devices_are_listed_though_nothing_local_names_them()
+    {
+        // Production after the cut-over: the server signs for three Online devices, so no handset, lease,
+        // signed sale or fiscal day row names any of them and the default device is unset. Only the
+        // platform knows they exist, and the page showed "no fiscal device is known" until it asked.
+        var client = new StubFiscalisationClient { KnownDeviceIds = [46670, 46668, 46669] };
+
+        var devices = await RunDevicesAsync(client);
+
+        Assert.Equal([46668, 46669, 46670], devices.Select(device => device.DeviceId));
+        Assert.All(devices, device => Assert.True(device.Reachable));
+    }
+
+    [Fact]
+    public async Task A_platform_that_will_not_list_its_devices_still_leaves_the_local_ones()
+    {
+        // Losing the list must cost only the platform's half, or an outage reads as an empty fleet.
+        await SeedSaleAsync("PENDING-1", ingest: DesktopSaleReceiptIngestStatus.Pending, deviceId: 9);
+
+        var device = Assert.Single(await RunDevicesAsync(new StubFiscalisationClient { KnownDeviceIds = null }));
+
+        Assert.Equal(9, device.DeviceId);
+    }
+
+    [Fact]
+    public async Task A_device_both_the_platform_and_a_handset_name_is_listed_once()
+    {
+        await SeedSaleAsync("PENDING-1", ingest: DesktopSaleReceiptIngestStatus.Pending, deviceId: 9);
+
+        var device = Assert.Single(await RunDevicesAsync(new StubFiscalisationClient { KnownDeviceIds = [9, 0] }));
+
+        Assert.Equal(9, device.DeviceId);
+        Assert.Equal(1, device.AwaitingHandover);
+    }
+
+    [Fact]
     public async Task A_fiscal_day_is_measured_against_the_taxpayers_own_limit()
     {
         await SeedSaleAsync("PENDING-1", ingest: DesktopSaleReceiptIngestStatus.Pending, deviceId: 1);
@@ -1167,9 +1203,15 @@ public sealed class FiscalisationConsoleTests : IDisposable
         public Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(string? apiKey, int deviceId, CancellationToken cancellationToken = default) =>
             GetFiscalConfigAsync(deviceId, cancellationToken);
 
+        /// <summary>What <c>api/devices/known</c> answers. Null means the call fails.</summary>
+        public IReadOnlyList<int>? KnownDeviceIds { get; init; } = [];
+
         public Task<IReadOnlyList<int>> GetKnownDeviceIdsWithApiKeyAsync(
             string? apiKey, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => KnownDeviceIds is null
+                ? throw new FiscalisationApiException(
+                    HttpStatusCode.ServiceUnavailable, "FdmsRequestNotSent", "The platform is not answering.")
+                : Task.FromResult(KnownDeviceIds);
 
         public Task<SubmitReceiptApiResponse> SubmitSapReceiptAsync(SapFiscaliseReceiptApiRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
