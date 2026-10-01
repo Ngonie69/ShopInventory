@@ -58,6 +58,7 @@ public static class DesktopCreditPlanner
                 Buyer = source.Buyer,
                 CreditDebitNote = new CreditDebitNoteApiRequest
                 {
+                    ReceiptID = source.ReceiptId,
                     DeviceID = source.DeviceId, FiscalDayNo = source.FiscalDayNo,
                     ReceiptGlobalNo = source.ReceiptGlobalNo
                 }

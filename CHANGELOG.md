@@ -18,6 +18,12 @@ otherwise be surprised.
 
 ### Changed
 
+- **Till credit notes work on sales the fiscalisation platform filed.** Since the switch on
+  2026-09-30 these were refused with "REVMax does not hold this sale's receipt … Raise the credit note
+  in SAP". The credit is now filed on the platform against the original receipt. REVMax still credits
+  the sales it filed, and is asked only when the platform holds nothing. A platform sale whose lines no
+  longer add up to its receipt total (a tax mapping changed since it was filed) is refused and still
+  has to be credited in SAP. See `docs/desktop-credit-notes.md`.
 - **Van sales CCR and PCR are measured per truck-day, and the PCR can no longer pass 100%.** This
   applies to the performance, coverage and compliance reports. Before this, a route printed a
   1,700% PCR: a whole period's buyers divided by one day's check-ins.

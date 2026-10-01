@@ -10,8 +10,9 @@ using ShopInventory.Services.Fiscalisation;
 namespace ShopInventory.Features.DesktopCreditNotes;
 
 /// <summary>
-/// Credits the receipt REVMax already holds. No dormant platform endpoint is called; SAP is read only to
-/// find credits already filed against the receipt — see <see cref="DesktopCreditExternalCredits"/>.
+/// Credits the receipt REVMax already holds. SAP is read only to find credits already filed against the
+/// receipt — see <see cref="DesktopCreditExternalCredits"/>. A receipt the platform filed is credited by
+/// <see cref="PlatformDesktopCreditGateway"/>; <see cref="DesktopCreditFiscalRouter"/> chooses.
 /// </summary>
 public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFiscalizationService fiscal,
     IOptions<RevmaxSettings> settings, IOptions<FiscalisationSettings> selection,
@@ -34,8 +35,9 @@ public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFisca
             string.IsNullOrWhiteSpace(data.ReceiptCurrency) || data.ReceiptTotal <= 0)
             throw new InvalidOperationException(selection.Value.UsesPlatform &&
                 original?.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true
-                ? "REVMax does not hold this sale's receipt, so it was filed on the fiscalisation platform. "
-                  + "Only sales REVMax filed before the switch can be credited from the till. Raise the credit note in SAP."
+                // Asked only once the platform has said it holds nothing either. See DesktopCreditFiscalRouter.
+                ? "Neither the fiscalisation platform nor REVMax holds a receipt for this sale, so there is "
+                  + "nothing to credit it against. Check the sale's fiscal status before raising the credit note in SAP."
                 : "REVMax could not confirm the original fiscal receipt and its lines.");
         if (!int.TryParse(original.DeviceID, out var device) || device != settings.Value.DefaultRefDeviceId ||
             !string.Equals(data.ReceiptType, "FiscalInvoice", StringComparison.OrdinalIgnoreCase) ||

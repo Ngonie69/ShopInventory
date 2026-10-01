@@ -369,11 +369,7 @@ public class FiscalizationService : IFiscalizationService
             return Disabled(invoiceNo);
         }
 
-        var hsCodes = _itemHsCodes is null || invoice.Lines is null
-            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            : await _itemHsCodes.ResolveAsync(invoice.Lines.Select(line => line.ItemCode), cancellationToken);
-
-        var lines = MapLines(invoice, ReceiptType.FiscalInvoice, hsCodes);
+        var lines = await BuildPreSapLinesAsync(invoice, cancellationToken);
         if (lines.Count == 0)
         {
             return new FiscalizationResult
@@ -549,6 +545,92 @@ public class FiscalizationService : IFiscalizationService
     internal string BuildPreSapInvoiceNo(string externalReference)
         => _settings.BuildPreSapInvoiceNo(externalReference);
 
+    /// <summary>
+    /// The lines <see cref="FiscalizePreSapInvoiceAsync"/> files for this invoice, without filing them.
+    /// </summary>
+    /// <remarks>
+    /// The platform's receipt lookup returns a receipt's header and not its lines, so a till credit
+    /// rebuilds them through this same mapping. See
+    /// <see cref="Features.DesktopCreditNotes.PlatformDesktopCreditGateway"/>.
+    /// </remarks>
+    internal async Task<List<LineApiRequest>> BuildPreSapLinesAsync(
+        InvoiceDto invoice,
+        CancellationToken cancellationToken)
+    {
+        var hsCodes = _itemHsCodes is null || invoice.Lines is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : await _itemHsCodes.ResolveAsync(invoice.Lines.Select(line => line.ItemCode), cancellationToken);
+
+        return MapLines(invoice, ReceiptType.FiscalInvoice, hsCodes);
+    }
+
+    /// <summary>
+    /// Files a till credit note built in full by the caller.
+    /// </summary>
+    /// <remarks>
+    /// Returns a result only when the platform answered. A refusal it answered with, other than one it
+    /// marks for reconciliation, is a failed result: nothing was filed under the number. Anything that
+    /// leaves the outcome open — a 5xx other than <c>FdmsRequestNotSent</c>, a reply with no problem
+    /// document, a lost connection — throws, so the caller records the credit as needing reconciliation
+    /// rather than as refused. <see cref="Unexpected"/> would report those as an ordinary failure, which
+    /// a credit's caller reads as "nothing was filed".
+    /// </remarks>
+    internal async Task<FiscalizationResult> SubmitDesktopCreditAsync(
+        SubmitReceiptApiRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var rawRequestJson = Serialize(request);
+
+        try
+        {
+            var response = await _client.SubmitReceiptAsync(request, cancellationToken);
+
+            _logger.LogInformation(
+                "Fiscalised till credit {InvoiceNo}. ReceiptGlobalNo: {ReceiptGlobalNo}",
+                response.InvoiceNo,
+                response.ReceiptGlobalNo);
+
+            return await MapSuccessAsync(response, rawRequestJson, cancellationToken);
+        }
+        catch (FiscalisationApiException ex) when (ex.HasProblemDocument
+            && ((int)ex.StatusCode < 500
+                || string.Equals(ex.ErrorCode, "FdmsRequestNotSent", StringComparison.OrdinalIgnoreCase)))
+        {
+            return await MapFailureAsync(
+                ex, request.InvoiceNo ?? string.Empty, ReceiptType.CreditNote, rawRequestJson, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// A receipt the platform has archived, with the QR code and verification code composed from it.
+    /// </summary>
+    internal async Task<FiscalizationResult> DescribeArchivedAsync(
+        FiscalisedReceiptRecordDto match,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        var config = await _configCache.TryGetAsync(match.DeviceId, cancellationToken);
+        var verificationCode = FiscalReceiptQrComposer.TryCreateVerificationCode(match.DeviceSignatureValue);
+
+        return new FiscalizationResult
+        {
+            Success = true,
+            Message = message,
+            InvoiceNumber = match.InvoiceNo,
+            QRCode = FiscalReceiptQrComposer.BuildQrPayload(
+                config?.QrUrl, match.DeviceId, match.ReceiptDate, match.ReceiptGlobalNo, verificationCode),
+            VerificationCode = verificationCode is null
+                ? null
+                : FiscalReceiptQrComposer.FormatVerificationCode(verificationCode),
+            FiscalDayNo = match.FiscalDayNo.ToString(CultureInfo.InvariantCulture),
+            ReceiptGlobalNo = match.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture),
+            ReceiptCounter = match.ReceiptCounter.ToString(CultureInfo.InvariantCulture),
+            DeviceSerial = config?.DeviceSerialNo
+        };
+    }
+
     private async Task<FiscalizationResult> MapSuccessAsync(
         SubmitReceiptApiResponse response,
         string? rawRequestJson,
@@ -684,27 +766,15 @@ public class FiscalizationService : IFiscalizationService
 
             if (match is not null)
             {
-                var config = await _configCache.TryGetAsync(match.DeviceId, cancellationToken);
-                var verificationCode = FiscalReceiptQrComposer.TryCreateVerificationCode(match.DeviceSignatureValue);
+                var recovered = await DescribeArchivedAsync(
+                    match,
+                    $"Already fiscalised as receipt {match.ReceiptGlobalNo} on device {match.DeviceId}.",
+                    cancellationToken);
 
-                return new FiscalizationResult
-                {
-                    Success = true,
-                    Skipped = true,
-                    Message = $"Already fiscalised as receipt {match.ReceiptGlobalNo} on device {match.DeviceId}.",
-                    InvoiceNumber = match.InvoiceNo,
-                    QRCode = FiscalReceiptQrComposer.BuildQrPayload(
-                        config?.QrUrl, match.DeviceId, match.ReceiptDate, match.ReceiptGlobalNo, verificationCode),
-                    VerificationCode = verificationCode is null
-                        ? null
-                        : FiscalReceiptQrComposer.FormatVerificationCode(verificationCode),
-                    FiscalDayNo = match.FiscalDayNo.ToString(CultureInfo.InvariantCulture),
-                    ReceiptGlobalNo = match.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture),
-                    ReceiptCounter = match.ReceiptCounter.ToString(CultureInfo.InvariantCulture),
-                    DeviceSerial = config?.DeviceSerialNo,
-                    RawRequestJson = rawRequestJson,
-                    RawResponseJson = Serialize(check)
-                };
+                recovered.Skipped = true;
+                recovered.RawRequestJson = rawRequestJson;
+                recovered.RawResponseJson = Serialize(check);
+                return recovered;
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

@@ -276,7 +276,7 @@
                     <div class="ops-ds-foot-why" aria-live="polite">
                         @if (busy && submitted)
                         {
-                            <span class="ops-dcn-working"><span class="ops-spin"></span> Fiscalising with REVMax&hellip;</span>
+                            <span class="ops-dcn-working"><span class="ops-spin"></span> Fiscalising&hellip;</span>
                         }
                         else if (form != null && !submitted)
                         {
@@ -461,7 +461,7 @@
         result = null;
         try
         {
-            // Load saved results even when REVMax is unavailable or the original cannot be prepared.
+            // Load saved results even when the fiscal device is unavailable or the original cannot be prepared.
             notes = await DesktopService.GetCreditNotesAsync(Reference);
             form = await DesktopService.PrepareCreditNoteAsync(Reference);
             // A receipt with nothing left to credit offers no quantities, whatever its lines say: credits

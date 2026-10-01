@@ -24,11 +24,15 @@ public sealed record DesktopCreditLine(int LineNo, string Name, decimal Quantity
 /// <remarks>
 /// <c>ExternalCreditedAmount</c> and <c>ExternalCredits</c> are the credits ZIMRA already holds against the
 /// receipt that this dialog did not file; see <see cref="DesktopCreditExternalCredits"/>.
+///
+/// <c>OnPlatform</c> is where the original was filed, and so where its credit is filed: the fiscalisation
+/// platform when true, REVMax when false. A plan saved before the platform could credit has no such
+/// field, reads false, and stays with REVMax, which is where every one of those was filed.
 /// </remarks>
 public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Currency, decimal OriginalTotal,
     int DeviceId, int FiscalDayNo, int ReceiptGlobalNo, long? ReceiptId, List<DesktopCreditLine> Lines,
     decimal ExternalCreditedAmount = 0, BuyerApiRequest? Buyer = null, List<string>? ExcludedLines = null,
-    List<string>? ExternalCredits = null);
+    List<string>? ExternalCredits = null, bool OnPlatform = false);
 public sealed record DesktopCreditPlan(DesktopCreditSource Source, List<DesktopCreditQuantity> Quantities,
     SubmitReceiptApiRequest Receipt, decimal Amount);
 /// <remarks>

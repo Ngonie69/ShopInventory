@@ -79,53 +79,7 @@ public sealed class DesktopSaleFiscaliser(
 
         try
         {
-            // DocNum/DocEntry are deliberately left unset. The sale has no SAP document yet, and the
-            // local primary key is not a SAP identifier: passing it as a DocEntry would make the
-            // platform look up — and fiscalise — whichever unrelated SAP invoice holds that number.
-            var invoiceDto = new InvoiceDto
-            {
-                DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
-                CardCode = sale.CardCode,
-                CardName = sale.CardName,
-                DocTotal = sale.TotalAmount,
-                VatSum = sale.VatAmount,
-                DocCurrency = sale.Currency,
-                Comments = sale.Comments,
-                // In the order the lines were taken: HH is the position in this list, and a credit
-                // finds its sale line by it. See DesktopSaleLineOrder.
-                Lines = DesktopSaleLineOrder.Receipt(sale.Lines).Select(l =>
-                {
-                    // The receipt is submitted TaxInclusive, and the platform reads GrossPrice in
-                    // preference to UnitPrice. A sale's UnitPrice is net and carries a separate
-                    // discount, so sending it raw declared a price that was neither discounted nor
-                    // taxed: the customer's VAT was understated on every receipt, and a discounted
-                    // line was declared at its undiscounted price.
-                    var effectivePrice = l.UnitPrice * (1 - l.DiscountPercent / 100m);
-                    var rate = tax.Value.RateFor(l.TaxCode);
-                    var grossUnitPrice = effectivePrice * (1 + rate);
-
-                    return new InvoiceLineDto
-                    {
-                        LineNum = l.LineNum,
-                        ItemCode = l.ItemCode,
-                        ItemDescription = l.ItemDescription,
-                        Quantity = l.Quantity,
-                        UnitPrice = l.UnitPrice,
-                        GrossPrice = Math.Round(grossUnitPrice, 2, MidpointRounding.AwayFromZero),
-                        // What the line came to, before a unit price in cents is multiplied back out:
-                        // thirty units at 0.63525 are 19.06, and at 0.64 they are 19.20. REVMax files
-                        // these; the platform reads GrossPrice alone.
-                        PriceAfterVat = Math.Round(grossUnitPrice, 6, MidpointRounding.AwayFromZero),
-                        GrossTotal = Math.Round(l.Quantity * grossUnitPrice, 2, MidpointRounding.AwayFromZero),
-                        LineTotal = l.LineTotal,
-                        WarehouseCode = l.WarehouseCode,
-                        // Without this every line fell through to the standard-rated default tax id,
-                        // so a zero-rated item was declared to ZIMRA as standard-rated.
-                        TaxCode = l.TaxCode,
-                        DiscountPercent = l.DiscountPercent
-                    };
-                }).ToList()
-            };
+            var invoiceDto = BuildInvoice(sale, sale.Lines, tax.Value);
 
             // A 48 mm receipt or an A4 invoice, as the partner is set up on Settings → Fiscalisation.
             var printForm = await printForms.ResolveAsync(sale.SourceSystem, sale.CardCode, cancellationToken);
@@ -187,6 +141,64 @@ public sealed class DesktopSaleFiscaliser(
         {
             await NotifyFailedAsync(sale, cancellationToken);
         }
+    }
+
+    /// <summary>The document a sale's receipt is filed from. The receipt's lines are derived from it.</summary>
+    /// <remarks>
+    /// Shared with <see cref="Features.DesktopCreditNotes.PlatformDesktopCreditGateway"/>, which rebuilds a
+    /// platform receipt's lines from it to credit them. The platform's lookup returns a receipt's header,
+    /// not its lines, so the two must derive them identically.
+    /// </remarks>
+    public static InvoiceDto BuildInvoice(
+        DesktopSaleEntity sale, IEnumerable<DesktopSaleLineEntity> lines, TaxSettings tax)
+    {
+        // DocNum/DocEntry are deliberately left unset. The sale has no SAP document yet, and the
+        // local primary key is not a SAP identifier: passing it as a DocEntry would make the
+        // platform look up — and fiscalise — whichever unrelated SAP invoice holds that number.
+        return new InvoiceDto
+        {
+            DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
+            CardCode = sale.CardCode,
+            CardName = sale.CardName,
+            DocTotal = sale.TotalAmount,
+            VatSum = sale.VatAmount,
+            DocCurrency = sale.Currency,
+            Comments = sale.Comments,
+            // In the order the lines were taken: HH is the position in this list, and a credit
+            // finds its sale line by it. See DesktopSaleLineOrder.
+            Lines = DesktopSaleLineOrder.Receipt(lines).Select(l =>
+            {
+                // The receipt is submitted TaxInclusive, and the platform reads GrossPrice in
+                // preference to UnitPrice. A sale's UnitPrice is net and carries a separate
+                // discount, so sending it raw declared a price that was neither discounted nor
+                // taxed: the customer's VAT was understated on every receipt, and a discounted
+                // line was declared at its undiscounted price.
+                var effectivePrice = l.UnitPrice * (1 - l.DiscountPercent / 100m);
+                var rate = tax.RateFor(l.TaxCode);
+                var grossUnitPrice = effectivePrice * (1 + rate);
+
+                return new InvoiceLineDto
+                {
+                    LineNum = l.LineNum,
+                    ItemCode = l.ItemCode,
+                    ItemDescription = l.ItemDescription,
+                    Quantity = l.Quantity,
+                    UnitPrice = l.UnitPrice,
+                    GrossPrice = Math.Round(grossUnitPrice, 2, MidpointRounding.AwayFromZero),
+                    // What the line came to, before a unit price in cents is multiplied back out:
+                    // thirty units at 0.63525 are 19.06, and at 0.64 they are 19.20. REVMax files
+                    // these; the platform reads GrossPrice alone.
+                    PriceAfterVat = Math.Round(grossUnitPrice, 6, MidpointRounding.AwayFromZero),
+                    GrossTotal = Math.Round(l.Quantity * grossUnitPrice, 2, MidpointRounding.AwayFromZero),
+                    LineTotal = l.LineTotal,
+                    WarehouseCode = l.WarehouseCode,
+                    // Without this every line fell through to the standard-rated default tax id,
+                    // so a zero-rated item was declared to ZIMRA as standard-rated.
+                    TaxCode = l.TaxCode,
+                    DiscountPercent = l.DiscountPercent
+                };
+            }).ToList()
+        };
     }
 
     /// <summary>
