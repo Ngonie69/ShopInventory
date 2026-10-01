@@ -35,6 +35,11 @@ public static class DesktopSaleInvoiceRequestBuilder
         // is told the receipt's invoice number is, so it is what makes a receipt stamped on the handset
         // and a receipt raised from this SAP invoice the same document to ZIMRA rather than two.
         MobileInvoiceNumber = sale.ExternalReferenceId,
+        // The receipt this sale was fiscalised under, onto U_Fiscal_Code / U_Fiscal_Url for the SAP
+        // layout. The platform cannot write them here as it does for documents it fiscalises from SAP:
+        // the receipt was filed before this invoice existed.
+        FiscalVerificationCode = sale.FiscalVerificationCode,
+        FiscalQrUrl = sale.FiscalQRCode,
         DocCurrency = sale.Currency,
         Comments = comments,
         // A credit memo's BaseLine is the index in this order — see DesktopSaleLineOrder.

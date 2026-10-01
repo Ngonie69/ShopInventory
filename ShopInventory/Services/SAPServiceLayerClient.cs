@@ -18,6 +18,7 @@ using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Services;
 
@@ -242,6 +243,72 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         document[fieldName] = mobileInvoiceNumber.Trim();
         return document.ToJsonString();
+    }
+
+    // The sizes U_Fiscal_Code and U_Fiscal_Url are defined with in the production company (UserFieldsMD).
+    private const int FiscalCodeUdfSize = 100;
+    private const int FiscalUrlUdfSize = 200;
+
+    /// <summary>
+    /// Adds the fiscal verification code and QR URL UDFs to a serialised invoice, for each one configured
+    /// and known — the same graft, for the same reason, as <see cref="AddMobileInvoiceNumberUdf"/>.
+    /// </summary>
+    /// <remarks>
+    /// The code is grouped in fours, as it is printed and as the platform writes it on the documents it
+    /// fiscalises itself, so a layout reads one format whichever side filled the field. A value too long
+    /// for its field is left out rather than cut: SAP refuses the whole document over it, and a cut URL
+    /// is a QR code that resolves nowhere.
+    /// </remarks>
+    private string AddFiscalReceiptUdfs(string json, string? verificationCode, string? qrUrl)
+    {
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        AddFiscalReceiptUdf(
+            fields,
+            _fiscalisationUdf.FiscalCodeField,
+            string.IsNullOrWhiteSpace(verificationCode) ? null : FiscalReceiptQrComposer.FormatVerificationCode(verificationCode),
+            FiscalCodeUdfSize);
+        AddFiscalReceiptUdf(fields, _fiscalisationUdf.FiscalUrlField, qrUrl?.Trim(), FiscalUrlUdfSize);
+
+        if (fields.Count == 0)
+        {
+            return json;
+        }
+
+        var document = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject();
+
+        if (document is null)
+        {
+            return json;
+        }
+
+        foreach (var (fieldName, value) in fields)
+        {
+            document[fieldName] = value;
+        }
+
+        return document.ToJsonString();
+    }
+
+    private void AddFiscalReceiptUdf(Dictionary<string, string> fields, string? fieldName, string? value, int size)
+    {
+        fieldName = fieldName?.Trim();
+
+        if (string.IsNullOrEmpty(fieldName) || string.IsNullOrEmpty(value))
+        {
+            return;
+        }
+
+        if (value.Length > size)
+        {
+            _logger.LogWarning(
+                "{FieldName} was left off the invoice: its value is {Length} characters and the field holds {Size}",
+                fieldName,
+                value.Length,
+                size);
+            return;
+        }
+
+        fields[fieldName] = value;
     }
 
     private HttpClient GetLongRunningHttpClient()
@@ -1438,6 +1505,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         });
 
         json = AddMobileInvoiceNumberUdf(json, request.MobileInvoiceNumber);
+        json = AddFiscalReceiptUdfs(json, request.FiscalVerificationCode, request.FiscalQrUrl);
 
         return new PreparedInvoicePost(
             json, currentSession, sapCompanyDb, formattedDocDate, formattedTaxDate, formattedDocDueDate, formattedSeries);

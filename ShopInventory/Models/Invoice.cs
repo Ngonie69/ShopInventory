@@ -244,6 +244,21 @@ public class CreateInvoiceRequest
     public string? MobileInvoiceNumber { get; set; }
 
     /// <summary>
+    /// The verification code of the receipt this sale was fiscalised under before the invoice existed.
+    /// </summary>
+    /// <remarks>
+    /// Written to <c>Fiscalisation:Udf:FiscalCodeField</c> (<c>U_Fiscal_Code</c>) so SAP layouts can
+    /// print it. Set internally from the sale's own receipt, never from a request body: a code that does
+    /// not match the receipt would be printed on the customer's invoice.
+    /// </remarks>
+    [JsonIgnore]
+    public string? FiscalVerificationCode { get; set; }
+
+    /// <summary>The receipt's ZIMRA QR URL, written to <c>Fiscalisation:Udf:FiscalUrlField</c> (<c>U_Fiscal_Url</c>).</summary>
+    [JsonIgnore]
+    public string? FiscalQrUrl { get; set; }
+
+    /// <summary>
     /// Expected number of crates attached to this invoice for crate reconciliation.
     /// When zero or omitted, no crate transaction is registered.
     /// </summary>

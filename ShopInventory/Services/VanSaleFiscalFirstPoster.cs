@@ -275,7 +275,9 @@ public sealed class VanSaleFiscalFirstPoster(
                     Comments = request.Comments,
                     // Already signed. Asking the confirm to fiscalise as well would file a second receipt for
                     // the same sale, under its DocNum.
-                    Fiscalize = false
+                    Fiscalize = false,
+                    FiscalVerificationCode = sale.FiscalVerificationCode,
+                    FiscalQrUrl = sale.FiscalQRCode
                 },
                 persist);
         }
