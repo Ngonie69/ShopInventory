@@ -19,9 +19,11 @@
    was rebuilt from a card per rep-day into the row-and-drawer sheet at the foot
    of this file, `vs-grid`, `vs-cell*`, `vs-money*`, `vs-variance-*` and the
    meter's `vs-is-warn` / `vs-is-bad` tones lost their only caller and went with
-   it. `vs-meter`, `vs-metric-none` and every `vs-day*` rule read like they went
-   the same way and did not: the attendance report holds all of them. The route
-   master's rebuild took `vs-sched-*` the same way — see the `vsr-` header.
+   it. `vs-meter` and `vs-metric-none` read like they went the same way and did
+   not: the compliance and coverage pages still draw them. The `vs-day*` card
+   outlived that rebuild only because the attendance report kept it, and went
+   when that report moved to its own `vna-` sheet (van-attendance.css). The
+   route master's rebuild took `vs-sched-*` the same way — see the `vsr-` header.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
    them rather than restating them, so a colour is corrected in one place for the
@@ -318,50 +320,7 @@
     color: var(--vs-mute-3);
 }
 
-/* — The compliance card ——————————————————————————————————————— */
-
-.vs .vs-day {
-    background: var(--vs-surface);
-    border: 1px solid var(--vs-divider);
-    border-radius: var(--vs-r-lg);
-    margin-bottom: 16px;
-    overflow: hidden;
-}
-
-.vs .vs-day-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    flex-wrap: wrap;
-    padding: 15px 20px;
-    border-bottom: 1px solid var(--vs-rule);
-    background: var(--vs-wash);
-}
-
-.vs .vs-day-who {
-    font-size: 1.02rem;
-    font-weight: 500;
-    color: var(--vs-ink);
-}
-
-.vs .vs-day-where {
-    margin-top: 2px;
-    font-size: 0.79rem;
-    color: var(--vs-mute-2);
-}
-
-.vs .vs-day-when {
-    text-align: right;
-    font-size: 0.79rem;
-    color: var(--vs-mute-2);
-}
-
-.vs .vs-day-date {
-    font-size: 0.92rem;
-    font-weight: 500;
-    color: var(--vs-ink-2);
-}
+/* — Missing figures ——————————————————————————————————————————— */
 
 /* Unavailable, not zero. Muted rather than red: missing data is not a failure. */
 .vs .vs-metric-none {
@@ -1368,10 +1327,6 @@
 @media (max-width: 720px) {
     .vs {
         padding: 16px;
-    }
-
-    .vs .vs-day-when {
-        text-align: left;
     }
 
     .vs .vsa-bar {
