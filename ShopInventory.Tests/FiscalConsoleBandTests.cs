@@ -188,6 +188,18 @@ public sealed class FiscalConsoleBandTests
         Assert.Equal("2 not submitted", Fact(platform, "Fiscal days").Note);
     }
 
+    [Fact]
+    public void No_tracked_day_is_not_read_as_every_day_submitted()
+    {
+        // The table holds only handset-signed days. With every device Online it stays empty, and "0 · all
+        // submitted" read as a clean bill for days this system never saw.
+        var band = FiscalConsoleBand.Build(
+            Revmax(provider: "Platform", live: false), false, PlatformFleet(), false,
+            new FiscalDayStateListResponse { TotalCount = 0, OutstandingCount = 0 }, Now);
+
+        Assert.Equal("none signed by a handset", Fact(band, "Fiscal days").Note);
+    }
+
     private static FiscalBandFact Fact(FiscalConsoleBandView band, string label) =>
         Assert.Single(band.Facts, fact => fact.Label == label);
 

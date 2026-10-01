@@ -60,7 +60,9 @@ public static class VanSalesMeasures
             .Count();
 
     /// <summary>
-    /// Calls made across a set of rep-days, or null when not one of those days has a visit record.
+    /// One rep's own check-ins across a set of rep-days, or null when not one of those days has a visit
+    /// record. A rep's own count, for the reps tables; every call rate is the truck's instead and reads
+    /// <see cref="VanTruckDays"/>.
     ///
     /// Null rather than zero, because a rep with sales and no visit rows is not a rep who made no
     /// calls — he is one whose calls were never recorded, and a 0% strike rate would be a slander.
@@ -72,6 +74,38 @@ public static class VanSalesMeasures
         var known = dayKeys.Where(visits.ContainsKey).ToList();
 
         return known.Count == 0 ? null : known.Sum(key => visits[key].Count);
+    }
+
+    /// <summary>The two halves of a productive call rate, measured over the same truck-days.</summary>
+    public sealed record ProductiveCallBasis(int ProductiveCalls, int Calls);
+
+    /// <summary>
+    /// The calls one truck-day made, for the PCR's denominator: the shops either rep checked into plus
+    /// the shops that bought without a check-in. Never fewer than the day's productive calls, so the rate it
+    /// divides cannot pass 100%.
+    /// </summary>
+    /// <remarks>
+    /// A sale is proof the rep was at the counter, so a shop that bought was called on whether or not
+    /// the handset recorded the check-in. Dividing by check-ins alone put 34 buying shops over 2
+    /// check-ins and printed a PCR of 1,700%.
+    ///
+    /// This is the PCR's denominator only. The CCR keeps check-ins over plan, because a missed
+    /// check-in is exactly what that rate exists to show.
+    ///
+    /// The unattributed bucket is assumed to be one of the shops checked into, and adds a call only
+    /// when every check-in is already accounted for by a named sale — a van whose sales carry no route
+    /// customer still has its visits carry the code.
+    /// </remarks>
+    public static int CountCallsMade(
+        IEnumerable<string> checkedInto,
+        IReadOnlyCollection<string> boughtCodes,
+        bool hasUnattributedSale)
+    {
+        var called = new HashSet<string>(checkedInto, StringComparer.OrdinalIgnoreCase);
+        var bought = new HashSet<string>(boughtCodes, StringComparer.OrdinalIgnoreCase);
+        called.UnionWith(bought);
+
+        return Math.Max(called.Count, bought.Count + (hasUnattributedSale ? 1 : 0));
     }
 
     /// <summary>

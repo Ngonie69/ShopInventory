@@ -89,6 +89,9 @@ public sealed class GetVanSalesCoverageReportHandler(
         var lastPurchases = NormaliseKeys(
             await VanSalesFactReader.LoadLastPurchaseDatesAsync(db, to, cancellationToken));
 
+        // Kept before the route filter: the truck-days are measured whole. See below.
+        var fleetSales = sales;
+
         // The route filter refuses to be satisfied by a rep-day with no departure record, for the
         // reason both earlier reports give: nothing on such a sale says which route it belonged to.
         if (!string.IsNullOrWhiteSpace(query.RouteCode))
@@ -121,6 +124,18 @@ public sealed class GetVanSalesCoverageReportHandler(
                 group => group.Key,
                 group => group.Select(call => call.CustomerCode).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
+        // The call rates are the truck's: two reps share each van and take turns through the day. A
+        // rep filter loads one rep's half, so under one the truck-days are read for the whole fleet.
+        var fleetWide = !query.UserId.HasValue;
+        var trucks = await VanTruckDays.LoadAsync(
+            db,
+            from,
+            to,
+            fleetWide ? fleetSales : null,
+            fleetWide ? visitsByDay : null,
+            fleetWide ? days.Values.ToList() : null,
+            cancellationToken);
+
         // Each shop's last call in the window, keyed by the calling van's account. A shop's code is
         // unique only within its account, so a bare-code match would let one van's call on its SHOP1
         // cover every other van's SHOP1.
@@ -135,9 +150,9 @@ public sealed class GetVanSalesCoverageReportHandler(
             PriorWindowFrom: priorFrom,
             LapseDays: query.LapseDays,
             Granularity: query.Granularity,
-            Summary: BuildSummary(sales, days, visitsByDay, calls, roster, lastCalls, churn),
-            Trend: BuildTrend(buckets, sales, days, calls, visitsByDay, from, to),
-            Reps: BuildReps(sales, days, visitsByDay, calls, roster, reps),
+            Summary: BuildSummary(sales, days, trucks, calls, roster, lastCalls, churn),
+            Trend: BuildTrend(buckets, sales, days, calls, trucks, from, to),
+            Reps: BuildReps(sales, days, visitsByDay, trucks, calls, roster, reps),
             UncoveredOutlets: BuildUncovered(roster, reps, lastCalls, priorCalls, sales, lastPurchases, to),
             LocationIntegrity: BuildLocationIntegrity(calls, reps),
             Churn: churn,
@@ -422,7 +437,7 @@ public sealed class GetVanSalesCoverageReportHandler(
         List<VanSaleFact> sales,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
         List<CallRow> calls,
-        Dictionary<VanSalesDayKey, HashSet<string>> visitsByDay,
+        VanTruckDays trucks,
         DateTime from,
         DateTime to) =>
         buckets
@@ -443,17 +458,20 @@ public sealed class GetVanSalesCoverageReportHandler(
                     .Where(day => day.TradingDate >= start && day.TradingDate <= end)
                     .ToList();
 
-                // A plan of zero is the failure branch of the handset's own count, not a plan. It is
-                // excluded from both sides of the rate — admitting it would turn an outage into
-                // non-compliance — and reported separately.
-                var planned = bucketDays.Where(day => day.PlannedCustomerCount > 0).ToList();
-
-                var callsAgainstPlan = CallsOnPlannedDays(planned, visitsByDay);
-
                 var activeDayKeys = bucketSales.Select(sale => sale.Key)
                     .Concat(bucketCalls.Select(call => new VanSalesDayKey(call.UserId, call.TradingDate)))
                     .Distinct()
                     .ToList();
+
+                // A plan of zero is the failure branch of the handset's own count, not a plan. It is
+                // excluded from both sides of the rate — admitting it would turn an outage into
+                // non-compliance — and reported separately. Measured per truck-day, so a plan both
+                // reps on a van snapshotted counts once.
+                var againstPlan = trucks.MeasureAgainstPlan(
+                    bucketDays.Select(day => new VanSalesDayKey(day.UserId, day.TradingDate))
+                        .Concat(activeDayKeys));
+
+                var pcr = trucks.MeasureProductiveCalls(activeDayKeys);
 
                 return new VanSalesCoverageTrendPointResult(
                     Label: bucket.Label,
@@ -461,39 +479,17 @@ public sealed class GetVanSalesCoverageReportHandler(
                     BucketEnd: end,
                     IsPartial: bucket.IsPartial,
                     RepsTrading: bucketSales.Select(sale => sale.UserId).Distinct().Count(),
-                    PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
-                    CallsAgainstPlan: callsAgainstPlan,
-                    Calls: CallsIn(bucketCalls),
+                    PlannedCalls: againstPlan?.Planned,
+                    CallsAgainstPlan: againstPlan?.Calls,
+                    Calls: trucks.CountCalls(activeDayKeys),
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(bucketSales),
                     OutletsBought: VanSalesMeasures.CountOutletsThatBought(bucketSales),
                     DaysWithoutPlan: bucketDays.Count(day => day.PlannedCustomerCount == 0),
-                    RepDaysWithoutRouteDay: activeDayKeys.Count(key => !days.ContainsKey(key)));
+                    RepDaysWithoutRouteDay: activeDayKeys.Count(key => !days.ContainsKey(key)),
+                    PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+                    PcrCalls: pcr?.Calls);
             })
             .ToList();
-
-    /// <summary>
-    /// Distinct shops called on across the planned days, summed — the numerator of call compliance.
-    /// Null when no day had a plan. A planned day with no visit rows contributes nothing, which is
-    /// what it did.
-    /// </summary>
-    private static int? CallsOnPlannedDays(
-        List<VanRouteDayEntity> planned,
-        Dictionary<VanSalesDayKey, HashSet<string>> visitsByDay) =>
-        planned.Count == 0
-            ? null
-            : planned.Sum(day => visitsByDay.TryGetValue(new VanSalesDayKey(day.UserId, day.TradingDate), out var visits)
-                ? visits.Count
-                : 0);
-
-    /// <summary>Distinct shops called on per rep-day, summed. Null when nothing was recorded.</summary>
-    private static int? CallsIn(List<CallRow> calls) =>
-        calls.Count == 0
-            ? null
-            : calls
-                .GroupBy(call => new VanSalesDayKey(call.UserId, call.TradingDate))
-                .Sum(day => day.Select(call => call.CustomerCode)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count());
 
     // ── Reps ────────────────────────────────────────────────────────────────────
 
@@ -501,6 +497,7 @@ public sealed class GetVanSalesCoverageReportHandler(
         List<VanSaleFact> sales,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
         Dictionary<VanSalesDayKey, HashSet<string>> visitsByDay,
+        VanTruckDays trucks,
         List<CallRow> calls,
         Dictionary<string, List<RosterRow>> roster,
         Dictionary<Guid, RepRow> reps) =>
@@ -523,6 +520,9 @@ public sealed class GetVanSalesCoverageReportHandler(
                     .Where(days.ContainsKey)
                     .Select(key => days[key])
                     .ToList();
+
+                // The truck's rates on the days this rep worked: both reps on a van show the same.
+                var pcr = trucks.MeasureProductiveCalls(dayKeys);
 
                 var account = rep?.AccountCode;
 
@@ -547,9 +547,11 @@ public sealed class GetVanSalesCoverageReportHandler(
 
                 // Every departure with a plan, including a day the rep went out and called on nobody:
                 // that day missed its whole plan, and dropping it would flatter the rate.
-                var planned = days.Values
-                    .Where(day => day.UserId == userId && day.PlannedCustomerCount > 0)
-                    .ToList();
+                var againstPlan = trucks.MeasureAgainstPlan(
+                    days.Values
+                        .Where(day => day.UserId == userId)
+                        .Select(day => new VanSalesDayKey(day.UserId, day.TradingDate))
+                        .Concat(dayKeys));
 
                 return new VanSalesRepCoverageResult(
                     UserId: userId,
@@ -574,11 +576,13 @@ public sealed class GetVanSalesCoverageReportHandler(
                     OutletsUncovered: repRoster is null || !attributable
                         ? null
                         : repRoster.Count(row => !bought.Contains(row.Code)),
-                    PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
-                    CallsAgainstPlan: CallsOnPlannedDays(planned, visitsByDay),
-                    KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
+                    PlannedCalls: againstPlan?.Planned,
+                    CallsAgainstPlan: againstPlan?.Calls,
+                    KilometresTravelled: trucks.SumKilometres(dayKeys),
                     EfficiencyByCurrency: BuildEfficiency(repSales, days),
-                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(repSales));
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(repSales),
+                    PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+                    PcrCalls: pcr?.Calls);
             })
             .OrderByDescending(rep => rep.TotalsByCurrency.Sum(total => total.Gross))
             .ThenBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -1080,7 +1084,7 @@ public sealed class GetVanSalesCoverageReportHandler(
     private static VanSalesCoverageSummaryResult BuildSummary(
         List<VanSaleFact> sales,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
-        Dictionary<VanSalesDayKey, HashSet<string>> visitsByDay,
+        VanTruckDays trucks,
         List<CallRow> calls,
         Dictionary<string, List<RosterRow>> roster,
         Dictionary<VanSalesOutletKey, DateTime> lastCalls,
@@ -1091,10 +1095,10 @@ public sealed class GetVanSalesCoverageReportHandler(
             .Distinct()
             .ToList();
 
-        var dayRecords = dayKeys.Where(days.ContainsKey).Select(key => days[key]).ToList();
+        var pcr = trucks.MeasureProductiveCalls(dayKeys);
 
         // Every departure with a plan, as the trend counts them, so the two cannot disagree.
-        var planned = days.Values.Where(day => day.PlannedCustomerCount > 0).ToList();
+        var againstPlan = trucks.MeasureAgainstPlan(days.Keys.Concat(dayKeys));
 
         var rosterKeys = roster
             .SelectMany(pair => pair.Value.Select(row => ShopKey(pair.Key, row.Code)))
@@ -1126,12 +1130,14 @@ public sealed class GetVanSalesCoverageReportHandler(
             ReactivatedOutlets: churn.Sum(point => point.ReactivatedOutlets),
             LapsedOutlets: churn.Sum(point => point.LapsedOutlets),
             ClosingActiveOutlets: churn.Count == 0 ? 0 : churn[^1].ClosingActiveOutlets,
-            Calls: VanSalesMeasures.CountCalls(dayKeys, visitsByDay),
+            Calls: trucks.CountCalls(dayKeys),
             ProductiveCalls: VanSalesMeasures.CountProductiveCalls(sales),
-            PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
-            CallsAgainstPlan: CallsOnPlannedDays(planned, visitsByDay),
-            KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
-            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales));
+            PlannedCalls: againstPlan?.Planned,
+            CallsAgainstPlan: againstPlan?.Calls,
+            KilometresTravelled: trucks.SumKilometres(dayKeys),
+            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales),
+            PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
+            PcrCalls: pcr?.Calls);
     }
 
     private static VanSalesCoverageQualityResult BuildQuality(

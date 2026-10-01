@@ -28,6 +28,9 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
 
     private static readonly Guid Rep = Guid.Parse("44444444-4444-4444-4444-444444444444");
     private static readonly Guid OtherRep = Guid.Parse("55555555-5555-5555-5555-555555555555");
+
+    /// <summary>The second rep on <see cref="Rep"/>'s truck: same van account, taking turns at the counter.</summary>
+    private static readonly Guid Mate = Guid.Parse("66666666-6666-6666-6666-666666666666");
     private static readonly DateTime Day = new(2026, 8, 10);
 
     private readonly SqliteConnection _connection;
@@ -46,7 +49,8 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
         _context.Database.EnsureCreated();
 
         AddUser(Rep, "van010", "Tinashe", "Moyo");
-        AddUser(OtherRep, "van011", "Rudo", "Chikanga");
+        AddUser(OtherRep, "van011", "Rudo", "Chikanga", account: "VAN011");
+        AddUser(Mate, "van010b", "Farai", "Dube");
         _context.SaveChanges();
     }
 
@@ -214,11 +218,12 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
     }
 
     /// <summary>
-    /// A strike rate above 100% means sales exist with no recorded visit. That is a real discrepancy
-    /// and clamping it would hide the very thing worth looking at.
+    /// A shop that bought without a check-in was still called on. Calls stays the check-ins, so the
+    /// CCR still shows the missing one, but the strike rate counts the sale as a call and cannot pass
+    /// 100%.
     /// </summary>
     [Fact]
-    public async Task A_strike_rate_over_one_is_reported_rather_than_clamped()
+    public async Task A_shop_that_bought_without_a_check_in_counts_as_called_on()
     {
         AddRouteDay(Rep, planned: 10, routeCode: "GURUVE", territory: "Mash Central");
         AddVisit(Rep, "TUCK01", Utc(8, 30));
@@ -226,11 +231,120 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
         AddOfflineSale(Rep, "OFF-2", "NEVER-VISITED", total: 20m);
         await _context.SaveChangesAsync();
 
-        var rep = Assert.Single((await RunAsync()).Reps);
+        var report = await RunAsync();
+        var rep = Assert.Single(report.Reps);
+        var route = Assert.Single(report.Routes);
 
         Assert.Equal(1, rep.Calls);
         Assert.Equal(2, rep.ProductiveCalls);
-        Assert.Equal(2.0, rep.StrikeRate);
+        Assert.Equal(2, rep.PcrCalls);
+        Assert.Equal(1.0, rep.StrikeRate);
+        Assert.Equal(1.0, route.ProductiveCallRate);
+        Assert.Equal(0.1, route.CallComplianceRate);
+    }
+
+    /// <summary>
+    /// The routes table once divided every day's buyers by the check-ins of the one day that had any,
+    /// and printed 1,700%. A day with no check-ins has nothing to measure a PCR on and stays out of
+    /// both halves.
+    /// </summary>
+    [Fact]
+    public async Task Sales_on_a_day_without_check_ins_stay_out_of_the_strike_rate()
+    {
+        AddRouteDay(Rep, planned: 10, routeCode: "GURUVE", territory: "Mash Central");
+        AddVisit(Rep, "TUCK01", Utc(8, 30));
+        AddVisit(Rep, "SHOP2", Utc(9, 30));
+        AddOfflineSale(Rep, "OFF-1", "TUCK01", total: 40m);
+        foreach (var shop in new[] { "B1", "B2", "B3", "B4", "B5" })
+        {
+            AddOfflineSale(Rep, $"NEXT-{shop}", shop, total: 10m, docDate: Day.AddDays(1));
+        }
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(to: Day.AddDays(1));
+        var rep = Assert.Single(report.Reps);
+
+        Assert.Equal(6, rep.ProductiveCalls);
+        Assert.Equal(2, rep.Calls);
+        Assert.Equal(1, rep.PcrProductiveCalls);
+        Assert.Equal(2, rep.PcrCalls);
+        Assert.Equal(0.5, rep.StrikeRate);
+        Assert.Equal(0.5, report.Summary.StrikeRate);
+    }
+
+    // --- Two reps on one truck ---
+
+    /// <summary>
+    /// The shape behind the 1,700%: one rep checks in, the other writes the invoices, and only one of
+    /// them taps Start Day. The truck's route takes both reps' sales, its plan is read once, and the
+    /// check-in by one rep and the sale by the other are one call that bought.
+    /// </summary>
+    [Fact]
+    public async Task Two_reps_on_one_truck_are_measured_as_one_truck()
+    {
+        AddRouteDay(Rep, planned: 10, routeCode: "GURUVE", territory: "Mash Central");
+        AddVisit(Rep, "TUCK01", Utc(8, 30));
+        AddVisit(Rep, "SHOP2", Utc(9, 0));
+        AddVisit(Mate, "tuck01", Utc(8, 35));
+        AddOfflineSale(Mate, "OFF-1", "TUCK01", total: 40m);
+        AddOfflineSale(Mate, "OFF-2", "SHOP3", total: 20m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        var route = Assert.Single(report.Routes);
+        Assert.True(route.HasRouteDay);
+        Assert.Equal("GURUVE", route.RouteCode);
+        Assert.Equal(60m, Assert.Single(route.TotalsByCurrency).Gross);
+        Assert.Equal(10, route.PlannedCalls);
+        Assert.Equal(2, route.Calls);
+        Assert.Equal(0.2, route.CallComplianceRate);
+        Assert.Equal(2, route.PcrProductiveCalls);
+        Assert.Equal(3, route.PcrCalls);
+        Assert.Equal(2.0 / 3, route.ProductiveCallRate!.Value, 3);
+
+        var mate = Assert.Single(report.Reps);
+        Assert.Equal(["GURUVE"], mate.Routes);
+        Assert.Equal(2.0 / 3, mate.StrikeRate!.Value, 3);
+        Assert.Equal(0, report.Coverage.SalesWithoutRouteDay);
+    }
+
+    /// <summary>Both reps tapping Start Day on one truck is still one plan and one trip.</summary>
+    [Fact]
+    public async Task A_plan_and_a_trip_both_reps_recorded_count_once()
+    {
+        AddRouteDay(Rep, planned: 10, routeCode: "GURUVE", territory: "Mash Central", start: 1000, close: 1150);
+        AddRouteDay(Mate, planned: 10, routeCode: "GURUVE", territory: "Mash Central", start: 1000, close: 1150);
+        AddVisit(Rep, "TUCK01", Utc(8, 30));
+        AddOfflineSale(Rep, "OFF-1", "TUCK01", total: 40m);
+        AddOfflineSale(Mate, "OFF-2", "SHOP2", total: 20m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var route = Assert.Single(report.Routes);
+
+        Assert.Equal(2, route.TradingDayCount);
+        Assert.Equal(10, route.PlannedCalls);
+        Assert.Equal(150, route.KilometresTravelled);
+        Assert.Equal(150, report.Summary.KilometresTravelled);
+        Assert.Equal(1.0, route.ProductiveCallRate);
+    }
+
+    /// <summary>A rep on another van is never pooled, and with nobody on their truck opening a day their sale stays a gap.</summary>
+    [Fact]
+    public async Task A_rep_on_another_truck_is_not_pooled()
+    {
+        AddRouteDay(Rep, planned: 10, routeCode: "GURUVE", territory: "Mash Central");
+        AddVisit(Rep, "TUCK01", Utc(8, 30));
+        AddOfflineSale(OtherRep, "OFF-1", "TUCK01", total: 40m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        var orphan = Assert.Single(report.Routes);
+        Assert.False(orphan.HasRouteDay);
+        Assert.Null(orphan.Calls);
+        Assert.Null(orphan.ProductiveCallRate);
     }
 
     /// <summary>An odometer that was never read is not a van that never moved.</summary>
@@ -555,7 +669,7 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
     private static DateTime Utc(int hour, int minute) =>
         new(Day.Year, Day.Month, Day.Day, hour, minute, 0, DateTimeKind.Utc);
 
-    private void AddUser(Guid id, string username, string firstName, string lastName) =>
+    private void AddUser(Guid id, string username, string firstName, string lastName, string account = VanAccount) =>
         _context.Users.Add(new User
         {
             Id = id,
@@ -567,10 +681,16 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
             FirstName = firstName,
             LastName = lastName,
             AssignedWarehouseCode = VanWarehouse,
-            AssignedBusinessPartnerCode = VanAccount
+            AssignedBusinessPartnerCode = account
         });
 
-    private void AddRouteDay(Guid userId, int planned, string? routeCode, string? territory) =>
+    private void AddRouteDay(
+        Guid userId,
+        int planned,
+        string? routeCode,
+        string? territory,
+        int? start = null,
+        int? close = null) =>
         _context.VanRouteDays.Add(new VanRouteDayEntity
         {
             UserId = userId,
@@ -580,7 +700,9 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
             RouteName = routeCode is null ? null : $"{routeCode} route",
             Territory = territory,
             DepartedAt = Utc(5, 0),
-            PlannedCustomerCount = planned
+            PlannedCustomerCount = planned,
+            StartingMileage = start,
+            ClosingMileage = close
         });
 
     private void AddVisit(Guid userId, string customerCode, DateTime checkInUtc) =>

@@ -136,6 +136,12 @@ public sealed record DepartureComplianceDayDto(
     int CustomersVisited,
     int ProductiveCalls,
 
+    string TruckKey,
+    int TruckPlannedCustomerCount,
+    int TruckCustomersVisited,
+    int TruckProductiveCalls,
+    int PcrCalls,
+
     int? RtiOut,
     int? RtiReturned,
 
@@ -171,16 +177,27 @@ public sealed record DepartureComplianceDayDto(
     /// "we cannot say" are different findings and a supervisor must not have to guess which they are
     /// looking at.
     /// </summary>
+    /// <remarks>
+    /// Taken from the truck, not the rep. Each truck carries two reps under one van account who take
+    /// turns through the day, so both reps' rows show the truck's rate: its plan read once and the
+    /// shops either rep checked into. The rep's own counts stay in <see cref="PlannedCustomerCount"/>
+    /// and <see cref="CustomersVisited"/>. <see cref="TruckKey"/> is an opaque key that groups the
+    /// rows of one truck.
+    /// </remarks>
     public double? CallComplianceRate =>
-        PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
+        TruckPlannedCustomerCount > 0 ? (double)TruckCustomersVisited / TruckPlannedCustomerCount : null;
 
     /// <summary>
     /// Productive calls over calls made — how many of the visits the rep actually made produced a
     /// sale. Measured against visits rather than against the plan on purpose: this is the rep's
     /// conversion on the doors they got to, and the doors they missed are already counted by the CCR.
+    ///
+    /// The truck's, like the CCR. The calls are <see cref="PcrCalls"/>: the shops either rep checked
+    /// into plus those that bought without a check-in, because a sale proves the call was made. So
+    /// the rate cannot pass 100%. Null on a truck-day with no check-ins, where it is zero.
     /// </summary>
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)TruckProductiveCalls / PcrCalls : null;
 
     /// <summary>Average order value: takings over the calls that bought, not over every call.</summary>
     public decimal? AverageOrderValue =>
@@ -291,6 +308,8 @@ public sealed record DepartureComplianceSummary(
     int PlannedCustomerCount,
     int CustomersVisited,
     int ProductiveCalls,
+    int PcrProductiveCalls,
+    int PcrCalls,
     decimal TotalSales,
     int NewCustomers,
     int? KilometresTravelled
@@ -299,8 +318,9 @@ public sealed record DepartureComplianceSummary(
     public double? CallComplianceRate =>
         PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
 
+    /// <summary>Over the days with check-ins only, on both sides. See the day's own rate.</summary>
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)PcrProductiveCalls / PcrCalls : null;
 
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(TotalSales / ProductiveCalls, 2) : null;

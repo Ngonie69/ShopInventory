@@ -18,6 +18,20 @@ otherwise be surprised.
 
 ### Changed
 
+- **Van sales CCR and PCR are measured per truck-day, and the PCR can no longer pass 100%.** This
+  applies to the performance, coverage and compliance reports. Before this, a route printed a
+  1,700% PCR: a whole period's buyers divided by one day's check-ins.
+  - Two reps share each van account and take turns through the day. Their check-ins and sales are
+    pooled per truck-day, each shop counts once, and the truck's plan and odometer are read once.
+  - A shop that bought without a check-in counts as a call for the PCR. Only truck-days with
+    check-ins count, on both sides of the rate.
+  - Both reps' rows show the truck's rates. Their own visited and bought counts are unchanged.
+  - On the routes table, a rep who sold without tapping Start Day now falls under the route their
+    truck-mate opened, not under "No departure record". This moves takings between those rows.
+  - The responses gain `pcrCalls` and `pcrProductiveCalls`. Compliance rows also gain `truckKey`,
+    `truckPlannedCustomerCount`, `truckCustomersVisited` and `truckProductiveCalls`. The compliance
+    summary's planned and visited totals now count each truck-day once.
+
 - **Fiscalisation moves from REVMax to the in-house platform** (`Fiscalisation:Provider=Platform`),
   on the three live Online devices ZIMRA issued in September 2026. Everything new is filed at
   <https://fiscal.kefaloscheese.com/>. REVMax files nothing new, but it stays on (`Revmax:Enabled`) for

@@ -145,7 +145,7 @@ public class VanSalesPerformanceContractTests
         var mirrored = RoundTrip(new VanSalesPerformanceReportResult(
             FromDate: new DateTime(2026, 8, 1),
             ToDate: new DateTime(2026, 8, 31),
-            Summary: new VanSalesPerformanceSummaryResult(0, 0, 0, 0, 0, null, 0, 0, 0, 0, null, []),
+            Summary: new VanSalesPerformanceSummaryResult(0, 0, 0, 0, 0, null, 0, 0, 0, 0, null, [], 0, null),
             Territories: [],
             Routes: [],
             Reps: [],
@@ -176,7 +176,7 @@ public class VanSalesPerformanceContractTests
         var result = new VanSalesPerformanceReportResult(
             FromDate: new DateTime(2026, 8, 1),
             ToDate: new DateTime(2026, 8, 31),
-            Summary: new VanSalesPerformanceSummaryResult(0, 0, 0, 0, 0, null, 0, 0, 0, 0, null, []),
+            Summary: new VanSalesPerformanceSummaryResult(0, 0, 0, 0, 0, null, 0, 0, 0, 0, null, [], 0, null),
             Territories: [],
             Routes: [],
             Reps: [],
@@ -229,7 +229,9 @@ public class VanSalesPerformanceContractTests
             ItemCount: 12,
             NewOutlets: 3,
             KilometresTravelled: 820,
-            TotalsByCurrency: [new VanSalesMoneyResult("USD", 40, 33, 4200m)]),
+            TotalsByCurrency: [new VanSalesMoneyResult("USD", 40, 33, 4200m)],
+            PcrProductiveCalls: 44,
+            PcrCalls: 55),
         Territories:
         [
             new VanSalesTerritoryResult("Mashonaland Central", 1, 2, 12, 44, 30,
@@ -238,13 +240,13 @@ public class VanSalesPerformanceContractTests
         Routes:
         [
             new VanSalesRouteResult(true, "GURUVE", "Guruve", "Mashonaland Central", 2, 12,
-                60, 55, 44, 30, 820, [new VanSalesMoneyResult("USD", 40, 33, 4200m)])
+                60, 55, 44, 30, 820, [new VanSalesMoneyResult("USD", 40, 33, 4200m)], 44, 55)
         ],
         Reps:
         [
             new VanSalesRepResult(Guid.NewGuid(), "van010", "Tinashe Moyo", ["GURUVE"],
                 12, 55, 30, 44, 30, 3, 2, 12, 820,
-                [new VanSalesMoneyResult("USD", 40, 33, 4200m)])
+                [new VanSalesMoneyResult("USD", 40, 33, 4200m)], 44, 55)
         ],
         Items:
         [
@@ -298,15 +300,15 @@ public class VanSalesPerformanceContractTests
     private static VanSalesPerformanceReportResult AllNulls() => new(
         FromDate: new DateTime(2026, 8, 1),
         ToDate: new DateTime(2026, 8, 31),
-        Summary: new VanSalesPerformanceSummaryResult(1, 0, 0, 1, 1, null, 0, 0, 1, 0, null, []),
+        Summary: new VanSalesPerformanceSummaryResult(1, 0, 0, 1, 1, null, 0, 0, 1, 0, null, [], 0, null),
         Territories: [new VanSalesTerritoryResult(null, 1, 1, 1, 0, 0, [])],
         Routes:
         [
-            new VanSalesRouteResult(false, null, null, null, 1, 1, null, null, 0, 0, null, [])
+            new VanSalesRouteResult(false, null, null, null, 1, 1, null, null, 0, 0, null, [], 0, null)
         ],
         Reps:
         [
-            new VanSalesRepResult(Guid.NewGuid(), "van010", null, [], 0, null, null, 0, 0, 0, 0, 0, null, [])
+            new VanSalesRepResult(Guid.NewGuid(), "van010", null, [], 0, null, null, 0, 0, 0, 0, 0, null, [], 0, null)
         ],
         Items:
         [

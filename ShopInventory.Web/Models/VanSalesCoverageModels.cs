@@ -61,12 +61,14 @@ public class VanSalesCoverageSummary
     public int ClosingActiveOutlets { get; set; }
     public int? Calls { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int? PcrCalls { get; set; }
     public int? PlannedCalls { get; set; }
     public int? CallsAgainstPlan { get; set; }
     public int? KilometresTravelled { get; set; }
     public List<VanSalesMoney> TotalsByCurrency { get; set; } = [];
 
-    public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+    public double? StrikeRate => PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 
     public double? CallComplianceRate =>
         PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
@@ -86,6 +88,8 @@ public class VanSalesCoverageTrendPoint
     public int? CallsAgainstPlan { get; set; }
     public int? Calls { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int? PcrCalls { get; set; }
     public int OutletsBought { get; set; }
     public int DaysWithoutPlan { get; set; }
     public int RepDaysWithoutRouteDay { get; set; }
@@ -94,7 +98,7 @@ public class VanSalesCoverageTrendPoint
         PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
-        Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+        PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 }
 
 public class VanSalesRepCoverage
@@ -116,6 +120,8 @@ public class VanSalesRepCoverage
     public int? Calls { get; set; }
     public int? OutletsVisited { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int? PcrCalls { get; set; }
     public int? OutletsBought { get; set; }
     public int? OutletsUncovered { get; set; }
     public int? PlannedCalls { get; set; }
@@ -126,7 +132,7 @@ public class VanSalesRepCoverage
 
     public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName;
 
-    public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+    public double? StrikeRate => PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 
     public double? CallComplianceRate =>
         PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;

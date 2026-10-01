@@ -230,6 +230,46 @@ public sealed class VanSalesCoverageReportTests : IDisposable
         Assert.Contains("van010", missed.OwningReps);
     }
 
+    // --- Two reps on one truck ---
+
+    /// <summary>
+    /// Both reps on a van open the day and take turns at the counter. The plan counts once, a
+    /// check-in by one and a sale by the other are one call that bought, and both reps show the
+    /// truck's rates.
+    /// </summary>
+    [Fact]
+    public async Task Two_reps_on_one_truck_are_measured_as_one_truck()
+    {
+        var mate = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        var day = new DateTime(2026, 8, 4);
+        AddUser(mate, "van010b", VanAccount);
+        AddRouteDay(Rep, day, planned: 10);
+        AddRouteDay(mate, day, planned: 10);
+        AddVisit(Rep, "TUCK01", day);
+        AddVisit(Rep, "SHOP2", day);
+        AddSale(mate, "S1", "TUCK01", 40m, day);
+        AddSale(mate, "S2", "SHOP3", 20m, day);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(10, report.Summary.PlannedCalls);
+        Assert.Equal(2, report.Summary.CallsAgainstPlan);
+        Assert.Equal(0.2, report.Summary.CallComplianceRate);
+        Assert.Equal(2.0 / 3, report.Summary.StrikeRate!.Value, 3);
+
+        var point = Assert.Single(report.Trend);
+        Assert.Equal(10, point.PlannedCalls);
+        Assert.Equal(2.0 / 3, point.ProductiveCallRate!.Value, 3);
+
+        Assert.Equal(2, report.Reps.Count);
+        Assert.All(report.Reps, rep =>
+        {
+            Assert.Equal(0.2, rep.CallComplianceRate);
+            Assert.Equal(2.0 / 3, rep.StrikeRate!.Value, 3);
+        });
+    }
+
     // --- Location integrity ---
 
     /// <summary>
