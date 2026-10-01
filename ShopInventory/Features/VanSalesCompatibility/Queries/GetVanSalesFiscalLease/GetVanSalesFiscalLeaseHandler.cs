@@ -161,7 +161,7 @@ public sealed class GetVanSalesFiscalLeaseHandler(
             DeviceSerialNo = config.DeviceSerialNo,
             QrUrl = config.QrUrl,
 
-            FiscalDayNo = status.FiscalDayNo,
+            FiscalDayNo = status.FiscalDayNo ?? 0,
             FiscalDayOpenedAt = FormatLocal(status.FiscalDayOpened),
             FiscalDayOpen = string.Equals(
                 status.FiscalDayStatus?.Trim(),
@@ -173,7 +173,7 @@ public sealed class GetVanSalesFiscalLeaseHandler(
             // The lease hands over the next free position, not the last used one. The handset signs from
             // here and never asks again until it reconnects, so an off-by-one is a duplicated receipt
             // number rather than a cosmetic slip.
-            NextGlobalNo = status.LastReceiptGlobalNo + 1,
+            NextGlobalNo = (status.LastReceiptGlobalNo ?? 0) + 1,
             NextCounter = status.LastReceiptCounter + 1,
 
             Taxes = taxes,

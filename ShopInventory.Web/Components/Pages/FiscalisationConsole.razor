@@ -867,102 +867,122 @@
             }
             else
             {
-                <div class="fcx-devices">
-                    @foreach (var device in devices)
-                    {
-                        <article class="fcx-device @DeviceCardClass(device)">
-                            <div class="fcx-device-head">
-                                <span class="fcx-device-id">Device @device.DeviceId</span>
-                                @if (!string.IsNullOrWhiteSpace(device.SerialNumber))
+                @* One row per device rather than one card: three cards of uneven height read as three
+                   different kinds of thing, and the same "Nobody" repeated on each said nothing. Rows that
+                   need a person sort to the top and carry one edge and one sentence; the rest stay quiet. *@
+                var dayOpen = devices.Count(device => DayView(device).Open);
+                var dayUnread = devices.Count(device => !StatusRead(device));
+                var heldHere = devices.Sum(device => device.AwaitingHandover);
+                var firstCertificate = devices
+                    .Where(device => device.CertificateDaysRemaining is not null)
+                    .OrderBy(device => device.CertificateDaysRemaining)
+                    .FirstOrDefault();
+                var leaseHolders = devices.Where(device => !string.IsNullOrWhiteSpace(device.OfflineSigningHolder)).ToList();
+
+                <div class="fcx-dv-summary">
+                    <div class="fcx-dv-stat">
+                        <span class="fcx-dv-stat-label">Devices</span>
+                        <span class="fcx-dv-stat-value">@devices.Count</span>
+                        <span class="fcx-dv-stat-note">@ModeSummary(devices)</span>
+                    </div>
+                    <div class="fcx-dv-stat">
+                        <span class="fcx-dv-stat-label">Fiscal days open</span>
+                        <span class="fcx-dv-stat-value">@dayOpen <span class="fcx-dv-stat-of">of @devices.Count</span></span>
+                        <span class="fcx-dv-stat-note">
+                            @if (dayOpen == devices.Count)
+                            {
+                                <text>every device has a day open</text>
+                            }
+                            else
+                            {
+                                var noDay = devices.Count - dayOpen - dayUnread;
+                                @(string.Join(" · ", new[]
                                 {
-                                    <span class="fcx-device-serial">@device.SerialNumber</span>
+                                    noDay > 0 ? $"{noDay} with no open day" : null,
+                                    dayUnread > 0 ? $"{dayUnread} not read" : null
+                                }.Where(part => part is not null)))
+                            }
+                        </span>
+                    </div>
+                    <div class="fcx-dv-stat @(heldHere > 0 ? "fcx-dv-stat-warn" : "fcx-dv-stat-good")">
+                        <span class="fcx-dv-stat-label">Held here, not yet with the platform</span>
+                        <span class="fcx-dv-stat-value">@heldHere.ToString("N0")</span>
+                        <span class="fcx-dv-stat-note">@(heldHere == 0 ? "nothing waiting" : "signed receipts waiting to go")</span>
+                    </div>
+                    <div class="fcx-dv-stat @(firstCertificate is null ? "" : CertificateStatTone(firstCertificate.CertificateDaysRemaining!.Value))">
+                        <span class="fcx-dv-stat-label">First certificate to expire</span>
+                        @if (firstCertificate is null)
+                        {
+                            <span class="fcx-dv-stat-value">—</span>
+                            <span class="fcx-dv-stat-note">not read from the platform</span>
+                        }
+                        else
+                        {
+                            var days = firstCertificate.CertificateDaysRemaining!.Value;
+                            <span class="fcx-dv-stat-value">
+                                @if (days < 0)
+                                {
+                                    <text>Expired</text>
                                 }
-                                <span class="fcx-device-head-end">
-                                    @if (!device.Reachable)
-                                    {
-                                        <span class="fcx-tag fcx-tag-warn">Platform silent</span>
-                                    }
-                                    else if (!string.IsNullOrWhiteSpace(device.OperatingMode))
-                                    {
-                                        <span class="fcx-tag @(IsOfflineMode(device) ? "fcx-tag-accent" : "fcx-tag-info")">
-                                            @device.OperatingMode
-                                        </span>
-                                    }
-                                </span>
-                            </div>
+                                else
+                                {
+                                    @days<span class="fcx-dv-stat-of">@(days == 1 ? " day" : " days")</span>
+                                }
+                            </span>
+                            <span class="fcx-dv-stat-note">
+                                @firstCertificate.CertificateValidTill!.Value.ToString("dd MMM yyyy")@CertificateHolders(devices, firstCertificate)
+                            </span>
+                        }
+                    </div>
+                </div>
 
-                            @if (device.ChainBroken)
-                            {
-                                @* The only red on the page, and the only banner. Everything else here is a
-                                   queue that drains; this is a handset that has stopped. *@
-                                <div class="fcx-stopped">
-                                    <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
-                                    <div>
-                                        <div class="fcx-stopped-title">
-                                            Chain broken@(device.ChainBrokenAtReceiptGlobalNo is null
-                                                ? ""
-                                                : $" at receipt {device.ChainBrokenAtReceiptGlobalNo}")
-                                        </div>
-                                        <div class="fcx-stopped-note">
-                                            This device is stopped. A receipt did not continue its sequence, and
-                                            @(device.BlockedBehindChainBreak == 1
-                                                ? "one later receipt is"
-                                                : $"{device.BlockedBehindChainBreak} later receipts are")
-                                            held behind it. Sending them again cannot fix this — the device has to be
-                                            reconciled on the fiscalisation platform first.
-                                        </div>
-                                        @if (!string.IsNullOrWhiteSpace(device.ChainBrokenError))
+                <div class="fcx-dv-ledger">
+                    <div class="fcx-dv-row fcx-dv-head" aria-hidden="true">
+                        <span>Device</span>
+                        <span>Fiscal day</span>
+                        <span>Last receipt</span>
+                        <span>Certificate</span>
+                        <span>Held here</span>
+                        <span>Exceptions</span>
+                    </div>
+
+                    @foreach (var device in LedgerOrder(devices))
+                    {
+                        var day = DayView(device);
+                        var exceptions = device.FailedHandover + device.Unsignable + device.Unstamped;
+
+                        <article class="fcx-dv @RowTone(device)" aria-label="Device @device.DeviceId">
+                            <div class="fcx-dv-row">
+                                <div class="fcx-dv-cell">
+                                    <div class="fcx-dv-line">
+                                        <span class="fcx-dv-id">@device.DeviceId</span>
+                                        @if (device.Reachable && !string.IsNullOrWhiteSpace(device.OperatingMode))
                                         {
-                                            <div class="fcx-stopped-error">@device.ChainBrokenError</div>
+                                            <span class="fcx-tag @(IsOfflineMode(device) ? "fcx-tag-accent" : "fcx-tag-info")">
+                                                @device.OperatingMode
+                                            </span>
                                         }
                                     </div>
-                                </div>
-                            }
-
-                            @if (!string.IsNullOrWhiteSpace(device.PlatformError))
-                            {
-                                <div class="fcx-stopped fcx-stopped-quiet">
-                                    <i class="bi bi-cloud-slash" aria-hidden="true"></i>
-                                    <div>
-                                        <div class="fcx-stopped-note">@device.PlatformError</div>
-                                    </div>
-                                </div>
-                            }
-
-                            <div class="fcx-facts">
-                                <div class="fcx-fact @CertificateTone(device)">
-                                    <div class="fcx-fact-label">Certificate</div>
-                                    <div class="fcx-fact-value">
-                                        @(device.CertificateValidTill is null
-                                            ? "—"
-                                            : device.CertificateValidTill.Value.ToString("dd MMM yyyy"))
-                                    </div>
-                                    @if (device.CertificateDaysRemaining is not null)
-                                    {
-                                        <div class="fcx-fact-note">
-                                            @(device.CertificateDaysRemaining.Value < 0
-                                                ? "expired"
-                                                : $"{device.CertificateDaysRemaining.Value} days left")
-                                        </div>
-                                    }
+                                    <span class="fcx-dv-sub">@(string.IsNullOrWhiteSpace(device.SerialNumber) ? "serial unknown" : device.SerialNumber)</span>
                                 </div>
 
-                                <div class="fcx-fact @FiscalDayTone(device)">
-                                    <div class="fcx-fact-label">Fiscal day</div>
-                                    <div class="fcx-fact-value">
-                                        @(device.FiscalDayNo is null or 0 ? "—" : $"#{device.FiscalDayNo}")
-                                        @if (!string.IsNullOrWhiteSpace(device.FiscalDayStatus))
+                                <div class="fcx-dv-cell">
+                                    <span class="fcx-dv-label">Fiscal day</span>
+                                    <div class="fcx-dv-line">
+                                        <span class="fcx-dot @day.Dot" aria-hidden="true"></span>
+                                        <span class="fcx-dv-value fcx-dv-strong @day.Tone">@day.Label</span>
+                                        @if (device.FiscalDayNo is > 0)
                                         {
-                                            <span class="fcx-cell-sub">@device.FiscalDayStatus</span>
+                                            <span class="fcx-dv-value fcx-dv-quiet">day @device.FiscalDayNo</span>
                                         }
                                     </div>
-                                    @if (device.FiscalDayHoursElapsed is not null)
+                                    @if (day.Open && device.FiscalDayHoursElapsed is not null)
                                     {
-                                        <div class="fcx-fact-note">
+                                        <span class="fcx-dv-sub">
                                             @Hours(device.FiscalDayHoursElapsed) open@(device.TaxPayerDayMaxHrs is > 0
-                                                ? $" of {device.TaxPayerDayMaxHrs} hrs allowed"
+                                                ? $" of {device.TaxPayerDayMaxHrs} allowed"
                                                 : "")
-                                        </div>
+                                        </span>
                                         @if (device.FiscalDayPercentOfMax is not null)
                                         {
                                             <div class="fcx-meter @MeterTone(device.FiscalDayPercentOfMax.Value)">
@@ -970,61 +990,170 @@
                                             </div>
                                         }
                                     }
+                                    else if (!string.IsNullOrWhiteSpace(device.OfflineSigningHolder))
+                                    {
+                                        <span class="fcx-dv-sub">lease: @device.OfflineSigningHolder</span>
+                                    }
                                 </div>
 
-                                <div class="fcx-fact">
-                                    <div class="fcx-fact-label">Last receipt</div>
-                                    <div class="fcx-fact-value">
-                                        @(device.LastReceiptGlobalNo is null or 0 ? "—" : device.LastReceiptGlobalNo.Value.ToString())
-                                    </div>
-                                    <div class="fcx-fact-note">
-                                        @(device.LastReceiptCounter is null or 0 ? "no counter" : $"counter {device.LastReceiptCounter}")
-                                        @if (device.LastReceiptDate is not null)
-                                        {
-                                            <text> · @device.LastReceiptDate.Value.ToString("dd MMM HH:mm")</text>
-                                        }
-                                    </div>
+                                <div class="fcx-dv-cell">
+                                    <span class="fcx-dv-label">Last receipt</span>
+                                    @if (!StatusRead(device))
+                                    {
+                                        <span class="fcx-dv-value fcx-dv-quiet">Unknown</span>
+                                    }
+                                    else if (device.LastReceiptGlobalNo is > 0)
+                                    {
+                                        <span class="fcx-dv-value">No. @device.LastReceiptGlobalNo</span>
+                                        <span class="fcx-dv-sub">@(device.LastReceiptDate is null ? "global number" : Wall(device.LastReceiptDate))</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fcx-dv-value fcx-dv-soft">None yet</span>
+                                        <span class="fcx-dv-sub">no receipt signed</span>
+                                    }
                                 </div>
 
-                                <div class="fcx-fact">
-                                    <div class="fcx-fact-label">Signing offline</div>
-                                    <div class="fcx-fact-value">
-                                        @(string.IsNullOrWhiteSpace(device.OfflineSigningHolder) ? "Nobody" : device.OfflineSigningHolder)
-                                    </div>
-                                    <div class="fcx-fact-note">
-                                        @if (string.IsNullOrWhiteSpace(device.OfflineSigningHolder))
-                                        {
-                                            <text>no van may trade out of coverage</text>
-                                        }
-                                        else if (device.OfflineSigningHolderPendingSales is null)
-                                        {
-                                            <text>queue not reported</text>
-                                        }
-                                        else
-                                        {
-                                            <text>@device.OfflineSigningHolderPendingSales still on the handset</text>
-                                        }
-                                    </div>
-                                </div>
-
-                                <div class="fcx-fact @(device.AwaitingHandover > 0 ? "fcx-fact-warn" : "")">
-                                    <div class="fcx-fact-label">Not yet with the platform</div>
-                                    <div class="fcx-fact-value">@device.AwaitingHandover</div>
-                                    <div class="fcx-fact-note">signed receipts held here</div>
-                                </div>
-
-                                @if (device.FailedHandover + device.Unsignable + device.Unstamped > 0)
-                                {
-                                    <div class="fcx-fact fcx-fact-bad">
-                                        <div class="fcx-fact-label">Exceptions</div>
-                                        <div class="fcx-fact-value">@(device.FailedHandover + device.Unsignable + device.Unstamped)</div>
-                                        <div class="fcx-fact-note">
-                                            @device.FailedHandover failed · @device.Unsignable unsignable · @device.Unstamped unstamped
+                                <div class="fcx-dv-cell">
+                                    <span class="fcx-dv-label">Certificate</span>
+                                    @if (device.CertificateValidTill is null || device.CertificateDaysRemaining is null)
+                                    {
+                                        <span class="fcx-dv-value fcx-dv-quiet">Unknown</span>
+                                    }
+                                    else
+                                    {
+                                        var days = device.CertificateDaysRemaining.Value;
+                                        <div class="fcx-dv-split">
+                                            <span class="fcx-dv-value">@device.CertificateValidTill.Value.ToString("dd MMM yyyy")</span>
+                                            <span class="fcx-dv-sub @CertificateValueTone(days)">@(days < 0 ? "expired" : $"{days} d")</span>
                                         </div>
-                                    </div>
-                                }
+                                        <div class="fcx-meter @CertificateMeterTone(days)">
+                                            <div class="fcx-meter-fill" style="width:@CertificateMeterWidth(days)"></div>
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="fcx-dv-cell">
+                                    <span class="fcx-dv-label">Held here</span>
+                                    <span class="fcx-dv-value @(device.AwaitingHandover > 0 ? "fcx-dv-strong fcx-dv-warn-text" : "fcx-dv-quiet")">
+                                        @device.AwaitingHandover.ToString("N0")
+                                    </span>
+                                </div>
+
+                                <div class="fcx-dv-cell">
+                                    <span class="fcx-dv-label">Exceptions</span>
+                                    @if (exceptions == 0)
+                                    {
+                                        <span class="fcx-dv-value fcx-dv-quiet">None</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fcx-dv-value fcx-dv-strong fcx-dv-bad-text">@exceptions.ToString("N0")</span>
+                                        <span class="fcx-dv-sub">
+                                            @device.FailedHandover failed · @device.Unsignable unsignable · @device.Unstamped unstamped
+                                        </span>
+                                    }
+                                </div>
                             </div>
+
+                            @if (device.ChainBroken || !string.IsNullOrWhiteSpace(device.PlatformError) || CertificateNeedsNotice(device))
+                            {
+                                <div class="fcx-dv-notes">
+                                    @if (device.ChainBroken)
+                                    {
+                                        <div class="fcx-dv-note fcx-dv-note-bad">
+                                            <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                                            <div>
+                                                <strong>
+                                                    A receipt did not continue the chain@(device.ChainBrokenAtReceiptGlobalNo is null
+                                                        ? ""
+                                                        : $" at no. {device.ChainBrokenAtReceiptGlobalNo}"),
+                                                    and @(device.BlockedBehindChainBreak == 1
+                                                        ? "one later receipt is"
+                                                        : $"{device.BlockedBehindChainBreak} later receipts are") waiting behind it.
+                                                </strong>
+                                                Sending them again will not help. Reconcile the device on the fiscalisation platform first.
+                                                @if (!string.IsNullOrWhiteSpace(device.ChainBrokenError))
+                                                {
+                                                    <details class="fcx-dv-details">
+                                                        <summary>Technical details</summary>
+                                                        <pre>@device.ChainBrokenError</pre>
+                                                    </details>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(device.PlatformError))
+                                    {
+                                        <div class="fcx-dv-note fcx-dv-note-warn">
+                                            <i class="bi @(device.Reachable ? "bi-exclamation-circle" : "bi-cloud-slash")" aria-hidden="true"></i>
+                                            <div>
+                                                @if (device.Reachable)
+                                                {
+                                                    <strong>The device answered, but its fiscal day could not be read.</strong>
+                                                    <text> The rest of the row is current. Refresh, and if it persists pass the details on to whoever maintains the integration.</text>
+                                                }
+                                                else
+                                                {
+                                                    <strong>The platform did not describe this device.</strong>
+                                                    <text> Check the fiscalisation API key and that the platform is answering, then refresh.</text>
+                                                }
+                                                <details class="fcx-dv-details">
+                                                    <summary>Technical details</summary>
+                                                    <pre>@PlatformErrorDetail(device.PlatformError)</pre>
+                                                </details>
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (CertificateNeedsNotice(device))
+                                    {
+                                        var days = device.CertificateDaysRemaining!.Value;
+                                        <div class="fcx-dv-note @(days < 14 ? "fcx-dv-note-bad" : "fcx-dv-note-warn")">
+                                            <i class="bi bi-shield-lock" aria-hidden="true"></i>
+                                            <div>
+                                                @if (days < 0)
+                                                {
+                                                    <strong>The certificate has expired.</strong>
+                                                    <text> This device cannot sign until it is renewed on the fiscalisation platform.</text>
+                                                }
+                                                else
+                                                {
+                                                    <strong>The certificate expires in @days @(days == 1 ? "day" : "days").</strong>
+                                                    <text> Renew it on the fiscalisation platform before @device.CertificateValidTill!.Value.ToString("dd MMM yyyy"), or this device stops signing.</text>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
                         </article>
+                    }
+                </div>
+
+                <div class="fcx-dv-footer">
+                    <i class="bi bi-phone" aria-hidden="true"></i>
+                    @if (leaseHolders.Count == 0)
+                    {
+                        <span><strong>Offline signing:</strong> no handset holds a lease on any device, so no van can trade out of coverage.</span>
+                    }
+                    else
+                    {
+                        <div>
+                            <strong>Offline signing</strong>
+                            <ul>
+                                @foreach (var holder in leaseHolders)
+                                {
+                                    <li>
+                                        Device @holder.DeviceId: @holder.OfflineSigningHolder,
+                                        @(holder.OfflineSigningHolderPendingSales is null
+                                            ? "queue not reported"
+                                            : $"{holder.OfflineSigningHolderPendingSales} still on the handset")
+                                    </li>
+                                }
+                            </ul>
+                        </div>
                     }
                 </div>
             }
@@ -1908,34 +2037,149 @@
 
     // ── Presentation helpers ────────────────────────────────────────────────
 
-    private static string DeviceCardClass(FiscalConsoleDeviceResponse device) =>
-        device.ChainBroken ? "fcx-device-stopped"
-        : !device.Reachable ? "fcx-device-unreachable"
-        : string.Empty;
-
     private static bool IsOfflineMode(FiscalConsoleDeviceResponse device) =>
         device.OperatingMode?.Contains("offline", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// Whether the platform's day reading arrived. It always names a day status when it answers, so an
+    /// empty one means the read failed rather than that the device has no day.
+    /// </summary>
+    private static bool StatusRead(FiscalConsoleDeviceResponse device) =>
+        device.Reachable && !string.IsNullOrWhiteSpace(device.FiscalDayStatus);
+
+    private sealed record DeviceDayView(string Label, string Dot, string Tone, bool Open);
+
+    /// <summary>The fiscal day in words, with the dot and text tone that go with it.</summary>
+    private static DeviceDayView DayView(FiscalConsoleDeviceResponse device)
+    {
+        if (!device.Reachable)
+        {
+            return new("No answer", "fcx-dot-warn", "fcx-dv-warn-text", false);
+        }
+
+        if (!StatusRead(device))
+        {
+            return new("Not read", "fcx-dot-warn", "fcx-dv-warn-text", false);
+        }
+
+        return device.FiscalDayStatus switch
+        {
+            "FiscalDayOpened" => new("Open", "fcx-dot-good", string.Empty, true),
+            "FiscalDayCloseInitiated" => new("Closing", "fcx-dot-info", string.Empty, false),
+            "FiscalDayCloseFailed" => new("Close failed", "fcx-dot-bad", "fcx-dv-bad-text", false),
+            "FiscalDayClosed" when device.FiscalDayNo is null or 0 =>
+                new("Not opened yet", "fcx-dot-hollow", "fcx-dv-soft", false),
+            "FiscalDayClosed" => new("Closed", "fcx-dot-hollow", "fcx-dv-soft", false),
+            _ => new(device.FiscalDayStatus!, "fcx-dot-hollow", "fcx-dv-soft", false)
+        };
+    }
 
     /// <summary>
     /// An expiring certificate stops the device outright, so it warns well before it bites — a van
     /// cannot be updated on the morning it fails.
     /// </summary>
-    private static string CertificateTone(FiscalConsoleDeviceResponse device) => device.CertificateDaysRemaining switch
+    private static bool CertificateNeedsNotice(FiscalConsoleDeviceResponse device) =>
+        device.CertificateValidTill is not null && device.CertificateDaysRemaining is < 45;
+
+    private static bool NeedsAttention(FiscalConsoleDeviceResponse device) =>
+        !device.Reachable
+        || !string.IsNullOrWhiteSpace(device.PlatformError)
+        || device.AwaitingHandover > 0
+        || device.FailedHandover + device.Unsignable + device.Unstamped > 0
+        || CertificateNeedsNotice(device)
+        || device.FiscalDayStatus == "FiscalDayCloseFailed"
+        || device.FiscalDayPercentOfMax is >= 80;
+
+    /// <summary>A stopped device first, then anything that needs a person, then the quiet ones as listed.</summary>
+    private static IEnumerable<FiscalConsoleDeviceResponse> LedgerOrder(IEnumerable<FiscalConsoleDeviceResponse> devices) =>
+        devices.OrderBy(device => device.ChainBroken ? 0 : NeedsAttention(device) ? 1 : 2);
+
+    private static string RowTone(FiscalConsoleDeviceResponse device) =>
+        device.ChainBroken
+        || device.FailedHandover + device.Unsignable + device.Unstamped > 0
+        || device.CertificateDaysRemaining is < 14
+        || device.FiscalDayStatus == "FiscalDayCloseFailed"
+            ? "fcx-dv-bad"
+            : NeedsAttention(device) ? "fcx-dv-warn" : string.Empty;
+
+    private static string ModeSummary(IReadOnlyCollection<FiscalConsoleDeviceResponse> devices)
     {
-        null => string.Empty,
-        < 0 => "fcx-fact-bad",
-        < 14 => "fcx-fact-bad",
-        < 45 => "fcx-fact-warn",
-        _ => string.Empty
+        var silent = devices.Count(device => !device.Reachable);
+        var modes = devices
+            .Where(device => device.Reachable && !string.IsNullOrWhiteSpace(device.OperatingMode))
+            .GroupBy(device => device.OperatingMode!)
+            .OrderByDescending(group => group.Count())
+            .Select(group => (Mode: group.Key, Count: group.Count()))
+            .ToList();
+
+        var parts = new List<string>();
+
+        if (modes.Count == 1 && silent == 0)
+        {
+            parts.Add(devices.Count == 1 ? $"in {modes[0].Mode} mode" : $"all in {modes[0].Mode} mode");
+        }
+        else
+        {
+            parts.AddRange(modes.Select(mode => $"{mode.Count} {mode.Mode}"));
+        }
+
+        if (silent > 0)
+        {
+            parts.Add($"{silent} not answering");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>Which devices the first expiry belongs to: one by number, or how many share the date.</summary>
+    private static string CertificateHolders(
+        IReadOnlyCollection<FiscalConsoleDeviceResponse> devices,
+        FiscalConsoleDeviceResponse first)
+    {
+        if (devices.Count < 2)
+        {
+            return string.Empty;
+        }
+
+        var sharing = devices.Count(device => device.CertificateValidTill?.Date == first.CertificateValidTill?.Date);
+
+        return sharing == 1 ? $" · device {first.DeviceId}"
+            : sharing == devices.Count ? $" · all {sharing} devices"
+            : $" · {sharing} devices";
+    }
+
+    private static string CertificateStatTone(int days) => days switch
+    {
+        >= 45 => string.Empty,
+        >= 14 => "fcx-dv-stat-warn",
+        _ => "fcx-dv-stat-bad"
     };
 
-    private static string FiscalDayTone(FiscalConsoleDeviceResponse device) => device.FiscalDayPercentOfMax switch
+    private static string CertificateValueTone(int days) => days switch
     {
-        null => string.Empty,
-        >= 100 => "fcx-fact-bad",
-        >= 80 => "fcx-fact-warn",
-        _ => string.Empty
+        >= 45 => string.Empty,
+        >= 14 => "fcx-dv-warn-text",
+        _ => "fcx-dv-bad-text"
     };
+
+    private static string CertificateMeterTone(int days) => days switch
+    {
+        >= 45 => string.Empty,
+        >= 14 => "fcx-meter-warn",
+        _ => "fcx-meter-bad"
+    };
+
+    /// <summary>The year left on the certificate, as a share of a year: a full bar is a year or more.</summary>
+    private static string CertificateMeterWidth(int days) =>
+        MeterWidth((int)Math.Round(Math.Clamp(days, 0, 365) * 100.0 / 365));
+
+    private const string DayReadFailurePrefix = "The device answered, but its fiscal day did not: ";
+
+    /// <summary>The platform's own words, without the sentence the row already says in plain terms.</summary>
+    private static string PlatformErrorDetail(string error) =>
+        error.StartsWith(DayReadFailurePrefix, StringComparison.Ordinal)
+            ? error[DayReadFailurePrefix.Length..]
+            : error;
 
     private static string MeterTone(int percent) => percent switch
     {
