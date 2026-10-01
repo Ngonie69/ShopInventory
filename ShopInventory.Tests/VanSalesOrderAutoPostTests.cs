@@ -133,6 +133,51 @@ public sealed class VanSalesOrderAutoPostTests : IDisposable
         Assert.Equal(SalesOrderStatus.Cancelled, stored.Status);
     }
 
+    /// <summary>
+    /// A van order is not held on credit, so it must not be told it is: the "Held on credit" note is
+    /// only for orders the posting gate will actually stop.
+    /// </summary>
+    [Fact]
+    public async Task A_van_order_over_its_limit_is_not_marked_held_on_credit()
+    {
+        var service = CreateService(overLimit: true);
+        var order = await service.CreateAsync(NewRequest(autoPost: true), Rep);
+
+        await service.ProcessMobileOrderPostSaveAsync(order.Id);
+
+        var stored = await _context.SalesOrders.AsNoTracking().SingleAsync(o => o.Id == order.Id);
+        Assert.DoesNotContain("Held on credit", stored.SyncError ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task A_merchandiser_order_over_its_limit_is_still_marked_held_on_credit()
+    {
+        var service = CreateService(overLimit: true);
+        var order = await service.CreateAsync(NewRequest(autoPost: false), Rep);
+
+        await service.ProcessMobileOrderPostSaveAsync(order.Id);
+
+        var stored = await _context.SalesOrders.AsNoTracking().SingleAsync(o => o.Id == order.Id);
+        Assert.StartsWith("Held on credit —", stored.SyncError);
+    }
+
+    /// <summary>
+    /// The posting gate asks this on every post, so a van order approved by hand after the queue gave
+    /// up on it is exempt too — and nothing else is.
+    /// </summary>
+    [Fact]
+    public async Task Only_orders_the_van_handler_raised_are_exempt_from_the_credit_gate()
+    {
+        var service = CreateService();
+        var vanOrder = await service.CreateAsync(NewRequest(autoPost: true), Rep);
+        var merchandiserOrder = await service.CreateAsync(NewRequest(autoPost: false), Rep);
+        var webOrder = await service.CreateAsync(NewRequest(autoPost: false, SalesOrderSource.Web), Rep);
+
+        Assert.True(await service.IsVanSalesOrderAsync(vanOrder.Id, CancellationToken.None));
+        Assert.False(await service.IsVanSalesOrderAsync(merchandiserOrder.Id, CancellationToken.None));
+        Assert.False(await service.IsVanSalesOrderAsync(webOrder.Id, CancellationToken.None));
+    }
+
     /// <summary>Bound from a request body, the flag would let any caller skip approval.</summary>
     [Fact]
     public void A_request_body_cannot_ask_for_auto_post()
@@ -173,13 +218,13 @@ public sealed class VanSalesOrderAutoPostTests : IDisposable
             .SingleAsync(entry => entry.SalesOrderId == salesOrderId);
     }
 
-    private static CreateSalesOrderRequest NewRequest(bool autoPost) =>
+    private static CreateSalesOrderRequest NewRequest(bool autoPost, SalesOrderSource source = SalesOrderSource.Mobile) =>
         new()
         {
             CardCode = "VAN014",
             CardName = "Van 14",
             Currency = "USD",
-            Source = SalesOrderSource.Mobile,
+            Source = source,
             AutoPostToSap = autoPost,
             Lines =
             {
@@ -193,11 +238,20 @@ public sealed class VanSalesOrderAutoPostTests : IDisposable
             }
         };
 
-    private SalesOrderService CreateService()
+    private SalesOrderService CreateService(bool overLimit = false)
     {
         var creditLimitService = StubProxy.For<ICreditLimitService>((method, _) =>
             method.Name == nameof(ICreditLimitService.CheckSalesOrderAsync)
-                ? Task.FromResult(CreditLimitCheckResult.Allowed())
+                ? Task.FromResult(overLimit
+                    ? new CreditLimitCheckResult
+                    {
+                        IsWithinLimit = false,
+                        Message = "VAN014 is over its credit limit.",
+                        CreditAccountCardCode = "VAN014",
+                        CreditLimit = 100m,
+                        Exposure = 500m
+                    }
+                    : CreditLimitCheckResult.Allowed())
                 : throw new InvalidOperationException($"Unexpected call to {method.Name}"));
 
         var priceCatalog = StubProxy.For<ILocalPriceCatalogService>((method, _) =>
