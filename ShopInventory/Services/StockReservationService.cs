@@ -670,6 +670,10 @@ public class StockReservationService : IStockReservationService
             // Also the receipt number the fiscalisation platform is given, so one sale is one document
             // to ZIMRA whether it was stamped on the handset or fiscalised from this invoice.
             MobileInvoiceNumber = vanSaleOrder,
+            // Set only by a caller that fiscalised first (VanSaleFiscalFirstPoster); an invoice this
+            // confirm fiscalises itself gets them from the platform, which fiscalises it from SAP.
+            FiscalVerificationCode = request.FiscalVerificationCode,
+            FiscalQrUrl = request.FiscalQrUrl,
             Lines = reservation.Lines.Select(l => new CreateInvoiceLineRequest
             {
                 ItemCode = l.ItemCode,

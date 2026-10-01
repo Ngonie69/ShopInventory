@@ -292,6 +292,25 @@ public class FiscalisationUdfSettings
     /// </remarks>
     public string IdempotencyField { get; set; } = "U_Van_saleorder";
 
+    /// <summary>
+    /// The UDF that receives a fiscalised sale's verification code, grouped in fours as printed —
+    /// <c>U_Fiscal_Code</c> in production (alphanumeric, 100).
+    /// </summary>
+    /// <remarks>
+    /// Written only on an invoice this application posts after the sale was fiscalised — the till, a
+    /// van sale and a van fiscal-first sale, each fiscalised before SAP held a document. A document
+    /// fiscalised from SAP (<c>/api/sap/receipts/fiscalise</c>, which is also the SAP B1 add-on's path)
+    /// has its fields written by the platform instead, and an end-of-day consolidated invoice carries
+    /// many receipts and so none. Blank is dormant, for a company that does not define the field.
+    /// </remarks>
+    public string FiscalCodeField { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The UDF that receives a fiscalised sale's ZIMRA QR URL — <c>U_Fiscal_Url</c> in production
+    /// (alphanumeric, 200). Written in the same cases as <see cref="FiscalCodeField"/>.
+    /// </summary>
+    public string FiscalUrlField { get; set; } = string.Empty;
+
     /// <summary>Whether <see cref="InvoiceNumberField"/> has been configured.</summary>
     public bool WritesInvoiceNumber => !string.IsNullOrWhiteSpace(InvoiceNumberField);
 }
