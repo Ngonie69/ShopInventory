@@ -271,14 +271,25 @@ public sealed class FiscalTaxDto
     public DateTime? TaxValidTill { get; set; }
 }
 
+/// <summary>
+/// The platform's <c>api/fiscal-status</c> reply.
+/// </summary>
+/// <remarks>
+/// The platform passes FDMS getStatus through: the day number is <c>lastFiscalDayNo</c>, and both it and
+/// <c>lastReceiptGlobalNo</c> are null on a device that has never opened a day or signed a receipt. Typing
+/// either as a plain int fails the whole read on exactly the devices that are newest.
+/// </remarks>
 public sealed class FiscalStatusApiResponse
 {
     public int DeviceId { get; set; }
-    public int FiscalDayNo { get; set; }
+
+    [JsonPropertyName("lastFiscalDayNo")]
+    public int? FiscalDayNo { get; set; }
+
     public string FiscalDayStatus { get; set; } = string.Empty;
     public DateTime? FiscalDayOpened { get; set; }
     public DateTime? LastReceiptDate { get; set; }
-    public int LastReceiptGlobalNo { get; set; }
+    public int? LastReceiptGlobalNo { get; set; }
     public int LastReceiptCounter { get; set; }
 }
 

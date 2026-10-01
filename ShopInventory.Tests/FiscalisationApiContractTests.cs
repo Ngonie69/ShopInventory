@@ -140,6 +140,38 @@ public class FiscalReceiptQrComposerTests
         Assert.NotNull(FiscalReceiptQrComposer.ResolveUnavailableReason("https://x/", null));
     }
 
+    /// <summary>
+    /// The platform's fiscal-status reply for a device that has never signed a receipt carries nulls.
+    /// Reading them as plain ints failed the whole status read, and the Devices tab printed the
+    /// System.Text.Json exception in place of the device's fiscal day.
+    /// </summary>
+    [Fact]
+    public void FiscalStatusReadsANewDeviceWithNoReceiptsYet()
+    {
+        var status = JsonSerializer.Deserialize<FiscalStatusApiResponse>(
+            """{"operationID":"0HN","fiscalDayStatus":"FiscalDayClosed","lastReceiptGlobalNo":null,"lastFiscalDayNo":null}""",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+        Assert.Equal("FiscalDayClosed", status.FiscalDayStatus);
+        Assert.Null(status.LastReceiptGlobalNo);
+        Assert.Null(status.FiscalDayNo);
+    }
+
+    /// <summary>
+    /// The platform names the day <c>lastFiscalDayNo</c>. Without the mapping the day number was always
+    /// zero, so the console showed no day and the lifecycle never matched a close against its day.
+    /// </summary>
+    [Fact]
+    public void FiscalStatusTakesTheDayNumberFromLastFiscalDayNo()
+    {
+        var status = JsonSerializer.Deserialize<FiscalStatusApiResponse>(
+            """{"operationID":"0HN","fiscalDayStatus":"FiscalDayOpened","lastReceiptGlobalNo":363,"lastFiscalDayNo":12}""",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+        Assert.Equal(12, status.FiscalDayNo);
+        Assert.Equal(363, status.LastReceiptGlobalNo);
+    }
+
     [Fact]
     public void MissingQrUrlIsReportedSeparatelyFromAMissingSignature()
     {
