@@ -212,6 +212,143 @@ public sealed class AdrPerformanceReportTests : IDisposable
         Assert.True(result.IsError);
     }
 
+    // ── Strike rate ──
+
+    [Fact]
+    public async Task Strike_rate_is_shops_that_ordered_or_bought_over_shops_visited()
+    {
+        AddVisit(Adr, "SHOP1", 0);
+        AddVisit(Adr, "SHOP2", 5);
+        AddVisit(Adr, "shop2", 10); // the same shop twice in a day is one call
+        AddVisit(Adr, "SHOP3", 15);
+        AddVisit(Adr, "SHOP4", 20);
+        AddOrder(Adr, 10m, routeCustomer: "SHOP1");
+        AddOrder(Adr, 15m, routeCustomer: "SHOP1"); // two orders from one shop on one day: one call
+        AddSale(Adr, "OFF-1", 30m, "SHOP2");
+        AddOrder(OtherAdr, 20m, routeCustomer: "SHOP9");
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        var visited = report.Adrs.Single(row => row.UserId == Adr);
+        Assert.Equal(4, visited.Calls);
+        Assert.Equal(2, visited.ProductiveCalls);
+        Assert.Equal(0.5, visited.StrikeRate);
+
+        var unmeasured = report.Adrs.Single(row => row.UserId == OtherAdr);
+        Assert.Null(unmeasured.Calls);
+        Assert.Null(unmeasured.StrikeRate);
+
+        Assert.Equal(4, report.Overall.Calls);
+        Assert.Equal(3, report.Overall.ProductiveCalls);
+        Assert.Contains(report.Caveats, caveat => caveat.Contains("recorded no visits"));
+    }
+
+    [Fact]
+    public async Task With_no_visits_anywhere_there_is_no_strike_rate()
+    {
+        AddOrder(Adr, 10m, routeCustomer: "SHOP1");
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Null(report.Overall.Calls);
+        Assert.Null(report.Overall.StrikeRate);
+    }
+
+    // ── Who raised the order book ──
+
+    [Fact]
+    public async Task Every_order_raised_is_split_by_who_raised_it()
+    {
+        AddOrder(Adr, 100m);
+        AddOrder(SalesRep, 250m);
+        AddOrder(Merchandiser, 150m);
+        AddOrder(SalesRep, 900m, status: SalesOrderStatus.Cancelled);
+        AddOrder(null, 500m, source: SalesOrderSource.VanSalesCustomer);
+        await _context.SaveChangesAsync();
+
+        var channels = (await RunAsync()).OrdersByChannel;
+
+        var adrs = Assert.Single(channels, channel => channel.IsAdr);
+        Assert.Equal(1, adrs.OrderCount);
+        // 100 of 1000: the cancelled order is out of the whole as well as the part.
+        Assert.Equal(0.10, Assert.Single(adrs.Shares).Share!.Value, 3);
+        Assert.Equal(0.25, channels.Single(c => c.Channel == "Van sales reps").Shares.Single().Share!.Value, 3);
+        Assert.Equal(0.15, channels.Single(c => c.Channel == "Merchandisers").Shares.Single().Share!.Value, 3);
+        Assert.Equal(0.50, channels.Single(c => c.Channel == "Customer ordering app").Shares.Single().Share!.Value, 3);
+    }
+
+    [Fact]
+    public async Task The_ADRs_are_in_the_split_even_with_nothing_raised()
+    {
+        AddOrder(SalesRep, 250m);
+        await _context.SaveChangesAsync();
+
+        var adrs = Assert.Single((await RunAsync()).OrdersByChannel, channel => channel.IsAdr);
+
+        Assert.Equal(0, adrs.OrderCount);
+        Assert.Empty(adrs.Shares);
+    }
+
+    // ── One ADR ──
+
+    [Fact]
+    public async Task One_adr_gets_their_shops_items_and_orders()
+    {
+        AddOrder(Adr, 10m, routeCustomer: "SHOP1", itemCode: "CHE011");
+        AddOrder(Adr, 20m, routeCustomer: "SHOP2", itemCode: "CHE011");
+        AddOrder(Adr, 30m, routeCustomer: "SHOP2", itemCode: "YOG002");
+        AddOrder(Adr, 99m, routeCustomer: "SHOP3", status: SalesOrderStatus.Cancelled, itemCode: "FET001");
+        AddSale(Adr, "OFF-1", 40m, "SHOP4");
+        AddOrder(OtherAdr, 50m, routeCustomer: "SHOP9", itemCode: "CHE011");
+        await _context.SaveChangesAsync();
+
+        var detail = Assert.IsType<AdrPerformanceDetailResult>((await RunAsync(userId: Adr)).Detail);
+
+        Assert.Equal(Adr, detail.UserId);
+        Assert.Equal(4, detail.Orders.Count);
+        Assert.Equal("Cancelled", detail.Orders.Single(order => order.DocTotal == 99m).Stage);
+        Assert.Equal(0, detail.OrdersNotListed);
+
+        // A cancelled order's shop is not a shop served; a sale's shop is.
+        Assert.Equal(["SHOP2", "SHOP1", "SHOP4"], detail.Shops.Select(shop => shop.CustomerCode).ToArray());
+        var shop2 = detail.Shops[0];
+        Assert.Equal(2, shop2.OrderCount);
+        Assert.Equal(50m, Assert.Single(shop2.OrderTotalsByCurrency).Gross);
+        Assert.Equal(1, detail.Shops[2].SaleCount);
+
+        var top = detail.Items[0];
+        Assert.Equal("CHE011", top.ItemCode);
+        Assert.Equal(2, top.LineCount);
+        Assert.Equal(2, top.ShopCount);
+        Assert.DoesNotContain(detail.Items, item => item.ItemCode == "FET001");
+    }
+
+    [Fact]
+    public async Task There_is_no_detail_without_an_ADR()
+    {
+        AddOrder(Adr, 10m, routeCustomer: "SHOP1", itemCode: "CHE011");
+        await _context.SaveChangesAsync();
+
+        Assert.Null((await RunAsync()).Detail);
+    }
+
+    // ── Caveats ──
+
+    [Fact]
+    public async Task Orders_in_SAP_but_not_fulfilled_and_unpriced_orders_are_called_out()
+    {
+        AddOrder(Adr, 20m, sapDocNum: 5001);
+        AddOrder(Adr, 0m);
+        await _context.SaveChangesAsync();
+
+        var caveats = (await RunAsync()).Caveats;
+
+        Assert.Contains(caveats, caveat => caveat.StartsWith("1 order reached SAP"));
+        Assert.Contains(caveats, caveat => caveat.Contains("zero total"));
+    }
+
     private async Task<AdrPerformanceReportResult> RunAsync(Guid? userId = null)
     {
         var result = await new GetAdrPerformanceReportHandler(_context).Handle(
@@ -236,26 +373,44 @@ public sealed class AdrPerformanceReportTests : IDisposable
         });
 
     private void AddOrder(
-        Guid userId,
+        Guid? userId,
         decimal total,
         string? routeCustomer = null,
         SalesOrderStatus? status = null,
         int? sapDocNum = null,
         SalesOrderSource source = SalesOrderSource.Mobile,
-        DateTime? orderDateUtc = null) =>
+        DateTime? orderDateUtc = null,
+        string currency = "USD",
+        string? itemCode = null) =>
         _context.SalesOrders.Add(new SalesOrderEntity
         {
             OrderNumber = $"SO-20260930-{++_orderNumber:D4}",
             OrderDate = orderDateUtc ?? new DateTime(2026, 9, 30, 8, 0, 0, DateTimeKind.Utc),
             CardCode = "VAN015",
-            Currency = "USD",
+            Currency = currency,
+            Lines = itemCode is null
+                ? []
+                : [new SalesOrderLineEntity { LineNum = 0, ItemCode = itemCode, ItemDescription = $"Item {itemCode}", Quantity = 2m, UnitPrice = total / 2, LineTotal = total }],
             // The context refuses an Approved order with no SAP number, as production does.
             Status = status ?? (sapDocNum is null ? SalesOrderStatus.Pending : SalesOrderStatus.Approved),
             Source = source,
             SAPDocNum = sapDocNum,
             DocTotal = total,
             RouteCustomerCode = routeCustomer,
+            RouteCustomerName = routeCustomer is null ? null : $"Shop {routeCustomer}",
             CreatedByUserId = userId
+        });
+
+    private void AddVisit(Guid userId, string customerCode, int minute) =>
+        _context.TimesheetEntries.Add(new TimesheetEntryEntity
+        {
+            Channel = TimesheetChannel.VanSales,
+            UserId = userId,
+            Username = "adr",
+            CustomerCode = customerCode,
+            CustomerName = customerCode,
+            CheckInTime = new DateTime(2026, 9, 30, 7, minute, 0, DateTimeKind.Utc),
+            CheckOutTime = new DateTime(2026, 9, 30, 7, minute, 30, DateTimeKind.Utc)
         });
 
     private void AddSale(Guid userId, string reference, decimal total, string? routeCustomer, string currency = "USD") =>

@@ -3729,7 +3729,8 @@ item and over time, with the price actually achieved per item and the shape of t
 |-----------|---------|-------|
 | `fromDate` | today − 30 days | Inclusive CAT trading day |
 | `toDate` | today | Inclusive CAT trading day |
-| `userId` | — | One ADR by id. Narrows the rows only; every share is still measured against every van |
+| `userId` | — | One ADR by id. Narrows the rows and adds `detail`; every share is still measured against every van |
+| `topItems` | `25` | How many of the one ADR's ordered items `detail` ranks. **Zero or less returns all of them** |
 
 **Response:** `AdrPerformanceReportResult` — `overall` (ADR accounts, how many were active, the ADRs'
 order counts, and per currency the ADRs' order and sales value against every van rep's) and `adrs`, one
@@ -3740,6 +3741,18 @@ order raised by one of them, dated by the CAT day of `OrderDate`; cancelled and 
 counted but carry no value. Sales read through `VanSalesFactReader`, so they match the performance
 report. Orders and sales are never added together — a converted order's invoice is a sale. Inactive
 ADRs are listed only when the period holds something of theirs. Page: `/van-sales/reports/adr-performance`.
+
+`calls` / `productiveCalls` (on `overall` and each row) give the strike rate: calls are the shops an ADR
+checked in at on the van app (`TimesheetChannel.VanSales`), one per shop per day, and are null when
+nothing was visited; a productive call is a shop that ordered or bought that day. `ordersByChannel`
+widens the whole beyond the vans: every sales order raised in the period from any source, split by the
+raiser's role today (`ADRs`, `Van sales reps`, `Merchandisers`, `Sales reps`, `Office and other staff`,
+`Customer ordering app`, `Not attributed`), with each group's value and share per currency; cancelled and
+rejected orders are out of both. `detail`, with `userId` only, holds that ADR's `shops` (orders and van
+sales per shop, side by side), `items` (ordered, ranked on lines then shops) and `orders` (the newest 500;
+`ordersNotListed` counts the rest). `caveats` says what the figures cannot see — orders in SAP but not
+marked fulfilled (an order invoiced straight in SAP B1 never updates the local row), unpriced orders, and
+ADRs with no visits — and is empty when there is nothing to say.
 
 ##### GET `/api/van-sales/sales-analysis`
 
