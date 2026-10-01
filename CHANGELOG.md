@@ -21,9 +21,10 @@ otherwise be surprised.
 - **A till, van or vending credit's SAP memo now carries the credit's DCN- number in
   `U_Van_saleorder`.** It still carries it in `NumAtCard` too. The fiscalisation platform links a credit
   it filed to SAP through `U_Van_saleorder`, so its Credit Note Tracking showed these memos as "Not in
-  SAP yet" after they had posted. Memos posted before this change carry only `NumAtCard` and need a
-  one-time update. A memo raised by hand in SAP and marked raised on `/desktop-credit-notes` carries
-  neither field.
+  SAP yet" after they had posted. A memo based on an invoice used to hold the original sale's reference
+  there, which SAP copies from the invoice; the DCN- number now replaces it, and nothing read the copy.
+  Memos posted before this change need a one-time update. A memo raised by hand in SAP and marked
+  raised on `/desktop-credit-notes` carries neither field.
 - **Till credit notes work on sales the fiscalisation platform filed.** Since the switch on
   2026-09-30 these were refused with "REVMax does not hold this sale's receipt … Raise the credit note
   in SAP". The credit is now filed on the platform against the original receipt. REVMax still credits
