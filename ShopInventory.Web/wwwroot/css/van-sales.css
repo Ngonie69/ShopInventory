@@ -1,19 +1,29 @@
 /* ==========================================================================
    Van sales — Nocturne
 
-   Four pages, not two, whatever this header used to say: /van-sales/activity
-   (the audit ledger — one row per round, the day drawn as a strip),
-   /van-sales/compliance (the departure compliance sheet, one row per rep-day),
-   /van-sales/routes and the attendance report. One sheet because they are one
-   section and share their card, chip and meter vocabulary; the `vs-` prefix is
-   not shared with any other sheet.
+   Eight pages, each rendering a `.vs` root: /van-sales/activity (the audit
+   ledger — one row per round, the day drawn as a strip), /van-sales/compliance
+   (the departure compliance sheet, one row per rep-day), /van-sales/fleet,
+   /van-sales/routes, and under /van-sales/reports/ the performance, coverage,
+   stock and adr-performance reports. One sheet because they are one section
+   and share their card, chip and meter vocabulary; the `vs-` prefix is not
+   shared with any other sheet. The attendance report is not one of them: it
+   renders `.vna` from its own sheet, van-attendance.css.
 
-   Three of the four carry a page-only vocabulary at the foot of this file:
-   `vsa-` for the ledger, `vsc-` for the compliance sheet, then `vsr-` for the
-   route master. Everything above them is shared — `vs-table`, `vs-field`,
-   `vs-primary` and `vs-num` all read as activity-page leftovers after that
-   rebuild and are nothing of the kind, so check with a grep across all four
-   pages before removing anything here.
+   Every page-only vocabulary lives below the shared rules, in this file's
+   order: `vsa-` for the ledger, `vsc-` for the compliance sheet, `vsp-` for
+   performance, `vsg-` for coverage, `vst-` for stock, `vsr-` for the route
+   master, `vsf-` for the fleet audit and `vsadr-` for ADR performance. They
+   are page-only by origin rather than by caller — the fleet audit wears
+   `vsc-` and ADR performance wears `vsp-` — so grep for a prefix before
+   trusting its section header. Everything above them is shared — `vs-table`,
+   `vs-field`, `vs-primary` and `vs-num` all read as activity-page leftovers
+   and are nothing of the kind, so check with a grep across all eight pages
+   (`git grep -nE 'class="vs[ "]' -- 'ShopInventory.Web/*.razor'` finds them)
+   before removing anything here. That grep is not the only caller:
+   scripts/derive_shops_css.py copies the table and chip rules from here into
+   shops.css, `vs-primary` among them though no page here uses it, so check
+   its list too.
 
    That grep is also what licensed the last removals. When the compliance page
    was rebuilt from a card per rep-day into the row-and-drawer sheet at the foot
