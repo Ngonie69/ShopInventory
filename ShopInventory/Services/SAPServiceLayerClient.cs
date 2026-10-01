@@ -16361,6 +16361,8 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 Comments = request.Reason ?? request.Comments,
                 // The only thing in SAP that identifies this credit note as one particular request's.
                 NumAtCard = request.SapReference,
+                // How the fiscalisation platform finds the memo of a credit it filed first.
+                U_Van_saleorder = request.FiscalReference,
                 DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
                 DocumentLines = request.Lines?.Select((line, index) =>
                 {
@@ -16421,6 +16423,8 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 Comments = request.Reason ?? request.Comments,
                 // The only thing in SAP that identifies this credit note as one particular request's.
                 NumAtCard = request.SapReference,
+                // How the fiscalisation platform finds the memo of a credit it filed first.
+                U_Van_saleorder = request.FiscalReference,
                 DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
                 DocumentLines = request.Lines?.Select((line, index) => new
                 {
