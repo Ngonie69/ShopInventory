@@ -2150,23 +2150,23 @@
 
     private static string CertificateStatTone(int days) => days switch
     {
-        < 14 => "fcx-dv-stat-bad",
-        < 45 => "fcx-dv-stat-warn",
-        _ => string.Empty
+        >= 45 => string.Empty,
+        >= 14 => "fcx-dv-stat-warn",
+        _ => "fcx-dv-stat-bad"
     };
 
     private static string CertificateValueTone(int days) => days switch
     {
-        < 14 => "fcx-dv-bad-text",
-        < 45 => "fcx-dv-warn-text",
-        _ => string.Empty
+        >= 45 => string.Empty,
+        >= 14 => "fcx-dv-warn-text",
+        _ => "fcx-dv-bad-text"
     };
 
     private static string CertificateMeterTone(int days) => days switch
     {
-        < 14 => "fcx-meter-bad",
-        < 45 => "fcx-meter-warn",
-        _ => string.Empty
+        >= 45 => string.Empty,
+        >= 14 => "fcx-meter-warn",
+        _ => "fcx-meter-bad"
     };
 
     /// <summary>The year left on the certificate, as a share of a year: a full bar is a year or more.</summary>
