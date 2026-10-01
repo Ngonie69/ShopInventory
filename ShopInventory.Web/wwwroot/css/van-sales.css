@@ -19,8 +19,9 @@
    was rebuilt from a card per rep-day into the row-and-drawer sheet at the foot
    of this file, `vs-grid`, `vs-cell*`, `vs-money*`, `vs-variance-*` and the
    meter's `vs-is-warn` / `vs-is-bad` tones lost their only caller and went with
-   it. `vs-meter`, `vs-metric-none` and every `vs-day*` rule read like they went
-   the same way and did not: the attendance report holds all of them. The route
+   it. `vs-meter` and `vs-metric-none` read like they went the same way and did
+   not: the performance and coverage reports hold them (the attendance report,
+   which once did, dropped them when it was redrawn as a day on the road). The route
    master's rebuild took `vs-sched-*` the same way — see the `vsr-` header.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
@@ -371,7 +372,10 @@
 
 /* — Rate meters ——————————————————————————————————————————————— */
 
+/* Every caller writes the meter as two spans inside a table cell, and an inline
+   span ignores height and width — without `display: block` the bar never draws. */
 .vs .vs-meter {
+    display: block;
     height: 4px;
     margin-top: 7px;
     border-radius: 999px;
@@ -380,6 +384,7 @@
 }
 
 .vs .vs-meter-fill {
+    display: block;
     height: 100%;
     border-radius: 999px;
     background: var(--vs-good);
