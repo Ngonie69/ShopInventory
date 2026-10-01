@@ -379,6 +379,18 @@ public class ConfirmReservationRequest
     /// Whether to fiscalize the invoice after posting
     /// </summary>
     public bool Fiscalize { get; set; } = true;
+
+    /// <summary>
+    /// The verification code of the receipt the sale was already fiscalised under, when
+    /// <see cref="Fiscalize"/> is false because it was signed first. Internal only — see
+    /// <see cref="ShopInventory.Models.CreateInvoiceRequest.FiscalVerificationCode"/>.
+    /// </summary>
+    [JsonIgnore]
+    public string? FiscalVerificationCode { get; set; }
+
+    /// <summary>That receipt's ZIMRA QR URL. Internal only.</summary>
+    [JsonIgnore]
+    public string? FiscalQrUrl { get; set; }
 }
 
 /// <summary>
