@@ -77,9 +77,11 @@ public sealed record VanSalesCoverageSummaryResult(
     int? PlannedCalls,
     int? CallsAgainstPlan,
     int? KilometresTravelled,
-    List<VanSalesMoneyResult> TotalsByCurrency)
+    List<VanSalesMoneyResult> TotalsByCurrency,
+    int PcrProductiveCalls,
+    int? PcrCalls)
 {
-    public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+    public double? StrikeRate => PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 
     /// <summary>
     /// Calls made on planned days over the calls those days planned. Null when no departure record
@@ -121,13 +123,15 @@ public sealed record VanSalesCoverageTrendPointResult(
     int ProductiveCalls,
     int OutletsBought,
     int DaysWithoutPlan,
-    int RepDaysWithoutRouteDay)
+    int RepDaysWithoutRouteDay,
+    int PcrProductiveCalls,
+    int? PcrCalls)
 {
     public double? CallComplianceRate =>
         PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
-        Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+        PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 }
 
 // ── Reps ────────────────────────────────────────────────────────────────────────
@@ -159,11 +163,13 @@ public sealed record VanSalesRepCoverageResult(
     int? CallsAgainstPlan,
     int? KilometresTravelled,
     List<VanSalesEfficiencyResult> EfficiencyByCurrency,
-    List<VanSalesMoneyResult> TotalsByCurrency)
+    List<VanSalesMoneyResult> TotalsByCurrency,
+    int PcrProductiveCalls,
+    int? PcrCalls)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName;
 
-    public double? StrikeRate => Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+    public double? StrikeRate => PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 
     public double? CallComplianceRate =>
         PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;

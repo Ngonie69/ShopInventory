@@ -133,7 +133,7 @@
             <div class="vsg-kpi">
                 <div class="vsg-kpi-value">@Rate(summary.StrikeRate)</div>
                 <div class="vsg-kpi-label">Strike rate</div>
-                <div class="vsg-kpi-sub">@summary.ProductiveCalls.ToString("N0") of @Count(summary.Calls) calls bought</div>
+                <div class="vsg-kpi-sub">@summary.PcrProductiveCalls.ToString("N0") of @Count(summary.PcrCalls) calls bought</div>
             </div>
 
             <div class="vsg-kpi @(summary.NewOutlets >= summary.LapsedOutlets ? null : "vsg-kpi-warn")">

@@ -117,6 +117,21 @@ public class DepartureComplianceDay
     public int CustomersVisited { get; set; }
     public int ProductiveCalls { get; set; }
 
+    /// <summary>Opaque key grouping the rows of one truck: both reps on a van share it.</summary>
+    public string TruckKey { get; set; } = string.Empty;
+
+    // The truck's figures, pooled across both reps on it. The CCR and PCR are taken from these, so
+    // both reps' rows show the truck's rates; the rep's own counts are the three above.
+    public int TruckPlannedCustomerCount { get; set; }
+    public int TruckCustomersVisited { get; set; }
+    public int TruckProductiveCalls { get; set; }
+
+    /// <summary>
+    /// The PCR's calls: shops either rep checked into plus shops that bought without a check-in. Zero
+    /// on a truck-day with no check-ins at all, which leaves that day without a PCR.
+    /// </summary>
+    public int PcrCalls { get; set; }
+
     public int? RtiOut { get; set; }
     public int? RtiReturned { get; set; }
 
@@ -145,10 +160,10 @@ public class DepartureComplianceDay
     // again here from the same figures. Kept identical to the API's definitions on purpose.
 
     public double? CallComplianceRate =>
-        PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
+        TruckPlannedCustomerCount > 0 ? (double)TruckCustomersVisited / TruckPlannedCustomerCount : null;
 
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)TruckProductiveCalls / PcrCalls : null;
 
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;
@@ -228,6 +243,8 @@ public class DepartureComplianceSummary
     public int PlannedCustomerCount { get; set; }
     public int CustomersVisited { get; set; }
     public int ProductiveCalls { get; set; }
+    public int PcrProductiveCalls { get; set; }
+    public int PcrCalls { get; set; }
     public decimal TotalSales { get; set; }
     public int NewCustomers { get; set; }
     public int? KilometresTravelled { get; set; }
@@ -236,7 +253,7 @@ public class DepartureComplianceSummary
         PlannedCustomerCount > 0 ? (double)CustomersVisited / PlannedCustomerCount : null;
 
     public double? ProductiveCallRate =>
-        CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
+        PcrCalls > 0 ? (double)PcrProductiveCalls / PcrCalls : null;
 
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(TotalSales / ProductiveCalls, 2) : null;

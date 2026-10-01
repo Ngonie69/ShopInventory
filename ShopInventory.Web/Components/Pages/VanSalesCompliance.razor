@@ -50,7 +50,7 @@
                 and what came back.
                 <abbr class="vsc-abbr" title="Call compliance rate: customers visited ÷ customers planned">CCR</abbr>
                 is visited over planned;
-                <abbr class="vsc-abbr" title="Productive call rate: calls that bought ÷ calls made">PCR</abbr>
+                <abbr class="vsc-abbr" title="Productive call rate: calls that bought ÷ calls made, where a shop that bought counts as called on">PCR</abbr>
                 is the calls that bought over the calls made.
             </p>
         </div>
@@ -323,7 +323,7 @@
                                     </span>
                                     <span class="vsc-rate-note">
                                         @(day.PlannedCustomerCount > 0
-                                            ? $"{day.CustomersVisited}/{day.PlannedCustomerCount}"
+                                            ? $"{day.TruckCustomersVisited}/{day.TruckPlannedCustomerCount}"
                                             : "no plan")
                                     </span>
                                 </span>
@@ -336,8 +336,8 @@
                                         @FormatRate(day.ProductiveCallRate)
                                     </span>
                                     <span class="vsc-rate-note">
-                                        @(day.CustomersVisited > 0
-                                            ? $"{day.ProductiveCalls}/{day.CustomersVisited}"
+                                        @(day.PcrCalls > 0
+                                            ? $"{day.TruckProductiveCalls}/{day.PcrCalls}"
                                             : "no calls")
                                     </span>
                                 </span>
@@ -780,13 +780,28 @@
             Clean = rows.Count(row => row.Gaps == Gaps.None)
         };
 
+        var truckDays = new HashSet<(string, DateTime)>();
+
         foreach (var row in rows)
         {
             var day = row.Day;
 
-            totals.Planned += day.PlannedCustomerCount;
-            totals.Visited += day.CustomersVisited;
             totals.Productive += day.ProductiveCalls;
+
+            // The rates are the truck's, and both reps' rows carry the same truck figures, so each
+            // truck-day is added once. The PCR counts only truck-days with check-ins, on both sides.
+            if (truckDays.Add((day.TruckKey, day.TradingDate)))
+            {
+                totals.Planned += day.TruckPlannedCustomerCount;
+                totals.Visited += day.TruckCustomersVisited;
+
+                if (day.PcrCalls > 0)
+                {
+                    totals.PcrProductive += day.TruckProductiveCalls;
+                    totals.PcrCalls += day.PcrCalls;
+                }
+            }
+
             totals.Sales += day.SystemTotalSales;
 
             if (day.KilometresTravelled is { } kilometres)
@@ -1315,6 +1330,8 @@
         public int Planned { get; set; }
         public int Visited { get; set; }
         public int Productive { get; set; }
+        public int PcrProductive { get; set; }
+        public int PcrCalls { get; set; }
         public decimal Sales { get; set; }
 
         public int KilometresRead { get; set; }
@@ -1328,7 +1345,7 @@
 
         public double? Ccr => Planned > 0 ? (double)Visited / Planned : null;
 
-        public double? Pcr => Visited > 0 ? (double)Productive / Visited : null;
+        public double? Pcr => PcrCalls > 0 ? (double)PcrProductive / PcrCalls : null;
 
         public decimal? Aov => Productive > 0 ? decimal.Round(Sales / Productive, 2) : null;
 

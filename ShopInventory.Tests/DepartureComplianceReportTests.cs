@@ -105,6 +105,103 @@ public sealed class DepartureComplianceReportTests : IDisposable
     }
 
     /// <summary>
+    /// Shops that bought without a check-in were still called on. The CCR keeps check-ins over plan,
+    /// so the missing check-ins still count against the rep there — but the PCR counts every buyer as
+    /// a call, and one check-in against three buyers is 100%, not 300%.
+    /// </summary>
+    [Fact]
+    public async Task Buyers_without_a_check_in_count_as_calls_for_the_pcr()
+    {
+        AddDay(plannedCustomers: 10);
+        AddVisit("TUCK01", Utc(8, 30));
+        AddOfflineSale("OFF-1", "TUCK01", total: 40m);
+        AddOfflineSale("OFF-2", "NEW1", total: 20m);
+        AddOfflineSale("OFF-3", "NEW2", total: 20m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var day = Assert.Single(report.Days);
+
+        Assert.Equal(1, day.CustomersVisited);
+        Assert.Equal(3, day.ProductiveCalls);
+        Assert.Equal(3, day.PcrCalls);
+        Assert.Equal(1.0, day.ProductiveCallRate);
+        Assert.Equal(0.1, day.CallComplianceRate);
+        Assert.Equal(1.0, report.Summary.ProductiveCallRate);
+    }
+
+    /// <summary>
+    /// Two reps on one van take turns: one opens the day and checks in, the other writes the
+    /// invoices. Both rows carry the truck's CCR and PCR, and the summary reads the truck-day once.
+    /// </summary>
+    [Fact]
+    public async Task Two_reps_on_one_truck_share_its_rates_and_count_once_in_the_summary()
+    {
+        var mate = Guid.Parse("66666666-6666-6666-6666-666666666666");
+        _context.Users.Add(new User
+        {
+            Id = mate,
+            Username = "van010b",
+            Email = "van010b@example.com",
+            PasswordHash = "x",
+            Role = "Sales",
+            IsActive = true,
+            FirstName = "Farai",
+            LastName = "Dube",
+            AssignedWarehouseCode = VanWarehouse,
+            AssignedBusinessPartnerCode = VanAccount
+        });
+
+        AddDay(plannedCustomers: 10);
+        AddVisit("TUCK01", Utc(8, 30));
+        AddVisit("SHOP2", Utc(9, 0));
+        AddOfflineSale("OFF-1", "TUCK01", total: 40m, createdBy: mate.ToString());
+        AddOfflineSale("OFF-2", "SHOP3", total: 20m, createdBy: mate.ToString());
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(2, report.Days.Count);
+        var opener = report.Days.Single(day => day.UserId == Rep);
+        var seller = report.Days.Single(day => day.UserId == mate);
+
+        // Each rep's own columns are their own.
+        Assert.Equal(2, opener.CustomersVisited);
+        Assert.Equal(0, opener.ProductiveCalls);
+        Assert.Equal(0, seller.CustomersVisited);
+        Assert.Equal(2, seller.ProductiveCalls);
+
+        // The rates are the truck's, and the same on both rows.
+        foreach (var day in new[] { opener, seller })
+        {
+            Assert.Equal(0.2, day.CallComplianceRate);
+            Assert.Equal(3, day.PcrCalls);
+            Assert.Equal(2.0 / 3, day.ProductiveCallRate!.Value, 3);
+        }
+
+        Assert.Equal(10, report.Summary.PlannedCustomerCount);
+        Assert.Equal(2, report.Summary.CustomersVisited);
+        Assert.Equal(0.2, report.Summary.CallComplianceRate);
+        Assert.Equal(2.0 / 3, report.Summary.ProductiveCallRate!.Value, 3);
+    }
+
+    /// <summary>A day of sales with no check-ins has no PCR, rather than a perfect one.</summary>
+    [Fact]
+    public async Task A_day_with_sales_and_no_check_ins_has_no_pcr()
+    {
+        AddDay(plannedCustomers: 10);
+        AddOfflineSale("OFF-1", "TUCK01", total: 40m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var day = Assert.Single(report.Days);
+
+        Assert.Equal(0, day.PcrCalls);
+        Assert.Null(day.ProductiveCallRate);
+        Assert.Null(report.Summary.ProductiveCallRate);
+    }
+
+    /// <summary>
     /// Sales with no shop on them are one bucket, not one shop each — otherwise the day a handset
     /// stopped reporting shops becomes the busiest the route has ever had.
     /// </summary>

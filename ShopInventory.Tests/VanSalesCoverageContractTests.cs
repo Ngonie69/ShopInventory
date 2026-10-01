@@ -201,7 +201,7 @@ public class VanSalesCoverageContractTests
         PriorWindowFrom: new DateTime(2026, 5, 3),
         LapseDays: 90,
         Granularity: ApiGranularity.Month,
-        Summary: new VanSalesCoverageSummaryResult(0, null, 0, 0, 0, 0, 0, 0, 0, 0, null, 0, null, null, null, []),
+        Summary: new VanSalesCoverageSummaryResult(0, null, 0, 0, 0, 0, 0, 0, 0, 0, null, 0, null, null, null, [], 0, null),
         Trend: [],
         Reps: [],
         UncoveredOutlets: [],
@@ -234,11 +234,13 @@ public class VanSalesCoverageContractTests
             PlannedCalls: 120,
             CallsAgainstPlan: 100,
             KilometresTravelled: 1200,
-            TotalsByCurrency: [new VanSalesMoneyResult("USD", 260, 210, 8400m)]),
+            TotalsByCurrency: [new VanSalesMoneyResult("USD", 260, 210, 8400m)],
+            PcrProductiveCalls: 80,
+            PcrCalls: 100),
         Trend:
         [
             new VanSalesCoverageTrendPointResult("Aug 2026", new DateTime(2026, 8, 1),
-                new DateTime(2026, 8, 31), false, 1, 120, 100, 100, 80, 80, 0, 0)
+                new DateTime(2026, 8, 31), false, 1, 120, 100, 100, 80, 80, 0, 0, 80, 100)
         ],
         Reps:
         [
@@ -246,7 +248,7 @@ public class VanSalesCoverageContractTests
                 Guid.NewGuid(), "van010", "Tinashe Moyo", "VAN010", ["GURUVE"],
                 true, 120, 22, 100, 95, 80, 80, 25, 120, 100, 1200,
                 [new VanSalesEfficiencyResult("USD", 8400m, 210, 1200, 20, 2)],
-                [new VanSalesMoneyResult("USD", 260, 210, 8400m)])
+                [new VanSalesMoneyResult("USD", 260, 210, 8400m)], 80, 100)
         ],
         UncoveredOutlets:
         [
@@ -298,11 +300,11 @@ public class VanSalesCoverageContractTests
         PriorWindowFrom: new DateTime(2026, 5, 3),
         LapseDays: 90,
         Granularity: ApiGranularity.Week,
-        Summary: new VanSalesCoverageSummaryResult(1, null, 0, 0, 0, 0, 0, 0, 0, 0, null, 0, null, null, null, []),
+        Summary: new VanSalesCoverageSummaryResult(1, null, 0, 0, 0, 0, 0, 0, 0, 0, null, 0, null, null, null, [], 0, null),
         Trend:
         [
             new VanSalesCoverageTrendPointResult("w/c 03 Aug", new DateTime(2026, 8, 3),
-                new DateTime(2026, 8, 9), true, 0, null, null, null, 0, 0, 1, 1)
+                new DateTime(2026, 8, 9), true, 0, null, null, null, 0, 0, 1, 1, 0, null)
         ],
         Reps:
         [
@@ -310,7 +312,7 @@ public class VanSalesCoverageContractTests
                 Guid.NewGuid(), "van010", null, null, [],
                 false, null, 0, null, null, 0, null, null, null, null, null,
                 [new VanSalesEfficiencyResult("USD", 0m, 0, null, 0, 3)],
-                [])
+                [], 0, null)
         ],
         UncoveredOutlets:
         [

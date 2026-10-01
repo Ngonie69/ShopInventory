@@ -3589,6 +3589,11 @@ answer for July — rendering July as "the van never moved" reads as a finding.
       "plannedCustomerCount": 32,
       "customersVisited": 29,
       "productiveCalls": 24,
+      "truckKey": "VAN010",
+      "truckPlannedCustomerCount": 32,
+      "truckCustomersVisited": 29,
+      "truckProductiveCalls": 24,
+      "pcrCalls": 29,
       "rtiOut": 40,
       "rtiReturned": 38,
       "systemCash": 1840.00,
@@ -3650,6 +3655,8 @@ answer for July — rendering July as "the van never moved" reads as a finding.
     "plannedCustomerCount": 704,
     "customersVisited": 631,
     "productiveCalls": 512,
+    "pcrProductiveCalls": 512,
+    "pcrCalls": 631,
     "totalSales": 47320.00,
     "newCustomers": 14,
     "kilometresTravelled": 3180,
@@ -3659,6 +3666,27 @@ answer for July — rendering July as "the van never moved" reads as a finding.
   }
 }
 ```
+
+**The CCR and PCR are the truck's, not the rep's.** Each truck carries two reps under one van
+account (`AssignedBusinessPartnerCode`), and they take turns through the day: one may check in and
+the other write the invoice. So the rates come from the `truck…` fields, pooled across both reps on
+that truck-day, with each shop counted once and the truck's plan read once. Both reps' rows show the
+same rates. `plannedCustomerCount`, `customersVisited` and `productiveCalls` stay the rep's own.
+`truckKey` is an opaque key that groups the rows of one truck. A rep with no van account is a truck
+of one.
+
+**The PCR divides by `pcrCalls`.** `pcrCalls` is the shops either rep checked into, plus the shops
+that bought without a check-in, because a sale proves the call was made. So `productiveCallRate`
+cannot pass 1.0, and a missing check-in still counts against the truck in the CCR. A truck-day with
+no check-ins has `pcrCalls` 0 and no PCR. The summary counts each truck-day once. Its
+`plannedCustomerCount` and `customersVisited` are the trucks' totals, and its `pcrProductiveCalls`
+and `pcrCalls` cover only truck-days with check-ins.
+
+The van sales performance and coverage reports measure their call rates the same way. Every row
+that shows a strike rate carries the `pcrProductiveCalls` / `pcrCalls` pair. Their `plannedCalls`,
+route-level `calls` and `kilometresTravelled` are counted once per truck-day. The performance
+report's routes table puts a rep who sold without tapping Start Day on the route their truck-mate
+opened. Only truck-days that nobody on the truck opened fall under "No departure record".
 
 **The cash variance is measured against `systemDeclarableTakings`, not `systemTotalSales`.** The
 declaration has three boxes — cash, ecocash, innbucks — and the handset offers no fourth, so two

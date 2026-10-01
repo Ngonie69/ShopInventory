@@ -34,6 +34,11 @@ public class DepartureComplianceClassifierTests
         PlannedCustomerCount = 10,
         CustomersVisited = 10,
         ProductiveCalls = 10,
+        TruckKey = "VAN010",
+        TruckPlannedCustomerCount = 10,
+        TruckCustomersVisited = 10,
+        TruckProductiveCalls = 10,
+        PcrCalls = 10,
         SystemCash = 500m,
         SystemTotalSales = 500m,
         DeclaredCash = 500m
@@ -361,7 +366,7 @@ public class DepartureComplianceClassifierTests
     public void A_call_rate_under_ninety_five_percent_is_under_target()
     {
         var day = Clean();
-        day.CustomersVisited = 9;
+        day.TruckCustomersVisited = 9;
 
         Assert.True(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.CcrUnderTarget));
     }
@@ -370,7 +375,7 @@ public class DepartureComplianceClassifierTests
     public void A_productive_rate_under_seventy_five_percent_is_under_target()
     {
         var day = Clean();
-        day.ProductiveCalls = 7;
+        day.TruckProductiveCalls = 7;
 
         Assert.True(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.PcrUnderTarget));
     }
@@ -384,6 +389,10 @@ public class DepartureComplianceClassifierTests
         day.PlannedCustomerCount = 0;
         day.CustomersVisited = 0;
         day.ProductiveCalls = 0;
+        day.PcrCalls = 0;
+        day.TruckPlannedCustomerCount = 0;
+        day.TruckCustomersVisited = 0;
+        day.TruckProductiveCalls = 0;
 
         var gaps = DepartureComplianceClassifier.GapsOf(day);
 

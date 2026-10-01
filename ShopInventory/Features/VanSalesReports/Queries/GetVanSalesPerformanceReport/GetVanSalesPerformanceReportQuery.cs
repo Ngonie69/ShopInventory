@@ -86,7 +86,9 @@ public sealed record VanSalesRouteResult(
     int ProductiveCalls,
     int CustomerCount,
     int? KilometresTravelled,
-    List<VanSalesMoneyResult> TotalsByCurrency)
+    List<VanSalesMoneyResult> TotalsByCurrency,
+    int PcrProductiveCalls,
+    int? PcrCalls)
 {
     /// <summary>
     /// Calls made over calls planned. Null when no departure record supplied a plan — nothing was
@@ -96,11 +98,13 @@ public sealed record VanSalesRouteResult(
         PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     /// <summary>
-    /// The calls that bought, over the calls made. Can exceed 1.0 where sales exist with no recorded
-    /// visit, and is deliberately not clamped — that discrepancy is itself worth seeing.
+    /// The calls that bought, over the calls made, both counted over the truck-days that have
+    /// check-ins and pooled across the two reps on each truck — see <see cref="VanTruckDays"/>. A shop
+    /// that bought counts as called on even without a check-in, so this cannot pass 1.0. Missing
+    /// check-ins still show, in the CCR.
     /// </summary>
     public double? ProductiveCallRate =>
-        Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+        PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 }
 
 // ── Reps ────────────────────────────────────────────────────────────────────────
@@ -130,7 +134,9 @@ public sealed record VanSalesRepResult(
     int NewOutletsWhoBought,
     int ItemCount,
     int? KilometresTravelled,
-    List<VanSalesMoneyResult> TotalsByCurrency)
+    List<VanSalesMoneyResult> TotalsByCurrency,
+    int PcrProductiveCalls,
+    int? PcrCalls)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName;
 
@@ -139,7 +145,7 @@ public sealed record VanSalesRepResult(
     /// is not a 0% striker — he is unmeasurable, and the unmeasurability is the finding.
     /// </summary>
     public double? StrikeRate =>
-        Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+        PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 
     /// <summary>Calls per day worked, over days that actually traded.</summary>
     public double? CallsPerDay =>
@@ -330,10 +336,12 @@ public sealed record VanSalesPerformanceSummaryResult(
     int ItemCount,
     int NewOutlets,
     int? KilometresTravelled,
-    List<VanSalesMoneyResult> TotalsByCurrency)
+    List<VanSalesMoneyResult> TotalsByCurrency,
+    int PcrProductiveCalls,
+    int? PcrCalls)
 {
     public double? StrikeRate =>
-        Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;
+        PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
 }
 
 /// <summary>
