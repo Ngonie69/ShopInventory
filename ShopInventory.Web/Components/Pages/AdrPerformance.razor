@@ -100,7 +100,17 @@
             <div class="vsp-kpi">
                 <div class="vsp-kpi-value">@overall.ActiveAdrCount.ToString("N0")</div>
                 <div class="vsp-kpi-label">ADRs active</div>
-                <div class="vsp-kpi-sub">of @overall.AdrCount.ToString("N0") ADR accounts</div>
+                <div class="vsp-kpi-sub">
+                    of @overall.AdrCount.ToString("N0") ADR accounts ·
+                    @if (overall.StrikeRate is { } strike)
+                    {
+                        @($"{strike:P0} strike rate")
+                    }
+                    else
+                    {
+                        <span class="vs-metric-none">no visits recorded</span>
+                    }
+                </div>
             </div>
 
             <div class="vsp-kpi">
@@ -137,6 +147,20 @@
             </div>
         </div>
 
+        @* Hidden when there is nothing to say, so its presence is itself the signal. *@
+        @if (report.Caveats.Count > 0)
+        {
+            <div class="vsp-caveats">
+                <div class="vsp-caveats-head">What this period could not answer</div>
+                <ul class="vsp-caveats-list">
+                    @foreach (var caveat in report.Caveats)
+                    {
+                        <li>@caveat</li>
+                    }
+                </ul>
+            </div>
+        }
+
         @if (SelectedAdr is { } adr)
         {
             <h3 class="vsp-heading">@adr.DisplayName</h3>
@@ -152,6 +176,8 @@
                     <div><dt>Cancelled</dt><dd>@adr.OrderCounts.Cancelled.ToString("N0")</dd></div>
                     <div><dt>Shops ordered for</dt><dd>@adr.OrderCustomerCount.ToString("N0")</dd></div>
                     <div><dt>Shops sold to</dt><dd>@adr.SaleCustomerCount.ToString("N0")</dd></div>
+                    <div><dt>Calls</dt><dd>@(adr.Calls?.ToString("N0") ?? "—")</dd></div>
+                    <div><dt>Strike rate</dt><dd>@Rate(adr.StrikeRate)</dd></div>
                 </dl>
 
                 <div class="vs-table-wrap">
@@ -186,6 +212,11 @@
                         </tbody>
                     </table>
                 </div>
+
+                @if (report.Detail is { } detail)
+                {
+                    @DetailTabs(detail)
+                }
             </div>
         }
 
@@ -228,6 +259,50 @@
             </table>
         </div>
 
+        <h3 class="vsp-heading">Who raised the order book</h3>
+        <p class="vsp-note">
+            Every sales order raised in the period, from every source, split by who raised it — so the
+            ADRs can be read against everyone who takes orders, not only the vans. Cancelled and
+            rejected orders are out of both the part and the whole. Grouped on each person's role today.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Raised by</th>
+                        <th class="vs-num">Orders</th>
+                        <th class="vs-num">People</th>
+                        <th>Value</th>
+                        <th>Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var channel in report.OrdersByChannel)
+                    {
+                        <tr class="@(channel.IsAdr ? "vsadr-self" : null)">
+                            <td>@channel.Channel</td>
+                            <td class="vs-num">@channel.OrderCount.ToString("N0")</td>
+                            <td class="vs-num">@(channel.PeopleCount == 0 ? "—" : channel.PeopleCount.ToString("N0"))</td>
+                            <td>@ChannelValues(channel.Shares)</td>
+                            <td class="vsadr-share-cell">
+                                @foreach (var share in channel.Shares)
+                                {
+                                    <div class="vsadr-share">
+                                        @ShareCell(share.Share)
+                                        <span class="vsp-sub">of @share.Currency</span>
+                                    </div>
+                                }
+                                @if (channel.Shares.Count == 0)
+                                {
+                                    <span class="vs-metric-none">nothing raised</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
         <h3 class="vsp-heading">ADR league table</h3>
         <p class="vsp-note">
             Ranked on sales in the vans' main currency, then orders. Choose an ADR's name to see them
@@ -245,6 +320,7 @@
                         <th class="vs-num">Fulfilled</th>
                         <th class="vs-num">Not in SAP</th>
                         <th class="vs-num">Shops ordered</th>
+                        <th class="vs-num">Strike rate</th>
                         <th>Order value</th>
                         <th class="vs-num">Share</th>
                         <th>Sales value</th>
@@ -271,6 +347,7 @@
                             <td class="vs-num">@row.OrderCounts.Fulfilled.ToString("N0")</td>
                             <td class="vs-num @(row.OrderCounts.Pending > 0 ? "vsadr-warn" : null)">@row.OrderCounts.Pending.ToString("N0")</td>
                             <td class="vs-num">@row.OrderCustomerCount.ToString("N0")</td>
+                            <td class="vs-num @(row.StrikeRate is null ? "vs-metric-none" : null)">@Rate(row.StrikeRate)</td>
                             <td>@MoneyList(row.OrderTotalsByCurrency)</td>
                             <td class="vs-num">@LeadShareCell(row, row.OrderTotalsByCurrency, share => share.OrderShare)</td>
                             <td>@MoneyList(row.SalesTotalsByCurrency)</td>
@@ -299,6 +376,157 @@
 
     private bool isLoading;
     private string? loadError;
+
+    private const string TabShops = "shops";
+    private const string TabItems = "items";
+    private const string TabOrders = "orders";
+    private string activeTab = TabShops;
+
+    /// <summary>
+    /// One ADR's shops, items and orders. Inline rather than three components: they share this
+    /// page's formatters, and two tables formatting money two ways is how a page starts to disagree
+    /// with itself.
+    /// </summary>
+    private RenderFragment DetailTabs(AdrPerformanceDetail detail) => __builder =>
+    {
+        <div class="vsp-sections">
+            @foreach (var (key, label, count) in new[]
+            {
+                (TabShops, "Shops", detail.Shops.Count),
+                (TabItems, "Items", detail.Items.Count),
+                (TabOrders, "Orders", detail.Orders.Count + detail.OrdersNotListed)
+            })
+            {
+                <button type="button"
+                        class="vs-chip @(activeTab == key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => activeTab = key">
+                    @label
+                    <span class="vsp-section-count">@count.ToString("N0")</span>
+                </button>
+            }
+        </div>
+
+        @if (activeTab == TabShops)
+        {
+            <p class="vsp-note">
+                Orders and van sales sit in separate columns: an order the van then invoiced would
+                otherwise count twice. Cancelled orders are left out.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Shop</th>
+                            <th class="vs-num">Orders</th>
+                            <th>Order value</th>
+                            <th class="vs-num">Sales</th>
+                            <th>Sales value</th>
+                            <th>Last active</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var shop in detail.Shops)
+                        {
+                            <tr>
+                                <td>@shop.DisplayName <span class="vsp-sub">@shop.CustomerCode</span></td>
+                                <td class="vs-num">@shop.OrderCount.ToString("N0")</td>
+                                <td>@MoneyList(shop.OrderTotalsByCurrency)</td>
+                                <td class="vs-num">@shop.SaleCount.ToString("N0")</td>
+                                <td>@MoneyList(shop.SalesTotalsByCurrency)</td>
+                                <td>@shop.LastActiveOn.ToString("ddd dd MMM")</td>
+                            </tr>
+                        }
+                        @if (detail.Shops.Count == 0)
+                        {
+                            <tr><td colspan="6" class="vs-metric-none">No shop recorded on any order or sale.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (activeTab == TabItems)
+        {
+            <p class="vsp-note">
+                What they ordered, ranked on reach — lines written and shops reached — because value
+                cannot be compared across currencies nor quantity across units. Value is line totals,
+                a different measure from order totals.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th class="vs-num">#</th>
+                            <th>Item</th>
+                            <th class="vs-num">Lines</th>
+                            <th class="vs-num">Shops</th>
+                            <th>Quantity</th>
+                            <th>Line value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in detail.Items)
+                        {
+                            <tr>
+                                <td class="vs-num">@item.Rank</td>
+                                <td>@item.DisplayName <span class="vsp-sub">@item.ItemCode</span></td>
+                                <td class="vs-num">@item.LineCount.ToString("N0")</td>
+                                <td class="vs-num">@item.ShopCount.ToString("N0")</td>
+                                <td>@Quantity(item.QuantitiesByUoM)</td>
+                                <td>@LineMoney(item.TotalsByCurrency)</td>
+                            </tr>
+                        }
+                        @if (detail.Items.Count == 0)
+                        {
+                            <tr><td colspan="6" class="vs-metric-none">No order lines in this period.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            @if (detail.OrdersNotListed > 0)
+            {
+                <p class="vsp-note">
+                    The newest @detail.Orders.Count.ToString("N0") orders. @detail.OrdersNotListed.ToString("N0")
+                    older ones are counted above but not listed — narrow the period to see them.
+                </p>
+            }
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Order</th>
+                            <th>SAP no.</th>
+                            <th>Shop</th>
+                            <th>Stage</th>
+                            <th class="vs-num">Lines</th>
+                            <th class="vs-num">Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var order in detail.Orders)
+                        {
+                            <tr class="@(order.Stage == "Cancelled" ? "vsadr-cancelled" : null)">
+                                <td>@order.TradingDate.ToString("ddd dd MMM")</td>
+                                <td>@order.OrderNumber</td>
+                                <td>@(order.SapDocNum?.ToString(CultureInfo.InvariantCulture) ?? "—")</td>
+                                <td>@order.DisplayCustomer</td>
+                                <td><span class="vs-chip @StageChip(order.Stage)">@order.Stage</span></td>
+                                <td class="vs-num">@order.LineCount.ToString("N0")</td>
+                                <td class="vs-num">@($"{order.Currency} {order.DocTotal:N2}")</td>
+                            </tr>
+                        }
+                        @if (detail.Orders.Count == 0)
+                        {
+                            <tr><td colspan="7" class="vs-metric-none">No orders in this period.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    };
 
     private IEnumerable<INocturneSelectOption<string>> AdrFilterOptions =>
         new[] { NocturneSelectOption.All("All ADRs") }
@@ -414,6 +642,29 @@
             : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
 
     private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+
+    private static string ChannelValues(List<AdrChannelShare> shares) =>
+        shares.Count == 0
+            ? "—"
+            : string.Join(", ", shares.Select(share => $"{share.Currency} {share.Gross:N2}"));
+
+    private static string LineMoney(List<VanSalesLineMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    private static string Quantity(List<VanSalesQuantity> quantities) =>
+        quantities.Count == 0
+            ? "—"
+            : string.Join(", ", quantities.Select(q => $"{q.Quantity:N0} {q.DisplayUoM}"));
+
+    private static string StageChip(string stage) => stage switch
+    {
+        "Cancelled" => "vs-chip-bad",
+        "Fulfilled" => "vs-chip-good",
+        "In SAP" => "vs-chip-info",
+        _ => "vs-chip-quiet"
+    };
 
     private static RenderFragment ShareCell(double? share) => builder =>
     {

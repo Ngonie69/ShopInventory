@@ -5129,6 +5129,15 @@ public partial class ReportExportService : IReportExportService
         BuildAdrContributionSheet(workbook, report, now);
         BuildAdrLeagueSheet(workbook, report, now);
 
+        // Exported with one ADR chosen, the workbook carries what the page showed for them.
+        if (report.Detail is { } detail)
+        {
+            var name = report.Adrs.FirstOrDefault(adr => adr.UserId == detail.UserId)?.DisplayName ?? "ADR";
+            BuildAdrShopsSheet(workbook, detail, name, now);
+            BuildAdrItemsSheet(workbook, detail, name, now);
+            BuildAdrOrdersSheet(workbook, detail, name, now);
+        }
+
         return WorkbookToBytes(workbook);
     }
 
@@ -5154,7 +5163,27 @@ public partial class ReportExportService : IReportExportService
             ("In SAP", overall.OrderCounts.InSap.ToString("N0"), null),
             ("Not Yet In SAP", overall.OrderCounts.Pending.ToString("N0"), null),
             ("Share of Orders", leadOrders is null ? "—" : $"{RateText(leadOrders.Share)} {leadOrders.Currency}", null),
-            ("Share of Sales", leadSales is null ? "—" : $"{RateText(leadSales.Share)} {leadSales.Currency}", null));
+            ("Share of Sales", leadSales is null ? "—" : $"{RateText(leadSales.Share)} {leadSales.Currency}", null),
+            ("Strike Rate", RateText(overall.StrikeRate), null));
+
+        // The caveats before any figure: a forwarded workbook reaches people who never saw the page.
+        if (report.Caveats.Count > 0)
+        {
+            TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+            row += 2;
+
+            foreach (var caveat in report.Caveats)
+            {
+                ws.Cell(row, 1).Value = caveat;
+                ws.Range(row, 1, row, lastCol).Merge();
+                ws.Cell(row, 1).Style.Font.FontSize = 9;
+                ws.Cell(row, 1).Style.Font.Italic = true;
+                ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+                row++;
+            }
+
+            row++;
+        }
 
         TsSectionTitle(ws, row, lastCol, "ADR CONTRIBUTION TO ALL VANS");
         row += 2;
@@ -5179,6 +5208,35 @@ public partial class ReportExportService : IReportExportService
             index++;
         }
 
+        row++;
+        TsSectionTitle(ws, row, lastCol, "WHO RAISED THE ORDER BOOK — EVERY SALES ORDER IN THE PERIOD");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Raised By", "Orders", "People", "Value", "Share", "", ""]);
+
+        int channelIndex = 0;
+        foreach (var channel in report.OrdersByChannel)
+        {
+            TsDataRow(ws, row, lastCol, channelIndex % 2 == 1);
+            ws.Cell(row, 1).Value = channel.Channel;
+            ws.Cell(row, 2).Value = channel.OrderCount;
+            ws.Cell(row, 3).Value = channel.PeopleCount;
+            ws.Cell(row, 4).Value = channel.Shares.Count == 0
+                ? "—"
+                : string.Join(", ", channel.Shares.Select(share => $"{share.Currency} {share.Gross:N2}"));
+            ws.Cell(row, 5).Value = channel.Shares.Count == 0
+                ? "—"
+                : string.Join(", ", channel.Shares.Select(share => $"{RateText(share.Share)} of {share.Currency}"));
+
+            if (channel.IsAdr)
+            {
+                ws.Range(row, 1, row, 5).Style.Font.Bold = true;
+            }
+
+            row++;
+            channelIndex++;
+        }
+
         TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
     }
 
@@ -5187,7 +5245,7 @@ public partial class ReportExportService : IReportExportService
         AdrPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 14;
+        const int lastCol = 16;
         var ws = workbook.Worksheets.Add("ADRs");
         TsApplyDefaults(ws);
 
@@ -5196,7 +5254,7 @@ public partial class ReportExportService : IReportExportService
         [
             "ADR", "Van Account", "Days Active", "Orders", "In SAP", "Fulfilled", "Not Yet In SAP",
             "Cancelled", "Shops Ordered For", "Order Value", "Sales Value", "Shops Sold To",
-            "Share of Orders", "Share of Sales"
+            "Share of Orders", "Share of Sales", "Calls", "Strike Rate"
         ]);
 
         int index = 0;
@@ -5217,6 +5275,8 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 12).Value = adr.SaleCustomerCount;
             ws.Cell(row, 13).Value = AdrShareText(adr.Shares, share => share.OrderShare);
             ws.Cell(row, 14).Value = AdrShareText(adr.Shares, share => share.SalesShare);
+            ws.Cell(row, 15).Value = adr.Calls?.ToString("N0") ?? "—";
+            ws.Cell(row, 16).Value = RateText(adr.StrikeRate);
             row++;
             index++;
         }
