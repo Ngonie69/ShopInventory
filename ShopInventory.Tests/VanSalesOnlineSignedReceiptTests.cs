@@ -325,6 +325,126 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.Single(await _context.DesktopSales.ToListAsync());
     }
 
+    /// <summary>
+    /// The basket that could never be sent. A first attempt reserved the stock and died before anything was
+    /// signed — the handset gave up at two minutes, or the API restarted — and the clock expired the
+    /// reservation an hour later. The handset tells the rep to resend the basket unchanged, and every resend
+    /// met that expired reservation and was refused, forever, with nothing in any list to show for it.
+    /// </summary>
+    [Theory]
+    [InlineData(ReservationStatus.Expired)]
+    [InlineData(ReservationStatus.Failed)]
+    public async Task A_resend_after_an_unsigned_reservation_lapsed_reserves_afresh_and_signs(string status)
+    {
+        const string reference = "VAN006-INV-20260810-DDD444";
+        var lapsed = SeedReservation(reference, status);
+
+        var response = await SellAsync(Unstamped(reference));
+
+        Assert.True(response.Success);
+        Assert.Equal(["sign"], _calls);
+
+        var rows = await _context.StockReservations.AsNoTracking().OrderBy(r => r.Id).ToListAsync();
+        Assert.Equal(2, rows.Count);
+
+        // The lapsed one is kept on the record, out of the van order's way, and says why.
+        Assert.Equal(lapsed.ReservationId, rows[0].ReservationId);
+        Assert.Equal(status, rows[0].Status);
+        Assert.StartsWith(reference + "~lapsed-", rows[0].ExternalReferenceId);
+        Assert.Contains("before its sale was signed", rows[0].CancellationReason);
+
+        // The sale went through a fresh reservation, checked for stock like any first attempt.
+        Assert.Equal(reference, rows[1].ExternalReferenceId);
+        Assert.Equal(ReservationStatus.Pending, rows[1].Status);
+        Assert.Equal(rows[1].ReservationId, (await _context.InvoiceQueue.SingleAsync()).ReservationId);
+        Assert.Equal(reference, (await _context.DesktopSales.SingleAsync()).ExternalReferenceId);
+    }
+
+    /// <summary>A person ended a Cancelled reservation, and a resend is not theirs to overrule.</summary>
+    [Fact]
+    public async Task A_resend_against_a_cancelled_reservation_is_still_refused_unsigned()
+    {
+        const string reference = "VAN006-INV-20260810-DDD444";
+        SeedReservation(reference, ReservationStatus.Cancelled);
+
+        var result = await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped(reference), VanUser), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("VanSalesCompatibility.SaleNotPostable", result.FirstError.Code);
+        Assert.Empty(_calls);
+        Assert.Equal(reference, (await _context.StockReservations.AsNoTracking().SingleAsync()).ExternalReferenceId);
+    }
+
+    /// <summary>
+    /// A receipt row means the device was asked, so the lapsed reservation may stand behind a receipt in a
+    /// customer's hand. It stays exactly where it is, and the resend goes on as it always did.
+    /// </summary>
+    [Fact]
+    public async Task A_lapsed_reservation_with_a_receipt_row_is_not_set_aside()
+    {
+        const string reference = "VAN006-INV-20260810-DDD444";
+        SeedReservation(reference, ReservationStatus.Expired);
+
+        _context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = reference,
+            SourceSystem = SaleSourceSystems.VanSalesOnline,
+            CardCode = "SIM001",
+            DocDate = Day,
+            TotalAmount = 100m,
+            Currency = "USD",
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
+            FiscalVerificationCode = "vc-earlier",
+            ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated,
+            CreatedBy = VanUser.ToString(),
+            Lines = [new DesktopSaleLineEntity { LineNum = 0, ItemCode = "CHE011", Quantity = 2, UnitPrice = 50m, LineTotal = 100m }]
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped(reference), VanUser), CancellationToken.None);
+
+        // Already signed, so the device is not asked again, and the reservation keeps its van order.
+        Assert.DoesNotContain("sign", _calls);
+        var reservation = await _context.StockReservations.AsNoTracking().SingleAsync();
+        Assert.Equal(reference, reservation.ExternalReferenceId);
+    }
+
+    private StockReservationEntity SeedReservation(string reference, string status)
+    {
+        var reservation = new StockReservationEntity
+        {
+            ExternalReferenceId = reference,
+            SourceSystem = SaleSourceSystems.VanSales,
+            CardCode = "SIM001",
+            Currency = "USD",
+            Status = status,
+            CreatedAt = DateTime.UtcNow.AddHours(-3),
+            ExpiresAt = DateTime.UtcNow.AddHours(-2),
+            CancelledAt = status == ReservationStatus.Cancelled ? DateTime.UtcNow.AddHours(-2) : null,
+            Lines =
+            [
+                new StockReservationLineEntity
+                {
+                    LineNum = 0,
+                    ItemCode = "CHE011",
+                    OriginalQuantity = 2,
+                    ReservedQuantity = 2,
+                    UnitPrice = 50m,
+                    LineTotal = 100m,
+                    WarehouseCode = "VAN006"
+                }
+            ]
+        };
+
+        _context.StockReservations.Add(reservation);
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+        return reservation;
+    }
+
     // --- The double count this design exists to avoid ---
 
     /// <summary>
