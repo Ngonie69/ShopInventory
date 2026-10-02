@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesAttendance.Queries.GetActiveVanVisit;
@@ -25,10 +26,13 @@ public sealed class GetVanSalesAttendanceStatusHandler(
             return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
         }
 
+        // No open call is an answer — "checked out" — not a failure. Matched by code because the lookup
+        // reports it as a validation error, not NotFound: testing the type sent every rep who was not on
+        // site a failed read, and the handset then showed a stale check-in from its own table.
         var activeResult = await mediator.Send(new GetActiveVanVisitQuery(user.Id), cancellationToken);
         if (activeResult.IsError)
         {
-            return activeResult.FirstError.Type == ErrorType.NotFound
+            return activeResult.FirstError.Code == Errors.Timesheet.NoActiveCheckIn.Code
                 ? VanSalesAttendanceMapper.MapStatusResponse(null, user)
                 : activeResult.Errors;
         }

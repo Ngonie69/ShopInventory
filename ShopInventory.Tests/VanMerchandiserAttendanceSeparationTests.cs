@@ -1,7 +1,10 @@
+using ErrorOr;
+using MediatR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Features.Timesheets.Commands.CheckIn;
 using ShopInventory.Features.Timesheets.Commands.CheckOut;
 using ShopInventory.Features.Timesheets.Queries.GetActiveCheckIn;
@@ -11,6 +14,7 @@ using ShopInventory.Features.VanSalesAttendance.Commands.VanCheckIn;
 using ShopInventory.Features.VanSalesAttendance.Commands.VanCheckOut;
 using ShopInventory.Features.VanSalesAttendance.Queries.GetActiveVanVisit;
 using ShopInventory.Features.VanSalesAttendance.Queries.GetVanVisits;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendanceStatus;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -212,7 +216,82 @@ public sealed class VanMerchandiserAttendanceSeparationTests : IDisposable
         Assert.Equal(2, _context.TimesheetEntries.Count());
     }
 
+    // ── The handset's status read ───────────────────────────────────────────
+
+    /// <summary>
+    /// "Not checked in" is an answer, not a failure. The status read used to recognise the no-open-call
+    /// case by <see cref="ErrorType.NotFound"/>, but the active lookup reports it as a validation
+    /// error, so every rep who was not on site was told the read had failed. The handset falls back to
+    /// its own table on a failure, finds any check-in there without a check-out, and shows the rep on
+    /// site at a shop the server has no open call for — and the check-out button then fails with
+    /// "No active check-in found to check out from."
+    /// </summary>
+    [Fact]
+    public async Task The_van_status_reports_a_rep_with_no_open_call_as_checked_out()
+    {
+        var status = await WhenVanAsksForStatus();
+
+        Assert.Equal(1, status.Status);
+        Assert.False(status.Data.HasOpenCheckins);
+        Assert.Empty(status.Data.OpenCheckins);
+    }
+
+    [Fact]
+    public async Task The_van_status_reports_an_open_call()
+    {
+        await WhenVanChecksIn("SHOP1");
+
+        var status = await WhenVanAsksForStatus();
+
+        Assert.Equal(1, status.Status);
+        Assert.True(status.Data.HasOpenCheckins);
+        Assert.Equal("SHOP1", Assert.Single(status.Data.OpenCheckins).Customer!.CustomerCode);
+    }
+
+    [Fact]
+    public async Task The_van_status_does_not_see_an_open_merchandiser_visit()
+    {
+        await WhenMerchandiserChecksIn("SHOP1");
+
+        var status = await WhenVanAsksForStatus(Merchandiser);
+
+        Assert.Equal(1, status.Status);
+        Assert.False(status.Data.HasOpenCheckins);
+    }
+
+    /// <summary>
+    /// The van handset recognises an already-closed call by these words — the attendance envelope
+    /// carries a message and no code (KefalosVanSales <c>AttendanceVisitPolicy.NoOpenCallMessage</c>).
+    /// Rewording it sends the phone back to offering a check-out the server can only refuse.
+    /// </summary>
+    [Fact]
+    public async Task A_van_check_out_with_no_open_call_is_refused_in_the_words_the_handset_reads()
+    {
+        var result = await new VanCheckOutHandler(_context, AuditSink(), NullLogger<VanCheckOutHandler>.Instance)
+            .Handle(new VanCheckOutCommand(VanRep, "van-rep", null, null, null), default);
+
+        Assert.True(result.IsError);
+        Assert.StartsWith("No active check-in found", result.FirstError.Description);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private async Task<VanSalesAttendanceStatusResponse> WhenVanAsksForStatus(Guid? userId = null)
+    {
+        var activeLookup = new GetActiveVanVisitHandler(_context);
+        var mediator = StubProxy.For<IMediator>((method, args) => args![0] switch
+        {
+            GetActiveVanVisitQuery query => activeLookup.Handle(query, default),
+            var other => throw new InvalidOperationException($"Unexpected {method.Name}({other})")
+        });
+
+        var result = await new GetVanSalesAttendanceStatusHandler(_context, mediator).Handle(
+            new GetVanSalesAttendanceStatusQuery(userId ?? VanRep),
+            default);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        return result.Value;
+    }
 
     private async Task GivenOneVisitOfEach()
     {
