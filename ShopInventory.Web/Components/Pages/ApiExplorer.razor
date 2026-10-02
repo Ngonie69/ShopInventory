@@ -550,6 +550,7 @@ new("GET", "/api/Price/pricelists/{priceListNum}/items", "Get items on a price l
 new("GET", "/api/Price/pricelists/{priceListNum}/items/{itemCode}", "Get item price from list"),
 new("POST", "/api/Price/pricelists/{priceListNum}/sync", "Sync item prices for price list"),
 new("POST", "/api/Price/pricelists/sync", "Sync price lists"),
+new("POST", "/api/Price/special-prices/sync", "Sync special prices"),
 new("POST", "/api/Price/sync", "Sync prices from SAP")
 }
 },
@@ -1084,11 +1085,11 @@ Color = Color.Primary,
 Methods = new[] { "DELETE", "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
+new("GET", "/api/van-sales/adr-performance-report", "Each ADR's sales orders and van sales, and the ADRs' share of every van's"),
 new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
 new("GET", "/api/van-sales/coverage-report", "Who the vans are reaching and who they are losing"),
 new("GET", "/api/van-sales/fleet-audit", "Get fleet audit"),
 new("GET", "/api/van-sales/performance-report", "What sold, by territory and route, by rep, by item, over time"),
-new("GET", "/api/van-sales/adr-performance-report", "Each ADR's sales orders and van sales, and the ADRs' share of every van's"),
 new("GET", "/api/van-sales/replenishment-report", "How well the depots are keeping the vans stocked"),
 new("GET", "/api/van-sales/route-stops", "The areas each route works, and when"),
 new("GET", "/api/van-sales/routes", "The selling routes"),
@@ -1467,6 +1468,7 @@ new("POST", "/api/DesktopIntegration/invoices/queued", "Create queued invoice"),
 new("POST", "/api/DesktopIntegration/invoices/validate", "Validate invoice"),
 new("POST", "/api/DesktopIntegration/prices/pricelists/{priceListNum}/sync", "Sync prices by price list"),
 new("POST", "/api/DesktopIntegration/prices/pricelists/sync", "Sync price lists"),
+new("POST", "/api/DesktopIntegration/prices/special-prices/sync", "Sync special prices"),
 new("POST", "/api/DesktopIntegration/prices/sync", "Sync price catalog"),
 new("DELETE", "/api/DesktopIntegration/queue/{externalReference}", "Cancel queued invoice"),
 new("POST", "/api/DesktopIntegration/queue/{externalReference}/retry", "Retry queued invoice"),

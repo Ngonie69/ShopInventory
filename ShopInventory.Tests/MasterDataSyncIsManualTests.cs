@@ -61,10 +61,13 @@ public sealed class MasterDataSyncIsManualTests
     [InlineData(typeof(PriceController), nameof(PriceController.SyncPriceCatalog))]
     [InlineData(typeof(DesktopIntegrationController), nameof(DesktopIntegrationController.SyncPriceLists))]
     [InlineData(typeof(DesktopIntegrationController), nameof(DesktopIntegrationController.SyncPriceCatalog))]
+    [InlineData(typeof(PriceController), nameof(PriceController.SyncSpecialPrices))]
+    [InlineData(typeof(DesktopIntegrationController), nameof(DesktopIntegrationController.SyncSpecialPrices))]
     public void The_price_catalogue_syncs_run_as_background_SAP_work(Type controller, string actionName)
     {
-        // Each walks every price list, the business partners and the special prices for up to thirty
-        // minutes. As interactive work it could take the two SAP slots kept for people.
+        // The catalogue syncs walk every price list and the business partners for up to thirty
+        // minutes; the special price syncs page through every special price. As interactive work
+        // either could take the two SAP slots kept for people.
         var action = controller.GetMethod(actionName)!;
 
         Assert.NotNull(action.GetCustomAttribute<SapBackgroundWorkAttribute>());
