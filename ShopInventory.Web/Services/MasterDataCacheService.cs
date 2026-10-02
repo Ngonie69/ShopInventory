@@ -50,6 +50,9 @@ public interface IMasterDataCacheService
     // Not a Web cache: copies SAP's item VAT groups into the API table till sales are taxed from.
     Task<ItemTaxGroupSyncResultModel> SyncItemTaxGroupsFromSapAsync(IProgress<SyncProgress>? progress = null);
 
+    // Nor this: copies SAP's special prices into the API catalogue, apart from the item prices.
+    Task<SpecialPriceSyncResultModel> SyncSpecialPricesFromSapAsync(IProgress<SyncProgress>? progress = null);
+
     // Nor this: stores the SAP UoM for the item/UoM pairs orders use, in the API, so approvals find it.
     Task<ItemUomWarmResultModel> SyncItemUomsFromSapAsync(IProgress<SyncProgress>? progress = null);
 
@@ -646,6 +649,21 @@ public class MasterDataCacheService : IMasterDataCacheService
             errorContent,
             "We couldn't sync prices from SAP right now.");
     }
+
+    public const string SpecialPricesSyncKey = "SpecialPrices";
+
+    /// <summary>
+    /// Has the API copy SAP's special prices into its catalogue. The Prices sync no longer does:
+    /// there are far fewer special prices than list prices, so they sync on their own.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is cached on the Web side; the API's <c>BusinessPartnerSpecialPrices</c> table is what
+    /// tills and invoices price from.
+    /// </remarks>
+    public Task<SpecialPriceSyncResultModel> SyncSpecialPricesFromSapAsync(IProgress<SyncProgress>? progress = null) =>
+        RunApiSyncAsync<SpecialPriceSyncResultModel>(
+            "api/price/special-prices/sync", SpecialPricesSyncKey, "special price", "Reading SAP special prices",
+            result => result.SpecialPriceCount, progress);
 
     public const string ItemTaxGroupsSyncKey = "ItemTaxGroups";
 

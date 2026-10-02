@@ -173,6 +173,16 @@ public class ItemTaxGroupChangeModel
 }
 
 /// <summary>
+/// Mirrors the API's <c>SpecialPriceSyncResult</c> from <c>POST api/Price/special-prices/sync</c>.
+/// </summary>
+public class SpecialPriceSyncResultModel
+{
+    public int SpecialPriceCount { get; set; }
+    public int RemovedCount { get; set; }
+    public DateTime SyncedAt { get; set; }
+}
+
+/// <summary>
 /// Mirrors the API's <c>ItemUomWarmResult</c> from <c>POST api/Sync/item-uoms</c>.
 /// </summary>
 public class ItemUomWarmResultModel

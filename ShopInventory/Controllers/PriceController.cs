@@ -12,6 +12,7 @@ using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
 using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
 using ShopInventory.Features.Prices.Commands.SyncPriceCatalog;
+using ShopInventory.Features.Prices.Commands.SyncSpecialPrices;
 using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
 using ShopInventory.Middleware;
 
@@ -110,6 +111,22 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     {
         using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
         var result = await mediator.Send(new SyncPriceCatalogCommand(), syncTimeout.Token);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Sync the special prices from SAP
+    /// </summary>
+    /// <remarks>
+    /// Apart from the catalogue sync above, which leaves special prices alone: there are far fewer of
+    /// them, so they can be refreshed without walking every price list.
+    /// </remarks>
+    [HttpPost("special-prices/sync")]
+    [SapBackgroundWork]
+    public async Task<IActionResult> SyncSpecialPrices(CancellationToken cancellationToken = default)
+    {
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+        var result = await mediator.Send(new SyncSpecialPricesCommand(), syncTimeout.Token);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

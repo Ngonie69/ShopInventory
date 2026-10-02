@@ -86,6 +86,7 @@ using ShopInventory.Features.Prices.Queries.GetPriceLists;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
 using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
 using ShopInventory.Features.Prices.Commands.SyncPriceCatalog;
+using ShopInventory.Features.Prices.Commands.SyncSpecialPrices;
 using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
 using ShopInventory.Features.Prices.Commands.SyncPriceLists;
 using ShopInventory.Services;
@@ -1589,6 +1590,22 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     /// <summary>
+    /// Sync the special prices from SAP
+    /// </summary>
+    /// <remarks>
+    /// Apart from the catalogue sync above, which leaves special prices alone: there are far fewer of
+    /// them, so they can be refreshed without walking every price list.
+    /// </remarks>
+    [HttpPost("prices/special-prices/sync")]
+    [SapBackgroundWork]
+    public async Task<IActionResult> SyncSpecialPrices(CancellationToken cancellationToken = default)
+    {
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+        var result = await mediator.Send(new SyncSpecialPricesCommand(), syncTimeout.Token);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
     /// Get all item prices for a given price list number.
     /// Uses the cached sync path. Use the sync endpoint for explicit refreshes.
     /// </summary>
@@ -1646,7 +1663,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// also where <c>CreateInvoiceHandler</c> takes the price it charges, so this is the figure the
     /// invoice will carry rather than a live one that can disagree with it. A price change reaches
     /// the till only when the catalogue is next synced: from Web → Settings → Data Sync, or
-    /// <c>prices/sync</c>. Nothing syncs it on a schedule.
+    /// <c>prices/sync</c> for list prices and <c>prices/special-prices/sync</c> for special prices.
+    /// Nothing syncs either on a schedule.
     /// </remarks>
     [HttpGet("prices/business-partner/{cardCode}")]
     public async Task<IActionResult> GetPricesByBusinessPartner(

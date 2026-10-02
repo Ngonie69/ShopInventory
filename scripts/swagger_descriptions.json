@@ -31,6 +31,7 @@
   "GET /api/DesktopIntegration/transfer-queue/review": "Queued transfers needing a human look",
   "POST /api/DesktopIntegration/prices/pricelists/sync": "Sync the price lists from SAP",
   "POST /api/DesktopIntegration/prices/sync": "Sync item prices from SAP",
+  "POST /api/DesktopIntegration/prices/special-prices/sync": "Sync the special prices from SAP",
   "GET /api/DesktopIntegration/queue/stats": "Invoice queue counts",
   "GET /api/DesktopIntegration/transfer-queue/stats": "Transfer queue counts",
   "GET /api/DesktopIntegration/stock/{warehouseCode}/{itemCode}/batches": "List the batches available for one item in one warehouse",
