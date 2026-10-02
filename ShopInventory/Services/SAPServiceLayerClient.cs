@@ -7213,6 +7213,27 @@ ORDER BY T0.""ItemCode""";
     public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, CancellationToken cancellationToken = default)
         => await GetSpecialPricesForBPAsync(cardCode, itemCodes: null, cancellationToken);
 
+    /// <summary>
+    /// Every special price SAP would charge today, across all business partners.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// SAP keeps every special price it has ever held: on KEFALOS_TEST_3 (2026-10-02) 9 of 11,206 were
+    /// current, and reading them all to discard the rest took 113 requests and 94 seconds. This asks
+    /// SAP only for the rows that can be current and still runs each through
+    /// <see cref="ParseCurrentBusinessPartnerSpecialPrice"/>, so the server filters decide only what
+    /// is read, never what is kept.
+    /// </para>
+    /// <para>
+    /// A row is current when its header window covers today or one of its period rows
+    /// (<c>SpecialPriceDataAreas</c>) does, and a current period row wins even after the header has
+    /// expired. The Service Layer refuses <c>any()</c> on a collection, so period rows are found with
+    /// <c>$crossjoin</c>, and any record they name that the header read did not return is read by key.
+    /// Both windows reach a day either side of today so no time-zone reading of a SAP date makes a
+    /// filter narrower than the parser. A row missed here is charged at list price (order 2209,
+    /// 2026-07-27).
+    /// </para>
+    /// </remarks>
     public async Task<List<BusinessPartnerSpecialPriceDto>> GetAllSpecialPricesAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
@@ -7220,78 +7241,86 @@ ORDER BY T0.""ItemCode""";
 
         var todayUtc = DateTime.UtcNow.Date;
         var result = new Dictionary<string, BusinessPartnerSpecialPriceDto>(StringComparer.OrdinalIgnoreCase);
-        const int pageSize = 100;
-        var skip = 0;
+        var readKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var filteredOutCount = 0;
 
-        while (true)
+        void Evaluate(JsonElement item)
         {
-            var url = $"SpecialPrices?$top={pageSize}&$skip={skip}";
-            var requestSession = _sessionId;
+            if (TryGetSpecialPriceKey(item, out var key, out _, out _))
+                readKeys.Add(key);
 
-            HttpRequestMessage CreateRequest()
+            var specialPrice = ParseCurrentBusinessPartnerSpecialPrice(item, todayUtc);
+            if (specialPrice is null)
             {
-                var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
-                return httpRequest;
+                filteredOutCount++;
+                return;
             }
 
-            var response = await SendSapRequestWithTransientRetryAsync(
-                syncHttpClient,
-                CreateRequest,
-                HttpCompletionOption.ResponseHeadersRead,
-                $"special prices at skip {skip}",
-                cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(requestSession, cancellationToken);
-                response.Dispose();
-                response = await SendSapRequestWithTransientRetryAsync(
-                    syncHttpClient,
-                    CreateRequest,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    $"special prices at skip {skip} after SAP re-authentication",
-                    cancellationToken);
-            }
-
-            using var responseOwner = response;
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                throw new InvalidOperationException($"Failed to retrieve special prices from SAP: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(content);
-            var count = 0;
-
-            if (doc.RootElement.TryGetProperty("value", out var valueArray))
-            {
-                foreach (var item in valueArray.EnumerateArray())
-                {
-                    count++;
-
-                    var specialPrice = ParseCurrentBusinessPartnerSpecialPrice(item, todayUtc);
-                    if (specialPrice is null)
-                    {
-                        filteredOutCount++;
-                        continue;
-                    }
-
-                    result[$"{specialPrice.CardCode}::{specialPrice.ItemCode}"] = specialPrice;
-                }
-            }
-
-            if (count < pageSize)
-            {
-                break;
-            }
-
-            skip += pageSize;
+            result[$"{specialPrice.CardCode}::{specialPrice.ItemCode}"] = specialPrice;
         }
+
+        var headerRowCount = await ReadSpecialPricePagesAsync(
+            syncHttpClient,
+            $"SpecialPrices?$filter={Uri.EscapeDataString(BuildCurrentSpecialPriceHeaderFilter(todayUtc))}&$orderby=CardCode,ItemCode",
+            Evaluate,
+            "special prices with a current header",
+            cancellationToken);
+
+        var periodKeys = new Dictionary<string, (string CardCode, string ItemCode)>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            await ReadSpecialPricePagesAsync(
+                syncHttpClient,
+                BuildCurrentSpecialPricePeriodCrossJoin(todayUtc),
+                row =>
+                {
+                    if (row.TryGetProperty("SpecialPrices", out var header) &&
+                        TryGetSpecialPriceKey(header, out var key, out var cardCode, out var itemCode))
+                    {
+                        periodKeys[key] = (cardCode, itemCode);
+                    }
+                },
+                "special price periods in force",
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The header read alone can miss a date-banded price, so read everything rather than
+            // return a set that may be short.
+            _logger.LogWarning(ex, "Could not list the special price periods in force; reading every special price instead");
+            periodKeys.Clear();
+            await ReadSpecialPricePagesAsync(
+                syncHttpClient,
+                "SpecialPrices?$orderby=CardCode,ItemCode",
+                item =>
+                {
+                    if (!TryGetSpecialPriceKey(item, out var key, out _, out _) || !readKeys.Contains(key))
+                        Evaluate(item);
+                },
+                "every special price",
+                cancellationToken);
+        }
+
+        var unreadPeriodKeys = periodKeys
+            .Where(entry => !readKeys.Contains(entry.Key))
+            .Select(entry => entry.Value)
+            .ToList();
+
+        foreach (var keyFilter in BuildSpecialPriceKeyFilters(unreadPeriodKeys))
+        {
+            await ReadSpecialPricePagesAsync(
+                syncHttpClient,
+                $"SpecialPrices?$filter={Uri.EscapeDataString(keyFilter)}&$orderby=CardCode,ItemCode",
+                Evaluate,
+                "special prices with a period in force",
+                cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Special price sync read {HeaderRowCount} rows with a current header window and {PeriodKeyCount} with a period in force, {UnreadPeriodKeyCount} of them by key",
+            headerRowCount,
+            periodKeys.Count,
+            unreadPeriodKeys.Count);
 
         if (filteredOutCount > 0)
         {
@@ -7305,6 +7334,150 @@ ORDER BY T0.""ItemCode""";
             result.Count);
 
         return result.Values.ToList();
+    }
+
+    // Every row whose header window could include today; the parser makes the exact call.
+    internal static string BuildCurrentSpecialPriceHeaderFilter(DateTime todayUtc)
+    {
+        var (from, to) = SpecialPriceFilterWindow(todayUtc);
+        return $"(ValidFrom eq null or ValidFrom le '{to}') and (ValidTo eq null or ValidTo ge '{from}')";
+    }
+
+    // One row per period row that could be in force today, carrying its record's key.
+    internal static string BuildCurrentSpecialPricePeriodCrossJoin(DateTime todayUtc)
+    {
+        var (from, to) = SpecialPriceFilterWindow(todayUtc);
+        const string area = "SpecialPrices/SpecialPriceDataAreas";
+        var expand = $"SpecialPrices($select=CardCode,ItemCode),{area}($select=DateFrom,Dateto)";
+        var filter =
+            $"SpecialPrices/CardCode eq {area}/BPCode and SpecialPrices/ItemCode eq {area}/ItemNo" +
+            $" and ({area}/DateFrom eq null or {area}/DateFrom le '{to}')" +
+            $" and ({area}/Dateto eq null or {area}/Dateto ge '{from}')";
+
+        return $"$crossjoin(SpecialPrices,{area})" +
+               $"?$expand={Uri.EscapeDataString(expand)}" +
+               $"&$filter={Uri.EscapeDataString(filter)}" +
+               $"&$orderby={Uri.EscapeDataString("SpecialPrices/CardCode,SpecialPrices/ItemCode")}";
+    }
+
+    private static (string From, string To) SpecialPriceFilterWindow(DateTime todayUtc) =>
+        (todayUtc.Date.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+         todayUtc.Date.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+    internal static List<string> BuildSpecialPriceKeyFilters(IEnumerable<(string CardCode, string ItemCode)> keys)
+    {
+        static string Literal(string value) => $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
+
+        var filters = new List<string>();
+        var current = new StringBuilder();
+
+        foreach (var (cardCode, itemCode) in keys)
+        {
+            var clause = $"(CardCode eq {Literal(cardCode)} and ItemCode eq {Literal(itemCode)})";
+            if (current.Length > 0 && current.Length + " or ".Length + clause.Length > MaxSpecialPricesFilterLength)
+            {
+                filters.Add(current.ToString());
+                current.Clear();
+            }
+
+            if (current.Length > 0)
+                current.Append(" or ");
+            current.Append(clause);
+        }
+
+        if (current.Length > 0)
+            filters.Add(current.ToString());
+
+        return filters;
+    }
+
+    private static bool TryGetSpecialPriceKey(JsonElement item, out string key, out string cardCode, out string itemCode)
+    {
+        key = cardCode = itemCode = string.Empty;
+        if (!item.TryGetProperty("CardCode", out var cardCodeProp) || cardCodeProp.ValueKind != JsonValueKind.String ||
+            !item.TryGetProperty("ItemCode", out var itemCodeProp) || itemCodeProp.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        cardCode = cardCodeProp.GetString()!;
+        itemCode = itemCodeProp.GetString()!;
+        key = $"{cardCode}::{itemCode}";
+        return true;
+    }
+
+    // Pages a read to the end, resuming at the rows actually received: SAP can cut a page short and
+    // still send a continuation link (see CustomerItemPricePagingTests). Returns the rows read.
+    private async Task<int> ReadSpecialPricePagesAsync(
+        HttpClient httpClient,
+        string query,
+        Action<JsonElement> onRow,
+        string description,
+        CancellationToken cancellationToken)
+    {
+        const int pageSize = 100;
+        var skip = 0;
+
+        while (true)
+        {
+            var url = $"{query}&$top={pageSize}&$skip={skip}";
+            var requestSession = _sessionId;
+
+            HttpRequestMessage CreateRequest()
+            {
+                var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return httpRequest;
+            }
+
+            var response = await SendSapRequestWithTransientRetryAsync(
+                httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseHeadersRead,
+                $"{description} at skip {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(requestSession, cancellationToken);
+                response.Dispose();
+                response = await SendSapRequestWithTransientRetryAsync(
+                    httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    $"{description} at skip {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException($"Failed to retrieve {description} from SAP: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var count = 0;
+
+            if (doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                foreach (var row in valueArray.EnumerateArray())
+                {
+                    count++;
+                    onRow(row);
+                }
+            }
+
+            skip += count;
+
+            var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                              doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+            if (count == 0 || (!hasNextLink && count < pageSize))
+                return skip;
+        }
     }
 
     public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
