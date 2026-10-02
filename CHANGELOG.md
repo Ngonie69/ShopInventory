@@ -18,6 +18,12 @@ otherwise be surprised.
 
 ### Changed
 
+- **`GET /api/vansales/attendance/status` now answers `status: 1` with `has_open_checkins: false`
+  when the rep is not on a call.** It used to answer `status: 0` with the message "No active check-in
+  found to check out from." — the no-open-call case was matched by error type, and the lookup reports
+  it as a validation error rather than NotFound. The handset reads a `0` as a failed read and falls
+  back to its own table, so a rep with any stale or unsent check-in there was shown on site and the
+  check-out was then refused with the same message. Other failures still answer `status: 0`.
 - **A van sale resent after its reservation lapsed, with nothing signed, now goes through.** If a
   first attempt reserved the stock and died before the device was asked (the handset timing out, or
   an API restart), the reservation expired an hour later and every resend of the unchanged basket was
