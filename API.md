@@ -5295,6 +5295,8 @@ into the returns warehouse (`MarketBreakages:ReturnsWarehouseCode`, default `RET
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
 | GET | `/api/market-breakages` | `vansales.breakages.confirm` | Reports newest first: `status` open (pending, failed or stranded), `Pending`, `Transferring`, `Transferred`, `TransferFailed`, `Rejected` or empty for all; `search` matches the rep, van, shop or an item code; `page` 1, `pageSize` 25. `statusCounts` holds every status, filters aside |
+| GET | `/api/market-breakages/export` | `vansales.breakages.confirm` | Every report the list holds for `status` and `search` (same meanings as the list), every page, newest first, with lines — plus `totals`, `byVan` and `byProduct`. At most 2,000 reports; `truncated` says there were more. The Web builds its Excel workbook from this |
+| GET | `/api/market-breakages/export/pdf` | `vansales.breakages.confirm` | The same reports as `export`, as a landscape A4 PDF (`application/pdf`): figures, by van, by product, then each report with its lines |
 | GET | `/api/market-breakages/{id}` | `vansales.breakages.confirm` | One report: lines with the reported and confirmed quantity, who decided, the transfer's `sapDocNum`, `lastError` |
 | POST | `/api/market-breakages/{id}/confirm` | `vansales.breakages.confirm` | `{ "lines": [{ "lineId": 1, "confirmedQuantity": 2 }], "remarks": "…" }` — every line, exactly once; zero drops a line; all zeros is refused (reject instead). Posts the transfer |
 | POST | `/api/market-breakages/{id}/reject` | `vansales.breakages.confirm` | `{ "remarks": "…" }` — required. Nothing is transferred |

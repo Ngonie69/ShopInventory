@@ -11,5 +11,8 @@ public static partial class Errors
 
         public static Error DecisionFailed(string message) =>
             Error.Failure("MarketBreakage.DecisionFailed", message);
+
+        public static Error ExportFailed(string message) =>
+            Error.Failure("MarketBreakage.ExportFailed", message);
     }
 }

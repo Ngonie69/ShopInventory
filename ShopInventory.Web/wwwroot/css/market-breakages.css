@@ -1341,13 +1341,18 @@
         position: static;
     }
 
+    /* Search, two exports and Refresh do not fit one phone-width row: the
+       search keeps the row while there is room for it and the buttons wrap
+       beneath it otherwise, rather than running off the clipped edge. */
     .mbk-head-actions {
         width: 100%;
+        flex-wrap: wrap;
     }
 
     .mbk-search {
-        flex: 1;
+        flex: 1 1 220px;
         width: auto;
+        min-width: 0;
     }
 
     .mbk-body {

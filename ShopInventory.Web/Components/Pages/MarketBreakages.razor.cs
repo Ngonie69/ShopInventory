@@ -1,9 +1,11 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using MudBlazor;
 using ShopInventory.Web.Features.MarketBreakages.Commands.ConfirmMarketBreakage;
 using ShopInventory.Web.Features.MarketBreakages.Commands.RejectMarketBreakage;
+using ShopInventory.Web.Features.MarketBreakages.Queries.ExportMarketBreakages;
 using ShopInventory.Web.Features.MarketBreakages.Queries.GetMarketBreakage;
 using ShopInventory.Web.Features.MarketBreakages.Queries.GetMarketBreakages;
 using ShopInventory.Web.Models;
@@ -44,6 +46,7 @@ public partial class MarketBreakages : IDisposable
 
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
 
     private readonly CancellationTokenSource disposal = new();
 
@@ -78,6 +81,11 @@ public partial class MarketBreakages : IDisposable
     /// the report the page opens on its own, so a phone lands on the list.
     /// </summary>
     private bool sheetOpen;
+
+    /// <summary>The file being built, if any. One at a time: both buttons wait on it.</summary>
+    private MarketBreakageExportFormat? exporting;
+
+    private bool CanExport => exporting is null && !isLoading && totalCount > 0;
 
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(totalCount / (double)PageSize));
 
@@ -222,6 +230,41 @@ public partial class MarketBreakages : IDisposable
         await LoadAsync();
         if (detailId is int id)
             await LoadDetailAsync(id, keepCounts: true);
+    }
+
+    /// <summary>
+    /// Downloads the reports the list holds now — this status, this search, every page — as a workbook
+    /// or a PDF.
+    /// </summary>
+    private async Task ExportAsync(MarketBreakageExportFormat format)
+    {
+        if (!CanExport)
+            return;
+
+        exporting = format;
+        try
+        {
+            var result = await Mediator.Send(
+                new ExportMarketBreakagesQuery(statusFilter, searchText, format), disposal.Token);
+            if (result.IsError)
+            {
+                Snackbar.Add(result.FirstError.Description, Severity.Error);
+                return;
+            }
+
+            var file = result.Value;
+            await JS.InvokeVoidAsync("downloadFile", disposal.Token, file.FileName, file.ContentType, Convert.ToBase64String(file.Content));
+        }
+        catch (OperationCanceledException) when (disposal.IsCancellationRequested)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        finally
+        {
+            exporting = null;
+        }
     }
 
     private async Task SetStatusFilterAsync(string value)

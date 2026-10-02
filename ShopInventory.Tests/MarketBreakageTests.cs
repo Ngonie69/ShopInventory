@@ -10,7 +10,9 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.MarketBreakages.Commands.ConfirmMarketBreakage;
 using ShopInventory.Features.MarketBreakages.Commands.RejectMarketBreakage;
 using ShopInventory.Features.MarketBreakages.Commands.ReportMarketBreakage;
+using ShopInventory.Features.MarketBreakages.Queries.ExportMarketBreakages;
 using ShopInventory.Features.MarketBreakages.Queries.GetMarketBreakages;
+using ShopInventory.Features.MarketBreakages.Queries.GetMarketBreakagesPdf;
 using ShopInventory.Features.MarketBreakages.Queries.GetMyMarketBreakages;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -360,6 +362,82 @@ public sealed class MarketBreakageTests : IDisposable
         Assert.Equal(rejected, Assert.Single(search.Value.Items).Id);
     }
 
+    // ---- Exports -----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_export_holds_every_report_in_the_view_with_its_lines_and_figures()
+    {
+        var transferred = await GivenReportAsync(("MILK500", 3m), ("YOG250", 2m));
+        var lines = await LineIdsAsync(transferred);
+        await Confirm(transferred, new FakeSap(), (lines[0], 2m), (lines[1], 0m));
+        var rejected = await GivenReportAsync(("YOG250", 4m));
+        await Reject(rejected, "Not broken");
+        var pending = await GivenReportAsync(("MILK500", 1m));
+
+        var all = (await Export(null, null)).Value;
+
+        Assert.Equal([pending, rejected, transferred], all.Reports.Select(report => report.Id));
+        Assert.Equal(3, all.TotalCount);
+        Assert.False(all.Truncated);
+        Assert.Equal(2, all.Reports.Single(report => report.Id == transferred).Lines.Count);
+
+        // Counted is only what the office confirmed; Moved only what SAP took into returns.
+        Assert.Equal((3, 1, 4), (all.Totals.Reports, all.Totals.OpenReports, all.Totals.Lines));
+        Assert.Equal((10m, 2m, 2m, 4m),
+            (all.Totals.ReportedQuantity, all.Totals.CountedQuantity, all.Totals.TransferredQuantity, all.Totals.RejectedQuantity));
+
+        var van = Assert.Single(all.ByVan);
+        Assert.Equal(("VAN010", "Tendai Moyo", 3, 10m), (van.Code, van.Name, van.Reports, van.ReportedQuantity));
+
+        Assert.Equal(["YOG250", "MILK500"], all.ByProduct.Select(item => item.Code));
+        var yoghurt = all.ByProduct[0];
+        Assert.Equal((2, 6m, 0m, 0m), (yoghurt.Reports, yoghurt.ReportedQuantity, yoghurt.CountedQuantity, yoghurt.TransferredQuantity));
+        var milk = all.ByProduct[1];
+        Assert.Equal((2, 4m, 2m, 2m), (milk.Reports, milk.ReportedQuantity, milk.CountedQuantity, milk.TransferredQuantity));
+
+        // The same filter as the list: the open tab, and a search, each export only their reports.
+        Assert.Equal([pending], (await Export("open", null)).Value.Reports.Select(report => report.Id));
+        Assert.Equal([rejected, transferred], (await Export(null, "yog")).Value.Reports.Select(report => report.Id));
+    }
+
+    [Fact]
+    public void The_export_refuses_a_status_the_list_does_not_know()
+    {
+        var validator = new ExportMarketBreakagesValidator();
+
+        Assert.True(validator.Validate(new ExportMarketBreakagesQuery("open", null)).IsValid);
+        Assert.True(validator.Validate(new ExportMarketBreakagesQuery("transferred", null)).IsValid);
+        Assert.False(validator.Validate(new ExportMarketBreakagesQuery("Broken", null)).IsValid);
+    }
+
+    [Fact]
+    public async Task The_pdf_lists_every_report_with_reported_beside_counted()
+    {
+        var transferred = await GivenReportAsync(("MILK500", 3m), ("YOG250", 2m));
+        var lines = await LineIdsAsync(transferred);
+        await Confirm(transferred, new FakeSap(), (lines[0], 2m), (lines[1], 0m));
+        var rejected = await GivenReportAsync(("CHEESE1", 4m));
+        await Reject(rejected, "Resealable, back on the van");
+
+        var export = await Export(null, null);
+        var document = (await new GetMarketBreakagesPdfHandler(StubProxy.For<MediatR.IMediator>((_, args) =>
+                args?[0] is ExportMarketBreakagesQuery ? Task.FromResult(export) : null))
+            .Handle(new GetMarketBreakagesPdfQuery(null, null), default)).Value;
+
+        Assert.StartsWith("Market_Breakages_All_reports_", document.FileName);
+        Assert.EndsWith(".pdf", document.FileName);
+
+        var text = PdfText(document.Content);
+        Assert.Contains("Market breakages: All reports", text);
+        Assert.Contains($"#{transferred}", text);
+        Assert.Contains($"#{rejected}", text);
+        Assert.Contains("SAP transfer 501", text);
+        Assert.Contains("MILK500", text);
+        Assert.Contains("CHEESE1", text);
+        Assert.Contains("Resealable, back on the van", text);
+        Assert.Contains("-2", text); // the yoghurt: 2 reported, none counted
+    }
+
     // ---- Permissions -------------------------------------------------------------------------
 
     [Theory]
@@ -497,6 +575,18 @@ public sealed class MarketBreakageTests : IDisposable
                 "Counted at the depot",
                 Office),
             default);
+    }
+
+    private Task<ErrorOr.ErrorOr<MarketBreakageExportDto>> Export(string? status, string? search)
+        => new ExportMarketBreakagesHandler(_context).Handle(new ExportMarketBreakagesQuery(status, search), default);
+
+    private static string PdfText(byte[] content)
+    {
+        using var reader = new iText.Kernel.Pdf.PdfReader(new MemoryStream(content));
+        using var pdf = new iText.Kernel.Pdf.PdfDocument(reader);
+        return string.Join(' ', Enumerable.Range(1, pdf.GetNumberOfPages())
+            .Select(page => iText.Kernel.Pdf.Canvas.Parser.PdfTextExtractor.GetTextFromPage(pdf.GetPage(page))))
+            .ReplaceLineEndings(" ");
     }
 
     private Task<ErrorOr.ErrorOr<MarketBreakageDecisionResultDto>> Reject(int id, string remarks)

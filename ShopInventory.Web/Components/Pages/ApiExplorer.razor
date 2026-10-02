@@ -955,6 +955,8 @@ Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/market-breakages", "Get all"),
 new("GET", "/api/market-breakages/{id}", "Get by ID"),
+new("GET", "/api/market-breakages/export", "Every report in a view of the list, with lines, totals, by van and by product"),
+new("GET", "/api/market-breakages/export/pdf", "The same reports as a landscape A4 PDF"),
 new("POST", "/api/market-breakages/{id}/confirm", "Confirm"),
 new("POST", "/api/market-breakages/{id}/reject", "Reject")
 }
@@ -1084,11 +1086,11 @@ Color = Color.Primary,
 Methods = new[] { "DELETE", "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
+new("GET", "/api/van-sales/adr-performance-report", "Each ADR's sales orders and van sales, and the ADRs' share of every van's"),
 new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
 new("GET", "/api/van-sales/coverage-report", "Who the vans are reaching and who they are losing"),
 new("GET", "/api/van-sales/fleet-audit", "Get fleet audit"),
 new("GET", "/api/van-sales/performance-report", "What sold, by territory and route, by rep, by item, over time"),
-new("GET", "/api/van-sales/adr-performance-report", "Each ADR's sales orders and van sales, and the ADRs' share of every van's"),
 new("GET", "/api/van-sales/replenishment-report", "How well the depots are keeping the vans stocked"),
 new("GET", "/api/van-sales/route-stops", "The areas each route works, and when"),
 new("GET", "/api/van-sales/routes", "The selling routes"),
