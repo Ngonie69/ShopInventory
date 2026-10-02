@@ -174,7 +174,8 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     ///
     /// <para>A retry arrives under the same <c>van_order</c> — the handset keeps it for as long as the basket
     /// is unchanged — and finds its own reservation and receipt row, so the device is asked for an existing
-    /// receipt before anything is signed.</para>
+    /// receipt before anything is signed. One that finds only a reservation that lapsed with nothing signed
+    /// against it reserves afresh — see <see cref="SetAsideLapsedReservationAsync"/>.</para>
     /// </remarks>
     private async Task<ErrorOr<VanSalesDirectInvoiceResponse>> FiscaliseThenPostAsync(
         CreateVanSalesDirectInvoiceCommand command,
@@ -193,6 +194,18 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
         }
 
         var existing = await reservations.GetReservationByExternalReferenceAsync(reference, cancellationToken);
+
+        if (existing is { SAPDocNum: null } &&
+            existing.Status is ReservationStatus.Expired or ReservationStatus.Failed)
+        {
+            await SetAsideLapsedReservationAsync(existing.ReservationId, existing.Status, reference, cancellationToken);
+
+            // Read again whether or not this request was the one that set it aside: a concurrent resend may
+            // have done it and reserved afresh already, and a reservation that turned out to have a receipt
+            // behind it is still there and goes on as before.
+            existing = await reservations.GetReservationByExternalReferenceAsync(reference, cancellationToken);
+        }
+
         string reservationId;
 
         var reservationRequest = CreateInvoiceDirectHandler.ToReservationRequest(
@@ -321,6 +334,95 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
 
                 return Error.Validation("VanSalesCompatibility.SaleNotPostable", outcome.Error ?? "This sale cannot be posted.");
         }
+    }
+
+    /// <summary>
+    /// Frees a van order whose reservation lapsed before its sale was ever signed, so the resend can reserve
+    /// afresh.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The stuck basket this exists for.</b> A first attempt that reserved the stock and then died —
+    /// the handset giving up at two minutes, which cancels the request, or the API restarting — leaves a
+    /// reservation and nothing else. An hour later the clock expires it. The handset keeps the van order for as
+    /// long as the basket is unchanged and tells the rep to send it again unchanged, and every resend then met
+    /// that expired reservation and was refused by <see cref="VanSaleFiscalFirstPoster"/>: "is Expired, so its
+    /// stock is not held. Nothing was signed." Nothing ever would be. The sale was in no list, because no
+    /// receipt row was ever written, and the one basket the rep was told not to change could never be sent.</para>
+    ///
+    /// <para><b>Why set aside rather than reopened.</b> Its batch allocations are an hour or more old, and the
+    /// stock it once held has been free for anyone since. Reserving afresh runs the same stock check and batch
+    /// choice as a first attempt; reopening the old row would sign a receipt over a hold nobody re-checked.
+    /// The row is kept, under a suffixed reference, so what happened stays on the record — the reference index
+    /// is unique, which is why it cannot simply stay where it is.</para>
+    ///
+    /// <para><b>Only what nothing stands behind.</b> The receipt row is written before the device is called, so
+    /// no row under this reference means the device was never asked; no queue entry and no SAP document mean
+    /// nothing is owed to SAP either. All of that is in the update's own WHERE, so a receipt written between
+    /// the read and this call keeps the reservation where it is. A Cancelled reservation is left alone: a
+    /// person ended it, and a resend is not theirs to overrule.</para>
+    /// </remarks>
+    private async Task SetAsideLapsedReservationAsync(
+        string reservationId,
+        string status,
+        string reference,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var suffix = $"~lapsed-{now:yyyyMMddHHmmss}";
+
+        // ExternalReferenceId is 100 wide. A van order is a fraction of that, but the suffix must never be the
+        // part that is cut.
+        var setAsideAs = reference[..Math.Min(reference.Length, 100 - suffix.Length)] + suffix;
+
+        var reason =
+            $"{status} before its sale was signed. A resend of {reference} at {now:yyyy-MM-dd HH:mm:ss} UTC " +
+            "set it aside and reserved the stock afresh.";
+
+        var setAside = await db.StockReservations
+            .Where(row => row.ReservationId == reservationId
+                && row.ExternalReferenceId == reference
+                && (row.Status == ReservationStatus.Expired || row.Status == ReservationStatus.Failed)
+                && row.SAPDocNum == null
+                && !db.DesktopSales.Any(sale => sale.ExternalReferenceId == reference)
+                && !db.InvoiceQueue.Any(queued =>
+                    queued.ReservationId == reservationId || queued.ExternalReference == reference))
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(row => row.ExternalReferenceId, setAsideAs)
+                    .SetProperty(row => row.CancellationReason, reason),
+                cancellationToken);
+
+        if (setAside == 0)
+        {
+            return;
+        }
+
+        // The read above tracked the row through this same context, and ExecuteUpdate does not touch tracked
+        // copies. Left tracked, it would still claim the van order the database has just freed.
+        foreach (var entry in db.ChangeTracker.Entries<StockReservationEntity>()
+                     .Where(entry => entry.Entity.ReservationId == reservationId)
+                     .ToList())
+        {
+            foreach (var line in entry.Entity.Lines.ToList())
+            {
+                foreach (var batch in line.BatchAllocations.ToList())
+                {
+                    db.Entry(batch).State = EntityState.Detached;
+                }
+
+                db.Entry(line).State = EntityState.Detached;
+            }
+
+            entry.State = EntityState.Detached;
+        }
+
+        logger.LogWarning(
+            "Van sale {Reference} was resent after its reservation {ReservationId} had lapsed ({Status}) with " +
+            "nothing signed against it. Set aside as {SetAsideAs}; the resend reserves the stock afresh.",
+            reference,
+            reservationId,
+            status,
+            setAsideAs);
     }
 
     /// <summary>

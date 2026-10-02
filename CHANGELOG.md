@@ -18,6 +18,14 @@ otherwise be surprised.
 
 ### Changed
 
+- **A van sale resent after its reservation lapsed, with nothing signed, now goes through.** If a
+  first attempt reserved the stock and died before the device was asked (the handset timing out, or
+  an API restart), the reservation expired an hour later and every resend of the unchanged basket was
+  refused with "Reservation … is Expired, so its stock is not held". The resend now sets the lapsed
+  reservation aside, renaming its `ExternalReferenceId` to `<van order>~lapsed-<UTC time>` with the reason
+  in `CancellationReason`, and reserves afresh through the normal stock check. A reservation with a
+  receipt row, a queue entry or a SAP document is never set aside, and a Cancelled one is still
+  refused.
 - **A till, van or vending credit's SAP memo now carries the credit's DCN- number in
   `U_Van_saleorder`.** It still carries it in `NumAtCard` too. The fiscalisation platform links a credit
   it filed to SAP through `U_Van_saleorder`, so its Credit Note Tracking showed these memos as "Not in
