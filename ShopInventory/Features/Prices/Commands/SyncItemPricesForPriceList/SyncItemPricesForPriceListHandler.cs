@@ -26,7 +26,7 @@ public sealed class SyncItemPricesForPriceListHandler(
         if (!settings.Value.Enabled)
             return Errors.Price.SapDisabled;
 
-        using var syncLease = await PriceCatalogSyncGate.TryEnterAsync(cancellationToken);
+        using var syncLease = await PriceCatalogSyncGate.Catalog.TryEnterAsync(cancellationToken);
         if (syncLease is null)
         {
             logger.LogWarning(
@@ -35,7 +35,7 @@ public sealed class SyncItemPricesForPriceListHandler(
             return Errors.Price.SyncAlreadyRunning;
         }
 
-        await using var clusterLease = await leaderElector.TryAcquireAsync(PriceCatalogSyncGate.ClusterLockName, cancellationToken);
+        await using var clusterLease = await leaderElector.TryAcquireAsync(PriceCatalogSyncGate.Catalog.ClusterLockName, cancellationToken);
         if (clusterLease is null)
         {
             logger.LogWarning(

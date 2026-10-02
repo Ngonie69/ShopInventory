@@ -122,9 +122,10 @@ public static class QuartzConfiguration
                     startDelay: TimeSpan.FromSeconds(45));
             }
 
-            // No master-data sync is scheduled. The price catalogue, item VAT groups and item UoM
-            // resolutions are pulled from SAP only when an admin runs them from Web → Settings → Data
-            // Sync (POST api/price/sync, api/sync/item-tax-groups and api/sync/item-uoms). They were a
+            // No master-data sync is scheduled. The price catalogue, special prices, item VAT groups and
+            // item UoM resolutions are pulled from SAP only when an admin runs them from Web → Settings →
+            // Data Sync (POST api/price/sync, api/price/special-prices/sync, api/sync/item-tax-groups and
+            // api/sync/item-uoms). They were a
             // 4-hourly job and 03:45 and 03:30 CAT jobs; with those gone, QuartzStoredJobReconciler
             // deletes their stored triggers at the next start.
 

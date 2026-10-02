@@ -26,5 +26,8 @@ public static partial class Errors
 
         public static Error SyncAlreadyRunning =
             Error.Conflict("Price.SyncAlreadyRunning", "A SAP price catalog sync is already running. Try again after it finishes.");
+
+        public static readonly Error SpecialPriceSyncAlreadyRunning =
+            Error.Conflict("Price.SpecialPriceSyncAlreadyRunning", "A SAP special price sync is already running. Try again after it finishes.");
     }
 }

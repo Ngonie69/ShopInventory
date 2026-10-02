@@ -996,12 +996,15 @@ There is no batch route on this controller. Batch detail is
 | GET | `/api/Price/pricelists` | The price lists |
 | GET | `/api/Price/pricelists/{priceListNum}/items` | Items on one price list |
 | GET | `/api/Price/pricelists/{priceListNum}/items/{itemCode}` | One item's price on one list |
-| POST | `/api/Price/sync` | Force a price sync from SAP |
+| POST | `/api/Price/sync` | Force a price sync from SAP (price lists, partner price lists and item prices; not special prices) |
+| POST | `/api/Price/special-prices/sync` | Sync the special prices from SAP, on their own |
 | POST | `/api/Price/pricelists/sync` | Sync the price lists |
 | POST | `/api/Price/pricelists/{priceListNum}/sync` | Sync one price list |
 
 Every route here takes `ApiAccess` and nothing more — the sync routes are **not** Admin-only, and a
-full `/api/Price/sync` runs under a 30-minute timeout.
+full `/api/Price/sync` runs under a 30-minute timeout. Special prices are synced apart from it, by
+`/api/Price/special-prices/sync` under a 15-minute timeout: there are far fewer of them, so they can
+be refreshed without walking every price list. The two hold separate locks and can run side by side.
 
 **Price DTO:**
 
@@ -3133,7 +3136,8 @@ A second price surface for the desktop, separate from [Prices](#9-prices).
 | GET | `/api/DesktopIntegration/prices/pricelists/{priceListNum}` | One list (`forceRefresh`) |
 | GET | `/api/DesktopIntegration/prices/pricelists/{priceListNum}/items/{itemCode}` | One item's price on one list |
 | GET | `/api/DesktopIntegration/prices/business-partner/{cardCode}` | A customer's prices |
-| POST | `/api/DesktopIntegration/prices/sync` | Sync prices |
+| POST | `/api/DesktopIntegration/prices/sync` | Sync prices (not special prices) |
+| POST | `/api/DesktopIntegration/prices/special-prices/sync` | Sync the special prices |
 | POST | `/api/DesktopIntegration/prices/pricelists/sync` | Sync the lists |
 | POST | `/api/DesktopIntegration/prices/pricelists/{priceListNum}/sync` | Sync one list |
 

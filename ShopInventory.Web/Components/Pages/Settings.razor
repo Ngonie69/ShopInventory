@@ -2211,6 +2211,15 @@
         {
             Source = "SAP into the API catalog and Web cache"
         },
+        new("Special Prices", "ph-seal-percent", MasterDataCacheService.SpecialPricesSyncKey, async progress =>
+        {
+            lastSpecialPriceSync = await CacheService.SyncSpecialPricesFromSapAsync(progress);
+            return lastSpecialPriceSync.SpecialPriceCount;
+        })
+        {
+            Source = "SAP into the API catalog",
+            Detail = DescribeSpecialPriceSync
+        },
         new("Business Partners", "ph-users", "BusinessPartners", CacheService.SyncBusinessPartnersFromApiAsync),
         new("Warehouses", "ph-buildings", "Warehouses", CacheService.SyncWarehousesFromApiAsync),
         new("Cost Centres", "ph-tree-structure", "CostCentres", CacheService.SyncCostCentresFromApiAsync),
@@ -2239,6 +2248,19 @@
     ];
 
     private ItemTaxGroupSyncResultModel? lastTaxGroupSync;
+
+    private SpecialPriceSyncResultModel? lastSpecialPriceSync;
+
+    /// <summary>
+    /// Says how many special prices SAP stopped carrying, since those are the ones a customer will now
+    /// be charged list price for.
+    /// </summary>
+    private string? DescribeSpecialPriceSync() => lastSpecialPriceSync switch
+    {
+        null => null,
+        { RemovedCount: 0 } => "None expired or removed in SAP since the last sync.",
+        var result => $"{result.RemovedCount:N0} expired or removed in SAP; those customers now pay list price for those items."
+    };
 
     private ItemUomWarmResultModel? lastUomWarm;
 
