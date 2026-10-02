@@ -157,7 +157,63 @@ public sealed class VanVisitRoundRouteTests : IDisposable
         Assert.All(result.Value.Entries, entry => Assert.Equal("AEE 4412", entry.TruckRegNo));
     }
 
+    /// <summary>
+    /// An ADR takes orders without a departure to declare, so never starts a day; their assigned
+    /// route is the best record there is. The route's truck is the van's, not the ADR's, so it stays
+    /// off.
+    /// </summary>
+    [Fact]
+    public async Task An_ADRs_call_on_a_day_never_started_carries_their_assigned_route()
+    {
+        GivenAssignedRoute(Tinashe, "BYOADR", "Bulawayo ADR");
+        GivenCall(Tinashe, "tinashe", LateOnTheEleventh);
+
+        var visit = await WhenTheListIsRead();
+
+        Assert.Equal("BYOADR", visit.RouteCode);
+        Assert.Equal("Bulawayo ADR", visit.RouteName);
+        Assert.Null(visit.TruckRegNo);
+    }
+
+    [Fact]
+    public async Task A_sales_reps_call_on_a_day_never_started_carries_no_route_though_they_have_one()
+    {
+        GivenAssignedRoute(Tinashe, "HN", "Harare North", ApplicationRoles.Sales);
+        GivenCall(Tinashe, "tinashe", LateOnTheEleventh);
+
+        var visit = await WhenTheListIsRead();
+
+        Assert.Null(visit.RouteName);
+        Assert.Null(visit.TruckRegNo);
+    }
+
+    [Fact]
+    public async Task An_ADR_who_started_the_day_keeps_its_snapshot()
+    {
+        GivenAssignedRoute(Tinashe, "BYOADR", "Bulawayo ADR");
+        GivenDay(Tinashe, "tinashe", TheEleventh, "HN", "Harare North", "AEE 4412");
+        GivenCall(Tinashe, "tinashe", LateOnTheEleventh);
+
+        var visit = await WhenTheListIsRead();
+
+        Assert.Equal("Harare North", visit.RouteName);
+        Assert.Equal("AEE 4412", visit.TruckRegNo);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private void GivenAssignedRoute(Guid userId, string code, string name, string? role = null)
+    {
+        var route = new RouteEntity { Code = code, Name = name, TruckRegNo = "NEW 0001" };
+        _context.Routes.Add(route);
+        _context.SaveChanges();
+
+        var user = _context.Users.Single(candidate => candidate.Id == userId);
+        user.RouteId = route.Id;
+        if (role is not null) user.Role = role;
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+    }
 
     private async Task<VanVisitDto> WhenTheListIsRead()
     {
