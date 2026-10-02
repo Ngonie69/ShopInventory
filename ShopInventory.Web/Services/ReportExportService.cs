@@ -70,6 +70,9 @@ public interface IReportExportService
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
     byte[] ExportCountVarianceToExcel(CountVarianceReport report);
     byte[] ExportVanCountVarianceToExcel(VanCountVarianceReport report);
+
+    /// <summary>One view of the Market Breakages list — every page — with the lines, by van and by product.</summary>
+    byte[] ExportMarketBreakagesToExcel(MarketBreakageExportDto export);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
 

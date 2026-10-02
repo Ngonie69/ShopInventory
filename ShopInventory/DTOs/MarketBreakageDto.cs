@@ -101,3 +101,68 @@ public sealed class VanSalesMarketBreakageResponse
     public bool AlreadyReported { get; set; }
     public string Message { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Every report a view of the office list holds, with its lines: what the Excel and PDF exports are
+/// built from. Newest first, as the list orders them.
+/// </summary>
+public sealed class MarketBreakageExportDto
+{
+    /// <summary>The status filter the list had: open, a status, or null for all.</summary>
+    public string? Status { get; set; }
+
+    public string? Search { get; set; }
+
+    public DateTime GeneratedAtUtc { get; set; }
+
+    /// <summary>How many reports matched; more than <see cref="Reports"/> holds when <see cref="Truncated"/>.</summary>
+    public int TotalCount { get; set; }
+
+    /// <summary>The match ran past the export's cap, so only the newest reports are here.</summary>
+    public bool Truncated { get; set; }
+
+    public MarketBreakageExportTotalsDto Totals { get; set; } = new();
+
+    /// <summary>Per van, most units reported first.</summary>
+    public List<MarketBreakageExportGroupDto> ByVan { get; set; } = [];
+
+    /// <summary>Per product, most units reported first.</summary>
+    public List<MarketBreakageExportGroupDto> ByProduct { get; set; } = [];
+
+    public List<MarketBreakageDetailDto> Reports { get; set; } = [];
+}
+
+/// <summary>
+/// The export's figures. Counted is what the office confirmed, so a report not yet counted adds to
+/// Reported only; Transferred is the counted stock of reports SAP has taken into returns.
+/// </summary>
+public sealed class MarketBreakageExportTotalsDto
+{
+    public int Reports { get; set; }
+
+    /// <summary>Pending, failed or stranded: still the office's to finish.</summary>
+    public int OpenReports { get; set; }
+
+    public int Lines { get; set; }
+    public decimal ReportedQuantity { get; set; }
+    public decimal CountedQuantity { get; set; }
+    public decimal TransferredQuantity { get; set; }
+
+    /// <summary>What the reps reported on reports the office turned down.</summary>
+    public decimal RejectedQuantity { get; set; }
+}
+
+/// <summary>One van's or one product's share of an export.</summary>
+public sealed class MarketBreakageExportGroupDto
+{
+    /// <summary>The van's warehouse code, or the item code.</summary>
+    public string Code { get; set; } = string.Empty;
+
+    /// <summary>The reps who reported on the van, or the item's description.</summary>
+    public string? Name { get; set; }
+
+    public int Reports { get; set; }
+    public decimal ReportedQuantity { get; set; }
+    public decimal CountedQuantity { get; set; }
+    public decimal TransferredQuantity { get; set; }
+}

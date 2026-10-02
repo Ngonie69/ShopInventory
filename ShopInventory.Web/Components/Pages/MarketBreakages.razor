@@ -1,6 +1,7 @@
 @page "/market-breakages"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Data
+@using ShopInventory.Web.Features.MarketBreakages.Queries.ExportMarketBreakages
 @using ShopInventory.Web.Models
 @attribute [Authorize(Roles = UserRoles.MarketBreakageRoles)]
 @rendermode InteractiveServer
@@ -37,6 +38,31 @@
                         </button>
                     }
                 </label>
+                @* Both export what the list is showing — this status, this search — across every page. *@
+                <button type="button" class="mbk-btn mbk-btn-secondary" @onclick="() => ExportAsync(MarketBreakageExportFormat.Excel)"
+                        disabled="@(!CanExport)" title="Download these reports as an Excel workbook" aria-label="Export to Excel">
+                    @if (exporting == MarketBreakageExportFormat.Excel)
+                    {
+                        <span class="mbk-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 12l6 6M15 12l-6 6" /></svg>
+                    }
+                    <span class="mbk-export-label">Excel</span>
+                </button>
+                <button type="button" class="mbk-btn mbk-btn-secondary" @onclick="() => ExportAsync(MarketBreakageExportFormat.Pdf)"
+                        disabled="@(!CanExport)" title="Download these reports as a PDF" aria-label="Export to PDF">
+                    @if (exporting == MarketBreakageExportFormat.Pdf)
+                    {
+                        <span class="mbk-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3" /></svg>
+                    }
+                    <span class="mbk-export-label">PDF</span>
+                </button>
                 <button type="button" class="mbk-btn mbk-btn-secondary" @onclick="RefreshAsync" disabled="@isLoading">
                     @if (isLoading)
                     {

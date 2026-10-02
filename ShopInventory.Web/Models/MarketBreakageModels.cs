@@ -30,6 +30,19 @@ public static class MarketBreakageStatus
         Rejected => "Rejected",
         _ => status
     };
+
+    /// <summary>
+    /// What an export calls the list's status filter — the same words the API's PDF uses, so the
+    /// Excel and the PDF of one view carry one name.
+    /// </summary>
+    public static string ScopeLabel(string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return "All reports";
+        if (string.Equals(filter, Open, StringComparison.OrdinalIgnoreCase))
+            return "Waiting on the office";
+        return string.Equals(filter, Pending, StringComparison.OrdinalIgnoreCase) ? "To count" : Describe(filter);
+    }
 }
 
 public sealed class MarketBreakageSummaryDto
@@ -91,6 +104,41 @@ public sealed class MarketBreakageLineDto
     public string? Reason { get; set; }
     public decimal ReportedQuantity { get; set; }
     public decimal? ConfirmedQuantity { get; set; }
+}
+
+/// <summary>Every report a view of the list holds, with the lines and the figures: what the exports are built from.</summary>
+public sealed class MarketBreakageExportDto
+{
+    public string? Status { get; set; }
+    public string? Search { get; set; }
+    public DateTime GeneratedAtUtc { get; set; }
+    public int TotalCount { get; set; }
+    public bool Truncated { get; set; }
+    public MarketBreakageExportTotalsDto Totals { get; set; } = new();
+    public List<MarketBreakageExportGroupDto> ByVan { get; set; } = [];
+    public List<MarketBreakageExportGroupDto> ByProduct { get; set; } = [];
+    public List<MarketBreakageDetailDto> Reports { get; set; } = [];
+}
+
+public sealed class MarketBreakageExportTotalsDto
+{
+    public int Reports { get; set; }
+    public int OpenReports { get; set; }
+    public int Lines { get; set; }
+    public decimal ReportedQuantity { get; set; }
+    public decimal CountedQuantity { get; set; }
+    public decimal TransferredQuantity { get; set; }
+    public decimal RejectedQuantity { get; set; }
+}
+
+public sealed class MarketBreakageExportGroupDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public int Reports { get; set; }
+    public decimal ReportedQuantity { get; set; }
+    public decimal CountedQuantity { get; set; }
+    public decimal TransferredQuantity { get; set; }
 }
 
 public sealed class ConfirmMarketBreakageRequestDto

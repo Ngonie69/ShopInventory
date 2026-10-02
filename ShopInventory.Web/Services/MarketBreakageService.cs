@@ -15,6 +15,12 @@ public interface IMarketBreakageService
 
     Task<(bool Success, string Message, MarketBreakageDetailDto? Value)> GetBreakageAsync(int id);
 
+    /// <summary>Every report the list holds for this status and search, with the lines.</summary>
+    Task<(bool Success, string Message, MarketBreakageExportDto? Value)> GetExportAsync(string? status, string? search);
+
+    /// <summary>The same reports as <see cref="GetExportAsync"/>, as the API's PDF.</summary>
+    Task<(bool Success, string Message, byte[]? Value)> GetExportPdfAsync(string? status, string? search);
+
     Task<(bool Success, string Message, MarketBreakageDecisionResultDto? Value)> ConfirmAsync(
         int id, ConfirmMarketBreakageRequestDto request);
 
@@ -57,6 +63,55 @@ public sealed class MarketBreakageService(HttpClient httpClient, ILogger<MarketB
             logger.LogError(ex, "Error fetching market breakage report {Id}", id);
             return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
         }
+    }
+
+    public async Task<(bool Success, string Message, MarketBreakageExportDto? Value)> GetExportAsync(string? status, string? search)
+    {
+        const string fallback = "The breakage reports could not be exported.";
+        try
+        {
+            return await ReadAsync<MarketBreakageExportDto>($"api/market-breakages/export{FilterQuery(status, search)}", fallback);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error exporting market breakage reports");
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, byte[]? Value)> GetExportPdfAsync(string? status, string? search)
+    {
+        const string fallback = "The breakage PDF could not be built.";
+        var path = $"api/market-breakages/export/pdf{FilterQuery(status, search)}";
+        try
+        {
+            using var response = await httpClient.GetAsync(path);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                logger.LogWarning("GET {Path} answered {StatusCode}", path, (int)response.StatusCode);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode, body, fallback, forbiddenMessage: ProblemDetailReader.ReadMessage(body)), null);
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            return bytes.Length == 0 ? (false, fallback, null) : (true, string.Empty, bytes);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the market breakage PDF");
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
+        }
+    }
+
+    private static string FilterQuery(string? status, string? search)
+    {
+        var parts = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(status))
+            parts.Add($"status={Uri.EscapeDataString(status)}");
+        if (!string.IsNullOrWhiteSpace(search))
+            parts.Add($"search={Uri.EscapeDataString(search.Trim())}");
+        return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);
     }
 
     public Task<(bool Success, string Message, MarketBreakageDecisionResultDto? Value)> ConfirmAsync(

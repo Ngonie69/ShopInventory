@@ -43,6 +43,7 @@ public class ReportExportWorkbookTests
         { "Local Stock", s => s.ExportLocalStockToExcel(new LocalStockResultDto { WarehouseCode = "01", SnapshotDate = To }) },
         { "Mobile Orders", s => s.ExportMobileOrdersToExcel([], "Mobile Orders") },
         { "Shops", s => s.ExportShopsToExcel([]) },
+        { "Market Breakages", s => s.ExportMarketBreakagesToExcel(new MarketBreakageExportDto { Status = "open", GeneratedAtUtc = To }) },
         { "G/L Ledger", s => s.ExportGLAccountLedgerToExcel(new GLAccountLedgerResponse { AccountCode = "701421", FromDate = From, ToDate = To, IsReconciled = true }) },
     };
 
@@ -103,6 +104,65 @@ public class ReportExportWorkbookTests
             Assert.Contains("CONFIDENTIAL", text);
             Assert.False(sheet.ShowGridLines, $"{name}/{sheet.Name} left the worksheet grid showing");
         }
+    }
+
+    [Fact]
+    public void The_market_breakages_workbook_keeps_reported_beside_counted_and_leaves_uncounted_cells_empty()
+    {
+        var captured = new DateTime(2026, 9, 27, 6, 48, 0, DateTimeKind.Utc);
+        var export = new MarketBreakageExportDto
+        {
+            GeneratedAtUtc = captured,
+            TotalCount = 2,
+            Totals = new MarketBreakageExportTotalsDto { Reports = 2, OpenReports = 1, Lines = 3, ReportedQuantity = 171m, CountedQuantity = 2m, TransferredQuantity = 2m },
+            ByVan = [new MarketBreakageExportGroupDto { Code = "VAN002", Name = "Learnmore Zogara", Reports = 2, ReportedQuantity = 171m, CountedQuantity = 2m, TransferredQuantity = 2m }],
+            ByProduct = [new MarketBreakageExportGroupDto { Code = "YOG144", Name = "6 Pack Vanilla Dairy Scoop Snack", Reports = 1, ReportedQuantity = 166m }],
+            Reports =
+            [
+                new MarketBreakageDetailDto
+                {
+                    Id = 3, Status = MarketBreakageStatus.Pending, ReportedByName = "Learnmore Zogara", VanWarehouseCode = "VAN002",
+                    CapturedAtUtc = captured,
+                    Lines = [new MarketBreakageLineDto { Id = 1, ItemCode = "YOG144", ItemDescription = "6 Pack Vanilla Dairy Scoop Snack", Reason = "Damaged", ReportedQuantity = 166m }]
+                },
+                new MarketBreakageDetailDto
+                {
+                    Id = 2, Status = MarketBreakageStatus.Transferred, ReportedByName = "Learnmore Zogara", VanWarehouseCode = "VAN002",
+                    CardCode = "SHOP01", CardName = "Corner Shop", CapturedAtUtc = captured.AddDays(-1), SapDocNum = 501,
+                    Lines =
+                    [
+                        new MarketBreakageLineDto { Id = 2, ItemCode = "MILK500", ReportedQuantity = 3m, ConfirmedQuantity = 2m },
+                        new MarketBreakageLineDto { Id = 3, ItemCode = "YOG250", ReportedQuantity = 2m, ConfirmedQuantity = 0m }
+                    ]
+                }
+            ]
+        };
+
+        using var workbook = Open(_service.ExportMarketBreakagesToExcel(export));
+
+        Assert.Equal(["Reports", "Lines", "By Van", "By Product"], workbook.Worksheets.Select(sheet => sheet.Name));
+
+        var reports = workbook.Worksheet("Reports");
+        var pendingRow = reports.CellsUsed().First(cell => cell.GetFormattedString() == "To count").Address.RowNumber;
+        Assert.Equal(3, reports.Cell(pendingRow, 1).GetValue<int>());
+        // Reported at is a real CAT timestamp, not text: 06:48 UTC is 08:48 in Harare.
+        Assert.Equal(new DateTime(2026, 9, 27, 8, 48, 0), reports.Cell(pendingRow, 2).GetDateTime());
+        Assert.Equal("In transit", reports.Cell(pendingRow, 6).GetString());
+        Assert.Equal(166m, reports.Cell(pendingRow, 9).GetValue<decimal>());
+        Assert.True(reports.Cell(pendingRow, 10).IsEmpty(), "an uncounted report's Counted must stay empty, not zero");
+        Assert.True(reports.Cell(pendingRow, 11).IsEmpty());
+
+        var doneRow = pendingRow + 1;
+        Assert.Equal((5m, 2m, -3m), (reports.Cell(doneRow, 9).GetValue<decimal>(), reports.Cell(doneRow, 10).GetValue<decimal>(), reports.Cell(doneRow, 11).GetValue<decimal>()));
+        Assert.Equal(501, reports.Cell(doneRow, 12).GetValue<int>());
+
+        var lines = workbook.Worksheet("Lines");
+        var yoghurt = lines.CellsUsed().First(cell => cell.GetString() == "YOG250").Address.RowNumber;
+        Assert.Equal((2m, 0m, -2m), (lines.Cell(yoghurt, 10).GetValue<decimal>(), lines.Cell(yoghurt, 11).GetValue<decimal>(), lines.Cell(yoghurt, 12).GetValue<decimal>()));
+        Assert.Equal("-2.00", lines.Cell(yoghurt, 12).GetFormattedString());
+
+        var byVan = workbook.Worksheet("By Van");
+        Assert.Contains(byVan.CellsUsed(), cell => cell.GetString() == "Learnmore Zogara");
     }
 
     [Fact]

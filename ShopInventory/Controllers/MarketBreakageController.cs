@@ -6,8 +6,10 @@ using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Features.MarketBreakages.Commands.ConfirmMarketBreakage;
 using ShopInventory.Features.MarketBreakages.Commands.RejectMarketBreakage;
+using ShopInventory.Features.MarketBreakages.Queries.ExportMarketBreakages;
 using ShopInventory.Features.MarketBreakages.Queries.GetMarketBreakage;
 using ShopInventory.Features.MarketBreakages.Queries.GetMarketBreakages;
+using ShopInventory.Features.MarketBreakages.Queries.GetMarketBreakagesPdf;
 using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
@@ -39,6 +41,37 @@ public sealed class MarketBreakageController(IMediator mediator) : ApiController
     {
         var result = await mediator.Send(new GetMarketBreakagesQuery(status, search, page, pageSize), cancellationToken);
         return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Every report the list holds for this <c>status</c> and <c>search</c> — every page, with the lines
+    /// — plus the totals, by van and by product. What the Excel export is built from. The newest
+    /// <see cref="ExportMarketBreakagesHandler.MaxReports"/> at most; <c>truncated</c> says when there were more.
+    /// </summary>
+    [HttpGet("export")]
+    [RequirePermission(Permission.ConfirmMarketBreakages)]
+    [ProducesResponseType(typeof(MarketBreakageExportDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Export(
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new ExportMarketBreakagesQuery(status, search), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>The same reports as <c>export</c>, laid out as a landscape A4 PDF.</summary>
+    [HttpGet("export/pdf")]
+    [RequirePermission(Permission.ConfirmMarketBreakages)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ExportPdf(
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetMarketBreakagesPdfQuery(status, search), cancellationToken);
+        return result.Match(document => File(document.Content, "application/pdf", document.FileName), Problem);
     }
 
     /// <summary>One breakage report with its lines, the office's count and the transfer it became.</summary>
