@@ -191,6 +191,20 @@ public sealed class GetVanVisitReportHandler(
             byRound[(round.UserId, round.TradingDate.Date)] = new Round(round.RouteCode, round.RouteName);
         }
 
+        // An ADR's days with no route of their own take the ADR's assigned route; see
+        // AdrAssignedRoutes for why only theirs.
+        var adrRoutes = await AdrAssignedRoutes.ForAsync(db, userIds, cancellationToken);
+
+        foreach (var (userId, day) in entries.Select(entry => (entry.UserId, TradingDay(entry.CheckInTime))).Distinct())
+        {
+            if (!adrRoutes.TryGetValue(userId, out var assigned)) continue;
+
+            if (!byRound.TryGetValue((userId, day), out var round) || (round.Code is null && round.Name is null))
+            {
+                byRound[(userId, day)] = new Round(assigned.Code, assigned.Name);
+            }
+        }
+
         return byRound;
     }
 

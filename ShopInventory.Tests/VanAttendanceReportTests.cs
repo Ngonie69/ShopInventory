@@ -346,7 +346,68 @@ public sealed class VanAttendanceReportTests : IDisposable
         Assert.Null(report.RepSummaries.Single(rep => rep.Username == "other-van").RouteName);
     }
 
+    /// <summary>
+    /// An ADR takes orders on foot and has no departure to declare, so never starts a day. Their
+    /// assigned route is the best record of where they were, and "Route not recorded" was wrong.
+    /// </summary>
+    [Fact]
+    public async Task An_ADRs_day_with_no_round_takes_their_assigned_route()
+    {
+        GivenAssignedRoute(VanRep, "BYOADR", "Bulawayo ADR");
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        var rep = Assert.Single(report.RepSummaries);
+        var day = Assert.Single(rep.Days);
+        Assert.Equal("BYOADR", day.RouteCode);
+        Assert.Equal("Bulawayo ADR", day.RouteName);
+        Assert.Equal("Bulawayo ADR", rep.RouteName);
+    }
+
+    /// <summary>
+    /// A sales rep who skipped Start Day skipped the departure check, and the missing route is how the
+    /// page shows it. Their assignment must not paper over that.
+    /// </summary>
+    [Fact]
+    public async Task A_sales_reps_day_with_no_round_stays_unrecorded_though_they_have_a_route()
+    {
+        GivenAssignedRoute(VanRep, "GRV", "Guruve", ApplicationRoles.Sales);
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        var rep = Assert.Single(report.RepSummaries);
+        Assert.Null(Assert.Single(rep.Days).RouteName);
+        Assert.Null(rep.RouteName);
+    }
+
+    [Fact]
+    public async Task An_ADR_who_did_start_the_day_keeps_the_route_they_started_on()
+    {
+        GivenAssignedRoute(VanRep, "BYOADR", "Bulawayo ADR");
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+        GivenRound(VanRep, new DateTime(2026, 8, 12), "GRV", "Guruve");
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        Assert.Equal("Guruve", Assert.Single(Assert.Single(report.RepSummaries).Days).RouteName);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private void GivenAssignedRoute(Guid userId, string code, string name, string? role = null)
+    {
+        var route = new RouteEntity { Code = code, Name = name, TruckRegNo = "AEE 4412" };
+        _context.Routes.Add(route);
+        _context.SaveChanges();
+
+        var user = _context.Users.Single(candidate => candidate.Id == userId);
+        user.RouteId = route.Id;
+        if (role is not null) user.Role = role;
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+    }
 
     private async Task<VanVisitReportResult> WhenReportRun(DateTime from, DateTime to)
     {

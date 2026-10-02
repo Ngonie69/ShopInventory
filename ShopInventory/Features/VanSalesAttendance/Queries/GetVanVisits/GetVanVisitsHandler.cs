@@ -80,6 +80,9 @@ public sealed class GetVanVisitsHandler(
     /// check-in and that arithmetic belongs in <see cref="AuditService.ToCAT"/> rather than in
     /// whatever the provider translates <c>AddHours(2).Date</c> into. The page is at most a few
     /// hundred rows and collapses to a handful of rep-days, so this is one small indexed read.
+    ///
+    /// An ADR's day with no route of its own falls back to their assigned route; see
+    /// <see cref="AdrAssignedRoutes"/> for why only theirs.
     /// </summary>
     private async Task<List<VanVisitDto>> WithRoundsAsync(
         List<VanVisitDto> entries,
@@ -108,7 +111,9 @@ public sealed class GetVanVisitsHandler(
             })
             .ToListAsync(cancellationToken);
 
-        if (rounds.Count == 0) return entries;
+        var adrRoutes = await AdrAssignedRoutes.ForAsync(db, userIds, cancellationToken);
+
+        if (rounds.Count == 0 && adrRoutes.Count == 0) return entries;
 
         // The unique index on (UserId, TradingDate) makes this one row per key, so a dictionary is
         // safe — but built with an overwrite rather than ToDictionary, which would throw on the
@@ -120,15 +125,30 @@ public sealed class GetVanVisitsHandler(
         }
 
         return entries
-            .Select(entry => byRound.TryGetValue(
-                (entry.UserId, AuditService.ToCAT(entry.CheckInTime).Date), out var round)
-                ? entry with
+            .Select(entry =>
+            {
+                var started = byRound.TryGetValue(
+                    (entry.UserId, AuditService.ToCAT(entry.CheckInTime).Date), out var round);
+
+                // A day the ADR did start keeps its snapshot; one they did not borrows their
+                // assignment. A started day that names no route borrows it too — the route is the
+                // only thing missing, and the truck stays whatever the day recorded.
+                if ((!started || (round.Code is null && round.Name is null))
+                    && adrRoutes.TryGetValue(entry.UserId, out var assigned))
                 {
-                    RouteCode = round.Code,
-                    RouteName = round.Name,
-                    TruckRegNo = round.Truck
+                    round = (assigned.Code, assigned.Name, started ? round.Truck : null);
+                    started = true;
                 }
-                : entry)
+
+                return started
+                    ? entry with
+                    {
+                        RouteCode = round.Code,
+                        RouteName = round.Name,
+                        TruckRegNo = round.Truck
+                    }
+                    : entry;
+            })
             .ToList();
     }
 }
