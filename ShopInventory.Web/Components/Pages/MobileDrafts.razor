@@ -1395,7 +1395,9 @@
     /// </summary>
     private async Task<SalesOrderListResponse?> FetchOrdersAsync()
     {
-        bool? vanSalesUsersOnly = IsVanSalesView ? true : null;
+        // Van handsets file their sales orders as Mobile too. Mobile Orders is the retail queue, so it
+        // asks for the complement of Van Sales Orders rather than for everything.
+        var vanSalesUsersOnly = IsVanSalesView;
 
         if (showAllHistory)
         {

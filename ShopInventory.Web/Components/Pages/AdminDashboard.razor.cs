@@ -295,7 +295,8 @@ public partial class AdminDashboard
     private async Task<int?> CountSalesOrdersAsync(
         DateTime date,
         SalesOrderSource? source = null,
-        SalesOrderStatus? status = null)
+        SalesOrderStatus? status = null,
+        bool? vanSalesUsersOnly = null)
     {
         var response = await SalesOrderService.GetSalesOrdersAsync(
             page: 1,
@@ -303,7 +304,8 @@ public partial class AdminDashboard
             status: status,
             fromDate: date,
             toDate: date,
-            source: source);
+            source: source,
+            vanSalesUsersOnly: vanSalesUsersOnly);
 
         return response?.TotalCount;
     }
@@ -313,11 +315,12 @@ public partial class AdminDashboard
         try
         {
             var today = DateTime.Today;
-            var todayTask = CountSalesOrdersAsync(today, SalesOrderSource.Mobile);
-            var yesterdayTask = CountSalesOrdersAsync(today.AddDays(-1), SalesOrderSource.Mobile);
+            // Van handsets file sales orders as Mobile too; the card counts what Mobile Orders lists.
+            var todayTask = CountSalesOrdersAsync(today, SalesOrderSource.Mobile, vanSalesUsersOnly: false);
+            var yesterdayTask = CountSalesOrdersAsync(today.AddDays(-1), SalesOrderSource.Mobile, vanSalesUsersOnly: false);
             // Mobile lines arrive unpriced, so a mobile order sits at Pending until someone has
             // priced and approved it. That queue is the point of the card, not the raw count.
-            var toReviewTask = CountSalesOrdersAsync(today, SalesOrderSource.Mobile, SalesOrderStatus.Pending);
+            var toReviewTask = CountSalesOrdersAsync(today, SalesOrderSource.Mobile, SalesOrderStatus.Pending, vanSalesUsersOnly: false);
             await Task.WhenAll(todayTask, yesterdayTask, toReviewTask);
 
             todayMobileOrderCount = await todayTask;

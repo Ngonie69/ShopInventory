@@ -453,7 +453,8 @@ public partial class SalesRepDashboard
                 1,
                 MobileFetchSize,
                 status: SalesOrderStatus.Pending,
-                source: SalesOrderSource.Mobile);
+                source: SalesOrderSource.Mobile,
+                vanSalesUsersOnly: false);
 
             if (version != loadVersion) return;
 
