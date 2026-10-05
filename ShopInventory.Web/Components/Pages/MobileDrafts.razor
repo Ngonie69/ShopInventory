@@ -2776,7 +2776,7 @@
         try
         {
             var title = IsVanSalesView ? "Van Sales Orders" : "Mobile Orders";
-            var bytes = ExportService.ExportMobileOrdersToExcel(rows, title);
+            var bytes = ExportService.ExportMobileOrdersToExcel(rows, title, GetOrderInvoiceDocNum, GetDisplayStatusName);
             var prefix = IsVanSalesView ? "Van_Sales_Orders" : "Mobile_Orders";
             await JS.InvokeVoidAsync(
                 "downloadFile",

@@ -74,7 +74,13 @@ public interface IReportExportService
     /// <summary>One view of the Market Breakages list — every page — with the lines, by van and by product.</summary>
     byte[] ExportMarketBreakagesToExcel(MarketBreakageExportDto export);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
-    byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
+    /// <param name="invoiceDocNum">The SAP invoice each order became, as the page resolved it; null when none.</param>
+    /// <param name="statusName">The status as the page shows it (Invoiced, Delivered); defaults to the order's own.</param>
+    byte[] ExportMobileOrdersToExcel(
+        IReadOnlyCollection<SalesOrderDto> orders,
+        string title,
+        Func<SalesOrderDto, int?>? invoiceDocNum = null,
+        Func<SalesOrderDto, string>? statusName = null);
 
     /// <summary>
     /// The retail shop master: what each shop's tills sell on, and how many operators are on it.
@@ -9190,11 +9196,22 @@ public partial class ReportExportService : IReportExportService
     /// table shows, plus the submission detail — device, sync state, capture
     /// coordinates — that the page keeps in the drawer rather than the row.
     /// </summary>
-    public byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title)
+    /// <remarks>
+    /// The invoice comes from the page rather than the order: most orders are invoiced in SAP, and only
+    /// the page's SAP check knows which invoice that was. The order's own record covers one converted here.
+    /// </remarks>
+    public byte[] ExportMobileOrdersToExcel(
+        IReadOnlyCollection<SalesOrderDto> orders,
+        string title,
+        Func<SalesOrderDto, int?>? invoiceDocNum = null,
+        Func<SalesOrderDto, string>? statusName = null)
     {
+        invoiceDocNum ??= order => order.InvoiceSapDocNum is > 0 ? order.InvoiceSapDocNum : null;
+        statusName ??= order => order.Status.ToString();
+
         using var workbook = NewWorkbook(title);
         var ws = AddSheet(workbook, title);
-        const int cols = 14;
+        const int cols = 15;
 
         var row = WriteReportHeader(ws, title, cols, subtitle: $"Orders listed: {orders.Count:N0}");
 
@@ -9208,7 +9225,7 @@ public partial class ReportExportService : IReportExportService
         var headers = new[]
         {
             "Order #", "Customer", "Customer Code", "Lines", "Device", "Sync",
-            "Ordered", "Received (CAT)", "Delivery", "Status", "Currency", "Total", "SAP Doc #", "Captured At"
+            "Ordered", "Received (CAT)", "Delivery", "Status", "Currency", "Total", "SAP Doc #", "Invoice #", "Captured At"
         };
 
         for (var i = 0; i < headers.Length; i++)
@@ -9250,9 +9267,10 @@ public partial class ReportExportService : IReportExportService
                 ws.Cell(row, 9).Style.NumberFormat.Format = FormatDate;
             }
 
-            ws.Cell(row, 10).Value = order.Status.ToString();
+            var orderInvoiceDocNum = invoiceDocNum(order);
+            ws.Cell(row, 10).Value = statusName(order);
             ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 10).Style.Font.FontColor = order.Status switch
+            ws.Cell(row, 10).Style.Font.FontColor = orderInvoiceDocNum.HasValue ? SuccessGreen : order.Status switch
             {
                 SalesOrderStatus.Approved or SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => SuccessGreen,
                 SalesOrderStatus.Pending or SalesOrderStatus.PartiallyFulfilled => WarningOrange,
@@ -9268,7 +9286,12 @@ public partial class ReportExportService : IReportExportService
                 ? order.SAPDocNum.Value.ToString(CultureInfo.InvariantCulture)
                 : order.Status == SalesOrderStatus.Approved ? "Pending" : "-";
             ws.Cell(row, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 14).Value = order.Latitude.HasValue && order.Longitude.HasValue
+            // A number, so it can be looked up against a SAP invoice list; blank when there is none,
+            // since a dash would turn the column into text.
+            if (orderInvoiceDocNum.HasValue)
+                ws.Cell(row, 14).Value = orderInvoiceDocNum.Value;
+            ws.Cell(row, 14).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 15).Value = order.Latitude.HasValue && order.Longitude.HasValue
                 ? $"{order.Latitude.Value.ToString("F6", CultureInfo.InvariantCulture)}, {order.Longitude.Value.ToString("F6", CultureInfo.InvariantCulture)}"
                 : "-";
             row++;
