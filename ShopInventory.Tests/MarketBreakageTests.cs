@@ -362,6 +362,45 @@ public sealed class MarketBreakageTests : IDisposable
         Assert.Equal(rejected, Assert.Single(search.Value.Items).Id);
     }
 
+    [Fact]
+    public async Task The_open_list_puts_a_failed_transfer_first_then_the_oldest_report()
+    {
+        var newest = await GivenReportAsync(("MILK500", 3m));
+        var oldest = await GivenReportAsync(("YOG250", 1m), ("MILK500", 2m));
+        var failed = await GivenReportAsync(("CHE100", 4m));
+        await _context.MarketBreakages.Where(b => b.Id == oldest)
+            .ExecuteUpdateAsync(set => set.SetProperty(b => b.CapturedAtUtc, DateTime.UtcNow.AddDays(-6)));
+        await _context.MarketBreakages.Where(b => b.Id == failed)
+            .ExecuteUpdateAsync(set => set.SetProperty(b => b.Status, MarketBreakageStatuses.TransferFailed));
+
+        var open = await new GetMarketBreakagesHandler(_context)
+            .Handle(new GetMarketBreakagesQuery("open", null, 1, 25), default);
+        Assert.Equal([failed, oldest, newest], open.Value.Items.Select(item => item.Id));
+
+        // Every other view stays newest first, by when the report arrived.
+        var all = await new GetMarketBreakagesHandler(_context)
+            .Handle(new GetMarketBreakagesQuery(null, null, 1, 25), default);
+        Assert.Equal([failed, oldest, newest], all.Value.Items.Select(item => item.Id));
+
+        var row = open.Value.Items.Single(item => item.Id == oldest);
+        Assert.Equal("YOG250 description", row.FirstItemName);
+        Assert.Equal(["Broken", "Broken"], row.Reasons);
+    }
+
+    [Fact]
+    public async Task The_office_list_finds_a_report_by_its_number_or_an_item_description()
+    {
+        await GivenReportAsync(("MILK500", 3m));
+        var wanted = await GivenReportAsync(("YOG250", 1m));
+
+        foreach (var search in new[] { $"#{wanted}", wanted.ToString(), "yog250 desc" })
+        {
+            var result = await new GetMarketBreakagesHandler(_context)
+                .Handle(new GetMarketBreakagesQuery(null, search, 1, 25), default);
+            Assert.Equal(wanted, Assert.Single(result.Value.Items).Id);
+        }
+    }
+
     // ---- Exports -----------------------------------------------------------------------------
 
     [Fact]

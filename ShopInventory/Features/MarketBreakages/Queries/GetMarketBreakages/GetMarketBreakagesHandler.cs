@@ -28,7 +28,7 @@ public sealed class GetMarketBreakagesHandler(ApplicationDbContext context)
         breakages = MarketBreakageFilters.Status(breakages, query.Status);
 
         var totalCount = await breakages.CountAsync(cancellationToken);
-        var items = await MarketBreakageFilters.Newest(breakages)
+        var items = await MarketBreakageFilters.ListOrder(breakages, query.Status)
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
             .Select(MarketBreakageProjections.Summary)

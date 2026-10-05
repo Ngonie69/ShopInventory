@@ -59,6 +59,8 @@ public sealed class MarketBreakageSummaryDto
     public decimal TotalReportedQuantity { get; set; }
     public decimal? TotalConfirmedQuantity { get; set; }
     public int? SapDocNum { get; set; }
+    public string? FirstItemName { get; set; }
+    public List<string> Reasons { get; set; } = [];
 }
 
 public sealed class MarketBreakageListResponseDto
