@@ -118,8 +118,8 @@
                 <span>Offline <b>@view.Summary.Offline.ToString("N0")</b></span>
                 @if (view.Summary.Totals.Sum(t => t.NetOnlyCount) is > 0 and var netOnly)
                 {
-                    @* An online sale from before receipts were stored carries only its net figure. Said, so the
-                       value is not read as gross throughout. *@
+                    @* A sale with no receipt row is grossed up from its reservation's lines; one with no lines
+                       to tax keeps its net figure. Said, so the value is not read as gross throughout. *@
                     <span class="vsd-aside-note">@netOnly without VAT in the value</span>
                 }
             </div>

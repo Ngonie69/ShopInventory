@@ -59,10 +59,11 @@ public sealed record VanSalesInvoiceSummary(
 
 /// <summary>A sum of documents in one currency.</summary>
 /// <remarks>
-/// <para><c>Vat</c>: the VAT the documents carry where it is known. An online sale from before receipts were
-/// stored carries none.</para>
+/// <para><c>Vat</c>: the VAT the documents carry: a receipt's own, or for a sale with no receipt row, the VAT on
+/// its reservation's lines.</para>
 /// <para><c>NetOnlyCount</c>: how many of <c>Count</c> are in <c>Amount</c> without their VAT — see
-/// <see cref="VanSalesInvoiceRow.AmountIncludesVat"/>. Zero means <c>Amount</c> is gross throughout.</para>
+/// <see cref="VanSalesInvoiceRow.AmountIncludesVat"/>. Zero means <c>Amount</c> is gross throughout, which it
+/// is unless a reservation has no lines to tax.</para>
 /// </remarks>
 public sealed record VanSalesMoneyTotal(string Currency, decimal Amount, decimal Vat, int Count, int NetOnlyCount);
 
@@ -87,8 +88,10 @@ public sealed record VanSalesInvoiceCounts(
 /// uploaded it after selling without signal.</para>
 /// <para><c>Amount</c>: The document total.</para>
 /// <para><c>AmountIncludesVat</c>: Whether <paramref name="Amount"/> carries the tax. A sale with a receipt row
-/// is known gross; an online sale from before receipts were stored carries only the net figure its reservation
-/// held.</para>
+/// carries the gross it was signed for. One without — a sales order converted to an invoice, which is
+/// fiscalised from the invoice queue, or an online sale from before receipts were stored — is grossed up from
+/// its reservation's net lines at each line's rate, which is what SAP charged. False only for a reservation
+/// with no lines, whose figure is then net.</para>
 /// <para><c>State</c>: One of <see cref="VanSalesDocumentStates"/>.</para>
 /// <para><c>Problem</c>: What went wrong, when <paramref name="State"/> is not complete.</para>
 /// <para><c>SaleNumber</c>: The short number the sale is known by in the console, <c>INV10427</c> — the same
