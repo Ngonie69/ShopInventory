@@ -343,6 +343,21 @@
                                     <td class="mox-num mox-total">@order.DocTotal.ToString("N2")</td>
                                     <td>
                                         <span class="@GetSapDocClass(order)">@GetSapDocLabel(order)</span>
+                                        @if (GetOrderInvoiceDocNum(order) is int rowInvoiceDocNum)
+                                        {
+                                            @* The invoices page is Admin and Cashier only; everyone else sees the number. *@
+                                            <AuthorizeView Roles="Admin,Cashier" Context="rowInvoiceAccess">
+                                                <Authorized>
+                                                    <a class="mox-inv" href="@GetInvoiceHref(rowInvoiceDocNum)"
+                                                       title="Open the invoice this order was converted to">
+                                                        Invoice @rowInvoiceDocNum
+                                                    </a>
+                                                </Authorized>
+                                                <NotAuthorized>
+                                                    <span class="mox-inv">Invoice @rowInvoiceDocNum</span>
+                                                </NotAuthorized>
+                                            </AuthorizeView>
+                                        }
                                     </td>
                                     <td>
                                         <div class="mox-rowactions">
@@ -381,7 +396,7 @@
                                             }
                                             <AuthorizeView Roles="Admin,Cashier" Context="invoiceAccess">
                                                 <Authorized>
-                                                    @if (order.Status == SalesOrderStatus.Approved && order.InvoiceId == null)
+                                                    @if (order.Status == SalesOrderStatus.Approved && order.InvoiceId == null && !IsOrderInvoiced(order))
                                                     {
                                                         <button type="button" class="mox-iconbtn" title="Convert to invoice"
                                                                 disabled="@IsOrderActionBusy(order.Id)"
@@ -567,11 +582,18 @@
                             <div class="mox-dd mox-num" style="text-align:left">@selectedOrder.SAPDocNum</div>
                         </div>
                     }
-                    @if (GetSelectedOrderInvoiceDocNum().HasValue)
+                    @if (GetSelectedOrderInvoiceDocNum() is int selectedInvoiceDocNum)
                     {
                         <div>
                             <div class="mox-dt">@(CanViewSelectedOrderPod() ? "POD invoice #" : "Invoice #")</div>
-                            <div class="mox-dd mox-num" style="text-align:left">@GetSelectedOrderInvoiceDocNum()</div>
+                            <div class="mox-dd mox-num" style="text-align:left">
+                                <AuthorizeView Roles="Admin,Cashier" Context="drawerInvoiceAccess">
+                                    <Authorized>
+                                        <a class="mox-inv-link" href="@GetInvoiceHref(selectedInvoiceDocNum)">@selectedInvoiceDocNum</a>
+                                    </Authorized>
+                                    <NotAuthorized>@selectedInvoiceDocNum</NotAuthorized>
+                                </AuthorizeView>
+                            </div>
                         </div>
                     }
                 </div>
@@ -1690,7 +1712,14 @@
     }
 
     private string GetDisplayStatusName(SalesOrderDto order)
-        => IsOrderDelivered(order) ? "Delivered" : order.Status.ToString();
+    {
+        if (IsOrderDelivered(order))
+            return "Delivered";
+
+        // SAP closes the order when it is copied to an invoice, but nothing writes that back here,
+        // so an invoiced order would otherwise still read Approved.
+        return IsOrderInvoiced(order) ? "Invoiced" : order.Status.ToString();
+    }
 
     /// <summary>
     /// Nocturne is a mono palette, so the ramp does the separating rather than
@@ -1700,7 +1729,7 @@
     /// </summary>
     private string GetStatusToneClass(SalesOrderDto order)
     {
-        if (IsOrderDelivered(order))
+        if (IsOrderDelivered(order) || IsOrderInvoiced(order))
             return "is-done";
 
         return order.Status switch
@@ -1726,7 +1755,12 @@
     };
 
     private int GetDisplayStatusSortOrder(SalesOrderDto order)
-        => IsOrderDelivered(order) ? 5 : GetStatusSortOrder(order.Status);
+    {
+        if (IsOrderDelivered(order))
+            return 5;
+
+        return IsOrderInvoiced(order) ? GetStatusSortOrder(SalesOrderStatus.Invoiced) : GetStatusSortOrder(order.Status);
+    }
 
     private int? GetOrderPodInvoiceDocNum(SalesOrderDto order)
     {
@@ -1743,12 +1777,13 @@
             : podStatus.DocNum;
     }
 
-    private int? GetSelectedOrderInvoiceDocNum()
+    /// <summary>
+    /// The SAP invoice the order was converted to. SAP's answer comes first, since most orders are
+    /// invoiced in SAP rather than converted here; it names one for POD-excluded accounts too, which
+    /// covers every van account.
+    /// </summary>
+    private int? GetOrderInvoiceDocNum(SalesOrderDto order)
     {
-        var order = GetSelectedOrderListState() ?? selectedOrder;
-        if (order == null)
-            return null;
-
         if (podStatusByOrderId.TryGetValue(order.Id, out var podStatus))
         {
             if (podStatus.ResolvedInvoiceDocNum is > 0)
@@ -1758,7 +1793,19 @@
                 return podStatus.DocNum;
         }
 
-        return order.InvoiceSapDocNum;
+        return order.InvoiceSapDocNum is > 0 ? order.InvoiceSapDocNum : null;
+    }
+
+    private bool IsOrderInvoiced(SalesOrderDto order)
+        => GetOrderInvoiceDocNum(order).HasValue;
+
+    private static string GetInvoiceHref(int invoiceDocNum)
+        => $"/invoices?docNum={invoiceDocNum.ToString(CultureInfo.InvariantCulture)}";
+
+    private int? GetSelectedOrderInvoiceDocNum()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        return order == null ? null : GetOrderInvoiceDocNum(order);
     }
 
     private bool CanViewOrderPod(SalesOrderDto order)
