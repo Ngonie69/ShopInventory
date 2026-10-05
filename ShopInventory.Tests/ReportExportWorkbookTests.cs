@@ -384,6 +384,56 @@ public class ReportExportWorkbookTests
         Assert.True(ordinary.Cell(header.Address.ColumnNumber).IsEmpty());
     }
 
+    /// <summary>
+    /// Van Sales Orders exports the invoice each order became, as the page resolved it from SAP, and the
+    /// status the page shows beside it. The invoice is a number, and blank on an order not yet invoiced.
+    /// </summary>
+    [Fact]
+    public void Mobile_orders_carry_the_invoice_each_order_became()
+    {
+        var orders = new List<SalesOrderDto>
+        {
+            new() { Id = 55, OrderNumber = "SO-0055", CardCode = "VAN013", OrderDate = From, Status = SalesOrderStatus.Approved, Currency = "USD", DocTotal = 302.11m, SAPDocNum = 83425, IsSynced = true },
+            new() { Id = 51, OrderNumber = "SO-0051", CardCode = "VAN013", OrderDate = From, Status = SalesOrderStatus.Approved, Currency = "USD", DocTotal = 12m, SAPDocNum = 83424, IsSynced = true },
+        };
+        var fromSap = new Dictionary<int, int> { [55] = 120007 };
+
+        using var workbook = Open(_service.ExportMobileOrdersToExcel(
+            orders,
+            "Van Sales Orders",
+            order => fromSap.TryGetValue(order.Id, out var docNum) ? docNum : null,
+            order => fromSap.ContainsKey(order.Id) ? "Invoiced" : order.Status.ToString()));
+        var sheet = workbook.Worksheet("Van Sales Orders");
+
+        var invoiceColumn = sheet.CellsUsed().Single(c => c.GetString() == "Invoice #").Address.ColumnNumber;
+        var statusColumn = sheet.CellsUsed().Single(c => c.GetString() == "Status").Address.ColumnNumber;
+        var invoiced = sheet.CellsUsed().Single(c => c.GetString() == "SO-0055").WorksheetRow();
+        var open = sheet.CellsUsed().Single(c => c.GetString() == "SO-0051").WorksheetRow();
+
+        Assert.Equal(120007, invoiced.Cell(invoiceColumn).GetDouble());
+        Assert.Equal("Invoiced", invoiced.Cell(statusColumn).GetString());
+        Assert.True(open.Cell(invoiceColumn).IsEmpty());
+        Assert.Equal("Approved", open.Cell(statusColumn).GetString());
+    }
+
+    /// <summary>Without the page's answers, an order converted here still names its invoice.</summary>
+    [Fact]
+    public void A_mobile_order_converted_here_names_its_invoice_on_its_own()
+    {
+        var orders = new List<SalesOrderDto>
+        {
+            new() { Id = 48, OrderNumber = "SO-0048", CardCode = "VAN008", OrderDate = From, Status = SalesOrderStatus.Fulfilled, Currency = "USD", DocTotal = 195.16m, SAPDocNum = 83421, InvoiceSapDocNum = 120003, IsSynced = true },
+        };
+
+        using var workbook = Open(_service.ExportMobileOrdersToExcel(orders, "Mobile Orders"));
+        var sheet = workbook.Worksheet("Mobile Orders");
+
+        var invoiceColumn = sheet.CellsUsed().Single(c => c.GetString() == "Invoice #").Address.ColumnNumber;
+        var row = sheet.CellsUsed().Single(c => c.GetString() == "SO-0048").WorksheetRow();
+
+        Assert.Equal(120003, row.Cell(invoiceColumn).GetDouble());
+    }
+
     [Fact]
     public void A_mixed_currency_register_totals_each_currency_separately()
     {
