@@ -1,11 +1,13 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 
 namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoices;
 
-public sealed class GetVanSalesInvoicesHandler(ApplicationDbContext db)
+public sealed class GetVanSalesInvoicesHandler(ApplicationDbContext db, IOptions<TaxSettings> tax)
     : IRequestHandler<GetVanSalesInvoicesQuery, ErrorOr<VanSalesInvoicesResult>>
 {
     /// <summary>A period long enough to answer any question about a month, short enough to read in one go.</summary>
@@ -46,7 +48,8 @@ public sealed class GetVanSalesInvoicesHandler(ApplicationDbContext db)
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, MaxPageSize);
 
-        var records = await VanSalesInvoiceReader.LoadAsync(db, from, to, reference: null, cancellationToken);
+        var records = await VanSalesInvoiceReader.LoadAsync(
+            db, tax.Value, from, to, reference: null, cancellationToken);
 
         // Rep and search narrow the period, then channel; the state counts are taken after them and before the
         // state filter, so each count says what choosing that state would show. The channel counts are taken

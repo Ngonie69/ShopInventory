@@ -562,6 +562,45 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
         Assert.Equal(1, signed);
     }
 
+    /// <summary>
+    /// The queue's payload carries the net price SAP posts. The receipt is filed tax-inclusive, so it has to be
+    /// handed the gross: it used to be handed 30.00 as the gross, declaring a 69.30 invoice to ZIMRA as 60.00
+    /// with the VAT carved out of it.
+    /// </summary>
+    [Fact]
+    public async Task The_queue_job_files_a_converted_order_at_its_gross_price_and_tax_code()
+    {
+        await SeedQueuedSaleAsync(queueStatus: InvoiceQueueStatus.Pending);
+        var entry = await QueueEntryAsync();
+        entry.FiscalReceiptNumber = null;
+        await _context.SaveChangesAsync();
+        _context.SapItemTaxGroups.Add(new SapItemTaxGroupEntity { ItemCode = "CHE011", VatGroup = "O01" });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        InvoiceDto? filed = null;
+        var fiscalisation = StubProxy.For<IFiscalizationService>((method, args) =>
+        {
+            if (method.Name != nameof(IFiscalizationService.FiscalizePreSapInvoiceAsync))
+            {
+                throw new InvalidOperationException($"Unexpected fiscal call: {method.Name}");
+            }
+
+            filed = (InvoiceDto)args[0]!;
+            return Task.FromResult(new FiscalizationResult { Success = true, ReceiptGlobalNo = "R-NEW" });
+        });
+
+        await RunJobAsync(fiscalisation);
+
+        var dto = Assert.IsType<InvoiceDto>(filed);
+        var line = Assert.Single(dto.Lines!);
+        Assert.Equal(30m, line.UnitPrice);
+        Assert.Equal(34.65m, line.GrossPrice);
+        Assert.Equal("O01", line.TaxCode);
+        Assert.Equal(69.30m, dto.DocTotal);
+        Assert.Equal(9.30m, dto.VatSum);
+    }
+
     // ---------------------------------------------------------------
 
     private static Task<FiscalizationResult> Signed(ref int count)

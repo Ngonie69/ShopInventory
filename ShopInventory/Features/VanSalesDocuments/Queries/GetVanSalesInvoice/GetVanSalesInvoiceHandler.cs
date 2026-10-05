@@ -12,7 +12,8 @@ namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoice;
 
 public sealed class GetVanSalesInvoiceHandler(
     ApplicationDbContext db,
-    IOptions<FiscalisationSettings> fiscalisationSettings)
+    IOptions<FiscalisationSettings> fiscalisationSettings,
+    IOptions<TaxSettings> tax)
     : IRequestHandler<GetVanSalesInvoiceQuery, ErrorOr<VanSalesInvoiceDetail>>
 {
     public async Task<ErrorOr<VanSalesInvoiceDetail>> Handle(
@@ -28,7 +29,7 @@ public sealed class GetVanSalesInvoiceHandler(
 
         // The period is ignored when a reference is given; the dates only have to be valid.
         var records = await VanSalesInvoiceReader.LoadAsync(
-            db, DateTime.UtcNow.Date, DateTime.UtcNow.Date, reference, cancellationToken);
+            db, tax.Value, DateTime.UtcNow.Date, DateTime.UtcNow.Date, reference, cancellationToken);
 
         var record = records.FirstOrDefault();
 

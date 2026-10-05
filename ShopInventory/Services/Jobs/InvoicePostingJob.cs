@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Quartz;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoices;
 using ShopInventory.Features.FiscalPrintForms;
@@ -77,8 +78,8 @@ public sealed class InvoicePostingJob : IJob
         var queueService = scope.ServiceProvider.GetRequiredService<IInvoiceQueueService>();
         var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
         var printForms = scope.ServiceProvider.GetRequiredService<IFiscalPrintFormResolver>();
-        var vatRate = scope.ServiceProvider
-            .GetRequiredService<IOptions<TaxSettings>>().Value.VatRate;
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var tax = scope.ServiceProvider.GetRequiredService<IOptions<TaxSettings>>().Value;
 
         // Get next batch of invoices to process
         var pendingInvoices = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
@@ -104,7 +105,8 @@ public sealed class InvoicePostingJob : IJob
                 queueService,
                 fiscalizationService,
                 printForms,
-                vatRate,
+                db,
+                tax,
                 stoppingToken);
         }
     }
@@ -114,7 +116,8 @@ public sealed class InvoicePostingJob : IJob
         IInvoiceQueueService queueService,
         IFiscalizationService? fiscalizationService,
         IFiscalPrintFormResolver printForms,
-        decimal vatRate,
+        ApplicationDbContext db,
+        TaxSettings tax,
         CancellationToken stoppingToken)
     {
         var startTime = DateTime.UtcNow;
@@ -177,7 +180,12 @@ public sealed class InvoicePostingJob : IJob
                 // payload under its external reference. That reference is the receipt's permanent
                 // fiscal identity and must stay byte-identical across every retry of this entry.
                 var fiscalResult = alreadyFiled ?? await fiscalizationService.FiscalizePreSapInvoiceAsync(
-                    BuildInvoiceDtoFromPayload(queueEntry, request, vatRate),
+                    BuildInvoiceDtoFromPayload(
+                        queueEntry,
+                        request,
+                        tax,
+                        await ItemVatGroups.ResolveAsync(
+                            db, request.Lines.Select(line => line.ItemCode), _logger, stoppingToken)),
                     queueEntry.ExternalReference,
                     customerDetails: null,
                     paymentType: TenderTypes.ToMoneyType(request.PaymentMethod),
@@ -281,46 +289,65 @@ public sealed class InvoicePostingJob : IJob
     }
 
     /// <summary>
-    /// Builds an InvoiceDto from queue entry and deserialized payload data
-    /// for pre-SAP fiscalization.
+    /// The document a queued invoice's receipt is filed from, before SAP has seen it.
     /// </summary>
-    private static InvoiceDto BuildInvoiceDtoFromPayload(
+    /// <remarks>
+    /// <para><b>The payload's prices are net.</b> Every producer of a fiscalised queue entry — a sales order
+    /// converted to an invoice, an invoice queued while SAP was unavailable — queues the same
+    /// <c>UnitPrice</c> SAP is then given as its net price. The receipt is filed tax-inclusive, and this used
+    /// to hand those net prices over as they were and drop each line's tax code, so the receipt declared the
+    /// net price as the gross, understated the VAT on every line, came to less than the invoice SAP posted,
+    /// and declared a zero-rated item as standard-rated.</para>
+    ///
+    /// <para>So it is built the way a sale fiscalised ahead of its invoice is: each line's tax code decided
+    /// once from the item master (<see cref="ItemVatGroups"/>), the same lines and totals as
+    /// <c>VanSaleFiscalFirstPoster</c> writes, and the receipt lines derived by
+    /// <see cref="DesktopSaleFiscaliser.BuildInvoice"/>, which grosses each net price up at its own rate.</para>
+    /// </remarks>
+    internal static InvoiceDto BuildInvoiceDtoFromPayload(
         InvoiceQueueEntity queueEntry,
         CreateStockReservationRequest request,
-        decimal vatRate)
+        TaxSettings tax,
+        IReadOnlyDictionary<string, string> vatGroups)
     {
-        var lines = request.Lines.Select((l, i) => new InvoiceLineDto
+        var currency = request.Currency ?? queueEntry.Currency;
+
+        var lines = request.Lines.Select(l =>
         {
-            LineNum = l.LineNum,
-            ItemCode = l.ItemCode,
-            ItemDescription = l.ItemDescription,
-            Quantity = l.Quantity,
-            UnitPrice = l.UnitPrice,
-            LineTotal = l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100m),
-            WarehouseCode = l.WarehouseCode,
-            DiscountPercent = l.DiscountPercent,
-            UoMCode = l.UoMCode
+            var taxCode = ItemVatGroups.TaxCodeFor(l.ItemCode, l.TaxCode, vatGroups, currency);
+
+            return new DesktopSaleLineEntity
+            {
+                LineNum = l.LineNum,
+                ItemCode = l.ItemCode,
+                ItemDescription = l.ItemDescription,
+                Quantity = l.Quantity,
+                UnitPrice = l.UnitPrice,
+                LineTotal = Math.Round(
+                    l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100m), 2, MidpointRounding.AwayFromZero),
+                WarehouseCode = l.WarehouseCode,
+                TaxCode = taxCode,
+                TaxPercent = tax.RateFor(taxCode) * 100m,
+                DiscountPercent = l.DiscountPercent,
+                UoMCode = l.UoMCode
+            };
         }).ToList();
 
-        var docTotal = lines.Sum(l => l.LineTotal);
+        var subtotal = lines.Sum(l => l.LineTotal);
+        var vat = tax.VatOnBasket(lines.Select(l => (l.LineTotal, l.TaxCode)));
 
-        // Approximate VAT sum for the header summary only. The fiscalisation platform recalculates
-        // tax per line from the line's tax id, so this figure never reaches FDMS.
-        var vatSum = docTotal * vatRate;
-
-        return new InvoiceDto
+        var sale = new DesktopSaleEntity
         {
-            DocEntry = 0,
-            DocNum = 0,
             CardCode = request.CardCode,
             CardName = request.CardName,
-            DocDate = DateTime.UtcNow.ToString("yyyy-MM-dd"),
-            DocCurrency = request.Currency ?? queueEntry.Currency,
-            DocTotal = docTotal,
-            VatSum = vatSum,
-            Comments = request.Notes,
-            Lines = lines
+            DocDate = DateTime.UtcNow.Date,
+            TotalAmount = subtotal + vat,
+            VatAmount = vat,
+            Currency = currency,
+            Comments = request.Notes
         };
+
+        return DesktopSaleFiscaliser.BuildInvoice(sale, lines, tax);
     }
 
     private static bool IsRetryableError(Exception ex)

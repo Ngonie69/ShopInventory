@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoices;
@@ -49,11 +51,17 @@ internal sealed record VanSalesInvoiceSaleFacts(
 /// Where a sale has no receipt row of its own — an online sale from before receipts were stored — the fiscal
 /// log is asked by DocNum through <see cref="FiscalDocumentStatusProjector"/>, the same rule the invoice list
 /// and the fiscalisation console use, so the three cannot disagree about one document.
+///
+/// <para>Such a sale has no receipt total either, only the net its reservation held. It is grossed up here
+/// from the reservation's own lines, each at its VAT rate — what SAP charged on the invoice it became — so
+/// the money it adds to a period is on the same footing as every receipt beside it. A sales order converted
+/// to an invoice is the everyday case: it is fiscalised from the invoice queue and keeps no receipt row.</para>
 /// </remarks>
 internal static class VanSalesInvoiceReader
 {
     public static async Task<List<VanSalesInvoiceRecord>> LoadAsync(
         ApplicationDbContext db,
+        TaxSettings tax,
         DateTime fromDay,
         DateTime toDay,
         string? reference,
@@ -86,7 +94,8 @@ internal static class VanSalesInvoiceReader
                 r.Currency,
                 r.SAPDocEntry,
                 r.SAPDocNum,
-                WarehouseCode = r.Lines.Select(l => l.WarehouseCode).FirstOrDefault()
+                WarehouseCode = r.Lines.Select(l => l.WarehouseCode).FirstOrDefault(),
+                Lines = r.Lines.Select(l => new NetLine(l.ItemCode, l.LineTotal, l.TaxCode)).ToList()
             })
             .ToListAsync(cancellationToken);
 
@@ -135,6 +144,16 @@ internal static class VanSalesInvoiceReader
         var queueByReservation = queued
             .GroupBy(q => q.ReservationId)
             .ToDictionary(g => g.Key, g => g.First());
+
+        // Only for the sales that will be grossed up: the ones with no signed receipt to read a total from.
+        var vatGroups = await ItemVatGroups.ResolveAsync(
+            db,
+            reservations
+                .Where(r => !(receiptByReference.TryGetValue(r.ExternalReferenceId, out var receipt)
+                              && receipt.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success))
+                .SelectMany(r => r.Lines.Select(l => l.ItemCode)),
+            NullLogger.Instance,
+            cancellationToken);
 
         var offlineQuery = db.DesktopSales
             .AsNoTracking()
@@ -218,6 +237,11 @@ internal static class VanSalesInvoiceReader
                             : null;
 
             var rep = VanSalesFacts.TryResolveRep(r.CreatedBy, out var repId) ? repId : (Guid?)null;
+            var currency = string.IsNullOrWhiteSpace(r.Currency) ? "USD" : r.Currency;
+
+            var (amount, vatAmount, amountIncludesVat) = receipt is not null && signed
+                ? (receipt.TotalAmount, (decimal?)receipt.VatAmount, true)
+                : GrossUp(r.TotalValue, r.Lines, currency, vatGroups, tax);
 
             var row = new VanSalesInvoiceRow(
                 Reference: r.ExternalReferenceId,
@@ -230,10 +254,10 @@ internal static class VanSalesInvoiceReader
                 CustomerCode: r.RouteCustomerCode ?? r.CardCode,
                 CustomerName: r.RouteCustomerName ?? r.CardName,
                 PaymentMethod: r.PaymentMethod,
-                Amount: receipt is not null && signed ? receipt.TotalAmount : r.TotalValue,
-                VatAmount: receipt is not null && signed ? receipt.VatAmount : null,
-                AmountIncludesVat: receipt is not null && signed,
-                Currency: string.IsNullOrWhiteSpace(r.Currency) ? "USD" : r.Currency,
+                Amount: amount,
+                VatAmount: vatAmount,
+                AmountIncludesVat: amountIncludesVat,
+                Currency: currency,
                 SapDocEntry: sapDocEntry,
                 SapDocNum: sapDocNum,
                 FiscalReceiptNumber: signed ? receipt!.FiscalReceiptNumber : queue?.FiscalReceiptNumber,
@@ -391,8 +415,40 @@ internal static class VanSalesInvoiceReader
             .ToList();
     }
 
+    /// <summary>
+    /// A sale with no receipt total: its reservation's net lines, each taxed at its own code's rate.
+    /// </summary>
+    /// <remarks>
+    /// The same lines and the same rounding <c>VanSaleFiscalFirstPoster</c> writes a receipt row from, so a
+    /// grossed-up sale and a receipted one come to the same figure for the same basket. Net is returned as it
+    /// is only for a reservation with no lines to tax, and is then counted as net-only.
+    /// </remarks>
+    private static (decimal Amount, decimal? Vat, bool IncludesVat) GrossUp(
+        decimal netTotal,
+        IReadOnlyCollection<NetLine> lines,
+        string currency,
+        IReadOnlyDictionary<string, string> vatGroups,
+        TaxSettings tax)
+    {
+        if (lines.Count == 0)
+        {
+            return (netTotal, null, false);
+        }
+
+        var taxed = lines
+            .Select(l => (
+                NetAmount: Math.Round(l.LineTotal, 2, MidpointRounding.AwayFromZero),
+                TaxCode: ItemVatGroups.TaxCodeFor(l.ItemCode, l.TaxCode, vatGroups, currency)))
+            .ToList();
+
+        var vat = tax.VatOnBasket(taxed);
+        return (taxed.Sum(l => l.NetAmount) + vat, vat, true);
+    }
+
     private static int? ParseDocEntry(string? value) =>
         int.TryParse(value, out var parsed) ? parsed : null;
+
+    private sealed record NetLine(string ItemCode, decimal LineTotal, string? TaxCode);
 
     private sealed record ReceiptRow(
         int Id,

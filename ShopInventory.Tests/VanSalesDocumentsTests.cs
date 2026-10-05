@@ -199,7 +199,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
         AddReceiptRow("VAN-D", signed: true, docNum: 9700);
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
             .Handle(new GetVanSalesInvoiceQuery("VAN-D"), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -210,7 +210,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
     [Fact]
     public async Task A_reference_the_app_did_not_create_is_not_found()
     {
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
             .Handle(new GetVanSalesInvoiceQuery("WEB-123"), CancellationToken.None);
 
         Assert.True(result.IsError);
@@ -239,7 +239,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
     {
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoicesHandler(_context).Handle(
+        var result = await new GetVanSalesInvoicesHandler(_context, Options.Create(new TaxSettings())).Handle(
             new GetVanSalesInvoicesQuery(Day, Day, Channel: "Carrier pigeon"), CancellationToken.None);
 
         Assert.True(result.IsError);
@@ -247,9 +247,15 @@ public sealed class VanSalesDocumentsTests : IDisposable
     }
 
     /// <summary>
-    /// The summary cards: money is summed per currency and never across two, a net-only figure is counted
-    /// rather than passed off as gross, and what SAP has not invoiced is split by van.
+    /// The summary cards: money is summed per currency and never across two, a sale with no receipt row is
+    /// grossed up from its reservation rather than added in at net, and what SAP has not invoiced is split by
+    /// van.
     /// </summary>
+    /// <remarks>
+    /// VAN-NET is the shape of a converted sales order: confirmed and in SAP, fiscalised from the queue, no
+    /// receipt row. It used to be summed at its net 100.00 beside a receipt's gross 115.50, which understated
+    /// the period's value by its VAT and left that VAT out of the VAT figure.
+    /// </remarks>
     [Fact]
     public async Task The_summary_sums_by_currency_and_splits_what_SAP_has_not_invoiced_by_van()
     {
@@ -263,10 +269,10 @@ public sealed class VanSalesDocumentsTests : IDisposable
         var summary = (await ListInvoicesAsync()).Summary;
 
         var usd = Assert.Single(summary.Totals, t => t.Currency == "USD");
-        Assert.Equal(215.50m, usd.Amount);
-        Assert.Equal(15.50m, usd.Vat);
+        Assert.Equal(231.00m, usd.Amount);
+        Assert.Equal(31.00m, usd.Vat);
         Assert.Equal(2, usd.Count);
-        Assert.Equal(1, usd.NetOnlyCount);
+        Assert.Equal(0, usd.NetOnlyCount);
         Assert.Equal(50m, Assert.Single(summary.Totals, t => t.Currency == "ZWG").Amount);
 
         Assert.Equal(2, summary.NotInSapCount);
@@ -275,6 +281,46 @@ public sealed class VanSalesDocumentsTests : IDisposable
         Assert.Equal("USD", van8.Currency);
         Assert.Equal("Tendai Moyo", van8.RepName);
         Assert.Equal("ZWG", Assert.Single(summary.NotInSapByVan, v => v.WarehouseCode == "VAN009").Currency);
+    }
+
+    /// <summary>
+    /// A receiptless sale is taxed line by line at each line's own rate, and one with no lines to tax keeps its
+    /// net figure and is counted as net-only rather than passed off as gross.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_with_no_receipt_row_is_grossed_up_at_each_lines_rate()
+    {
+        var mixed = AddReservation("VAN-MIX", ReservationStatus.Confirmed, docEntry: 31, docNum: 931);
+        mixed.Lines.Add(new StockReservationLineEntity
+        {
+            LineNum = 1, ItemCode = "BRD002", OriginalQuantity = 5, ReservedQuantity = 5,
+            UnitPrice = 4m, LineTotal = 20m, WarehouseCode = "VAN008", TaxCode = "O0"
+        });
+        mixed.TotalValue = 120m;
+
+        var bare = AddReservation("VAN-BARE", ReservationStatus.Confirmed, docEntry: 32, docNum: 932);
+        bare.Lines.Clear();
+
+        await _context.SaveChangesAsync();
+
+        var tax = new TaxSettings();
+        tax.RatesByTaxCode["O0"] = 0m;
+
+        var result = await new GetVanSalesInvoicesHandler(_context, Options.Create(tax)).Handle(
+            new GetVanSalesInvoicesQuery(Day, Day), CancellationToken.None);
+        Assert.False(result.IsError);
+
+        var row = Assert.Single(result.Value.Rows, r => r.Reference == "VAN-MIX");
+        Assert.True(row.AmountIncludesVat);
+        Assert.Equal(15.50m, row.VatAmount);
+        Assert.Equal(135.50m, row.Amount);
+
+        var net = Assert.Single(result.Value.Rows, r => r.Reference == "VAN-BARE");
+        Assert.False(net.AmountIncludesVat);
+        Assert.Null(net.VatAmount);
+        Assert.Equal(100m, net.Amount);
+
+        Assert.Equal(1, Assert.Single(result.Value.Summary.Totals).NetOnlyCount);
     }
 
     [Fact]
@@ -300,7 +346,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
         });
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
             .Handle(new GetVanSalesInvoiceQuery("VAN-CRD"), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -597,7 +643,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
     {
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()))
+        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
             .Handle(new GetVanSalesInvoiceQuery(reference), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -631,7 +677,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
     {
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoicesHandler(_context).Handle(
+        var result = await new GetVanSalesInvoicesHandler(_context, Options.Create(new TaxSettings())).Handle(
             new GetVanSalesInvoicesQuery(Day, Day, State: state, Search: search, Channel: channel),
             CancellationToken.None);
 
