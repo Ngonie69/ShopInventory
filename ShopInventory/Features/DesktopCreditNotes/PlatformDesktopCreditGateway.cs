@@ -144,7 +144,9 @@ public sealed class PlatformDesktopCreditGateway(ApplicationDbContext db, Fiscal
             Currency = receipt.Currency, ReceiptDate = null, TaxInclusive = receipt.TaxInclusive,
             PaymentType = receipt.PaymentType, PaymentAmount = receipt.PaymentAmount, Lines = receipt.Lines,
             Buyer = receipt.Buyer, CreditDebitNote = receipt.CreditDebitNote, ReceiptNotes = receipt.ReceiptNotes,
-            ReceiptPrintForm = receipt.ReceiptPrintForm
+            ReceiptPrintForm = receipt.ReceiptPrintForm,
+            // A plan saved before origins were sent carries neither; the platform then shows the API key.
+            SourceChannel = receipt.SourceChannel, SourceLocation = receipt.SourceLocation
         };
     }
 

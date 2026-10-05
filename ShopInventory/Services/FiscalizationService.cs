@@ -45,6 +45,9 @@ public interface IFiscalizationService
     /// <paramref name="printForm"/> is the fiscal document the receipt is filed as. Till, vending and van
     /// sales take the partner's choice from <see cref="Features.FiscalPrintForms.IFiscalPrintFormResolver"/>;
     /// everything else is an A4 invoice.
+    ///
+    /// <paramref name="source"/> is the channel and warehouse the sale was raised in, which the platform
+    /// shows as the receipt's origin. It is not part of the receipt.
     /// </remarks>
     Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
@@ -52,6 +55,7 @@ public interface IFiscalizationService
         CustomerFiscalDetails? customerDetails = null,
         MoneyType? paymentType = null,
         ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4,
+        FiscalReceiptSource? source = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -320,6 +324,13 @@ public class FiscalizationService : IFiscalizationService
             }
         };
 
+        // Everything that reaches this path was raised in ShopInventory and posted to SAP first, so the
+        // platform is told so; left unstated it would read as a document the SAP bridge sent.
+        FiscalReceiptSource.ForSapDocument(
+                documentType == SapDocumentType.CreditNote ? FiscalReceiptSource.SalesCreditNote : FiscalReceiptSource.SalesInvoice,
+                document.Lines?.Select(line => line.WarehouseCode) ?? [])
+            .ApplyTo(request.Receipt);
+
         var rawRequestJson = Serialize(request);
 
         try
@@ -351,6 +362,7 @@ public class FiscalizationService : IFiscalizationService
         CustomerFiscalDetails? customerDetails = null,
         MoneyType? paymentType = null,
         ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4,
+        FiscalReceiptSource? source = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);
@@ -409,6 +421,7 @@ public class FiscalizationService : IFiscalizationService
             ReceiptNotes = invoice.Comments,
             ReceiptPrintForm = printForm
         };
+        source?.ApplyTo(request);
 
         var rawRequestJson = Serialize(request);
 

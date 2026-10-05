@@ -121,6 +121,8 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
             var plan = DesktopCreditPlanner.Build(source, request, Reserved(notes), ReservedAmount(notes), DateTime.UtcNow);
             plan.Receipt.Username = caller.ToString();
             plan.Receipt.ReceiptPrintForm = printForm;
+            plan.Receipt.SourceChannel = FiscalReceiptSource.DesktopCreditNote;
+            plan.Receipt.SourceLocation = FiscalReceiptSource.LocationFor(sale.WarehouseCode);
             note = new DesktopCreditNoteEntity
             {
                 Id = Guid.NewGuid(), SaleId = sale.Id, RequestKey = request.RequestKey, RequestHash = hash,

@@ -543,6 +543,10 @@ public sealed class VanSalesSignedReceiptIngestService(
             // archive a document that differs from the one that was printed.
             Buyer = null,
 
+            // Shown as the receipt's origin on the platform; outside the signed payload.
+            SourceChannel = FiscalReceiptSource.ChannelFor(sale.SourceSystem),
+            SourceLocation = FiscalReceiptSource.LocationFor(sale.WarehouseCode),
+
             Lines = sale.Lines
                 .OrderBy(line => line.LineNum)
                 .Select(line => new LineApiRequest

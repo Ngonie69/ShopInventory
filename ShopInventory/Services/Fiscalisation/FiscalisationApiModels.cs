@@ -62,6 +62,12 @@ public class SubmitReceiptApiRequest
     public ReceiptPrintForm? ReceiptPrintForm { get; set; } = Fiscalisation.ReceiptPrintForm.InvoiceA4;
     public string? Username { get; set; }
     public string? UserNameSurname { get; set; }
+
+    /// <summary>The channel the receipt was raised in; shown on the platform, never sent to FDMS. See <see cref="FiscalReceiptSource"/>.</summary>
+    public string? SourceChannel { get; set; }
+
+    /// <summary>The warehouse it was raised at; shown on the platform, never sent to FDMS.</summary>
+    public string? SourceLocation { get; set; }
 }
 
 /// <summary>
