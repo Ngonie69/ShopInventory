@@ -930,6 +930,29 @@
     color: var(--mox-faint);
 }
 
+/* The invoice the order became, under its SAP number as the sync state sits under the order number. */
+.mox .mox-inv {
+    display: block;
+    margin-top: 1px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--mox-mute-3);
+}
+
+.mox a.mox-inv,
+.mox-overlay a.mox-inv-link {
+    color: var(--mox-accent-text);
+    text-decoration: none;
+}
+
+.mox a.mox-inv:hover,
+.mox-overlay a.mox-inv-link:hover {
+    color: var(--mox-accent-text-2);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
 .mox-rowactions {
     display: inline-flex;
     gap: 1px;

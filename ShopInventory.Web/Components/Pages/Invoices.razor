@@ -971,6 +971,12 @@
     private int displayPage = 1;
     private string _searchString = string.Empty;
 
+    /// <summary>
+    /// Opens the page filtered to one invoice, with its detail open. Mobile Orders links here from the
+    /// invoice a sales order was converted to, and the Fiscalisation console from a failed invoice.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "docNum")] public int? DocNumQuery { get; set; }
+
     private int? docNumSearch;
     private string? customerCode;
     private string? fiscalStatusFilter;
@@ -1055,8 +1061,17 @@
     {
         using var pageReads = PageReads.Bind(PageLifetime);
         _pageSize = AppSettings.PageSize;
+        if (DocNumQuery is > 0)
+            docNumSearch = DocNumQuery;
+
         await LoadInvoices();
         await AuditService.LogAsync(AuditActions.ViewInvoices, "Invoice", null);
+
+        if (DocNumQuery is > 0
+            && invoices?.Where(invoice => invoice.DocNum == DocNumQuery).ToList() is [var linkedInvoice])
+        {
+            await ViewInvoice(linkedInvoice.DocEntry);
+        }
     }
 
     private void ResetToFirstPage() => displayPage = 1;

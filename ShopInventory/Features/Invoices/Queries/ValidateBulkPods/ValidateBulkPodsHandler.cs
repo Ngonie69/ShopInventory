@@ -364,10 +364,20 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
             var firstLink = links[0];
             if (PodExclusions.IsExcluded(firstLink.CustomerCode, firstLink.CustomerName))
             {
+                // No POD is wanted, but the order was still invoiced, and Mobile Orders links to that
+                // invoice. Every van account is excluded, so leaving it out hid the invoice on every
+                // van sales order. DocNum stays empty: Found is false, so nothing is filed against it.
+                var latestInvoice = links
+                    .OrderByDescending(link => link.InvoiceDocDate ?? DateTime.MinValue)
+                    .ThenByDescending(link => link.InvoiceDocNum)
+                    .First();
+
                 return new BulkPodValidationResultDto
                 {
                     SalesOrderDocNum = salesOrderDocNum,
                     SalesOrderDocEntry = firstLink.SalesOrderDocEntry,
+                    ResolvedInvoiceDocNum = latestInvoice.InvoiceDocNum,
+                    ResolvedInvoiceDocEntry = latestInvoice.InvoiceDocEntry,
                     CardCode = firstLink.CustomerCode,
                     CardName = firstLink.CustomerName,
                     LinkedInvoiceCount = links.Count,
