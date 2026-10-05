@@ -22,12 +22,12 @@
     <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="10.2.1" />
     <PackageReference Include="CsvHelper" Version="33.1.0" />
     <PackageReference Include="ErrorOr" Version="2.1.1" />
-    <PackageReference Include="Fido2" Version="4.1.0" />
+    <PackageReference Include="Fido2" Version="4.2.0" />
     <PackageReference Include="FirebaseAdmin" Version="3.7.0" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
     <PackageReference Include="Google.Cloud.Storage.V1" Version="5.0.0" />
-    <PackageReference Include="itext7" Version="9.7.0" />
-    <PackageReference Include="itext7.bouncy-castle-adapter" Version="9.7.0" />
+    <PackageReference Include="itext7" Version="9.8.0" />
+    <PackageReference Include="itext7.bouncy-castle-adapter" Version="9.8.0" />
     <PackageReference Include="MediatR" Version="14.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.12" />
@@ -39,9 +39,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.10.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-    <PackageReference Include="Quartz" Version="3.22.0" />
-    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.22.0" />
-    <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.22.0" />
+    <PackageReference Include="Quartz" Version="3.22.3" />
+    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.22.3" />
+    <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.22.3" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
