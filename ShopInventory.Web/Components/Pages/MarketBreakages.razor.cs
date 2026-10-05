@@ -1,6 +1,7 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using MudBlazor;
 using ShopInventory.Web.Features.MarketBreakages.Commands.ConfirmMarketBreakage;
@@ -18,9 +19,11 @@ namespace ShopInventory.Web.Components.Pages;
 /// count what came off the van and confirm it into a transfer to returns, or reject it.
 /// </summary>
 /// <remarks>
-/// The count starts at what the rep reported and is changed only where the office found otherwise, so
-/// the usual case is one click; a changed count is drawn in the warning hue. Every action reloads the
-/// report and the list from the API rather than patching what is on screen.
+/// Every line starts uncounted and has to be counted — typed, stepped, or filled from what the rep
+/// reported — before the report can move, so a transfer is never the rep's figures by default. A
+/// count that differs from the report needs a remark, because the rep sees it. Every action reloads
+/// the report and the list from the API rather than patching what is on screen, and a decided report
+/// hands the drawer to the next one in the queue.
 /// </remarks>
 public partial class MarketBreakages : IDisposable
 {
@@ -30,19 +33,19 @@ public partial class MarketBreakages : IDisposable
     private static readonly TimeSpan SearchDebounce = TimeSpan.FromMilliseconds(300);
 
     /// <summary>
-    /// The figures across the top, which are also the status filter. "Needs you" holds the three open
-    /// states, so a failed transfer is counted there as well as under its own figure.
+    /// The tabs across the top. "Needs you" holds the three open states — to count, failed and
+    /// stranded — because each is the office's to finish; the API orders it failed first, then oldest.
     /// </summary>
-    private static readonly (string Value, string Label, string Hint, string Family)[] Figures =
+    private static readonly (string Value, string Label)[] Tabs =
     [
-        (MarketBreakageStatus.Open, "Needs you", "to count or finish", "is-accent"),
-        (MarketBreakageStatus.TransferFailed, "Transfer failed", "retry or reject", "is-bad"),
-        (MarketBreakageStatus.Transferred, "Transferred", "moved to returns", "is-good"),
-        (MarketBreakageStatus.Rejected, "Rejected", "sent back to the rep", "is-neutral")
+        (MarketBreakageStatus.Open, "Needs you"),
+        (MarketBreakageStatus.Transferred, "Transferred"),
+        (MarketBreakageStatus.Rejected, "Rejected"),
+        (string.Empty, "All")
     ];
 
-    /// <summary>A report still open after this long is drawn in the warning hue in the queue.</summary>
-    private static readonly TimeSpan StaleAfter = TimeSpan.FromDays(2);
+    /// <summary>An open report this many days old is drawn in the warning hue in the queue.</summary>
+    private const int OverdueDays = 5;
 
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
@@ -67,20 +70,20 @@ public partial class MarketBreakages : IDisposable
     private string? detailError;
     private string? decisionRemarks;
 
-    /// <summary>The office's count per line id, as typed. Seeded from the report on open.</summary>
+    /// <summary>Whether the drawer is showing <see cref="detailId"/>.</summary>
+    private bool drawerOpen;
+    private ElementReference drawerElement;
+    private bool focusDrawer;
+
+    /// <summary>
+    /// The office's count per line id. A line with no entry has not been counted yet; it is seeded only
+    /// from a count the office already confirmed, as on a failed transfer.
+    /// </summary>
     private readonly Dictionary<int, decimal> counts = [];
 
     private bool isSubmitting;
     private string? submittingAction;
-    private bool showConfirmDialog;
     private bool rejectNeedsReason;
-
-    /// <summary>
-    /// Whether the open report is showing as a full-screen sheet. Only narrow screens draw it that way;
-    /// on a wide screen the bench sits beside the queue and this changes nothing. Set by a pick, not by
-    /// the report the page opens on its own, so a phone lands on the list.
-    /// </summary>
-    private bool sheetOpen;
 
     /// <summary>The file being built, if any. One at a time: both buttons wait on it.</summary>
     private MarketBreakageExportFormat? exporting;
@@ -93,36 +96,138 @@ public partial class MarketBreakages : IDisposable
 
     private bool CanReject => detail is not null && MarketBreakageStatus.MayReject(detail.Status);
 
-    private decimal CountedTotal => detail?.Lines.Sum(line => counts.GetValueOrDefault(line.Id)) ?? 0m;
+    private int CountedLines => detail?.Lines.Count(line => CountedFor(line) is not null) ?? 0;
 
-    private int CountedLineCount => detail?.Lines.Count(line => counts.GetValueOrDefault(line.Id) > 0) ?? 0;
+    private bool AllCounted => detail is not null && CountedLines == detail.Lines.Count;
+
+    private decimal CountedTotal => detail?.Lines.Sum(line => CountedFor(line) ?? 0m) ?? 0m;
 
     private decimal ReportedTotal => detail?.Lines.Sum(line => line.ReportedQuantity) ?? 0m;
 
-    /// <summary>Counted less reported: the office's finding for the whole report.</summary>
-    private decimal TotalDiff => detail is null ? 0m : (CanConfirm ? CountedTotal : ReportTotal(detail)) - ReportedTotal;
+    /// <summary>Counted less reported, for the whole report.</summary>
+    private decimal TotalDiff => CountedTotal - ReportedTotal;
 
-    private string ReturnsText => string.IsNullOrWhiteSpace(detail?.ReturnsWarehouseCode) ? "Returns" : detail.ReturnsWarehouseCode;
+    /// <summary>
+    /// Whether any line was counted other than reported. Per line, not the total, so a short line and
+    /// an over line that cancel out still need saying.
+    /// </summary>
+    private bool CountDiffers => detail?.Lines.Any(line => CountedFor(line) is decimal counted && counted != line.ReportedQuantity) ?? false;
 
-    private string QueueTitle => Figures.FirstOrDefault(figure => figure.Value == statusFilter).Label ?? "All reports";
+    private bool HasRemark => !string.IsNullOrWhiteSpace(decisionRemarks);
 
-    private string ConfirmNote
+    /// <summary>A finished count that differs from the report, with nothing said about why.</summary>
+    private bool RemarkMissing => CanConfirm && AllCounted && CountDiffers && !HasRemark;
+
+    private bool CanSubmitCount => CanConfirm && AllCounted && !RemarkMissing && CountedTotal > 0;
+
+    private int ProgressPercent => detail is null || detail.Lines.Count == 0
+        ? 0
+        : (int)Math.Round(CountedLines * 100d / detail.Lines.Count);
+
+    private string ProgressLabel
+    {
+        get
+        {
+            if (detail is null)
+                return string.Empty;
+            if (!CanConfirm)
+                return "Count closed";
+            return AllCounted
+                ? $"All {LinesText(detail.Lines.Count)} counted"
+                : $"{CountedLines} of {detail.Lines.Count} counted";
+        }
+    }
+
+    private string TotalDiffLabel => TotalDiff == 0 ? "None" : SignedText(TotalDiff);
+
+    private string RemarkHint
+    {
+        get
+        {
+            if (rejectNeedsReason)
+                return "Say why you are rejecting it — the rep needs the reason.";
+            if (CanConfirm && AllCounted && CountDiffers)
+            {
+                var detailText = TotalDiff switch
+                {
+                    < 0 => $"your count is {QuantityDisplay.Format(-TotalDiff)} short",
+                    > 0 => $"your count is {QuantityDisplay.Format(TotalDiff)} over",
+                    _ => "your count differs from the rep's line by line"
+                };
+                return $"Required: {detailText}. The rep sees this.";
+            }
+
+            return CanReject
+                ? "Optional to confirm, required to reject. The rep sees this."
+                : "Optional. The rep sees this.";
+        }
+    }
+
+    private string ConfirmLabel
+    {
+        get
+        {
+            if (detail is null)
+                return string.Empty;
+            if (!AllCounted)
+                return $"Count {(detail.Lines.Count - CountedLines == 1 ? "1 more line" : $"{detail.Lines.Count - CountedLines} more lines")}";
+            if (RemarkMissing)
+                return "Add a remark to confirm";
+            if (CountedTotal <= 0)
+                return "Nothing to transfer — reject it";
+            return detail.Status == MarketBreakageStatus.Pending
+                ? $"Confirm & transfer {UnitsText(CountedTotal)}"
+                : $"Retry transfer · {UnitsText(CountedTotal)}";
+        }
+    }
+
+    private string MoveLabel
+    {
+        get
+        {
+            if (detail is null)
+                return string.Empty;
+            if (!CanConfirm)
+                return $"{UnitsText(CountedLines > 0 ? CountedTotal : ReportedTotal)} · {ProductsText(detail.Lines.Count)}";
+            return AllCounted
+                ? $"{UnitsText(CountedTotal)} · {ProductsText(detail.Lines.Count(line => CountedFor(line) > 0))}"
+                : $"{UnitsText(ReportedTotal)} · {ProductsText(detail.Lines.Count)} reported";
+        }
+    }
+
+    private string DoneLabel
     {
         get
         {
             if (detail is null)
                 return string.Empty;
 
-            var firstName = detail.ReportedByName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "the rep";
-            var diff = CountedTotal - ReportedTotal;
-            return diff switch
+            var who = detail.DecidedByName ?? "the office";
+            if (detail.Status == MarketBreakageStatus.Transferred)
             {
-                < 0 => $"You counted {QuantityDisplay.Format(-diff)} fewer than {firstName} reported; only your count moves.",
-                > 0 => $"You counted {QuantityDisplay.Format(diff)} more than {firstName} reported; your count is what moves.",
-                _ => $"Your count matches what {firstName} reported."
-            };
+                var transfer = detail.SapDocNum is int num ? $" as transfer #{num}" : "";
+                var when = detail.TransferredAtUtc is DateTime at ? $", {FormatStamp(at)}" : "";
+                return $"Moved to returns in SAP{transfer} by {who}{when}";
+            }
+
+            var decided = detail.DecidedAtUtc is DateTime decidedAt ? $", {FormatStamp(decidedAt)}" : "";
+            return $"Sent back to the rep by {who}{decided}";
         }
     }
+
+    private string ReturnsText => string.IsNullOrWhiteSpace(detail?.ReturnsWarehouseCode) ? "Returns" : detail.ReturnsWarehouseCode;
+
+    private string ListTitle => Tabs.FirstOrDefault(tab => tab.Value == statusFilter).Label ?? "All reports";
+
+    private string OrderNote => statusFilter == MarketBreakageStatus.Open
+        ? "Failed transfers first, then oldest"
+        : "Newest first";
+
+    private int CurrentIndex => detailId is int id ? reports.FindIndex(report => report.Id == id) : -1;
+
+    private int? PreviousId => CurrentIndex > 0 ? reports[CurrentIndex - 1].Id : null;
+
+    private int? NextId => CurrentIndex >= 0 && CurrentIndex < reports.Count - 1 ? reports[CurrentIndex + 1].Id : null;
 
     private string RangeLabel
     {
@@ -142,36 +247,30 @@ public partial class MarketBreakages : IDisposable
         : statusFilter switch
         {
             MarketBreakageStatus.Open => "Nothing is waiting on the office",
-            MarketBreakageStatus.TransferFailed => "No transfer is stuck",
             MarketBreakageStatus.Transferred => "No reports have been transferred to returns yet",
             MarketBreakageStatus.Rejected => "No reports have been rejected",
             _ => "No van has reported any breakages yet"
         };
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadAsync();
-        await OpenFirstAsync();
-    }
+    protected override Task OnInitializedAsync() => LoadAsync();
 
-    /// <summary>
-    /// Opens the top of the queue when nothing on it is open, so the bench is never an empty panel
-    /// beside a list of work.
-    /// </summary>
-    private async Task OpenFirstAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (detailId is int open && reports.Any(report => report.Id == open))
+        if (!focusDrawer || !drawerOpen)
             return;
 
-        if (reports.Count == 0)
+        focusDrawer = false;
+        try
         {
-            detailId = null;
-            detail = null;
-            sheetOpen = false;
-            return;
+            await drawerElement.FocusAsync();
         }
-
-        await OpenAsync(reports[0].Id);
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+            // The drawer closed again before this render reached the browser.
+        }
     }
 
     private async Task LoadAsync()
@@ -207,7 +306,7 @@ public partial class MarketBreakages : IDisposable
     }
 
     /// <summary>
-    /// The count each tab shows. "Waiting" adds the three open states, because a failed or stranded
+    /// The count each tab shows. "Needs you" adds the three open states, because a failed or stranded
     /// transfer is as much the office's to finish as a new report.
     /// </summary>
     private int? CountFor(string filter)
@@ -228,12 +327,12 @@ public partial class MarketBreakages : IDisposable
     private async Task RefreshAsync()
     {
         await LoadAsync();
-        if (detailId is int id)
+        if (drawerOpen && detailId is int id)
             await LoadDetailAsync(id, keepCounts: true);
     }
 
     /// <summary>
-    /// Downloads the reports the list holds now — this status, this search, every page — as a workbook
+    /// Downloads the reports the list holds now — this tab, this search, every page — as a workbook
     /// or a PDF.
     /// </summary>
     private async Task ExportAsync(MarketBreakageExportFormat format)
@@ -275,7 +374,6 @@ public partial class MarketBreakages : IDisposable
         statusFilter = value;
         currentPage = 1;
         await LoadAsync();
-        await OpenFirstAsync();
     }
 
     private async Task OnSearchInputAsync(ChangeEventArgs args)
@@ -331,19 +429,31 @@ public partial class MarketBreakages : IDisposable
         if (isSubmitting)
             return;
 
-        sheetOpen = true;
+        if (!drawerOpen)
+            focusDrawer = true;
+        drawerOpen = true;
+
         if (detailId == id && detail is not null)
             return;
 
         await OpenAsync(id);
     }
 
-    private void CloseSheet() => sheetOpen = false;
+    private void CloseDrawer()
+    {
+        if (!isSubmitting)
+            drawerOpen = false;
+    }
+
+    private void OnDrawerKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+            CloseDrawer();
+    }
 
     private async Task OpenAsync(int id)
     {
         detailId = id;
-        showConfirmDialog = false;
         rejectNeedsReason = false;
         detail = null;
         detailError = null;
@@ -383,13 +493,16 @@ public partial class MarketBreakages : IDisposable
     }
 
     /// <summary>
-    /// What the office counted if it already has, else what the rep reported. A count typed before a
-    /// refresh is kept, so reloading to see a failure does not throw the office's work away.
+    /// What the office already confirmed, where it has; every other line starts uncounted. A count
+    /// typed before a refresh is kept, so reloading to see a failure does not throw the work away.
     /// </summary>
     private void SeedCounts(bool keepCounts)
     {
         if (detail is null)
             return;
+
+        if (!keepCounts)
+            counts.Clear();
 
         var ids = detail.Lines.Select(line => line.Id).ToHashSet();
         foreach (var stale in counts.Keys.Where(key => !ids.Contains(key)).ToList())
@@ -397,60 +510,69 @@ public partial class MarketBreakages : IDisposable
 
         foreach (var line in detail.Lines)
         {
-            if (keepCounts && counts.ContainsKey(line.Id))
-                continue;
-            counts[line.Id] = line.ConfirmedQuantity ?? line.ReportedQuantity;
+            if (!counts.ContainsKey(line.Id) && line.ConfirmedQuantity is decimal confirmed)
+                counts[line.Id] = confirmed;
         }
     }
+
+    /// <summary>
+    /// The Counted column: the office's count while it can still change, else the stored one. Null is
+    /// a line nobody has counted.
+    /// </summary>
+    private decimal? CountedFor(MarketBreakageLineDto line)
+        => CanConfirm
+            ? counts.TryGetValue(line.Id, out var value) ? value : null
+            : line.ConfirmedQuantity;
 
     private string CountText(int lineId)
         => counts.TryGetValue(lineId, out var value) ? value.ToString("0.######", CultureInfo.InvariantCulture) : string.Empty;
 
+    /// <summary>A cleared box makes the line uncounted again; anything unreadable or negative counts as zero.</summary>
     private void SetCount(int lineId, object? value)
     {
         var text = value?.ToString()?.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            counts.Remove(lineId);
+            return;
+        }
+
         counts[lineId] = decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
             ? parsed
             : 0m;
     }
 
-    /// <summary>The stepper beside the count box: one unit at a time, never below zero.</summary>
-    private void StepCount(int lineId, decimal delta)
-        => counts[lineId] = Math.Max(0m, counts.GetValueOrDefault(lineId) + delta);
+    /// <summary>
+    /// The stepper beside the count box. On an uncounted line plus takes the reported figure and minus
+    /// one below it; after that, one unit at a time and never below zero.
+    /// </summary>
+    private void StepCount(MarketBreakageLineDto line, decimal delta)
+    {
+        var start = counts.TryGetValue(line.Id, out var current) ? current : line.ReportedQuantity - (delta > 0 ? delta : 0m);
+        counts[line.Id] = Math.Max(0m, start + delta);
+    }
 
-    /// <summary>What the Counted column shows: the office's count while it can still change, else the stored one.</summary>
-    private decimal CountedFor(MarketBreakageLineDto line)
-        => CanConfirm ? counts.GetValueOrDefault(line.Id) : line.ConfirmedQuantity ?? line.ReportedQuantity;
+    private void FillRestWithReported()
+    {
+        if (detail is null)
+            return;
+
+        foreach (var line in detail.Lines)
+            counts.TryAdd(line.Id, line.ReportedQuantity);
+    }
 
     private void ClearRejectHint() => rejectNeedsReason = false;
 
-    private void OpenConfirmDialog()
-    {
-        if (CountedTotal <= 0)
-        {
-            detailError = "Every count is zero, so there is nothing to transfer. Reject the report instead.";
-            return;
-        }
-
-        detailError = null;
-        showConfirmDialog = true;
-    }
-
-    private void CloseConfirmDialog()
-    {
-        if (!isSubmitting)
-            showConfirmDialog = false;
-    }
-
     private async Task ConfirmAsync()
     {
-        if (detail is null || isSubmitting)
+        if (detail is null || isSubmitting || !CanSubmitCount)
             return;
 
         var id = detail.Id;
         isSubmitting = true;
         submittingAction = "confirm";
         detailError = null;
+        var transferred = false;
 
         try
         {
@@ -465,8 +587,6 @@ public partial class MarketBreakages : IDisposable
                 }).ToList(),
                 decisionRemarks));
 
-            showConfirmDialog = false;
-
             if (result.IsError)
             {
                 detailError = result.FirstError.Description;
@@ -474,7 +594,7 @@ public partial class MarketBreakages : IDisposable
             else
             {
                 Snackbar.Add(result.Value.Message, Severity.Success);
-                decisionRemarks = null;
+                transferred = true;
             }
         }
         finally
@@ -483,10 +603,7 @@ public partial class MarketBreakages : IDisposable
             submittingAction = null;
         }
 
-        // The report changed either way — transferred, or failed with the reason on it.
-        await LoadAsync();
-        if (detailId == id)
-            await LoadDetailAsync(id, keepCounts: true);
+        await AfterDecisionAsync(id, decided: transferred);
     }
 
     private async Task RejectAsync()
@@ -504,6 +621,7 @@ public partial class MarketBreakages : IDisposable
         isSubmitting = true;
         submittingAction = "reject";
         detailError = null;
+        var rejected = false;
 
         try
         {
@@ -515,7 +633,7 @@ public partial class MarketBreakages : IDisposable
             else
             {
                 Snackbar.Add(result.Value.Message, Severity.Info);
-                decisionRemarks = null;
+                rejected = true;
             }
         }
         finally
@@ -524,9 +642,45 @@ public partial class MarketBreakages : IDisposable
             submittingAction = null;
         }
 
+        await AfterDecisionAsync(id, decided: rejected);
+    }
+
+    /// <summary>
+    /// Reloads the list after a confirm or reject. A decided report that has left this tab hands the
+    /// drawer to whichever report took its place — the next one to work in "Needs you" — and the drawer
+    /// closes when the tab is empty. A failure, or a report still in the tab, stays open and reloads.
+    /// </summary>
+    private async Task AfterDecisionAsync(int id, bool decided)
+    {
+        var index = CurrentIndex;
+        var attemptBefore = detail?.LastAttemptedAtUtc;
         await LoadAsync();
-        if (detailId == id)
-            await LoadDetailAsync(id, keepCounts: false);
+
+        if (detailId != id)
+            return;
+
+        if (!decided || reports.Any(report => report.Id == id))
+        {
+            await LoadDetailAsync(id, keepCounts: !decided);
+            if (decided)
+                decisionRemarks = null;
+
+            // A transfer SAP refused is recorded on the report, and its banner already says why.
+            if (!decided && detail?.Status == MarketBreakageStatus.TransferFailed
+                && detail.LastAttemptedAtUtc != attemptBefore && !string.IsNullOrWhiteSpace(detail.LastError))
+                detailError = null;
+            return;
+        }
+
+        if (reports.Count == 0)
+        {
+            drawerOpen = false;
+            detailId = null;
+            detail = null;
+            return;
+        }
+
+        await OpenAsync(reports[Math.Clamp(index, 0, reports.Count - 1)].Id);
     }
 
     private static string StatusModifier(string status) => status switch
@@ -542,52 +696,95 @@ public partial class MarketBreakages : IDisposable
     private static string StatusLabel(string status)
         => status == MarketBreakageStatus.Pending ? "To count" : MarketBreakageStatus.Describe(status);
 
-    private static bool IsStale(MarketBreakageSummaryDto report)
-        => report.Status is MarketBreakageStatus.Pending or MarketBreakageStatus.TransferFailed
-           && DateTime.UtcNow - report.CapturedAtUtc >= StaleAfter;
-
-    private static string RowAgeText(MarketBreakageSummaryDto report)
-        => MarketBreakageStatus.MayConfirm(report.Status)
-            ? $"Reported {AgeText(report.CapturedAtUtc)}"
-            : $"Reported {FormatDate(report.CapturedAtUtc)}";
-
-    private static string DiffText(decimal diff) => diff switch
+    private static string SummaryModifier(string status) => status switch
     {
-        0 => "—",
-        > 0 => $"+{QuantityDisplay.Format(diff)}",
-        _ => $"−{QuantityDisplay.Format(-diff)}"
+        MarketBreakageStatus.TransferFailed => "is-bad",
+        MarketBreakageStatus.Transferring => "is-info",
+        _ => ""
     };
 
-    private static string DiffModifier(decimal diff) => diff switch
+    /// <summary>The line under the product: the status, then the reasons the rep gave.</summary>
+    private static string RowSummary(MarketBreakageSummaryDto report)
+    {
+        if (report.Status == MarketBreakageStatus.TransferFailed)
+            return "Transfer failed";
+        if (report.Status == MarketBreakageStatus.Transferring)
+            return "Transfer not finished";
+
+        var reasons = report.Reasons.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return reasons.Count == 0 ? StatusLabel(report.Status) : $"{StatusLabel(report.Status)} · {string.Join(", ", reasons)}";
+    }
+
+    private static bool IsOverdue(MarketBreakageSummaryDto report)
+        => MarketBreakageStatus.MayConfirm(report.Status) && DaysWaiting(report.CapturedAtUtc) >= OverdueDays;
+
+    /// <summary>How long an open report has waited; a decided one waits on nobody.</summary>
+    private static string WaitingText(MarketBreakageSummaryDto report)
+    {
+        if (!MarketBreakageStatus.MayConfirm(report.Status))
+            return "—";
+
+        var days = DaysWaiting(report.CapturedAtUtc);
+        return days switch
+        {
+            0 => "Today",
+            1 => "1 day",
+            _ => $"{days} days"
+        };
+    }
+
+    /// <summary>Calendar days in Harare between the report and today.</summary>
+    private static int DaysWaiting(DateTime capturedUtc)
+        => Math.Max(0, (ToCat(DateTime.UtcNow).Date - ToCat(capturedUtc).Date).Days);
+
+    private static string AgeLong(DateTime capturedUtc) => DaysWaiting(capturedUtc) switch
+    {
+        0 => "today",
+        1 => "yesterday",
+        var days => $"{days} days ago"
+    };
+
+    private static string DiffLabel(decimal? counted, decimal reported)
+    {
+        if (counted is not decimal value)
+            return "To count";
+
+        var diff = value - reported;
+        return diff switch
+        {
+            0 => "Matches",
+            < 0 => $"{SignedText(diff)} short",
+            _ => $"{SignedText(diff)} over"
+        };
+    }
+
+    private static string DiffModifier(decimal? counted, decimal reported)
+        => counted is decimal value ? DiffFamily(value - reported) : "is-pending";
+
+    private static string DiffFamily(decimal diff) => diff switch
     {
         0 => "is-even",
-        > 0 => "is-over",
-        _ => "is-short"
+        < 0 => "is-short",
+        _ => "is-over"
+    };
+
+    private static string SignedText(decimal diff) => diff switch
+    {
+        > 0 => $"+{QuantityDisplay.Format(diff)}",
+        < 0 => $"−{QuantityDisplay.Format(-diff)}",
+        _ => "0"
     };
 
     private static string UnitsText(decimal units) => units == 1 ? "1 unit" : $"{QuantityDisplay.Format(units)} units";
 
     private static string ProductsText(int count) => count == 1 ? "1 product" : $"{count} products";
 
-    private static decimal ReportTotal(MarketBreakageDetailDto report)
-        => report.Lines.Sum(line => line.ConfirmedQuantity ?? line.ReportedQuantity);
+    private static string LinesText(int count) => count == 1 ? "1 line" : $"{count} lines";
 
-    private static string FormatDate(DateTime utc) => ToCat(utc).ToString("ddd dd MMM", CultureInfo.InvariantCulture);
-
-    private static string FormatStamp(DateTime utc) => ToCat(utc).ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture);
+    private static string FormatStamp(DateTime utc) => ToCat(utc).ToString("dd MMM yyyy, HH:mm", CultureInfo.InvariantCulture);
 
     private static DateTime ToCat(DateTime utc) => IAuditService.ToCAT(
         utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc));
-
-    private static string AgeText(DateTime capturedUtc)
-    {
-        var age = DateTime.UtcNow - capturedUtc;
-        if (age < TimeSpan.FromHours(1))
-            return "just now";
-        if (age < TimeSpan.FromDays(1))
-            return $"{(int)age.TotalHours}h ago";
-        return age.TotalDays < 2 ? "yesterday" : $"{(int)age.TotalDays} days ago";
-    }
 
     public void Dispose()
     {

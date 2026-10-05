@@ -15,6 +15,12 @@ public sealed class MarketBreakageSummaryDto
     public decimal TotalReportedQuantity { get; set; }
     public decimal? TotalConfirmedQuantity { get; set; }
     public int? SapDocNum { get; set; }
+
+    /// <summary>The first line's description, or its item code when it has none: what the row names.</summary>
+    public string? FirstItemName { get; set; }
+
+    /// <summary>Each line's reason in line order, blanks left out; the list de-duplicates them.</summary>
+    public List<string> Reasons { get; set; } = [];
 }
 
 /// <summary>A page of breakage reports, with how many sit in each status.</summary>

@@ -25,7 +25,16 @@ public static class MarketBreakageProjections
             TotalConfirmedQuantity = breakage.Lines.Any(line => line.ConfirmedQuantity != null)
                 ? breakage.Lines.Sum(line => line.ConfirmedQuantity ?? 0m)
                 : null,
-            SapDocNum = breakage.SapDocNum
+            SapDocNum = breakage.SapDocNum,
+            FirstItemName = breakage.Lines
+                .OrderBy(line => line.LineNum)
+                .Select(line => line.ItemDescription ?? line.ItemCode)
+                .FirstOrDefault(),
+            Reasons = breakage.Lines
+                .Where(line => line.Reason != null && line.Reason != "")
+                .OrderBy(line => line.LineNum)
+                .Select(line => line.Reason!)
+                .ToList()
         };
 
     public static readonly Expression<Func<MarketBreakageEntity, MarketBreakageDetailDto>> Detail =
