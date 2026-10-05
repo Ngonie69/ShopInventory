@@ -8,6 +8,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoices;
 using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Services;
 
@@ -183,6 +184,7 @@ public sealed class InvoicePostingJob : IJob
                     paymentType: TenderTypes.ToMoneyType(request.PaymentMethod),
                     printForm: await printForms.ResolveAsync(
                         queueEntry.SourceSystem, request.CardCode, stoppingToken),
+                    source: FiscalReceiptSource.ForSale(queueEntry.SourceSystem, queueEntry.WarehouseCode),
                     cancellationToken: stoppingToken);
 
                 if (fiscalResult.Success)

@@ -111,6 +111,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
         CustomerFiscalDetails? customerDetails = null,
         MoneyType? paymentType = null,
         ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4,
+        FiscalReceiptSource? source = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);

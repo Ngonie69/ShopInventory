@@ -6,6 +6,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Services;
 
@@ -92,6 +93,7 @@ public sealed class DesktopSaleFiscaliser(
                 sale.ExternalReferenceId!,
                 paymentType: TenderTypes.ToMoneyType(sale.PaymentMethod),
                 printForm: printForm,
+                source: FiscalReceiptSource.ForSale(sale.SourceSystem, sale.WarehouseCode),
                 cancellationToken: cancellationToken);
 
             if (result.Success && !result.Skipped)

@@ -77,9 +77,10 @@ public sealed class RevmaxHistoryFiscalizationService(
         CustomerFiscalDetails? customerDetails = null,
         MoneyType? paymentType = null,
         ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4,
+        FiscalReceiptSource? source = null,
         CancellationToken cancellationToken = default)
         => platform.FiscalizePreSapInvoiceAsync(
-            invoice, externalReference, customerDetails, paymentType, printForm, cancellationToken);
+            invoice, externalReference, customerDetails, paymentType, printForm, source, cancellationToken);
 
     public async Task<FiscalizationResult> FiscalizeCreditNoteAsync(
         InvoiceDto creditNote,
