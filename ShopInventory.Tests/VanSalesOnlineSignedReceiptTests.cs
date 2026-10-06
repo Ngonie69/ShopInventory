@@ -243,6 +243,13 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.Equal(InvoiceQueueStatus.Fiscalized, queued.Status);
         Assert.True(queued.FiscalizationSuccess);
         Assert.Equal("900", queued.FiscalReceiptNumber);
+
+        // The receipt itself, which PostQueuedVanInvoices writes onto the invoice's U_Fiscal_Code and
+        // U_Fiscal_Url. The entry used to carry only the numbers, so the invoice posted with both empty.
+        Assert.Equal("vc-server", queued.FiscalVerificationCode);
+        Assert.Equal("qr-server", queued.FiscalQrCode);
+        Assert.Equal("44", queued.FiscalDayNo);
+        Assert.Null(queued.SalesOrderId);
         Assert.NotNull(queued.ProcessingStartedAt);
         Assert.Null(queued.LastError);
         Assert.Equal(response.QueueId, queued.Id);
@@ -814,7 +821,8 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                 BuildFiscaliser(),
                 DesktopCreditPosters.Idle(poisoned),
                 Options.Create(new TaxSettings()),
-                NullLogger<VanSaleFiscalFirstPoster>.Instance))
+                NullLogger<VanSaleFiscalFirstPoster>.Instance),
+            BuildQueue(poisoned))
             .Handle(
                 new CreateVanSalesDirectInvoiceCommand(
                     Stamped("VAN006-INV-20260810-AAA111", globalNo: 501, counter: 4), VanUser),
@@ -1018,7 +1026,11 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                 BuildFiscaliser(),
                 DesktopCreditPosters.Idle(_context),
                 Options.Create(new TaxSettings()),
-                NullLogger<VanSaleFiscalFirstPoster>.Instance));
+                NullLogger<VanSaleFiscalFirstPoster>.Instance),
+            BuildQueue(_context));
+
+    private static InvoiceQueueService BuildQueue(ApplicationDbContext context) =>
+        new(context, StubProxy.Unused<IStockLedger>(), NullLogger<InvoiceQueueService>.Instance);
 
     private DesktopSaleFiscaliser BuildFiscaliser() =>
         new(

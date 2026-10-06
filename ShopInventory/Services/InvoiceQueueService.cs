@@ -27,6 +27,39 @@ public interface IInvoiceQueueService
         int? salesOrderId = null);
 
     /// <summary>
+    /// Hands a van sale the device has already been asked to sign to the queue — to be posted, or reviewed.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Written in its final state, in one save.</b> <see cref="EnqueueInvoiceAsync"/> creates an
+    /// entry as Pending, and InvoicePostingJob signs every Pending entry it finds that asks for it. Enqueueing
+    /// and then marking the entry would leave a window in which the job signs the sale a second time, and a
+    /// fiscal receipt cannot be withdrawn. So the entry is created already
+    /// <see cref="InvoiceQueueStatus.Fiscalized"/> — which <c>PostQueuedVanInvoices</c> posts without
+    /// fiscalising — or already <see cref="InvoiceQueueStatus.RequiresReview"/> when the device could not say
+    /// whether it signed.</para>
+    ///
+    /// <para><b>It carries the receipt.</b> <c>PostQueuedVanInvoices</c> writes the entry's verification code
+    /// and QR onto the invoice's <c>U_Fiscal_Code</c> / <c>U_Fiscal_Url</c>, so an entry written without them
+    /// posts an invoice whose fiscal fields are empty in SAP.</para>
+    ///
+    /// <para><b>Always marked as started.</b> <c>ProcessingStartedAt</c> is what makes InvoicePostingJob ask
+    /// the device for an existing receipt before signing, if a person puts the entry back with Retry.</para>
+    ///
+    /// <para><c>salesOrderId</c> is the order a conversion came from, so the invoice is posted on its base.
+    /// Null for a direct sale.</para>
+    ///
+    /// <para>A failure is logged and answered with null, never thrown: the receipt is already in the
+    /// customer's hand.</para>
+    /// </remarks>
+    Task<InvoiceQueueResultDto?> EnqueueSignedVanSaleAsync(
+        CreateStockReservationRequest request,
+        string reservationId,
+        string createdBy,
+        VanSaleFiscalFirstOutcome outcome,
+        int? salesOrderId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Get the status of a queued invoice by external reference
     /// </summary>
     Task<InvoiceQueueStatusDto?> GetQueueStatusAsync(
@@ -216,6 +249,94 @@ public class InvoiceQueueService : IInvoiceQueueService
                 ErrorMessage = ex.Message,
                 ReservationId = reservationId
             };
+        }
+    }
+
+    public async Task<InvoiceQueueResultDto?> EnqueueSignedVanSaleAsync(
+        CreateStockReservationRequest request,
+        string reservationId,
+        string createdBy,
+        VanSaleFiscalFirstOutcome outcome,
+        int? salesOrderId,
+        CancellationToken cancellationToken)
+    {
+        var reference = request.GetExternalReference();
+
+        try
+        {
+            var existing = await _context.InvoiceQueue
+                .AsNoTracking()
+                .FirstOrDefaultAsync(q => q.ExternalReference == reference, cancellationToken);
+
+            if (existing is not null)
+            {
+                // A resend of a sale already handed over. The entry is already on its way.
+                return new InvoiceQueueResultDto
+                {
+                    Success = true,
+                    ReservationId = existing.ReservationId,
+                    QueueId = existing.Id,
+                    ExternalReference = existing.ExternalReference,
+                    Status = existing.Status.ToString()
+                };
+            }
+
+            var signed = outcome.Status == VanSaleFiscalFirstStatus.AwaitingSap;
+            var sale = signed ? outcome.Sale : null;
+            var now = DateTime.UtcNow;
+
+            var entry = new InvoiceQueueEntity
+            {
+                ReservationId = reservationId,
+                ExternalReference = reference,
+                CustomerCode = request.CardCode,
+                InvoicePayload = JsonSerializer.Serialize(
+                    request,
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
+                Status = signed ? InvoiceQueueStatus.Fiscalized : InvoiceQueueStatus.RequiresReview,
+                SourceSystem = SaleSourceSystems.VanSales,
+                WarehouseCode = request.Lines.FirstOrDefault()?.WarehouseCode,
+                TotalAmount = request.Lines.Sum(l => l.Quantity * l.UnitPrice),
+                Currency = request.Currency ?? "USD",
+                RequiresFiscalization = true,
+                FiscalizationSuccess = signed ? true : null,
+                FiscalDeviceNumber = sale?.FiscalDeviceNumber,
+                FiscalReceiptNumber = sale?.FiscalReceiptNumber,
+                FiscalVerificationCode = sale?.FiscalVerificationCode,
+                FiscalQrCode = sale?.FiscalQRCode,
+                FiscalDayNo = sale?.FiscalDayNo,
+                LastError = outcome.Error is { Length: > 2000 } tooLong ? tooLong[..2000] : outcome.Error,
+                CreatedBy = createdBy,
+                Notes = request.Notes,
+                SalesOrderId = salesOrderId,
+                CreatedAt = now,
+                ProcessingStartedAt = now,
+                ProcessedAt = signed ? null : now,
+                MaxRetries = 3
+            };
+
+            _context.InvoiceQueue.Add(entry);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return new InvoiceQueueResultDto
+            {
+                Success = true,
+                ReservationId = reservationId,
+                QueueId = entry.Id,
+                ExternalReference = reference,
+                Status = entry.Status.ToString(),
+                EstimatedProcessingTime = signed ? TimeSpan.FromSeconds(30) : null
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Van sale {Reference} was sent to the fiscal device but could not be queued for SAP posting. Its " +
+                "receipt row holds no DocNum; resending the same van order will post it.",
+                reference);
+
+            return null;
         }
     }
 
