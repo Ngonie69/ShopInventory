@@ -397,14 +397,29 @@ public partial class VanSalesCreditNotes : ComponentBase, IDisposable
     private static string OriginWords(VanSalesCreditNoteRowModel note) =>
         note.Origin == "Till" ? "Till credit" : "SAP memo";
 
+    /// <summary>
+    /// Whether ZIMRA holds a receipt for the note, whether or not its number was recorded.
+    /// </summary>
+    /// <remarks>
+    /// A SAP memo is Complete exactly when the fiscal log holds evidence of its receipt, and that evidence
+    /// is not always a receipt number: a memo the platform already held (printed in B1) can be adopted
+    /// without one. Reading the number alone put "No receipt" beside "Complete" on the same row. A till
+    /// credit's Complete also needs SAP, so it is judged by its number.
+    /// </remarks>
+    private static bool IsSigned(VanSalesCreditNoteRowModel note) =>
+        !string.IsNullOrWhiteSpace(note.FiscalReceiptNumber)
+        || (note.Origin != "Till" && note.State == VanSalesDocumentState.Complete);
+
     private static (string Text, string Family) FiscalMark(VanSalesCreditNoteRowModel note) =>
         !string.IsNullOrWhiteSpace(note.FiscalReceiptNumber)
             ? (note.FiscalReceiptNumber, "vsd-fam-good")
-            : note.IsCancelled
-                ? ("—", "vsd-fam-off")
-                : note.State == VanSalesDocumentState.NeedsAttention
-                    ? ("Not signed", "vsd-fam-bad")
-                    : ("No receipt", "vsd-fam-warn");
+            : IsSigned(note)
+                ? ("Fiscalised", "vsd-fam-good")
+                : note.IsCancelled
+                    ? ("—", "vsd-fam-off")
+                    : note.State == VanSalesDocumentState.NeedsAttention
+                        ? ("Not signed", "vsd-fam-bad")
+                        : ("No receipt", "vsd-fam-warn");
 
     private static (string Text, string Family) SapMark(VanSalesCreditNoteRowModel note) =>
         note.SapDocNum is { } docNum
@@ -419,7 +434,7 @@ public partial class VanSalesCreditNotes : ComponentBase, IDisposable
     /// </summary>
     private static List<VanSalesTrailStep> Trail(VanSalesCreditNoteRowModel note)
     {
-        var signed = !string.IsNullOrWhiteSpace(note.FiscalReceiptNumber);
+        var signed = IsSigned(note);
         var failed = !string.IsNullOrWhiteSpace(note.Problem);
         var invoice = note.CreditedInvoices.FirstOrDefault();
 
@@ -435,12 +450,18 @@ public partial class VanSalesCreditNotes : ComponentBase, IDisposable
         }
 
         var fiscal = signed
-            ? new VanSalesTrailStep("Fiscalised by ZIMRA", $"Receipt {note.FiscalReceiptNumber}", "vsd-fam-good")
+            ? new VanSalesTrailStep(
+                "Fiscalised by ZIMRA",
+                string.IsNullOrWhiteSpace(note.FiscalReceiptNumber) ? "Receipt number not recorded" : $"Receipt {note.FiscalReceiptNumber}",
+                "vsd-fam-good")
             : note.IsCancelled
                 ? new VanSalesTrailStep("Not fiscalised", "Cancelled before it was signed", "vsd-fam-off")
                 : failed && note.Origin == "Till"
                     ? new VanSalesTrailStep("Not fiscalised", "The device has not confirmed it", "vsd-fam-bad")
-                    : new VanSalesTrailStep("Waiting for a fiscal receipt", "None found yet", "vsd-fam-warn");
+                    : new VanSalesTrailStep(
+                        "Waiting for a fiscal receipt",
+                        note.Origin == "Till" ? "None found yet" : "The scheduled credit-note fiscalisation files it",
+                        "vsd-fam-warn");
 
         var sap = note.SapDocNum is { } docNum
             ? new VanSalesTrailStep(
