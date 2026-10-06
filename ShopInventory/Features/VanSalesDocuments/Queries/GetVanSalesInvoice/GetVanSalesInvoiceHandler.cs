@@ -1,21 +1,30 @@
+using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoice;
 
 public sealed class GetVanSalesInvoiceHandler(
     ApplicationDbContext db,
     IOptions<FiscalisationSettings> fiscalisationSettings,
-    IOptions<TaxSettings> tax)
+    IOptions<TaxSettings> tax,
+    IFiscalisationApiClient fiscalClient,
+    IFiscalDeviceConfigCache fiscalConfig,
+    ILogger<GetVanSalesInvoiceHandler> logger)
     : IRequestHandler<GetVanSalesInvoiceQuery, ErrorOr<VanSalesInvoiceDetail>>
 {
+    /// <summary>How long the drawer waits on the platform for a ZIMRA link before opening without one.</summary>
+    private static readonly TimeSpan ZimraLinkBudget = TimeSpan.FromSeconds(5);
+
     public async Task<ErrorOr<VanSalesInvoiceDetail>> Handle(
         GetVanSalesInvoiceQuery request,
         CancellationToken cancellationToken)
@@ -39,6 +48,8 @@ public sealed class GetVanSalesInvoiceHandler(
                 "VanSalesDocuments.InvoiceNotFound",
                 $"No invoice from the van sales app has the reference {reference}.");
         }
+
+        record = await WithZimraLinkAsync(record, cancellationToken);
 
         var lines = record.ReservationId is not null
             ? await db.StockReservationLines
@@ -84,6 +95,87 @@ public sealed class GetVanSalesInvoiceHandler(
             fiscaliseRefusal,
             lines,
             await LoadCreditsAsync(reference, record.Row.SapDocEntry, cancellationToken));
+    }
+
+    /// <summary>
+    /// The invoice with the ZIMRA verification link its receipt was signed with, read back from the platform
+    /// where nothing here stored it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A converted order keeps only its receipt number: its queue entry has no column for the QR. A sale whose
+    /// receipt was adopted on a retry has none either, because the platform's adoption check is mapped without
+    /// one. Both show "Receipt 1871" and nothing to verify it by. The platform's receipt check does return the
+    /// device signature, and the link is composed from that exactly as the invoice status sync composes it.
+    /// </para>
+    /// <para>
+    /// Asked under each number the receipt may have been filed under — the pre-SAP number of the queue entry
+    /// and of the sale, then the SAP DocNum — and taken only from a match carrying the receipt number this
+    /// invoice already shows, so a receipt filed under another number is never put beside it. Nothing is
+    /// written back: this is a read, and the drawer opens without the link if the platform is slow or down.
+    /// </para>
+    /// </remarks>
+    private async Task<VanSalesInvoiceRecord> WithZimraLinkAsync(
+        VanSalesInvoiceRecord record,
+        CancellationToken cancellationToken)
+    {
+        var settings = fiscalisationSettings.Value;
+        var receiptNumber = record.Row.FiscalReceiptNumber?.Trim();
+
+        if (!settings.UsesPlatform
+            || !settings.Enabled
+            || string.IsNullOrEmpty(receiptNumber)
+            || !string.IsNullOrWhiteSpace(record.FiscalQrCode))
+        {
+            return record;
+        }
+
+        var invoiceNumbers = new[] { record.QueueReference, record.Row.Reference }
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => settings.BuildPreSapInvoiceNo(r!))
+            .Append(record.Row.SapDocNum?.ToString(CultureInfo.InvariantCulture))
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal);
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(ZimraLinkBudget);
+
+        try
+        {
+            foreach (var invoiceNo in invoiceNumbers)
+            {
+                var receipt = await FiscalReceiptLookup.TryLookupAsync(
+                    fiscalClient, fiscalConfig, invoiceNo, ReceiptType.FiscalInvoice, logger, budget.Token);
+
+                if (receipt is not { IsFiscalised: true, QrCode: { Length: > 0 } qrCode }
+                    || receipt.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture) != receiptNumber)
+                {
+                    continue;
+                }
+
+                return record with
+                {
+                    FiscalQrCode = qrCode,
+                    Row = record.Row with
+                    {
+                        FiscalVerificationCode = record.Row.FiscalVerificationCode ?? receipt.VerificationCode,
+                        FiscalDay = record.Row.FiscalDay ?? receipt.FiscalDay,
+                        FiscalDeviceSerial = record.Row.FiscalDeviceSerial ?? receipt.DeviceSerialNumber
+                    }
+                };
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "The platform did not answer for receipt {Receipt} of van invoice {Reference} within {Budget}; "
+                + "the invoice is shown without its ZIMRA link",
+                receiptNumber,
+                record.Row.Reference,
+                ZimraLinkBudget);
+        }
+
+        return record;
     }
 
     /// <summary>

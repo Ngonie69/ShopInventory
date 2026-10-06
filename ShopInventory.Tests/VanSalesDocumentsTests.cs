@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
@@ -11,6 +12,7 @@ using ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoices;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Tests;
 
@@ -199,7 +201,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
         AddReceiptRow("VAN-D", signed: true, docNum: 9700);
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
+        var result = await InvoiceHandler()
             .Handle(new GetVanSalesInvoiceQuery("VAN-D"), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -210,7 +212,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
     [Fact]
     public async Task A_reference_the_app_did_not_create_is_not_found()
     {
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
+        var result = await InvoiceHandler()
             .Handle(new GetVanSalesInvoiceQuery("WEB-123"), CancellationToken.None);
 
         Assert.True(result.IsError);
@@ -346,7 +348,7 @@ public sealed class VanSalesDocumentsTests : IDisposable
         });
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
+        var result = await InvoiceHandler()
             .Handle(new GetVanSalesInvoiceQuery("VAN-CRD"), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -463,6 +465,54 @@ public sealed class VanSalesDocumentsTests : IDisposable
 
         Assert.Equal(VanSalesDocumentStates.AwaitingSap, detail.Invoice.State);
         Assert.Contains("next run", detail.PostRefusal);
+    }
+
+    /// <summary>
+    /// A converted order keeps only its receipt number, so the drawer had no ZIMRA link to offer. The
+    /// platform's receipt check carries the device signature the link is composed from.
+    /// </summary>
+    [Fact]
+    public async Task A_converted_order_is_given_the_ZIMRA_link_its_receipt_was_signed_with()
+    {
+        var reservation = AddReservation("VAN005-INV-1", ReservationStatus.Confirmed, docEntry: 784, docNum: 784863);
+        AddQueueEntry(reservation.ReservationId, "VAN005-INV-1", InvoiceQueueStatus.Completed, lastError: null, receipt: "1871");
+        var asked = new List<string>();
+
+        var detail = await DetailAsync("VAN005-INV-1", PlatformSettings, Platform(asked, receiptGlobalNo: 1871));
+
+        Assert.Equal("VAN005-INV-1", Assert.Single(asked));
+        Assert.Equal(
+            "https://fdms.zimra.co.zw/0000046668051020260000001871" + VerificationCode,
+            detail.FiscalQrCode);
+        Assert.Equal(FiscalReceiptQrComposer.FormatVerificationCode(VerificationCode), detail.Invoice.FiscalVerificationCode);
+        Assert.Equal("41", detail.Invoice.FiscalDay);
+        Assert.Equal("KEF-46668", detail.Invoice.FiscalDeviceSerial);
+    }
+
+    [Fact]
+    public async Task A_platform_receipt_with_another_number_is_not_linked_to_the_invoice()
+    {
+        var reservation = AddReservation("VAN005-INV-2", ReservationStatus.Confirmed, docEntry: 785, docNum: 784864);
+        AddQueueEntry(reservation.ReservationId, "VAN005-INV-2", InvoiceQueueStatus.Completed, lastError: null, receipt: "1872");
+        var asked = new List<string>();
+
+        var detail = await DetailAsync("VAN005-INV-2", PlatformSettings, Platform(asked, receiptGlobalNo: 9999));
+
+        // Asked under the sale's own number and then the SAP DocNum; neither answer is this receipt.
+        Assert.Equal(["VAN005-INV-2", "784864"], asked);
+        Assert.Null(detail.FiscalQrCode);
+        Assert.Equal("1872", detail.Invoice.FiscalReceiptNumber);
+    }
+
+    [Fact]
+    public async Task A_receipt_that_stored_its_QR_does_not_ask_the_platform()
+    {
+        AddReservation("VAN-QR", ReservationStatus.Confirmed, docEntry: 701, docNum: 9701);
+        AddReceiptRow("VAN-QR", signed: true, docNum: 9701);
+
+        var detail = await DetailAsync("VAN-QR", PlatformSettings, StubProxy.Unused<IFiscalisationApiClient>());
+
+        Assert.Equal("qr-VAN-QR", detail.FiscalQrCode);
     }
 
     // --- Credit notes ---
@@ -639,16 +689,71 @@ public sealed class VanSalesDocumentsTests : IDisposable
 
     // --- Helpers ---
 
-    private async Task<VanSalesInvoiceDetail> DetailAsync(string reference)
+    private async Task<VanSalesInvoiceDetail> DetailAsync(
+        string reference,
+        FiscalisationSettings? settings = null,
+        IFiscalisationApiClient? platform = null)
     {
         await _context.SaveChangesAsync();
 
-        var result = await new GetVanSalesInvoiceHandler(_context, Options.Create(new FiscalisationSettings()), Options.Create(new TaxSettings()))
+        var result = await InvoiceHandler(settings, platform)
             .Handle(new GetVanSalesInvoiceQuery(reference), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;
     }
+
+    private static FiscalisationSettings PlatformSettings => new() { Provider = FiscalisationProvider.Platform };
+
+    /// <summary>MD5 of the bytes 1..32, first 16 hex characters: the code ZIMRA's QR carries.</summary>
+    private static readonly string VerificationCode = FiscalReceiptQrComposer.TryCreateVerificationCode(
+        Convert.ToBase64String(Enumerable.Range(1, 32).Select(b => (byte)b).ToArray()))!;
+
+    private GetVanSalesInvoiceHandler InvoiceHandler(
+        FiscalisationSettings? settings = null,
+        IFiscalisationApiClient? platform = null) =>
+        new(
+            _context,
+            Options.Create(settings ?? new FiscalisationSettings()),
+            Options.Create(new TaxSettings()),
+            platform ?? StubProxy.Unused<IFiscalisationApiClient>(),
+            StubProxy.For<IFiscalDeviceConfigCache>((_, args) => Task.FromResult<FiscalConfigApiResponse?>(
+                new FiscalConfigApiResponse
+                {
+                    QrUrl = "https://fdms.zimra.co.zw/",
+                    DeviceSerialNo = $"KEF-{args![0]}"
+                })),
+            NullLogger<GetVanSalesInvoiceHandler>.Instance);
+
+    /// <summary>
+    /// A platform holding one receipt, on device 46668, returned whatever invoice number it is asked under.
+    /// </summary>
+    private static IFiscalisationApiClient Platform(List<string> asked, int receiptGlobalNo) =>
+        StubProxy.For<IFiscalisationApiClient>((method, args) =>
+        {
+            if (method.Name != nameof(IFiscalisationApiClient.CheckReceiptAsync))
+            {
+                return null;
+            }
+
+            asked.Add((string)args![1]!);
+
+            return Task.FromResult(new CheckFiscalisedReceiptApiResponse
+            {
+                IsFiscalised = true,
+                Matches =
+                [
+                    new FiscalisedReceiptRecordDto
+                    {
+                        DeviceId = 46668,
+                        FiscalDayNo = 41,
+                        ReceiptGlobalNo = receiptGlobalNo,
+                        ReceiptDate = new DateTime(2026, 10, 5, 12, 26, 0),
+                        DeviceSignatureValue = Convert.ToBase64String(Enumerable.Range(1, 32).Select(b => (byte)b).ToArray())
+                    }
+                ]
+            });
+        });
 
     private void AddQueueEntry(
         string reservationId,

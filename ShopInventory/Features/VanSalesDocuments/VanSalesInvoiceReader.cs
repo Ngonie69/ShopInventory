@@ -21,7 +21,8 @@ internal sealed record VanSalesInvoiceRecord(
     string? FiscalQrCode,
     int PostingAttempts,
     string? QueueStatus,
-    VanSalesInvoiceSaleFacts? Sale);
+    VanSalesInvoiceSaleFacts? Sale,
+    string? QueueReference = null);
 
 /// <summary>
 /// The columns the on-request post and fiscalisation rules read, from the sale row an invoice has: its
@@ -138,7 +139,7 @@ internal static class VanSalesInvoiceReader
             : await db.InvoiceQueue
                 .AsNoTracking()
                 .Where(q => reservationIds.Contains(q.ReservationId))
-                .Select(q => new { q.ReservationId, q.Status, q.LastError, q.FiscalReceiptNumber, q.SapDocEntry, q.SapDocNum })
+                .Select(q => new { q.ReservationId, q.ExternalReference, q.Status, q.LastError, q.FiscalReceiptNumber, q.SapDocEntry, q.SapDocNum })
                 .ToListAsync(cancellationToken);
 
         var queueByReservation = queued
@@ -282,7 +283,8 @@ internal static class VanSalesInvoiceReader
                         receipt.ConsolidationStatus,
                         receipt.FiscalizationStatus,
                         receipt.RequiresReconciliation,
-                        receipt.CreatedAtUtc)));
+                        receipt.CreatedAtUtc),
+                QueueReference: queue?.ExternalReference));
 
             if (!signed && !queueSigned && sapDocNum is > 0)
             {

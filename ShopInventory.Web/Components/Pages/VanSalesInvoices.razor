@@ -585,26 +585,34 @@
                                     <img src="@qrImage" alt="ZIMRA fiscal receipt QR code" />
                                 </div>
                             }
+                            @* Worded as the Desktop Sales drawer's fiscal signature panel, so one receipt reads
+                               the same on either page. Without a QR there is nothing to scan, so the title
+                               falls back to the receipt number rather than asking for a scan. *@
                             <div class="vsd-qr-copy">
                                 <div class="vsd-def-k">Fiscal signature</div>
-                                <div class="vsd-qr-title">Receipt @invoice.FiscalReceiptNumber</div>
+                                <div class="vsd-qr-title">@(string.IsNullOrWhiteSpace(qrImage)
+                                    ? $"Receipt {invoice.FiscalReceiptNumber}"
+                                    : "Scan to verify this fiscal receipt")</div>
                                 <p>
-                                    @(string.Join(" · ", new[]
-                                    {
-                                        invoice.FiscalDay is null ? null : $"Fiscal day {invoice.FiscalDay}",
-                                        invoice.FiscalDeviceSerial is null ? null : $"device {invoice.FiscalDeviceSerial}"
-                                    }.Where(part => part is not null)))
+                                    Issued on the device for @invoice.Reference@(string.IsNullOrWhiteSpace(invoice.FiscalDeviceSerial)
+                                        ? "" : $" · device {invoice.FiscalDeviceSerial}")@(string.IsNullOrWhiteSpace(invoice.FiscalDay)
+                                        ? "" : $" · fiscal day {invoice.FiscalDay}").
                                 </p>
                                 @if (!string.IsNullOrWhiteSpace(invoice.FiscalVerificationCode))
                                 {
-                                    <span class="vsd-code">@FiscalQrCode.FormatVerificationCode(invoice.FiscalVerificationCode)</span>
+                                    <div class="vsd-qr-code">
+                                        <span class="vsd-def-k">Verification code</span>
+                                        <span class="vsd-code">@FiscalQrCode.FormatVerificationCode(invoice.FiscalVerificationCode)</span>
+                                    </div>
                                 }
                                 @if (Uri.TryCreate(detail.FiscalQrCode?.Trim(), UriKind.Absolute, out var verify)
                                      && (verify.Scheme == Uri.UriSchemeHttp || verify.Scheme == Uri.UriSchemeHttps))
                                 {
-                                    <a class="vsd-verify" href="@verify.AbsoluteUri" target="_blank" rel="noopener noreferrer">
-                                        Verify with ZIMRA<i class="ph ph-arrow-up-right" aria-hidden="true"></i>
-                                    </a>
+                                    <div class="vsd-qr-code">
+                                        <a class="vsd-verify" href="@verify.AbsoluteUri" target="_blank" rel="noopener noreferrer">
+                                            Verify with ZIMRA<i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+                                        </a>
+                                    </div>
                                 }
                             </div>
                         </div>
