@@ -455,7 +455,7 @@ public sealed class GetFiscalisationWorkQueueHandler(
     {
         var isInvoice = string.Equals(document.DocumentType, "Invoice", StringComparison.OrdinalIgnoreCase);
         var eligible = string.Equals(document.Status, NotFiscalisedStatus, StringComparison.OrdinalIgnoreCase);
-        var unresolved = IsUnresolved(document.Message);
+        var unresolved = FiscalOutcomeMessages.IsUnresolved(document.Message);
 
         var (status, severity, disposition, note) = (unresolved, eligible, isInvoice) switch
         {
@@ -477,15 +477,16 @@ public sealed class GetFiscalisationWorkQueueHandler(
                 "The platform holds no receipt for this document number. Fiscalising it submits the "
                     + "invoice as SAP holds it."),
 
-            // Only an invoice has a manual route. A credit note is fiscalised alongside the document
-            // that carries it, and there is no endpoint that would let this page send one on its own.
+            // Only an invoice has a manual route. A credit note is the scheduled credit-memo sweep's
+            // (SapCreditNoteFiscalisationSweep), which retries it up to its attempt limit and then raises
+            // an Exception Center incident; there is no endpoint that would let this page send one.
             _ => (
                 eligible ? "Not fiscalised" : document.Status,
                 FiscalWorkQueueFilters.SeverityOf(
                     eligible ? FiscalWorkQueueFilters.AwaitingFiscalisation : FiscalWorkQueueFilters.FiscalisationFailed),
                 FiscalWorkQueueDispositions.Automatic,
-                "Credit notes fiscalise with their document sync; there is no single-document route "
-                    + "from here.")
+                "The scheduled credit-note fiscalisation retries this on its own, a few times, and "
+                    + "raises an Exception Center incident if it still cannot file it.")
         };
 
         return new FiscalConsoleWorkItemDto(
@@ -596,48 +597,6 @@ public sealed class GetFiscalisationWorkQueueHandler(
         item.SaleId is null
         && item.DocNum is > 0
         && item.Disposition == FiscalWorkQueueDispositions.Retry;
-
-    /// <summary>
-    /// Whether the message recorded against a SAP document says the outcome was never established.
-    /// </summary>
-    /// <remarks>
-    /// Read out of prose, which is not where a verdict this expensive belongs, and it is worth saying why
-    /// it is here. A sale records the verdict properly, in
-    /// <c>DesktopSaleEntity.FiscalizationRequiresReconciliation</c>, and the queue reads that column. A
-    /// SAP document has no equivalent column, and the manual fiscalise path collapses a reconciliation
-    /// result to <c>Status = "Failed"</c> before writing it — so after a reload the row is
-    /// indistinguishable from a plain refusal and is offered a Fiscalise button again. The console's
-    /// in-session lock-out closes that window only until someone presses F5.
-    ///
-    /// Until the transaction row can carry the verdict itself, the wording the fiscalisation service
-    /// writes alongside it is the only surviving trace. The markers are matched as a family and
-    /// case-folded, and the set is deliberately generous: reading an ambiguous outcome as an ordinary
-    /// failure invites the retry that signs one sale twice, while reading an ordinary failure as
-    /// ambiguous costs a look-up.
-    /// </remarks>
-    private static bool IsUnresolved(string? message)
-    {
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            return false;
-        }
-
-        var folded = message.ToLowerInvariant();
-
-        return UnresolvedMarkers.Any(marker => folded.Contains(marker, StringComparison.Ordinal));
-    }
-
-    /// <summary>Lower-cased, because <see cref="IsUnresolved"/> folds the message before matching.</summary>
-    private static readonly string[] UnresolvedMarkers =
-    [
-        // "The fiscal outcome is unresolved. Check the receipt on the fiscalisation console before any
-        // resubmission — it may already exist." — FiscalizationService, on RequiresReconciliation.
-        "unresolved",
-        "reconcil",
-        "indeterminate",
-        "idempotency_",
-        "chainbreak"
-    ];
 
     /// <summary>
     /// What to call the row's origin on screen.

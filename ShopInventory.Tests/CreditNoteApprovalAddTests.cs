@@ -310,13 +310,17 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         _context,
         sap.AsClient(),
         sap.AsProjection(),
-        fiscal.AsService(),
-        fiscal.AsSender(),
+        new SapCreditNoteFiscaliser(
+            _context,
+            sap.AsClient(),
+            fiscal.AsService(),
+            fiscal.AsSender(),
+            Options.Create(new FiscalisationSettings()),
+            NullLogger<SapCreditNoteFiscaliser>.Instance),
         store ?? Store(),
         audit,
         Options.Create(new SAPSettings { Enabled = true }),
         Options.Create(new CreditNoteApprovalSettings { FiscaliseAfterAdd = fiscaliseAfterAdd }),
-        Options.Create(new FiscalisationSettings()),
         NullLogger<AddApprovedCreditNoteHandler>.Instance);
 
     private IIdempotencyRequestStore Store()
