@@ -21,6 +21,18 @@ public sealed class CreditNoteFiscalisationSettings
     public int LookbackDays { get; set; } = 14;
 
     /// <summary>
+    /// The earliest memo date the pass takes, whatever the lookback says. Null for no floor.
+    /// </summary>
+    /// <remarks>
+    /// Set to the platform cut-over. The memos before it are REVMax-era, and the first pass on production
+    /// (2026-10-06) found them crediting SAP invoices that were never fiscalised at all — 25 of 25 refused
+    /// with "the original invoice must be fiscalised before it can be credited". No retry changes that, so
+    /// the pass would only spend its attempts and raise an incident per memo. That backlog is a matter for
+    /// a person: the originals have to be filed first, if they are to be.
+    /// </remarks>
+    public DateTime? NotBefore { get; set; }
+
+    /// <summary>
     /// How long a memo is left after it last changed in SAP before the pass takes it.
     /// </summary>
     /// <remarks>
