@@ -579,6 +579,48 @@ public sealed class VanSalesDocumentsTests : IDisposable
         Assert.Equal(Day, invoice.SoldOn);
     }
 
+    /// <summary>
+    /// Investigation of SAP memo 59606 (2026-10-06): a memo whose lines are based on a van invoice and on an
+    /// invoice that is not a van sale. Characterises what the list hands the drawer today — the memo's whole
+    /// DocTotal, set against the one van invoice, as though it were the only one reversed.
+    /// </summary>
+    [Fact]
+    public async Task Characterisation_a_memo_over_several_invoices_is_set_whole_against_its_one_van_invoice()
+    {
+        AddReservation("VAN-MIX", ReservationStatus.Confirmed, docEntry: 830, docNum: 9830);
+        AddReceiptRow("VAN-MIX", signed: true, docNum: 9830, docEntry: 830);
+
+        _context.SapCreditNoteSnapshots.Add(new SapCreditNoteSnapshotEntity
+        {
+            SapDocEntry = 70,
+            SapDocNum = 3070,
+            DocDate = Day,
+            CardCode = "FOODARK",
+            CardName = "Food Ark",
+            DocCurrency = "USD",
+            DocTotal = 23_347.75m,
+            VatSum = 3_133.25m,
+            LastSeenInSapAtUtc = DuringDayUtc,
+            SyncedAtUtc = DuringDayUtc,
+            Lines =
+            [
+                // 115.50 gross against the van invoice: within what it sold.
+                new SapCreditNoteLineSnapshotEntity { LineNum = 0, ItemCode = "CHS001", BaseType = 13, BaseEntry = 830, LineTotal = 100m, VatSum = 15.50m, CreditReason = "Wrongly Invoiced" },
+                // The rest against an invoice no van raised.
+                new SapCreditNoteLineSnapshotEntity { LineNum = 1, ItemCode = "CHS002", BaseType = 13, BaseEntry = 777_777, LineTotal = 20_099m, VatSum = 3_117.75m, CreditReason = "Wrongly Invoiced" }
+            ]
+        });
+        await _context.SaveChangesAsync();
+
+        var row = Assert.Single((await ListCreditNotesAsync()).Rows);
+
+        var invoice = Assert.Single(row.CreditedInvoices);   // "Reverses · 1 invoice": the other is dropped
+        Assert.Equal("VAN-MIX", invoice.Reference);
+        Assert.Equal(115.50m, invoice.Amount);
+        Assert.Equal(23_347.75m, row.Amount);                 // the whole memo, set against 115.50
+        Assert.Equal("Mbare Corner Shop", row.CustomerName);  // the van shop, not the memo's own FOODARK card
+    }
+
     [Fact]
     public async Task Origin_and_cancelled_filters_narrow_the_list_and_the_summary_counts_what_they_hide()
     {
