@@ -95,6 +95,18 @@ public interface IFiscalizationService
     Task<FiscalizationResult?> FindPreSapReceiptAsync(
         string externalReference,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The receipt the platform archived for a pre-SAP sale, totals included, or null when it holds none.
+    /// </summary>
+    /// <remarks>
+    /// A read, for comparing what ZIMRA holds with what SAP charged (<c>FiscalReceiptAmountCheck</c>).
+    /// Not a guard against signing twice — that is <see cref="FindPreSapReceiptAsync"/>, which also asks
+    /// REVMax. Null from a provider with no archive to read. Throws when the platform cannot be asked.
+    /// </remarks>
+    Task<FiscalisedReceiptRecordDto?> GetArchivedPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -381,6 +393,29 @@ public class FiscalizationService : IFiscalizationService
             return Disabled(invoiceNo);
         }
 
+        if (FindLineWithoutGrossPrice(invoice) is { } ungrossed)
+        {
+            // Refused before anything is signed, so nothing is issued and the sale can be put right and sent
+            // again. Falling back to the net price here is what filed SAP invoice 784863
+            // (VAN005-INV-20261005-A64C0F) with ZIMRA at 7.50 when SAP charged 8.70.
+            _logger.LogError(
+                "Not fiscalising {InvoiceNo}: line {LineNum} ({ItemCode}) carries a net price of {UnitPrice} "
+                + "and no gross price.",
+                invoiceNo,
+                ungrossed.LineNum,
+                ungrossed.ItemCode,
+                ungrossed.UnitPrice);
+
+            return new FiscalizationResult
+            {
+                Success = false,
+                Message = $"Invalid receipt: line {ungrossed.LineNum} ({ungrossed.ItemCode}) has no tax-inclusive "
+                          + "price, so its net price would be declared to ZIMRA as the gross. Nothing was signed.",
+                InvoiceNumber = invoiceNo,
+                ErrorCode = GrossPriceMissingErrorCode
+            };
+        }
+
         var lines = await BuildPreSapLinesAsync(invoice, cancellationToken);
         if (lines.Count == 0)
         {
@@ -497,6 +532,22 @@ public class FiscalizationService : IFiscalizationService
             ReceiptGlobalNo = match?.ReceiptGlobalNo.ToString(),
             FiscalDayNo = match?.FiscalDayNo.ToString()
         };
+    }
+
+    public async Task<FiscalisedReceiptRecordDto?> GetArchivedPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(externalReference) || !_settings.Enabled)
+        {
+            return null;
+        }
+
+        // Device 0 searches every device, as FindPreSapReceiptAsync does: a sale may have failed over.
+        var response = await _client.CheckReceiptAsync(
+            0, BuildPreSapInvoiceNo(externalReference), ReceiptType.FiscalInvoice, cancellationToken);
+
+        return response.IsFiscalised ? response.Matches.FirstOrDefault() : null;
     }
 
     public async Task<bool> IsInvoiceFiscalizedAsync(
@@ -942,6 +993,24 @@ public class FiscalizationService : IFiscalizationService
 
     private static string? Truncate(string? value, int maxLength)
         => value is not null && value.Length > maxLength ? value[..maxLength] : value;
+
+    /// <summary>The refusal <see cref="FiscalizePreSapInvoiceAsync"/> gives a line it would file at its net price.</summary>
+    internal const string GrossPriceMissingErrorCode = "GROSS_PRICE_MISSING";
+
+    /// <summary>
+    /// The first priced line a pre-SAP invoice sends without its tax-inclusive price, if any.
+    /// </summary>
+    /// <remarks>
+    /// A pre-SAP sale's <see cref="InvoiceLineDto.UnitPrice"/> is the net price SAP will be given, and the
+    /// receipt is filed tax-inclusive, so every caller grosses each line up through
+    /// <c>DesktopSaleFiscaliser.BuildInvoice</c>. <see cref="GetPriceAfterVat"/> falls back to the unit price
+    /// when there is no gross — right for a SAP invoice read back with its gross on it, and silently wrong
+    /// here: <c>InvoicePostingJob</c> sent net prices that way for every converted van order until
+    /// 2026-10-05, and each of those receipts understated the sale and its VAT. A line priced at zero is free
+    /// on both sides and passes.
+    /// </remarks>
+    internal static InvoiceLineDto? FindLineWithoutGrossPrice(InvoiceDto invoice)
+        => invoice.Lines?.FirstOrDefault(line => line.UnitPrice != 0m && line.GrossPrice == 0m);
 
     private static decimal GetPriceAfterVat(InvoiceLineDto line)
     {

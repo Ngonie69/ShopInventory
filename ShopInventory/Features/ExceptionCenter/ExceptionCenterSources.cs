@@ -88,6 +88,16 @@ public static class ExceptionCenterSources
     /// </remarks>
     public const string VanSaleReceiptStorage = "van-sale-receipt-storage";
 
+    /// <summary>
+    /// Signed sales whose SAP invoice charged a different amount from the receipt ZIMRA holds. Int keyed, on
+    /// the incident row.
+    /// </summary>
+    /// <remarks>
+    /// Raised by <c>FiscalReceiptAmountCheck</c> as each signed van sale reaches SAP. Retry is off: neither
+    /// document can be withdrawn, and the correction is a debit or credit note a person decides on.
+    /// </remarks>
+    public const string FiscalReceiptAmountMismatch = "fiscal-receipt-amount-mismatch";
+
     public static string Normalize(string? source)
         => (source ?? string.Empty).Trim().ToLowerInvariant();
 
@@ -114,6 +124,7 @@ public static class ExceptionCenterSources
             FiscalDayLifecycle => "fiscal day that has not reached ZIMRA",
             FiscalReceiptIngest => "signed receipt the platform has not taken",
             VanSaleReceiptStorage => "signed receipt this server failed to store",
+            FiscalReceiptAmountMismatch => "receipt that does not match its SAP invoice",
             _ => "unrecognised source"
         };
 
@@ -132,7 +143,8 @@ public static class ExceptionCenterSources
                 or VanSalePosting
                 or FiscalDayLifecycle
                 or FiscalReceiptIngest
-                or VanSaleReceiptStorage => true,
+                or VanSaleReceiptStorage
+                or FiscalReceiptAmountMismatch => true,
             _ => false
         };
 

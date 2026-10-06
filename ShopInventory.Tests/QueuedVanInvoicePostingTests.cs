@@ -18,6 +18,8 @@ using ShopInventory.Features.Notifications;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
+using ShopInventory.Features.ExceptionCenter;
 
 namespace ShopInventory.Tests;
 
@@ -719,9 +721,94 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
         ]
     };
 
+    /// <summary>
+    /// The receipt says 60.00 for two units SAP charges 34.65 each - the shape of 784863, where a net price
+    /// was filed as the gross. Posting it raises one incident naming the debit note, and a later run that
+    /// adopts the same invoice does not raise a second.
+    /// </summary>
+    [Fact]
+    public async Task A_posted_sale_whose_receipt_is_below_its_invoice_raises_one_incident()
+    {
+        await SeedQueuedSaleAsync();
+        _post = _ => Task.FromResult(PostedAt(gross: 34.65m, docTotal: 69.30m));
+
+        await RunAsync(amountCheck: AmountCheck(receiptTotal: 60.00m));
+
+        var incident = Assert.Single(_context.ExceptionCenterIncidents.AsNoTracking().ToList());
+        Assert.Equal(ExceptionCenterSources.FiscalReceiptAmountMismatch, incident.Source);
+        Assert.Equal(VanOrder, incident.Reference);
+        Assert.False(incident.CanRetry);
+        Assert.Contains("debit note for USD 9.30", incident.LastError);
+
+        var entry = await QueueEntryAsync();
+        entry.Status = InvoiceQueueStatus.Fiscalized;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await RunAsync(amountCheck: AmountCheck(receiptTotal: 60.00m));
+
+        Assert.Single(_context.ExceptionCenterIncidents.AsNoTracking().ToList());
+    }
+
+    [Fact]
+    public async Task A_posted_sale_whose_receipt_matches_its_invoice_raises_nothing()
+    {
+        await SeedQueuedSaleAsync();
+        _post = _ => Task.FromResult(PostedAt(gross: 34.65m, docTotal: 69.30m));
+
+        var result = await RunAsync(amountCheck: AmountCheck(receiptTotal: 69.30m));
+
+        Assert.Equal(1, result.Posted);
+        Assert.Empty(_context.ExceptionCenterIncidents.AsNoTracking().ToList());
+    }
+
+    /// <summary>The check reads the platform after SAP has the invoice; a platform that is down costs nothing.</summary>
+    [Fact]
+    public async Task A_posted_sale_stays_posted_when_its_receipt_cannot_be_read()
+    {
+        await SeedQueuedSaleAsync();
+        _post = _ => Task.FromResult(PostedAt(gross: 34.65m, docTotal: 69.30m));
+
+        var result = await RunAsync(amountCheck: new FiscalReceiptAmountCheck(
+            _context,
+            StubProxy.For<IFiscalizationService>((_, _) => throw new HttpRequestException("platform down")),
+            NullLogger<FiscalReceiptAmountCheck>.Instance));
+
+        Assert.Equal(1, result.Posted);
+        Assert.Equal(InvoiceQueueStatus.Completed, (await QueueEntryAsync()).Status);
+        Assert.Empty(_context.ExceptionCenterIncidents.AsNoTracking().ToList());
+    }
+
+    private static Invoice PostedAt(decimal gross, decimal docTotal) => new()
+    {
+        DocEntry = DocEntry,
+        DocNum = DocNum,
+        CardCode = CardCode,
+        DocCurrency = "USD",
+        DocTotal = docTotal,
+        DocumentLines =
+        [
+            new InvoiceLine { LineNum = 0, ItemCode = "CHE011", Quantity = 2m, LineTotal = 60m, PriceAfterVAT = gross }
+        ]
+    };
+
+    private FiscalReceiptAmountCheck AmountCheck(decimal receiptTotal) => new(
+        _context,
+        StubProxy.For<IFiscalizationService>((method, _) => method.Name == nameof(IFiscalizationService.GetArchivedPreSapReceiptAsync)
+            ? Task.FromResult<FiscalisedReceiptRecordDto?>(new FiscalisedReceiptRecordDto
+            {
+                DeviceId = 46668,
+                ReceiptGlobalNo = 9001,
+                FiscalDayNo = 12,
+                ReceiptTotal = receiptTotal
+            })
+            : throw new InvalidOperationException($"Unexpected fiscal call: {method.Name}")),
+        NullLogger<FiscalReceiptAmountCheck>.Instance);
+
     private async Task<PostQueuedVanInvoicesResult> RunAsync(
         SapCircuitBreakerState? breaker = null,
-        DesktopCreditSapPoster? creditPoster = null)
+        DesktopCreditSapPoster? creditPoster = null,
+        FiscalReceiptAmountCheck? amountCheck = null)
     {
         var handler = new PostQueuedVanInvoicesHandler(
             _context,
@@ -729,7 +816,8 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
             Sap(),
             breaker ?? new SapCircuitBreakerState(Options.Create(new SAPSettings())),
             creditPoster ?? DesktopCreditPosters.Idle(_context),
-            NullLogger<PostQueuedVanInvoicesHandler>.Instance);
+            NullLogger<PostQueuedVanInvoicesHandler>.Instance,
+            amountCheck);
 
         var result = await handler.Handle(new PostQueuedVanInvoicesCommand(5), CancellationToken.None);
 

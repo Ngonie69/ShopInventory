@@ -641,6 +641,7 @@ public partial class ExceptionCenter : IDisposable
             "pending-inventory-transfer-post" => "Approved transfers awaiting SAP",
             "pending-transfer-request-edit-apply" => "Approved request changes awaiting SAP",
             "van-sale-posting" => "Van sales awaiting SAP",
+            "fiscal-receipt-amount-mismatch" => "Receipts that do not match their SAP invoice",
             _ => source
         };
 

@@ -751,6 +751,8 @@ try
     builder.Services.AddScoped<ShopInventory.Features.FiscalPrintForms.IFiscalPrintFormResolver,
         ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver>();
     builder.Services.AddScoped<VanSaleFiscalFirstPoster>();
+    // Compares each signed van sale's SAP invoice with the receipt ZIMRA holds, as the invoice posts.
+    builder.Services.AddScoped<ShopInventory.Services.Fiscalisation.FiscalReceiptAmountCheck>();
     builder.Services.AddScoped<DesktopSaleFiscalisationSweep>();
 
     // Hands the fiscalisation platform the receipts vans signed for themselves offline, which is the only
