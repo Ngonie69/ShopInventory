@@ -9,7 +9,9 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers;
+using ShopInventory.Features.InventoryTransfers.Commands.EditPendingTransferLines;
 using ShopInventory.Features.InventoryTransfers.Commands.PostPendingTransferLinesInStock;
+using ShopInventory.Features.InventoryTransfers.Commands.RetryPendingTransferPost;
 using ShopInventory.Features.InventoryTransfers.Commands.RecordPendingTransferSapDocument;
 using ShopInventory.Features.InventoryTransfers.Commands.WithdrawPendingTransfer;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingTransferStockCheck;
@@ -217,6 +219,195 @@ public sealed class PendingTransferRecoveryTests : IDisposable
         Assert.Equal(IdempotencyAcquireOutcome.Acquired, after.Outcome);
     }
 
+    // ── Editing the lines before posting ───────────────────────────────────────
+
+    [Fact]
+    public async Task Lowering_a_short_line_to_what_the_depot_has_lets_the_whole_transfer_post()
+    {
+        // DT-2026-00329: YOG144 asked 720 against 715 on hand, and SAP refused all five lines.
+        var pending = await GivenFailedTransferAsync(("LAC005", 10), ("YOG144", 720), ("RMA001", 4275));
+        var stock = new DepotStock { ["YOG144"] = 715 };
+        var sap = new RecordingSap();
+
+        var edited = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 1, Quantity = 715 }], "5 short at the depot"),
+            default);
+
+        Assert.False(edited.IsError);
+        Assert.Contains("YOG144 720 → 715", edited.Value.Message);
+
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.Approved, stored.Status);
+        Assert.Null(stored.LastError);
+        Assert.Equal(3, stored.LineCount);
+        Assert.Equal(10 + 715 + 4275, stored.TotalQuantity);
+        Assert.Equal(pending.DecidedAtUtc, stored.DecidedAtUtc);
+
+        var posted = await Retry(stock, sap).Handle(new RetryPendingTransferPostCommand(pending.Id, Controller), default);
+
+        Assert.False(posted.IsError);
+        var sent = Assert.Single(sap.Created);
+        Assert.Equal([10m, 715m, 4275m], sent.Lines!.Select(line => line.Quantity));
+        Assert.Equal(PendingInventoryTransferStatuses.Posted, (await ReadAsync(pending.Id)).Status);
+    }
+
+    [Fact]
+    public async Task A_quantity_above_the_approved_one_is_refused_and_nothing_changes()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
+
+        var result = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller,
+                [new() { LineNum = 0, Quantity = 700 }, new() { LineNum = 1, Quantity = 5000 }], null),
+            default);
+
+        Assert.True(result.IsError);
+        Assert.Contains("more than the 4275 approved", result.FirstError.Description);
+
+        // All or nothing: the valid half of the edit is not kept either.
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.PostFailed, stored.Status);
+        Assert.Equal([720m, 4275m], PendingInventoryTransferMapper.DeserializePayload(stored).Lines!.Select(line => line.Quantity));
+    }
+
+    [Fact]
+    public async Task A_zero_takes_the_line_out_but_not_every_line()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
+
+        var all = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller,
+                [new() { LineNum = 0, Quantity = 0 }, new() { LineNum = 1, Quantity = 0 }], null),
+            default);
+        Assert.True(all.IsError);
+        Assert.Contains("Withdraw the transfer instead", all.FirstError.Description);
+
+        var one = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 0 }], null),
+            default);
+        Assert.False(one.IsError);
+
+        var stored = await ReadAsync(pending.Id);
+        var payload = PendingInventoryTransferMapper.DeserializePayload(stored);
+        Assert.Equal("RMA001", Assert.Single(payload.Lines!).ItemCode);
+        Assert.Equal("Van restock", payload.Comments);
+        Assert.Equal(1, stored.LineCount);
+    }
+
+    [Fact]
+    public async Task A_fractional_quantity_is_refused_for_a_unit_counted_whole()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720));
+
+        var result = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 714.5m }], null),
+            default);
+
+        Assert.True(result.IsError);
+        Assert.Contains("Fractional quantities are only allowed for KG items", result.FirstError.Description);
+    }
+
+    [Theory]
+    [InlineData(PendingInventoryTransferStatuses.AwaitingApproval)]
+    [InlineData(PendingInventoryTransferStatuses.Posted)]
+    [InlineData(PendingInventoryTransferStatuses.Cancelled)]
+    [InlineData(PendingInventoryTransferStatuses.Rejected)]
+    public async Task Only_an_approved_unposted_transfer_can_be_edited(string status)
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720));
+        await SetStatusAsync(pending.Id, status);
+
+        var result = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 715 }], null),
+            default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.LineEditNotAllowed", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_transfer_that_is_posting_right_now_cannot_be_edited()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720));
+        var store = BuildStore();
+        var held = await store.TryAcquireAsync<InventoryTransferDto>(
+            PendingInventoryTransferPoster.IdempotencyScope, pending.Id.ToString(),
+            new { PendingTransferId = pending.Id }, default);
+        Assert.Equal(IdempotencyAcquireOutcome.Acquired, held.Outcome);
+
+        var result = await EditLines(store).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 715 }], null),
+            default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.PostInProgress", result.FirstError.Code);
+        Assert.Equal(720, (await ReadAsync(pending.Id)).TotalQuantity);
+    }
+
+    [Fact]
+    public async Task A_timed_out_post_must_be_checked_in_SAP_before_its_lines_change()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720));
+        await SetLastErrorAsync(pending.Id,
+            "The SAP post timed out before SAP answered, so it is not known whether the transfer was created. "
+            + "Check SAP for this transfer before retrying — retrying will post it again.");
+
+        var result = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 715 }], null),
+            default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.PostOutcomeUnknown", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task An_edit_releases_the_claim_so_the_post_can_run()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720));
+        var store = BuildStore();
+
+        await EditLines(store).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 715 }], null),
+            default);
+
+        var after = await store.TryAcquireAsync<InventoryTransferDto>(
+            PendingInventoryTransferPoster.IdempotencyScope, pending.Id.ToString(),
+            new { PendingTransferId = pending.Id }, default);
+        Assert.Equal(IdempotencyAcquireOutcome.Acquired, after.Outcome);
+    }
+
+    [Fact]
+    public void A_lowered_line_keeps_its_first_chosen_batches_until_they_cover_it()
+    {
+        var payload = new CreateInventoryTransferRequest
+        {
+            Lines =
+            [
+                new CreateInventoryTransferLineRequest
+                {
+                    ItemCode = "YOG144",
+                    Quantity = 720,
+                    UoMCode = "EA",
+                    BatchNumbers =
+                    [
+                        new TransferBatchRequest { BatchNumber = "B-0901", Quantity = 400 },
+                        new TransferBatchRequest { BatchNumber = "B-0915", Quantity = 300 },
+                        new TransferBatchRequest { BatchNumber = "B-0930", Quantity = 20 }
+                    ]
+                }
+            ]
+        };
+
+        var result = EditPendingTransferLinesHandler.ApplyEdits(payload, [new() { LineNum = 0, Quantity = 500 }]);
+
+        Assert.False(result.IsError);
+        var line = Assert.Single(result.Value.Lines);
+        Assert.Collection(line.BatchNumbers!,
+            batch => { Assert.Equal("B-0901", batch.BatchNumber); Assert.Equal(400, batch.Quantity); },
+            batch => { Assert.Equal("B-0915", batch.BatchNumber); Assert.Equal(100, batch.Quantity); });
+        Assert.Equal(720, payload.Lines[0].Quantity);
+    }
+
     // ── Recording a document found in SAP ──────────────────────────────────────
 
     [Fact]
@@ -413,6 +604,18 @@ public sealed class PendingTransferRecoveryTests : IDisposable
             BuildStore(), NullLogger<PendingInventoryTransferPoster>.Instance);
         return new PostPendingTransferLinesInStockHandler(context, Authorizer(), poster, Audit(), SapOn);
     }
+
+    private RetryPendingTransferPostHandler Retry(DepotStock stock, RecordingSap sap)
+    {
+        var context = NewContext();
+        var poster = new PendingInventoryTransferPoster(
+            context, sap.AsClient(), stock.AsService(), Approvals(), new NoOpNotificationService(), Audit(),
+            BuildStore(), NullLogger<PendingInventoryTransferPoster>.Instance);
+        return new RetryPendingTransferPostHandler(context, Authorizer(), poster, SapOn);
+    }
+
+    private EditPendingTransferLinesHandler EditLines(IIdempotencyRequestStore store)
+        => new(NewContext(), Authorizer(), store, Audit(), NullLogger<EditPendingTransferLinesHandler>.Instance);
 
     private WithdrawPendingTransferHandler Withdraw(IIdempotencyRequestStore store)
         => new(NewContext(), Authorizer(), store, Audit(), NullLogger<WithdrawPendingTransferHandler>.Instance);

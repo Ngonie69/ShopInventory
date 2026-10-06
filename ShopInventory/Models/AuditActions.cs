@@ -150,6 +150,7 @@ public static class AuditActions
     public const string CancelPendingTransfer = "CancelPendingTransfer";
     public const string PostPendingTransferLinesInStock = "PostPendingTransferLinesInStock";
     public const string WithdrawPendingTransfer = "WithdrawPendingTransfer";
+    public const string EditPendingTransferLines = "EditPendingTransferLines";
     public const string RecordPendingTransferSapDocument = "RecordPendingTransferSapDocument";
 
     // User Management actions

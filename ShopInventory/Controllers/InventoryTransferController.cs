@@ -12,6 +12,7 @@ using ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer
 using ShopInventory.Features.InventoryTransfers.Commands.CreateTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Commands.DecidePendingRequestEdit;
 using ShopInventory.Features.InventoryTransfers.Commands.DecidePendingTransfer;
+using ShopInventory.Features.InventoryTransfers.Commands.EditPendingTransferLines;
 using ShopInventory.Features.InventoryTransfers.Commands.EditTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
 using ShopInventory.Features.InventoryTransfers.Commands.RetryPendingTransferPost;
@@ -195,6 +196,29 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(new PostPendingTransferLinesInStockCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Lowers or takes out lines of an approved transfer that has not reached SAP, so it can post —
+    /// a depot a few units short, say. Quantities may only go down; the approval still stands.
+    /// </summary>
+    [HttpPut("pending/{id:guid}/lines")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> EditPendingInventoryTransferLines(
+        Guid id,
+        [FromBody] EditPendingTransferLinesDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new EditPendingTransferLinesCommand(id, userId.Value, request.Lines, request.Reason), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

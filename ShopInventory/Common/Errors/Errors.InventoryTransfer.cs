@@ -121,6 +121,11 @@ public static partial class Errors
                 "InventoryTransfer.WithdrawalNotAllowed",
                 $"Only an approved transfer that failed to post can be withdrawn here; this one is {status}.");
 
+        public static Error LineEditNotAllowed(string status) =>
+            Error.Conflict(
+                "InventoryTransfer.LineEditNotAllowed",
+                $"Only an approved transfer that has not reached SAP can have its lines changed; this one is {status}.");
+
         public static Error SapTransferNotFound(int docNum, string toWarehouse) =>
             Error.NotFound(
                 "InventoryTransfer.SapTransferNotFound",

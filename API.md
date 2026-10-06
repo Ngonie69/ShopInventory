@@ -1697,6 +1697,7 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Cancel a held transfer |
 | GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Measure a held transfer's lines against the depot's stock now |
 | POST | `/api/InventoryTransfer/pending/{id}/post-in-stock` | Post only the lines in stock, leaving the short ones out |
+| PUT | `/api/InventoryTransfer/pending/{id}/lines` | Lower or take out lines of an approved transfer so it can post |
 | POST | `/api/InventoryTransfer/pending/{id}/withdraw` | Withdraw an approved transfer that failed to post |
 | POST | `/api/InventoryTransfer/pending/{id}/record-sap-document` | Record a transfer found in SAP after a timed-out post |
 | POST | `/api/InventoryTransfer/request` | Raise a transfer request — ask a warehouse for stock |
@@ -1836,6 +1837,7 @@ repeat returns the existing held transfer rather than opening a second approval.
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, before any decision |
 | GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Each line against the source warehouse now: `InStock`, `Short` (with the available figure) or `Unread` |
 | POST | `/api/InventoryTransfer/pending/{id}/post-in-stock` | Post the lines the depot can fill from an `Approved`/`PostFailed` transfer; short lines are left out and kept in `DroppedLinesJson`. Refused after a timed-out post until SAP is checked |
+| PUT | `/api/InventoryTransfer/pending/{id}/lines` | `{ "lines": [{ "lineNum", "quantity" }], "reason"? }`. Change an `Approved`/`PostFailed` transfer before it posts: quantities only go down, `0` takes a line out, at least one line stays, no item is added. Clears the failure and leaves it `Approved` for **post**. Refused after a timed-out post until SAP is checked, and while a post is running |
 | POST | `/api/InventoryTransfer/pending/{id}/withdraw` | `{ "reason" }`. Close a `PostFailed` transfer instead of retrying it; the approval time is kept |
 | POST | `/api/InventoryTransfer/pending/{id}/record-sap-document` | `{ "sapDocNum" }`. Close a transfer against the document SAP created when its post timed out; the number is checked against SAP first |
 

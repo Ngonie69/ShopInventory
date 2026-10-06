@@ -1336,10 +1336,23 @@
     font-size: .75rem;
 }
 
-.itx .itx-lines .itx-qty-input {
+.itx .itx-lines .itx-qty-input,
+.itx-drawer .itx-lines .itx-qty-input {
     max-width: 7rem;
     margin-left: auto;
     text-align: right;
+}
+
+/* A line asking for more than the source warehouse holds, while its quantity is
+   being edited: the figure in stock and the one-click way to take it. */
+.itx-lines .itx-short {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .35rem .5rem;
+    margin-top: .35rem;
+    font-size: .75rem;
+    color: var(--itx-err);
 }
 
 /* ── Busy overlay ───────────────────────────────────────────────────────── */

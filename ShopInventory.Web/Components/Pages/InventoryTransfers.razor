@@ -976,6 +976,14 @@ else if (pendingActionTitle is not null)
                 }
             </div>
 
+            @if (!string.IsNullOrWhiteSpace(pendingEditSavedMessage))
+            {
+                <div class="itx-alert ok">
+                    <i class="bi bi-check-circle-fill"></i>
+                    <div class="itx-alert-body">@pendingEditSavedMessage</div>
+                </div>
+            }
+
             @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.LastError))
             {
                 <div class="itx-alert err">
@@ -1023,6 +1031,112 @@ else if (pendingActionTitle is not null)
             else if (selectedPendingTransfer.Lines.Count == 0)
             {
                 <p class="itx-note">No line items could be read for this draft.</p>
+            }
+            else if (pendingEditLines is not null)
+            {
+                <p class="itx-note">
+                    Lower a quantity or take a line out so the transfer fits what @selectedPendingTransfer.FromWarehouse holds.
+                    Quantities can only go down: the approval covers what was asked for, not more.
+                </p>
+                @if (isCheckingPendingEditStock)
+                {
+                    <div class="itx-loading">
+                        <span class="itx-spin itx-spin-sm"></span>
+                        <span>Checking stock in @selectedPendingTransfer.FromWarehouse…</span>
+                    </div>
+                }
+                <div class="itx-lines-wrap">
+                    <table class="itx-lines">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th class="num">Approved</th>
+                                <th class="num">Quantity</th>
+                                <th style="width:48px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in pendingEditLines)
+                            {
+                                <tr class="@(line.Removed ? "is-removed" : null)">
+                                    <td>
+                                        <div class="strong">@line.ItemCode</div>
+                                        @if (!string.IsNullOrWhiteSpace(line.ItemName))
+                                        {
+                                            <div class="muted">@line.ItemName</div>
+                                        }
+                                        @if (!line.Removed && line.Available is { } available && line.Quantity > available)
+                                        {
+                                            <div class="itx-short">
+                                                <span>Only @QuantityDisplay.Format(available, line.UoMCode) in stock</span>
+                                                @if (UsableQuantity(line) > 0)
+                                                {
+                                                    <button type="button" class="itx-btn itx-btn-sm" disabled="@isSavingPendingEdit"
+                                                            @onclick="() => UseAvailableQuantity(line)">
+                                                        Use @QuantityDisplay.Format(UsableQuantity(line), line.UoMCode)
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                    <td class="num muted">@QuantityDisplay.Format(line.OriginalQuantity, line.UoMCode)</td>
+                                    <td class="num">
+                                        @if (line.Removed)
+                                        {
+                                            <span class="itx-status rejected">Taken out</span>
+                                        }
+                                        else
+                                        {
+                                            <input type="number" step="any" min="0" max="@line.OriginalQuantity"
+                                                   class="itx-input itx-input-num itx-qty-input"
+                                                   aria-label="@($"Quantity of {line.ItemCode}")"
+                                                   disabled="@isSavingPendingEdit"
+                                                   value="@line.Quantity"
+                                                   @oninput="e => SetPendingEditQuantity(line, e.Value?.ToString())" />
+                                        }
+                                    </td>
+                                    <td class="mid">
+                                        <button type="button" class="itx-btn itx-btn-sm itx-btn-icon @(line.Removed ? null : "itx-btn-danger")"
+                                                title="@(line.Removed ? "Keep this line" : "Take this line out")"
+                                                aria-label="@(line.Removed ? "Keep this line" : "Take this line out")"
+                                                disabled="@isSavingPendingEdit"
+                                                @onclick="() => TogglePendingEditLineRemoval(line)">
+                                            @if (line.Removed)
+                                            {
+                                                @UndoGlyph
+                                            }
+                                            else
+                                            {
+                                                @TrashGlyph
+                                            }
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="2" class="num">Total</td>
+                                <td class="num">@QuantityDisplay.Format(pendingEditLines.Where(l => !l.Removed).Sum(l => l.Quantity))</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <label class="itx-label" for="itx-pending-edit-reason">Reason (optional)</label>
+                <textarea id="itx-pending-edit-reason" class="itx-input" rows="2" maxlength="500"
+                          placeholder="e.g. 5 short at the depot"
+                          disabled="@isSavingPendingEdit"
+                          @bind="pendingEditReason"></textarea>
+
+                @if (!string.IsNullOrWhiteSpace(pendingEditError))
+                {
+                    <div class="itx-alert err" style="margin-top:.7rem;">
+                        <i class="bi bi-exclamation-octagon-fill"></i>
+                        <div class="itx-alert-body">@pendingEditError</div>
+                    </div>
+                }
             }
             else
             {
@@ -1080,11 +1194,40 @@ else if (pendingActionTitle is not null)
             }
         </div>
         <div class="itx-drawer-foot">
+        @if (pendingEditLines is not null)
+        {
+            <p class="itx-note">Saving changes the draft only; post it to SAP afterwards.</p>
+            <button type="button" class="itx-btn" disabled="@isSavingPendingEdit" @onclick="CancelPendingLineEdit">Cancel</button>
+            <button type="button" class="itx-btn itx-btn-primary" disabled="@isSavingPendingEdit"
+                    @onclick="SavePendingLineEditAsync">
+                @if (isSavingPendingEdit)
+                {
+                    <span class="itx-spin itx-spin-sm itx-spin-inline"></span>
+                    <span>Saving…</span>
+                }
+                else
+                {
+                    <i class="bi bi-check-lg"></i>
+                    <span>Save changes</span>
+                }
+            </button>
+        }
+        else
+        {
             <button type="button" class="itx-btn itx-btn-primary"
                     disabled="@(isPrinting || isLoadingPendingDetail)"
                     @onclick="() => PrintPendingTransferDraft(selectedPendingTransfer)">
                 <i class="bi bi-printer"></i> @(IsPostedToSap(selectedPendingTransfer) ? "Print Transfer" : "Print Draft")
             </button>
+            @if (CanEditPendingLines(selectedPendingTransfer))
+            {
+                <button type="button" class="itx-btn" disabled="@isDecidingPending"
+                        title="Lower or take out lines so the transfer can post"
+                        @onclick="BeginPendingLineEdit">
+                    <i class="bi bi-pencil"></i>
+                    <span>Edit lines</span>
+                </button>
+            }
             @if (selectedPendingTransfer.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed)
             {
                 <button type="button" class="itx-btn itx-btn-primary" disabled="@isDecidingPending"
@@ -1103,6 +1246,7 @@ else if (pendingActionTitle is not null)
                 </button>
             }
             <button type="button" class="itx-btn" @onclick="ClosePendingTransfer">Close</button>
+        }
         </div>
     </div>
 }
@@ -1736,6 +1880,17 @@ else if (pendingActionTitle is not null)
     // descriptions from its own item table, which no sync populates, so in practice it returns the
     // code alone and the name has to come from the web app's product cache.
     private readonly Dictionary<string, string> pendingLineItemNames = new(StringComparer.OrdinalIgnoreCase);
+
+    // ── Changing an approved draft's lines before it posts ──
+    // Null while the drawer is only showing the draft. SAP refuses a whole transfer for one short
+    // line, so an approved draft a few units over what the depot holds could otherwise only be
+    // posted without that line or withdrawn.
+    private List<PendingEditLineModel>? pendingEditLines;
+    private string? pendingEditReason;
+    private string? pendingEditError;
+    private string? pendingEditSavedMessage;
+    private bool isSavingPendingEdit;
+    private bool isCheckingPendingEditStock;
 
     // ── Editing a transfer request ──────────────────────
     private static readonly string[] RequestEditorRoles =
@@ -2528,6 +2683,8 @@ else if (pendingActionTitle is not null)
     {
         selectedPendingTransfer = pending;
         pendingDecisionRemarks = null;
+        ResetPendingLineEdit();
+        pendingEditSavedMessage = null;
         await RefreshSelectedPendingTransferAsync();
     }
 
@@ -2611,6 +2768,164 @@ else if (pendingActionTitle is not null)
     {
         selectedPendingTransfer = null;
         pendingDecisionRemarks = null;
+        ResetPendingLineEdit();
+        pendingEditSavedMessage = null;
+    }
+
+    /// <summary>
+    /// Approved and not in SAP: the only drafts whose lines can still change without a new approval,
+    /// and then only downwards. The API holds the same line, and also refuses a draft whose last post
+    /// timed out, since that one may already be in SAP.
+    /// </summary>
+    private bool CanEditPendingLines(PendingInventoryTransferDto pending) =>
+        pending.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed
+        && pending.Lines.Count > 0
+        && !isLoadingPendingDetail;
+
+    private async Task BeginPendingLineEdit()
+    {
+        var pending = selectedPendingTransfer;
+        if (pending is null || !CanEditPendingLines(pending)) return;
+
+        pendingEditLines = pending.Lines
+            .Select(line => new PendingEditLineModel
+            {
+                LineNum = line.LineNum,
+                ItemCode = line.ItemCode,
+                ItemName = LineItemName(line),
+                UoMCode = line.UoMCode,
+                OriginalQuantity = line.Quantity,
+                Quantity = line.Quantity
+            })
+            .ToList();
+        pendingEditReason = null;
+        pendingEditError = null;
+        pendingEditSavedMessage = null;
+
+        // What the depot holds now, so the short line can be set to it rather than guessed at.
+        // Editing does not wait on it: the post re-checks stock either way.
+        isCheckingPendingEditStock = true;
+        StateHasChanged();
+        try
+        {
+            var check = await TransferService.CheckPendingTransferStockAsync(pending.Id);
+            if (check is null || pendingEditLines is null || selectedPendingTransfer?.Id != pending.Id) return;
+
+            foreach (var shortLine in check.Lines.Where(line => line.IsShort && line.AvailableQuantity.HasValue))
+            {
+                var model = pendingEditLines.FirstOrDefault(line => line.LineNum == shortLine.LineNumber - 1);
+                if (model is not null)
+                    model.Available = shortLine.AvailableQuantity;
+            }
+        }
+        finally
+        {
+            isCheckingPendingEditStock = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelPendingLineEdit() => ResetPendingLineEdit();
+
+    private void ResetPendingLineEdit()
+    {
+        pendingEditLines = null;
+        pendingEditReason = null;
+        pendingEditError = null;
+        isCheckingPendingEditStock = false;
+    }
+
+    private static void SetPendingEditQuantity(PendingEditLineModel line, string? value)
+    {
+        line.Quantity = decimal.TryParse(value, out var quantity) ? quantity : 0m;
+    }
+
+    private static void TogglePendingEditLineRemoval(PendingEditLineModel line)
+    {
+        line.Removed = !line.Removed;
+        if (!line.Removed && line.Quantity <= 0)
+            line.Quantity = line.OriginalQuantity;
+    }
+
+    /// <summary>
+    /// The most of what is in stock the line can take: whole units unless the line is weighed, and
+    /// never more than was approved.
+    /// </summary>
+    private static decimal UsableQuantity(PendingEditLineModel line)
+    {
+        if (line.Available is not { } available) return line.Quantity;
+
+        var usable = string.Equals(line.UoMCode?.Trim(), "KG", StringComparison.OrdinalIgnoreCase)
+            ? available
+            : decimal.Floor(available);
+        return Math.Clamp(usable, 0m, line.OriginalQuantity);
+    }
+
+    private static void UseAvailableQuantity(PendingEditLineModel line) => line.Quantity = UsableQuantity(line);
+
+    private async Task SavePendingLineEditAsync()
+    {
+        var pending = selectedPendingTransfer;
+        if (pending is null || pendingEditLines is null || isSavingPendingEdit) return;
+
+        pendingEditError = null;
+        if (pendingEditLines.All(line => line.Removed))
+        {
+            pendingEditError = "That takes out every line. Withdraw the transfer instead.";
+            return;
+        }
+
+        var invalid = pendingEditLines.FirstOrDefault(line =>
+            !line.Removed && (line.Quantity <= 0 || line.Quantity > line.OriginalQuantity));
+        if (invalid is not null)
+        {
+            pendingEditError = invalid.Quantity <= 0
+                ? $"{invalid.ItemCode} needs a quantity above zero. Take the line out instead."
+                : $"{invalid.ItemCode} can go no higher than the {QuantityDisplay.Format(invalid.OriginalQuantity, invalid.UoMCode)} approved.";
+            return;
+        }
+
+        var changed = pendingEditLines
+            .Where(line => line.Removed || line.Quantity != line.OriginalQuantity)
+            .Select(line => new EditPendingTransferLineRequest
+            {
+                LineNum = line.LineNum,
+                Quantity = line.Removed ? 0m : line.Quantity
+            })
+            .ToList();
+        if (changed.Count == 0)
+        {
+            pendingEditError = "Nothing has changed.";
+            return;
+        }
+
+        isSavingPendingEdit = true;
+        StateHasChanged();
+        try
+        {
+            var (success, message) = await TransferService.EditPendingTransferLinesAsync(
+                pending.Id,
+                new EditPendingTransferLinesRequest
+                {
+                    Lines = changed,
+                    Reason = string.IsNullOrWhiteSpace(pendingEditReason) ? null : pendingEditReason.Trim()
+                });
+
+            if (!success)
+            {
+                pendingEditError = message;
+                return;
+            }
+
+            ResetPendingLineEdit();
+            pendingEditSavedMessage = message;
+            await ReloadAfterPendingActionAsync();
+        }
+        finally
+        {
+            isSavingPendingEdit = false;
+            StateHasChanged();
+        }
     }
 
     private static string DraftReference(PendingInventoryTransferDto pending) =>
@@ -3620,6 +3935,20 @@ else if (pendingActionTitle is not null)
             isDecidingRequestEdit = false;
             StateHasChanged();
         }
+    }
+
+    private sealed class PendingEditLineModel
+    {
+        public int LineNum { get; set; }
+        public string? ItemCode { get; set; }
+        public string? ItemName { get; set; }
+        public string? UoMCode { get; set; }
+        public decimal OriginalQuantity { get; set; }
+        public decimal Quantity { get; set; }
+        public bool Removed { get; set; }
+
+        /// <summary>What the source warehouse holds, known only for a line the stock check found short.</summary>
+        public decimal? Available { get; set; }
     }
 
     private sealed class RequestEditLineModel
