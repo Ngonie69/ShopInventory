@@ -54,6 +54,34 @@ public static partial class Errors
         public static Error ValidationFailed(string message) =>
             Error.Failure("DesktopIntegration.ValidationFailed", message);
 
+        // A sales order converted on a van is signed before it is answered. These are the device's answers
+        // that are not a refusal of the order, and the handset reads each one by its wording
+        // (KefalosVanSales ConversionOutcome.NotSigned) — keep the phrases if the sentences change.
+
+        /// <summary>
+        /// The device could not say whether it signed. The receipt may exist, so this must never read as
+        /// "try again under a new reference": the conversion is queued for a person, and the order with it.
+        /// </summary>
+        public static Error ConversionFiscalOutcomeUnknown =>
+            Error.Conflict(
+                "DesktopIntegration.ConversionFiscalOutcomeUnknown",
+                "The fiscal device did not confirm whether this invoice's receipt was issued. Do not convert " +
+                "this order again — the office will check the device and confirm the invoice.");
+
+        /// <summary>The device could not be asked. Nothing was signed; the stock stays held for a resend.</summary>
+        public static Error ConversionFiscalDeviceUnavailable =>
+            Error.Failure(
+                "DesktopIntegration.ConversionFiscalDeviceUnavailable",
+                "The fiscal device could not be reached, so this invoice was not raised and nothing was " +
+                "charged. Convert the order again in a moment.");
+
+        /// <summary>The device refused. Nothing was signed; the stock stays held for a resend.</summary>
+        public static Error ConversionFiscalisationFailed(string? reason) =>
+            Error.Failure(
+                "DesktopIntegration.ConversionFiscalisationFailed",
+                "The invoice could not be fiscalised, so it was not raised and nothing was charged: " +
+                (string.IsNullOrWhiteSpace(reason) ? "the fiscal device refused the receipt." : reason));
+
         public static Error FiscalTransactionSyncFailed(string message) =>
             Error.Failure("DesktopIntegration.FiscalTransactionSyncFailed", message);
 

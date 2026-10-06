@@ -406,6 +406,15 @@ public static partial class VanSalesCompatibilityMapper
                 : !string.IsNullOrWhiteSpace(response.ExternalReference)
                     ? $"/api/DesktopIntegration/queue/{Uri.EscapeDataString(response.ExternalReference)}"
                     : null,
+            SaleNumber = response.SaleNumber,
+            WasQueued = response.WasQueued,
+            SapDocEntry = response.SapDocEntry,
+            SapDocNum = response.SapDocNum,
+            VerificationCode = response.VerificationCode,
+            QrCode = response.QrCode,
+            FiscalDay = response.FiscalDay,
+            ReceiptGlobalNo = response.ReceiptGlobalNo,
+            DeviceSerial = response.DeviceSerial,
             Errors = response.Errors
         };
     }

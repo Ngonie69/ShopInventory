@@ -235,7 +235,22 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
             new IdempotencyRequestStore(
                 new SingleDbContextScopeFactory(_options),
                 Options.Create(new SecuritySettings())),
-            NullLogger<ConvertSalesOrderToInvoiceHandler>.Instance);
+            NullLogger<ConvertSalesOrderToInvoiceHandler>.Instance,
+            _context,
+            // These conversions are queued unsigned, as every caller but the van's is, so nothing here may
+            // reach the device. VanSalesConversionSignsFirstTests covers the van's.
+            new VanSaleFiscalFirstPoster(
+                _context,
+                StubProxy.Unused<IStockReservationService>(),
+                new DesktopSaleFiscaliser(
+                    StubProxy.Unused<IFiscalizationService>(),
+                    StubProxy.Unused<INotificationService>(),
+                    Options.Create(new TaxSettings()),
+                    NoFiscalPrintFormChoices.Instance,
+                    NullLogger<DesktopSaleFiscaliser>.Instance),
+                DesktopCreditPosters.Idle(_context),
+                Options.Create(new TaxSettings()),
+                NullLogger<VanSaleFiscalFirstPoster>.Instance));
     }
 
     private static ConvertSalesOrderToInvoiceCommand Command(

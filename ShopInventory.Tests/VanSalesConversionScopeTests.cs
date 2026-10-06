@@ -131,8 +131,12 @@ public sealed class VanSalesConversionScopeTests : IDisposable
 
         Assert.False(result.IsError, result.IsError ? string.Join("; ", result.Errors) : string.Empty);
 
-        var sent = Assert.Single(_mediator.Sent);
-        Assert.Equal(7004, Assert.IsType<ConvertSalesOrderToInvoiceCommand>(sent).Request.SalesOrderId);
+        var sent = Assert.IsType<ConvertSalesOrderToInvoiceCommand>(Assert.Single(_mediator.Sent));
+        Assert.Equal(7004, sent.Request.SalesOrderId);
+
+        // Signed before the van is answered, as a direct van sale is. Left to the queue, the handset was
+        // answered with no receipt and no converted invoice ever printed one.
+        Assert.True(sent.SignBeforeAnswering);
     }
 
     [Fact]

@@ -111,7 +111,12 @@ public sealed class ConvertVanSalesSalesOrderToInvoiceHandler(
             costCentreCode);
 
         var result = await mediator.Send(
-            new ConvertSalesOrderToInvoiceCommand(convertRequest, command.UserId.ToString()),
+            new ConvertSalesOrderToInvoiceCommand(
+                convertRequest,
+                command.UserId.ToString(),
+                // Signed in the request, as a direct van sale is: the rep is at the counter and the slip
+                // prints off the receipt this answers with. Queued unsigned, it had none to print.
+                SignBeforeAnswering: true),
             cancellationToken);
 
         if (result.IsError)

@@ -1,7 +1,10 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Sales;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -20,13 +23,23 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.ConvertSalesOrderTo
 /// for as long as the claim lives. The invoice queue entry, which carries the reference and the
 /// order it came from, answers a retry that arrives after the claim has expired — by then the
 /// order is Fulfilled and the status check alone would refuse it.</para>
+///
+/// <para><b>A van conversion is signed before it is answered</b>
+/// (<see cref="ConvertSalesOrderToInvoiceCommand.SignBeforeAnswering"/>), exactly as a direct van sale is:
+/// reserve, fiscalise through <see cref="VanSaleFiscalFirstPoster"/>, and hand the invoice to the queue
+/// already <see cref="InvoiceQueueStatus.Fiscalized"/> for <c>PostQueuedVanInvoices</c> to post on the
+/// order's base. The rep is at the counter, and the receipt is what they hand over; queued unsigned, the
+/// invoice was signed minutes later by the queue and the handset had nothing to print. Every other
+/// caller keeps the unsigned queue.</para>
 /// </remarks>
 public sealed class ConvertSalesOrderToInvoiceHandler(
     ISalesOrderService salesOrderService,
     IStockReservationService reservationService,
     IInvoiceQueueService queueService,
     IIdempotencyRequestStore idempotencyRequestStore,
-    ILogger<ConvertSalesOrderToInvoiceHandler> logger
+    ILogger<ConvertSalesOrderToInvoiceHandler> logger,
+    ApplicationDbContext db,
+    VanSaleFiscalFirstPoster poster
 ) : IRequestHandler<ConvertSalesOrderToInvoiceCommand, ErrorOr<ConvertSalesOrderToInvoiceResponseDto>>
 {
     internal const string IdempotencyScope = "sales-order-invoice-conversion";
@@ -94,7 +107,15 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                         "Sales order {OrderNumber} was already converted under {ExternalRef} (QueueId={QueueId}); replaying",
                         order.OrderNumber, suppliedReference, queued.QueueId);
 
-                    var replay = Accepted(order, suppliedReference, queued.ReservationId, queued.QueueId, queued.Status);
+                    // A conversion signed in its request is answered with its receipt again, so a resend
+                    // after a lost reply still prints. Read off the receipt row, never by signing: the
+                    // device is not asked anything here.
+                    var signedReplay = await SignedReplayAsync(order, suppliedReference, queued, cancellationToken);
+                    if (signedReplay is { IsError: true })
+                        return signedReplay.Value.Errors;
+
+                    var replay = signedReplay?.Value
+                        ?? Accepted(order, suppliedReference, queued.ReservationId, queued.QueueId, queued.Status);
                     release = !await CompleteAsync(idempotencyRequestId, replay);
                     return replay;
                 }
@@ -195,6 +216,17 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
 
             var reservationId = reservationResult.Reservation!.ReservationId;
 
+            if (command.SignBeforeAnswering)
+            {
+                var signed = await SignThenQueueAsync(
+                    command, order, reservationRequest, reservationId, externalRef, cancellationToken);
+
+                if (!signed.IsError)
+                    release = !await CompleteAsync(idempotencyRequestId, signed.Value);
+
+                return signed;
+            }
+
             // Queue the invoice for batch posting to SAP
             var queueResult = await queueService.EnqueueInvoiceAsync(
                 reservationRequest,
@@ -291,6 +323,214 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
             logger.LogWarning(ex, "Failed to record the sales order conversion result for replay");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Fiscalises the conversion and hands it to the queue signed — the direct van sale's path, keeping the
+    /// sales order the invoice is based on.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>What the rep is told</b> follows <c>CreateVanSalesDirectInvoiceHandler</c>. Until the device
+    /// signs, the conversion can still be refused, and the reservation is left holding so the same conversion
+    /// sent again finds it. Once it signs it is never refused: the receipt is answered, and the queue posts
+    /// the invoice on the order's base. A device that cannot say whether it signed is queued for a person
+    /// and the rep is told not to convert again.</para>
+    ///
+    /// <para><b>Not posted in the request.</b> The poster's own post has no base order, so an invoice posted
+    /// there would not close the sales order in SAP; the queue's does. Only when the queue would not take
+    /// the entry at all is it posted here unlinked — the direct sale's fallback, and better than an invoice
+    /// nothing will ever post.</para>
+    ///
+    /// <para>Nothing after the device answers takes the request's token. From a signed receipt on, it is the
+    /// record of a sale that happened, and the handset going away must not stop it being written.</para>
+    /// </remarks>
+    private async Task<ErrorOr<ConvertSalesOrderToInvoiceResponseDto>> SignThenQueueAsync(
+        ConvertSalesOrderToInvoiceCommand command,
+        SalesOrderDto order,
+        CreateStockReservationRequest reservationRequest,
+        string reservationId,
+        string externalRef,
+        CancellationToken cancellationToken)
+    {
+        var request = command.Request;
+        var createdBy = command.CreatedBy ?? "anonymous";
+
+        var fiscalFirst = new VanSaleFiscalFirstRequest(
+            reservationId,
+            DocDate: request.DocDate,
+            DocDueDate: request.DocDueDate,
+            NumAtCard: request.NumAtCard,
+            Comments: reservationRequest.Notes,
+            PostToSapNow: false);
+
+        var outcome = await poster.FiscaliseThenPostAsync(fiscalFirst, cancellationToken);
+        var persist = CancellationToken.None;
+
+        switch (outcome.Status)
+        {
+            case VanSaleFiscalFirstStatus.Posted:
+                await MarkFulfilledAsync(order);
+                return Signed(order, externalRef, reservationId, outcome, null);
+
+            case VanSaleFiscalFirstStatus.AwaitingSap:
+            {
+                var queued = await queueService.EnqueueSignedVanSaleAsync(
+                    reservationRequest, reservationId, createdBy, outcome, order.Id, persist);
+
+                if (queued is null && outcome.Deferred)
+                {
+                    logger.LogError(
+                        "Converted sales order {OrderNumber} is fiscalised under {ExternalRef} but the queue would " +
+                        "not take its invoice; posting it now, without the link to the order",
+                        order.OrderNumber, externalRef);
+
+                    outcome = await poster.FiscaliseThenPostAsync(
+                        fiscalFirst with { MayAlreadyBeFiscalised = true, PostToSapNow = true },
+                        persist);
+
+                    if (outcome.Status == VanSaleFiscalFirstStatus.AwaitingSap)
+                    {
+                        queued = await queueService.EnqueueSignedVanSaleAsync(
+                            reservationRequest, reservationId, createdBy, outcome, order.Id, persist);
+                    }
+                }
+
+                await MarkFulfilledAsync(order);
+
+                logger.LogInformation(
+                    "Sales order {OrderNumber} converted and fiscalised: ExternalRef={ExternalRef}, " +
+                    "ReservationId={ReservationId}, QueueId={QueueId}",
+                    order.OrderNumber, externalRef, reservationId, queued?.QueueId);
+
+                return Signed(order, externalRef, reservationId, outcome, queued);
+            }
+
+            case VanSaleFiscalFirstStatus.FiscalUnresolved:
+                // Queued straight to review, holding its stock, and the order with it: the receipt may be in
+                // the customer's hand, and an order still Approved could be converted a second time.
+                await queueService.EnqueueSignedVanSaleAsync(
+                    reservationRequest, reservationId, createdBy, outcome, order.Id, persist);
+                await MarkFulfilledAsync(order);
+                return Errors.DesktopIntegration.ConversionFiscalOutcomeUnknown;
+
+            case VanSaleFiscalFirstStatus.FiscalUnchecked:
+                return Errors.DesktopIntegration.ConversionFiscalDeviceUnavailable;
+
+            case VanSaleFiscalFirstStatus.FiscalFailed:
+                return Errors.DesktopIntegration.ConversionFiscalisationFailed(outcome.Error);
+
+            default:
+                return Errors.DesktopIntegration.ValidationFailed(outcome.Error ?? "This invoice cannot be raised.");
+        }
+    }
+
+    /// <summary>
+    /// The answer to a resend of a conversion that was signed in its request, read off its receipt row.
+    /// </summary>
+    /// <returns>
+    /// Null when no signed receipt stands behind the queue entry — a conversion queued unsigned, by a caller
+    /// that does not sign or by this server before it signed — which is replayed as it always was.
+    /// </returns>
+    private async Task<ErrorOr<ConvertSalesOrderToInvoiceResponseDto>?> SignedReplayAsync(
+        SalesOrderDto order,
+        string reference,
+        InvoiceQueueStatusDto queued,
+        CancellationToken cancellationToken)
+    {
+        var sale = await db.DesktopSales
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                s => s.ExternalReferenceId == reference && s.SourceSystem == SaleSourceSystems.VanSalesOnline,
+                cancellationToken);
+
+        if (sale is null)
+            return null;
+
+        if (sale.FiscalizationRequiresReconciliation)
+            return (ErrorOr<ConvertSalesOrderToInvoiceResponseDto>)Errors.DesktopIntegration.ConversionFiscalOutcomeUnknown;
+
+        if (sale.FiscalizationStatus != DesktopSaleFiscalizationStatus.Success)
+            return null;
+
+        var posted = sale.SapDocNum.HasValue;
+
+        return Signed(
+            order,
+            reference,
+            queued.ReservationId,
+            new VanSaleFiscalFirstOutcome(
+                posted ? VanSaleFiscalFirstStatus.Posted : VanSaleFiscalFirstStatus.AwaitingSap,
+                sale,
+                sale.SapDocEntry,
+                sale.SapDocNum,
+                Deferred: !posted),
+            new InvoiceQueueResultDto
+            {
+                Success = true,
+                ReservationId = queued.ReservationId,
+                QueueId = queued.QueueId,
+                ExternalReference = reference,
+                Status = queued.Status
+            });
+    }
+
+    /// <summary>
+    /// Marks the order fulfilled. Advisory, as it always was here: the invoice stands either way.
+    /// </summary>
+    private async Task MarkFulfilledAsync(SalesOrderDto order)
+    {
+        try
+        {
+            await salesOrderService.MarkAsFulfilledAsync(order.Id, null, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to mark sales order {OrderId} as fulfilled after fiscalising its invoice. " +
+                "The invoice is still queued and will be processed.",
+                order.Id);
+        }
+    }
+
+    /// <summary>
+    /// A signed conversion's answer: the direct van sale's (<c>MapFiscalFirstResponse</c>), on the
+    /// conversion's own reply.
+    /// </summary>
+    private static ConvertSalesOrderToInvoiceResponseDto Signed(
+        SalesOrderDto order,
+        string externalReference,
+        string? reservationId,
+        VanSaleFiscalFirstOutcome outcome,
+        InvoiceQueueResultDto? queued)
+    {
+        var sale = outcome.Sale;
+        var posted = outcome.Status == VanSaleFiscalFirstStatus.Posted;
+
+        return new ConvertSalesOrderToInvoiceResponseDto
+        {
+            Success = true,
+            Message = posted
+                ? "Fiscalised and invoiced."
+                : outcome.Deferred
+                    ? "Fiscalised. The invoice is being posted to SAP."
+                    : "Fiscalised. SAP is not taking invoices right now, so the invoice will be posted automatically.",
+            SalesOrderId = order.Id,
+            SalesOrderNumber = order.OrderNumber,
+            ExternalReference = externalReference,
+            ReservationId = reservationId,
+            QueueId = queued?.QueueId,
+            Status = posted ? "Completed" : queued?.Status ?? InvoiceQueueStatus.Fiscalized.ToString(),
+            EstimatedProcessingSeconds = posted ? 0 : 30,
+            SaleNumber = sale is { Id: > 0 } ? DesktopSaleNumber.Format(sale.Id) : null,
+            WasQueued = !posted,
+            SapDocEntry = outcome.SapDocEntry,
+            SapDocNum = outcome.SapDocNum,
+            VerificationCode = sale?.FiscalVerificationCode,
+            QrCode = sale?.FiscalQRCode,
+            FiscalDay = sale?.FiscalDayNo,
+            ReceiptGlobalNo = sale?.FiscalReceiptNumber,
+            DeviceSerial = sale?.FiscalDeviceNumber
+        };
     }
 
     /// <summary>
