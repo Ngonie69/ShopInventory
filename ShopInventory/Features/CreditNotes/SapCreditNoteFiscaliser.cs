@@ -128,21 +128,6 @@ public sealed class SapCreditNoteFiscaliser(
     }
 
     /// <summary>
-    /// The status a fiscal result is recorded under.
-    /// </summary>
-    /// <remarks>
-    /// A failure first. A dry run comes back <c>Skipped</c> and not <c>Success</c>, and testing
-    /// <c>Skipped</c> first recorded it as "Fiscalised" — evidence of a receipt that was never filed, which
-    /// every list then showed as complete and no retry would ever take again.
-    /// </remarks>
-    internal static string StatusOf(FiscalizationResult result) =>
-        !result.Success
-            ? "Failed"
-            : result.Skipped
-                ? "Fiscalised"
-                : "Success";
-
-    /// <summary>
     /// The number the fiscal device holds the reversed invoice's receipt under.
     /// </summary>
     /// <remarks>
@@ -193,7 +178,7 @@ public sealed class SapCreditNoteFiscaliser(
                         TimestampUtc = timestampUtc,
                         DocNum = creditNote.DocNum,
                         DocumentType = FiscalDocumentType,
-                        Status = StatusOf(result),
+                        Status = FiscalTransactionStatus.Of(result),
                         Message = result.RequiresReconciliation
                             ? FiscalOutcomeMessages.MarkUnresolved(result.Message)
                             : result.Message,

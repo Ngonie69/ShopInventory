@@ -55,7 +55,7 @@ foreach ($dir in $apiDirs) {
         Write-Host ("  {0} = {1}" -f $name, $shown)
     }
     if (-not $found) {
-        Write-Host '  (no Fiscalisation__/Revmax__ overrides: appsettings.json applies, i.e. Provider=Platform, ApiKey empty, LastFilingDate null)'
+        Write-Host '  (no Fiscalisation__/Revmax__ overrides: appsettings.json applies, i.e. Provider=Platform, ApiKey empty, LastFilingDate 2026-09-30)'
     }
 }
 

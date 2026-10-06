@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Fiscalization;
@@ -18,6 +19,29 @@ public sealed class RevmaxHistoryFiscalizationTests
 {
     private const int OurRevmaxDevice = 22862;
     private static readonly DateTime LastFilingDate = new(2026, 9, 30);
+
+    /// <summary>
+    /// Production overrides nothing under Revmax__, so the shipped file is what runs, and every test below
+    /// is written against this date. Null asked REVMax about every SAP document, so a REVMax outage held
+    /// back new invoices and credit memos.
+    /// </summary>
+    [Fact]
+    public void Shipped_appsettings_name_the_cut_over_day_as_REVMaxs_last_filing_date()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "ShopInventory.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        var settings = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(dir!.FullName, "ShopInventory", "appsettings.json"))
+            .Build()
+            .GetSection(RevmaxSettings.SectionName)
+            .Get<RevmaxSettings>()!;
+
+        Assert.Equal(LastFilingDate, settings.LastFilingDate);
+    }
 
     [Fact]
     public async Task An_invoice_REVMax_already_filed_is_adopted_and_not_filed_again()

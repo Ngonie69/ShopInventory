@@ -3418,7 +3418,9 @@ the device dereferences a null and answers with what looks like a fault on its s
 **Verifying a change**
 
 `scripts/RevmaxProbe` drives the real service against the live device read-only and prints the exact
-payload it would send without sending it. `scripts/FiscaliseInvoice` dry-runs unless given `--post`.
+payload it would send without sending it. `scripts/FiscaliseInvoice`, which filed one invoice on REVMax by
+hand, was removed on 2026-10-06: REVMax files nothing new since the cut-over, and the tool checked only
+REVMax before filing, so it could sign a second receipt for an invoice the platform already holds.
 Unit-level equivalents are in `ShopInventory.Tests/RevmaxFiscalPayloadTests.cs`. Dry-run every new
 document shape before posting: a filed receipt cannot be withdrawn.
 
