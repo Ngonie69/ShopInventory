@@ -10,9 +10,12 @@ namespace ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
 public sealed class GetPricesByBusinessPartnerHandler(
     ILocalPriceCatalogService localPriceCatalogService,
     ISAPServiceLayerClient sapServiceLayerClient,
-    ILogger<GetPricesByBusinessPartnerHandler> logger)
+    ILogger<GetPricesByBusinessPartnerHandler> logger,
+    TimeProvider? timeProvider = null)
     : IRequestHandler<GetPricesByBusinessPartnerQuery, ErrorOr<ItemPricesByListResponseDto>>
 {
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
     /// <summary>
     /// How long this waits on SAP before answering from the local catalogue instead.
     /// </summary>
@@ -43,8 +46,10 @@ public sealed class GetPricesByBusinessPartnerHandler(
 
         if (request.UseLivePricing)
         {
-            using var liveBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            liveBudget.CancelAfter(LivePricingBudget);
+            // The budget gets its own source, so which of the two ended the wait is read from the
+            // source that fired rather than inferred from the linked one.
+            using var budget = new CancellationTokenSource(LivePricingBudget, _timeProvider);
+            using var liveBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
 
             try
             {
@@ -66,7 +71,7 @@ public sealed class GetPricesByBusinessPartnerHandler(
                 }
             }
             catch (OperationCanceledException) when (
-                liveBudget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
                 // Our budget, not the caller's — answer from the catalogue rather than keep waiting.
                 logger.LogInformation(
