@@ -7,7 +7,7 @@
 @using ShopInventory.Web.Features.CreditNotes.Commands.DeleteCreditNote
 @using ShopInventory.Web.Features.CreditNotes.Commands.DuplicateCancelledCreditNotes
 @using ShopInventory.Web.Features.CreditNotes.Queries.GetCreditNotes
-@attribute [Authorize(Roles = "Admin,Cashier")]
+@attribute [Authorize(Roles = UserRoles.InvoiceViewRoles)]
 @inject IMediator Mediator
 @inject ICreditNoteService CreditNoteService
 @inject IInvoiceService InvoiceService
@@ -45,9 +45,13 @@
             </div>
             <div class="cnx-head-actions">
                 <span class="cnx-count">@totalCount.ToString("N0") notes</span>
-                <a class="cnx-btn cnx-btn-primary" href="/credit-notes/create">
-                    <i class="ph ph-plus" aria-hidden="true"></i>New credit note
-                </a>
+                @* A manager reads credit notes here; raising, approving, cancelling and duplicating
+                   them stay with the invoicing roles. *@
+                <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="createAuth">
+                    <a class="cnx-btn cnx-btn-primary" href="/credit-notes/create">
+                        <i class="ph ph-plus" aria-hidden="true"></i>New credit note
+                    </a>
+                </AuthorizeView>
             </div>
         </div>
         <div class="cnx-rule"></div>
@@ -140,9 +144,12 @@
                 else
                 {
                     <span class="cnx-range">@RangeLabel</span>
-                    <span class="cnx-hint">
-                        <i class="ph ph-cursor-click" aria-hidden="true"></i>Select rows to cancel or duplicate
-                    </span>
+                    @if (canEditCreditNotes)
+                    {
+                        <span class="cnx-hint">
+                            <i class="ph ph-cursor-click" aria-hidden="true"></i>Select rows to cancel or duplicate
+                        </span>
+                    }
                 }
             </div>
 
@@ -151,10 +158,13 @@
                     <thead>
                         <tr>
                             <th>
-                                <input class="cnx-check" type="checkbox" title="Select visible credit notes"
-                                       aria-label="Select visible credit notes"
-                                       checked="@AreAllDisplayedCreditNotesSelected()"
-                                       @onchange="ToggleAllDisplayedCreditNotes" />
+                                @if (canEditCreditNotes)
+                                {
+                                    <input class="cnx-check" type="checkbox" title="Select visible credit notes"
+                                           aria-label="Select visible credit notes"
+                                           checked="@AreAllDisplayedCreditNotesSelected()"
+                                           @onchange="ToggleAllDisplayedCreditNotes" />
+                                }
                             </th>
                             <th class="cnx-th-sort" @onclick="() => SortBy(SortKey.Number)">
                                 Note #<span class="cnx-sort-mark">@SortMark(SortKey.Number)</span>
@@ -193,11 +203,14 @@
                             {
                                 <tr @key="GetCreditNoteSelectionKey(note)" class="@GetRowClass(note)">
                                     <td>
-                                        <input class="cnx-check" type="checkbox" title="Select credit note"
-                                               aria-label="Select credit note @FormatCreditNoteNumber(note.CreditNoteNumber)"
-                                               checked="@IsCreditNoteSelected(note)"
-                                               disabled="@(!CanSelectCreditNote(note))"
-                                               @onchange="args => ToggleCreditNoteSelection(note, args)" />
+                                        @if (canEditCreditNotes)
+                                        {
+                                            <input class="cnx-check" type="checkbox" title="Select credit note"
+                                                   aria-label="Select credit note @FormatCreditNoteNumber(note.CreditNoteNumber)"
+                                                   checked="@IsCreditNoteSelected(note)"
+                                                   disabled="@(!CanSelectCreditNote(note))"
+                                                   @onchange="args => ToggleCreditNoteSelection(note, args)" />
+                                        }
                                     </td>
                                     <td>
                                         <button type="button" class="cnx-link" @onclick="() => ViewCreditNote(note)">
@@ -239,13 +252,17 @@
                                             </button>
                                             @if (note.Status == CreditNoteStatus.Pending)
                                             {
-                                                <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm"
-                                                        title="Approve" aria-label="Approve credit note"
-                                                        @onclick="() => ApproveCreditNote(note.Id)">
-                                                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
-                                                        <path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z" />
-                                                    </svg>
-                                                </button>
+                                                @* invoices.edit, which a manager does not hold. A manager decides SAP's
+                                                   held credit memos at /credit-notes/approvals instead. *@
+                                                <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="approveCreditNoteAccess">
+                                                    <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm"
+                                                            title="Approve" aria-label="Approve credit note"
+                                                            @onclick="() => ApproveCreditNote(note.Id)">
+                                                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                            <path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z" />
+                                                        </svg>
+                                                    </button>
+                                                </AuthorizeView>
                                             }
                                             @if (note.Status == CreditNoteStatus.Draft || note.Status == CreditNoteStatus.Cancelled)
                                             {
@@ -522,81 +539,86 @@
     </div>
 }
 
-@if (showBulkCancelModal)
-{
-    <div class="cnx-overlay">
-        <div class="cnx-dialog-wrap" @onclick="CloseBulkCancelModal">
-            <div class="cnx-dialog" role="dialog" aria-modal="true" aria-label="Cancel credit notes"
-                 @onclick:stopPropagation="true">
-                <h2 class="cnx-dialog-title"><i class="ph ph-prohibit" aria-hidden="true"></i>Cancel credit notes</h2>
-                <div class="cnx-dialog-body">
-                    <div class="cnx-confirm">
-                        <span class="cnx-confirm-count">@SelectedCancelableCreditNoteCount</span>
-                        <div>
-                            <div class="cnx-confirm-copy">Cancel selected SAP credit notes</div>
-                            <div class="cnx-confirm-sub">Already cancelled and unsynced rows are excluded.</div>
+@* Opened only from the selection toolbar, which a reader never sees, and gated here as well. *@
+<AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="bulkCancelAuth">
+    @if (showBulkCancelModal)
+    {
+        <div class="cnx-overlay">
+            <div class="cnx-dialog-wrap" @onclick="CloseBulkCancelModal">
+                <div class="cnx-dialog" role="dialog" aria-modal="true" aria-label="Cancel credit notes"
+                     @onclick:stopPropagation="true">
+                    <h2 class="cnx-dialog-title"><i class="ph ph-prohibit" aria-hidden="true"></i>Cancel credit notes</h2>
+                    <div class="cnx-dialog-body">
+                        <div class="cnx-confirm">
+                            <span class="cnx-confirm-count">@SelectedCancelableCreditNoteCount</span>
+                            <div>
+                                <div class="cnx-confirm-copy">Cancel selected SAP credit notes</div>
+                                <div class="cnx-confirm-sub">Already cancelled and unsynced rows are excluded.</div>
+                            </div>
+                        </div>
+                        <div class="cnx-field">
+                            <label for="cnx-cancel-reason">Reason</label>
+                            <textarea id="cnx-cancel-reason" class="cnx-input cnx-textarea" @bind="bulkCancelReason"
+                                      placeholder="Optional cancellation note"></textarea>
                         </div>
                     </div>
-                    <div class="cnx-field">
-                        <label for="cnx-cancel-reason">Reason</label>
-                        <textarea id="cnx-cancel-reason" class="cnx-input cnx-textarea" @bind="bulkCancelReason"
-                                  placeholder="Optional cancellation note"></textarea>
+                    <div class="cnx-dialog-actions">
+                        <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="CloseBulkCancelModal"
+                                disabled="@isBulkCancelling">Close</button>
+                        <button type="button" class="cnx-btn cnx-btn-bad" @onclick="BulkCancelSelectedAsync"
+                                disabled="@(isBulkCancelling || SelectedCancelableCreditNoteCount == 0)">
+                            @if (isBulkCancelling)
+                            {
+                                <span class="cnx-spin" aria-hidden="true"></span>
+                            }
+                            <span>Cancel @SelectedCancelableCreditNoteCount</span>
+                        </button>
                     </div>
-                </div>
-                <div class="cnx-dialog-actions">
-                    <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="CloseBulkCancelModal"
-                            disabled="@isBulkCancelling">Close</button>
-                    <button type="button" class="cnx-btn cnx-btn-bad" @onclick="BulkCancelSelectedAsync"
-                            disabled="@(isBulkCancelling || SelectedCancelableCreditNoteCount == 0)">
-                        @if (isBulkCancelling)
-                        {
-                            <span class="cnx-spin" aria-hidden="true"></span>
-                        }
-                        <span>Cancel @SelectedCancelableCreditNoteCount</span>
-                    </button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
+</AuthorizeView>
 
-@if (showDuplicateCancelledModal)
-{
-    <div class="cnx-overlay">
-        <div class="cnx-dialog-wrap" @onclick="CloseDuplicateCancelledModal">
-            <div class="cnx-dialog" role="dialog" aria-modal="true" aria-label="Duplicate cancelled credit notes"
-                 @onclick:stopPropagation="true">
-                <h2 class="cnx-dialog-title"><i class="ph ph-copy" aria-hidden="true"></i>Duplicate cancelled</h2>
-                <div class="cnx-dialog-body">
-                    <div class="cnx-confirm">
-                        <span class="cnx-confirm-count">@SelectedCancelledCreditNoteCount</span>
-                        <div>
-                            <div class="cnx-confirm-copy">Create replacement credit notes</div>
-                            <div class="cnx-confirm-sub">An Excel file downloads after SAP returns the new numbers.</div>
+<AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="duplicateAuth">
+    @if (showDuplicateCancelledModal)
+    {
+        <div class="cnx-overlay">
+            <div class="cnx-dialog-wrap" @onclick="CloseDuplicateCancelledModal">
+                <div class="cnx-dialog" role="dialog" aria-modal="true" aria-label="Duplicate cancelled credit notes"
+                     @onclick:stopPropagation="true">
+                    <h2 class="cnx-dialog-title"><i class="ph ph-copy" aria-hidden="true"></i>Duplicate cancelled</h2>
+                    <div class="cnx-dialog-body">
+                        <div class="cnx-confirm">
+                            <span class="cnx-confirm-count">@SelectedCancelledCreditNoteCount</span>
+                            <div>
+                                <div class="cnx-confirm-copy">Create replacement credit notes</div>
+                                <div class="cnx-confirm-sub">An Excel file downloads after SAP returns the new numbers.</div>
+                            </div>
+                        </div>
+                        <div class="cnx-field">
+                            <label for="cnx-dup-reason">Reason</label>
+                            <textarea id="cnx-dup-reason" class="cnx-input cnx-textarea" @bind="duplicateCancelledReason"
+                                      placeholder="Optional reason for the replacement credit notes"></textarea>
                         </div>
                     </div>
-                    <div class="cnx-field">
-                        <label for="cnx-dup-reason">Reason</label>
-                        <textarea id="cnx-dup-reason" class="cnx-input cnx-textarea" @bind="duplicateCancelledReason"
-                                  placeholder="Optional reason for the replacement credit notes"></textarea>
+                    <div class="cnx-dialog-actions">
+                        <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="CloseDuplicateCancelledModal"
+                                disabled="@isDuplicatingCancelled">Close</button>
+                        <button type="button" class="cnx-btn cnx-btn-primary" @onclick="DuplicateCancelledSelectedAsync"
+                                disabled="@(isDuplicatingCancelled || SelectedCancelledCreditNoteCount == 0)">
+                            @if (isDuplicatingCancelled)
+                            {
+                                <span class="cnx-spin" aria-hidden="true"></span>
+                            }
+                            <span>Duplicate @SelectedCancelledCreditNoteCount</span>
+                        </button>
                     </div>
-                </div>
-                <div class="cnx-dialog-actions">
-                    <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="CloseDuplicateCancelledModal"
-                            disabled="@isDuplicatingCancelled">Close</button>
-                    <button type="button" class="cnx-btn cnx-btn-primary" @onclick="DuplicateCancelledSelectedAsync"
-                            disabled="@(isDuplicatingCancelled || SelectedCancelledCreditNoteCount == 0)">
-                        @if (isDuplicatingCancelled)
-                        {
-                            <span class="cnx-spin" aria-hidden="true"></span>
-                        }
-                        <span>Duplicate @SelectedCancelledCreditNoteCount</span>
-                    </button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
+</AuthorizeView>
 
 @code {
     private enum SortKey { Number, Date, Total }
@@ -726,6 +748,15 @@
 
     private static int GetCreditNoteSelectionKey(CreditNoteDto note) => note.SAPDocEntry ?? note.Id;
 
+    /// <summary>
+    /// Whether the signed-in user cancels and duplicates credit notes, rather than only reading them
+    /// as a manager does. Selecting rows is only for those two, so a reader is offered no checkboxes;
+    /// the dialogs they open are gated by AuthorizeView as well.
+    /// </summary>
+    private bool canEditCreditNotes;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
     private static bool CanSelectCreditNote(CreditNoteDto note) => note.SAPDocEntry.HasValue;
 
     private static bool CanCancelCreditNote(CreditNoteDto note) =>
@@ -822,6 +853,12 @@
         fromDate = DefaultFromDate;
         toDate = DateTime.Today;
         SyncAppliedFilters();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthenticationStateTask is not null)
+            canEditCreditNotes = UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.InvoicingRoles);
     }
 
     /// <summary>

@@ -4,7 +4,7 @@
 @using ShopInventory.Web.Common
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
+@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep,Manager")]
 @inject IPodService PodService
 @inject IInvoiceService InvoiceService
 @inject IJSRuntime JS
@@ -55,441 +55,442 @@
 
     <div class="podx-body">
 
-        @if (canUploadPods)
-        {
-            <section class="podx-card is-primary">
-                <div class="podx-card-head">
-                    <h2 class="podx-card-title">
-                        <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
-                        @(uploadMode == UploadMode.Single ? "Upload product POD" : "Bulk upload product PODs")
-                    </h2>
-                    <div class="podx-seg" role="group" aria-label="Upload mode">
-                        <button type="button" class="podx-seg-btn @(uploadMode == UploadMode.Single ? "is-on" : null)"
-                                aria-pressed="@(uploadMode == UploadMode.Single)"
-                                @onclick='() => SwitchUploadMode(UploadMode.Single)'>
-                            <i class="ph ph-file-arrow-up" aria-hidden="true"></i>Single
-                        </button>
-                        <button type="button" class="podx-seg-btn @(uploadMode == UploadMode.Bulk ? "is-on" : null)"
-                                aria-pressed="@(uploadMode == UploadMode.Bulk)"
-                                @onclick='() => SwitchUploadMode(UploadMode.Bulk)'>
-                            <i class="ph ph-files" aria-hidden="true"></i>Bulk
-                        </button>
+        @* canUploadPods says the same in code; the AuthorizeView lets the role gate be read from the markup. *@
+        <AuthorizeView Roles="@UserRoles.PodWorkRoles" Context="uploadAccess">
+            <Authorized>
+                <section class="podx-card is-primary">
+                    <div class="podx-card-head">
+                        <h2 class="podx-card-title">
+                            <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                            @(uploadMode == UploadMode.Single ? "Upload product POD" : "Bulk upload product PODs")
+                        </h2>
+                        <div class="podx-seg" role="group" aria-label="Upload mode">
+                            <button type="button" class="podx-seg-btn @(uploadMode == UploadMode.Single ? "is-on" : null)"
+                                    aria-pressed="@(uploadMode == UploadMode.Single)"
+                                    @onclick='() => SwitchUploadMode(UploadMode.Single)'>
+                                <i class="ph ph-file-arrow-up" aria-hidden="true"></i>Single
+                            </button>
+                            <button type="button" class="podx-seg-btn @(uploadMode == UploadMode.Bulk ? "is-on" : null)"
+                                    aria-pressed="@(uploadMode == UploadMode.Bulk)"
+                                    @onclick='() => SwitchUploadMode(UploadMode.Bulk)'>
+                                <i class="ph ph-files" aria-hidden="true"></i>Bulk
+                            </button>
+                        </div>
                     </div>
-                </div>
 
-                @if (uploadMode == UploadMode.Single)
-                {
-                    <div class="podx-card-body">
-                        <div class="podx-fields">
-                            <div class="podx-field">
-                                <label for="podx-docnum">Invoice number</label>
-                                <input id="podx-docnum" class="podx-input podx-input-num" type="number"
-                                       placeholder="e.g. 10001" @bind="uploadDocNum" />
-                            </div>
-                            <div class="podx-field">
-                                <label>&nbsp;</label>
-                                <button type="button" class="podx-btn podx-btn-primary" style="width:100%"
-                                        @onclick="LookupInvoice"
-                                        disabled="@(uploadDocNum is null or <= 0 || isLookingUp)">
-                                    @if (isLookingUp)
-                                    {
-                                        <span class="podx-spin" aria-hidden="true"></span>
-                                        <span>Looking up…</span>
-                                    }
-                                    else
-                                    {
-                                        <span>Look up</span>
-                                    }
-                                </button>
-                            </div>
-                            <div class="podx-field is-wide">
-                                @if (isLookingUp)
-                                {
-                                    <div class="podx-note">
-                                        <span class="podx-spin" aria-hidden="true"></span>
-                                        <div class="podx-note-body">Searching for invoice…</div>
-                                    </div>
-                                }
-                                else if (lookupInvoice != null)
-                                {
-                                    <div class="podx-note is-ok">
-                                        <i class="ph ph-check-circle" aria-hidden="true"></i>
-                                        <div class="podx-note-body">
-                                            Invoice #@lookupInvoice.DocNum — @lookupInvoice.CardName
-                                        </div>
-                                    </div>
-                                }
-                                else if (lookupError != null)
-                                {
-                                    <div class="podx-note is-bad">
-                                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                                        <div class="podx-note-body">@lookupError</div>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-
-                        <div class="podx-fields">
-                            <div class="podx-field">
-                                <label for="podx-files">POD file(s)</label>
-                                <InputFile id="podx-files" @key="inputFileKey" OnChange="OnFilesSelected"
-                                           class="podx-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
-                                <div class="podx-hint">JPG, PNG, WebP, PDF — max 20MB each. Select multiple files.</div>
-                            </div>
-                            <div class="podx-field is-wide">
-                                <label for="podx-desc">Description (optional)</label>
-                                <input id="podx-desc" class="podx-input" type="text" @bind="uploadDescription"
-                                       placeholder="e.g. Signed delivery note from driver" />
-                            </div>
-                            <div class="podx-field">
-                                <label>&nbsp;</label>
-                                <button type="button" class="podx-btn podx-btn-primary" style="width:100%"
-                                        @onclick="UploadPod"
-                                        disabled="@(isUploading || lookupInvoice == null || !selectedFiles.Any())">
-                                    @if (isUploading)
-                                    {
-                                        <span class="podx-spin" aria-hidden="true"></span>
-                                        <span>Uploading @uploadProgress…</span>
-                                    }
-                                    else
-                                    {
-                                        <span>Upload @(selectedFiles.Count > 1 ? $"{selectedFiles.Count} PODs" : "POD")</span>
-                                    }
-                                </button>
-                            </div>
-                        </div>
-
-                        @if (selectedFiles.Count > 0 && !isUploading)
-                        {
-                            <div>
-                                <div class="podx-dt">@selectedFiles.Count file(s) selected</div>
-                                <div class="podx-chips">
-                                    @foreach (var file in selectedFiles)
-                                    {
-                                        <span class="podx-chip">
-                                            <i class="ph ph-file" aria-hidden="true"></i>@file.Name
-                                            <span class="podx-chip-size">@FormatFileSize(file.Size)</span>
-                                        </span>
-                                    }
+                    @if (uploadMode == UploadMode.Single)
+                    {
+                        <div class="podx-card-body">
+                            <div class="podx-fields">
+                                <div class="podx-field">
+                                    <label for="podx-docnum">Invoice number</label>
+                                    <input id="podx-docnum" class="podx-input podx-input-num" type="number"
+                                           placeholder="e.g. 10001" @bind="uploadDocNum" />
                                 </div>
-                            </div>
-                        }
-
-                        @if (!string.IsNullOrEmpty(uploadMessage))
-                        {
-                            <div class="podx-note @(uploadSuccess ? "is-ok" : "is-bad")" role="status">
-                                <i class="ph @(uploadSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
-                                <div class="podx-note-body">@uploadMessage</div>
-                            </div>
-                        }
-                    </div>
-                }
-                else
-                {
-                    <div class="podx-card-body">
-                        <div class="podx-note is-accent">
-                            <i class="ph ph-info" aria-hidden="true"></i>
-                            <div class="podx-note-body">
-                                <strong>Naming convention:</strong> name each file starting with the invoice number —
-                                <code>10001.pdf</code>, <code>10001_signed.jpg</code>, <code>10002_delivery.png</code>.
-                                The leading digits are matched to the SAP invoice number.
-                            </div>
-                        </div>
-
-                        <div class="podx-fields">
-                            <div class="podx-field is-wide">
-                                <label for="podx-bulk-files">Select POD files</label>
-                                <InputFile id="podx-bulk-files" @key="bulkInputFileKey" OnChange="OnBulkFilesSelected"
-                                           class="podx-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
-                                <div class="podx-hint">Each filename must start with the invoice number.</div>
-                            </div>
-                            <div class="podx-field">
-                                <label for="podx-bulk-desc">Description (optional)</label>
-                                <input id="podx-bulk-desc" class="podx-input" type="text" @bind="bulkDescription"
-                                       placeholder="e.g. Weekly delivery batch" />
-                            </div>
-                            <div class="podx-field">
-                                <label>&nbsp;</label>
-                                <button type="button" class="podx-btn podx-btn-primary" style="width:100%"
-                                        @onclick="ValidateBulkFiles"
-                                        disabled="@(isBulkValidating || !bulkFiles.Any())">
-                                    @if (isBulkValidating)
-                                    {
-                                        <span class="podx-spin" aria-hidden="true"></span>
-                                        <span>Validating @bulkValidationProgress</span>
-                                    }
-                                    else
-                                    {
-                                        <span>Validate</span>
-                                    }
-                                </button>
-                            </div>
-                        </div>
-
-                        @if (bulkFiles.Count > 0 && bulkMappings.Count > 0)
-                        {
-                            <div class="podx-tablewrap">
-                                <table class="podx-table is-inset">
-                                    <thead>
-                                        <tr>
-                                            <th style="width:40px">#</th>
-                                            <th>Filename</th>
-                                            <th>Invoice #</th>
-                                            <th>Customer</th>
-                                            <th>Existing PODs</th>
-                                            <th class="podx-num">Size</th>
-                                            <th>Status</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var (map, idx) in bulkMappings.Select((m, i) => (m, i)))
-                                        {
-                                            <tr class="@GetBulkRowClass(map.Status)">
-                                                <td>@(idx + 1)</td>
-                                                <td><span class="podx-strong">@map.FileName</span></td>
-                                                <td>
-                                                    @if (map.DocNum.HasValue)
-                                                    {
-                                                        <span class="podx-badge">@map.DocNum</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="podx-pill is-bad">No number found</span>
-                                                    }
-                                                </td>
-                                                <td>@(map.CardName ?? "—")</td>
-                                                <td>
-                                                    @if (map.ExistingPodCount > 0)
-                                                    {
-                                                        <span class="podx-pill is-warn"
-                                                              title="This invoice already has @map.ExistingPodCount POD(s) uploaded">
-                                                            @map.ExistingPodCount existing
-                                                        </span>
-                                                    }
-                                                    else if (map.Status != BulkFileStatus.Pending && map.Status != BulkFileStatus.Error)
-                                                    {
-                                                        <span class="podx-weak">None</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="podx-weak">—</span>
-                                                    }
-                                                </td>
-                                                <td class="podx-num">@FormatFileSize(map.FileSize)</td>
-                                                <td>
-                                                    @switch (map.Status)
-                                                    {
-                                                        case BulkFileStatus.Pending:
-                                                            <span class="podx-pill">Pending</span>
-                                                            break;
-                                                        case BulkFileStatus.Valid:
-                                                            <span class="podx-pill is-ok">Ready</span>
-                                                            break;
-                                                        case BulkFileStatus.ValidWithWarning:
-                                                            <span class="podx-pill is-warn">Ready (has POD)</span>
-                                                            break;
-                                                        case BulkFileStatus.Skipped:
-                                                            <span class="podx-pill" title="@map.ErrorMessage">Skipped</span>
-                                                            break;
-                                                        case BulkFileStatus.Uploading:
-                                                            <span class="podx-pill is-live">
-                                                                <span class="podx-spin" aria-hidden="true"></span>Uploading
-                                                            </span>
-                                                            break;
-                                                        case BulkFileStatus.Uploaded:
-                                                            <span class="podx-pill is-ok">Uploaded</span>
-                                                            break;
-                                                        case BulkFileStatus.Error:
-                                                            <span class="podx-pill is-bad" title="@map.ErrorMessage">@map.ErrorMessage</span>
-                                                            break;
-                                                    }
-                                                </td>
-                                                <td>
-                                                    @if (map.Status != BulkFileStatus.Uploading && map.Status != BulkFileStatus.Uploaded
-                                                         && !isBulkUploading)
-                                                    {
-                                                        <button type="button" class="podx-btn podx-btn-ghost podx-btn-icon-sm"
-                                                                title="Remove" aria-label="Remove @map.FileName"
-                                                                @onclick="() => RemoveBulkMapping(map)">
-                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
-                                                        </button>
-                                                    }
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div class="podx-bulk-foot">
-                                <span class="podx-bulk-summary">
-                                    @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning)
-                                    of @bulkMappings.Count ready to upload
-                                    @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Skipped))
-                                    {
-                                        <span> — <span class="is-skipped">@bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped) skipped</span></span>
-                                    }
-                                    @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
-                                    {
-                                        <span> — <span class="is-bad">@bulkMappings.Count(m => m.Status == BulkFileStatus.Error) with errors</span></span>
-                                    }
-                                </span>
-                                <div class="podx-bulk-actions">
-                                    @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
-                                    {
-                                        <button type="button" class="podx-btn podx-btn-secondary" @onclick="RetryBulkValidation"
-                                                disabled="@(isBulkValidating || isBulkUploading)">
-                                            @if (isBulkValidating)
-                                            {
-                                                <span class="podx-spin" aria-hidden="true"></span>
-                                                <span>Retrying @bulkValidationProgress</span>
-                                            }
-                                            else
-                                            {
-                                                <span>Retry @bulkMappings.Count(m => m.Status == BulkFileStatus.Error) errors</span>
-                                            }
-                                        </button>
-                                    }
-                                    <button type="button" class="podx-btn podx-btn-secondary" @onclick="ClearBulkUpload"
-                                            disabled="@isBulkUploading">Clear</button>
-                                    <button type="button" class="podx-btn podx-btn-primary" @onclick="ExecuteBulkUpload"
-                                            disabled="@(isBulkUploading || !bulkMappings.Any(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning))">
-                                        @if (isBulkUploading)
+                                <div class="podx-field">
+                                    <label>&nbsp;</label>
+                                    <button type="button" class="podx-btn podx-btn-primary" style="width:100%"
+                                            @onclick="LookupInvoice"
+                                            disabled="@(uploadDocNum is null or <= 0 || isLookingUp)">
+                                        @if (isLookingUp)
                                         {
                                             <span class="podx-spin" aria-hidden="true"></span>
-                                            <span>Uploading @bulkUploadProgress…</span>
+                                            <span>Looking up…</span>
                                         }
                                         else
                                         {
-                                            <span>Upload @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning) PODs</span>
+                                            <span>Look up</span>
+                                        }
+                                    </button>
+                                </div>
+                                <div class="podx-field is-wide">
+                                    @if (isLookingUp)
+                                    {
+                                        <div class="podx-note">
+                                            <span class="podx-spin" aria-hidden="true"></span>
+                                            <div class="podx-note-body">Searching for invoice…</div>
+                                        </div>
+                                    }
+                                    else if (lookupInvoice != null)
+                                    {
+                                        <div class="podx-note is-ok">
+                                            <i class="ph ph-check-circle" aria-hidden="true"></i>
+                                            <div class="podx-note-body">
+                                                Invoice #@lookupInvoice.DocNum — @lookupInvoice.CardName
+                                            </div>
+                                        </div>
+                                    }
+                                    else if (lookupError != null)
+                                    {
+                                        <div class="podx-note is-bad">
+                                            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                                            <div class="podx-note-body">@lookupError</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="podx-fields">
+                                <div class="podx-field">
+                                    <label for="podx-files">POD file(s)</label>
+                                    <InputFile id="podx-files" @key="inputFileKey" OnChange="OnFilesSelected"
+                                               class="podx-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
+                                    <div class="podx-hint">JPG, PNG, WebP, PDF — max 20MB each. Select multiple files.</div>
+                                </div>
+                                <div class="podx-field is-wide">
+                                    <label for="podx-desc">Description (optional)</label>
+                                    <input id="podx-desc" class="podx-input" type="text" @bind="uploadDescription"
+                                           placeholder="e.g. Signed delivery note from driver" />
+                                </div>
+                                <div class="podx-field">
+                                    <label>&nbsp;</label>
+                                    <button type="button" class="podx-btn podx-btn-primary" style="width:100%"
+                                            @onclick="UploadPod"
+                                            disabled="@(isUploading || lookupInvoice == null || !selectedFiles.Any())">
+                                        @if (isUploading)
+                                        {
+                                            <span class="podx-spin" aria-hidden="true"></span>
+                                            <span>Uploading @uploadProgress…</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Upload @(selectedFiles.Count > 1 ? $"{selectedFiles.Count} PODs" : "POD")</span>
                                         }
                                     </button>
                                 </div>
                             </div>
-                        }
 
-                        @if (!string.IsNullOrEmpty(bulkMessage))
-                        {
-                            <div class="podx-note @(bulkSuccess ? "is-ok" : "is-bad")" role="status">
-                                <i class="ph @(bulkSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
-                                <div class="podx-note-body">@bulkMessage</div>
-                            </div>
-                        }
-                    </div>
-                }
-            </section>
-
-            @if (lookupInvoice != null)
-            {
-                <section class="podx-card">
-                    <div class="podx-card-head">
-                        <h2 class="podx-card-title">
-                            <i class="ph ph-receipt" aria-hidden="true"></i>Invoice #@lookupInvoice.DocNum
-                        </h2>
-                        <span class="podx-status">
-                            <span class="podx-dot @(lookupInvoice.DocStatus == "O" ? "is-open" : "is-closed")" aria-hidden="true"></span>
-                            @(lookupInvoice.DocStatus == "O" ? "Open" : "Closed")
-                        </span>
-                    </div>
-                    <div class="podx-card-body">
-                        <div class="podx-grid">
-                            <div>
-                                <div class="podx-dt">Customer</div>
-                                <div class="podx-dd">@lookupInvoice.CardName</div>
-                                <div class="podx-dd-sub">@lookupInvoice.CardCode</div>
-                            </div>
-                            <div>
-                                <div class="podx-dt">Invoice date</div>
-                                <div class="podx-dd">@FormatDate(lookupInvoice.DocDate)</div>
-                            </div>
-                            <div>
-                                <div class="podx-dt">Due date</div>
-                                <div class="podx-dd">@FormatDate(lookupInvoice.DocDueDate)</div>
-                            </div>
-                            <div>
-                                <div class="podx-dt">Total</div>
-                                <div class="podx-dd">@lookupInvoice.DocCurrency @lookupInvoice.DocTotal.ToString("N2")</div>
-                            </div>
-                            <div>
-                                <div class="podx-dt">Paid</div>
-                                <div class="podx-dd">@lookupInvoice.DocCurrency @lookupInvoice.PaidToDate.ToString("N2")</div>
-                                @{
-                                    var balance = lookupInvoice.DocTotal - lookupInvoice.PaidToDate;
-                                }
-                                @if (balance > 0)
-                                {
-                                    <span class="podx-dd-flag">Balance: @lookupInvoice.DocCurrency @balance.ToString("N2")</span>
-                                }
-                            </div>
-                            @if (!string.IsNullOrEmpty(lookupInvoice.NumAtCard))
+                            @if (selectedFiles.Count > 0 && !isUploading)
                             {
                                 <div>
-                                    <div class="podx-dt">Customer ref</div>
-                                    <div class="podx-dd">@lookupInvoice.NumAtCard</div>
+                                    <div class="podx-dt">@selectedFiles.Count file(s) selected</div>
+                                    <div class="podx-chips">
+                                        @foreach (var file in selectedFiles)
+                                        {
+                                            <span class="podx-chip">
+                                                <i class="ph ph-file" aria-hidden="true"></i>@file.Name
+                                                <span class="podx-chip-size">@FormatFileSize(file.Size)</span>
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(uploadMessage))
+                            {
+                                <div class="podx-note @(uploadSuccess ? "is-ok" : "is-bad")" role="status">
+                                    <i class="ph @(uploadSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
+                                    <div class="podx-note-body">@uploadMessage</div>
                                 </div>
                             }
                         </div>
+                    }
+                    else
+                    {
+                        <div class="podx-card-body">
+                            <div class="podx-note is-accent">
+                                <i class="ph ph-info" aria-hidden="true"></i>
+                                <div class="podx-note-body">
+                                    <strong>Naming convention:</strong> name each file starting with the invoice number —
+                                    <code>10001.pdf</code>, <code>10001_signed.jpg</code>, <code>10002_delivery.png</code>.
+                                    The leading digits are matched to the SAP invoice number.
+                                </div>
+                            </div>
 
-                        @if (lookupInvoice.Lines?.Any() == true)
-                        {
-                            <div>
-                                <div class="podx-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Invoice lines</div>
+                            <div class="podx-fields">
+                                <div class="podx-field is-wide">
+                                    <label for="podx-bulk-files">Select POD files</label>
+                                    <InputFile id="podx-bulk-files" @key="bulkInputFileKey" OnChange="OnBulkFilesSelected"
+                                               class="podx-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
+                                    <div class="podx-hint">Each filename must start with the invoice number.</div>
+                                </div>
+                                <div class="podx-field">
+                                    <label for="podx-bulk-desc">Description (optional)</label>
+                                    <input id="podx-bulk-desc" class="podx-input" type="text" @bind="bulkDescription"
+                                           placeholder="e.g. Weekly delivery batch" />
+                                </div>
+                                <div class="podx-field">
+                                    <label>&nbsp;</label>
+                                    <button type="button" class="podx-btn podx-btn-primary" style="width:100%"
+                                            @onclick="ValidateBulkFiles"
+                                            disabled="@(isBulkValidating || !bulkFiles.Any())">
+                                        @if (isBulkValidating)
+                                        {
+                                            <span class="podx-spin" aria-hidden="true"></span>
+                                            <span>Validating @bulkValidationProgress</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Validate</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (bulkFiles.Count > 0 && bulkMappings.Count > 0)
+                            {
                                 <div class="podx-tablewrap">
                                     <table class="podx-table is-inset">
                                         <thead>
                                             <tr>
-                                                <th>#</th>
-                                                <th>Item</th>
-                                                <th>Description</th>
-                                                <th class="podx-num">Qty</th>
-                                                <th class="podx-num">Unit price</th>
-                                                <th class="podx-num">Discount</th>
-                                                <th class="podx-num">Line total</th>
+                                                <th style="width:40px">#</th>
+                                                <th>Filename</th>
+                                                <th>Invoice #</th>
+                                                <th>Customer</th>
+                                                <th>Existing PODs</th>
+                                                <th class="podx-num">Size</th>
+                                                <th>Status</th>
+                                                <th></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach (var line in lookupInvoice.Lines)
+                                            @foreach (var (map, idx) in bulkMappings.Select((m, i) => (m, i)))
                                             {
-                                                <tr>
-                                                    <td>@(line.LineNum + 1)</td>
-                                                    <td><span class="podx-mono">@line.ItemCode</span></td>
-                                                    <td>@line.ItemDescription</td>
-                                                    <td class="podx-num">@QuantityDisplay.FormatWithUom(line.Quantity, line.UoMCode)</td>
-                                                    <td class="podx-num">@line.UnitPrice.ToString("N2")</td>
-                                                    <td class="podx-num">@(line.DiscountPercent > 0 ? $"{line.DiscountPercent:N1}%" : "—")</td>
-                                                    <td class="podx-num">@line.LineTotal.ToString("N2")</td>
+                                                <tr class="@GetBulkRowClass(map.Status)">
+                                                    <td>@(idx + 1)</td>
+                                                    <td><span class="podx-strong">@map.FileName</span></td>
+                                                    <td>
+                                                        @if (map.DocNum.HasValue)
+                                                        {
+                                                            <span class="podx-badge">@map.DocNum</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="podx-pill is-bad">No number found</span>
+                                                        }
+                                                    </td>
+                                                    <td>@(map.CardName ?? "—")</td>
+                                                    <td>
+                                                        @if (map.ExistingPodCount > 0)
+                                                        {
+                                                            <span class="podx-pill is-warn"
+                                                                  title="This invoice already has @map.ExistingPodCount POD(s) uploaded">
+                                                                @map.ExistingPodCount existing
+                                                            </span>
+                                                        }
+                                                        else if (map.Status != BulkFileStatus.Pending && map.Status != BulkFileStatus.Error)
+                                                        {
+                                                            <span class="podx-weak">None</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="podx-weak">—</span>
+                                                        }
+                                                    </td>
+                                                    <td class="podx-num">@FormatFileSize(map.FileSize)</td>
+                                                    <td>
+                                                        @switch (map.Status)
+                                                        {
+                                                            case BulkFileStatus.Pending:
+                                                                <span class="podx-pill">Pending</span>
+                                                                break;
+                                                            case BulkFileStatus.Valid:
+                                                                <span class="podx-pill is-ok">Ready</span>
+                                                                break;
+                                                            case BulkFileStatus.ValidWithWarning:
+                                                                <span class="podx-pill is-warn">Ready (has POD)</span>
+                                                                break;
+                                                            case BulkFileStatus.Skipped:
+                                                                <span class="podx-pill" title="@map.ErrorMessage">Skipped</span>
+                                                                break;
+                                                            case BulkFileStatus.Uploading:
+                                                                <span class="podx-pill is-live">
+                                                                    <span class="podx-spin" aria-hidden="true"></span>Uploading
+                                                                </span>
+                                                                break;
+                                                            case BulkFileStatus.Uploaded:
+                                                                <span class="podx-pill is-ok">Uploaded</span>
+                                                                break;
+                                                            case BulkFileStatus.Error:
+                                                                <span class="podx-pill is-bad" title="@map.ErrorMessage">@map.ErrorMessage</span>
+                                                                break;
+                                                        }
+                                                    </td>
+                                                    <td>
+                                                        @if (map.Status != BulkFileStatus.Uploading && map.Status != BulkFileStatus.Uploaded
+                                                             && !isBulkUploading)
+                                                        {
+                                                            <button type="button" class="podx-btn podx-btn-ghost podx-btn-icon-sm"
+                                                                    title="Remove" aria-label="Remove @map.FileName"
+                                                                    @onclick="() => RemoveBulkMapping(map)">
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+                                                            </button>
+                                                        }
+                                                    </td>
                                                 </tr>
                                             }
                                         </tbody>
-                                        <tfoot>
-                                            <tr>
-                                                <td colspan="6" class="podx-num">VAT</td>
-                                                <td class="podx-num">@lookupInvoice.VatSum.ToString("N2")</td>
-                                            </tr>
-                                            <tr>
-                                                <td colspan="6" class="podx-num">Total</td>
-                                                <td class="podx-num">@lookupInvoice.DocCurrency @lookupInvoice.DocTotal.ToString("N2")</td>
-                                            </tr>
-                                        </tfoot>
                                     </table>
                                 </div>
-                            </div>
-                        }
-                    </div>
+
+                                <div class="podx-bulk-foot">
+                                    <span class="podx-bulk-summary">
+                                        @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning)
+                                        of @bulkMappings.Count ready to upload
+                                        @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Skipped))
+                                        {
+                                            <span> — <span class="is-skipped">@bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped) skipped</span></span>
+                                        }
+                                        @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
+                                        {
+                                            <span> — <span class="is-bad">@bulkMappings.Count(m => m.Status == BulkFileStatus.Error) with errors</span></span>
+                                        }
+                                    </span>
+                                    <div class="podx-bulk-actions">
+                                        @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
+                                        {
+                                            <button type="button" class="podx-btn podx-btn-secondary" @onclick="RetryBulkValidation"
+                                                    disabled="@(isBulkValidating || isBulkUploading)">
+                                                @if (isBulkValidating)
+                                                {
+                                                    <span class="podx-spin" aria-hidden="true"></span>
+                                                    <span>Retrying @bulkValidationProgress</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Retry @bulkMappings.Count(m => m.Status == BulkFileStatus.Error) errors</span>
+                                                }
+                                            </button>
+                                        }
+                                        <button type="button" class="podx-btn podx-btn-secondary" @onclick="ClearBulkUpload"
+                                                disabled="@isBulkUploading">Clear</button>
+                                        <button type="button" class="podx-btn podx-btn-primary" @onclick="ExecuteBulkUpload"
+                                                disabled="@(isBulkUploading || !bulkMappings.Any(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning))">
+                                            @if (isBulkUploading)
+                                            {
+                                                <span class="podx-spin" aria-hidden="true"></span>
+                                                <span>Uploading @bulkUploadProgress…</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Upload @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning) PODs</span>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(bulkMessage))
+                            {
+                                <div class="podx-note @(bulkSuccess ? "is-ok" : "is-bad")" role="status">
+                                    <i class="ph @(bulkSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
+                                    <div class="podx-note-body">@bulkMessage</div>
+                                </div>
+                            }
+                        </div>
+                    }
                 </section>
-            }
-        }
-        else
-        {
-            <div class="podx-note is-accent">
-                <i class="ph ph-info" aria-hidden="true"></i>
-                <div class="podx-note-body">
-                    You have read-only access to product POD history. Upload and delete actions are not
-                    available for the Operator role.
+
+                @if (lookupInvoice != null)
+                {
+                    <section class="podx-card">
+                        <div class="podx-card-head">
+                            <h2 class="podx-card-title">
+                                <i class="ph ph-receipt" aria-hidden="true"></i>Invoice #@lookupInvoice.DocNum
+                            </h2>
+                            <span class="podx-status">
+                                <span class="podx-dot @(lookupInvoice.DocStatus == "O" ? "is-open" : "is-closed")" aria-hidden="true"></span>
+                                @(lookupInvoice.DocStatus == "O" ? "Open" : "Closed")
+                            </span>
+                        </div>
+                        <div class="podx-card-body">
+                            <div class="podx-grid">
+                                <div>
+                                    <div class="podx-dt">Customer</div>
+                                    <div class="podx-dd">@lookupInvoice.CardName</div>
+                                    <div class="podx-dd-sub">@lookupInvoice.CardCode</div>
+                                </div>
+                                <div>
+                                    <div class="podx-dt">Invoice date</div>
+                                    <div class="podx-dd">@FormatDate(lookupInvoice.DocDate)</div>
+                                </div>
+                                <div>
+                                    <div class="podx-dt">Due date</div>
+                                    <div class="podx-dd">@FormatDate(lookupInvoice.DocDueDate)</div>
+                                </div>
+                                <div>
+                                    <div class="podx-dt">Total</div>
+                                    <div class="podx-dd">@lookupInvoice.DocCurrency @lookupInvoice.DocTotal.ToString("N2")</div>
+                                </div>
+                                <div>
+                                    <div class="podx-dt">Paid</div>
+                                    <div class="podx-dd">@lookupInvoice.DocCurrency @lookupInvoice.PaidToDate.ToString("N2")</div>
+                                    @{
+                                        var balance = lookupInvoice.DocTotal - lookupInvoice.PaidToDate;
+                                    }
+                                    @if (balance > 0)
+                                    {
+                                        <span class="podx-dd-flag">Balance: @lookupInvoice.DocCurrency @balance.ToString("N2")</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrEmpty(lookupInvoice.NumAtCard))
+                                {
+                                    <div>
+                                        <div class="podx-dt">Customer ref</div>
+                                        <div class="podx-dd">@lookupInvoice.NumAtCard</div>
+                                    </div>
+                                }
+                            </div>
+
+                            @if (lookupInvoice.Lines?.Any() == true)
+                            {
+                                <div>
+                                    <div class="podx-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Invoice lines</div>
+                                    <div class="podx-tablewrap">
+                                        <table class="podx-table is-inset">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Item</th>
+                                                    <th>Description</th>
+                                                    <th class="podx-num">Qty</th>
+                                                    <th class="podx-num">Unit price</th>
+                                                    <th class="podx-num">Discount</th>
+                                                    <th class="podx-num">Line total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var line in lookupInvoice.Lines)
+                                                {
+                                                    <tr>
+                                                        <td>@(line.LineNum + 1)</td>
+                                                        <td><span class="podx-mono">@line.ItemCode</span></td>
+                                                        <td>@line.ItemDescription</td>
+                                                        <td class="podx-num">@QuantityDisplay.FormatWithUom(line.Quantity, line.UoMCode)</td>
+                                                        <td class="podx-num">@line.UnitPrice.ToString("N2")</td>
+                                                        <td class="podx-num">@(line.DiscountPercent > 0 ? $"{line.DiscountPercent:N1}%" : "—")</td>
+                                                        <td class="podx-num">@line.LineTotal.ToString("N2")</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                            <tfoot>
+                                                <tr>
+                                                    <td colspan="6" class="podx-num">VAT</td>
+                                                    <td class="podx-num">@lookupInvoice.VatSum.ToString("N2")</td>
+                                                </tr>
+                                                <tr>
+                                                    <td colspan="6" class="podx-num">Total</td>
+                                                    <td class="podx-num">@lookupInvoice.DocCurrency @lookupInvoice.DocTotal.ToString("N2")</td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </section>
+                }
+            </Authorized>
+            <NotAuthorized>
+                <div class="podx-note is-accent">
+                    <i class="ph ph-info" aria-hidden="true"></i>
+                    <div class="podx-note-body">
+                        You have read-only access to product POD history. Uploading and deleting PODs
+                        stay with the delivery and invoicing roles.
+                    </div>
                 </div>
-            </div>
-        }
+            </NotAuthorized>
+        </AuthorizeView>
 
         <section class="podx-card">
             <div class="podx-card-head">
@@ -910,8 +911,9 @@
     private bool deleteSuccess;
     private PodAttachmentItemDto? deletePod;
     private string? currentUsername;
-    private bool canUploadPods = true;
-    private bool canDeletePods = true;
+    // A manager opens the page to read PODs; uploading and deleting them stay with UserRoles.PodWorkRoles.
+    private bool canUploadPods;
+    private bool canDeletePods;
     private int? appliedInitialDocNum;
     private bool appliedInitialViewLatest;
     private bool isInteractive;
@@ -927,6 +929,8 @@
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
         currentUsername = user.Identity?.Name;
+        canUploadPods = UserRoles.IsInAnyRole(user, UserRoles.PodWorkRoles);
+        canDeletePods = canUploadPods;
     }
 
     protected override async Task OnParametersSetAsync()

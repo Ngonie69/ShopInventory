@@ -3,7 +3,7 @@
 @using ShopInventory.Web.Common
 @using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
-@attribute [Authorize(Roles = UserRoles.PodRoles)]
+@attribute [Authorize(Roles = UserRoles.PodViewRoles)]
 @rendermode InteractiveServer
 @inject PageLifetime PageLifetime
 
@@ -54,9 +54,12 @@
                         @("Reading…")
                     }
                 </button>
-                <a class="pdo-btn pdo-btn-primary" href="/pods">
-                    <i class="ph ph-upload-simple" aria-hidden="true"></i>Upload a POD
-                </a>
+                @* A manager reads the dashboard and uploads nothing. *@
+                <AuthorizeView Roles="@UserRoles.PodWorkRoles" Context="uploadLinkAccess">
+                    <a class="pdo-btn pdo-btn-primary" href="/pods">
+                        <i class="ph ph-upload-simple" aria-hidden="true"></i>Upload a POD
+                    </a>
+                </AuthorizeView>
             </div>
         </div>
         <div class="pdo-rule"></div>
@@ -134,15 +137,15 @@
 
             <div class="pdo-kpi">
                 <div class="pdo-kpi-top">
-                    <span class="pdo-kpi-label">@(isOperator ? "Uploading" : "Invoices covered")</span>
-                    <i class="ph @(isOperator ? "ph-users-three" : "ph-receipt")" aria-hidden="true"></i>
+                    <span class="pdo-kpi-label">@(seesAllLocations ? "Uploading" : "Invoices covered")</span>
+                    <i class="ph @(seesAllLocations ? "ph-users-three" : "ph-receipt")" aria-hidden="true"></i>
                 </div>
                 <div class="pdo-kpi-fig">
-                    <span class="pdo-kpi-value">@(isOperator ? Figure(UploaderFigure) : Figure(uploads?.UniqueInvoicesCovered))</span>
-                    <span class="pdo-kpi-unit">@(isOperator ? "people" : "all time")</span>
+                    <span class="pdo-kpi-value">@(seesAllLocations ? Figure(UploaderFigure) : Figure(uploads?.UniqueInvoicesCovered))</span>
+                    <span class="pdo-kpi-unit">@(seesAllLocations ? "people" : "all time")</span>
                 </div>
                 <div class="pdo-kpi-foot">
-                    <span>@(isOperator ? UploaderNote : CoveredNote)</span>
+                    <span>@(seesAllLocations ? UploaderNote : CoveredNote)</span>
                 </div>
             </div>
         </section>
@@ -156,7 +159,7 @@
                         <div>
                             <span class="pdo-card-title">Upload activity</span>
                             <span class="pdo-card-sub">
-                                Files a day, last @rangeDays days · @(isOperator ? "all locations" : "your uploads")
+                                Files a day, last @rangeDays days · @(seesAllLocations ? "all locations" : "your uploads")
                             </span>
                         </div>
                         <div class="pdo-chart-total">
@@ -263,7 +266,7 @@
 
                 <section class="pdo-card" aria-label="Recent uploads">
                     <div class="pdo-card-head">
-                        <span class="pdo-card-title">@(isOperator ? "Recent uploads" : "Your recent uploads")</span>
+                        <span class="pdo-card-title">@(seesAllLocations ? "Recent uploads" : "Your recent uploads")</span>
                         <a class="pdo-link pdo-card-note" href="/pods">View all</a>
                     </div>
 
@@ -359,7 +362,7 @@
                     }
                 </section>
 
-                @if (isOperator)
+                @if (seesAllLocations)
                 {
                     <section class="pdo-card" aria-label="Who is uploading">
                         <div class="pdo-card-head">
@@ -409,7 +412,7 @@
 
                 <section class="pdo-card" aria-label="Totals">
                     <div class="pdo-card-head">
-                        <span class="pdo-card-title">@(isOperator ? "Company totals" : "Your totals")</span>
+                        <span class="pdo-card-title">@(seesAllLocations ? "Company totals" : "Your totals")</span>
                         <span class="pdo-card-note">All time</span>
                     </div>
 

@@ -1,7 +1,7 @@
 @page "/sales-orders"
 @using System.Diagnostics
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = "Admin,Cashier,SalesRep")]
+@attribute [Authorize(Roles = UserRoles.SalesOrderViewRoles)]
 @inject ISalesOrderService SalesOrderService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
@@ -242,15 +242,18 @@
                                                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
                                                 }
                                             </button>
-                                            @if (SalesOrderActions.CanEdit(order))
-                                            {
-                                                <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
-                                                        title="Edit order" aria-label="Edit order @order.OrderNumber"
-                                                        disabled="@IsOrderActionBusy(order.Id)"
-                                                        @onclick="() => NavigateToEdit(order.Id)">
-                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>
-                                                </button>
-                                            }
+                                            @* A manager reads orders here and works none of them. *@
+                                            <AuthorizeView Roles="@UserRoles.SalesOrderEditRoles" Context="editRowAccess">
+                                                @if (SalesOrderActions.CanEdit(order))
+                                                {
+                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                            title="Edit order" aria-label="Edit order @order.OrderNumber"
+                                                            disabled="@IsOrderActionBusy(order.Id)"
+                                                            @onclick="() => NavigateToEdit(order.Id)">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>
+                                                    </button>
+                                                }
+                                            </AuthorizeView>
                                             @if (order.Status == SalesOrderStatus.Approved && order.InvoiceId == null)
                                             {
                                                 @* Invoicing roles only. A sales rep opens this page to raise and approve orders
@@ -274,79 +277,81 @@
                                                     </Authorized>
                                                 </AuthorizeView>
                                             }
-                                            @if (!order.IsSynced)
-                                            {
-                                                @if (SalesOrderActions.CanApprove(order))
+                                            <AuthorizeView Roles="@UserRoles.SalesOrderEditRoles" Context="workRowAccess">
+                                                @if (!order.IsSynced)
                                                 {
-                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
-                                                            title="Approve" aria-label="Approve order @order.OrderNumber"
-                                                            disabled="@IsOrderActionBusy(order.Id)"
-                                                            @onclick="() => OpenApprovalModal(order)">
-                                                        @if (IsOrderActionBusy(order.Id, OrderActionType.Approve))
-                                                        {
-                                                            <span class="sox-spin" aria-hidden="true"></span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
-                                                        }
-                                                    </button>
+                                                    @if (SalesOrderActions.CanApprove(order))
+                                                    {
+                                                        <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                                title="Approve" aria-label="Approve order @order.OrderNumber"
+                                                                disabled="@IsOrderActionBusy(order.Id)"
+                                                                @onclick="() => OpenApprovalModal(order)">
+                                                            @if (IsOrderActionBusy(order.Id, OrderActionType.Approve))
+                                                            {
+                                                                <span class="sox-spin" aria-hidden="true"></span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
+                                                            }
+                                                        </button>
+                                                    }
+                                                    @if (SalesOrderActions.CanReject(order))
+                                                    {
+                                                        <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                                title="Reject" aria-label="Reject order @order.OrderNumber"
+                                                                disabled="@IsOrderActionBusy(order.Id)"
+                                                                @onclick="() => OpenRejectModal(order)">
+                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 12h8"></path></svg>
+                                                        </button>
+                                                    }
+                                                    @if (SalesOrderActions.CanCancel(order))
+                                                    {
+                                                        <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                                title="Cancel" aria-label="Cancel order @order.OrderNumber"
+                                                                disabled="@IsOrderActionBusy(order.Id)"
+                                                                @onclick="() => CancelOrder(order.Id)">
+                                                            @if (IsOrderActionBusy(order.Id, OrderActionType.UpdateStatus))
+                                                            {
+                                                                <span class="sox-spin" aria-hidden="true"></span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M5.6 5.6l12.8 12.8"></path></svg>
+                                                            }
+                                                        </button>
+                                                    }
+                                                    @if (SalesOrderActions.CanRestoreToDraft(order))
+                                                    {
+                                                        <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                                title="Back to draft" aria-label="Move order @order.OrderNumber back to draft"
+                                                                disabled="@IsOrderActionBusy(order.Id)"
+                                                                @onclick="() => RestoreOrderToDraft(order.Id)">
+                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10H9"></path><path d="M8 5L4 9l4 4"></path></svg>
+                                                        </button>
+                                                    }
+                                                    <AuthorizeView Roles="Admin" Context="deleteAccess">
+                                                        <Authorized>
+                                                            @if (SalesOrderActions.CanDelete(order))
+                                                            {
+                                                                <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                                        title="Delete" aria-label="Delete order @order.OrderNumber"
+                                                                        disabled="@IsOrderActionBusy(order.Id)"
+                                                                        @onclick="() => DeleteOrder(order.Id)">
+                                                                    @if (IsOrderActionBusy(order.Id, OrderActionType.Delete))
+                                                                    {
+                                                                        <span class="sox-spin" aria-hidden="true"></span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+                                                                    }
+                                                                </button>
+                                                            }
+                                                        </Authorized>
+                                                    </AuthorizeView>
                                                 }
-                                                @if (SalesOrderActions.CanReject(order))
-                                                {
-                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
-                                                            title="Reject" aria-label="Reject order @order.OrderNumber"
-                                                            disabled="@IsOrderActionBusy(order.Id)"
-                                                            @onclick="() => OpenRejectModal(order)">
-                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 12h8"></path></svg>
-                                                    </button>
-                                                }
-                                                @if (SalesOrderActions.CanCancel(order))
-                                                {
-                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
-                                                            title="Cancel" aria-label="Cancel order @order.OrderNumber"
-                                                            disabled="@IsOrderActionBusy(order.Id)"
-                                                            @onclick="() => CancelOrder(order.Id)">
-                                                        @if (IsOrderActionBusy(order.Id, OrderActionType.UpdateStatus))
-                                                        {
-                                                            <span class="sox-spin" aria-hidden="true"></span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M5.6 5.6l12.8 12.8"></path></svg>
-                                                        }
-                                                    </button>
-                                                }
-                                                @if (SalesOrderActions.CanRestoreToDraft(order))
-                                                {
-                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
-                                                            title="Back to draft" aria-label="Move order @order.OrderNumber back to draft"
-                                                            disabled="@IsOrderActionBusy(order.Id)"
-                                                            @onclick="() => RestoreOrderToDraft(order.Id)">
-                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10H9"></path><path d="M8 5L4 9l4 4"></path></svg>
-                                                    </button>
-                                                }
-                                                <AuthorizeView Roles="Admin" Context="deleteAccess">
-                                                    <Authorized>
-                                                        @if (SalesOrderActions.CanDelete(order))
-                                                        {
-                                                            <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
-                                                                    title="Delete" aria-label="Delete order @order.OrderNumber"
-                                                                    disabled="@IsOrderActionBusy(order.Id)"
-                                                                    @onclick="() => DeleteOrder(order.Id)">
-                                                                @if (IsOrderActionBusy(order.Id, OrderActionType.Delete))
-                                                                {
-                                                                    <span class="sox-spin" aria-hidden="true"></span>
-                                                                }
-                                                                else
-                                                                {
-                                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
-                                                                }
-                                                            </button>
-                                                        }
-                                                    </Authorized>
-                                                </AuthorizeView>
-                                            }
+                                            </AuthorizeView>
                                         </span>
                                     </td>
                                 </tr>
@@ -537,54 +542,56 @@
                 }
             </div>
             <div class="sox-drawer-foot">
-                @if (SalesOrderActions.CanEdit(selectedOrder))
-                {
-                    <button type="button" class="sox-btn sox-btn-secondary"
-                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                            @onclick="() => NavigateToEdit(selectedOrder.Id)">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>Edit
-                    </button>
-                }
-                @if (SalesOrderActions.CanReject(selectedOrder))
-                {
-                    <button type="button" class="sox-btn sox-btn-bad"
-                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                            @onclick="() => OpenRejectModal(selectedOrder)">
-                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.UpdateStatus))
-                        {
-                            <span class="sox-spin" aria-hidden="true"></span>
-                            <span>Rejecting…</span>
-                        }
-                        else
-                        {
-                            <span>Reject</span>
-                        }
-                    </button>
-                }
-                @if (SalesOrderActions.CanApprove(selectedOrder))
-                {
-                    <button type="button" class="sox-btn sox-btn-primary"
-                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                            @onclick="() => OpenApprovalModal(selectedOrder)">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>Review &amp; approve
-                    </button>
-                }
-                @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
-                {
-                    <button type="button" class="sox-btn sox-btn-primary"
-                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                            @onclick="() => PostOrderToSAP(selectedOrder.Id)">
-                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
-                        {
-                            <span class="sox-spin" aria-hidden="true"></span>
-                            <span>Posting…</span>
-                        }
-                        else
-                        {
-                            <span>Post to SAP</span>
-                        }
-                    </button>
-                }
+                <AuthorizeView Roles="@UserRoles.SalesOrderEditRoles" Context="drawerActionsAccess">
+                    @if (SalesOrderActions.CanEdit(selectedOrder))
+                    {
+                        <button type="button" class="sox-btn sox-btn-secondary"
+                                disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                @onclick="() => NavigateToEdit(selectedOrder.Id)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>Edit
+                        </button>
+                    }
+                    @if (SalesOrderActions.CanReject(selectedOrder))
+                    {
+                        <button type="button" class="sox-btn sox-btn-bad"
+                                disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                @onclick="() => OpenRejectModal(selectedOrder)">
+                            @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.UpdateStatus))
+                            {
+                                <span class="sox-spin" aria-hidden="true"></span>
+                                <span>Rejecting…</span>
+                            }
+                            else
+                            {
+                                <span>Reject</span>
+                            }
+                        </button>
+                    }
+                    @if (SalesOrderActions.CanApprove(selectedOrder))
+                    {
+                        <button type="button" class="sox-btn sox-btn-primary"
+                                disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                @onclick="() => OpenApprovalModal(selectedOrder)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>Review &amp; approve
+                        </button>
+                    }
+                    @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
+                    {
+                        <button type="button" class="sox-btn sox-btn-primary"
+                                disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                @onclick="() => PostOrderToSAP(selectedOrder.Id)">
+                            @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
+                            {
+                                <span class="sox-spin" aria-hidden="true"></span>
+                                <span>Posting…</span>
+                            }
+                            else
+                            {
+                                <span>Post to SAP</span>
+                            }
+                        </button>
+                    }
+                </AuthorizeView>
                 <button type="button" class="sox-btn sox-btn-secondary" disabled="@isPdfLoading"
                         @onclick="PrintSalesOrderPdf">
                     @if (isPdfLoading)
@@ -603,235 +610,243 @@
     </div>
 }
 
-@if (approvalOrder != null)
-{
-    <div class="sox-overlay">
-        <div class="sox-dialog-wrap" @onclick="CloseApprovalModal">
-            <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-approve-title"
-                 @onclick:stopPropagation="true">
-                <h2 class="sox-dialog-title" id="sox-approve-title">
-                    <i class="ph ph-check-circle" aria-hidden="true"></i>Approve sales order
-                </h2>
-                <div class="sox-dialog-body">
-                    @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
-                    {
-                        @* Approval posts to SAP in the same call, and that round trip is long
-                           enough that a spinner on the button alone reads as a hung page. *@
-                        <div class="sox-working" aria-live="polite">
-                            <span class="sox-spin sox-spin-lg" aria-hidden="true"></span>
-                            <h3>Approving and posting to SAP</h3>
-                            <p>
-                                Current SAP pricing is being validated, duplicate safeguards are being
-                                checked, and the order is being posted. Please keep this window open.
-                            </p>
-                            <div class="sox-track" aria-hidden="true"><span></span></div>
-                            <div class="sox-working-meta">Order @approvalOrder.OrderNumber · retries are protected</div>
+@* Opened only from the gated row and drawer buttons, and gated the same way. *@
+<AuthorizeView Roles="@UserRoles.SalesOrderEditRoles" Context="approvalModalAccess">
+    @if (approvalOrder != null)
+    {
+        <div class="sox-overlay">
+            <div class="sox-dialog-wrap" @onclick="CloseApprovalModal">
+                <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-approve-title"
+                     @onclick:stopPropagation="true">
+                    <h2 class="sox-dialog-title" id="sox-approve-title">
+                        <i class="ph ph-check-circle" aria-hidden="true"></i>Approve sales order
+                    </h2>
+                    <div class="sox-dialog-body">
+                        @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                        {
+                            @* Approval posts to SAP in the same call, and that round trip is long
+                               enough that a spinner on the button alone reads as a hung page. *@
+                            <div class="sox-working" aria-live="polite">
+                                <span class="sox-spin sox-spin-lg" aria-hidden="true"></span>
+                                <h3>Approving and posting to SAP</h3>
+                                <p>
+                                    Current SAP pricing is being validated, duplicate safeguards are being
+                                    checked, and the order is being posted. Please keep this window open.
+                                </p>
+                                <div class="sox-track" aria-hidden="true"><span></span></div>
+                                <div class="sox-working-meta">Order @approvalOrder.OrderNumber · retries are protected</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="sox-summary">
+                                <div class="sox-summary-item is-wide">
+                                    <div class="sox-dt">Customer</div>
+                                    <div class="sox-summary-value" title="@approvalOrder.CardName">
+                                        @approvalOrder.CardCode — @approvalOrder.CardName
+                                    </div>
+                                </div>
+                                <div class="sox-summary-item">
+                                    <div class="sox-dt">Order</div>
+                                    <div class="sox-summary-value">@approvalOrder.OrderNumber</div>
+                                </div>
+                                <div class="sox-summary-item">
+                                    <div class="sox-dt">Amount</div>
+                                    <div class="sox-summary-value">@approvalOrder.Currency @approvalOrder.DocTotal.ToString("N2")</div>
+                                </div>
+                                @if (approvalOrder.Lines?.Count > 0)
+                                {
+                                    <div class="sox-summary-item">
+                                        <div class="sox-dt">Lines</div>
+                                        <div class="sox-summary-value">@approvalOrder.Lines.Count</div>
+                                    </div>
+                                }
+                                <div class="sox-summary-item">
+                                    <div class="sox-dt">Created by</div>
+                                    <div class="sox-summary-value">@(approvalOrder.CreatedByUserName ?? "Unknown")</div>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(GetPostingBlockReason(approvalOrder)))
+                            {
+                                @* Recorded when the order was captured, so it can be out of date — a
+                                   payment may have landed since. The refusal itself is SAP-side and is
+                                   re-checked on this click, so the button stays live. *@
+                                <div class="sox-note is-bad">
+                                    <div class="sox-dt">This order will be refused</div>
+                                    <div>@GetPostingBlockReason(approvalOrder)</div>
+                                </div>
+                            }
+                            @* The room the customer actually has, before the click rather than after it.
+                               The credit gate runs SAP-side on approval and is still what decides; this
+                               is the same arithmetic on the sweep credit control already runs, so an
+                               approver can see how far over an order is without spending 8 to 26 seconds
+                               discovering it. *@
+                            @if (approvalHeadroomLoading)
+                            {
+                                <div class="sox-note">
+                                    <div class="sox-dt">Credit</div>
+                                    <div>Checking how much room this customer has…</div>
+                                </div>
+                            }
+                            else if (approvalHeadroom is { HasLimit: true } headroom)
+                            {
+                                <div class="@(ApprovalWouldBreachCredit ? "sox-note is-bad" : "sox-note")">
+                                    <div class="sox-dt">
+                                        @(ApprovalWouldBreachCredit ? "This order goes over the credit limit" : "Credit room")
+                                    </div>
+                                    <div>
+                                        @CreditAccountLabel(headroom):
+                                        limit @Money(headroom.CreditLimit, headroom.Currency),
+                                        owed @Money(headroom.Exposure, headroom.Currency),
+                                        room @Money(headroom.Headroom, headroom.Currency).
+                                    </div>
+                                    <div>
+                                        @if (ApprovalWouldBreachCredit)
+                                        {
+                                            <text>
+                                                This order is @Money(approvalOrder.DocTotal, approvalOrder.Currency) —
+                                                @Money(-(ApprovalHeadroomAfterOrder ?? 0m), headroom.Currency) over.
+                                                Take a payment against @(headroom.CreditAccountCardCode ?? headroom.CardCode),
+                                                or reduce the order by at least that much.
+                                            </text>
+                                        }
+                                        else
+                                        {
+                                            <text>
+                                                This order is @Money(approvalOrder.DocTotal, approvalOrder.Currency),
+                                                leaving @Money(ApprovalHeadroomAfterOrder ?? 0m, headroom.Currency).
+                                            </text>
+                                        }
+                                    </div>
+                                    <div class="sox-note-meta">
+                                        Balances as at @approvalHeadroomAsAtDisplay. A payment taken since then is not reflected.
+                                    </div>
+                                </div>
+                            }
+                            <div class="sox-impact">
+                                <i class="ph ph-info" aria-hidden="true"></i>
+                                <div>
+                                    <strong>This action also posts the order to SAP.</strong>
+                                    Prices will be refreshed from SAP before posting, so the final amount may
+                                    reflect the customer's current pricing.
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <div class="sox-dialog-actions">
+                        <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseApprovalModal"
+                                disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                            Cancel
+                        </button>
+                        <button type="button" class="sox-btn sox-btn-primary" @onclick="ConfirmApproval"
+                                disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                            @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                            {
+                                <span class="sox-spin" aria-hidden="true"></span>
+                                <span>Approving…</span>
+                            }
+                            else
+                            {
+                                <span>Approve &amp; post to SAP</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</AuthorizeView>
+
+<AuthorizeView Roles="@UserRoles.SalesOrderEditRoles" Context="rejectModalAccess">
+    @if (showRejectModal)
+    {
+        <div class="sox-overlay">
+            <div class="sox-dialog-wrap" @onclick="CloseRejectModal">
+                <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-reject-title"
+                     @onclick:stopPropagation="true">
+                    <h2 class="sox-dialog-title" id="sox-reject-title">
+                        <i class="ph ph-prohibit" aria-hidden="true"></i>Reject sales order
+                    </h2>
+                    <div class="sox-dialog-body">
+                        <p style="margin:0">
+                            Add a rejection reason for <strong>@rejectOrderNumber</strong>. It is saved with the
+                            order and sent in the mobile notification.
+                        </p>
+                        <div class="sox-field">
+                            <label for="sox-reject-reason">Rejection reason</label>
+                            <textarea id="sox-reject-reason" class="sox-input sox-textarea" @bind="rejectReason"
+                                      placeholder="Explain why the order is being rejected" disabled="@isRejecting"></textarea>
                         </div>
-                    }
-                    else
-                    {
+                        @if (!string.IsNullOrWhiteSpace(rejectReasonError))
+                        {
+                            <div class="sox-err">@rejectReasonError</div>
+                        }
+                    </div>
+                    <div class="sox-dialog-actions">
+                        <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseRejectModal"
+                                disabled="@isRejecting">Cancel</button>
+                        <button type="button" class="sox-btn sox-btn-bad" @onclick="ConfirmRejectOrder"
+                                disabled="@isRejecting">
+                            @if (isRejecting)
+                            {
+                                <span class="sox-spin" aria-hidden="true"></span>
+                            }
+                            <span>Reject order</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</AuthorizeView>
+
+@* Opened only from the Admin,Cashier-gated Convert button, and gated the same way. *@
+<AuthorizeView Roles="Admin,Cashier" Context="convertModalAccess">
+    @if (convertOrder != null)
+    {
+        <div class="sox-overlay">
+            <div class="sox-dialog-wrap" @onclick="CloseConvertDialog">
+                <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-convert-title"
+                     @onclick:stopPropagation="true">
+                    <h2 class="sox-dialog-title" id="sox-convert-title">
+                        <i class="ph ph-receipt" aria-hidden="true"></i>Convert to invoice
+                    </h2>
+                    <div class="sox-dialog-body">
                         <div class="sox-summary">
                             <div class="sox-summary-item is-wide">
                                 <div class="sox-dt">Customer</div>
-                                <div class="sox-summary-value" title="@approvalOrder.CardName">
-                                    @approvalOrder.CardCode — @approvalOrder.CardName
+                                <div class="sox-summary-value" title="@convertOrder.CardName">
+                                    @convertOrder.CardCode — @convertOrder.CardName
                                 </div>
                             </div>
                             <div class="sox-summary-item">
                                 <div class="sox-dt">Order</div>
-                                <div class="sox-summary-value">@approvalOrder.OrderNumber</div>
+                                <div class="sox-summary-value">@convertOrder.OrderNumber</div>
                             </div>
                             <div class="sox-summary-item">
                                 <div class="sox-dt">Amount</div>
-                                <div class="sox-summary-value">@approvalOrder.Currency @approvalOrder.DocTotal.ToString("N2")</div>
+                                <div class="sox-summary-value">@convertOrder.Currency @convertOrder.DocTotal.ToString("N2")</div>
                             </div>
-                            @if (approvalOrder.Lines?.Count > 0)
+                        </div>
+                        <div class="sox-note">This raises a customer invoice for the order. It cannot be undone here.</div>
+                    </div>
+                    <div class="sox-dialog-actions">
+                        <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseConvertDialog"
+                                disabled="@isConverting">Cancel</button>
+                        <button type="button" class="sox-btn sox-btn-primary" @onclick="ConfirmConvertToInvoice"
+                                disabled="@isConverting">
+                            @if (isConverting)
                             {
-                                <div class="sox-summary-item">
-                                    <div class="sox-dt">Lines</div>
-                                    <div class="sox-summary-value">@approvalOrder.Lines.Count</div>
-                                </div>
+                                <span class="sox-spin" aria-hidden="true"></span>
                             }
-                            <div class="sox-summary-item">
-                                <div class="sox-dt">Created by</div>
-                                <div class="sox-summary-value">@(approvalOrder.CreatedByUserName ?? "Unknown")</div>
-                            </div>
-                        </div>
-                        @if (!string.IsNullOrWhiteSpace(GetPostingBlockReason(approvalOrder)))
-                        {
-                            @* Recorded when the order was captured, so it can be out of date — a
-                               payment may have landed since. The refusal itself is SAP-side and is
-                               re-checked on this click, so the button stays live. *@
-                            <div class="sox-note is-bad">
-                                <div class="sox-dt">This order will be refused</div>
-                                <div>@GetPostingBlockReason(approvalOrder)</div>
-                            </div>
-                        }
-                        @* The room the customer actually has, before the click rather than after it.
-                           The credit gate runs SAP-side on approval and is still what decides; this
-                           is the same arithmetic on the sweep credit control already runs, so an
-                           approver can see how far over an order is without spending 8 to 26 seconds
-                           discovering it. *@
-                        @if (approvalHeadroomLoading)
-                        {
-                            <div class="sox-note">
-                                <div class="sox-dt">Credit</div>
-                                <div>Checking how much room this customer has…</div>
-                            </div>
-                        }
-                        else if (approvalHeadroom is { HasLimit: true } headroom)
-                        {
-                            <div class="@(ApprovalWouldBreachCredit ? "sox-note is-bad" : "sox-note")">
-                                <div class="sox-dt">
-                                    @(ApprovalWouldBreachCredit ? "This order goes over the credit limit" : "Credit room")
-                                </div>
-                                <div>
-                                    @CreditAccountLabel(headroom):
-                                    limit @Money(headroom.CreditLimit, headroom.Currency),
-                                    owed @Money(headroom.Exposure, headroom.Currency),
-                                    room @Money(headroom.Headroom, headroom.Currency).
-                                </div>
-                                <div>
-                                    @if (ApprovalWouldBreachCredit)
-                                    {
-                                        <text>
-                                            This order is @Money(approvalOrder.DocTotal, approvalOrder.Currency) —
-                                            @Money(-(ApprovalHeadroomAfterOrder ?? 0m), headroom.Currency) over.
-                                            Take a payment against @(headroom.CreditAccountCardCode ?? headroom.CardCode),
-                                            or reduce the order by at least that much.
-                                        </text>
-                                    }
-                                    else
-                                    {
-                                        <text>
-                                            This order is @Money(approvalOrder.DocTotal, approvalOrder.Currency),
-                                            leaving @Money(ApprovalHeadroomAfterOrder ?? 0m, headroom.Currency).
-                                        </text>
-                                    }
-                                </div>
-                                <div class="sox-note-meta">
-                                    Balances as at @approvalHeadroomAsAtDisplay. A payment taken since then is not reflected.
-                                </div>
-                            </div>
-                        }
-                        <div class="sox-impact">
-                            <i class="ph ph-info" aria-hidden="true"></i>
-                            <div>
-                                <strong>This action also posts the order to SAP.</strong>
-                                Prices will be refreshed from SAP before posting, so the final amount may
-                                reflect the customer's current pricing.
-                            </div>
-                        </div>
-                    }
-                </div>
-                <div class="sox-dialog-actions">
-                    <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseApprovalModal"
-                            disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
-                        Cancel
-                    </button>
-                    <button type="button" class="sox-btn sox-btn-primary" @onclick="ConfirmApproval"
-                            disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
-                        @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
-                        {
-                            <span class="sox-spin" aria-hidden="true"></span>
-                            <span>Approving…</span>
-                        }
-                        else
-                        {
-                            <span>Approve &amp; post to SAP</span>
-                        }
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-@if (showRejectModal)
-{
-    <div class="sox-overlay">
-        <div class="sox-dialog-wrap" @onclick="CloseRejectModal">
-            <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-reject-title"
-                 @onclick:stopPropagation="true">
-                <h2 class="sox-dialog-title" id="sox-reject-title">
-                    <i class="ph ph-prohibit" aria-hidden="true"></i>Reject sales order
-                </h2>
-                <div class="sox-dialog-body">
-                    <p style="margin:0">
-                        Add a rejection reason for <strong>@rejectOrderNumber</strong>. It is saved with the
-                        order and sent in the mobile notification.
-                    </p>
-                    <div class="sox-field">
-                        <label for="sox-reject-reason">Rejection reason</label>
-                        <textarea id="sox-reject-reason" class="sox-input sox-textarea" @bind="rejectReason"
-                                  placeholder="Explain why the order is being rejected" disabled="@isRejecting"></textarea>
+                            <span>Convert</span>
+                        </button>
                     </div>
-                    @if (!string.IsNullOrWhiteSpace(rejectReasonError))
-                    {
-                        <div class="sox-err">@rejectReasonError</div>
-                    }
-                </div>
-                <div class="sox-dialog-actions">
-                    <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseRejectModal"
-                            disabled="@isRejecting">Cancel</button>
-                    <button type="button" class="sox-btn sox-btn-bad" @onclick="ConfirmRejectOrder"
-                            disabled="@isRejecting">
-                        @if (isRejecting)
-                        {
-                            <span class="sox-spin" aria-hidden="true"></span>
-                        }
-                        <span>Reject order</span>
-                    </button>
                 </div>
             </div>
         </div>
-    </div>
-}
-
-@if (convertOrder != null)
-{
-    <div class="sox-overlay">
-        <div class="sox-dialog-wrap" @onclick="CloseConvertDialog">
-            <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-convert-title"
-                 @onclick:stopPropagation="true">
-                <h2 class="sox-dialog-title" id="sox-convert-title">
-                    <i class="ph ph-receipt" aria-hidden="true"></i>Convert to invoice
-                </h2>
-                <div class="sox-dialog-body">
-                    <div class="sox-summary">
-                        <div class="sox-summary-item is-wide">
-                            <div class="sox-dt">Customer</div>
-                            <div class="sox-summary-value" title="@convertOrder.CardName">
-                                @convertOrder.CardCode — @convertOrder.CardName
-                            </div>
-                        </div>
-                        <div class="sox-summary-item">
-                            <div class="sox-dt">Order</div>
-                            <div class="sox-summary-value">@convertOrder.OrderNumber</div>
-                        </div>
-                        <div class="sox-summary-item">
-                            <div class="sox-dt">Amount</div>
-                            <div class="sox-summary-value">@convertOrder.Currency @convertOrder.DocTotal.ToString("N2")</div>
-                        </div>
-                    </div>
-                    <div class="sox-note">This raises a customer invoice for the order. It cannot be undone here.</div>
-                </div>
-                <div class="sox-dialog-actions">
-                    <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseConvertDialog"
-                            disabled="@isConverting">Cancel</button>
-                    <button type="button" class="sox-btn sox-btn-primary" @onclick="ConfirmConvertToInvoice"
-                            disabled="@isConverting">
-                        @if (isConverting)
-                        {
-                            <span class="sox-spin" aria-hidden="true"></span>
-                        }
-                        <span>Convert</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
+    }
+</AuthorizeView>
 
 @code {
     private static readonly int[] PageSizeOptions = [10, 25, 50, 100, 200];

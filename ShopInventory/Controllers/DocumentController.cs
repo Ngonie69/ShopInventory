@@ -74,7 +74,7 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
     /// Create template (Admin/Manager)
     /// </summary>
     [HttpPost("templates")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> CreateTemplate([FromBody] UpsertDocumentTemplateRequest request, CancellationToken cancellationToken)
     {
         var userId = GetUserId();
@@ -86,7 +86,7 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
     /// Update template
     /// </summary>
     [HttpPut("templates/{id}")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateTemplate(int id, [FromBody] UpsertDocumentTemplateRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new UpdateTemplateCommand(id, request), cancellationToken);
@@ -108,7 +108,7 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
     /// Make a template the default for its document type
     /// </summary>
     [HttpPost("templates/{id}/set-default")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SetDefaultTemplate(int id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new SetDefaultTemplateCommand(id), cancellationToken);
@@ -316,7 +316,7 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
     /// Create an email template
     /// </summary>
     [HttpPost("email-templates")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> CreateEmailTemplate([FromBody] UpsertEmailTemplateRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new CreateEmailTemplateCommand(request), cancellationToken);
@@ -327,7 +327,7 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
     /// Update an email template by its id
     /// </summary>
     [HttpPut("email-templates/{id}")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateEmailTemplate(int id, [FromBody] UpsertEmailTemplateRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new UpdateEmailTemplateCommand(id, request), cancellationToken);

@@ -1,6 +1,6 @@
 @page "/stock-dashboard"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = "Admin,StockController")]
+@attribute [Authorize(Roles = UserRoles.StockDashboardRoles)]
 @rendermode InteractiveServer
 @inject PageLifetime PageLifetime
 
