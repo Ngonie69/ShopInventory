@@ -1,9 +1,17 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using ClosedXML.Excel;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 using ShopInventory.Models.Entities;
+using ShopInventory.Web.Data;
+using ShopInventory.Web.Services;
+using WebAnalysis = ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 
 namespace ShopInventory.Tests;
 
@@ -20,6 +28,7 @@ public sealed class VanSalesAnalysisTests : IDisposable
     private const string Van = "VAN010";
     private const string OtherVan = "VAN020";
     private const string VanAccount = "VAN010";
+    private const string OtherVanAccount = "VAN020";
 
     private static readonly Guid Rep = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly DateTime Day = new(2026, 8, 10);
@@ -102,6 +111,97 @@ public sealed class VanSalesAnalysisTests : IDisposable
         Assert.Equal(Van, one.WarehouseCode);
         Assert.Equal(100m, Usd(one).TotalAmount);
         Assert.Equal(2, Usd(one).TopItems.Single().SalesCount);
+    }
+
+    /// <summary>
+    /// A van is reported as the business partner it bills as. The warehouse it sold from need not be that
+    /// partner's — a van can invoice under another van's account — so the two breakdowns differ here.
+    /// </summary>
+    [Fact]
+    public async Task A_van_is_the_account_it_bills_as_not_the_warehouse_it_sold_from()
+    {
+        AddOfflineSale("OFF-1", total: 40m);
+        AddOnlineSale("ON-1", Utc(9, 0), total: 60m, warehouse: OtherVan);
+        AddOnlineSale("ON-2", Utc(9, 30), total: 25m, warehouse: OtherVan, account: OtherVanAccount);
+        await _context.SaveChangesAsync();
+
+        var usd = Usd(await AnalyseAsync());
+
+        Assert.Equal(
+            new[] { (VanAccount, VanAccount, 100m), (OtherVanAccount, OtherVanAccount, 25m) },
+            usd.ByVanAccount.Select(row => (row.Key, row.Label, row.TotalAmount)));
+        Assert.Equal(
+            new[] { (OtherVan, 85m), (Van, 40m) },
+            usd.ByWarehouse.Select(row => (row.Key, row.TotalAmount)));
+    }
+
+    /// <summary>
+    /// End to end: the API's answer as the Web reads it, named from the Web's partner cache, and written
+    /// to the By Van sheet as the card code with the partner's name beside it.
+    /// </summary>
+    [Fact]
+    public async Task The_by_van_sheet_states_each_account_code_with_its_partner_name()
+    {
+        AddOfflineSale("OFF-1", total: 40m);
+        AddOnlineSale("ON-1", Utc(9, 0), total: 60m, warehouse: OtherVan);
+        AddOnlineSale("ON-2", Utc(9, 30), total: 25m, warehouse: OtherVan, account: OtherVanAccount);
+        await _context.SaveChangesAsync();
+
+        var json = JsonSerializer.Serialize(await AnalyseAsync(), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        using var webConnection = new SqliteConnection("DataSource=:memory:");
+        webConnection.Open();
+        var webOptions = new DbContextOptionsBuilder<WebAppDbContext>().UseSqlite(webConnection).Options;
+        await using (var web = new WebAppDbContext(webOptions))
+        {
+            web.Database.EnsureCreated();
+            // Inactive in the cache, and still named: it sold in the period.
+            web.CachedBusinessPartners.Add(new CachedBusinessPartner
+            {
+                CardCode = VanAccount,
+                CardName = "Van Sales East 1",
+                IsActive = false
+            });
+            web.CachedWarehouses.Add(new CachedWarehouse { WarehouseCode = Van, WarehouseName = "East 1", IsActive = false });
+            await web.SaveChangesAsync();
+        }
+
+        var result = await new WebAnalysis.GetDesktopSalesAnalysisHandler(
+                new HttpClient(new JsonHandler(json)) { BaseAddress = new Uri("http://api.test/") },
+                new WebDbContextFactory(webOptions),
+                NullLogger<WebAnalysis.GetDesktopSalesAnalysisHandler>.Instance)
+            .Handle(new WebAnalysis.GetDesktopSalesAnalysisQuery(Day, Day, null, Vans: true), CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+
+        // A code the cache does not hold keeps the code as its name rather than losing the row.
+        Assert.Equal(
+            new[] { (VanAccount, "Van Sales East 1"), (OtherVanAccount, OtherVanAccount) },
+            result.Value.Currencies.Single().ByVanAccount.Select(row => (row.Key, row.Label)));
+
+        // Warehouses are named from the warehouse cache the same way, for the shop workbook's By Shop sheet.
+        Assert.Equal(
+            new[] { (OtherVan, OtherVan), (Van, "East 1") },
+            result.Value.Currencies.Single().ByWarehouse.Select(row => (row.Key, row.Label)));
+
+        using var workbook = new XLWorkbook(new MemoryStream(
+            new ReportExportService().ExportDesktopSalesAnalysisToExcel(result.Value)));
+        var sheet = workbook.Worksheet("By Van");
+
+        var header = sheet.RowsUsed().First(row => row.Cell(1).GetString() == "Currency").RowNumber();
+        Assert.Equal("Card Code", sheet.Cell(header, 2).GetString());
+        Assert.Equal("Business Partner", sheet.Cell(header, 3).GetString());
+        Assert.Equal("Sales", sheet.Cell(header, 4).GetString());
+
+        var top = header + 1;
+        Assert.Equal(VanAccount, sheet.Cell(top, 2).GetString());
+        Assert.Equal("Van Sales East 1", sheet.Cell(top, 3).GetString());
+        Assert.Equal(2, sheet.Cell(top, 4).GetValue<int>());
+        Assert.Equal(OtherVanAccount, sheet.Cell(top + 1, 2).GetString());
+
+        // The strip names the top van by its partner name.
+        var topLabel = sheet.CellsUsed().First(cell => cell.GetString() == "Top Van");
+        Assert.Equal("USD Van Sales East 1", sheet.Cell(topLabel.Address.RowNumber - 1, topLabel.Address.ColumnNumber).GetString());
     }
 
     /// <summary>
@@ -252,7 +352,8 @@ public sealed class VanSalesAnalysisTests : IDisposable
         decimal total,
         string warehouse = Van,
         string? routeCustomer = "CORNER1",
-        string? paymentMethod = "Cash")
+        string? paymentMethod = "Cash",
+        string account = VanAccount)
     {
         _context.StockReservations.Add(new StockReservationEntity
         {
@@ -260,7 +361,7 @@ public sealed class VanSalesAnalysisTests : IDisposable
             ExternalReferenceId = reference,
             SourceSystem = "KefalosVanSales",
             DocumentType = ReservationDocumentType.Invoice,
-            CardCode = VanAccount,
+            CardCode = account,
             CardName = "Van 010",
             RouteCustomerCode = routeCustomer,
             RouteCustomerName = routeCustomer is null ? null : $"{routeCustomer} Store",
@@ -288,5 +389,20 @@ public sealed class VanSalesAnalysisTests : IDisposable
                 }
             ]
         });
+    }
+
+    private sealed class JsonHandler(string json) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            });
+    }
+
+    private sealed class WebDbContextFactory(DbContextOptions<WebAppDbContext> options)
+        : IDbContextFactory<WebAppDbContext>
+    {
+        public WebAppDbContext CreateDbContext() => new(options);
     }
 }

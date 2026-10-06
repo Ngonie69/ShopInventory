@@ -8387,17 +8387,24 @@ public partial class ReportExportService : IReportExportService
                 day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod)),
             WithShare: false));
 
+        // A van by the business partner it bills as, not the warehouse it sold from: the two need not match
+        // (a van can invoice under another van's account), and the account is what SAP's invoices carry.
         WriteDesktopAnalysisMatrix(workbook, context, vans
             ? new DesktopAnalysisMatrixSheet(
-                "By Van", $"{context.Title} BY VAN", "Takings from each van, split by payment method",
-                "Van", 30, "Top Van", "Vans", "van", "vans",
-                section => section.ByWarehouse.Select(DesktopAnalysisBreakdownRow),
-                WithShare: true)
+                "By Van", $"{context.Title} BY VAN",
+                "Takings from each van's business partner account, split by payment method",
+                "Business Partner", 30, "Top Van", "Vans", "van", "vans",
+                section => section.ByVanAccount.Select(DesktopAnalysisBreakdownRow),
+                WithShare: true,
+                CodeHeading: "Card Code",
+                CodeFirst: true)
             : new DesktopAnalysisMatrixSheet(
                 "By Shop", $"{context.Title} BY SHOP", "Takings for each shop, split by payment method",
                 "Shop", 30, "Top Shop", "Shops", "shop", "shops",
                 section => section.ByWarehouse.Select(DesktopAnalysisBreakdownRow),
-                WithShare: true));
+                WithShare: true,
+                CodeHeading: "Warehouse Code",
+                CodeFirst: true));
 
         // By name, with the code beside it: the reader knows the customer as "Farm Counter Sales" and SAP
         // knows it as CIS006, and reconciling the sheet needs both.
@@ -8474,6 +8481,7 @@ public partial class ReportExportService : IReportExportService
     /// <remarks>
     /// <c>CodeHeading</c>, when set, adds a column after the label carrying each row's key — for a sheet
     /// whose rows are named, such as business partners, where the code is what SAP is searched by.
+    /// <c>CodeFirst</c> puts that column before the label instead, for a sheet whose rows are known by code.
     /// </remarks>
     private sealed record DesktopAnalysisMatrixSheet(
         string SheetName,
@@ -8487,7 +8495,8 @@ public partial class ReportExportService : IReportExportService
         string Plural,
         Func<DesktopSalesCurrencyAnalysis, IEnumerable<DesktopAnalysisMatrixRow>> Rows,
         bool WithShare,
-        string? CodeHeading = null);
+        string? CodeHeading = null,
+        bool CodeFirst = false);
 
     private sealed record DesktopAnalysisMatrixRow(
         string Key,
@@ -8771,9 +8780,13 @@ public partial class ReportExportService : IReportExportService
         var report = context.Report;
         var methods = report.PaymentMethods;
 
+        var codeFirst = sheet.CodeHeading is not null && sheet.CodeFirst;
+        var labelCol = codeFirst ? 3 : 2;
+        var codeCol = codeFirst ? 2 : 3;
+
         var headers = new List<string> { "Currency", sheet.Heading };
         if (sheet.CodeHeading is not null)
-            headers.Add(sheet.CodeHeading);
+            headers.Insert(codeCol - 1, sheet.CodeHeading);
         headers.Add("Sales");
         headers.AddRange(methods.Select(DesktopAnalysisTenderName));
         headers.Add("Takings");
@@ -8828,7 +8841,7 @@ public partial class ReportExportService : IReportExportService
 
                 DesktopAnalysisCurrencyCell(ws.Cell(row, 1), section.Currency);
 
-                var labelCell = ws.Cell(row, 2);
+                var labelCell = ws.Cell(row, labelCol);
                 if (line.Date is { } date)
                 {
                     labelCell.Value = date;
@@ -8846,8 +8859,11 @@ public partial class ReportExportService : IReportExportService
 
                 if (sheet.CodeHeading is not null)
                 {
-                    ws.Cell(row, 3).Value = line.Key;
-                    ws.Cell(row, 3).Style.Font.FontColor = PodTextMuted;
+                    ws.Cell(row, codeCol).Value = line.Key;
+                    if (codeFirst)
+                        ws.Cell(row, codeCol).Style.Font.Bold = true;
+                    else
+                        ws.Cell(row, codeCol).Style.Font.FontColor = PodTextMuted;
                 }
 
                 DesktopAnalysisCountCell(ws.Cell(row, salesCol), line.SalesCount);
@@ -8897,14 +8913,14 @@ public partial class ReportExportService : IReportExportService
 
         var widths = new List<double> { 12, sheet.HeadingWidth };
         if (sheet.CodeHeading is not null)
-            widths.Add(14);
+            widths.Insert(codeCol - 1, 14);
         widths.Add(10);
         widths.AddRange(methods.Select(_ => 14d));
         widths.Add(16);
         if (sheet.WithShare)
             widths.Add(15);
 
-        DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, 2, lastDataRow, [.. widths]);
+        DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, labelCol, lastDataRow, [.. widths]);
     }
 
     private static void WriteDesktopAnalysisHours(XLWorkbook workbook, DesktopAnalysisContext context)
