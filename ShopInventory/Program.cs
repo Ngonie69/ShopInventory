@@ -753,6 +753,8 @@ try
     builder.Services.AddScoped<ShopInventory.Features.FiscalPrintForms.IFiscalPrintFormResolver,
         ShopInventory.Features.FiscalPrintForms.FiscalPrintFormResolver>();
     builder.Services.AddScoped<VanSaleFiscalFirstPoster>();
+    // Compares each signed van sale's SAP invoice with the receipt ZIMRA holds, as the invoice posts.
+    builder.Services.AddScoped<ShopInventory.Services.Fiscalisation.FiscalReceiptAmountCheck>();
     builder.Services.AddScoped<DesktopSaleFiscalisationSweep>();
 
     // Files SAP credit memos with ZIMRA — the approval add's own memo, and on a schedule every memo keyed

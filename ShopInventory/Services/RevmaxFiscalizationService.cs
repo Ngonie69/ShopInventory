@@ -343,6 +343,15 @@ public class RevmaxFiscalizationService : IFiscalizationService
         }
     }
 
+    /// <remarks>
+    /// Null: REVMax answers whether it holds a receipt, not with the platform's archived totals, so there is
+    /// nothing here for <c>FiscalReceiptAmountCheck</c> to compare. The reconciliation still sees these.
+    /// </remarks>
+    public Task<FiscalisedReceiptRecordDto?> GetArchivedPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<FiscalisedReceiptRecordDto?>(null);
+
     public async Task<FiscalizationResult?> FindPreSapReceiptAsync(
         string externalReference,
         CancellationToken cancellationToken = default)

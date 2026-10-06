@@ -286,7 +286,9 @@ public sealed class FiscalReceiptTotalTests
                 DocDate = "2026-08-14",
                 DocCurrency = "USD",
                 DocTotal = 0m,
-                Lines = [new InvoiceLineDto { LineNum = 1, ItemCode = "A", Quantity = 2, UnitPrice = 5m }]
+                // Grossed up, as every pre-SAP caller must: a line with only its net price is refused before
+                // signing (GROSS_PRICE_MISSING), which is not what this test is about.
+                Lines = [new InvoiceLineDto { LineNum = 1, ItemCode = "A", Quantity = 2, UnitPrice = 4.33m, GrossPrice = 5m }]
             },
             "VEND-20260814-0002");
 

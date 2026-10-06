@@ -177,6 +177,12 @@ public sealed class RevmaxHistoryFiscalizationService(
         => await platform.FindPreSapReceiptAsync(externalReference, cancellationToken)
            ?? await revmax.FindPreSapReceiptAsync(externalReference, cancellationToken);
 
+    /// <remarks>The platform's archive only: REVMax keeps none to compare against.</remarks>
+    public Task<FiscalisedReceiptRecordDto?> GetArchivedPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default)
+        => platform.GetArchivedPreSapReceiptAsync(externalReference, cancellationToken);
+
     /// <summary>
     /// Whether a document of this date could have been filed on REVMax.
     /// </summary>

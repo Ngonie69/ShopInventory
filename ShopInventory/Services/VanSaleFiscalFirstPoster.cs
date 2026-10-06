@@ -7,6 +7,7 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Services;
 
@@ -51,7 +52,9 @@ public sealed class VanSaleFiscalFirstPoster(
     DesktopSaleFiscaliser fiscaliser,
     DesktopCreditSapPoster creditPoster,
     IOptions<TaxSettings> tax,
-    ILogger<VanSaleFiscalFirstPoster> logger)
+    ILogger<VanSaleFiscalFirstPoster> logger,
+    // Optional only so a test of the posting itself need not build one; the application always supplies it.
+    FiscalReceiptAmountCheck? amountCheck = null)
 {
     /// <summary>
     /// How long a fiscalised sale's reservation is held ahead of each post. Long enough to outlast a SAP
@@ -299,6 +302,12 @@ public sealed class VanSaleFiscalFirstPoster(
 
             await CloseQueuedEntryAsync(sale, confirmed.SAPDocEntry, confirmed.SAPDocNum.Value);
             await RaiseDeferredCreditsAsync(sale);
+
+            // The invoice SAP charged against the receipt ZIMRA holds. Advisory and never thrown.
+            if (amountCheck is not null)
+            {
+                await amountCheck.CheckAsync(sale.ExternalReferenceId, confirmed.Invoice);
+            }
 
             return new VanSaleFiscalFirstOutcome(
                 VanSaleFiscalFirstStatus.Posted,

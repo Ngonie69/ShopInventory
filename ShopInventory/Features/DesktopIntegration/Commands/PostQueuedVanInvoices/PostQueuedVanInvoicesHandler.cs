@@ -10,6 +10,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoices;
 
@@ -38,6 +39,11 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.PostQueuedVanInvoic
 /// while another caller posts it, Failed when SAP refused the document. The first two are tried again
 /// later; anything else needs a person, and goes where the Exception Center shows it.
 /// </para>
+/// <para>
+/// <b>Checked against its receipt once posted.</b> <paramref name="amountCheck"/> compares the invoice SAP
+/// charged with the receipt ZIMRA holds and raises an incident when they differ. Optional only so a test of
+/// the posting itself need not build one; the application always supplies it.
+/// </para>
 /// </remarks>
 public sealed class PostQueuedVanInvoicesHandler(
     ApplicationDbContext db,
@@ -45,7 +51,8 @@ public sealed class PostQueuedVanInvoicesHandler(
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState sapCircuitBreakerState,
     DesktopCreditSapPoster creditPoster,
-    ILogger<PostQueuedVanInvoicesHandler> logger
+    ILogger<PostQueuedVanInvoicesHandler> logger,
+    FiscalReceiptAmountCheck? amountCheck = null
 ) : IRequestHandler<PostQueuedVanInvoicesCommand, ErrorOr<PostQueuedVanInvoicesResult>>
 {
     /// <summary>
@@ -165,6 +172,12 @@ public sealed class PostQueuedVanInvoicesHandler(
         if (confirmed.Success && confirmed.SAPDocNum is > 0)
         {
             await RecordPostedAsync(entry, confirmed.SAPDocEntry, confirmed.SAPDocNum.Value);
+
+            if (amountCheck is not null)
+            {
+                await amountCheck.CheckAsync(entry.ExternalReference, confirmed.Invoice);
+            }
+
             return Outcome.Posted;
         }
 

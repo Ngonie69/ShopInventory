@@ -67,7 +67,9 @@ public static class ExceptionCenterItemLookup
             ExceptionCenterSources.FiscalDayLifecycle => await context.FiscalDayStates
                 .AsNoTracking()
                 .AnyAsync(q => q.Id == itemId, cancellationToken),
-            ExceptionCenterSources.PaymentCallbackRejection or ExceptionCenterSources.CreditNoteFiscalization =>
+            ExceptionCenterSources.PaymentCallbackRejection
+                or ExceptionCenterSources.CreditNoteFiscalization
+                or ExceptionCenterSources.FiscalReceiptAmountMismatch =>
                 await context.ExceptionCenterIncidents
                     .AsNoTracking()
                     .AnyAsync(q => q.Id == itemId && q.Source == normalized, cancellationToken),

@@ -54,6 +54,7 @@ public sealed class GetExceptionCenterHandler(
     private const string FiscalDayLifecycleSource = ExceptionCenterSources.FiscalDayLifecycle;
     private const string FiscalReceiptIngestSource = ExceptionCenterSources.FiscalReceiptIngest;
     private const string VanSaleReceiptStorageSource = ExceptionCenterSources.VanSaleReceiptStorage;
+    private const string FiscalReceiptAmountMismatchSource = ExceptionCenterSources.FiscalReceiptAmountMismatch;
 
     /// <summary>
     /// A fiscal day still unfinished this long after the handset opened it has stopped rather than slowed.
@@ -357,7 +358,8 @@ public sealed class GetExceptionCenterHandler(
             // the whole failure — so it lives on the incident table with the other two.
             .Where(i => i.Source == PaymentRejectedSource
                         || i.Source == CreditNoteFiscalizationSource
-                        || i.Source == VanSaleReceiptStorageSource)
+                        || i.Source == VanSaleReceiptStorageSource
+                        || i.Source == FiscalReceiptAmountMismatchSource)
             .OrderByDescending(i => i.OccurredAtUtc ?? i.CreatedAtUtc)
             .Take(AnalysisScanLimit)
             .Select(i => new ExceptionCenterItemDto
@@ -434,6 +436,9 @@ public sealed class GetExceptionCenterHandler(
 
             [VanSaleReceiptStorageSource] = await context.ExceptionCenterIncidents.CountAsync(
                 i => i.Source == VanSaleReceiptStorageSource, cancellationToken),
+
+            [FiscalReceiptAmountMismatchSource] = await context.ExceptionCenterIncidents.CountAsync(
+                i => i.Source == FiscalReceiptAmountMismatchSource, cancellationToken),
 
             [PendingTransferPostSource] = await context.PendingInventoryTransfers.CountAsync(
                 p => p.Status == PendingInventoryTransferStatuses.PostFailed, cancellationToken),
@@ -770,6 +775,7 @@ public sealed class GetExceptionCenterHandler(
             PendingEditApplySource => "Approved request changes awaiting SAP",
             VanSalePostingSource => "Van sales awaiting SAP",
             VanSaleReceiptStorageSource => "Signed receipts this server failed to store",
+            FiscalReceiptAmountMismatchSource => "Receipts that do not match their SAP invoice",
             _ => source
         };
 
