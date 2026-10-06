@@ -116,6 +116,26 @@ public class WithdrawPendingTransferDto
     public string Reason { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// New quantities for the lines of an approved transfer that has not reached SAP. Lines not named
+/// keep their quantity; a quantity of zero takes the line out.
+/// </summary>
+public class EditPendingTransferLinesDto
+{
+    public List<EditPendingTransferLineDto> Lines { get; set; } = [];
+
+    /// <summary>Optional; recorded in the audit log beside what changed.</summary>
+    public string? Reason { get; set; }
+}
+
+public class EditPendingTransferLineDto
+{
+    /// <summary>The line's <see cref="PendingInventoryTransferLineDto.LineNum"/>.</summary>
+    public int LineNum { get; set; }
+
+    public decimal Quantity { get; set; }
+}
+
 /// <summary>The SAP number of a transfer found in SAP after its post timed out.</summary>
 public class RecordPendingTransferSapDocumentDto
 {

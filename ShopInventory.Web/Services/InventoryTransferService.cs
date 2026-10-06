@@ -39,6 +39,12 @@ public interface IInventoryTransferService
     /// <summary>Withdraws an approved transfer that failed to post, instead of retrying it.</summary>
     Task<(bool Success, string Message)> WithdrawPendingTransferAsync(Guid id, string reason);
 
+    /// <summary>
+    /// Lowers or takes out lines of an approved transfer that has not reached SAP; a quantity of zero
+    /// takes the line out. Nothing is posted — that is still <see cref="RetryPendingTransferPostAsync"/>.
+    /// </summary>
+    Task<(bool Success, string Message)> EditPendingTransferLinesAsync(Guid id, EditPendingTransferLinesRequest request);
+
     /// <summary>Closes a transfer against the document SAP created when its post timed out.</summary>
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RecordPendingTransferSapDocumentAsync(Guid id, int sapDocNum);
 
@@ -478,6 +484,16 @@ public class InventoryTransferService : IInventoryTransferService
         return (success, message);
     }
 
+    public async Task<(bool Success, string Message)> EditPendingTransferLinesAsync(Guid id, EditPendingTransferLinesRequest request)
+    {
+        var (success, message, _) = await SendPendingTransferActionAsync(
+            $"api/inventorytransfer/pending/{id}/lines",
+            JsonContent.Create(request),
+            "We couldn't save those quantities right now. Please try again.",
+            HttpMethod.Put);
+        return (success, message);
+    }
+
     public Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RecordPendingTransferSapDocumentAsync(Guid id, int sapDocNum)
         => SendPendingTransferActionAsync(
             $"api/inventorytransfer/pending/{id}/record-sap-document",
@@ -592,11 +608,12 @@ public class InventoryTransferService : IInventoryTransferService
     private async Task<(bool Success, string Message, InventoryTransferDto? Transfer)> SendPendingTransferActionAsync(
         string url,
         HttpContent? content,
-        string fallbackMessage)
+        string fallbackMessage,
+        HttpMethod? method = null)
     {
         try
         {
-            var response = await SendWriteAsync(HttpMethod.Post, url, content);
+            var response = await SendWriteAsync(method ?? HttpMethod.Post, url, content);
 
             if (response.IsSuccessStatusCode)
             {
