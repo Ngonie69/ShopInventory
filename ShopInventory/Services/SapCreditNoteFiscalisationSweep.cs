@@ -191,6 +191,11 @@ public sealed class SapCreditNoteFiscalisationSweep(
     {
         var options = settings.Value;
         var from = AuditService.ToCAT(nowUtc).Date.AddDays(-(Math.Max(1, options.LookbackDays) - 1));
+
+        if (options.NotBefore is { } notBefore && notBefore.Date > from)
+        {
+            from = notBefore.Date;
+        }
         var settledBefore = nowUtc.AddMinutes(-Math.Max(0, options.GraceMinutes));
         var excluded = options.ExcludedPrefixes();
 

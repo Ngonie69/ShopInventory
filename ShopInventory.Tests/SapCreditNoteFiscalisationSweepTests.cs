@@ -98,6 +98,18 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
     }
 
     [Fact]
+    public async Task Memos_dated_before_the_floor_are_left_alone_whatever_the_lookback()
+    {
+        await AddMemo(59259, docDate: Yesterday.AddDays(-1));
+        await AddMemo(60103, docDate: Yesterday);
+
+        var candidates = await Sweep(new RecordingFiscalisation(), notBefore: Yesterday)
+            .FindCandidatesAsync(DateTime.UtcNow, CancellationToken.None);
+
+        Assert.Equal(60103, Assert.Single(candidates).DocNum);
+    }
+
+    [Fact]
     public async Task Only_the_last_attempt_raises_an_incident()
     {
         await AddMemo(60045);
@@ -186,7 +198,8 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
         RecordingFiscalisation fiscal,
         int maxAttempts = 3,
         FakeSap? sap = null,
-        FiscalisationSettings? fiscalisation = null)
+        FiscalisationSettings? fiscalisation = null,
+        DateTime? notBefore = null)
     {
         var client = (sap ?? new FakeSap()).AsClient();
         var fiscalisationOptions = Options.Create(fiscalisation ?? new FiscalisationSettings { Provider = FiscalisationProvider.Platform });
@@ -201,7 +214,7 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
                 fiscal.AsSender(),
                 fiscalisationOptions,
                 NullLogger<SapCreditNoteFiscaliser>.Instance),
-            Options.Create(new CreditNoteFiscalisationSettings { MaxAttempts = maxAttempts }),
+            Options.Create(new CreditNoteFiscalisationSettings { MaxAttempts = maxAttempts, NotBefore = notBefore }),
             fiscalisationOptions,
             Options.Create(new RevmaxSettings()),
             NullLogger<SapCreditNoteFiscalisationSweep>.Instance);

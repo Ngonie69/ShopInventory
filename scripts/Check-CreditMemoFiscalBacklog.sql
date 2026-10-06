@@ -21,7 +21,7 @@
 
 \echo '1. backlog'
 WITH settings AS (
-    SELECT (now() AT TIME ZONE 'Africa/Harare')::date - 13 AS from_day,
+    SELECT GREATEST((now() AT TIME ZONE 'Africa/Harare')::date - 13, DATE '2026-10-01') AS from_day,
            now() - interval '15 minutes'                  AS settled_before
 ),
 memos AS (
