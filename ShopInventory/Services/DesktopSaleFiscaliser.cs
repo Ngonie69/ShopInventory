@@ -187,9 +187,9 @@ public sealed class DesktopSaleFiscaliser(
                     Quantity = l.Quantity,
                     UnitPrice = l.UnitPrice,
                     GrossPrice = Math.Round(grossUnitPrice, 2, MidpointRounding.AwayFromZero),
-                    // What the line came to, before a unit price in cents is multiplied back out:
-                    // thirty units at 0.63525 are 19.06, and at 0.64 they are 19.20. REVMax files
-                    // these; the platform reads GrossPrice alone.
+                    // What the customer paid per unit, before it is rounded to cents: thirty units
+                    // at 0.63525 are 19.06, and at 0.64 they are 19.20. Both REVMax and the platform
+                    // file this one; GrossPrice is the same price rounded to the cent.
                     PriceAfterVat = Math.Round(grossUnitPrice, 6, MidpointRounding.AwayFromZero),
                     GrossTotal = Math.Round(l.Quantity * grossUnitPrice, 2, MidpointRounding.AwayFromZero),
                     LineTotal = l.LineTotal,

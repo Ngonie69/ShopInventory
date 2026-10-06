@@ -21,7 +21,8 @@ namespace ShopInventory.Features.DesktopCreditNotes;
 /// platform computes a tax-inclusive receipt's total as the sum of its rounded line totals, so rebuilt
 /// lines that come to the archived total to the cent are the lines it filed. Lines that come to anything
 /// else are refused rather than credited, because a credit carrying a price or a tax the original did not
-/// is refused by ZIMRA after the fact.
+/// is refused by ZIMRA after the fact. A receipt filed before 6 October 2026 was priced to the cent
+/// (<see cref="PreSapLinePricing.Cents"/>), so when the exact lines do not reproduce it those are tried.
 /// </para>
 /// <para>
 /// The platform holds the authority on how much of the receipt is left to credit: it refuses a credit
@@ -70,12 +71,23 @@ public sealed class PlatformDesktopCreditGateway(ApplicationDbContext db, Fiscal
 
         // The sale is read without its lines.
         var saleLines = await db.DesktopSaleLines.AsNoTracking().Where(l => l.SaleId == sale.Id).ToListAsync(ct);
-        var filed = await platform.BuildPreSapLinesAsync(DesktopSaleFiscaliser.BuildInvoice(sale, saleLines, tax.Value), ct);
-        var rebuilt = filed.Sum(l => DesktopCreditPlanner.Round(l.Price * l.Quantity));
-        if (rebuilt != original.ReceiptTotal)
+        var invoice = DesktopSaleFiscaliser.BuildInvoice(sale, saleLines, tax.Value);
+        var filed = await platform.BuildPreSapLinesAsync(invoice, ct);
+        if (!Reproduces(filed, original))
+        {
+            // Filed before exact pricing, at unit prices rounded to the cent.
+            var cents = await platform.BuildPreSapLinesAsync(invoice, ct, PreSapLinePricing.Cents);
+            if (Reproduces(cents, original)) filed = cents;
+        }
+        if (Total(filed) != original.ReceiptTotal)
             throw new InvalidOperationException(
-                $"This sale's lines come to {Money(rebuilt)} as they would be filed today, but the platform's receipt "
+                $"This sale's lines come to {Money(Total(filed))} as they would be filed today, but the platform's receipt "
                 + $"{original.ReceiptGlobalNo} is for {Money(original.ReceiptTotal)}, so the lines it was filed with "
+                + "cannot be reproduced. Raise the credit note in SAP.");
+        if (!Reproduces(filed, original))
+            throw new InvalidOperationException(
+                $"This sale's lines carry {Money(Vat(filed))} of VAT as they would be filed today, but the platform's receipt "
+                + $"{original.ReceiptGlobalNo} declared {Money(original.TaxAmount)}, so the lines it was filed with "
                 + "cannot be reproduced. Raise the credit note in SAP.");
 
         var lines = new List<DesktopCreditLine>();
@@ -149,6 +161,28 @@ public sealed class PlatformDesktopCreditGateway(ApplicationDbContext db, Fiscal
             SourceChannel = receipt.SourceChannel, SourceLocation = receipt.SourceLocation
         };
     }
+
+    /// <summary>What the platform totals a receipt with these lines at.</summary>
+    private static decimal Total(IEnumerable<LineApiRequest> lines) => lines.Sum(l => DesktopCreditPlanner.Round(l.Price * l.Quantity));
+
+    /// <summary>
+    /// The VAT the platform declares for these lines: per tax, the tax-inclusive sales total's share at
+    /// its percentage, rounded to the cent.
+    /// </summary>
+    private static decimal Vat(IEnumerable<LineApiRequest> lines) => lines
+        .GroupBy(l => (l.TaxId, l.TaxPercent, l.TaxCode))
+        .Where(g => g.Key.TaxPercent > 0m)
+        .Sum(g => DesktopCreditPlanner.Round(Total(g) * g.Key.TaxPercent!.Value / (100m + g.Key.TaxPercent.Value)));
+
+    /// <summary>Whether these lines are the ones the original was filed with.</summary>
+    /// <remarks>
+    /// The total alone no longer proves it: the exact lines are settled to the sale's total, so they come
+    /// to it whatever rate they carry. The VAT does — a rate changed since the sale moves it. A record that
+    /// carries no VAT is not held to it: the platform reports none where it could not read the receipt's
+    /// taxes.
+    /// </remarks>
+    private static bool Reproduces(List<LineApiRequest> lines, FiscalisedReceiptRecordDto original) =>
+        Total(lines) == original.ReceiptTotal && (original.TaxAmount <= 0m || Vat(lines) == original.TaxAmount);
 
     private static string Money(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
 }
