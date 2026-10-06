@@ -203,6 +203,56 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
     }
 
     [Fact]
+    public async Task A_stock_refusal_names_the_item_as_the_direct_sale_does()
+    {
+        // The handset shows this text behind "Error:" and nothing else. It used to be "insufficient
+        // stock or batch allocation error" whatever the reservation had found, so a rep with nine lines
+        // on the screen was not told which one was short, nor by how much.
+        _reservations.FailNext = true;
+        _reservations.FailReasons =
+        [
+            "Insufficient stock for 'FRM001' in 'VAN01'. Requested: 5.00, Available: 2.00 (In stock: 2.00, Reserved: 0.00)"
+        ];
+
+        var refused = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(refused.IsError);
+        Assert.Equal("DesktopIntegration.ReservationFailed", refused.FirstError.Code);
+        Assert.Contains("'FRM001'", refused.FirstError.Description);
+        Assert.Contains("Available: 2.00", refused.FirstError.Description);
+    }
+
+    [Fact]
+    public async Task A_lapsed_reservation_under_the_reference_is_not_reported_as_an_existing_invoice()
+    {
+        // The service says the reference "already exists". Sent through, the handset reads that as the
+        // invoice existing, records the order as converted and deducts the van's stock — for an attempt
+        // that expired or was cancelled. Worded as a refusal, the handset re-references and resends.
+        _reservations.FailNext = true;
+        _reservations.FailCode = ReservationErrorCode.DuplicateReference;
+        _reservations.FailReasons = [$"External reference '{VanOrder}' is already used by reservation RES-9 (Status: Expired)"];
+
+        var refused = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(refused.IsError);
+        Assert.Equal("DesktopIntegration.ReservationFailed", refused.FirstError.Code);
+        Assert.DoesNotContain("already", refused.FirstError.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("duplicate", refused.FirstError.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Convert the order again", refused.FirstError.Description);
+    }
+
+    [Fact]
+    public async Task A_stock_refusal_with_no_reason_behind_it_still_says_what_failed()
+    {
+        _reservations.FailNext = true;
+
+        var refused = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(refused.IsError);
+        Assert.Contains("Stock reservation failed", refused.FirstError.Description);
+    }
+
+    [Fact]
     public async Task Without_a_reference_the_claim_is_not_taken()
     {
         var result = await Handler().Handle(Command(externalReferenceId: null), CancellationToken.None);
@@ -332,6 +382,8 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
         public int Calls;
         public int Created;
         public bool FailNext;
+        public List<string> FailReasons = [];
+        public string? FailCode;
         public bool HandOutFreshIds;
         public Task? Gate;
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -350,7 +402,13 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
             if (FailNext)
             {
                 FailNext = false;
-                return new StockReservationResponseDto { Success = false, Errors = [] };
+                return new StockReservationResponseDto
+                {
+                    Success = false,
+                    Errors = FailReasons
+                        .Select(message => new StockReservationErrorDto { ErrorCode = FailCode ?? string.Empty, Message = message })
+                        .ToList()
+                };
             }
 
             if (HandOutFreshIds || !_byReference.TryGetValue(request.ExternalReferenceId, out var id))
