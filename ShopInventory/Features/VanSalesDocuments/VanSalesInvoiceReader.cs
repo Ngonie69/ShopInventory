@@ -21,7 +21,8 @@ internal sealed record VanSalesInvoiceRecord(
     string? FiscalQrCode,
     int PostingAttempts,
     string? QueueStatus,
-    VanSalesInvoiceSaleFacts? Sale);
+    VanSalesInvoiceSaleFacts? Sale,
+    string? QueueReference = null);
 
 /// <summary>
 /// The columns the on-request post and fiscalisation rules read, from the sale row an invoice has: its
@@ -138,7 +139,20 @@ internal static class VanSalesInvoiceReader
             : await db.InvoiceQueue
                 .AsNoTracking()
                 .Where(q => reservationIds.Contains(q.ReservationId))
-                .Select(q => new { q.ReservationId, q.Status, q.LastError, q.FiscalReceiptNumber, q.SapDocEntry, q.SapDocNum })
+                .Select(q => new
+                {
+                    q.ReservationId,
+                    q.ExternalReference,
+                    q.Status,
+                    q.LastError,
+                    q.FiscalReceiptNumber,
+                    q.FiscalVerificationCode,
+                    q.FiscalQrCode,
+                    q.FiscalDayNo,
+                    q.FiscalDeviceNumber,
+                    q.SapDocEntry,
+                    q.SapDocNum
+                })
                 .ToListAsync(cancellationToken);
 
         var queueByReservation = queued
@@ -261,9 +275,10 @@ internal static class VanSalesInvoiceReader
                 SapDocEntry: sapDocEntry,
                 SapDocNum: sapDocNum,
                 FiscalReceiptNumber: signed ? receipt!.FiscalReceiptNumber : queue?.FiscalReceiptNumber,
-                FiscalVerificationCode: signed ? receipt!.FiscalVerificationCode : null,
-                FiscalDay: signed ? receipt!.FiscalDayNo : null,
-                FiscalDeviceSerial: signed ? receipt!.FiscalDeviceNumber : null,
+                // A converted order's receipt is kept on its queue entry, there being no receipt row.
+                FiscalVerificationCode: signed ? receipt!.FiscalVerificationCode : queue?.FiscalVerificationCode,
+                FiscalDay: signed ? receipt!.FiscalDayNo : queue?.FiscalDayNo,
+                FiscalDeviceSerial: signed ? receipt!.FiscalDeviceNumber : queue?.FiscalDeviceNumber,
                 State: VanSalesDocumentStates.Decide(signed || queueSigned, sapDocNum is not null, failure is not null),
                 Problem: failure,
                 SaleNumber: receipt is null ? null : DesktopSaleNumber.Format(receipt.Id));
@@ -272,7 +287,7 @@ internal static class VanSalesInvoiceReader
                 row,
                 r.ReservationId,
                 DesktopSaleId: null,
-                FiscalQrCode: signed ? receipt!.FiscalQrCode : null,
+                FiscalQrCode: signed ? receipt!.FiscalQrCode : queue?.FiscalQrCode,
                 PostingAttempts: receipt?.PostingAttempts ?? 0,
                 QueueStatus: queue?.Status.ToString(),
                 Sale: receipt is null
@@ -282,7 +297,8 @@ internal static class VanSalesInvoiceReader
                         receipt.ConsolidationStatus,
                         receipt.FiscalizationStatus,
                         receipt.RequiresReconciliation,
-                        receipt.CreatedAtUtc)));
+                        receipt.CreatedAtUtc),
+                QueueReference: queue?.ExternalReference));
 
             if (!signed && !queueSigned && sapDocNum is > 0)
             {

@@ -563,6 +563,65 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
     }
 
     /// <summary>
+    /// A converted order has no sale row, so the queue entry is the only place its receipt's QR can be kept.
+    /// It used to keep the number and the device alone, and the van invoice drawer had no ZIMRA link to show.
+    /// </summary>
+    [Fact]
+    public async Task The_queue_job_keeps_the_receipt_QR_code_and_day_with_the_entry()
+    {
+        await SeedQueuedSaleAsync(queueStatus: InvoiceQueueStatus.Pending);
+        var entry = await QueueEntryAsync();
+        entry.FiscalReceiptNumber = null;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var fiscalisation = StubProxy.For<IFiscalizationService>((method, _) =>
+            method.Name == nameof(IFiscalizationService.FiscalizePreSapInvoiceAsync)
+                ? Task.FromResult(new FiscalizationResult
+                {
+                    Success = true,
+                    ReceiptGlobalNo = "1871",
+                    DeviceSerial = "ZIMRAVD-2121",
+                    QRCode = "https://fdms.zimra.co.zw/0000046668051020260000001871A1B2C3D4E5F60718",
+                    VerificationCode = "A1B2-C3D4-E5F6-0718",
+                    FiscalDayNo = "41"
+                })
+                : throw new InvalidOperationException($"Unexpected fiscal call: {method.Name}"));
+
+        await RunJobAsync(fiscalisation);
+        _context.ChangeTracker.Clear();
+
+        var after = await QueueEntryAsync();
+        Assert.Equal(InvoiceQueueStatus.Fiscalized, after.Status);
+        Assert.Equal("1871", after.FiscalReceiptNumber);
+        Assert.Equal("ZIMRAVD-2121", after.FiscalDeviceNumber);
+        Assert.Equal("https://fdms.zimra.co.zw/0000046668051020260000001871A1B2C3D4E5F60718", after.FiscalQrCode);
+        Assert.Equal("A1B2-C3D4-E5F6-0718", after.FiscalVerificationCode);
+        Assert.Equal("41", after.FiscalDayNo);
+    }
+
+    /// <summary>
+    /// The SAP layout prints the receipt from U_Fiscal_Code and U_Fiscal_Url. The platform cannot write them
+    /// onto an invoice that was fiscalised before it existed, so the post has to carry them.
+    /// </summary>
+    [Fact]
+    public async Task The_posted_invoice_carries_the_receipt_the_queue_kept_for_the_SAP_layout()
+    {
+        await SeedQueuedSaleAsync();
+        var entry = await QueueEntryAsync();
+        entry.FiscalQrCode = "https://fdms.zimra.co.zw/0000046668051020260000001871A1B2C3D4E5F60718";
+        entry.FiscalVerificationCode = "A1B2-C3D4-E5F6-0718";
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await RunAsync();
+
+        var invoice = Assert.Single(_posted);
+        Assert.Equal("https://fdms.zimra.co.zw/0000046668051020260000001871A1B2C3D4E5F60718", invoice.FiscalQrUrl);
+        Assert.Equal("A1B2-C3D4-E5F6-0718", invoice.FiscalVerificationCode);
+    }
+
+    /// <summary>
     /// The queue's payload carries the net price SAP posts. The receipt is filed tax-inclusive, so it has to be
     /// handed the gross: it used to be handed 30.00 as the gross, declaring a 69.30 invoice to ZIMRA as 60.00
     /// with the VAT carved out of it.

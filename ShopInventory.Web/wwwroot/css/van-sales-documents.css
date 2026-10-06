@@ -1482,11 +1482,10 @@
     height: 100%;
 }
 
+/* The copy beside the plate is set as the Desktop Sales drawer's fiscal
+   signature panel is (.ops-ds-qr-copy in operations.css), value for value, so
+   one receipt reads the same on either page. */
 .vsd-qr-copy {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
     min-width: 0;
 }
 
@@ -1497,9 +1496,27 @@
 }
 
 .vsd-qr-copy p {
-    margin: 0;
-    font-size: 12px;
+    margin: var(--vsd-s2) 0 0;
+    font-size: 12.5px;
+    line-height: 1.55;
     color: var(--vsd-mute-2);
+    text-wrap: pretty;
+}
+
+/* The verification code is read out loud over a phone as often as it is
+   scanned, so it wraps rather than being clipped to the drawer's width. */
+.vsd-qr-code {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--vsd-s2) var(--vsd-s3);
+    margin-top: var(--vsd-s3);
+}
+
+.vsd-qr-code .vsd-code {
+    font-size: 11.5px;
+    white-space: nowrap;
+    word-break: break-all;
 }
 
 .vsd-overlay .vsd-verify {
@@ -1515,6 +1532,17 @@
 
 .vsd-overlay .vsd-verify:hover {
     text-decoration: underline;
+}
+
+/* "Verify with ZIMRA" sits lighter than the credit notes' "Open invoice",
+   as .ops-ds-verify does on Desktop Sales. */
+.vsd-overlay .vsd-qr-code .vsd-verify {
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.vsd-overlay .vsd-qr-code .vsd-verify i {
+    font-size: 12px;
 }
 
 .vsd-reason {

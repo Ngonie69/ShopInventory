@@ -81,6 +81,9 @@ public interface IInvoiceQueueService
         string? error = null,
         string? fiscalDeviceNumber = null,
         string? fiscalReceiptNumber = null,
+        string? fiscalQrCode = null,
+        string? fiscalVerificationCode = null,
+        string? fiscalDayNo = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -494,6 +497,9 @@ public class InvoiceQueueService : IInvoiceQueueService
         string? error = null,
         string? fiscalDeviceNumber = null,
         string? fiscalReceiptNumber = null,
+        string? fiscalQrCode = null,
+        string? fiscalVerificationCode = null,
+        string? fiscalDayNo = null,
         CancellationToken cancellationToken = default)
     {
         var entry = await _context.InvoiceQueue.FindAsync(new object[] { queueId }, cancellationToken);
@@ -539,6 +545,21 @@ public class InvoiceQueueService : IInvoiceQueueService
         {
             entry.FiscalReceiptNumber = fiscalReceiptNumber;
             entry.FiscalizationSuccess = true;
+        }
+
+        if (!string.IsNullOrEmpty(fiscalQrCode))
+        {
+            entry.FiscalQrCode = fiscalQrCode;
+        }
+
+        if (!string.IsNullOrEmpty(fiscalVerificationCode))
+        {
+            entry.FiscalVerificationCode = fiscalVerificationCode;
+        }
+
+        if (!string.IsNullOrEmpty(fiscalDayNo))
+        {
+            entry.FiscalDayNo = fiscalDayNo;
         }
 
         await _context.SaveChangesAsync(cancellationToken);
