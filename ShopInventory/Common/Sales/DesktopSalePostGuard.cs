@@ -8,8 +8,11 @@ namespace ShopInventory.Common.Sales;
 public sealed class DesktopSalePostGuard(
     IIdempotencyRequestStore store,
     IOptions<DesktopSalePostingSettings> settings,
-    ILogger<DesktopSalePostGuard> logger) : IDesktopSalePostGuard
+    ILogger<DesktopSalePostGuard> logger,
+    TimeProvider? timeProvider = null) : IDesktopSalePostGuard
 {
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
     /// <summary>
     /// One scope for both posting routes, keyed on the sale alone.
     /// </summary>
@@ -67,7 +70,8 @@ public sealed class DesktopSalePostGuard(
                 return DesktopSalePostClaim.ForInFlight(reference);
 
             default:
-                return DesktopSalePostClaim.ForGrant(reference, acquired.RequestId!.Value, store, logger, lease);
+                return DesktopSalePostClaim.ForGrant(
+                    reference, acquired.RequestId!.Value, store, logger, lease, _timeProvider);
         }
     }
 }

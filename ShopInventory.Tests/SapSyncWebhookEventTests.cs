@@ -34,6 +34,7 @@ public sealed class SapSyncWebhookEventTests : IDisposable
 
     private readonly SqliteConnection _connection;
     private readonly ServiceProvider _provider;
+    private readonly WebhookDeliveryProbe _deliveries = new();
     private readonly CacheSyncStateRecorder _recorder;
 
     public SapSyncWebhookEventTests()
@@ -62,7 +63,7 @@ public sealed class SapSyncWebhookEventTests : IDisposable
             ServiceLifetime.Scoped);
         services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory());
         services.AddSingleton<ILogger<WebhookService>>(NullLogger<WebhookService>.Instance);
-        services.AddScoped<IWebhookService, WebhookService>();
+        _deliveries.AddWebhookService(services);
 
         _provider = services.BuildServiceProvider();
 
@@ -147,25 +148,19 @@ public sealed class SapSyncWebhookEventTests : IDisposable
     }
 
     /// <summary>
-    /// Waits for the delivery to be not just logged but finished.
+    /// Waits for the delivery to be not just logged but finished, then reads the row it left.
     /// </summary>
     /// <remarks>
-    /// The counter save on the hook is the last write the delivery makes, so waiting for it is what
-    /// makes the caller's own assertions safe: every context here shares one SQLite connection, and
-    /// reading it while the background task still has statements in flight fails the read.
+    /// Read only once the delivery is over: every context here shares one SQLite connection, and
+    /// reading it while the background task still has statements in flight fails one or the other.
     /// </remarks>
-    private Task<WebhookDelivery?> WaitForDeliveryAsync(string eventType)
-        => BackgroundWriteProbe.PollAsync<WebhookDelivery>(
-            NewContext,
-            async context =>
-            {
-                var delivery = await context.WebhookDeliveries
-                    .FirstOrDefaultAsync(d => d.EventType == eventType);
+    private async Task<WebhookDelivery?> WaitForDeliveryAsync(string eventType)
+    {
+        await _deliveries.WaitForDeliveryAsync();
 
-                var settled = await context.Webhooks.AnyAsync(w => w.LastTriggeredAt != null);
-
-                return delivery != null && settled ? delivery : null;
-            });
+        using var context = NewContext();
+        return await context.WebhookDeliveries.SingleOrDefaultAsync(d => d.EventType == eventType);
+    }
 
     private ApplicationDbContext NewContext()
         => new(new DbContextOptionsBuilder<ApplicationDbContext>()

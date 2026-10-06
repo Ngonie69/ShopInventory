@@ -32,6 +32,7 @@ public sealed class WebhookDeliveryOutlivesRequestScopeTests : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly ServiceProvider _provider;
+    private readonly WebhookDeliveryProbe _deliveries = new();
 
     public WebhookDeliveryOutlivesRequestScopeTests()
     {
@@ -49,7 +50,7 @@ public sealed class WebhookDeliveryOutlivesRequestScopeTests : IDisposable
             ServiceLifetime.Scoped);
         services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(HttpStatusCode.OK));
         services.AddSingleton<ILogger<WebhookService>>(NullLogger<WebhookService>.Instance);
-        services.AddScoped<IWebhookService, WebhookService>();
+        _deliveries.AddWebhookService(services);
 
         _provider = services.BuildServiceProvider();
     }
@@ -95,19 +96,18 @@ public sealed class WebhookDeliveryOutlivesRequestScopeTests : IDisposable
         Assert.NotNull(saved.LastTriggeredAt);
     }
 
-    private Task<WebhookDelivery?> WaitForDeliveryAsync()
-        => BackgroundWriteProbe.PollAsync<WebhookDelivery>(
-            NewContext,
-            async context =>
-            {
-                var delivery = await context.WebhookDeliveries.FirstOrDefaultAsync();
+    /// <summary>Waits for the delivery to finish, then reads the row it left.</summary>
+    /// <remarks>
+    /// Read only once the delivery is over: every context here shares one SQLite connection, and
+    /// reading it while the background task still has statements in flight fails one or the other.
+    /// </remarks>
+    private async Task<WebhookDelivery?> WaitForDeliveryAsync()
+    {
+        await _deliveries.WaitForDeliveryAsync();
 
-                // The counter save is the delivery's last write, so waiting for it keeps the
-                // caller's own reads off a connection the background task is still using.
-                var settled = await context.Webhooks.AnyAsync(w => w.LastTriggeredAt != null);
-
-                return delivery != null && settled ? delivery : null;
-            });
+        using var context = NewContext();
+        return await context.WebhookDeliveries.SingleOrDefaultAsync();
+    }
 
     private ApplicationDbContext NewContext()
         => new(new DbContextOptionsBuilder<ApplicationDbContext>()

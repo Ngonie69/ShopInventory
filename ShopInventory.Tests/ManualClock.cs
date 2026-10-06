@@ -25,6 +25,15 @@ public sealed class ManualClock : TimeProvider
         lock (_sync) { return _now; }
     }
 
+    /// <summary>
+    /// Timers created on this clock and not yet disposed. A disposed timer can never fire again, so
+    /// zero is proof that nothing scheduled on this clock is left to run.
+    /// </summary>
+    public int ActiveTimers
+    {
+        get { lock (_sync) { return _timers.Count; } }
+    }
+
     /// <summary>Moves the clock on, and fires every timer that has come due.</summary>
     public void Advance(TimeSpan by)
     {

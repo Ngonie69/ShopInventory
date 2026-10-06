@@ -29,7 +29,8 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
         IIdempotencyRequestStore? store = null,
         ILogger? logger = null,
         long? requestId = null,
-        TimeSpan? lease = null)
+        TimeSpan? lease = null,
+        TimeProvider? timeProvider = null)
     {
         Outcome = outcome;
         _externalReferenceId = externalReferenceId;
@@ -40,8 +41,11 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
 
         if (store is not null && requestId is not null && lease is { } leaseLength && leaseLength > TimeSpan.Zero)
         {
+            // Started here rather than inside the loop, so the first renewal is due a quarter-lease
+            // from the grant itself, however late the thread pool gets round to running the loop.
+            var timer = new PeriodicTimer(leaseLength / 4, timeProvider ?? TimeProvider.System);
             _heartbeatStop = new CancellationTokenSource();
-            _heartbeat = Task.Run(() => RenewWhileHeldAsync(leaseLength, _heartbeatStop.Token));
+            _heartbeat = Task.Run(() => RenewWhileHeldAsync(timer, leaseLength, _heartbeatStop.Token));
         }
     }
 
@@ -58,9 +62,10 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
         long requestId,
         IIdempotencyRequestStore store,
         ILogger logger,
-        TimeSpan? lease = null)
+        TimeSpan? lease = null,
+        TimeProvider? timeProvider = null)
         => new(DesktopSalePostClaimOutcome.Granted, externalReferenceId, store: store, logger: logger,
-            requestId: requestId, lease: lease);
+            requestId: requestId, lease: lease, timeProvider: timeProvider);
 
     internal static DesktopSalePostClaim ForReplay(string externalReferenceId, DesktopSalePostReceipt receipt)
         => new(DesktopSalePostClaimOutcome.AlreadyPosted, externalReferenceId, receipt);
@@ -144,9 +149,9 @@ public sealed class DesktopSalePostClaim : IAsyncDisposable
     /// deliberately: its invoice may yet commit, and it is the one case where letting a second post in
     /// would be wrong.
     /// </remarks>
-    private async Task RenewWhileHeldAsync(TimeSpan lease, CancellationToken stop)
+    private async Task RenewWhileHeldAsync(PeriodicTimer timer, TimeSpan lease, CancellationToken stop)
     {
-        using var timer = new PeriodicTimer(lease / 4);
+        using var _ = timer;
 
         try
         {
