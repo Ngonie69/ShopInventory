@@ -178,7 +178,9 @@ public sealed class FiscalizeInvoiceHandler(
             TimestampUtc = timestampUtc,
             DocNum = invoice.DocNum,
             DocumentType = DocumentType,
-            Status = ResolveStatus(result),
+            // A dry run is recorded Failed, with its message, so the work queue still lists the invoice as
+            // owing a receipt. See FiscalTransactionStatus.
+            Status = FiscalTransactionStatus.Of(result),
             Message = result.Message,
             VerificationCode = result.VerificationCode,
             QRCode = result.QRCode,
@@ -200,21 +202,18 @@ public sealed class FiscalizeInvoiceHandler(
         };
     }
 
-    private static string ResolveStatus(FiscalizationResult result)
-        => result.Skipped
-            ? FiscalisedStatus
-            : result.Success
-                ? "Success"
-                : "Failed";
-
     private static int? ParseReceiptGlobalNo(string? value)
         => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : null;
 
+    /// <remarks>
+    /// Success alone. An invoice the device already holds comes back <c>Success</c> as well as
+    /// <c>Skipped</c>; a dry run comes back <c>Skipped</c> only, and nothing was filed.
+    /// </remarks>
     private Task TryAuditAsync(
         InvoiceDto invoice,
         FiscalizationResult result,
         FiscalizeInvoiceCommand command)
-        => TryAuditAsync(invoice, result.Success || result.Skipped, result.Message, command);
+        => TryAuditAsync(invoice, result.Success, result.Message, command);
 
     private async Task TryAuditAsync(
         InvoiceDto invoice,

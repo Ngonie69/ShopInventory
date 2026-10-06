@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.Invoices.Events;
@@ -113,7 +114,9 @@ public sealed class InvoiceFiscalizationBackgroundService(
             TimestampUtc = nowUtc,
             DocNum = workItem.Invoice.DocNum,
             DocumentType = "Invoice",
-            Status = ResolveStatus(result),
+            // A dry run is recorded Failed, with its message, so the work queue still lists the invoice as
+            // owing a receipt. See FiscalTransactionStatus.
+            Status = FiscalTransactionStatus.Of(result),
             Message = result.Message,
             VerificationCode = result.VerificationCode,
             QRCode = result.QRCode,
@@ -136,13 +139,6 @@ public sealed class InvoiceFiscalizationBackgroundService(
             SourceSystem = SourceSystem
         };
     }
-
-    private static string ResolveStatus(FiscalizationResult result)
-        => result.Skipped
-            ? "Fiscalised"
-            : result.Success
-                ? "Success"
-                : "Failed";
 
     private static int? ParseReceiptGlobalNo(string? value)
         => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : null;

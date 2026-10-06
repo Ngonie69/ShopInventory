@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -161,7 +162,7 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
 
         Assert.Empty(fiscal.Recorded);
         Assert.NotNull(result.StoppedBecause);
-        Assert.Equal("Failed", SapCreditNoteFiscaliser.StatusOf(fiscal.Result));
+        Assert.Equal("Failed", FiscalTransactionStatus.Of(fiscal.Result));
     }
 
     [Fact]
