@@ -23,17 +23,25 @@ namespace ShopInventory.Tests;
 internal static class SalePostGuards
 {
     /// <summary>The production guard, over the store, on this test's database.</summary>
-    public static IDesktopSalePostGuard Backed(SqliteConnection connection, int? leaseSeconds = null)
+    /// <param name="clock">
+    /// The clock the claim's lease is measured and renewed on. A test about the lease passes a
+    /// <see cref="ManualClock"/>, so the lease runs out when the test says and not when a loaded
+    /// machine gets round to it.
+    /// </param>
+    public static IDesktopSalePostGuard Backed(SqliteConnection connection, TimeProvider? clock = null)
+        => Over(Store(connection, clock), clock);
+
+    /// <summary>The production guard over <paramref name="store"/>, for a test that wraps the store.</summary>
+    public static IDesktopSalePostGuard Over(IIdempotencyRequestStore store, TimeProvider? clock = null)
         => new DesktopSalePostGuard(
-            Store(connection),
-            Options.Create(leaseSeconds is { } seconds
-                ? new DesktopSalePostingSettings { PostClaimLeaseSeconds = seconds }
-                : new DesktopSalePostingSettings()),
-            NullLogger<DesktopSalePostGuard>.Instance);
+            store,
+            Options.Create(new DesktopSalePostingSettings()),
+            NullLogger<DesktopSalePostGuard>.Instance,
+            clock);
 
     /// <summary>The store under <see cref="Backed"/>, for a test that plants or inspects a claim.</summary>
-    public static IdempotencyRequestStore Store(SqliteConnection connection)
-        => new(new ConnectionScopeFactory(connection), Options.Create(new SecuritySettings()));
+    public static IdempotencyRequestStore Store(SqliteConnection connection, TimeProvider? clock = null)
+        => new(new ConnectionScopeFactory(connection), Options.Create(new SecuritySettings()), clock);
 
     /// <summary>
     /// Grants every claim and remembers nothing.

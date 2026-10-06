@@ -32,6 +32,10 @@ public sealed class DesktopSalePostGuardTests : IDisposable
     private static readonly DateTime TradingDate = new(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc);
     private const string Reference = "VAN006-INV-20260910-AAA111";
 
+    /// <summary>The production lease. The lease tests move a <see cref="ManualClock"/>, so its length costs nothing.</summary>
+    private static readonly TimeSpan Lease =
+        TimeSpan.FromSeconds(new DesktopSalePostingSettings().PostClaimLeaseSeconds);
+
     private readonly SqliteConnection _connection;
     private readonly DbContextOptions<ApplicationDbContext> _options;
     private readonly ApplicationDbContext _context;
@@ -179,16 +183,14 @@ public sealed class DesktopSalePostGuardTests : IDisposable
     {
         await GivenSaleAsync();
 
-        const int leaseSeconds = 1;
-        var guard = SalePostGuards.Backed(_connection, leaseSeconds);
+        var clock = new ManualClock();
+        var guard = SalePostGuards.Backed(_connection, clock);
 
         // What an app-pool recycle mid-post leaves behind: a claim the guard granted, and then nobody
         // alive to renew it, complete it or give it back. Taken through the production guard so the
         // lease on it is the one the guard sets, not one this test chose.
-        var dyingGuard = new DesktopSalePostGuard(
-            new OwnerThatNeverRenews(SalePostGuards.Store(_connection)),
-            Options.Create(new DesktopSalePostingSettings { PostClaimLeaseSeconds = leaseSeconds }),
-            NullLogger<DesktopSalePostGuard>.Instance);
+        var dyingGuard = SalePostGuards.Over(
+            new OwnerThatNeverRenews(SalePostGuards.Store(_connection, clock)), clock);
         var sale = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == 1);
         var orphan = await dyingGuard.ClaimAsync(sale, CancellationToken.None);
         Assert.True(orphan.Granted);
@@ -202,7 +204,7 @@ public sealed class DesktopSalePostGuardTests : IDisposable
 
         // It used to hold for the idempotency expiry, an hour, answering every press of Post with
         // "a post to SAP for this sale is already in progress".
-        await Task.Delay(TimeSpan.FromSeconds(leaseSeconds) + TimeSpan.FromMilliseconds(500));
+        clock.Advance(Lease + TimeSpan.FromSeconds(1));
 
         var posted = await Service(_context, sap, guard).PostSaleAsync(1);
 
@@ -215,18 +217,28 @@ public sealed class DesktopSalePostGuardTests : IDisposable
     {
         await GivenSaleAsync();
 
-        const int leaseSeconds = 1;
-        var guard = SalePostGuards.Backed(_connection, leaseSeconds);
+        var clock = new ManualClock();
+        var store = new RenewalCounter(SalePostGuards.Store(_connection, clock));
+        var guard = SalePostGuards.Over(store, clock);
         var sap = new BlockingSapClient();
 
         var first = Service(_context, sap, guard).PostSaleAsync(1);
         await sap.EnteredSap.Task;
 
-        // Held inside SAP for well over two leases, the way a hung Service Layer call holds it. A
-        // lease that measured the post rather than its owner would have lapsed twice by now.
-        await Task.Delay(TimeSpan.FromSeconds(leaseSeconds * 2.5));
+        // Held inside SAP for two and a half leases, the way a hung Service Layer call holds it. A
+        // lease that measured the post rather than its owner would have lapsed twice by now. The
+        // clock moves one renewal period at a time and each renewal is waited for, so what is tested
+        // is the renewal and not how promptly a loaded machine gets round to running it.
+        for (var period = 1; period <= 10; period++)
+        {
+            clock.Advance(Lease / 4);
+            Assert.True(await store.NextRenewalAsync(), $"Renewal {period} found no claim to renew.");
+        }
 
         using var other = new ApplicationDbContext(_options);
+        var held = await other.IdempotencyRequests.AsNoTracking().SingleAsync();
+        Assert.True(held.CreatedAtUtc + Lease < clock.GetUtcNow().UtcDateTime, "The original lease has not run out.");
+
         var second = await Service(other, sap, guard).PostSaleAsync(1);
 
         Assert.Equal(1, second!.InFlight);
@@ -238,11 +250,15 @@ public sealed class DesktopSalePostGuardTests : IDisposable
         Assert.Equal(1, completed!.Posted);
         Assert.Equal(1, sap.InvoicesCreated);
 
-        // Renewal stops before completion, so the finished claim replays rather than lapsing.
-        await Task.Delay(TimeSpan.FromSeconds(leaseSeconds * 1.5));
+        // Renewal stops before completion, so the finished claim replays rather than lapsing. The
+        // renewal timer is the only one on this clock, and once it is disposed nothing can renew the
+        // completed claim down to a lease, however far the clock then moves.
+        Assert.Equal(0, clock.ActiveTimers);
+        clock.Advance(Lease * 1.5);
+
         var claim = await other.IdempotencyRequests.AsNoTracking().SingleAsync();
         Assert.Equal(IdempotencyRequestStatus.Completed, claim.Status);
-        Assert.True(claim.ExpiresAtUtc > DateTime.UtcNow.AddMinutes(30));
+        Assert.True(claim.ExpiresAtUtc > clock.GetUtcNow().UtcDateTime.AddMinutes(30));
     }
 
     private async Task GivenSaleAsync()
@@ -324,15 +340,66 @@ public sealed class DesktopSalePostGuardTests : IDisposable
     }
 
     /// <summary>
+    /// The real store, reporting each renewal once it has landed.
+    /// </summary>
+    /// <remarks>
+    /// A renewal runs on the thread pool when the clock fires the claim's timer. Waiting for it to
+    /// land, rather than for a stretch of time, is what keeps the test from racing the scheduler.
+    /// </remarks>
+    private sealed class RenewalCounter(IIdempotencyRequestStore inner) : IIdempotencyRequestStore
+    {
+        private readonly System.Threading.Channels.Channel<bool> _renewals =
+            System.Threading.Channels.Channel.CreateUnbounded<bool>();
+
+        /// <summary>Whether the next renewal found the claim still standing.</summary>
+        /// <remarks>
+        /// The timeout only stops a broken build hanging the run: a renewal that is coming lands in
+        /// milliseconds, and one that never comes fails here rather than nowhere.
+        /// </remarks>
+        public async Task<bool> NextRenewalAsync()
+            => await _renewals.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
+            string scope, string key, object request, CancellationToken cancellationToken)
+            => inner.TryAcquireAsync<TResponse>(scope, key, request, cancellationToken);
+
+        public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
+            string scope, string key, object request, TimeSpan? inProgressLease, CancellationToken cancellationToken)
+            => inner.TryAcquireAsync<TResponse>(scope, key, request, inProgressLease, cancellationToken);
+
+        public async Task<bool> RenewAsync(long requestId, TimeSpan lease, CancellationToken cancellationToken)
+        {
+            var renewed = await inner.RenewAsync(requestId, lease, cancellationToken);
+            _renewals.Writer.TryWrite(renewed);
+            return renewed;
+        }
+
+        public Task CompleteAsync<TResponse>(long requestId, TResponse response, CancellationToken cancellationToken)
+            => inner.CompleteAsync(requestId, response, cancellationToken);
+
+        public Task ReleaseAsync(long requestId, CancellationToken cancellationToken)
+            => inner.ReleaseAsync(requestId, cancellationToken);
+
+        public Task<bool> TryTakeOverAsync(long requestId, DateTime issuedBeforeUtc, CancellationToken cancellationToken)
+            => inner.TryTakeOverAsync(requestId, issuedBeforeUtc, cancellationToken);
+    }
+
+    /// <summary>
     /// A SAP client that can be held inside <c>CreateInvoiceAsync</c>, which is the only window in
     /// which two posts can overlap.
     /// </summary>
+    /// <remarks>
+    /// Only the first post is held. A second post the guard wrongly lets through goes straight on to
+    /// create its invoice, so the test fails on the count instead of hanging on a release that is
+    /// only set after the second post returns.
+    /// </remarks>
     private sealed class BlockingSapClient
     {
         public TaskCompletionSource EnteredSap { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseSap { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int InvoicesCreated;
+        private int _entered;
 
         /// <summary>Answers every lookup "not there", whatever it has already created.</summary>
         public bool ForgetLookups { get; set; }
@@ -357,8 +424,11 @@ public sealed class DesktopSalePostGuardTests : IDisposable
 
         private async Task<Invoice> CreateAsync(CreateInvoiceRequest request)
         {
-            EnteredSap.TrySetResult();
-            await ReleaseSap.Task;
+            if (Interlocked.Increment(ref _entered) == 1)
+            {
+                EnteredSap.TrySetResult();
+                await ReleaseSap.Task;
+            }
 
             if (RefuseNextPost)
             {

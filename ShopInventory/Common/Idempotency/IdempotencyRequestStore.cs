@@ -10,8 +10,11 @@ namespace ShopInventory.Common.Idempotency;
 
 public sealed class IdempotencyRequestStore(
     IServiceScopeFactory scopeFactory,
-    IOptions<SecuritySettings> securitySettings) : IIdempotencyRequestStore
+    IOptions<SecuritySettings> securitySettings,
+    TimeProvider? timeProvider = null) : IIdempotencyRequestStore
 {
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
     // Shared with the permanent guard on the same key, so the two cannot disagree about what
     // "the same request" means. See IdempotencyRequestHash.
     private static readonly JsonSerializerOptions SerializerOptions = IdempotencyRequestHash.SerializerOptions;
@@ -46,7 +49,7 @@ public sealed class IdempotencyRequestStore(
         var normalizedScope = scope.Trim();
         var normalizedKey = key.Trim();
         var requestHash = IdempotencyRequestHash.Of(request);
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         using var serviceScope = scopeFactory.CreateScope();
         var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
@@ -118,7 +121,7 @@ public sealed class IdempotencyRequestStore(
         TResponse response,
         CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         var responsePayload = JsonSerializer.Serialize(response, SerializerOptions);
         using var serviceScope = scopeFactory.CreateScope();
         var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -151,7 +154,7 @@ public sealed class IdempotencyRequestStore(
         TimeSpan lease,
         CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         using var serviceScope = scopeFactory.CreateScope();
         var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
@@ -172,7 +175,7 @@ public sealed class IdempotencyRequestStore(
         DateTime issuedBeforeUtc,
         CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         using var serviceScope = scopeFactory.CreateScope();
         var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
