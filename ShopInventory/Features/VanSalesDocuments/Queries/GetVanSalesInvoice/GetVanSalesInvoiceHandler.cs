@@ -103,10 +103,10 @@ public sealed class GetVanSalesInvoiceHandler(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A converted order keeps only its receipt number: its queue entry has no column for the QR. A sale whose
-    /// receipt was adopted on a retry has none either, because the platform's adoption check is mapped without
-    /// one. Both show "Receipt 1871" and nothing to verify it by. The platform's receipt check does return the
-    /// device signature, and the link is composed from that exactly as the invoice status sync composes it.
+    /// The queue entry and the receipt row keep the QR now, but a converted order fiscalised before the queue
+    /// kept it, or a sale adopted on a retry before adoption composed one, has its receipt number alone. Both
+    /// show "Receipt 1871" and nothing to verify it by. The platform's receipt check does return the device
+    /// signature, and the link is composed from that exactly as the invoice status sync composes it.
     /// </para>
     /// <para>
     /// Asked under each number the receipt may have been filed under — the pre-SAP number of the queue entry

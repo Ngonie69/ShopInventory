@@ -490,6 +490,26 @@ public sealed class VanSalesDocumentsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_converted_order_shows_the_receipt_its_queue_entry_kept_without_asking_the_platform()
+    {
+        var reservation = AddReservation("VAN005-INV-3", ReservationStatus.Confirmed, docEntry: 786, docNum: 784865);
+        AddQueueEntry(reservation.ReservationId, "VAN005-INV-3", InvoiceQueueStatus.Completed, lastError: null, receipt: "1873");
+        await _context.SaveChangesAsync();
+        var entry = await _context.InvoiceQueue.SingleAsync(q => q.ExternalReference == "VAN005-INV-3");
+        entry.FiscalQrCode = "https://fdms.zimra.co.zw/kept";
+        entry.FiscalVerificationCode = "A1B2-C3D4-E5F6-0718";
+        entry.FiscalDayNo = "41";
+        entry.FiscalDeviceNumber = "ZIMRAVD-2121";
+
+        var detail = await DetailAsync("VAN005-INV-3", PlatformSettings, StubProxy.Unused<IFiscalisationApiClient>());
+
+        Assert.Equal("https://fdms.zimra.co.zw/kept", detail.FiscalQrCode);
+        Assert.Equal("A1B2-C3D4-E5F6-0718", detail.Invoice.FiscalVerificationCode);
+        Assert.Equal("41", detail.Invoice.FiscalDay);
+        Assert.Equal("ZIMRAVD-2121", detail.Invoice.FiscalDeviceSerial);
+    }
+
+    [Fact]
     public async Task A_platform_receipt_with_another_number_is_not_linked_to_the_invoice()
     {
         var reservation = AddReservation("VAN005-INV-2", ReservationStatus.Confirmed, docEntry: 785, docNum: 784864);

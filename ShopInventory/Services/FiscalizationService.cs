@@ -486,17 +486,15 @@ public class FiscalizationService : IFiscalizationService
             match?.ReceiptGlobalNo,
             response.Source);
 
-        // No QR or verification code: the check returns the archived record, not the signature. For a
-        // sale that prints nothing this is complete enough, and it is in every case better than a
-        // second receipt.
-        return new FiscalizationResult
-        {
-            Success = true,
-            Message = $"Receipt {match?.ReceiptGlobalNo} was already signed for this sale; adopted it.",
-            InvoiceNumber = invoiceNo,
-            ReceiptGlobalNo = match?.ReceiptGlobalNo.ToString(),
-            FiscalDayNo = match?.FiscalDayNo.ToString()
-        };
+        var message = $"Receipt {match?.ReceiptGlobalNo} was already signed for this sale; adopted it.";
+
+        // The archived record carries the device signature, so the adopted receipt gets the same QR and
+        // verification code a fresh submission would have: they are what the customer's copy and SAP's
+        // U_Fiscal_Url are printed from. A record without a match still adopts — better than a second
+        // receipt — with only what the check said.
+        return match is null
+            ? new FiscalizationResult { Success = true, Message = message, InvoiceNumber = invoiceNo }
+            : await DescribeArchivedAsync(match, message, cancellationToken);
     }
 
     public async Task<bool> IsInvoiceFiscalizedAsync(

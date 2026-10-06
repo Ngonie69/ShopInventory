@@ -150,8 +150,7 @@ public sealed class InvoicePostingJob : IJob
             }
 
             // Fiscalize the invoice (if required)
-            string? fiscalDeviceNumber = null;
-            string? fiscalReceiptNumber = null;
+            FiscalizationResult? receipt = null;
 
             if (queueEntry.RequiresFiscalization)
             {
@@ -197,11 +196,10 @@ public sealed class InvoicePostingJob : IJob
 
                 if (fiscalResult.Success)
                 {
-                    fiscalDeviceNumber = fiscalResult.DeviceSerial;
-                    fiscalReceiptNumber = fiscalResult.ReceiptGlobalNo;
+                    receipt = fiscalResult;
                     _logger.LogInformation(
                         "Invoice fiscalized: {ExternalReference}, Receipt: {Receipt}",
-                        queueEntry.ExternalReference, fiscalReceiptNumber);
+                        queueEntry.ExternalReference, fiscalResult.ReceiptGlobalNo);
                 }
                 else if (fiscalResult.RequiresReconciliation)
                 {
@@ -222,7 +220,7 @@ public sealed class InvoicePostingJob : IJob
                         fiscalResult.Message ?? fiscalResult.ErrorDetails,
                         null,
                         null,
-                        stoppingToken);
+                        cancellationToken: stoppingToken);
 
                     return;
                 }
@@ -243,9 +241,14 @@ public sealed class InvoicePostingJob : IJob
                 null, // No SAP DocEntry yet
                 null, // No SAP DocNum yet
                 null,
-                fiscalDeviceNumber,
-                fiscalReceiptNumber,
-                stoppingToken);
+                receipt?.DeviceSerial,
+                receipt?.ReceiptGlobalNo,
+                // The QR is kept with the receipt: the drawer shows it and the per-sale post writes it to
+                // SAP, and a converted order has no sale row to hold it otherwise.
+                receipt?.QRCode,
+                receipt?.VerificationCode,
+                receipt?.FiscalDayNo,
+                cancellationToken: stoppingToken);
 
             var duration = DateTime.UtcNow - startTime;
             _logger.LogInformation(
@@ -272,7 +275,7 @@ public sealed class InvoicePostingJob : IJob
                 ex.Message,
                 null,
                 null,
-                stoppingToken);
+                cancellationToken: stoppingToken);
 
             if (newStatus == InvoiceQueueStatus.RequiresReview)
             {

@@ -143,7 +143,12 @@ public sealed class PostQueuedVanInvoicesHandler(
                     DocDate = AuditService.ToCAT(entry.CreatedAt).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                     DocDueDate = AuditService.ToCAT(entry.CreatedAt).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                     Comments = string.IsNullOrWhiteSpace(entry.Notes) ? null : entry.Notes,
-                    Fiscalize = false
+                    Fiscalize = false,
+                    // The receipt the queue signed, onto U_Fiscal_Code / U_Fiscal_Url for the SAP layout.
+                    // The platform writes them only onto documents it fiscalises from SAP, and this one
+                    // was fiscalised before it existed.
+                    FiscalVerificationCode = entry.FiscalVerificationCode,
+                    FiscalQrUrl = entry.FiscalQrCode
                 },
                 baseOrder,
                 cancellationToken);

@@ -88,6 +88,21 @@ public class InvoiceQueueEntity
     public string? FiscalReceiptNumber { get; set; }
 
     /// <summary>
+    /// The receipt's ZIMRA QR URL, as fiscalisation composed it. Kept because nothing else holds it: a
+    /// converted order has no sale row, and the per-sale post writes it to SAP's <c>U_Fiscal_Url</c>.
+    /// </summary>
+    [MaxLength(500)]
+    public string? FiscalQrCode { get; set; }
+
+    /// <summary>The receipt's verification code, grouped for display; SAP's <c>U_Fiscal_Code</c>.</summary>
+    [MaxLength(200)]
+    public string? FiscalVerificationCode { get; set; }
+
+    /// <summary>The fiscal day the receipt was signed in.</summary>
+    [MaxLength(50)]
+    public string? FiscalDayNo { get; set; }
+
+    /// <summary>
     /// When the invoice was queued
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

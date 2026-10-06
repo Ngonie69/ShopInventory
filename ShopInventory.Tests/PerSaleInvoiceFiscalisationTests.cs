@@ -192,4 +192,58 @@ public sealed class PerSaleInvoiceFiscalisationTests : IDisposable
         Assert.Null(await PerSaleInvoiceRegistry.FindByDocNumAsync(_context, 6006, CancellationToken.None));
         Assert.Null(await PerSaleInvoiceRegistry.FindByDocNumAsync(_context, 0, CancellationToken.None));
     }
+
+    /// <summary>
+    /// A converted van order reaches SAP through the invoice queue and has no sale row. Its PDF and the van
+    /// app's history asked the device by DocNum, under which the receipt was never filed, and printed no
+    /// fiscal block. The queue entry now keeps the receipt, so both are answered from it.
+    /// </summary>
+    [Fact]
+    public async Task A_queued_sales_invoice_is_answered_from_the_receipt_its_queue_entry_kept()
+    {
+        var reservation = new StockReservationEntity
+        {
+            ExternalReferenceId = "VAN005-INV-1",
+            SourceSystem = SaleSourceSystems.VanSales,
+            CardCode = "VAN005",
+            Status = ReservationStatus.Confirmed,
+            SAPDocNum = 784863,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        };
+        _context.StockReservations.Add(reservation);
+        _context.InvoiceQueue.Add(new InvoiceQueueEntity
+        {
+            ReservationId = reservation.ReservationId,
+            ExternalReference = "VAN005-INV-1",
+            CustomerCode = "VAN005",
+            InvoicePayload = "{}",
+            SourceSystem = SaleSourceSystems.VanSales,
+            Status = InvoiceQueueStatus.Completed,
+            RequiresFiscalization = true,
+            FiscalReceiptNumber = "1871",
+            FiscalDeviceNumber = "ZIMRAVD-2121",
+            FiscalQrCode = "https://fdms.zimra.co.zw/0000046668051020260000001871A1B2C3D4E5F60718",
+            FiscalVerificationCode = "A1B2-C3D4-E5F6-0718",
+            FiscalDayNo = "41"
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var receipt = await PerSaleInvoiceRegistry.FindReceiptByDocNumAsync(_context, 784863, CancellationToken.None);
+
+        Assert.NotNull(receipt);
+        Assert.Equal("https://fdms.zimra.co.zw/0000046668051020260000001871A1B2C3D4E5F60718", receipt.QrCode);
+        Assert.Equal("A1B2-C3D4-E5F6-0718", receipt.VerificationCode);
+        Assert.Equal("41", receipt.FiscalDay);
+
+        var facts = await PerSaleInvoiceRegistry.FindSaleFactsByDocNumsAsync(_context, [784863], CancellationToken.None);
+
+        var sale = Assert.Single(facts).Value;
+        Assert.Equal("1871", sale.FiscalReceiptNumber);
+        Assert.Equal("https://fdms.zimra.co.zw/0000046668051020260000001871A1B2C3D4E5F60718", sale.QrCode);
+        Assert.Equal("A1B2-C3D4-E5F6-0718", sale.VerificationCode);
+        Assert.Equal("41", sale.FiscalDay);
+        Assert.Equal("ZIMRAVD-2121", sale.DeviceSerial);
+    }
 }

@@ -90,9 +90,9 @@ internal static class PerSaleInvoiceRegistry
     /// The sale row carries all of it already, so this is a local read rather than another question
     /// to the device, and it cannot come and go with the device's availability.
     ///
-    /// Only the sale-row marker answers here. A van sale that reached SAP through the invoice queue
-    /// is matched by its reservation, and the queue entry holds a receipt number but not the QR, so
-    /// such an invoice still falls through to the device read-back.
+    /// A van sale that reached SAP through the invoice queue has no sale row; it is matched by its
+    /// reservation and answered from what its queue entry kept. An entry fiscalised before the queue
+    /// kept the QR has only a number and still falls through to the device read-back.
     /// </remarks>
     public static async Task<PerSaleFiscalReceipt?> FindReceiptByDocNumAsync(
         ApplicationDbContext dbContext,
@@ -115,6 +115,18 @@ internal static class PerSaleInvoiceRegistry
                 sale.FiscalDayNo,
                 sale.FiscalDeviceId,
                 sale.ReceiptGlobalNo))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // The queue entry keeps a serial rather than the numeric device, so its receipt states no device.
+        receipt ??= await FiscalisedQueuedSales(dbContext)
+            .Where(queued => queued.DocNum == docNum)
+            .OrderByDescending(queued => queued.QueueId)
+            .Select(queued => new PerSaleFiscalReceipt(
+                queued.FiscalQrCode,
+                queued.FiscalVerificationCode,
+                queued.FiscalDayNo,
+                null,
+                null))
             .FirstOrDefaultAsync(cancellationToken);
 
         // A row with neither is nothing to print, and saying so lets the caller carry on to the
@@ -263,10 +275,10 @@ internal static class PerSaleInvoiceRegistry
                     SoldAt: null,
                     FiscalReceiptNumber: queued.FiscalReceiptNumber,
                     ReceiptGlobalNo: null,
-                    VerificationCode: null,
-                    QrCode: null,
-                    FiscalDay: null,
-                    DeviceSerial: null);
+                    VerificationCode: queued.FiscalVerificationCode,
+                    QrCode: queued.FiscalQrCode,
+                    FiscalDay: queued.FiscalDayNo,
+                    DeviceSerial: queued.FiscalDeviceNumber);
         }
 
         return facts;
@@ -351,7 +363,11 @@ internal static class PerSaleInvoiceRegistry
             QueueId = queued.Id,
             DocNum = reservation.SAPDocNum!.Value,
             ExternalReference = queued.ExternalReference,
-            FiscalReceiptNumber = queued.FiscalReceiptNumber
+            FiscalReceiptNumber = queued.FiscalReceiptNumber,
+            FiscalQrCode = queued.FiscalQrCode,
+            FiscalVerificationCode = queued.FiscalVerificationCode,
+            FiscalDayNo = queued.FiscalDayNo,
+            FiscalDeviceNumber = queued.FiscalDeviceNumber
         };
 
     /// <remarks>
@@ -364,6 +380,10 @@ internal static class PerSaleInvoiceRegistry
         public int DocNum { get; init; }
         public string ExternalReference { get; init; } = string.Empty;
         public string? FiscalReceiptNumber { get; init; }
+        public string? FiscalQrCode { get; init; }
+        public string? FiscalVerificationCode { get; init; }
+        public string? FiscalDayNo { get; init; }
+        public string? FiscalDeviceNumber { get; init; }
     }
 }
 
