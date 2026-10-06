@@ -205,13 +205,46 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
 
             if (!reservationResult.Success)
             {
+                // A reservation under this reference that is no longer pending — cancelled when its
+                // queueing failed, or expired after its hour; a pending one is handed back, not refused.
+                // Not forwarded in the service's words, which say the reference "already exists": the
+                // handset reads that as the invoice existing, records the order as converted and the
+                // van's stock as gone, for an attempt that lapsed. Worded as the refusal it is, the
+                // handset retires the reference and the resend reserves afresh under a new one.
+                if (reservationResult.Errors?.Any(error => error.ErrorCode == ReservationErrorCode.DuplicateReference) == true)
+                {
+                    logger.LogWarning(
+                        "Sales order {OrderNumber} conversion {ExternalRef} found its reservation no longer pending; refusing so the handset re-references",
+                        order.OrderNumber, externalRef);
+
+                    return Errors.DesktopIntegration.ReservationFailed(
+                        $"An earlier attempt to convert this order under reference '{externalRef}' lapsed " +
+                        "before it was invoiced. Convert the order again.");
+                }
+
+                // The reservation's own reasons, as the direct van sale answers them: which item, in
+                // which warehouse, how many were asked for and how many there are. This used to log
+                // them and answer "insufficient stock or batch allocation error", which the handset
+                // shows behind "Error:" and nothing else — so a rep with nine lines on the screen was
+                // told one of them was short and not which, and resent the lot to find out.
+                var reasons = (reservationResult.Errors ?? [])
+                    .Select(error => error.Message)
+                    .Where(message => !string.IsNullOrWhiteSpace(message))
+                    .ToList();
+
+                var refusal = string.Join(
+                    "; ",
+                    new[] { reservationResult.Message }.Concat(reasons).Where(m => !string.IsNullOrWhiteSpace(m)));
+
                 logger.LogWarning(
                     "Stock reservation failed for sales order {OrderNumber} conversion: {Errors}",
                     order.OrderNumber,
-                    string.Join("; ", reservationResult.Errors?.Select(e => e.Message) ?? Array.Empty<string>()));
+                    refusal);
 
                 return Errors.DesktopIntegration.ReservationFailed(
-                    "Stock reservation failed — insufficient stock or batch allocation error");
+                    string.IsNullOrWhiteSpace(refusal)
+                        ? "Stock reservation failed — insufficient stock or batch allocation error"
+                        : refusal);
             }
 
             var reservationId = reservationResult.Reservation!.ReservationId;
