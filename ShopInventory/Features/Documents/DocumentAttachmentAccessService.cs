@@ -159,6 +159,15 @@ public sealed class DocumentAttachmentAccessService(
         bool isWriteOperation,
         CancellationToken cancellationToken)
     {
+        // Managers view business documents and raise none, so they read every invoice's PODs — the
+        // portal's attachment routes already let them in — but never upload or remove one.
+        if (IsRole(role, ApplicationRoles.Manager))
+        {
+            return isWriteOperation
+                ? Errors.Document.AccessDenied("Managers can view PODs but not upload or remove them.")
+                : true;
+        }
+
         if (!InvoiceAttachmentRoles.Contains(role))
         {
             return Errors.Document.AccessDenied("You do not have access to invoice attachments.");
