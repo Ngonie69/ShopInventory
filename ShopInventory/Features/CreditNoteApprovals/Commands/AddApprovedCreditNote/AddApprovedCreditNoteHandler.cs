@@ -31,18 +31,15 @@ public sealed class AddApprovedCreditNoteHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sap,
     ICreditNoteProjectionSyncService projectionSync,
-    IFiscalizationService fiscalizationService,
-    ISender sender,
+    SapCreditNoteFiscaliser fiscaliser,
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
     IOptions<CreditNoteApprovalSettings> approvalSettings,
-    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<AddApprovedCreditNoteHandler> logger)
     : IRequestHandler<AddApprovedCreditNoteCommand, ErrorOr<AddApprovedCreditNoteResultDto>>
 {
     private const string IdempotencyScope = "credit-note-approval-add";
-    private const string FiscalDocumentType = "CreditNote";
     private const string FiscalSourceSystem = "CreditNoteApprovalAdd";
 
     public async Task<ErrorOr<AddApprovedCreditNoteResultDto>> Handle(
@@ -175,7 +172,7 @@ public sealed class AddApprovedCreditNoteHandler(
                     {
                         Attempted = false,
                         Skipped = true,
-                        Message = "The credit note could not be read back from SAP, so it was not fiscalised. Fiscalise it from the Credit Notes list."
+                        Message = "The credit note could not be read back from SAP, so it was not fiscalised here. The scheduled credit-note fiscalisation will file it."
                     }
                     : await FiscaliseAsync(creditNote, command)
                 : new CreditNoteApprovalFiscalisationDto
@@ -256,151 +253,36 @@ public sealed class AddApprovedCreditNoteHandler(
 
     private async Task<CreditNoteApprovalFiscalisationDto> FiscaliseAsync(SAPCreditNote creditNote, AddApprovedCreditNoteCommand command)
     {
-        // The line-level base entry is what a credit memo raised against an invoice carries; the header
-        // one is not selected on credit notes. REVMax needs it to find the receipt being reversed; the
-        // platform reads the link itself.
-        var originalInvoiceDocEntry = creditNote.BaseEntry
-            ?? creditNote.DocumentLines?.FirstOrDefault(line => line.BaseType == 13 && line.BaseEntry.HasValue)?.BaseEntry;
+        var outcome = await fiscaliser.FiscaliseAsync(
+            creditNote,
+            new SapCreditNoteFiscalisationCaller(
+                FiscalSourceSystem,
+                "credit-note-approval-add",
+                $"added from approval request {command.Code}",
+                CaptureIncidents: true,
+                command.UserId.ToString(),
+                command.Username),
+            CancellationToken.None);
 
-        var document = creditNote.ToFiscalDocument(creditNote.Comments);
-
-        var customer = new CustomerFiscalDetails { CustomerName = creditNote.CardName };
-
-        try
+        if (outcome.Result is not { } result)
         {
-            // The receipt being reversed is filed under the invoice's DocNum — or, for a sale fiscalised
-            // before SAP, under the sale's own reference — never under the BaseEntry this used to send.
-            var original = await ResolveOriginalReceiptAsync(originalInvoiceDocEntry);
-
-            if (original.InvoiceNumber is not { } originalInvoiceNumber)
-            {
-                var skipped = $"Fiscalisation skipped: {original.Refusal}";
-
-                logger.LogWarning(
-                    "Not fiscalising credit note {DocNum} added from approval request {Code}: {Refusal}",
-                    creditNote.DocNum, command.Code, original.Refusal);
-
-                await CreditNoteFiscalisationIncidents.CaptureAsync(
-                    context, logger, $"SAP-CN-{creditNote.DocNum}", creditNote.DocNum, creditNote.CardCode ?? string.Empty,
-                    skipped, CancellationToken.None);
-
-                return new CreditNoteApprovalFiscalisationDto { Attempted = true, Success = false, Message = skipped };
-            }
-
-            var result = await fiscalizationService.FiscalizeCreditNoteAsync(document, originalInvoiceNumber, customer, CancellationToken.None);
-
-            await TryRecordFiscalTransactionAsync(creditNote, document, originalInvoiceNumber, result, command);
-
-            if (!result.Success && !result.Skipped)
-            {
-                await CreditNoteFiscalisationIncidents.CaptureAsync(
-                    context, logger, $"SAP-CN-{creditNote.DocNum}", creditNote.DocNum, creditNote.CardCode ?? string.Empty,
-                    result.Message ?? "Fiscalisation failed for the credit note.", CancellationToken.None);
-            }
-
             return new CreditNoteApprovalFiscalisationDto
             {
                 Attempted = true,
-                Success = result.Success,
-                Skipped = result.Skipped,
-                AlreadyFiscalised = result.AlreadyFiscalised,
-                Message = result.Message,
-                ReceiptGlobalNo = result.ReceiptGlobalNo
+                Success = false,
+                Message = outcome.Refusal ?? outcome.Exception?.Message
             };
         }
-        catch (Exception exception)
+
+        return new CreditNoteApprovalFiscalisationDto
         {
-            logger.LogError(exception, "Error fiscalising credit note {DocNum} added from approval request {Code}", creditNote.DocNum, command.Code);
-            await CreditNoteFiscalisationIncidents.CaptureAsync(
-                context, logger, $"SAP-CN-{creditNote.DocNum}", creditNote.DocNum, creditNote.CardCode ?? string.Empty,
-                exception.Message, CancellationToken.None);
-
-            return new CreditNoteApprovalFiscalisationDto { Attempted = true, Success = false, Message = exception.Message };
-        }
-    }
-
-    /// <summary>
-    /// The number the fiscal device holds the reversed invoice's receipt under.
-    /// </summary>
-    /// <remarks>
-    /// See <see cref="CreditNoteOriginalReceipt"/>. The credit note carries only its base invoice's
-    /// DocEntry, and the receipt is filed under the DocNum, so the invoice is read first.
-    /// </remarks>
-    private async Task<CreditNoteOriginalReceiptNumber> ResolveOriginalReceiptAsync(int? originalInvoiceDocEntry)
-    {
-        if (originalInvoiceDocEntry is not > 0)
-        {
-            return CreditNoteOriginalReceiptNumber.Refused(
-                "the credit note is not based on an invoice, so there is no receipt for it to reverse.");
-        }
-
-        var invoice = await sap.GetInvoiceByDocEntryAsync(originalInvoiceDocEntry.Value, CancellationToken.None);
-
-        if (invoice is null)
-        {
-            return CreditNoteOriginalReceiptNumber.Refused(
-                $"invoice DocEntry {originalInvoiceDocEntry} could not be read from SAP, so the receipt it reverses cannot be found.");
-        }
-
-        return await CreditNoteOriginalReceipt.ResolveAsync(
-            context, invoice.DocNum, invoice.Comments, fiscalisationSettings.Value, CancellationToken.None);
-    }
-
-    /// <summary>
-    /// The fiscal transaction row is what the Credit Notes list reads to say "Fiscalised"; without it a
-    /// perfectly fiscalised document shows as owed a receipt.
-    /// </summary>
-    private async Task TryRecordFiscalTransactionAsync(
-        SAPCreditNote creditNote,
-        InvoiceDto document,
-        string originalInvoiceNumber,
-        FiscalizationResult result,
-        AddApprovedCreditNoteCommand command)
-    {
-        try
-        {
-            var timestampUtc = DateTime.UtcNow;
-            var recorded = await sender.Send(
-                new SyncFiscalTransactionCommand(
-                    new SyncFiscalTransactionRequest
-                    {
-                        ClientTransactionId = $"credit-note-approval-add-{creditNote.DocNum}-{timestampUtc:yyyyMMddHHmmssfffffff}",
-                        TimestampUtc = timestampUtc,
-                        DocNum = creditNote.DocNum,
-                        DocumentType = FiscalDocumentType,
-                        Status = result.Skipped ? "Fiscalised" : result.Success ? "Success" : "Failed",
-                        Message = result.Message,
-                        VerificationCode = result.VerificationCode,
-                        QRCode = result.QRCode,
-                        DeviceSerialNumber = result.DeviceSerial,
-                        FiscalDay = result.FiscalDayNo,
-                        ReceiptGlobalNo = int.TryParse(result.ReceiptGlobalNo, out var receiptNo) && receiptNo > 0 ? receiptNo : null,
-                        CardCode = creditNote.CardCode,
-                        CardName = creditNote.CardName,
-                        DocTotal = document.DocTotal,
-                        VatSum = document.VatSum,
-                        Currency = creditNote.DocCurrency,
-                        OriginalInvoiceNumber = string.IsNullOrWhiteSpace(originalInvoiceNumber) ? null : originalInvoiceNumber,
-                        RawRequest = JsonSerializer.Serialize(new { Document = document }),
-                        RawResponse = JsonSerializer.Serialize(result),
-                        SourceSystem = FiscalSourceSystem
-                    },
-                    command.UserId.ToString(),
-                    command.Username),
-                CancellationToken.None);
-
-            if (recorded.IsError)
-            {
-                logger.LogWarning(
-                    "Fiscal transaction for credit note {DocNum} was not recorded: {Errors}",
-                    creditNote.DocNum,
-                    string.Join("; ", recorded.Errors.Select(error => error.Description)));
-            }
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(exception, "Fiscal transaction for credit note {DocNum} was not recorded", creditNote.DocNum);
-        }
+            Attempted = true,
+            Success = result.Success,
+            Skipped = result.Skipped,
+            AlreadyFiscalised = result.AlreadyFiscalised,
+            Message = result.Message,
+            ReceiptGlobalNo = result.ReceiptGlobalNo
+        };
     }
 
     private async Task TryProjectAsync(SAPCreditNote creditNote)

@@ -562,18 +562,101 @@ public class FiscalizationService : IFiscalizationService
     /// <remarks>
     /// The platform's receipt lookup returns a receipt's header and not its lines, so a till credit
     /// rebuilds them through this same mapping. See
-    /// <see cref="Features.DesktopCreditNotes.PlatformDesktopCreditGateway"/>.
+    /// <see cref="Features.DesktopCreditNotes.PlatformDesktopCreditGateway"/>, which also asks for
+    /// <see cref="PreSapLinePricing.Cents"/> to rebuild a receipt filed before exact pricing.
     /// </remarks>
     internal async Task<List<LineApiRequest>> BuildPreSapLinesAsync(
         InvoiceDto invoice,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PreSapLinePricing pricing = PreSapLinePricing.Exact)
     {
         var hsCodes = _itemHsCodes is null || invoice.Lines is null
             ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             : await _itemHsCodes.ResolveAsync(invoice.Lines.Select(line => line.ItemCode), cancellationToken);
 
-        return MapLines(invoice, ReceiptType.FiscalInvoice, hsCodes);
+        var lines = MapLines(invoice, ReceiptType.FiscalInvoice, hsCodes, pricing);
+        if (pricing == PreSapLinePricing.Exact)
+        {
+            ReconcileToDocumentTotal(lines, invoice.DocTotal);
+        }
+
+        return lines;
     }
+
+    /// <summary>
+    /// Moves the cent or two between the lines and the sale's total onto the largest line, so the
+    /// receipt comes to exactly what the customer was charged.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The platform totals a receipt as the sum of round(quantity x price, 2) over its lines. A sale is
+    /// totalled as its net line totals plus VAT rounded once per rate, so even at exact prices the two
+    /// can differ by a cent per line. The console's own SAP mapper settles the same difference the same
+    /// way, against the SAP document's total.
+    /// </para>
+    /// <para>
+    /// Only a rounding-sized difference is moved. A larger one means the caller's total is not the
+    /// lines' gross total at all — a net figure, say — and folding it into one line would misprice that
+    /// line, so the lines are filed as they are.
+    /// </para>
+    /// </remarks>
+    private void ReconcileToDocumentTotal(List<LineApiRequest> lines, decimal documentTotal)
+    {
+        if (lines.Count == 0 || documentTotal <= 0m)
+        {
+            return;
+        }
+
+        var target = RoundCurrency(documentTotal);
+        var difference = target - LinesTotal(lines);
+        if (difference == 0m)
+        {
+            return;
+        }
+
+        if (Math.Abs(difference) > RoundingAllowancePerLine * lines.Count)
+        {
+            _logger.LogWarning(
+                "Receipt lines come to {LinesTotal} against a document total of {DocumentTotal}, too far apart "
+                + "to be rounding, so the lines are filed as they are.",
+                LinesTotal(lines),
+                target);
+            return;
+        }
+
+        var line = lines
+            .Where(l => l.Price > 0m && l.Quantity > 0m)
+            .OrderByDescending(l => RoundCurrency(l.Price * l.Quantity))
+            .FirstOrDefault();
+        if (line is null)
+        {
+            return;
+        }
+
+        // Twice: at a large quantity the price's sixth decimal is itself worth more than a cent, so
+        // the first pass can land a cent off. The second settles it from where the first landed.
+        for (var pass = 0; pass < 2 && difference != 0m; pass++)
+        {
+            var lineTotal = RoundCurrency(line.Price * line.Quantity) + difference;
+            if (lineTotal <= 0m)
+            {
+                return;
+            }
+
+            line.Price = RoundPrice(lineTotal / line.Quantity);
+            difference = target - LinesTotal(lines);
+        }
+    }
+
+    /// <summary>
+    /// The most a sale's total and its exactly priced lines can differ by, per line, through rounding
+    /// alone: the net line total's half cent grossed up, the gross line total's half cent, and the
+    /// half cent of VAT rounding its rate shares, with room to spare.
+    /// </summary>
+    private const decimal RoundingAllowancePerLine = 0.02m;
+
+    private static decimal LinesTotal(IEnumerable<LineApiRequest> lines)
+        => lines.Sum(l => RoundCurrency(l.Price * l.Quantity));
 
     /// <summary>
     /// Files a till credit note built in full by the caller.
@@ -875,11 +958,19 @@ public class FiscalizationService : IFiscalizationService
     /// same field the platform reads for a document it fiscalises out of SAP. Only an item SAP gives
     /// no usable code falls back to <see cref="FiscalisationSettings.DefaultHsCode"/>. Every till line
     /// used to take the default, so every item was declared to ZIMRA as 04031000.
+    ///
+    /// The price is the exact VAT-inclusive unit price (<see cref="InvoiceLineDto.PriceAfterVat"/>),
+    /// to six decimals as the console's SAP mapper files it. It used to be rounded to the cent first,
+    /// and the platform multiplies the unit price back out, so every receipt was filed at quantity x
+    /// the rounded price rather than at what the till charged and SAP invoiced: KEF-FAC-20261005-
+    /// 1B58CD07FF27 was charged 276.93 and filed with ZIMRA as 277.60. FDMS takes the longer price
+    /// (receipt 11512485 was filed at 17.54445).
     /// </remarks>
     private List<LineApiRequest> MapLines(
         InvoiceDto invoice,
         ReceiptType receiptType,
-        IReadOnlyDictionary<string, string> hsCodesByItem)
+        IReadOnlyDictionary<string, string> hsCodesByItem,
+        PreSapLinePricing pricing)
     {
         if (invoice.Lines is null || invoice.Lines.Count == 0)
         {
@@ -892,7 +983,9 @@ public class FiscalizationService : IFiscalizationService
             .Select(line =>
             {
                 var quantity = Math.Abs(line.Quantity);
-                var price = RoundCurrency(GetPriceAfterVat(line));
+                var price = pricing == PreSapLinePricing.Exact
+                    ? RoundPrice(GetExactPriceAfterVat(line))
+                    : RoundCurrency(GetPriceAfterVat(line));
                 var taxCode = string.IsNullOrWhiteSpace(line.TaxCode) ? line.VatGroup : line.TaxCode;
                 var itemCode = line.ItemCode?.Trim();
                 var hsCode = !string.IsNullOrEmpty(itemCode) && hsCodesByItem.TryGetValue(itemCode, out var itemHsCode)
@@ -946,6 +1039,17 @@ public class FiscalizationService : IFiscalizationService
         var grossPrice = Math.Abs(line.GrossPrice);
         return grossPrice > 0m ? grossPrice : Math.Abs(line.UnitPrice);
     }
+
+    /// <summary>The unit price the customer paid, unrounded; the cent-rounded one for a caller that set no other.</summary>
+    private static decimal GetExactPriceAfterVat(InvoiceLineDto line)
+    {
+        var priceAfterVat = Math.Abs(line.PriceAfterVat);
+        return priceAfterVat > 0m ? priceAfterVat : GetPriceAfterVat(line);
+    }
+
+    /// <summary>A unit price to the scale the console's SAP mapper files.</summary>
+    private static decimal RoundPrice(decimal value)
+        => Math.Round(value, 6, MidpointRounding.AwayFromZero);
 
     private static DateTime? ParseDocDate(string? docDate)
         => DateTime.TryParse(docDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)

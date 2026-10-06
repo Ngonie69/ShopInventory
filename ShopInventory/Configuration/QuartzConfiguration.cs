@@ -28,6 +28,8 @@ public static class QuartzConfiguration
             .Get<SapAvailabilitySettings>() ?? new SapAvailabilitySettings();
         var creditNoteSync = configuration.GetSection(CreditNoteSyncSettings.SectionName)
             .Get<CreditNoteSyncSettings>() ?? new CreditNoteSyncSettings();
+        var creditNoteFiscalisation = configuration.GetSection(CreditNoteFiscalisationSettings.SectionName)
+            .Get<CreditNoteFiscalisationSettings>() ?? new CreditNoteFiscalisationSettings();
         var dailyStock = configuration.GetSection("DailyStock").Get<DailyStockSettings>() ?? new DailyStockSettings();
         var creditLimit = configuration.GetSection(CreditLimitSettings.SectionName)
             .Get<CreditLimitSettings>() ?? new CreditLimitSettings();
@@ -120,6 +122,17 @@ public static class QuartzConfiguration
                     "credit-note-projection-sync",
                     TimeSpan.FromMinutes(Math.Max(1, creditNoteSync.PollIntervalMinutes)),
                     startDelay: TimeSpan.FromSeconds(45));
+            }
+
+            // Files with ZIMRA the SAP credit memos nothing else has: a memo keyed straight into B1 reaches
+            // the platform only if someone prints it. It reads the projection above, so it needs it on.
+            if (sap.Enabled && creditNoteSync.Enabled && creditNoteFiscalisation.Enabled)
+            {
+                AddIntervalJob<SapCreditNoteFiscalisationJob>(
+                    q,
+                    "sap-credit-note-fiscalisation",
+                    TimeSpan.FromMinutes(Math.Max(1, creditNoteFiscalisation.IntervalMinutes)),
+                    startDelay: TimeSpan.FromMinutes(3));
             }
 
             // No master-data sync is scheduled. The price catalogue, special prices, item VAT groups and

@@ -1261,6 +1261,15 @@
     flex: 1 1 260px;
 }
 
+/* A decided report: what happened, and for a transferred one the slip to print. */
+.mbk-done-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
 .mbk-done {
     font-size: 13px;
     color: var(--mbk-mute-3);
