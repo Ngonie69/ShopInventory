@@ -18,6 +18,12 @@ otherwise be surprised.
 
 ### Changed
 
+- **REVMax is no longer asked about SAP documents dated after 30 September 2026.** `Revmax:LastFilingDate`
+  ships as `2026-09-30`, the platform cut-over day; it was null, and production never overrode it, so
+  every invoice fiscalised after posting and every SAP credit memo asked REVMax first and was held back
+  with `REVMAX_HISTORY_UNAVAILABLE` whenever REVMax could not answer. Documents dated on or before the
+  30th are still checked against REVMax. Till, vending and van sales never asked it. Relies on the REVMax
+  vendor's B1 add-on being off on every workstation (confirmed 2026-10-06).
 - **`GET /api/vansales/attendance/status` now answers `status: 1` with `has_open_checkins: false`
   when the rep is not on a call.** It used to answer `status: 0` with the message "No active check-in
   found to check out from." — the no-open-call case was matched by error type, and the lookup reports
