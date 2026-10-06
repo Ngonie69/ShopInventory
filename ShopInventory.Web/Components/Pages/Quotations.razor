@@ -3,7 +3,7 @@
 @using System.Text
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
-@attribute [Authorize(Roles = UserRoles.QuotationRoles)]
+@attribute [Authorize(Roles = UserRoles.QuotationViewRoles)]
 @inject IQuotationService QuotationService
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService
@@ -57,9 +57,12 @@
                         <span>Export</span>
                     }
                 </button>
-                <a class="qtn-btn qtn-btn-primary" href="/quotations/create">
-                    <i class="ph ph-plus" aria-hidden="true"></i>New quotation
-                </a>
+                @* A manager reads quotations here; raising, repricing, approving and converting them stay with the quotation roles. *@
+                <AuthorizeView Roles="@UserRoles.QuotationRoles" Context="createAccess">
+                    <a class="qtn-btn qtn-btn-primary" href="/quotations/create">
+                        <i class="ph ph-plus" aria-hidden="true"></i>New quotation
+                    </a>
+                </AuthorizeView>
             </div>
         </div>
     </header>
@@ -254,51 +257,53 @@
                                             <circle cx="12" cy="12" r="2.6"></circle>
                                         </svg>
                                     </button>
-                                    @if (CanRepriceQuotation(quotation))
-                                    {
-                                        <button type="button" class="qtn-icon-btn" title="Edit or reprice"
-                                                aria-label="Edit or reprice @quotation.QuotationNumber"
-                                                @onclick="() => OpenRepriceModal(quotation)" @onclick:stopPropagation>
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
-                                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                <path d="M4 20h4L20 8l-4-4L4 16z"></path>
-                                                <path d="M14.5 5.5l4 4"></path>
-                                            </svg>
-                                        </button>
-                                    }
-                                    @if (CanConvert(quotation))
-                                    {
-                                        <button type="button" class="qtn-icon-btn" title="Convert to sales order"
-                                                aria-label="Convert @quotation.QuotationNumber to a sales order"
-                                                disabled="@(convertingQuotationId == quotation.Id)"
-                                                @onclick="() => ConvertToSalesOrder(quotation)" @onclick:stopPropagation>
-                                            @if (convertingQuotationId == quotation.Id)
-                                            {
-                                                <span class="qtn-spin" aria-hidden="true"></span>
-                                            }
-                                            else
-                                            {
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                     stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-                                                     aria-hidden="true">
-                                                    <path d="M3 4h2.2l2.3 11.1a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.2L20.6 8H6"></path>
-                                                    <circle cx="9.5" cy="20" r="1.3"></circle>
-                                                    <circle cx="17.5" cy="20" r="1.3"></circle>
+                                    <AuthorizeView Roles="@UserRoles.QuotationRoles" Context="rowActionsAccess">
+                                        @if (CanRepriceQuotation(quotation))
+                                        {
+                                            <button type="button" class="qtn-icon-btn" title="Edit or reprice"
+                                                    aria-label="Edit or reprice @quotation.QuotationNumber"
+                                                    @onclick="() => OpenRepriceModal(quotation)" @onclick:stopPropagation>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M4 20h4L20 8l-4-4L4 16z"></path>
+                                                    <path d="M14.5 5.5l4 4"></path>
                                                 </svg>
-                                            }
-                                        </button>
-                                    }
-                                    @if (quotation.Status == QuotationStatus.Draft || quotation.Status == QuotationStatus.Pending)
-                                    {
-                                        <button type="button" class="qtn-icon-btn" title="Approve"
-                                                aria-label="Approve @quotation.QuotationNumber"
-                                                @onclick="() => ApproveQuotation(quotation.Id)" @onclick:stopPropagation>
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                <path d="M4.5 12.5l5 5 10-11"></path>
-                                            </svg>
-                                        </button>
-                                    }
+                                            </button>
+                                        }
+                                        @if (CanConvert(quotation))
+                                        {
+                                            <button type="button" class="qtn-icon-btn" title="Convert to sales order"
+                                                    aria-label="Convert @quotation.QuotationNumber to a sales order"
+                                                    disabled="@(convertingQuotationId == quotation.Id)"
+                                                    @onclick="() => ConvertToSalesOrder(quotation)" @onclick:stopPropagation>
+                                                @if (convertingQuotationId == quotation.Id)
+                                                {
+                                                    <span class="qtn-spin" aria-hidden="true"></span>
+                                                }
+                                                else
+                                                {
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                                                         aria-hidden="true">
+                                                        <path d="M3 4h2.2l2.3 11.1a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.2L20.6 8H6"></path>
+                                                        <circle cx="9.5" cy="20" r="1.3"></circle>
+                                                        <circle cx="17.5" cy="20" r="1.3"></circle>
+                                                    </svg>
+                                                }
+                                            </button>
+                                        }
+                                        @if (quotation.Status == QuotationStatus.Draft || quotation.Status == QuotationStatus.Pending)
+                                        {
+                                            <button type="button" class="qtn-icon-btn" title="Approve"
+                                                    aria-label="Approve @quotation.QuotationNumber"
+                                                    @onclick="() => ApproveQuotation(quotation.Id)" @onclick:stopPropagation>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M4.5 12.5l5 5 10-11"></path>
+                                                </svg>
+                                            </button>
+                                        }
+                                    </AuthorizeView>
                                     @* Admin is the only role holding quotations.delete, so for
                                        everyone else this button could only ever come back
                                        "Failed to delete quotation." Role-gated rather than
@@ -341,9 +346,11 @@
                     {
                         <span>No quotations found in @SourceName for this search.</span>
                         <div class="qtn-empty-actions">
-                            <a class="qtn-btn qtn-btn-primary" href="/quotations/create">
-                                <i class="ph ph-plus" aria-hidden="true"></i>New quotation
-                            </a>
+                            <AuthorizeView Roles="@UserRoles.QuotationRoles" Context="emptyCreateAccess">
+                                <a class="qtn-btn qtn-btn-primary" href="/quotations/create">
+                                    <i class="ph ph-plus" aria-hidden="true"></i>New quotation
+                                </a>
+                            </AuthorizeView>
                         </div>
                     }
                     else
@@ -599,30 +606,32 @@
             </div>
 
             <div class="qtn-drawer-foot">
-                @if (CanRepriceSelectedQuotation)
-                {
-                    <button type="button" class="qtn-btn" disabled="@(IsDetailLoading || isConverting)"
-                            @onclick="() => OpenRepriceModal(quotation)">
-                        <i class="ph ph-pencil-simple" aria-hidden="true"></i>Edit / reprice
-                    </button>
-                }
-                @if (CanApplyStandardVat)
-                {
-                    <button type="button" class="qtn-btn"
-                            disabled="@(isApplyingStandardVat || IsDetailLoading || isConverting)"
-                            @onclick="ApplyStandardVat">
-                        @if (isApplyingStandardVat)
-                        {
-                            <span class="qtn-spin" aria-hidden="true"></span>
-                            <span>Applying…</span>
-                        }
-                        else
-                        {
-                            <i class="ph ph-percent" aria-hidden="true"></i>
-                            <span>Apply 15.5% VAT</span>
-                        }
-                    </button>
-                }
+                <AuthorizeView Roles="@UserRoles.QuotationRoles" Context="drawerEditAccess">
+                    @if (CanRepriceSelectedQuotation)
+                    {
+                        <button type="button" class="qtn-btn" disabled="@(IsDetailLoading || isConverting)"
+                                @onclick="() => OpenRepriceModal(quotation)">
+                            <i class="ph ph-pencil-simple" aria-hidden="true"></i>Edit / reprice
+                        </button>
+                    }
+                    @if (CanApplyStandardVat)
+                    {
+                        <button type="button" class="qtn-btn"
+                                disabled="@(isApplyingStandardVat || IsDetailLoading || isConverting)"
+                                @onclick="ApplyStandardVat">
+                            @if (isApplyingStandardVat)
+                            {
+                                <span class="qtn-spin" aria-hidden="true"></span>
+                                <span>Applying…</span>
+                            }
+                            else
+                            {
+                                <i class="ph ph-percent" aria-hidden="true"></i>
+                                <span>Apply 15.5% VAT</span>
+                            }
+                        </button>
+                    }
+                </AuthorizeView>
                 @if (CanDownloadQuotationPdf)
                 {
                     <button type="button" class="qtn-btn" disabled="@(isPdfLoading || isConverting)"
@@ -647,23 +656,25 @@
                     <button type="button" class="qtn-btn qtn-btn-ghost" disabled="@isConverting" @onclick="CloseDrawer">
                         Close
                     </button>
-                    @if (CanConvert(quotation))
-                    {
-                        <button type="button" class="qtn-btn qtn-btn-primary"
-                                disabled="@(isConverting || IsDetailLoading)"
-                                @onclick="() => ConvertToSalesOrder(quotation)">
-                            @if (isConverting)
-                            {
-                                <span class="qtn-spin" aria-hidden="true"></span>
-                                <span>Converting…</span>
-                            }
-                            else
-                            {
-                                <i class="ph ph-shopping-cart-simple" aria-hidden="true"></i>
-                                <span>Convert to sales order</span>
-                            }
-                        </button>
-                    }
+                    <AuthorizeView Roles="@UserRoles.QuotationRoles" Context="drawerConvertAccess">
+                        @if (CanConvert(quotation))
+                        {
+                            <button type="button" class="qtn-btn qtn-btn-primary"
+                                    disabled="@(isConverting || IsDetailLoading)"
+                                    @onclick="() => ConvertToSalesOrder(quotation)">
+                                @if (isConverting)
+                                {
+                                    <span class="qtn-spin" aria-hidden="true"></span>
+                                    <span>Converting…</span>
+                                }
+                                else
+                                {
+                                    <i class="ph ph-shopping-cart-simple" aria-hidden="true"></i>
+                                    <span>Convert to sales order</span>
+                                }
+                            </button>
+                        }
+                    </AuthorizeView>
                 </div>
             </div>
         </aside>
@@ -671,248 +682,251 @@
 }
 
 @* ── Create / reprice modal ────────────────────────────────────────────── *@
-@if (showCreateModal)
-{
-    <div class="qtn-overlay">
-        <div class="qtn-modal-scrim">
-            <div class="qtn-modal" role="dialog" aria-modal="true" aria-label="@(isEditMode ? "Edit or reprice quotation" : "New quotation")">
-                <div class="qtn-modal-head">
-                    <h2>@(isEditMode ? "Edit / reprice quotation" : "New quotation")</h2>
-                    <button type="button" class="qtn-icon-btn" title="Close" aria-label="Close"
-                            @onclick="CloseCreateModal">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                             stroke-linecap="round" aria-hidden="true">
-                            <path d="M6 6l12 12M18 6L6 18"></path>
-                        </svg>
-                    </button>
-                </div>
+@* Opened only from the gated New quotation and Edit / reprice controls, and gated the same way. *@
+<AuthorizeView Roles="@UserRoles.QuotationRoles" Context="editModalAccess">
+    @if (showCreateModal)
+    {
+        <div class="qtn-overlay">
+            <div class="qtn-modal-scrim">
+                <div class="qtn-modal" role="dialog" aria-modal="true" aria-label="@(isEditMode ? "Edit or reprice quotation" : "New quotation")">
+                    <div class="qtn-modal-head">
+                        <h2>@(isEditMode ? "Edit / reprice quotation" : "New quotation")</h2>
+                        <button type="button" class="qtn-icon-btn" title="Close" aria-label="Close"
+                                @onclick="CloseCreateModal">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                 stroke-linecap="round" aria-hidden="true">
+                                <path d="M6 6l12 12M18 6L6 18"></path>
+                            </svg>
+                        </button>
+                    </div>
 
-                <div class="qtn-modal-body">
-                    @if (isLoadingMasterData)
-                    {
-                        <div class="qtn-loading" style="padding-inline:0">
-                            <span class="qtn-spin" aria-hidden="true"></span>
-                            <span>Loading master data…</span>
-                        </div>
-                    }
-                    else
-                    {
-                        @if (isEditMode)
+                    <div class="qtn-modal-body">
+                        @if (isLoadingMasterData)
                         {
-                            <div class="qtn-note">
-                                Reprice mode keeps the customer, currency and line items locked. Only local quotation
-                                pricing fields are updated here.
+                            <div class="qtn-loading" style="padding-inline:0">
+                                <span class="qtn-spin" aria-hidden="true"></span>
+                                <span>Loading master data…</span>
                             </div>
                         }
+                        else
+                        {
+                            @if (isEditMode)
+                            {
+                                <div class="qtn-note">
+                                    Reprice mode keeps the customer, currency and line items locked. Only local quotation
+                                    pricing fields are updated here.
+                                </div>
+                            }
 
-                        <div class="qtn-form">
-                            <div class="qtn-field qtn-combo">
-                                <label class="qtn-label" for="qtn-c-customer">Customer *</label>
-                                @if (isEditMode)
+                            <div class="qtn-form">
+                                <div class="qtn-field qtn-combo">
+                                    <label class="qtn-label" for="qtn-c-customer">Customer *</label>
+                                    @if (isEditMode)
+                                    {
+                                        <input id="qtn-c-customer" class="qtn-input" type="text" value="@bpSearchTerm" readonly />
+                                    }
+                                    else
+                                    {
+                                        <input id="qtn-c-customer" class="qtn-input" type="text" placeholder="Search customer…"
+                                               @bind="bpSearchTerm" @bind:event="oninput"
+                                               @onfocus="() => showBPDropdown = true" />
+                                        @if (showBPDropdown && filteredBusinessPartners.Any())
+                                        {
+                                            <div class="qtn-combo-list">
+                                                @foreach (var bp in filteredBusinessPartners.Take(20))
+                                                {
+                                                    <button type="button" class="qtn-combo-opt"
+                                                            @onclick="() => SelectBusinessPartner(bp)">
+                                                        <span class="qtn-combo-name">@bp.CardName</span>
+                                                        <span class="qtn-combo-code">@bp.CardCode</span>
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                </div>
+
+                                <div class="qtn-field">
+                                    <label class="qtn-label" for="qtn-c-contact">Contact person</label>
+                                    <input id="qtn-c-contact" class="qtn-input" type="text" placeholder="Contact name"
+                                           @bind="newQuotation.ContactPerson" />
+                                </div>
+
+                                <div class="qtn-field">
+                                    <label class="qtn-label" for="qtn-c-valid">Valid until</label>
+                                    <NocturneDateField Id="qtn-c-valid" @bind-Date="validUntilDate" />
+                                </div>
+
+                                <div class="qtn-field">
+                                    <label class="qtn-label" for="qtn-c-ccy">Currency</label>
+                                    <span class="qtn-select">
+                                        <select id="qtn-c-ccy" class="qtn-input" @bind="newQuotation.Currency"
+                                                disabled="@isEditMode">
+                                            <option value="">Select currency</option>
+                                            <option value="USD">USD</option>
+                                            <option value="ZIG">ZIG</option>
+                                            <option value="ZAR">ZAR</option>
+                                            <option value="BWP">BWP</option>
+                                            <option value="EUR">EUR</option>
+                                            <option value="GBP">GBP</option>
+                                        </select>
+                                        <span class="qtn-caret" aria-hidden="true"></span>
+                                    </span>
+                                </div>
+
+                                <div class="qtn-field">
+                                    <label class="qtn-label" for="qtn-c-ref">Customer reference</label>
+                                    <input id="qtn-c-ref" class="qtn-input" type="text" placeholder="Reference number"
+                                           @bind="newQuotation.CustomerRefNo" />
+                                </div>
+
+                                <div class="qtn-field">
+                                    <label class="qtn-label" for="qtn-c-disc">Discount %</label>
+                                    <input id="qtn-c-disc" class="qtn-input qtn-input-num" type="number" min="0" max="100"
+                                           step="0.1" @bind="newQuotation.DiscountPercent" />
+                                </div>
+
+                                <div class="qtn-field qtn-form-wide">
+                                    <label class="qtn-label" for="qtn-c-comments">Comments</label>
+                                    <textarea id="qtn-c-comments" class="qtn-input" rows="2" placeholder="Additional notes…"
+                                              @bind="newQuotation.Comments"></textarea>
+                                </div>
+
+                                <div class="qtn-field qtn-form-wide">
+                                    <label class="qtn-label" for="qtn-c-terms">Terms &amp; conditions</label>
+                                    <textarea id="qtn-c-terms" class="qtn-input" rows="2"
+                                              placeholder="Payment terms, delivery terms…"
+                                              @bind="newQuotation.TermsAndConditions"></textarea>
+                                </div>
+                            </div>
+
+                            <div class="qtn-editor">
+                                <div class="qtn-editor-head">
+                                    <h3>Line items</h3>
+                                    @if (!isEditMode)
+                                    {
+                                        <button type="button" class="qtn-btn qtn-btn-sm" @onclick="AddLineItem">
+                                            <i class="ph ph-plus" aria-hidden="true"></i>Add line
+                                        </button>
+                                    }
+                                </div>
+
+                                @if (newQuotation.Lines.Count == 0)
                                 {
-                                    <input id="qtn-c-customer" class="qtn-input" type="text" value="@bpSearchTerm" readonly />
+                                    <div class="qtn-note">No line items added yet.</div>
                                 }
                                 else
                                 {
-                                    <input id="qtn-c-customer" class="qtn-input" type="text" placeholder="Search customer…"
-                                           @bind="bpSearchTerm" @bind:event="oninput"
-                                           @onfocus="() => showBPDropdown = true" />
-                                    @if (showBPDropdown && filteredBusinessPartners.Any())
-                                    {
-                                        <div class="qtn-combo-list">
-                                            @foreach (var bp in filteredBusinessPartners.Take(20))
-                                            {
-                                                <button type="button" class="qtn-combo-opt"
-                                                        @onclick="() => SelectBusinessPartner(bp)">
-                                                    <span class="qtn-combo-name">@bp.CardName</span>
-                                                    <span class="qtn-combo-code">@bp.CardCode</span>
-                                                </button>
-                                            }
-                                        </div>
-                                    }
-                                }
-                            </div>
-
-                            <div class="qtn-field">
-                                <label class="qtn-label" for="qtn-c-contact">Contact person</label>
-                                <input id="qtn-c-contact" class="qtn-input" type="text" placeholder="Contact name"
-                                       @bind="newQuotation.ContactPerson" />
-                            </div>
-
-                            <div class="qtn-field">
-                                <label class="qtn-label" for="qtn-c-valid">Valid until</label>
-                                <NocturneDateField Id="qtn-c-valid" @bind-Date="validUntilDate" />
-                            </div>
-
-                            <div class="qtn-field">
-                                <label class="qtn-label" for="qtn-c-ccy">Currency</label>
-                                <span class="qtn-select">
-                                    <select id="qtn-c-ccy" class="qtn-input" @bind="newQuotation.Currency"
-                                            disabled="@isEditMode">
-                                        <option value="">Select currency</option>
-                                        <option value="USD">USD</option>
-                                        <option value="ZIG">ZIG</option>
-                                        <option value="ZAR">ZAR</option>
-                                        <option value="BWP">BWP</option>
-                                        <option value="EUR">EUR</option>
-                                        <option value="GBP">GBP</option>
-                                    </select>
-                                    <span class="qtn-caret" aria-hidden="true"></span>
-                                </span>
-                            </div>
-
-                            <div class="qtn-field">
-                                <label class="qtn-label" for="qtn-c-ref">Customer reference</label>
-                                <input id="qtn-c-ref" class="qtn-input" type="text" placeholder="Reference number"
-                                       @bind="newQuotation.CustomerRefNo" />
-                            </div>
-
-                            <div class="qtn-field">
-                                <label class="qtn-label" for="qtn-c-disc">Discount %</label>
-                                <input id="qtn-c-disc" class="qtn-input qtn-input-num" type="number" min="0" max="100"
-                                       step="0.1" @bind="newQuotation.DiscountPercent" />
-                            </div>
-
-                            <div class="qtn-field qtn-form-wide">
-                                <label class="qtn-label" for="qtn-c-comments">Comments</label>
-                                <textarea id="qtn-c-comments" class="qtn-input" rows="2" placeholder="Additional notes…"
-                                          @bind="newQuotation.Comments"></textarea>
-                            </div>
-
-                            <div class="qtn-field qtn-form-wide">
-                                <label class="qtn-label" for="qtn-c-terms">Terms &amp; conditions</label>
-                                <textarea id="qtn-c-terms" class="qtn-input" rows="2"
-                                          placeholder="Payment terms, delivery terms…"
-                                          @bind="newQuotation.TermsAndConditions"></textarea>
-                            </div>
-                        </div>
-
-                        <div class="qtn-editor">
-                            <div class="qtn-editor-head">
-                                <h3>Line items</h3>
-                                @if (!isEditMode)
-                                {
-                                    <button type="button" class="qtn-btn qtn-btn-sm" @onclick="AddLineItem">
-                                        <i class="ph ph-plus" aria-hidden="true"></i>Add line
-                                    </button>
-                                }
-                            </div>
-
-                            @if (newQuotation.Lines.Count == 0)
-                            {
-                                <div class="qtn-note">No line items added yet.</div>
-                            }
-                            else
-                            {
-                                <div class="qtn-lines-wrap">
-                                    <table class="qtn-lines">
-                                        <thead>
-                                            <tr>
-                                                <th style="width:20%">Item</th>
-                                                <th>Description</th>
-                                                <th class="qtn-num" style="width:10%">Qty</th>
-                                                <th class="qtn-num" style="width:12%">Price</th>
-                                                <th class="qtn-num" style="width:10%">Disc %</th>
-                                                <th class="qtn-num" style="width:10%">VAT %</th>
-                                                <th class="qtn-num" style="width:11%">Total</th>
-                                                <th style="width:34px"></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @for (var i = 0; i < newQuotation.Lines.Count; i++)
-                                            {
-                                                var lineIndex = i;
-                                                var line = newQuotation.Lines[lineIndex];
+                                    <div class="qtn-lines-wrap">
+                                        <table class="qtn-lines">
+                                            <thead>
                                                 <tr>
-                                                    <td>
-                                                        <input class="qtn-input" type="text" placeholder="Item code"
-                                                               readonly="@isEditMode" @bind="line.ItemCode" />
-                                                    </td>
-                                                    <td>
-                                                        <input class="qtn-input" type="text" placeholder="Description"
-                                                               readonly="@isEditMode" @bind="line.ItemDescription" />
-                                                    </td>
-                                                    <td>
-                                                        <input class="qtn-input qtn-input-num" type="number"
-                                                               min="0.0001" step="1" @bind="line.Quantity" />
-                                                    </td>
-                                                    <td>
-                                                        <input class="qtn-input qtn-input-num" type="number" min="0"
-                                                               step="0.01" @bind="line.UnitPrice" />
-                                                    </td>
-                                                    <td>
-                                                        @* step matches SAP's six-decimal discounts so editing a line priced from a special price does not trip step validation *@
-                                                        <input class="qtn-input qtn-input-num" type="number" min="0"
-                                                               max="100" step="0.000001" @bind="line.DiscountPercent" />
-                                                    </td>
-                                                    <td>
-                                                        <input class="qtn-input qtn-input-num" type="number" min="0"
-                                                               max="100" step="0.1" @bind="line.TaxPercent" />
-                                                    </td>
-                                                    <td class="qtn-num qtn-lines-total">
-                                                        @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
-                                                    </td>
-                                                    <td>
-                                                        @if (!isEditMode)
-                                                        {
-                                                            <button type="button" class="qtn-icon-btn" title="Remove line"
-                                                                    aria-label="Remove line @(lineIndex + 1)"
-                                                                    @onclick="() => RemoveLineItem(lineIndex)">
-                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                                     stroke-width="1.6" stroke-linecap="round"
-                                                                     stroke-linejoin="round" aria-hidden="true">
-                                                                    <path d="M4 7h16M9.5 7V5h5v2M6.8 7l.9 13h8.6l.9-13"></path>
-                                                                    <path d="M10 11v6M14 11v6"></path>
-                                                                </svg>
-                                                            </button>
-                                                        }
-                                                    </td>
+                                                    <th style="width:20%">Item</th>
+                                                    <th>Description</th>
+                                                    <th class="qtn-num" style="width:10%">Qty</th>
+                                                    <th class="qtn-num" style="width:12%">Price</th>
+                                                    <th class="qtn-num" style="width:10%">Disc %</th>
+                                                    <th class="qtn-num" style="width:10%">VAT %</th>
+                                                    <th class="qtn-num" style="width:11%">Total</th>
+                                                    <th style="width:34px"></th>
                                                 </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
+                                            </thead>
+                                            <tbody>
+                                                @for (var i = 0; i < newQuotation.Lines.Count; i++)
+                                                {
+                                                    var lineIndex = i;
+                                                    var line = newQuotation.Lines[lineIndex];
+                                                    <tr>
+                                                        <td>
+                                                            <input class="qtn-input" type="text" placeholder="Item code"
+                                                                   readonly="@isEditMode" @bind="line.ItemCode" />
+                                                        </td>
+                                                        <td>
+                                                            <input class="qtn-input" type="text" placeholder="Description"
+                                                                   readonly="@isEditMode" @bind="line.ItemDescription" />
+                                                        </td>
+                                                        <td>
+                                                            <input class="qtn-input qtn-input-num" type="number"
+                                                                   min="0.0001" step="1" @bind="line.Quantity" />
+                                                        </td>
+                                                        <td>
+                                                            <input class="qtn-input qtn-input-num" type="number" min="0"
+                                                                   step="0.01" @bind="line.UnitPrice" />
+                                                        </td>
+                                                        <td>
+                                                            @* step matches SAP's six-decimal discounts so editing a line priced from a special price does not trip step validation *@
+                                                            <input class="qtn-input qtn-input-num" type="number" min="0"
+                                                                   max="100" step="0.000001" @bind="line.DiscountPercent" />
+                                                        </td>
+                                                        <td>
+                                                            <input class="qtn-input qtn-input-num" type="number" min="0"
+                                                                   max="100" step="0.1" @bind="line.TaxPercent" />
+                                                        </td>
+                                                        <td class="qtn-num qtn-lines-total">
+                                                            @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
+                                                        </td>
+                                                        <td>
+                                                            @if (!isEditMode)
+                                                            {
+                                                                <button type="button" class="qtn-icon-btn" title="Remove line"
+                                                                        aria-label="Remove line @(lineIndex + 1)"
+                                                                        @onclick="() => RemoveLineItem(lineIndex)">
+                                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                                         stroke-width="1.6" stroke-linecap="round"
+                                                                         stroke-linejoin="round" aria-hidden="true">
+                                                                        <path d="M4 7h16M9.5 7V5h5v2M6.8 7l.9 13h8.6l.9-13"></path>
+                                                                        <path d="M10 11v6M14 11v6"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
 
-                                <div class="qtn-editor-totals">
-                                    <div class="qtn-totals">
-                                        <div class="qtn-tot-row">
-                                            <span>Subtotal</span><span>@CalculateSubTotal().ToString("N2")</span>
-                                        </div>
-                                        @if (newQuotation.DiscountPercent > 0)
-                                        {
+                                    <div class="qtn-editor-totals">
+                                        <div class="qtn-totals">
                                             <div class="qtn-tot-row">
-                                                <span>Header discount</span>
-                                                <span>-@CalculateHeaderDiscount().ToString("N2")</span>
+                                                <span>Subtotal</span><span>@CalculateSubTotal().ToString("N2")</span>
                                             </div>
-                                        }
-                                        <div class="qtn-tot-row">
-                                            <span>VAT</span><span>@CalculateTaxTotal().ToString("N2")</span>
-                                        </div>
-                                        <div class="qtn-tot-row qtn-grand">
-                                            <span>Total</span><span>@CalculateTotal().ToString("N2")</span>
+                                            @if (newQuotation.DiscountPercent > 0)
+                                            {
+                                                <div class="qtn-tot-row">
+                                                    <span>Header discount</span>
+                                                    <span>-@CalculateHeaderDiscount().ToString("N2")</span>
+                                                </div>
+                                            }
+                                            <div class="qtn-tot-row">
+                                                <span>VAT</span><span>@CalculateTaxTotal().ToString("N2")</span>
+                                            </div>
+                                            <div class="qtn-tot-row qtn-grand">
+                                                <span>Total</span><span>@CalculateTotal().ToString("N2")</span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-
-                <div class="qtn-modal-foot">
-                    <button type="button" class="qtn-btn qtn-btn-ghost" @onclick="CloseCreateModal">Cancel</button>
-                    <button type="button" class="qtn-btn qtn-btn-primary" @onclick="SaveQuotation"
-                            disabled="@(isCreating || newQuotation.Lines.Count == 0 || string.IsNullOrWhiteSpace(newQuotation.Currency))">
-                        @if (isCreating)
-                        {
-                            <span class="qtn-spin" aria-hidden="true"></span>
+                                }
+                            </div>
                         }
-                        <span>@(isEditMode ? "Save changes" : "Create quotation")</span>
-                    </button>
+                    </div>
+
+                    <div class="qtn-modal-foot">
+                        <button type="button" class="qtn-btn qtn-btn-ghost" @onclick="CloseCreateModal">Cancel</button>
+                        <button type="button" class="qtn-btn qtn-btn-primary" @onclick="SaveQuotation"
+                                disabled="@(isCreating || newQuotation.Lines.Count == 0 || string.IsNullOrWhiteSpace(newQuotation.Currency))">
+                            @if (isCreating)
+                            {
+                                <span class="qtn-spin" aria-hidden="true"></span>
+                            }
+                            <span>@(isEditMode ? "Save changes" : "Create quotation")</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
+</AuthorizeView>
 
 @code {
     private const decimal DefaultVatPercent = 15.5m;

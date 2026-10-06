@@ -1,7 +1,7 @@
 @page "/payments"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier")]
+@attribute [Authorize(Roles = UserRoles.PaymentViewRoles)]
 @inject IPaymentService PaymentService
 @inject ILogger<Payments> Logger
 @inject IAppSettingsProvider AppSettings
@@ -33,9 +33,12 @@
             </div>
             <div class="pyx-head-actions">
                 <span class="pyx-count">@LoadedCount.ToString("N0") payments</span>
-                <a class="pyx-btn pyx-btn-primary" href="/payments/create">
-                    <i class="ph ph-plus" aria-hidden="true"></i>New payment
-                </a>
+                @* A manager reads payments here; recording one stays with the payment roles. *@
+                <AuthorizeView Roles="@UserRoles.PaymentRoles" Context="createAuth">
+                    <a class="pyx-btn pyx-btn-primary" href="/payments/create">
+                        <i class="ph ph-plus" aria-hidden="true"></i>New payment
+                    </a>
+                </AuthorizeView>
             </div>
         </div>
         <div class="pyx-rule"></div>
@@ -235,9 +238,11 @@
                     <i class="ph ph-funnel-simple" aria-hidden="true"></i>
                     <span>No payments found</span>
                     <span class="pyx-empty-sub">No incoming payments match your filters. Try adjusting the search criteria.</span>
-                    <a class="pyx-btn pyx-btn-primary" href="/payments/create">
-                        <i class="ph ph-plus" aria-hidden="true"></i>New payment
-                    </a>
+                    <AuthorizeView Roles="@UserRoles.PaymentRoles" Context="emptyCreateAuth">
+                        <a class="pyx-btn pyx-btn-primary" href="/payments/create">
+                            <i class="ph ph-plus" aria-hidden="true"></i>New payment
+                        </a>
+                    </AuthorizeView>
                 </div>
             }
 

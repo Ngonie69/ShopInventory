@@ -3,7 +3,7 @@
 @using Microsoft.JSInterop
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier")]
+@attribute [Authorize(Roles = UserRoles.InvoiceViewRoles)]
 @inject IInvoiceService InvoiceService
 @inject ICreditNoteService CreditNoteService
 @inject NavigationManager NavigationManager
@@ -41,9 +41,12 @@
             </div>
             <div class="ivx-head-actions">
                 <span class="ivx-count">@LoadedCount.ToString("N0") invoices</span>
-                <a class="ivx-btn ivx-btn-primary" href="/invoices/create">
-                    <i class="ph ph-plus" aria-hidden="true"></i>Create invoice
-                </a>
+                @* A manager opens the page to read; raising an invoice stays with the invoicing roles. *@
+                <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="createAuth">
+                    <a class="ivx-btn ivx-btn-primary" href="/invoices/create">
+                        <i class="ph ph-plus" aria-hidden="true"></i>Create invoice
+                    </a>
+                </AuthorizeView>
             </div>
         </div>
         <div class="ivx-rule"></div>
@@ -271,19 +274,21 @@
                                         <span class="ivx-rowactions">
                                             @if (CanFiscalize(invoice) || IsInvoiceFiscalizeBusy(invoice.DocEntry))
                                             {
-                                                <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
-                                                        disabled="@IsFiscalisingAny"
-                                                        @onclick="() => FiscalizeInvoiceAsync(invoice)">
-                                                    @if (IsInvoiceFiscalizeBusy(invoice.DocEntry))
-                                                    {
-                                                        <span class="ivx-spin" aria-hidden="true"></span>
-                                                        <span>Fiscalising…</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span>Fiscalise</span>
-                                                    }
-                                                </button>
+                                                <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="fiscaliseAuth">
+                                                    <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
+                                                            disabled="@IsFiscalisingAny"
+                                                            @onclick="() => FiscalizeInvoiceAsync(invoice)">
+                                                        @if (IsInvoiceFiscalizeBusy(invoice.DocEntry))
+                                                        {
+                                                            <span class="ivx-spin" aria-hidden="true"></span>
+                                                            <span>Fiscalising…</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span>Fiscalise</span>
+                                                        }
+                                                    </button>
+                                                </AuthorizeView>
                                             }
                                             <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon-sm"
                                                     title="View invoice" aria-label="View invoice @invoice.DocNum"
@@ -305,9 +310,11 @@
                     <i class="ph ph-funnel-simple" aria-hidden="true"></i>
                     <span>No invoices found</span>
                     <span class="ivx-empty-sub">No invoices match your filters. Try widening the dates or clearing the search.</span>
-                    <a class="ivx-btn ivx-btn-primary" href="/invoices/create">
-                        <i class="ph ph-plus" aria-hidden="true"></i>Create invoice
-                    </a>
+                    <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="emptyCreateAuth">
+                        <a class="ivx-btn ivx-btn-primary" href="/invoices/create">
+                            <i class="ph ph-plus" aria-hidden="true"></i>Create invoice
+                        </a>
+                    </AuthorizeView>
                 </div>
             }
 
@@ -516,14 +523,16 @@
                 <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isPdfLoading" @onclick="PrintInvoicePdf">
                     Print
                 </button>
-                <button type="button" class="ivx-btn ivx-btn-primary" @onclick="OpenCreateCreditNoteModal"
-                        disabled="@IsSelectedInvoiceFullyCredited()">
-                    @(IsSelectedInvoiceFullyCredited() ? "Fully credited" : "Create credit note")
-                </button>
+                <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="creditNoteAuth">
+                    <button type="button" class="ivx-btn ivx-btn-primary" @onclick="OpenCreateCreditNoteModal"
+                            disabled="@IsSelectedInvoiceFullyCredited()">
+                        @(IsSelectedInvoiceFullyCredited() ? "Fully credited" : "Create credit note")
+                    </button>
+                </AuthorizeView>
                 @* Cancelling withdraws the whole invoice, so it is an admin action and sits apart
                    from the partial credit beside it. The permission is invoices.void, which only
-                   Admin and Manager carry; the page itself is Admin and Cashier, so the role gate
-                   here is what keeps a cashier from meeting a button the API will refuse. *@
+                   Admin carries; the page also admits Cashier and Manager, so the role gate here is
+                   what keeps them from meeting a button the API will refuse. *@
                 <AuthorizeView Roles="Admin" Context="cancelAuth">
                     <button type="button" class="ivx-btn ivx-btn-bad" @onclick="OpenCancelInvoiceModal"
                             disabled="@IsSelectedInvoiceFullyCredited()">
@@ -599,321 +608,330 @@
     </div>
 }
 
-@if (showCreateCreditNoteModal && selectedInvoice != null)
-{
-    <div class="ivx-overlay">
-        <div class="ivx-dialog-wrap">
-            <div class="ivx-dialog is-wide" role="dialog" aria-modal="true" aria-labelledby="ivx-cnnew-title"
-                 @onclick:stopPropagation="true">
+@* Opened only from the InvoicingRoles-gated button, and gated the same way so the page's code says so too. *@
+<AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="creditNoteModalAuth">
+    @if (showCreateCreditNoteModal && selectedInvoice != null)
+    {
+        <div class="ivx-overlay">
+            <div class="ivx-dialog-wrap">
+                <div class="ivx-dialog is-wide" role="dialog" aria-modal="true" aria-labelledby="ivx-cnnew-title"
+                     @onclick:stopPropagation="true">
 
-                @if (isCreatingCreditNote)
-                {
-                    @* The percentage is paced by SimulateSapProgressAsync, not reported by SAP —
-                       it is a "something is happening" signal for a call that can take a while. *@
-                    <div class="ivx-posting" aria-live="polite">
-                        <div class="ivx-ring">
-                            <svg viewBox="0 0 100 100" aria-hidden="true">
-                                <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
-                                <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
-                                        stroke-dasharray="@($"{264 * creditNoteProgress / 100} 264")" />
-                            </svg>
-                            <span class="ivx-ring-label">@creditNoteProgress%</span>
-                        </div>
-                        <h3>Posting to SAP</h3>
-                        <p>@creditNoteProgressMessage</p>
-                        <small>Please keep this window open while the credit note is created.</small>
-                    </div>
-                }
-
-                <div class="ivx-dialog-head">
-                    <h2 class="ivx-dialog-title" id="ivx-cnnew-title">
-                        <i class="ph ph-file-minus" aria-hidden="true"></i>
-                        Create credit note — invoice #@selectedInvoice.DocNum
-                    </h2>
-                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
-                            disabled="@isCreatingCreditNote" @onclick="() => showCreateCreditNoteModal = false">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
-                    </button>
-                </div>
-                <div class="ivx-dialog-body">
-                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                    @if (isCreatingCreditNote)
                     {
-                        <div class="ivx-note is-warn">
-                            This invoice already has @GetActiveCreditNoteCount() active credit note(s) totalling
-                            @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency. Remaining creditable
-                            amount: @GetRemainingCreditableAmount().ToString("N2") @selectedInvoice.DocCurrency.
+                        @* The percentage is paced by SimulateSapProgressAsync, not reported by SAP —
+                           it is a "something is happening" signal for a call that can take a while. *@
+                        <div class="ivx-posting" aria-live="polite">
+                            <div class="ivx-ring">
+                                <svg viewBox="0 0 100 100" aria-hidden="true">
+                                    <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
+                                    <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
+                                            stroke-dasharray="@($"{264 * creditNoteProgress / 100} 264")" />
+                                </svg>
+                                <span class="ivx-ring-label">@creditNoteProgress%</span>
+                            </div>
+                            <h3>Posting to SAP</h3>
+                            <p>@creditNoteProgressMessage</p>
+                            <small>Please keep this window open while the credit note is created.</small>
                         </div>
                     }
 
-                    <div class="ivx-field">
-                        <label for="ivx-cn-reason">Reason for credit note *</label>
-                        <textarea id="ivx-cn-reason" class="ivx-input ivx-textarea" @bind="creditNoteReason"
-                                  placeholder="Enter the reason for creating this credit note…"
-                                  disabled="@isCreatingCreditNote"></textarea>
+                    <div class="ivx-dialog-head">
+                        <h2 class="ivx-dialog-title" id="ivx-cnnew-title">
+                            <i class="ph ph-file-minus" aria-hidden="true"></i>
+                            Create credit note — invoice #@selectedInvoice.DocNum
+                        </h2>
+                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
+                                disabled="@isCreatingCreditNote" @onclick="() => showCreateCreditNoteModal = false">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                        </button>
                     </div>
-
-                    <div class="ivx-note">
-                        Select the items and quantities to return. Submitting creates a credit note
-                        against invoice #@selectedInvoice.DocNum in SAP, returns the selected stock,
-                        and attempts fiscalisation. The result will confirm whether fiscalisation succeeded.
-                    </div>
-
-                    <div>
-                        <div class="ivx-sect"><i class="ph ph-list-checks" aria-hidden="true"></i>Select items to credit</div>
-                        <div class="ivx-linescroll">
-                            <table class="ivx-cnlines">
-                                <thead>
-                                    <tr>
-                                        <th style="width:34px">
-                                            <input class="ivx-check" type="checkbox" title="Select all lines"
-                                                   aria-label="Select all lines" @bind="selectAllLines"
-                                                   @bind:after="ToggleAllLines" disabled="@isCreatingCreditNote" />
-                                        </th>
-                                        <th>Item</th>
-                                        <th>Description</th>
-                                        <th class="ivx-num">Qty</th>
-                                        <th class="ivx-num">Credit qty</th>
-                                        <th class="ivx-num">Price</th>
-                                        <th class="ivx-num">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @if (creditNoteLines != null)
-                                    {
-                                        @foreach (var line in creditNoteLines)
-                                        {
-                                            <tr class="@(line.IsSelected ? null : "is-off")">
-                                                <td>
-                                                    <input class="ivx-check" type="checkbox"
-                                                           aria-label="Credit @line.ItemCode" @bind="line.IsSelected"
-                                                           disabled="@isCreatingCreditNote" />
-                                                </td>
-                                                <td><span class="ivx-cust-name">@line.ItemCode</span></td>
-                                                <td>@line.ItemDescription</td>
-                                                <td class="ivx-num">@line.OriginalQuantity</td>
-                                                <td class="ivx-num">
-                                                    <input class="ivx-input ivx-qty" type="number" min="0"
-                                                           max="@line.OriginalQuantity" step="0.01"
-                                                           aria-label="Credit quantity for @line.ItemCode"
-                                                           @bind="line.CreditQuantity"
-                                                           disabled="@(!line.IsSelected || isCreatingCreditNote)" />
-                                                </td>
-                                                <td class="ivx-num">@line.UnitPrice.ToString("N2")</td>
-                                                <td class="ivx-num">
-                                                    @((line.IsSelected ? line.CreditQuantity * line.UnitPrice : 0).ToString("N2"))
-                                                </td>
-                                            </tr>
-                                        }
-                                    }
-                                </tbody>
-                                <tfoot>
-                                    <tr>
-                                        <td colspan="6" class="ivx-num">Credit note total</td>
-                                        <td class="ivx-num">@CalculateCreditNoteTotal().ToString("N2")</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="ivx-dialog-actions">
-                    <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isCreatingCreditNote"
-                            @onclick="() => showCreateCreditNoteModal = false">Cancel</button>
-                    <button type="button" class="ivx-btn ivx-btn-primary" @onclick="CreateCreditNote"
-                            disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
-                        @if (isCreatingCreditNote)
-                        {
-                            <span class="ivx-spin" aria-hidden="true"></span>
-                            <span>Posting…</span>
-                        }
-                        else
-                        {
-                            <span>Create and fiscalise credit note</span>
-                        }
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-@if (showCancelInvoiceModal && selectedInvoice != null)
-{
-    <div class="ivx-overlay">
-        <div class="ivx-dialog-wrap">
-            <div class="ivx-dialog" role="dialog" aria-modal="true" aria-labelledby="ivx-cancel-title"
-                 @onclick:stopPropagation="true">
-
-                @if (isCancellingInvoice)
-                {
-                    @* The same paced ring as the credit note dialog: SAP reports no progress on a
-                       post, and this one is two deep — the credit note, then its fiscalisation. *@
-                    <div class="ivx-posting" aria-live="polite">
-                        <div class="ivx-ring">
-                            <svg viewBox="0 0 100 100" aria-hidden="true">
-                                <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
-                                <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
-                                        stroke-dasharray="@($"{264 * creditNoteProgress / 100} 264")" />
-                            </svg>
-                            <span class="ivx-ring-label">@creditNoteProgress%</span>
-                        </div>
-                        <h3>Cancelling invoice</h3>
-                        <p>@creditNoteProgressMessage</p>
-                        <small>Please keep this window open until the credit note is posted.</small>
-                    </div>
-                }
-
-                <div class="ivx-dialog-head">
-                    <h2 class="ivx-dialog-title" id="ivx-cancel-title">
-                        <i class="ph ph-prohibit" aria-hidden="true"></i>
-                        Cancel invoice #@selectedInvoice.DocNum
-                    </h2>
-                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
-                            disabled="@isCancellingInvoice" @onclick="CloseCancelInvoiceModal">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
-                    </button>
-                </div>
-                <div class="ivx-dialog-body">
-                    <div class="ivx-note is-warn">
-                        This reverses the whole invoice. A credit note for
-                        <strong>@selectedInvoice.DocCurrency @selectedInvoice.DocTotal.ToString("N2")</strong>
-                        is posted to SAP against
-                        <strong>@(selectedInvoice.CardName ?? selectedInvoice.CardCode)</strong>, fiscalised,
-                        and the till that issued the receipt is told. Nothing is deleted: the invoice
-                        stays, answered by the credit note. To credit only part of it, use
-                        <strong>Create credit note</strong> instead.
-                    </div>
-
-                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
-                    {
-                        <div class="ivx-note is-warn">
-                            This invoice already has @GetActiveCreditNoteCount() active credit note(s) totalling
-                            @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency, so cancelling
-                            it in full will be refused as over-crediting. Credit the remaining
-                            @GetRemainingCreditableAmount().ToString("N2") @selectedInvoice.DocCurrency with
-                            <strong>Create credit note</strong> instead.
-                        </div>
-                    }
-
-                    <div class="ivx-field">
-                        <label id="ivx-cancel-reason-label">Reason *</label>
-                        @if (isLoadingCancelReasons)
-                        {
-                            <div class="ivx-note">Reading the reasons from SAP&hellip;</div>
-                        }
-                        else if (CancelReasonOptions.Length == 0)
+                    <div class="ivx-dialog-body">
+                        @if (existingCreditNotes?.HasExistingCreditNotes == true)
                         {
                             <div class="ivx-note is-warn">
-                                SAP answered with no cancellation reasons, so an invoice cannot be cancelled
-                                from here. The list is the valid values of <code>U_Reasons</code> on the credit
-                                note line: check the company database is reachable and that the field is defined.
+                                This invoice already has @GetActiveCreditNoteCount() active credit note(s) totalling
+                                @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency. Remaining creditable
+                                amount: @GetRemainingCreditableAmount().ToString("N2") @selectedInvoice.DocCurrency.
                             </div>
                         }
-                        else
-                        {
-                            @* Fixed, because the dialog body scrolls: that computes its overflow-y
-                               to auto, which would clip a menu of 24 reasons to the few rows below
-                               the field. The comment sits outside the start tag on purpose — a
-                               Razor comment among attributes compiles, then throws
-                               InvalidCharacterError at render and blanks the control. *@
-                            <NocturneSelect Class="nsel-block" TValue="string"
-                                            Options="CancelReasonOptions" @bind-Value="cancelReason"
-                                            Disabled="@isCancellingInvoice"
-                                            Fixed="true"
-                                            Placeholder="Choose why this invoice is being cancelled"
-                                            AriaLabel="Cancellation reason" />
-                        }
-                    </div>
 
-                    <div class="ivx-field">
-                        <label for="ivx-cancel-comments">Notes</label>
-                        <textarea id="ivx-cancel-comments" class="ivx-input ivx-textarea" @bind="cancelComments"
-                                  placeholder="Anything else worth recording on the credit note"
-                                  disabled="@isCancellingInvoice"></textarea>
-                    </div>
-                </div>
-                <div class="ivx-dialog-actions">
-                    <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isCancellingInvoice"
-                            @onclick="CloseCancelInvoiceModal">Keep invoice</button>
-                    <button type="button" class="ivx-btn ivx-btn-bad" @onclick="CancelInvoice"
-                            disabled="@(isCancellingInvoice || string.IsNullOrWhiteSpace(cancelReason) || CancelReasonOptions.Length == 0)">
-                        @if (isCancellingInvoice)
-                        {
-                            <span class="ivx-spin" aria-hidden="true"></span>
-                            <span>Cancelling</span>
-                        }
-                        else
-                        {
-                            <span>Cancel invoice #@selectedInvoice.DocNum</span>
-                        }
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-@if (showBulkFiscaliseDialog)
-{
-    <div class="ivx-overlay">
-        <div class="ivx-dialog-wrap">
-            <div class="ivx-dialog" role="dialog" aria-modal="true" aria-labelledby="ivx-bulkfiscal-title"
-                 @onclick:stopPropagation="true">
-
-                @if (isBulkFiscalising)
-                {
-                    @* Measured, unlike the credit note's ring: it counts invoices that have come back. *@
-                    <div class="ivx-posting" aria-live="polite">
-                        <div class="ivx-ring">
-                            <svg viewBox="0 0 100 100" aria-hidden="true">
-                                <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
-                                <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
-                                        stroke-dasharray="@($"{264 * bulkDone / Math.Max(1, bulkQueue.Count)} 264")" />
-                            </svg>
-                            <span class="ivx-ring-label">@(100 * bulkDone / Math.Max(1, bulkQueue.Count))%</span>
+                        <div class="ivx-field">
+                            <label for="ivx-cn-reason">Reason for credit note *</label>
+                            <textarea id="ivx-cn-reason" class="ivx-input ivx-textarea" @bind="creditNoteReason"
+                                      placeholder="Enter the reason for creating this credit note…"
+                                      disabled="@isCreatingCreditNote"></textarea>
                         </div>
-                        <h3>Fiscalising invoice #@bulkCurrentDocNum</h3>
-                        <p>@bulkDone of @bulkQueue.Count done</p>
-                        <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
-                                disabled="@bulkStopRequested" @onclick="() => bulkStopRequested = true">
-                            @(bulkStopRequested ? "Stopping after this invoice…" : "Stop after this invoice")
-                        </button>
-                        <small>Keep this page open until the run finishes.</small>
-                    </div>
-                }
 
-                <div class="ivx-dialog-head">
-                    <h2 class="ivx-dialog-title" id="ivx-bulkfiscal-title">
-                        <i class="ph ph-stamp" aria-hidden="true"></i>
-                        Fiscalise @bulkQueue.Count @(bulkQueue.Count == 1 ? "invoice" : "invoices")
-                    </h2>
-                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
-                            disabled="@isBulkFiscalising" @onclick="CloseBulkFiscaliseDialog">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
-                    </button>
-                </div>
-                <div class="ivx-dialog-body">
-                    <div class="ivx-note is-warn">
-                        Each invoice is submitted to ZIMRA in turn, and a fiscal receipt cannot be withdrawn.
-                        If one comes back without a clear answer, the run stops there and nothing after it is sent.
+                        <div class="ivx-note">
+                            Select the items and quantities to return. Submitting creates a credit note
+                            against invoice #@selectedInvoice.DocNum in SAP, returns the selected stock,
+                            and attempts fiscalisation. The result will confirm whether fiscalisation succeeded.
+                        </div>
+
+                        <div>
+                            <div class="ivx-sect"><i class="ph ph-list-checks" aria-hidden="true"></i>Select items to credit</div>
+                            <div class="ivx-linescroll">
+                                <table class="ivx-cnlines">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:34px">
+                                                <input class="ivx-check" type="checkbox" title="Select all lines"
+                                                       aria-label="Select all lines" @bind="selectAllLines"
+                                                       @bind:after="ToggleAllLines" disabled="@isCreatingCreditNote" />
+                                            </th>
+                                            <th>Item</th>
+                                            <th>Description</th>
+                                            <th class="ivx-num">Qty</th>
+                                            <th class="ivx-num">Credit qty</th>
+                                            <th class="ivx-num">Price</th>
+                                            <th class="ivx-num">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (creditNoteLines != null)
+                                        {
+                                            @foreach (var line in creditNoteLines)
+                                            {
+                                                <tr class="@(line.IsSelected ? null : "is-off")">
+                                                    <td>
+                                                        <input class="ivx-check" type="checkbox"
+                                                               aria-label="Credit @line.ItemCode" @bind="line.IsSelected"
+                                                               disabled="@isCreatingCreditNote" />
+                                                    </td>
+                                                    <td><span class="ivx-cust-name">@line.ItemCode</span></td>
+                                                    <td>@line.ItemDescription</td>
+                                                    <td class="ivx-num">@line.OriginalQuantity</td>
+                                                    <td class="ivx-num">
+                                                        <input class="ivx-input ivx-qty" type="number" min="0"
+                                                               max="@line.OriginalQuantity" step="0.01"
+                                                               aria-label="Credit quantity for @line.ItemCode"
+                                                               @bind="line.CreditQuantity"
+                                                               disabled="@(!line.IsSelected || isCreatingCreditNote)" />
+                                                    </td>
+                                                    <td class="ivx-num">@line.UnitPrice.ToString("N2")</td>
+                                                    <td class="ivx-num">
+                                                        @((line.IsSelected ? line.CreditQuantity * line.UnitPrice : 0).ToString("N2"))
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr>
+                                            <td colspan="6" class="ivx-num">Credit note total</td>
+                                            <td class="ivx-num">@CalculateCreditNoteTotal().ToString("N2")</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
                     </div>
-                    <div class="ivx-note">
-                        <span class="ivx-dt">Total</span>
-                        @BulkTotalsLabel
+                    <div class="ivx-dialog-actions">
+                        <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isCreatingCreditNote"
+                                @onclick="() => showCreateCreditNoteModal = false">Cancel</button>
+                        <button type="button" class="ivx-btn ivx-btn-primary" @onclick="CreateCreditNote"
+                                disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
+                            @if (isCreatingCreditNote)
+                            {
+                                <span class="ivx-spin" aria-hidden="true"></span>
+                                <span>Posting…</span>
+                            }
+                            else
+                            {
+                                <span>Create and fiscalise credit note</span>
+                            }
+                        </button>
                     </div>
-                </div>
-                <div class="ivx-dialog-actions">
-                    <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isBulkFiscalising"
-                            @onclick="CloseBulkFiscaliseDialog">Cancel</button>
-                    <button type="button" class="ivx-btn ivx-btn-primary" disabled="@isBulkFiscalising"
-                            @onclick="RunBulkFiscaliseAsync">
-                        Fiscalise @bulkQueue.Count
-                    </button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
+</AuthorizeView>
+
+@* Opened only from the Admin-gated Cancel invoice button, and gated the same way. *@
+<AuthorizeView Roles="Admin" Context="cancelModalAuth">
+    @if (showCancelInvoiceModal && selectedInvoice != null)
+    {
+        <div class="ivx-overlay">
+            <div class="ivx-dialog-wrap">
+                <div class="ivx-dialog" role="dialog" aria-modal="true" aria-labelledby="ivx-cancel-title"
+                     @onclick:stopPropagation="true">
+
+                    @if (isCancellingInvoice)
+                    {
+                        @* The same paced ring as the credit note dialog: SAP reports no progress on a
+                           post, and this one is two deep — the credit note, then its fiscalisation. *@
+                        <div class="ivx-posting" aria-live="polite">
+                            <div class="ivx-ring">
+                                <svg viewBox="0 0 100 100" aria-hidden="true">
+                                    <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
+                                    <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
+                                            stroke-dasharray="@($"{264 * creditNoteProgress / 100} 264")" />
+                                </svg>
+                                <span class="ivx-ring-label">@creditNoteProgress%</span>
+                            </div>
+                            <h3>Cancelling invoice</h3>
+                            <p>@creditNoteProgressMessage</p>
+                            <small>Please keep this window open until the credit note is posted.</small>
+                        </div>
+                    }
+
+                    <div class="ivx-dialog-head">
+                        <h2 class="ivx-dialog-title" id="ivx-cancel-title">
+                            <i class="ph ph-prohibit" aria-hidden="true"></i>
+                            Cancel invoice #@selectedInvoice.DocNum
+                        </h2>
+                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
+                                disabled="@isCancellingInvoice" @onclick="CloseCancelInvoiceModal">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                        </button>
+                    </div>
+                    <div class="ivx-dialog-body">
+                        <div class="ivx-note is-warn">
+                            This reverses the whole invoice. A credit note for
+                            <strong>@selectedInvoice.DocCurrency @selectedInvoice.DocTotal.ToString("N2")</strong>
+                            is posted to SAP against
+                            <strong>@(selectedInvoice.CardName ?? selectedInvoice.CardCode)</strong>, fiscalised,
+                            and the till that issued the receipt is told. Nothing is deleted: the invoice
+                            stays, answered by the credit note. To credit only part of it, use
+                            <strong>Create credit note</strong> instead.
+                        </div>
+
+                        @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                        {
+                            <div class="ivx-note is-warn">
+                                This invoice already has @GetActiveCreditNoteCount() active credit note(s) totalling
+                                @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency, so cancelling
+                                it in full will be refused as over-crediting. Credit the remaining
+                                @GetRemainingCreditableAmount().ToString("N2") @selectedInvoice.DocCurrency with
+                                <strong>Create credit note</strong> instead.
+                            </div>
+                        }
+
+                        <div class="ivx-field">
+                            <label id="ivx-cancel-reason-label">Reason *</label>
+                            @if (isLoadingCancelReasons)
+                            {
+                                <div class="ivx-note">Reading the reasons from SAP&hellip;</div>
+                            }
+                            else if (CancelReasonOptions.Length == 0)
+                            {
+                                <div class="ivx-note is-warn">
+                                    SAP answered with no cancellation reasons, so an invoice cannot be cancelled
+                                    from here. The list is the valid values of <code>U_Reasons</code> on the credit
+                                    note line: check the company database is reachable and that the field is defined.
+                                </div>
+                            }
+                            else
+                            {
+                                @* Fixed, because the dialog body scrolls: that computes its overflow-y
+                                   to auto, which would clip a menu of 24 reasons to the few rows below
+                                   the field. The comment sits outside the start tag on purpose — a
+                                   Razor comment among attributes compiles, then throws
+                                   InvalidCharacterError at render and blanks the control. *@
+                                <NocturneSelect Class="nsel-block" TValue="string"
+                                                Options="CancelReasonOptions" @bind-Value="cancelReason"
+                                                Disabled="@isCancellingInvoice"
+                                                Fixed="true"
+                                                Placeholder="Choose why this invoice is being cancelled"
+                                                AriaLabel="Cancellation reason" />
+                            }
+                        </div>
+
+                        <div class="ivx-field">
+                            <label for="ivx-cancel-comments">Notes</label>
+                            <textarea id="ivx-cancel-comments" class="ivx-input ivx-textarea" @bind="cancelComments"
+                                      placeholder="Anything else worth recording on the credit note"
+                                      disabled="@isCancellingInvoice"></textarea>
+                        </div>
+                    </div>
+                    <div class="ivx-dialog-actions">
+                        <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isCancellingInvoice"
+                                @onclick="CloseCancelInvoiceModal">Keep invoice</button>
+                        <button type="button" class="ivx-btn ivx-btn-bad" @onclick="CancelInvoice"
+                                disabled="@(isCancellingInvoice || string.IsNullOrWhiteSpace(cancelReason) || CancelReasonOptions.Length == 0)">
+                            @if (isCancellingInvoice)
+                            {
+                                <span class="ivx-spin" aria-hidden="true"></span>
+                                <span>Cancelling</span>
+                            }
+                            else
+                            {
+                                <span>Cancel invoice #@selectedInvoice.DocNum</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</AuthorizeView>
+
+@* Fiscalising is the invoicing roles' work; a manager reads the fiscal state without sending anything. *@
+<AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="bulkFiscaliseAuth">
+    @if (showBulkFiscaliseDialog)
+    {
+        <div class="ivx-overlay">
+            <div class="ivx-dialog-wrap">
+                <div class="ivx-dialog" role="dialog" aria-modal="true" aria-labelledby="ivx-bulkfiscal-title"
+                     @onclick:stopPropagation="true">
+
+                    @if (isBulkFiscalising)
+                    {
+                        @* Measured, unlike the credit note's ring: it counts invoices that have come back. *@
+                        <div class="ivx-posting" aria-live="polite">
+                            <div class="ivx-ring">
+                                <svg viewBox="0 0 100 100" aria-hidden="true">
+                                    <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
+                                    <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
+                                            stroke-dasharray="@($"{264 * bulkDone / Math.Max(1, bulkQueue.Count)} 264")" />
+                                </svg>
+                                <span class="ivx-ring-label">@(100 * bulkDone / Math.Max(1, bulkQueue.Count))%</span>
+                            </div>
+                            <h3>Fiscalising invoice #@bulkCurrentDocNum</h3>
+                            <p>@bulkDone of @bulkQueue.Count done</p>
+                            <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
+                                    disabled="@bulkStopRequested" @onclick="() => bulkStopRequested = true">
+                                @(bulkStopRequested ? "Stopping after this invoice…" : "Stop after this invoice")
+                            </button>
+                            <small>Keep this page open until the run finishes.</small>
+                        </div>
+                    }
+
+                    <div class="ivx-dialog-head">
+                        <h2 class="ivx-dialog-title" id="ivx-bulkfiscal-title">
+                            <i class="ph ph-stamp" aria-hidden="true"></i>
+                            Fiscalise @bulkQueue.Count @(bulkQueue.Count == 1 ? "invoice" : "invoices")
+                        </h2>
+                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
+                                disabled="@isBulkFiscalising" @onclick="CloseBulkFiscaliseDialog">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                        </button>
+                    </div>
+                    <div class="ivx-dialog-body">
+                        <div class="ivx-note is-warn">
+                            Each invoice is submitted to ZIMRA in turn, and a fiscal receipt cannot be withdrawn.
+                            If one comes back without a clear answer, the run stops there and nothing after it is sent.
+                        </div>
+                        <div class="ivx-note">
+                            <span class="ivx-dt">Total</span>
+                            @BulkTotalsLabel
+                        </div>
+                    </div>
+                    <div class="ivx-dialog-actions">
+                        <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isBulkFiscalising"
+                                @onclick="CloseBulkFiscaliseDialog">Cancel</button>
+                        <button type="button" class="ivx-btn ivx-btn-primary" disabled="@isBulkFiscalising"
+                                @onclick="RunBulkFiscaliseAsync">
+                            Fiscalise @bulkQueue.Count
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</AuthorizeView>
 
 @if (!string.IsNullOrEmpty(creditNoteMessage))
 {
@@ -1063,6 +1081,9 @@
         _pageSize = AppSettings.PageSize;
         if (DocNumQuery is > 0)
             docNumSearch = DocNumQuery;
+
+        if (AuthenticationStateTask is not null)
+            canInvoice = UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.InvoicingRoles);
 
         await LoadInvoices();
         await AuditService.LogAsync(AuditActions.ViewInvoices, "Invoice", null);
@@ -1245,8 +1266,18 @@
             _ => "unknown"
         };
 
+    /// <summary>
+    /// Whether the signed-in user raises, credits and fiscalises invoices, rather than only reading
+    /// them as a manager does. Drives the per-row selection and the bulk toolbar, which have no single
+    /// element to put an AuthorizeView around; every control that calls the API is also gated by one.
+    /// </summary>
+    private bool canInvoice;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
     private bool CanFiscalize(InvoiceDto? invoice)
-        => invoice is { DocEntry: > 0, IsRepostedAfterSapUpdate: false }
+        => canInvoice
+           && invoice is { DocEntry: > 0, IsRepostedAfterSapUpdate: false }
            && NormalizeFiscalStatus(invoice.FiscalizationStatus) != "fiscalised"
            && !unresolvedDocEntries.Contains(invoice.DocEntry);
 

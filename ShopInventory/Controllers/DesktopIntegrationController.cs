@@ -1512,8 +1512,10 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     ///
     /// Answers 200 with <c>reachable: false</c> when the listener is down, rather than failing: that
     /// is the answer, and it is the one worth showing.
+    ///
+    /// Admin only: watching an integration is administering the system, not running the business.
     /// </remarks>
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     [HttpGet("transfer-listener/status")]
     public async Task<IActionResult> GetTransferListenerStatus(
         [FromQuery] int recentDocumentCount = 20,
@@ -1531,9 +1533,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <remarks>
     /// A write on the listener: it advances the poll window, marks documents processed and delivers
     /// webhooks for anything new. Safe to repeat — a second pass finds those documents already
-    /// processed — but it stays with the people who would be reconciling a stalled poll.
+    /// processed — but it stays with the administrator, who would be reconciling a stalled poll.
     /// </remarks>
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     [HttpPost("transfer-listener/check-now")]
     public async Task<IActionResult> TriggerTransferListenerCheck(CancellationToken cancellationToken)
     {

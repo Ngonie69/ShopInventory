@@ -1487,21 +1487,7 @@ ROLE_HIDDEN_CALLS = {
         [r"isPodOperatorView\s*=>\s*string\.Equals\(\s*currentUserRole\s*,\s*UserRoles\.PodOperator",
          r"@if\s*\(\s*!isPodOperatorView\s*\)\s*\{\s*<button[^\n]*ShowPermissionsModal"],
         "UserManagement.razor shows Manage permissions only when !isPodOperatorView"),
-    ("Invoices", "Cashier", "POST api/Invoice/{docEntry:int}/cancel"): (
-        [r'<AuthorizeView Roles="Admin"[^>]*>\s*<button[^\n]*@onclick="OpenCancelInvoiceModal"',
-         r"(?s)Task OpenCancelInvoiceModal\(\).{0,1200}?showCancelInvoiceModal\s*=\s*true"],
-        "Invoices.razor opens the cancel modal only from an Admin-gated button"),
-    ("SalesOrders", "SalesRep", "POST api/SalesOrder/{id}/convert-to-invoice"): (
-        [r'(?s)<AuthorizeView Roles="Admin,Cashier"[^>]*>.{0,800}?OpenConvertDialog\(order\)',
-         r"(?s)void OpenConvertDialog\(SalesOrderDto order\).{0,300}?convertOrder\s*=\s*order;",
-         r"(?s)\A(?!(?:.*?\bOpenConvertDialog\b){3})"],
-        "SalesOrders.razor opens the convert dialog only from an Admin,Cashier-gated button"),
     ("RouteCustomers", "Cashier", "DELETE api/route-customers/{id:int}"): (
-        [r'(?s)<AuthorizeView Roles="Admin"[^>]*>.{0,800}?PromptDelete\(customer\)',
-         r"(?s)void PromptDelete\(RouteCustomerModel customer\).{0,300}?customerPendingDelete\s*=\s*customer;",
-         r"(?s)\A(?!(?:.*?\bPromptDelete\b){3})"],
-        "RouteCustomers.razor opens the removal confirmation only from an Admin-gated button"),
-    ("RouteCustomers", "Manager", "DELETE api/route-customers/{id:int}"): (
         [r'(?s)<AuthorizeView Roles="Admin"[^>]*>.{0,800}?PromptDelete\(customer\)',
          r"(?s)void PromptDelete\(RouteCustomerModel customer\).{0,300}?customerPendingDelete\s*=\s*customer;",
          r"(?s)\A(?!(?:.*?\bPromptDelete\b){3})"],

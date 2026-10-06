@@ -44,12 +44,14 @@
                to have a separate "Sales" group repeating four of these links;
                the row gates below give a rep the same four and no more — sales
                orders, mobile orders and quotations, but not invoices or credit
-               notes. Merchandiser is in the gate for Mobile Orders alone; Manager
-               and WashBay for Credit Note Approvals alone. *@
+               notes. Merchandiser is in the gate for Mobile Orders alone, and
+               WashBay for Credit Note Approvals alone. A manager reads invoices,
+               sales orders, quotations and credit notes and approves credit notes,
+               but raises none of them, so every Create link keeps its own gate. *@
             <AuthorizeView Roles="Admin,Cashier,Merchandiser,SalesRep,Manager,WashBay" Context="salesCtx">
                 <Authorized>
                     <NavSection Title="Sales">
-                        <AuthorizeView Roles="Admin,Cashier" Context="invoiceCtx">
+                        <AuthorizeView Roles="@UserRoles.InvoiceViewRoles" Context="invoiceCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/invoices" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -57,16 +59,20 @@
                                     </span>
                                     <span class="snav-text">Invoices</span>
                                 </NavLink>
-                                <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Create Invoice</span>
-                                </NavLink>
+                                <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="invoiceCtxCreate">
+                                    <Authorized>
+                                        <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
+                                            <span class="snav-icon">
+                                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                            </span>
+                                            <span class="snav-text">Create Invoice</span>
+                                        </NavLink>
+                                    </Authorized>
+                                </AuthorizeView>
                             </Authorized>
                         </AuthorizeView>
 
-                        <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="salesOrderCtx">
+                        <AuthorizeView Roles="@UserRoles.SalesOrderViewRoles" Context="salesOrderCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -74,12 +80,16 @@
                                     </span>
                                     <span class="snav-text">Sales Orders</span>
                                 </NavLink>
-                                <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Create Sale Order</span>
-                                </NavLink>
+                                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="salesOrderCtxCreate">
+                                    <Authorized>
+                                        <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
+                                            <span class="snav-icon">
+                                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                            </span>
+                                            <span class="snav-text">Create Sale Order</span>
+                                        </NavLink>
+                                    </Authorized>
+                                </AuthorizeView>
                             </Authorized>
                         </AuthorizeView>
 
@@ -96,7 +106,7 @@
 
                         @* A rep quotes a customer and converts the quote to a sales order;
                            the credit notes beside them stay with the invoicing roles. *@
-                        <AuthorizeView Roles="@UserRoles.QuotationRoles" Context="quotationCtx">
+                        <AuthorizeView Roles="@UserRoles.QuotationViewRoles" Context="quotationCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/quotations" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -104,16 +114,20 @@
                                     </span>
                                     <span class="snav-text">Quotations</span>
                                 </NavLink>
-                                <NavLink class="snav-link sub-link" href="/quotations/create" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Create Quotation</span>
-                                </NavLink>
+                                <AuthorizeView Roles="@UserRoles.QuotationRoles" Context="quotationCtxCreate">
+                                    <Authorized>
+                                        <NavLink class="snav-link sub-link" href="/quotations/create" Match="NavLinkMatch.All">
+                                            <span class="snav-icon">
+                                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                            </span>
+                                            <span class="snav-text">Create Quotation</span>
+                                        </NavLink>
+                                    </Authorized>
+                                </AuthorizeView>
                             </Authorized>
                         </AuthorizeView>
 
-                        <AuthorizeView Roles="Admin,Cashier" Context="creditNoteCtx">
+                        <AuthorizeView Roles="@UserRoles.InvoiceViewRoles" Context="creditNoteCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/credit-notes" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -121,12 +135,16 @@
                                     </span>
                                     <span class="snav-text">Credit Notes</span>
                                 </NavLink>
-                                <NavLink class="snav-link sub-link" href="/credit-notes/create" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Create Credit Note</span>
-                                </NavLink>
+                                <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="creditNoteCtxCreate">
+                                    <Authorized>
+                                        <NavLink class="snav-link sub-link" href="/credit-notes/create" Match="NavLinkMatch.All">
+                                            <span class="snav-icon">
+                                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                            </span>
+                                            <span class="snav-text">Create Credit Note</span>
+                                        </NavLink>
+                                    </Authorized>
+                                </AuthorizeView>
                             </Authorized>
                         </AuthorizeView>
 
@@ -186,6 +204,18 @@
                                         <i class="ph ph-chart-bar" aria-hidden="true"></i>
                                     </span>
                                     <span class="snav-text">Stock Monitoring</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        @* The stock controller reaches this as its Overview; a manager reads
+                           it from here. Admin finds it through search, as before. *@
+                        <AuthorizeView Roles="@UserRoles.Manager" Context="stockOverviewCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="@RoleLandingRoutes.StockDashboard" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-squares-four" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Stock Overview</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
@@ -317,7 +347,7 @@
             <AuthorizeView Roles="Admin,Cashier,Manager,StockController" Context="financeCtx">
                 <Authorized>
                     <NavSection Title="Finance">
-                        <AuthorizeView Roles="@UserRoles.PaymentRoles" Context="paymentCtx">
+                        <AuthorizeView Roles="@UserRoles.PaymentViewRoles" Context="paymentCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/payments" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -325,12 +355,16 @@
                                     </span>
                                     <span class="snav-text">Incoming Payments</span>
                                 </NavLink>
-                                <NavLink class="snav-link sub-link" href="/payments/create" Match="NavLinkMatch.All">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Create Payment</span>
-                                </NavLink>
+                                <AuthorizeView Roles="@UserRoles.PaymentRoles" Context="paymentCtxCreate">
+                                    <Authorized>
+                                        <NavLink class="snav-link sub-link" href="/payments/create" Match="NavLinkMatch.All">
+                                            <span class="snav-icon">
+                                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                            </span>
+                                            <span class="snav-text">Create Payment</span>
+                                        </NavLink>
+                                    </Authorized>
+                                </AuthorizeView>
                             </Authorized>
                         </AuthorizeView>
                         <AuthorizeView Roles="@UserRoles.CatalogueRoles" Context="glCtx">
@@ -422,11 +456,15 @@
 
                No SalesRep. A sales rep supervises merchandisers and has no part in
                the vans. StockController and DepotController are in the gate for
-               the two depot rows, Customer Orders and Market Breakages. *@
+               the two depot rows, Customer Orders and Market Breakages.
+
+               Routes, Fleet, Route Customers and Customer App Access are set-up —
+               what the vans sell on, rather than the selling — so a manager sees
+               none of them. *@
             <AuthorizeView Roles="Admin,Manager,Cashier,StockController,DepotController" Context="vanSalesCtx">
                 <Authorized>
                     <NavSection Title="Van Sales">
-                        <AuthorizeView Roles="Admin,Manager" Context="vanRoutesCtx">
+                        <AuthorizeView Roles="@UserRoles.Admin" Context="vanRoutesCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/van-sales/routes" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -507,8 +545,12 @@
                                     </span>
                                     <span class="snav-text">Van Credit Notes</span>
                                 </NavLink>
-                                @* Who may order in the app at all: the roles that own the customer
-                                   relationship, not the depot ones above. *@
+                            </Authorized>
+                        </AuthorizeView>
+                        @* Who may order in the app at all: the roles that own the customer
+                           relationship, not the depot ones above, and not the manager. *@
+                        <AuthorizeView Roles="Admin,Cashier" Context="customerAppAccessCtx">
+                            <Authorized>
                                 <NavLink class="snav-link" href="/van-sales-customer-accounts" Match="NavLinkMatch.All">
                                     <span class="snav-icon">
                                         <i class="ph ph-device-mobile" aria-hidden="true"></i>
@@ -589,7 +631,7 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        <AuthorizeView Roles="Admin,Cashier" Context="routeSalesReportCtx">
+                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="routeSalesReportCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/route-sales-report" Match="NavLinkMatch.All">
                                     <span class="snav-icon">
@@ -605,12 +647,13 @@
 
             @* ── Deliveries ──
                Proof of delivery and the crates that travel with the goods. PODs and
-               Crates were two groups read by nearly the same roles; Manager and
-               Merchandiser are in the gate for the crate rows alone. *@
+               Crates were two groups read by nearly the same roles; Merchandiser is
+               in the gate for the crate rows alone. A manager reads the POD pages
+               without uploading to them. *@
             <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver,SalesRep,Manager,Merchandiser" Context="deliveriesCtx">
                 <Authorized>
                     <NavSection Title="Deliveries">
-                        <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver,SalesRep" Context="podCtx">
+                        <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver,SalesRep,Manager" Context="podCtx">
                             <Authorized>
                                 @if (!podCtx.User.IsInRole("Operator"))
                                 {
@@ -649,10 +692,8 @@
                             </Authorized>
                         </AuthorizeView>
                         @* A sales rep owns the round: which shops a route calls at, and on
-                           which days, edits included. Its own gate rather than inside the POD
-                           one above, which has no Manager in it and so hid this from a manager
-                           the page admits. *@
-                        <AuthorizeView Roles="Admin,Manager,SalesRep" Context="routeCtx">
+                           which days, edits included. Set-up, so not the manager's. *@
+                        <AuthorizeView Roles="Admin,SalesRep" Context="routeCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/route-assignments" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -840,7 +881,9 @@
             @* ── System ──
                Is everything still flowing: exceptions, the SAP sync and the
                transfer listener, who did what, and what goes out to phones and on
-               paper. Security and Notifications moved to Account. *@
+               paper. Security and Notifications moved to Account. A manager sees
+               Exception Center alone: the rest administers the system, and that is
+               the administrator's. *@
             <AuthorizeView Roles="@UserRoles.SystemRoles" Context="systemCtx">
                 <Authorized>
                     <NavSection Title="System">
@@ -850,16 +893,20 @@
                             </span>
                             <span class="snav-text">Exception Center</span>
                         </NavLink>
-                        <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
-                            <span class="snav-icon">
-                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Sync Status</span>
-                        </NavLink>
+                        <AuthorizeView Roles="@UserRoles.SystemSetupRoles" Context="syncStatusCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Sync Status</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         @* Beside Sync Status because it answers the same question about a
                            different link: whether stock movements are still arriving from
-                           SAP. Admin and Manager only, as the API routes behind it are. *@
-                        <AuthorizeView Roles="Admin,Manager" Context="listenerCtx">
+                           SAP. Admin only, as the API routes behind it are. *@
+                        <AuthorizeView Roles="@UserRoles.Admin" Context="listenerCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/transfer-listener" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -875,12 +922,16 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
-                            <span class="snav-icon">
-                                <i class="ph ph-file-text" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Document Templates</span>
-                        </NavLink>
+                        <AuthorizeView Roles="@UserRoles.SystemSetupRoles" Context="documentTemplatesCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-file-text" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Document Templates</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         @* AI Assistant (/ai-assistant) is hidden from the sidebar and the
                            topbar command palette. The route still resolves, so existing
                            links into it — including notification action URLs — keep working. *@

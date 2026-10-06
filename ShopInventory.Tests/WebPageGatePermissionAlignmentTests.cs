@@ -121,8 +121,9 @@ public sealed class WebPageGatePermissionAlignmentTests
     }
 
     /// <summary>
-    /// /van-sales/routes admits Admin and Manager. The route writes used to borrow users.edit, which would
-    /// also let a manager edit every user account.
+    /// Selling routes are set-up, so /van-sales/routes is the administrator's and a manager holds no
+    /// vansales.routes.manage. The route writes still accept it beside users.edit, so the permission can
+    /// be granted to one user without handing them every user account.
     /// </summary>
     [Theory]
     [InlineData(nameof(VanSalesReportController.CreateRoute))]
@@ -131,19 +132,18 @@ public sealed class WebPageGatePermissionAlignmentTests
     [InlineData(nameof(VanSalesReportController.UpdateRouteStop))]
     [InlineData(nameof(VanSalesReportController.DeleteRouteStop))]
     [InlineData(nameof(VanSalesReportController.ReorderRouteStops))]
-    public async Task Every_role_the_routes_page_admits_can_edit_routes_and_stops(string action)
+    public async Task A_manager_no_longer_edits_routes_and_stops(string action)
     {
-        foreach (var role in PageRoles("ShopInventory.Web.Components.Pages.VanSalesRoutes"))
-        {
-            Assert.True(
-                await Passes<VanSalesReportController>(action, role),
-                $"{role} can open /van-sales/routes but the API refuses {action}.");
-        }
+        Assert.False(await Passes<VanSalesReportController>(action, ApplicationRoles.Manager));
+        Assert.Contains(
+            Permission.ManageVanSalesRoutes,
+            typeof(VanSalesReportController).GetMethods().Single(method => method.Name == action)
+                .GetCustomAttributes<RequirePermissionAttribute>().Single().RequiredPermissions);
     }
 
-    /// <summary>The negative control: running the routes is not a way into user accounts.</summary>
+    /// <summary>The negative control: a manager edits no user account either.</summary>
     [Fact]
-    public async Task Managing_routes_does_not_let_a_manager_edit_users()
+    public async Task A_manager_does_not_edit_users()
     {
         Assert.False(await Passes<UserManagementController>(nameof(UserManagementController.UpdateUser), ApplicationRoles.Manager));
     }
