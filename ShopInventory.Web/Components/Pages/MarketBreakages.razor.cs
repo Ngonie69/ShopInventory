@@ -366,6 +366,25 @@ public partial class MarketBreakages : IDisposable
         }
     }
 
+    /// <summary>Prints the open report's return slip from what the drawer already holds.</summary>
+    private async Task PrintAsync()
+    {
+        if (detail is null)
+            return;
+
+        try
+        {
+            var html = MarketBreakageDocumentBuilder.Build(detail, IAuditService.ToCAT(DateTime.UtcNow));
+            await JS.InvokeVoidAsync("printReportHtml", disposal.Token, html);
+        }
+        catch (OperationCanceledException) when (disposal.IsCancellationRequested)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
     private async Task SetStatusFilterAsync(string value)
     {
         if (statusFilter == value)
