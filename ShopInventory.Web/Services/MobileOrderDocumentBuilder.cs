@@ -393,7 +393,8 @@ public static class MobileOrderDocumentBuilder
 
     // ── Styles ──────────────────────────────────────────────────────────────────
 
-    private const string DocumentStyles = """
+    /// <summary>Shared with <see cref="MarketBreakageDocumentBuilder"/>, so the two printed documents read as one family.</summary>
+    internal const string DocumentStyles = """
         :root {
           --mod-ground: #f3f5fe;      /* Nocturne neutral-100 */
           --mod-line: #cfd3e5;        /* neutral-300 */

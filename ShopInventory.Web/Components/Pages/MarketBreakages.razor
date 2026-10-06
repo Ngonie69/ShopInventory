@@ -466,7 +466,18 @@
                     }
                     else
                     {
-                        <span class="mbk-done">@DoneLabel</span>
+                        <div class="mbk-done-row">
+                            <span class="mbk-done">@DoneLabel</span>
+                            @if (detail.Status == MarketBreakageStatus.Transferred)
+                            {
+                                @* The slip that goes with the stock into returns, signed on both sides. *@
+                                <button type="button" class="mbk-btn mbk-btn-secondary" @onclick="PrintAsync"
+                                        title="Print the return slip for this transfer" aria-label="Print return slip">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 9V3h10v6" /><rect x="3" y="9" width="18" height="8" rx="2" /><path d="M7 14h10v7H7z" /></svg>
+                                    <span>Print</span>
+                                </button>
+                            }
+                        </div>
                     }
                 </footer>
             }
