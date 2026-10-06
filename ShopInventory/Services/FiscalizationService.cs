@@ -1094,14 +1094,17 @@ public class FiscalizationService : IFiscalizationService
     /// <remarks>
     /// A pre-SAP sale's <see cref="InvoiceLineDto.UnitPrice"/> is the net price SAP will be given, and the
     /// receipt is filed tax-inclusive, so every caller grosses each line up through
-    /// <c>DesktopSaleFiscaliser.BuildInvoice</c>. <see cref="GetPriceAfterVat"/> falls back to the unit price
-    /// when there is no gross — right for a SAP invoice read back with its gross on it, and silently wrong
-    /// here: <c>InvoicePostingJob</c> sent net prices that way for every converted van order until
+    /// <c>DesktopSaleFiscaliser.BuildInvoice</c>, which sets both tax-inclusive prices: the exact
+    /// <see cref="InvoiceLineDto.PriceAfterVat"/> that <see cref="PreSapLinePricing.Exact"/> files and the
+    /// cent-rounded <see cref="InvoiceLineDto.GrossPrice"/>. With neither, <see cref="GetExactPriceAfterVat"/>
+    /// falls through to the unit price — right for a SAP invoice read back with its gross on it, and silently
+    /// wrong here: <c>InvoicePostingJob</c> sent net prices that way for every converted van order until
     /// 2026-10-05, and each of those receipts understated the sale and its VAT. A line priced at zero is free
     /// on both sides and passes.
     /// </remarks>
     internal static InvoiceLineDto? FindLineWithoutGrossPrice(InvoiceDto invoice)
-        => invoice.Lines?.FirstOrDefault(line => line.UnitPrice != 0m && line.GrossPrice == 0m);
+        => invoice.Lines?.FirstOrDefault(line =>
+            line.UnitPrice != 0m && line.GrossPrice == 0m && line.PriceAfterVat == 0m);
 
     private static decimal GetPriceAfterVat(InvoiceLineDto line)
     {
