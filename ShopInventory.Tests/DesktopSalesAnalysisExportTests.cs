@@ -171,9 +171,29 @@ public sealed class DesktopSalesAnalysisExportTests
         Assert.Equal("USD Farm Counter Sales", sheet.Cell(topLabel.Address.RowNumber - 1, topLabel.Address.ColumnNumber).GetString());
 
         // The sheets without a code column still start their counts in the third column.
-        var shopSheet = workbook.Worksheet("By Shop");
-        var shopHeader = RowWhere(shopSheet, column: 1, "Currency");
-        Assert.Equal(3, ColumnWhere(shopSheet, shopHeader, "Sales"));
+        var operatorSheet = workbook.Worksheet("By Operator");
+        var operatorHeader = RowWhere(operatorSheet, column: 1, "Currency");
+        Assert.Equal(3, ColumnWhere(operatorSheet, operatorHeader, "Sales"));
+    }
+
+    [Fact]
+    public void The_shop_sheet_states_each_warehouse_code_with_the_shop_name_after_it()
+    {
+        using var workbook = Export(Report());
+        var sheet = workbook.Worksheet("By Shop");
+
+        var header = RowWhere(sheet, column: 1, "Currency");
+        Assert.Equal("Warehouse Code", sheet.Cell(header, 2).GetString());
+        Assert.Equal("Shop", sheet.Cell(header, 3).GetString());
+        Assert.Equal(4, ColumnWhere(sheet, header, "Sales"));
+
+        Assert.Equal("KEFSHOP", sheet.Cell(header + 1, 2).GetString());
+        Assert.Equal("Kefalos Shop Centre", sheet.Cell(header + 1, 3).GetString());
+        Assert.Equal(308.70m, sheet.Cell(header + 1, ColumnWhere(sheet, header, "Takings")).GetValue<decimal>());
+
+        // The strip names the top shop rather than coding it.
+        var topLabel = sheet.CellsUsed().First(cell => cell.GetString() == "Top Shop");
+        Assert.Equal("USD Kefalos Shop Centre", sheet.Cell(topLabel.Address.RowNumber - 1, topLabel.Address.ColumnNumber).GetString());
     }
 
     // ---- Harness ----------------------------------------------------------------------------------
@@ -230,7 +250,7 @@ public sealed class DesktopSalesAnalysisExportTests
                     ByHour = [new() { Hour = 10, SalesCount = 11, TotalAmount = 308.70m }],
                     ByWarehouse =
                     [
-                        new() { Key = "KEFSHOP", Label = "KEFSHOP", SalesCount = 11, TotalAmount = 308.70m, ShareOfValuePercent = 100m, ByPaymentMethod = Split(102.55m, 132.15m, 66.00m, 8.00m) },
+                        new() { Key = "KEFSHOP", Label = "Kefalos Shop Centre", SalesCount = 11, TotalAmount = 308.70m, ShareOfValuePercent = 100m, ByPaymentMethod = Split(102.55m, 132.15m, 66.00m, 8.00m) },
                     ],
                     ByBusinessPartner =
                     [

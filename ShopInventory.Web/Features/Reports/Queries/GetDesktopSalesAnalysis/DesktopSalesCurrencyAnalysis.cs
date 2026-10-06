@@ -35,6 +35,12 @@ public sealed class DesktopSalesCurrencyAnalysis
     /// <summary>Each business partner the sales were made as, keyed by CardCode and labelled by its name.</summary>
     public List<DesktopSalesBreakdownRow> ByBusinessPartner { get; set; } = [];
 
+    /// <summary>
+    /// Van analysis only: each business partner the vans billed as, keyed by CardCode. The API labels it by
+    /// code; the query handler swaps in the partner's name from the local cache.
+    /// </summary>
+    public List<DesktopSalesBreakdownRow> ByVanAccount { get; set; } = [];
+
     public List<DesktopSalesBreakdownRow> BySource { get; set; } = [];
 
     public List<DesktopSalesBreakdownRow> ByOperator { get; set; } = [];

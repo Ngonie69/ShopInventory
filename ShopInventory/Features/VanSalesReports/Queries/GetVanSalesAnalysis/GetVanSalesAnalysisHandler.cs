@@ -13,7 +13,8 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 /// <para>
 /// The breakdowns keep the desktop result's names so one page draws both, and mean the van's own thing:
 /// <c>ByWarehouse</c> is the van, <c>ByBusinessPartner</c> the route customer the van sold to — never the
-/// document's card, which is the van's own account on every sale it makes — <c>BySource</c> whether the
+/// document's card, which is the van's own account on every sale it makes and is <c>ByVanAccount</c> instead
+/// — <c>BySource</c> whether the
 /// sale was invoiced live or uploaded offline, and <c>ByOperator</c> the rep.
 /// </para>
 /// <para>
@@ -249,7 +250,16 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db)
                 paymentMethods),
             topItems,
             previous.SalesCount,
-            previous.TotalAmount);
+            previous.TotalAmount)
+        {
+            // Labelled by code: the partner's name is in SAP, not in either sales table, so the Web names it.
+            ByVanAccount = Breakdown(
+                sales,
+                sale => sale.VanAccountCode?.Trim() ?? "",
+                group => (group.Key, group.Key.Length == 0 ? "Not recorded" : group.Key),
+                total,
+                paymentMethods)
+        };
     }
 
     private static List<DesktopSalesBreakdownRow> Breakdown(

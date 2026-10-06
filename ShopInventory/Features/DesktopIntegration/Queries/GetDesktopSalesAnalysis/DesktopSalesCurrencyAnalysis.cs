@@ -35,4 +35,15 @@ public sealed record DesktopSalesCurrencyAnalysis(
     List<DesktopSalesBreakdownRow> ByOperator,
     List<DesktopSalesItemRow> TopItems,
     int PreviousSalesCount,
-    decimal PreviousTotalAmount);
+    decimal PreviousTotalAmount)
+{
+    /// <summary>
+    /// Van analysis only: the takings by the business partner each van bills as — the document's own
+    /// CardCode — keyed and labelled by that code. Empty on the desktop analysis.
+    /// </summary>
+    /// <remarks>
+    /// Not <c>ByWarehouse</c> renamed: a van can invoice under another van's account, so the warehouse
+    /// it sold from and the partner it billed need not match.
+    /// </remarks>
+    public List<DesktopSalesBreakdownRow> ByVanAccount { get; init; } = [];
+}
