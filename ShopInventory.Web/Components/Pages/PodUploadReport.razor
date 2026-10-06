@@ -4,7 +4,7 @@
 @using ShopInventory.Web.Common
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+@attribute [Authorize(Roles = UserRoles.PodViewRoles)]
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IPodService PodService
 @inject IReportExportService ExportService

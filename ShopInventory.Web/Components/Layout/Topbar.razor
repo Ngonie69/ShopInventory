@@ -290,10 +290,10 @@
             var results = await GlobalSearchService.SearchAsync(query, cts.Token);
             // The search service is not role-aware, so drop the categories this user
             // cannot open. Each role set mirrors the [Authorize] on the landing page.
-            _recordChoices = VisibleRecords(results.Invoices, UserRoles.InvoicingRoles)
+            _recordChoices = VisibleRecords(results.Invoices, UserRoles.InvoiceViewRoles)
                 .Concat(VisibleRecords(results.Products, UserRoles.CatalogueRoles))
                 .Concat(VisibleRecords(results.Customers, UserRoles.CatalogueRoles))
-                .Concat(VisibleRecords(results.Payments, UserRoles.PaymentRoles))
+                .Concat(VisibleRecords(results.Payments, UserRoles.PaymentViewRoles))
                 .Take(5)
                 .Select(ToSearchChoice)
                 .ToList();
@@ -468,38 +468,38 @@
     [
         new("Dashboard", "Sales and operations overview", "/dashboard", "ph-squares-four", UserRoles.DashboardRoles, "home", "overview"),
         new("Till", "Today's invoices, payments and fiscalisation", RoleLandingRoutes.CashierDashboard, "ph-squares-four", "Admin,Cashier", "cashier", "dashboard", "overview", "home"),
-        new("Stock overview", "What a warehouse holds and what is queued against it", RoleLandingRoutes.StockDashboard, "ph-squares-four", "Admin,StockController", "warehouse", "dashboard", "overview", "home"),
+        new("Stock overview", "What a warehouse holds and what is queued against it", RoleLandingRoutes.StockDashboard, "ph-squares-four", UserRoles.StockDashboardRoles, "warehouse", "dashboard", "overview", "home"),
         new("Oversight", "Purchasing, approvals and the day's trading", RoleLandingRoutes.ManagerDashboard, "ph-squares-four", "Admin,Manager", "manager", "dashboard", "overview", "home"),
-        new("Invoices", "Find and manage customer invoices", "/invoices", "ph-receipt", UserRoles.InvoicingRoles, "billing", "documents"),
+        new("Invoices", "Find and manage customer invoices", "/invoices", "ph-receipt", UserRoles.InvoiceViewRoles, "billing", "documents"),
         new("Create invoice", "Create a new customer invoice", "/invoices/create", "ph-file-plus", UserRoles.InvoicingRoles, "new invoice"),
         new("Van sales invoices", "Invoices the van sales app created, and their receipt and SAP state", "/van-sales/invoices", "ph-receipt", "Admin,Manager,Cashier", "van", "fiscal"),
         new("Van sales credit notes", "Credit notes raised against van sales invoices", "/van-sales/credit-notes", "ph-file-minus", "Admin,Manager,Cashier", "van", "credit"),
         new("Desktop credit notes", "Every till, vending and van credit, with its ZIMRA and SAP state", "/desktop-credit-notes", "ph-receipt-x", "Admin,Manager,Cashier", "till", "vending", "credit", "refund", "return"),
-        new("Payments", "Find incoming customer payments", "/payments", "ph-credit-card", UserRoles.PaymentRoles, "receipts", "cash"),
+        new("Payments", "Find incoming customer payments", "/payments", "ph-credit-card", UserRoles.PaymentViewRoles, "receipts", "cash"),
         new("Create payment", "Record an incoming payment", "/payments/create", "ph-plus-circle", UserRoles.PaymentRoles, "new payment"),
-        new("Sales orders", "Find and manage sales orders", "/sales-orders", "ph-shopping-cart", "Admin,Cashier,SalesRep", "orders"),
+        new("Sales orders", "Find and manage sales orders", "/sales-orders", "ph-shopping-cart", UserRoles.SalesOrderViewRoles, "orders"),
         new("Create sales order", "Create a new sales order", "/sales-orders/create", "ph-plus-circle", "Admin,Cashier,SalesRep", "new order"),
         new("Mobile orders", "Review mobile and van sales orders", "/mobile-drafts", "ph-device-mobile", UserRoles.SalesOrderRoles, "drafts", "van"),
-        new("Route customers", "Manage customers assigned to routes", "/route-customers", "ph-signpost", "Admin,Manager,Cashier", "routes"),
+        new("Route customers", "Manage customers assigned to routes", "/route-customers", "ph-signpost", "Admin,Cashier", "routes"),
         new("Route sales report", "What each route customer buys, and who has gone quiet", "/route-sales-report", "ph-chart-bar", "Admin,Manager,Cashier", "routes", "van sales", "dormant", "product mix"),
-        new("Quotations", "Find and manage quotations", "/quotations", "ph-file-text", UserRoles.QuotationRoles, "quotes"),
+        new("Quotations", "Find and manage quotations", "/quotations", "ph-file-text", UserRoles.QuotationViewRoles, "quotes"),
         new("Create quotation", "Create a new customer quotation", "/quotations/create", "ph-file-plus", UserRoles.QuotationRoles, "new quote"),
-        new("Credit notes", "Find and manage credit notes", "/credit-notes", "ph-file-minus", UserRoles.InvoicingRoles, "credits"),
+        new("Credit notes", "Find and manage credit notes", "/credit-notes", "ph-file-minus", UserRoles.InvoiceViewRoles, "credits"),
         new("Products", "Browse the product catalogue", "/products", "ph-package", UserRoles.CatalogueRoles, "items", "catalog"),
         new("Prices", "View customer and product pricing", "/prices", "ph-tag", UserRoles.CatalogueRoles, "pricing"),
         new("Customers", "Find business partners and customers", "/customers", "ph-users-three", UserRoles.CatalogueRoles, "business partners"),
         new("Stock", "View current warehouse stock", "/stock", "ph-warehouse", UserRoles.CatalogueRoles, "inventory"),
         new("Inventory transfers", "Manage stock movements between warehouses", "/inventory-transfers", "ph-arrows-left-right", UserRoles.InventoryTransferRoles, "transfers"),
         new("Purchase orders", "Find and manage purchase orders", "/purchase-orders", "ph-shopping-bag", UserRoles.PurchasingRoles, "purchasing"),
-        new("POD dashboard", "Delivery proof, coverage and what is outstanding", "/pod-dashboard", "ph-gauge", UserRoles.PodRoles, "proof of delivery", "pods"),
-        new("Product PODs", "Upload and find proof of delivery", "/pods", "ph-list-checks", UserRoles.PodRoles, "proof of delivery", "upload"),
-        new("POD report", "Which deliveries are still missing proof", "/pod-report", "ph-clipboard-text", UserRoles.PodRoles, "proof of delivery", "outstanding"),
+        new("POD dashboard", "Delivery proof, coverage and what is outstanding", "/pod-dashboard", "ph-gauge", UserRoles.PodViewRoles, "proof of delivery", "pods"),
+        new("Product PODs", "Upload and find proof of delivery", "/pods", "ph-list-checks", UserRoles.PodViewRoles, "proof of delivery", "upload"),
+        new("POD report", "Which deliveries are still missing proof", "/pod-report", "ph-clipboard-text", UserRoles.PodViewRoles, "proof of delivery", "outstanding"),
         new("Reports", "Open sales and operations reports", "/reports", "ph-chart-bar", UserRoles.InsightsRoles, "analytics"),
         new("Notifications", "View system notifications", "/notifications", "ph-bell", UserRoles.SystemRoles, "alerts"),
         new("Settings", "Configure application preferences", "/settings", "ph-gear-six", UserRoles.Admin, "configuration", "preferences"),
         new("User management", "Manage staff accounts and access", "/user-management", "ph-users-three", UserRoles.UserManagementRoles, "users", "roles"),
         new("Security", "Review security configuration", "/security", "ph-shield-check", "", "authentication"),
-        new("Sync status", "Review synchronization health", "/sync-status", "ph-arrows-clockwise", UserRoles.SystemRoles, "integration"),
+        new("Sync status", "Review synchronization health", "/sync-status", "ph-arrows-clockwise", UserRoles.SystemSetupRoles, "integration"),
         new("Backups", "Manage application backups", "/backups", "ph-cloud-arrow-up", UserRoles.Admin, "restore"),
         new("Fiscalisation", "Devices, what is still owed to ZIMRA, and each fiscal day", "/fiscalisation", "ph-seal-check", UserRoles.Admin, "zimra", "fdms", "fiscal", "receipts", "tax", "work queue"),
         new("Offline signing", "Which van may complete sales without signal", "/fiscalisation/offline-lease", "ph-signature", UserRoles.Admin, "zimra", "fiscal", "van", "lease"),

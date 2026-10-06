@@ -3,7 +3,7 @@
 @using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = UserRoles.SystemRoles)]
+@attribute [Authorize(Roles = UserRoles.SystemSetupRoles)]
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject IAppSettingsProvider AppSettings

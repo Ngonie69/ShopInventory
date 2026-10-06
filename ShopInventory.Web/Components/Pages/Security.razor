@@ -38,7 +38,10 @@
                 }
             </nav>
             <div class="sec-head-actions">
-                <a class="sec-more" href="/user-activity">Audit trail</a>
+                @* The audit trail is the administrator's; anyone else would open a refusal. *@
+                <AuthorizeView Roles="@UserRoles.Admin" Context="auditHeadAccess">
+                    <a class="sec-more" href="/user-activity">Audit trail</a>
+                </AuthorizeView>
             </div>
         </div>
     </header>
@@ -573,7 +576,9 @@
                                     <strong>@(activitySummary?.ActionsThisWeek ?? 0)</strong> this week
                                 </p>
                             </div>
-                            <a class="sec-more" href="/user-activity">View all &#8594;</a>
+                            <AuthorizeView Roles="@UserRoles.Admin" Context="auditMoreAccess">
+                                <a class="sec-more" href="/user-activity">View all &#8594;</a>
+                            </AuthorizeView>
                         </div>
                         <div class="sec-panel">
                             @if (recentActivity.Any())
@@ -659,11 +664,13 @@
                     </section>
 
                     <nav class="sec-panel sec-links" aria-label="Related pages">
-                        <a class="sec-link" href="/user-activity">
-                            <span>Login history and audit trail</span>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
-                        </a>
+                        <AuthorizeView Roles="@UserRoles.Admin" Context="auditLinkAccess">
+                            <a class="sec-link" href="/user-activity">
+                                <span>Login history and audit trail</span>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+                            </a>
+                        </AuthorizeView>
                         <a class="sec-link" href="/settings">
                             <span>Account settings</span>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"

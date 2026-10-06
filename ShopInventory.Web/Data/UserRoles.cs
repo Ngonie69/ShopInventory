@@ -128,7 +128,49 @@ public static class UserRoles
     public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
     public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";
+
+    /// <summary>
+    /// Who can open the system pages that configure or administer the application rather than run
+    /// the business: /sync-status, /document-templates and /exchange-rates. <see cref="SystemRoles"/>
+    /// without the manager, who leaves set-up and administration to the administrator. The API agrees:
+    /// a manager holds none of <c>sync.view</c>, <c>settings.*</c>, <c>users.*</c> or <c>audit.view</c>,
+    /// and the template writes are Admin only.
+    /// </summary>
+    public const string SystemSetupRoles = "Admin,Cashier,StockController";
     public const string InvoicingRoles = "Admin,Cashier";
+
+    /// <summary>
+    /// Who can open /invoices and /credit-notes: <see cref="InvoicingRoles"/> and the manager, who reads
+    /// them without raising, editing or cancelling one. Every write on the two pages stays behind
+    /// <see cref="InvoicingRoles"/> or Admin, and the API agrees — a manager holds <c>invoices.view</c>
+    /// and none of <c>invoices.create</c>, <c>invoices.edit</c> or <c>invoices.void</c>.
+    /// </summary>
+    public const string InvoiceViewRoles = "Admin,Cashier,Manager";
+
+    /// <summary>
+    /// Who can open /payments: <see cref="PaymentRoles"/> and the manager, read only. The API agrees
+    /// through <c>payments.view</c>, which is all a manager holds of the family.
+    /// </summary>
+    public const string PaymentViewRoles = "Admin,Cashier,Manager";
+
+    /// <summary>
+    /// Who can open /sales-orders: the roles that raise them, and the manager, who reads them and
+    /// approves them through the approval queue but raises, edits, converts and posts none. The API
+    /// agrees through <c>salesorders.view</c> and <c>salesorders.approve</c>.
+    /// </summary>
+    public const string SalesOrderViewRoles = "Admin,Cashier,SalesRep,Manager";
+
+    /// <summary>
+    /// Who on <see cref="SalesOrderViewRoles"/> works the orders on /sales-orders: editing, approving,
+    /// rejecting, cancelling and posting them. Everyone the page admitted before the manager could read it.
+    /// </summary>
+    public const string SalesOrderEditRoles = "Admin,Cashier,SalesRep";
+
+    /// <summary>
+    /// Who can open /quotations: <see cref="QuotationRoles"/> and the manager, read only. The API agrees
+    /// through <c>quotations.view</c>, which is all a manager holds of the family.
+    /// </summary>
+    public const string QuotationViewRoles = "Admin,Cashier,SalesRep,Manager";
 
     /// <summary>
     /// Who can open /quotations and /quotations/create. Wider than <see cref="InvoicingRoles"/>
@@ -196,6 +238,24 @@ public static class UserRoles
     public const string VendingRoles = "Admin,Manager,Cashier";
 
     public const string PodRoles ="Admin,Cashier,PodOperator,Driver,SalesRep";
+
+    /// <summary>
+    /// Who can open the proof of delivery pages to read them: <see cref="PodRoles"/> and the manager.
+    /// Uploading, replacing and deleting a POD stay with <see cref="PodRoles"/>.
+    /// </summary>
+    public const string PodViewRoles = "Admin,Cashier,PodOperator,Driver,SalesRep,Manager";
+
+    /// <summary>
+    /// Who on /pods uploads and deletes PODs: every role the page admitted before the manager could
+    /// read it. Wider than <see cref="PodRoles"/> by the legacy Operator, which /pods has always admitted.
+    /// </summary>
+    public const string PodWorkRoles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep";
+
+    /// <summary>
+    /// Who can open /stock-dashboard: the stock controller whose landing page it is, and the manager,
+    /// who reads it. Raising a transfer from it stays with <see cref="InventoryTransferRoles"/>.
+    /// </summary>
+    public const string StockDashboardRoles = "Admin,StockController,Manager";
     public const string UserManagementRoles = "Admin,PodOperator,SalesRep";
     public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 
@@ -310,7 +370,17 @@ public static class UserRoles
         roles.Contains(role.Trim(), StringComparer.OrdinalIgnoreCase);
 
     public static bool CanReadReportsAcrossCustomers(ClaimsPrincipal user) =>
-        InsightsRoles.Split(',').Any(user.IsInRole);
+        IsInAnyRole(user, InsightsRoles);
+
+    /// <summary>
+    /// Whether <paramref name="user"/> holds any role in <paramref name="roles"/>, a comma-separated
+    /// list read the way <c>[Authorize(Roles = ...)]</c> and <c>&lt;AuthorizeView Roles&gt;</c> read it.
+    /// For a page that admits a reader its writes refuse — a manager on /invoices — and has to answer
+    /// the question in code where no single element can carry an AuthorizeView.
+    /// </summary>
+    public static bool IsInAnyRole(ClaimsPrincipal user, string roles) =>
+        roles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(user.IsInRole);
 
     /// <summary>
     /// Check if a role has admin privileges

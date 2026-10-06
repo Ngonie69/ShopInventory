@@ -1,6 +1,6 @@
 @page "/van-sales/fleet"
-@* Admin and Manager only — this is fleet administration, and it writes. *@
-@attribute [Authorize(Roles = "Admin,Manager")]
+@* Admin only — this is fleet administration, and it writes. *@
+@attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 @using System.Globalization
 @using ShopInventory.Web.Common
