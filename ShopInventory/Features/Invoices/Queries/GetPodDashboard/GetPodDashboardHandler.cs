@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.Invoices.Queries.GetPodDashboard;
@@ -38,9 +39,11 @@ public sealed class GetPodDashboardHandler(
                     EF.Functions.ILike(a.Description, "%pod%") ||
                     EF.Functions.ILike(a.Description, "%proof of delivery%"))));
 
-        // A POD operator oversees every uploaded POD, independent of their own assigned location.
+        // A POD operator oversees every uploaded POD, independent of their own assigned location, and
+        // so does a manager, who reads the dashboard and uploads nothing — "my uploads" would be zero.
         // Other roles retain the dashboard's existing "my uploads" view.
-        if (!string.Equals(user?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(user?.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(user?.Role, ApplicationRoles.Manager, StringComparison.OrdinalIgnoreCase))
         {
             baseQuery = baseQuery.Where(a => a.UploadedByUserId == request.UserId);
         }

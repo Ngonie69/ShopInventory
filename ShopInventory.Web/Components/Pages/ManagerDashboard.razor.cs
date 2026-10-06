@@ -20,6 +20,7 @@ public partial class ManagerDashboard
     [Inject] private IPurchaseOrderService PurchaseOrderService { get; set; } = default!;
     [Inject] private IPurchaseRequestService PurchaseRequestService { get; set; } = default!;
     [Inject] private IGoodsReceiptPurchaseOrderService GoodsReceiptService { get; set; } = default!;
+    [Inject] private IPurchaseInvoiceService PurchaseInvoiceService { get; set; } = default!;
     [Inject] private IInventoryTransferService TransferService { get; set; } = default!;
     [Inject] private IInvoiceService InvoiceService { get; set; } = default!;
     [Inject] private IPaymentService PaymentService { get; set; } = default!;
@@ -46,10 +47,7 @@ public partial class ManagerDashboard
     private int? recentRequestCount;
     private int? recentReceiptCount;
     private int? pendingTransferCount;
-
-    private int? activeUsers;
-    private int? totalActions;
-    private int? failedActions;
+    private int? recentPurchaseInvoiceCount;
 
     private int? todayInvoiceCount;
     private int? todayPaymentCount;
@@ -61,9 +59,7 @@ public partial class ManagerDashboard
     private (string? Text, int Direction) creditNoteTrend;
 
     private List<PurchaseOrderDto>? pendingOrders;
-    private List<AuditLog>? recentActivity;
     private bool isLoadingApprovals = true;
-    private bool isLoadingActivity = true;
 
     private string currentUsername = "there";
     private bool _initialized;
@@ -93,8 +89,7 @@ public partial class ManagerDashboard
             LoadRecentRequestCountAsync(),
             LoadRecentReceiptCountAsync(),
             LoadPendingTransferCountAsync(),
-            LoadActivityStatsAsync(),
-            LoadRecentActivityAsync(),
+            LoadRecentPurchaseInvoiceCountAsync(),
             LoadInvoiceStatsAsync(),
             LoadPaymentStatsAsync(),
             LoadCreditNoteCountAsync());
@@ -213,39 +208,21 @@ public partial class ManagerDashboard
         }
     }
 
-    private async Task LoadActivityStatsAsync()
+    private async Task LoadRecentPurchaseInvoiceCountAsync()
     {
         try
         {
-            var stats = await AuditService.GetActivityStatsAsync(DateTime.Today, DateTime.Today.AddDays(1));
-            activeUsers = stats.ActiveUsers;
-            totalActions = stats.TotalActions;
-            failedActions = stats.FailedActions;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Manager dashboard could not read today's activity statistics.");
-        }
-        finally
-        {
-            await InvokeAsync(StateHasChanged);
-        }
-    }
+            var response = await PurchaseInvoiceService.GetPurchaseInvoicesAsync(
+                page: 1, pageSize: 1, fromDate: WindowStart, toDate: DateTime.Today);
 
-    private async Task LoadRecentActivityAsync()
-    {
-        try
-        {
-            var page = await AuditService.GetLogPageAsync(page: 1, pageSize: RowsShown);
-            recentActivity = page.Items;
+            recentPurchaseInvoiceCount = response?.TotalCount;
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Manager dashboard could not read the recent activity log.");
+            Logger.LogWarning(ex, "Manager dashboard could not count recent supplier invoices.");
         }
         finally
         {
-            isLoadingActivity = false;
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -367,12 +344,6 @@ public partial class ManagerDashboard
         0 => "Queue is clear",
         _ => "Waiting on you"
     };
-
-    private StatTone ActivityTone =>
-        failedActions is null or 0 ? StatTone.Neutral : StatTone.Warn;
-
-    private string? ActivityNote =>
-        failedActions is null or 0 ? null : $"{failedActions:N0} failed";
 
     /// <summary>
     /// The first name to greet by, taken from the username. An address local

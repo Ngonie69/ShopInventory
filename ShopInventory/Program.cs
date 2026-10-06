@@ -292,6 +292,8 @@ try
         builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
     builder.Services.Configure<CreditNoteSyncSettings>(
         builder.Configuration.GetSection(CreditNoteSyncSettings.SectionName));
+    builder.Services.Configure<CreditNoteFiscalisationSettings>(
+        builder.Configuration.GetSection(CreditNoteFiscalisationSettings.SectionName));
     builder.Services.Configure<CreditNoteApprovalSettings>(
         builder.Configuration.GetSection(CreditNoteApprovalSettings.SectionName));
     builder.Services.Configure<CreditLimitSettings>(
@@ -754,6 +756,12 @@ try
     // Compares each signed van sale's SAP invoice with the receipt ZIMRA holds, as the invoice posts.
     builder.Services.AddScoped<ShopInventory.Services.Fiscalisation.FiscalReceiptAmountCheck>();
     builder.Services.AddScoped<DesktopSaleFiscalisationSweep>();
+
+    // Files SAP credit memos with ZIMRA — the approval add's own memo, and on a schedule every memo keyed
+    // straight into SAP that nothing else filed. One routine, so the receipt a credit reverses is chosen
+    // in one place.
+    builder.Services.AddScoped<ShopInventory.Features.CreditNotes.SapCreditNoteFiscaliser>();
+    builder.Services.AddScoped<SapCreditNoteFiscalisationSweep>();
 
     // Hands the fiscalisation platform the receipts vans signed for themselves offline, which is the only
     // route by which those receipts ever reach ZIMRA.

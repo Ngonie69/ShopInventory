@@ -16,8 +16,11 @@ namespace ShopInventory.Tests;
 /// therefore declared something the till never charged — 100 x $1.99 is taken as $229.85 and was
 /// declared as $230.00 — and a receipt is a statement to the revenue authority, not a summary.
 ///
-/// So the total is the sale's own. The per-line breakdown stays in cents, as a printed receipt must,
-/// and is allowed not to re-add to the penny.
+/// So the total is the sale's own, and so are the lines: each is filed at its exact VAT-inclusive unit
+/// price, and the cent or two the per-rate VAT rounding leaves is settled on the largest line, so the
+/// receipt the platform totals from its lines comes to what was charged. Declaring the payment right
+/// was not enough on its own — the platform totals a receipt from its lines, and with unit prices in
+/// cents KEF-FAC-20261005-1B58CD07FF27 was charged 276.93 and filed with ZIMRA as 277.60.
 /// </summary>
 public sealed class FiscalReceiptTotalTests
 {
@@ -89,7 +92,7 @@ public sealed class FiscalReceiptTotalTests
     /// Builds the receipt the way a till sale does: net unit price, VAT rounded once per rate over the
     /// basket, and a tax-inclusive per-unit price on the line.
     /// </summary>
-    private static async Task<(decimal Charged, decimal Declared)> SubmitAsync(
+    private static async Task<(decimal Charged, decimal Declared, decimal Filed)> SubmitAsync(
         params (decimal UnitPrice, decimal Quantity, string TaxCode)[] basket)
     {
         var lines = basket.Select((b, i) =>
@@ -106,6 +109,7 @@ public sealed class FiscalReceiptTotalTests
                     Quantity = b.Quantity,
                     UnitPrice = b.UnitPrice,
                     GrossPrice = Math.Round(b.UnitPrice * (1 + Tax.RateFor(b.TaxCode)), 2, MidpointRounding.AwayFromZero),
+                    PriceAfterVat = Math.Round(b.UnitPrice * (1 + Tax.RateFor(b.TaxCode)), 6, MidpointRounding.AwayFromZero),
                     LineTotal = lineTotal,
                     TaxCode = b.TaxCode
                 },
@@ -136,7 +140,9 @@ public sealed class FiscalReceiptTotalTests
             "VEND-20260814-0001");
 
         Assert.NotNull(client.Submitted);
-        return (charged, client.Submitted.PaymentAmount);
+        // What the platform totals the receipt at, and so what ZIMRA holds.
+        var filed = client.Submitted.Lines.Sum(l => Math.Round(l.Price * l.Quantity, 2, MidpointRounding.AwayFromZero));
+        return (charged, client.Submitted.PaymentAmount, filed);
     }
 
     // The reviewer's own baskets. Every one of these declared a different amount than it charged.
@@ -150,9 +156,10 @@ public sealed class FiscalReceiptTotalTests
     [InlineData(0.03, 12)]
     public async Task The_receipt_declares_what_was_charged(double unitPrice, int quantity)
     {
-        var (charged, declared) = await SubmitAsync(((decimal)unitPrice, quantity, "O01"));
+        var (charged, declared, filed) = await SubmitAsync(((decimal)unitPrice, quantity, "O01"));
 
         Assert.Equal(charged, declared);
+        Assert.Equal(charged, filed);
     }
 
     [Fact]
@@ -160,31 +167,34 @@ public sealed class FiscalReceiptTotalTests
     {
         // Graniteside, 11 September: 17, 20 and 20 units at net 6.25. VAT rounded line by line totalled
         // it 411.48, which was declared as the cash payment although the till charged 411.47.
-        var (charged, declared) = await SubmitAsync(
+        var (charged, declared, filed) = await SubmitAsync(
             (6.25m, 17, "O01"),
             (6.25m, 20, "O01"),
             (6.25m, 20, "O01"));
 
         Assert.Equal(411.47m, charged);
         Assert.Equal(411.47m, declared);
+        Assert.Equal(411.47m, filed);
     }
 
     [Fact]
     public async Task A_weighed_line_declares_what_was_charged()
     {
-        var (charged, declared) = await SubmitAsync((3.45m, 1.234m, "O01"));
+        var (charged, declared, filed) = await SubmitAsync((3.45m, 1.234m, "O01"));
 
         Assert.Equal(charged, declared);
+        Assert.Equal(charged, filed);
     }
 
     [Fact]
     public async Task A_mixed_rate_basket_declares_what_was_charged()
     {
-        var (charged, declared) = await SubmitAsync(
+        var (charged, declared, filed) = await SubmitAsync(
             (1.99m, 4, "O01"),
             (8.75m, 2, "O0"));
 
         Assert.Equal(charged, declared);
+        Assert.Equal(charged, filed);
     }
 
     [Fact]
@@ -193,10 +203,68 @@ public sealed class FiscalReceiptTotalTests
         // 100 x $1.99: net 199.00, VAT rounded once over the line 30.85, so 229.85 is taken. The line
         // price is 1.99 x 1.155 = 2.29845, which as a cent-granular unit price is 2.30 — multiplying
         // that back out gives 230.00, fifteen cents that were never charged.
-        var (charged, declared) = await SubmitAsync((1.99m, 100, "O01"));
+        var (charged, declared, filed) = await SubmitAsync((1.99m, 100, "O01"));
 
         Assert.Equal(229.85m, charged);
         Assert.Equal(229.85m, declared);
+        Assert.Equal(229.85m, filed);
+    }
+
+    [Fact]
+    public async Task Thirty_units_are_filed_at_the_exact_price_not_the_price_in_cents()
+    {
+        // Net 0.55 at 15.5% is 0.63525 a unit. Thirty were charged 16.50 + 2.56 VAT = 19.06, and with the
+        // unit price rounded to 0.64 the receipt was filed at 19.20.
+        var (charged, declared, filed) = await SubmitAsync((0.55m, 30, "O01"));
+
+        Assert.Equal(19.06m, charged);
+        Assert.Equal(19.06m, declared);
+        Assert.Equal(19.06m, filed);
+    }
+
+    [Fact]
+    public async Task A_large_basket_is_filed_at_what_was_charged_to_the_cent()
+    {
+        // A shop basket of the size that drifted furthest: many units of cheap lines, two rates.
+        var (charged, declared, filed) = await SubmitAsync(
+            (0.416666m, 36, "O01"),
+            (0.55m, 48, "O01"),
+            (1.733333m, 24, "O01"),
+            (2.19m, 60, "O0"),
+            (0.866666m, 120, "O01"));
+
+        Assert.Equal(charged, declared);
+        Assert.Equal(charged, filed);
+    }
+
+    [Fact]
+    public async Task A_total_too_far_from_the_lines_to_be_rounding_is_not_folded_into_a_line()
+    {
+        // A caller whose total is something else — a net figure — must not have the VAT moved onto one
+        // line's price. The lines go as they are, each at its own exact price.
+        var client = new CapturingClient();
+        var service = new FiscalizationService(
+            client,
+            new NoConfigCache(),
+            Options.Create(new FiscalisationSettings { Enabled = true, DefaultTaxId = 517 }),
+            Options.Create(Tax),
+            NullLogger<FiscalizationService>.Instance);
+
+        await service.FiscalizePreSapInvoiceAsync(
+            new InvoiceDto
+            {
+                DocDate = "2026-08-14",
+                DocCurrency = "USD",
+                DocTotal = 10m,
+                Lines =
+                [
+                    new InvoiceLineDto { LineNum = 1, ItemCode = "A", Quantity = 2, UnitPrice = 5m, PriceAfterVat = 5.775m, TaxCode = "O01" }
+                ]
+            },
+            "VEND-20260814-0003");
+
+        Assert.NotNull(client.Submitted);
+        Assert.Equal(5.775m, Assert.Single(client.Submitted.Lines).Price);
     }
 
     [Fact]

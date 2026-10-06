@@ -145,12 +145,11 @@ public sealed class QuotationAccessTests
     }
 
     /// <summary>
-    /// Every role that could quote before the family was split still can. The permissions moved;
-    /// nobody who was working was meant to stop.
+    /// Every role that could quote before the family was split still can, bar the manager: since
+    /// 2026-10-05 a manager reads quotations and raises none, leaving that to the cashier and the rep.
     /// </summary>
     [Theory]
     [InlineData(ApplicationRoles.Cashier)]
-    [InlineData(ApplicationRoles.Manager)]
     public void The_roles_that_could_already_quote_still_can(string role)
     {
         var permissions = Permission.GetDefaultPermissionsForRole(role);
@@ -200,10 +199,14 @@ public sealed class QuotationAccessTests
     /// source. The attribute goes through Razor codegen, and a page that opens for the wrong set of
     /// roles looks identical in review.
     /// </summary>
+    /// <remarks>
+    /// The list page is wider by the manager, who reads quotations there; every write on it sits
+    /// behind <see cref="UserRoles.QuotationRoles"/> again. The create page stays on the quotation roles.
+    /// </remarks>
     [Theory]
-    [InlineData("ShopInventory.Web.Components.Pages.Quotations")]
-    [InlineData("ShopInventory.Web.Components.Pages.CreateQuotation")]
-    public void The_quotation_pages_are_gated_by_the_quotation_roles(string typeName)
+    [InlineData("ShopInventory.Web.Components.Pages.Quotations", UserRoles.QuotationViewRoles)]
+    [InlineData("ShopInventory.Web.Components.Pages.CreateQuotation", UserRoles.QuotationRoles)]
+    public void The_quotation_pages_are_gated_by_the_quotation_roles(string typeName, string expectedRoles)
     {
         var page = typeof(UserRoles).Assembly.GetType(typeName);
         Assert.NotNull(page);
@@ -211,8 +214,18 @@ public sealed class QuotationAccessTests
         var authorize = page!.GetCustomAttributes<AuthorizeAttribute>(inherit: true).ToArray();
 
         Assert.Single(authorize);
-        Assert.Equal(UserRoles.QuotationRoles, authorize[0].Roles);
+        Assert.Equal(expectedRoles, authorize[0].Roles);
         Assert.Contains(UserRoles.SalesRep, authorize[0].Roles!.Split(','));
+    }
+
+    /// <summary>Everyone the list page admits beyond the quotation roles can at least read through the API.</summary>
+    [Fact]
+    public void Every_role_the_quotation_list_admits_can_read_quotations()
+    {
+        foreach (var role in UserRoles.QuotationViewRoles.Split(','))
+        {
+            Assert.Contains(Permission.ViewQuotations, Permission.GetDefaultPermissionsForRole(role));
+        }
     }
 
     /// <summary>
@@ -229,7 +242,7 @@ public sealed class QuotationAccessTests
     [Theory]
     [InlineData(ApplicationRoles.SalesRep, true)]
     [InlineData(ApplicationRoles.Cashier, true)]
-    [InlineData(ApplicationRoles.Manager, true)]
+    [InlineData(ApplicationRoles.Manager, false)]
     [InlineData(ApplicationRoles.Driver, false)]
     [InlineData(ApplicationRoles.PodOperator, false)]
     public async Task The_create_permission_filter_answers_per_role(string role, bool allowed)

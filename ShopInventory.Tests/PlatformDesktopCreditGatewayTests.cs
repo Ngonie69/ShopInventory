@@ -54,10 +54,12 @@ public sealed class PlatformDesktopCreditGatewayTests : IDisposable
         db.DesktopSales.Add(new DesktopSaleEntity
         {
             ExternalReferenceId = Reference, CardCode = "CIS006", WarehouseCode = "KEFSHOP", Currency = "USD",
-            DocDate = new DateTime(2026, 10, 1), SourceSystem = "KefalosShopTill", TotalAmount = 110.07m,
+            DocDate = new DateTime(2026, 10, 1), SourceSystem = "KefalosShopTill",
+            // What the till charged: 5.16 + 16.20 net, and 0.80 VAT on the 5.16.
+            TotalAmount = 22.16m, VatAmount = 0.80m,
             Lines =
             [
-                // Charged at 15.5%: 1.72 net is 1.9866 gross, filed at 1.99 a unit.
+                // Charged at 15.5%: 1.72 net is 1.9866 gross, filed at that, not at 1.99 a unit.
                 new() { LineNum = 0, ItemCode = "CHS001", ItemDescription = "Gouda 1kg", Quantity = 3m, UnitPrice = 1.72m, TaxCode = "O01", WarehouseCode = "KEFSHOP" },
                 // Zero-rated, and discounted: 0.60 less 10% is 0.54.
                 new() { LineNum = 1, ItemCode = "MLK002", ItemDescription = "Milk 2L", Quantity = 30m, UnitPrice = 0.60m, DiscountPercent = 10m, TaxCode = "O0", WarehouseCode = "KEFSHOP" },
@@ -96,6 +98,15 @@ public sealed class PlatformDesktopCreditGatewayTests : IDisposable
     private static decimal PlatformTotal(SubmitReceiptApiRequest request) =>
         request.Lines.Sum(l => Math.Round(l.Price * l.Quantity, 2, MidpointRounding.AwayFromZero));
 
+    /// <summary>The platform's VAT for a tax-inclusive receipt: per tax, the share of its sales total, rounded.</summary>
+    private static decimal PlatformTax(SubmitReceiptApiRequest request) => request.Lines
+        .GroupBy(l => (l.TaxId, l.TaxPercent))
+        .Where(g => g.Key.TaxPercent > 0m)
+        .Sum(g => Math.Round(
+            g.Sum(l => Math.Round(l.Price * l.Quantity, 2, MidpointRounding.AwayFromZero)) * g.Key.TaxPercent!.Value
+                / (100m + g.Key.TaxPercent.Value),
+            2, MidpointRounding.AwayFromZero));
+
     private FiscalizationService Platform() => new(Client(), new NoConfigCache(), Options.Create(fiscal),
         Options.Create(tax), NullLogger<FiscalizationService>.Instance);
 
@@ -118,7 +129,7 @@ public sealed class PlatformDesktopCreditGatewayTests : IDisposable
         {
             DeviceId = Device, FiscalDayNo = 12, ReceiptGlobalNo = 901, ReceiptCounter = 7, ReceiptId = 7001,
             InvoiceNo = filed.InvoiceNo!, ReceiptCurrency = "USD", ReceiptTotal = PlatformTotal(filed),
-            ReceiptType = "FiscalInvoice"
+            TaxAmount = PlatformTax(filed), ReceiptType = "FiscalInvoice"
         };
         submitted.Clear();
         return filed;
@@ -146,8 +157,25 @@ public sealed class PlatformDesktopCreditGatewayTests : IDisposable
             Assert.Equal((sent.Name, sent.Quantity, sent.Price, sent.TaxId, sent.TaxPercent, sent.HsCode),
                 (line.Name, line.Quantity, line.UnitPrice, line.TaxId, line.TaxPercent, line.HsCode));
         }
-        Assert.Equal(1.99m, source.Lines[0].UnitPrice);
+        Assert.Equal(1.9866m, source.Lines[0].UnitPrice);
         Assert.Equal(0.54m, source.Lines[1].UnitPrice);
+        // Filed at what the till charged, not at 3 x 1.99 + 30 x 0.54 = 22.17.
+        Assert.Equal(22.16m, source.OriginalTotal);
+    }
+
+    [Fact]
+    public async Task A_receipt_filed_at_unit_prices_in_cents_is_still_credited_at_those_prices()
+    {
+        // Every receipt filed before 6 October 2026 multiplied out a unit price rounded to the cent.
+        var filed = await FileSaleAsync();
+        var record = archive[(filed.InvoiceNo!, ReceiptType.FiscalInvoice)];
+        record.ReceiptTotal = 3 * 1.99m + 30 * 0.54m;
+        record.TaxAmount = 0.80m;
+
+        var source = await Gateway().ReadOriginalAsync(await SaleAsync(), default);
+
+        Assert.Equal(22.17m, source.OriginalTotal);
+        Assert.Equal([1.99m, 0.54m], source.Lines.Select(l => l.UnitPrice));
     }
 
     [Fact]
@@ -167,7 +195,7 @@ public sealed class PlatformDesktopCreditGatewayTests : IDisposable
         var credit = Assert.Single(submitted);
         Assert.Equal(ReceiptType.CreditNote, credit.ReceiptType);
         Assert.All(credit.Lines, l => Assert.True(l.Price < 0));
-        Assert.Equal(-(2 * 1.99m + 30 * 0.54m), PlatformTotal(credit));
+        Assert.Equal(-(3.97m + 30 * 0.54m), PlatformTotal(credit));
         Assert.Equal(plan.Amount, -PlatformTotal(credit));
         Assert.Equivalent(new CreditDebitNoteApiRequest { ReceiptID = 7001, DeviceID = Device, FiscalDayNo = 12, ReceiptGlobalNo = 901 },
             credit.CreditDebitNote);

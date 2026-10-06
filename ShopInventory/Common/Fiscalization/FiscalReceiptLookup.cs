@@ -33,10 +33,30 @@ internal static class FiscalReceiptLookup
     /// the lookup itself failed, which is different: "we could not find out" must not be recorded as
     /// "not fiscalised".
     /// </returns>
-    public static async Task<FiscalReceiptSnapshot?> TryLookupAsync(
+    public static Task<FiscalReceiptSnapshot?> TryLookupAsync(
         IFiscalisationApiClient client,
         IFiscalDeviceConfigCache configCache,
         int docNum,
+        ReceiptType receiptType,
+        ILogger logger,
+        CancellationToken cancellationToken)
+        => TryLookupAsync(
+            client,
+            configCache,
+            docNum.ToString(CultureInfo.InvariantCulture),
+            receiptType,
+            logger,
+            cancellationToken);
+
+    /// <summary>
+    /// Looks a receipt up by the invoice number it was filed under — a SAP DocNum, or the pre-SAP number
+    /// a sale was fiscalised under before it had one (<c>FiscalisationSettings.BuildPreSapInvoiceNo</c>).
+    /// </summary>
+    /// <returns>As the DocNum overload.</returns>
+    public static async Task<FiscalReceiptSnapshot?> TryLookupAsync(
+        IFiscalisationApiClient client,
+        IFiscalDeviceConfigCache configCache,
+        string invoiceNo,
         ReceiptType receiptType,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -49,7 +69,7 @@ internal static class FiscalReceiptLookup
             // the device it was submitted to, and anything narrower reports it as missing.
             response = await client.CheckReceiptAsync(
                 0,
-                docNum.ToString(CultureInfo.InvariantCulture),
+                invoiceNo,
                 receiptType,
                 cancellationToken);
         }
@@ -66,7 +86,7 @@ internal static class FiscalReceiptLookup
             logger.LogDebug(
                 "Fiscal receipt lookup for {ReceiptType} {DocNum} skipped: no Fiscalisation API key is configured",
                 receiptType,
-                docNum);
+                invoiceNo);
 
             return null;
         }
@@ -77,7 +97,7 @@ internal static class FiscalReceiptLookup
             logger.LogWarning(
                 "Fiscal receipt lookup failed for {ReceiptType} {DocNum}: HTTP {StatusCode} {ErrorCode}: {Detail}",
                 receiptType,
-                docNum,
+                invoiceNo,
                 (int)ex.StatusCode,
                 ex.ErrorCode ?? "-",
                 ex.Message);
@@ -90,7 +110,7 @@ internal static class FiscalReceiptLookup
                 ex,
                 "Fiscal receipt lookup failed for {ReceiptType} {DocNum}",
                 receiptType,
-                docNum);
+                invoiceNo);
 
             return null;
         }

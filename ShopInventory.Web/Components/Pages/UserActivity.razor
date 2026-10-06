@@ -1,7 +1,7 @@
 @page "/user-activity"
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
-@attribute [Authorize(Roles = "Admin,Manager")]
+@attribute [Authorize(Roles = "Admin")]
 @inject IAuditService AuditService
 @inject IJSRuntime JS
 @inject IAppSettingsProvider AppSettings

@@ -333,7 +333,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
     /// An invoice's attachments
     /// </summary>
     [HttpGet("{docEntry:int}/attachments")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep,Manager")]
     [ProducesResponseType(typeof(DocumentAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInvoiceAttachments(
         int docEntry,
@@ -347,7 +347,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
     /// Download one of an invoice's attachments
     /// </summary>
     [HttpGet("{docEntry:int}/attachments/{attachmentId:int}/download")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep,Manager")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadInvoiceAttachment(
@@ -452,7 +452,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
     /// List PODs
     /// </summary>
     [HttpGet("pods")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep,Manager")]
     [ProducesResponseType(typeof(PodAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllPods(
         [FromQuery] int page = 1,
@@ -489,7 +489,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
     /// Upload-status report
     /// </summary>
     [HttpGet("pod-upload-status")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep,ApiUser")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep,Manager,ApiUser")]
     [ProducesResponseType(typeof(PodUploadStatusReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetPodUploadStatus(
@@ -512,7 +512,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
     /// POD dashboard figures
     /// </summary>
     [HttpGet("pod-dashboard")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep,Manager")]
     [ProducesResponseType(typeof(PodDashboardDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetPodDashboard(CancellationToken cancellationToken = default)

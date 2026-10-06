@@ -49,6 +49,13 @@ public partial class PodDashboard
     private DateTime? readAt;
 
     private bool isOperator;
+
+    /// <summary>
+    /// Whether the dashboard reads every location's uploads rather than the user's own: the POD
+    /// operator, who oversees them, and the manager, who reads the page and uploads nothing. The API
+    /// answers the same question the same way — see GetPodDashboardHandler.
+    /// </summary>
+    private bool seesAllLocations;
     private string? username;
 
     private PodDashboardModel? uploads;
@@ -96,7 +103,7 @@ public partial class PodDashboard
         }
     }
 
-    private string Kicker => isOperator
+    private string Kicker => seesAllLocations
         ? "POD control · All locations"
         : $"Proof of delivery · {Today:dddd dd MMMM}";
 
@@ -129,7 +136,7 @@ public partial class PodDashboard
         }
     }
 
-    private string TodayLabel => isOperator ? "Uploads today" : "Your uploads today";
+    private string TodayLabel => seesAllLocations ? "Uploads today" : "Your uploads today";
 
     private string CoverageNote => coverage is null
         ? isLoading ? "Loading…" : "Unavailable"
@@ -169,6 +176,7 @@ public partial class PodDashboard
             var user = (await AuthTask).User;
             username = user.Identity?.Name;
             isOperator = user.IsInRole(UserRoles.PodOperator);
+            seesAllLocations = isOperator || user.IsInRole(UserRoles.Manager);
             canOpenCratePods = CratePodRoles.Any(user.IsInRole);
         }
 
@@ -549,7 +557,7 @@ public partial class PodDashboard
             yield return new WorkflowStep(
                 "1",
                 "Collect the proof",
-                isOperator
+                seesAllLocations
                     ? "Upload signed delivery notes against invoices from any location as they come back in."
                     : "Upload the signed delivery note against the invoice it belongs to.",
                 "/pods",

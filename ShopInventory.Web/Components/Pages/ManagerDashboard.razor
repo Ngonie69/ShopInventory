@@ -21,6 +21,9 @@
    total would count every document ever raised and grow forever without
    meaning anything. A week is the window a manager is actually working in.
 
+   No activity figures or log: who did what is the audit trail, and that is the
+   administrator's. A manager holds no audit.view, so the read would be refused.
+
    Built on the dashboard kit shared with the administrator's, cashier's, stock
    and sales-rep pages — wwwroot/css/dashboard.css carries both palettes. *@
 
@@ -94,7 +97,7 @@
                       Icon="note-add" />
         </section>
 
-        <section class="dsh-stats" aria-label="Movement and people">
+        <section class="dsh-stats" aria-label="Movement">
             <StatCard Label="Goods received"
                       Value="@Figure(recentReceiptCount)"
                       ValueLabel="@($"Receipts in {WindowDays} days")"
@@ -107,14 +110,11 @@
                       ValueLabel="Awaiting approval"
                       ToneNote="Across all warehouses"
                       Icon="swap" />
-            <StatCard Label="People"
-                      Value="@Figure(activeUsers)"
-                      ValueLabel="Active today"
-                      Amount="@(totalActions is null ? null : totalActions.Value.ToString("N0"))"
-                      AmountLabel="Actions"
-                      Tone="@ActivityTone"
-                      ToneNote="@ActivityNote"
-                      Icon="users" />
+            <StatCard Label="Supplier invoices"
+                      Value="@Figure(recentPurchaseInvoiceCount)"
+                      ValueLabel="@($"Booked in {WindowDays} days")"
+                      ToneNote="A/P invoices"
+                      Icon="receipt" />
         </section>
 
         <section class="dsh-stats" aria-label="Trading today">
@@ -142,114 +142,55 @@
                       Icon="arrow-down" />
         </section>
 
-        <section class="dsh-panels" aria-label="Decisions and activity">
+        <section class="dsh-panel" aria-labelledby="approvals-heading">
+            <header class="dsh-panel-head">
+                <span class="dsh-panel-icon">
+                    <DashIcon Name="clipboard-check" Size="15" />
+                </span>
+                <h2 id="approvals-heading">Waiting on a decision</h2>
+                <a class="dsh-panel-link" href="/purchase-orders">
+                    View all
+                    <DashIcon Name="chevron" Size="13" />
+                </a>
+            </header>
 
-            <section class="dsh-panel" aria-labelledby="approvals-heading">
-                <header class="dsh-panel-head">
-                    <span class="dsh-panel-icon">
-                        <DashIcon Name="clipboard-check" Size="15" />
-                    </span>
-                    <h2 id="approvals-heading">Waiting on a decision</h2>
-                    <a class="dsh-panel-link" href="/purchase-orders">
-                        View all
-                        <DashIcon Name="chevron" Size="13" />
-                    </a>
-                </header>
-
-                @if (isLoadingApprovals)
-                {
-                    <div class="dsh-state" role="status">
-                        <span class="dsh-spin" aria-hidden="true"></span>
-                        <span>Loading the approval queue&#8230;</span>
-                    </div>
-                }
-                else if (pendingOrders is { Count: > 0 })
-                {
-                    <div class="dsh-scroll">
-                        <table class="dsh-table">
-                            <thead>
+            @if (isLoadingApprovals)
+            {
+                <div class="dsh-state" role="status">
+                    <span class="dsh-spin" aria-hidden="true"></span>
+                    <span>Loading the approval queue&#8230;</span>
+                </div>
+            }
+            else if (pendingOrders is { Count: > 0 })
+            {
+                <div class="dsh-scroll">
+                    <table class="dsh-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Order</th>
+                                <th scope="col">Supplier</th>
+                                <th scope="col">Raised</th>
+                                <th scope="col" class="dsh-th-money">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var order in pendingOrders)
+                            {
                                 <tr>
-                                    <th scope="col">Order</th>
-                                    <th scope="col">Supplier</th>
-                                    <th scope="col">Raised</th>
-                                    <th scope="col" class="dsh-th-money">Total</th>
+                                    <td class="dsh-doc">@order.OrderNumber</td>
+                                    <td class="dsh-name" title="@order.CardName">@(order.CardName ?? order.CardCode)</td>
+                                    <td class="dsh-when">@order.OrderDate.ToString("dd MMM")</td>
+                                    <td class="dsh-money">@order.Currency @order.DocTotal.ToString("N2")</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var order in pendingOrders)
-                                {
-                                    <tr>
-                                        <td class="dsh-doc">@order.OrderNumber</td>
-                                        <td class="dsh-name" title="@order.CardName">@(order.CardName ?? order.CardCode)</td>
-                                        <td class="dsh-when">@order.OrderDate.ToString("dd MMM")</td>
-                                        <td class="dsh-money">@order.Currency @order.DocTotal.ToString("N2")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                else
-                {
-                    <div class="dsh-state">Nothing waiting on a decision</div>
-                }
-            </section>
-
-            <section class="dsh-panel" aria-labelledby="activity-heading">
-                <header class="dsh-panel-head">
-                    <span class="dsh-panel-icon">
-                        <DashIcon Name="list-check" Size="15" />
-                    </span>
-                    <h2 id="activity-heading">Recent activity</h2>
-                    <a class="dsh-panel-link" href="/user-activity">
-                        View all
-                        <DashIcon Name="chevron" Size="13" />
-                    </a>
-                </header>
-
-                @if (isLoadingActivity)
-                {
-                    <div class="dsh-state" role="status">
-                        <span class="dsh-spin" aria-hidden="true"></span>
-                        <span>Loading activity&#8230;</span>
-                    </div>
-                }
-                else if (recentActivity is { Count: > 0 })
-                {
-                    <div class="dsh-scroll">
-                        <table class="dsh-table">
-                            <thead>
-                                <tr>
-                                    <th scope="col">User</th>
-                                    <th scope="col">Action</th>
-                                    <th scope="col">Time</th>
-                                    <th scope="col">Result</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var entry in recentActivity)
-                                {
-                                    <tr>
-                                        <td class="dsh-name" title="@entry.Username">@entry.Username</td>
-                                        <td class="dsh-name" title="@entry.Action">@entry.Action</td>
-                                        <td class="dsh-when">@entry.Timestamp.ToLocalTime().ToString("dd MMM HH:mm")</td>
-                                        <td>
-                                            <span class="dsh-tag @(entry.IsSuccess ? "dsh-tag-ok" : null)">
-                                                @(entry.IsSuccess ? "OK" : "Failed")
-                                            </span>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                else
-                {
-                    <div class="dsh-state">No recent activity</div>
-                }
-            </section>
-
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="dsh-state">Nothing waiting on a decision</div>
+            }
         </section>
 
         <section class="dsh-panel" aria-labelledby="manager-actions-heading">
@@ -280,10 +221,10 @@
                              Description="Stock moving between warehouses"
                              Href="/inventory-transfers"
                              Icon="swap" />
-                <QuickAction Title="Activity log"
-                             Description="Who did what, and when"
-                             Href="/user-activity"
-                             Icon="users" />
+                <QuickAction Title="Invoices"
+                             Description="What the day has billed"
+                             Href="/invoices"
+                             Icon="receipt" />
             </div>
         </section>
 

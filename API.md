@@ -173,6 +173,12 @@ Endpoints may require specific permissions checked via the `[RequirePermission]`
 | **Audit** | `audit.view`, `audit.export` |
 | **System** | `sync.view`, `sync.manage`, `system.admin`, `backups.view`, `backups.create`, `backups.restore`, `backups.delete` |
 
+`Manager` runs the business and leaves the system to `Admin`. Its defaults read invoices, payments,
+sales orders and quotations without raising them (`*.view`, plus `salesorders.approve`), and keep
+purchasing, stock, credit note approvals, reports, customers and the van oversight. They hold nothing
+in Users, Settings, Audit or System, and not `vansales.routes.manage`: selling routes, route
+customers' app sign-ins, document templates, sync and the transfer listener are the administrator's.
+
 ---
 
 ## Rate Limiting
@@ -1080,11 +1086,11 @@ A partial credit is not a cancellation: use `POST /api/CreditNote/from-invoice/{
 | POST | `/api/Invoice/{docEntry}/pod` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | Upload a POD against an invoice |
 | POST | `/api/Invoice/{docEntry}/crate-pod` | Admin, Manager, Merchandiser, PodOperator, Operator, Driver | Upload a crate POD |
 | POST | `/api/Invoice/pods/validate-bulk` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | Check a batch of invoices for existing PODs before uploading |
-| GET | `/api/Invoice/pods` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | List PODs |
-| GET | `/api/Invoice/pod-upload-status` | Admin, Cashier, PodOperator, Driver, SalesRep, ApiUser | Upload-status report |
-| GET | `/api/Invoice/pod-dashboard` | Admin, Cashier, PodOperator, Driver, SalesRep | POD dashboard figures |
-| GET | `/api/Invoice/{docEntry}/attachments` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | An invoice's attachments |
-| GET | `/api/Invoice/{docEntry}/attachments/{attachmentId}/download` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | Download one |
+| GET | `/api/Invoice/pods` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep, Manager | List PODs |
+| GET | `/api/Invoice/pod-upload-status` | Admin, Cashier, PodOperator, Driver, SalesRep, Manager, ApiUser | Upload-status report |
+| GET | `/api/Invoice/pod-dashboard` | Admin, Cashier, PodOperator, Driver, SalesRep, Manager | POD dashboard figures — every location's for a PodOperator or Manager, the caller's own uploads for anyone else |
+| GET | `/api/Invoice/{docEntry}/attachments` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep, Manager | An invoice's attachments |
+| GET | `/api/Invoice/{docEntry}/attachments/{attachmentId}/download` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep, Manager | Download one |
 
 **Create Invoice Request:**
 
@@ -1413,7 +1419,8 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 
 The `quotations.*` family is separate from `invoices.*`, which these endpoints used to borrow. A
 quotation is an offer that binds nobody, so raising one is not the trust that raising an invoice is:
-Admin, Manager, Cashier and SalesRep hold view/create/edit by default, and only Admin holds delete.
+Admin, Cashier and SalesRep hold view/create/edit by default, Manager holds view alone, and only Admin
+holds delete.
 A sales rep therefore quotes a customer and converts the quote to a sales order without ever gaining
 the right to invoice.
 
@@ -2076,7 +2083,7 @@ capped read never sees one — so a truncated period is only ever "more than the
 ### 22. Documents
 
 **Base route:** `/api/Document`  
-**Auth:** Bearer + ApiAccess (Admin/Manager for create/update)
+**Auth:** Bearer + ApiAccess (Admin for every template write; Admin/Manager to verify a signature)
 
 #### Templates
 
@@ -2086,10 +2093,10 @@ capped read never sees one — so a truncated period is only ever "more than the
 | GET | `/api/Document/templates/{id}` | Get template by ID |
 | GET | `/api/Document/templates/default/{documentType}` | Get default template for a document type |
 | GET | `/api/Document/templates/placeholders/{documentType}` | The placeholders a template of that type may use |
-| POST | `/api/Document/templates` | Create template (Admin/Manager) |
-| PUT | `/api/Document/templates/{id}` | Update template |
-| DELETE | `/api/Document/templates/{id}` | Delete template |
-| POST | `/api/Document/templates/{id}/set-default` | Make it the default for its document type |
+| POST | `/api/Document/templates` | Create template (Admin) |
+| PUT | `/api/Document/templates/{id}` | Update template (Admin) |
+| DELETE | `/api/Document/templates/{id}` | Delete template (Admin) |
+| POST | `/api/Document/templates/{id}/set-default` | Make it the default for its document type (Admin) |
 
 The list filter is `documentType`, not `type`.
 
@@ -2116,8 +2123,8 @@ The list filter is `documentType`, not `type`.
 |--------|----------|-------------|
 | GET | `/api/Document/email-templates` | List (`activeOnly`, default **true**) |
 | GET | `/api/Document/email-templates/{templateCode}` | One, **by its code** |
-| POST | `/api/Document/email-templates` | Create one |
-| PUT | `/api/Document/email-templates/{id}` | Update one, **by its id** |
+| POST | `/api/Document/email-templates` | Create one (Admin) |
+| PUT | `/api/Document/email-templates/{id}` | Update one, **by its id** (Admin) |
 
 `GET` takes a template *code* and `PUT` takes an *id* — the same path segment, two different keys.
 
@@ -2987,8 +2994,8 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | POST | `/api/DesktopIntegration/transfer-queue/{externalReference}/retry` | (class) | Retry it |
 | DELETE | `/api/DesktopIntegration/transfer-queue/{externalReference}` | (class) | Drop it |
 | POST | `/api/DesktopIntegration/webhook/transfer-event` | (class) | Take a transfer event from SAP |
-| GET | `/api/DesktopIntegration/transfer-listener/status` | Admin, Manager | Whether transfers are reaching local stock: the listener's SAP poll, its delivery queue, and what this API's ledger applied today (`recentDocumentCount` 20). Answers 200 with `reachable: false` when it is down |
-| POST | `/api/DesktopIntegration/transfer-listener/check-now` | Admin, Manager | Make the listener poll SAP and replay waiting lines now rather than wait for its cycle; reports lines delivered, queued and still waiting |
+| GET | `/api/DesktopIntegration/transfer-listener/status` | Admin | Whether transfers are reaching local stock: the listener's SAP poll, its delivery queue, and what this API's ledger applied today (`recentDocumentCount` 20). Answers 200 with `reachable: false` when it is down |
+| POST | `/api/DesktopIntegration/transfer-listener/check-now` | Admin | Make the listener poll SAP and replay waiting lines now rather than wait for its cycle; reports lines delivered, queued and still waiting |
 
 #### Desktop sales and end of day
 
@@ -5094,7 +5101,7 @@ delivery, so refusing would throw away demand the depot may restock before the v
 #### Operator: accounts
 
 **Base route:** `/api/van-sales-customer-accounts`
-**Auth:** Bearer + `ApiAccess`
+**Auth:** Bearer + `ApiAccess`, roles Admin and Cashier (giving a shop a sign-in is set-up, so not the manager's)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

@@ -18,9 +18,13 @@ namespace ShopInventory.Controllers;
 /// "VanSalesCustomerAccess" policy that guards the app itself. The two must not be confused: a
 /// customer reaching these actions could grant themselves, or revoke a rival shop's, access to
 /// ordering.
+///
+/// Admin and Cashier only, as the /van-sales-customer-accounts page is. Giving a shop a sign-in is
+/// set-up, not selling: a manager leaves it to the administrator, and the depot and handset roles
+/// that "ApiAccess" also admits have no business here at all.
 /// </remarks>
 [Route("api/van-sales-customer-accounts")]
-[Authorize(Policy = "ApiAccess")]
+[Authorize(Policy = "ApiAccess", Roles = "Admin,Cashier")]
 public class VanSalesCustomerAccountsController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>List customer sign-ins, optionally for one route customer.</summary>
