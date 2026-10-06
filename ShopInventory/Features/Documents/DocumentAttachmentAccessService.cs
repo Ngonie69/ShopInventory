@@ -26,7 +26,9 @@ public sealed class DocumentAttachmentAccessService(
         "PodOperator",
         "Operator",
         "Driver",
-        "SalesRep"
+        "SalesRep",
+        // A van rep. The van POD routes end in the same UploadPodCommand as the drivers' app.
+        ApplicationRoles.Sales
     };
 
     private static readonly HashSet<string> ExternalPurchaseOrderReadRoles = new(StringComparer.OrdinalIgnoreCase)
@@ -164,7 +166,9 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.Document.AccessDenied("You do not have access to invoice attachments.");
         }
 
-        if (IsRole(role, "Driver"))
+        // A van rep files delivery notes from the handset as a driver does from the POD app, so it is
+        // held to the same rule: upload to any invoice, open or remove only what it uploaded.
+        if (IsRole(role, "Driver") || IsRole(role, ApplicationRoles.Sales))
         {
             if (isWriteOperation && uploadedByUserId is null)
             {
@@ -176,7 +180,9 @@ public sealed class DocumentAttachmentAccessService(
                 return true;
             }
 
-            return Errors.Document.AccessDenied("Drivers can only access PODs they uploaded.");
+            return Errors.Document.AccessDenied(IsRole(role, "Driver")
+                ? "Drivers can only access PODs they uploaded."
+                : "Van reps can only access PODs they uploaded.");
         }
 
         // Reading the company-wide product POD list is only useful if its files can be opened too.
