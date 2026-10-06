@@ -23,13 +23,6 @@ public sealed class EndVanSalesDayHandler(
     ILogger<EndVanSalesDayHandler> logger
 ) : IRequestHandler<EndVanSalesDayCommand, ErrorOr<VanSalesRouteDayResponse>>
 {
-    /// <summary>
-    /// How far back to look for the day being closed. Generous enough for a handset that has been out
-    /// of coverage for a long weekend, short enough that a rep who forgot to close last month does not
-    /// have this evening's mileage written onto it.
-    /// </summary>
-    private static readonly TimeSpan OpenDayLookback = TimeSpan.FromDays(4);
-
     public async Task<ErrorOr<VanSalesRouteDayResponse>> Handle(
         EndVanSalesDayCommand command,
         CancellationToken cancellationToken)
@@ -61,14 +54,10 @@ public sealed class EndVanSalesDayHandler(
 
         var recordedAt = DateTime.UtcNow;
         var returnedAt = CaptureClock.Resolve(CaptureClock.Parse(request.CapturedAt), recordedAt);
-        var earliestTradingDate = AuditService.ToCAT(returnedAt).Date - OpenDayLookback;
-
-        var day = await db.VanRouteDays
-            .AsTracking()
-            .Where(d => d.UserId == user.Id
-                        && d.ReturnedAt == null
-                        && d.TradingDate >= earliestTradingDate)
-            .OrderByDescending(d => d.TradingDate)
+        // The same question the current-day read answers, so the handset is never offered End Day on
+        // a day this refuses to close.
+        var day = await VanRouteDayOpen
+            .For(db.VanRouteDays.AsTracking(), user.Id, AuditService.ToCAT(returnedAt))
             .FirstOrDefaultAsync(cancellationToken);
 
         if (day is null)

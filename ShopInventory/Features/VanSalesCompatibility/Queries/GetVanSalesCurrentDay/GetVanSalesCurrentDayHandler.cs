@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCurrentDay;
 
@@ -30,10 +31,10 @@ public sealed class GetVanSalesCurrentDayHandler(
             return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
         }
 
-        var open = await db.VanRouteDays
-            .AsNoTracking()
-            .Where(d => d.UserId == query.UserId && d.ReturnedAt == null)
-            .OrderByDescending(d => d.TradingDate)
+        // Only a day End Day would close. A day older than that is abandoned, and reporting it as open
+        // offered the rep End Day on it, which was refused, and hid Start Day behind it.
+        var open = await VanRouteDayOpen
+            .For(db.VanRouteDays.AsNoTracking(), query.UserId, AuditService.ToCAT(DateTime.UtcNow))
             .FirstOrDefaultAsync(cancellationToken);
 
         return VanSalesRouteDayMapper.Map(
