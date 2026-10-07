@@ -36,6 +36,7 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
     private readonly ApplicationDbContext _context;
     private readonly FakeSalesOrders _orders = new();
     private readonly FiscalStub _fiscal = new();
+    private Action? _reservationStarted;
 
     public VanSalesConversionSignsFirstTests()
     {
@@ -224,9 +225,58 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
         Assert.Empty(await _context.DesktopSales.ToListAsync());
     }
 
+    [Fact]
+    public async Task A_phone_that_hangs_up_while_stock_is_reserved_does_not_stop_the_conversion()
+    {
+        // 2026-10-07 10:19: a VAN006 conversion sat in its reservation for 31 s, the handset gave up at
+        // 30, ASP.NET cancelled the request token, and the server answered "The operation was canceled"
+        // to nobody. The rep was shown "Not confirmed" for a conversion the server had abandoned.
+        using var hangUp = new CancellationTokenSource();
+        _reservationStarted = () => hangUp.Cancel();
+
+        var result = await Handler().Handle(Command(), hangUp.Token);
+
+        Assert.True(hangUp.IsCancellationRequested);
+        Assert.False(result.IsError, Describe(result));
+        Assert.Equal(1, _fiscal.Signed);
+        Assert.Equal("vc-server", result.Value.VerificationCode);
+
+        var queued = await _context.InvoiceQueue.SingleAsync();
+        Assert.Equal(InvoiceQueueStatus.Fiscalized, queued.Status);
+        Assert.Equal(OrderId, queued.SalesOrderId);
+        Assert.Equal(1, _orders.FulfilledCount(OrderId));
+
+        // The claim is completed, not released, so the handset's resend under the same reference is
+        // answered with this receipt rather than starting over.
+        var claim = await _context.IdempotencyRequests.AsNoTracking().SingleAsync();
+        Assert.Equal(IdempotencyRequestStatus.Completed, claim.Status);
+
+        _reservationStarted = null;
+        var resent = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.False(resent.IsError, Describe(resent));
+        Assert.Equal(result.Value.SaleNumber, resent.Value.SaleNumber);
+        Assert.Equal(1, _fiscal.Signed);
+        Assert.Equal(1, await _context.InvoiceQueue.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_phone_that_hung_up_before_the_conversion_started_starts_nothing()
+    {
+        using var goneAlready = new CancellationTokenSource();
+        goneAlready.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => Handler().Handle(Command(), goneAlready.Token));
+
+        Assert.Empty(await _context.IdempotencyRequests.ToListAsync());
+        Assert.Empty(await _context.StockReservations.ToListAsync());
+        Assert.Equal(0, _fiscal.Signed);
+    }
+
     private ConvertSalesOrderToInvoiceHandler Handler()
     {
-        var reservations = new ReservationStub(_context).Service;
+        var reservations = new ReservationStub(_context, () => _reservationStarted?.Invoke()).Service;
 
         return new ConvertSalesOrderToInvoiceHandler(
             _orders.AsService(),
@@ -334,14 +384,27 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
     /// The reservation service over the test's own database, as the real one behaves for a reference it has
     /// seen: a pending reservation under it is handed back rather than a second one made.
     /// </summary>
-    private sealed class ReservationStub(ApplicationDbContext context)
+    /// <remarks>
+    /// It honours the token it is handed, as the real service's SAP and database reads do. A stub that
+    /// ignored it would let the hang-up test pass against the very code it was written to catch.
+    /// </remarks>
+    private sealed class ReservationStub(ApplicationDbContext context, Action started)
     {
         public IStockReservationService Service => StubProxy.For<IStockReservationService>((method, args) => method.Name switch
         {
             nameof(IStockReservationService.CreateReservationAsync) =>
-                (object)Task.FromResult(Create((CreateStockReservationRequest)args![0]!)),
+                (object)CreateAsync((CreateStockReservationRequest)args![0]!, (CancellationToken)args[2]!),
             _ => throw new InvalidOperationException($"IStockReservationService.{method.Name} was not expected.")
         });
+
+        private Task<StockReservationResponseDto> CreateAsync(CreateStockReservationRequest request, CancellationToken cancellationToken)
+        {
+            started();
+
+            return cancellationToken.IsCancellationRequested
+                ? Task.FromCanceled<StockReservationResponseDto>(cancellationToken)
+                : Task.FromResult(Create(request));
+        }
 
         private StockReservationResponseDto Create(CreateStockReservationRequest request)
         {

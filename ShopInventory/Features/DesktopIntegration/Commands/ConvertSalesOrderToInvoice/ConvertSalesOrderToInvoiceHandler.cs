@@ -47,10 +47,37 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
     private const string AcceptedMessage =
         "Sales order converted to invoice and queued for SAP posting. Poll the status endpoint to check completion.";
 
-    public async Task<ErrorOr<ConvertSalesOrderToInvoiceResponseDto>> Handle(
+    public Task<ErrorOr<ConvertSalesOrderToInvoiceResponseDto>> Handle(
         ConvertSalesOrderToInvoiceCommand command,
         CancellationToken cancellationToken)
     {
+        // The last point at which the caller going away stops the conversion: nothing is claimed,
+        // reserved or signed yet, so there is nothing to finish.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return ConvertAsync(command);
+    }
+
+    /// <summary>
+    /// The conversion, from its claim to its answer. Once started it runs to the end.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>It takes no token, and that is the guard.</b> ASP.NET binds the request's token to
+    /// <c>HttpContext.RequestAborted</c>, and a van handset hangs up after 30 seconds. On 2026-10-07 a
+    /// conversion waiting on SAP inside its reservation outlived that: the hang-up cancelled it mid-way, the
+    /// server answered "The operation was canceled" to nobody, and the rep was told "Not confirmed" for a
+    /// conversion the server had walked away from. Run to the end instead, the work is done once: the claim
+    /// is completed with the answer, and the handset's resend under the same reference is handed it.</para>
+    ///
+    /// <para>Nothing waits forever for want of a token. Every SAP read is bounded by the client's own
+    /// budget, and the fiscal device by its own timeout; the request's token only ever added a deadline the
+    /// work did not need and the caller had already stopped waiting for.</para>
+    /// </remarks>
+    private async Task<ErrorOr<ConvertSalesOrderToInvoiceResponseDto>> ConvertAsync(ConvertSalesOrderToInvoiceCommand command)
+    {
+        // Deliberately and literally CancellationToken.None — see the remarks. Held in a local so that a
+        // future edit adding a call here cannot quietly reintroduce the request token.
+        var unstoppable = CancellationToken.None;
         long? idempotencyRequestId = null;
         var release = false;
         try
@@ -66,7 +93,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                     IdempotencyScope,
                     $"{command.CreatedBy ?? "anonymous"}:{suppliedReference}",
                     Fingerprint(request),
-                    cancellationToken);
+                    unstoppable);
 
                 switch (acquired.Outcome)
                 {
@@ -86,7 +113,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 }
             }
 
-            var order = await salesOrderService.GetByIdFromLocalAsync(request.SalesOrderId, cancellationToken);
+            var order = await salesOrderService.GetByIdFromLocalAsync(request.SalesOrderId, unstoppable);
 
             if (order == null)
                 return Errors.DesktopIntegration.ValidationFailed(
@@ -96,7 +123,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
             // so a retry that outlived the claim would otherwise be refused for having succeeded.
             if (suppliedReference is not null)
             {
-                var queued = await queueService.GetQueueStatusAsync(suppliedReference, cancellationToken);
+                var queued = await queueService.GetQueueStatusAsync(suppliedReference, unstoppable);
                 if (queued is not null)
                 {
                     if (queued.SalesOrderId != order.Id)
@@ -110,7 +137,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                     // A conversion signed in its request is answered with its receipt again, so a resend
                     // after a lost reply still prints. Read off the receipt row, never by signing: the
                     // device is not asked anything here.
-                    var signedReplay = await SignedReplayAsync(order, suppliedReference, queued, cancellationToken);
+                    var signedReplay = await SignedReplayAsync(order, suppliedReference, queued);
                     if (signedReplay is { IsError: true })
                         return signedReplay.Value.Errors;
 
@@ -201,7 +228,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
             };
 
             var reservationResult = await reservationService.CreateReservationAsync(
-                reservationRequest, command.CreatedBy, cancellationToken);
+                reservationRequest, command.CreatedBy, unstoppable);
 
             if (!reservationResult.Success)
             {
@@ -252,7 +279,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
             if (command.SignBeforeAnswering)
             {
                 var signed = await SignThenQueueAsync(
-                    command, order, reservationRequest, reservationId, externalRef, cancellationToken);
+                    command, order, reservationRequest, reservationId, externalRef);
 
                 if (!signed.IsError)
                     release = !await CompleteAsync(idempotencyRequestId, signed.Value);
@@ -265,7 +292,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 reservationRequest,
                 reservationId,
                 command.CreatedBy,
-                cancellationToken,
+                unstoppable,
                 // So consolidation can base the invoice on the order's SAP document.
                 salesOrderId: order.Id);
 
@@ -290,7 +317,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 {
                     ReservationId = reservationId,
                     Reason = $"Failed to queue invoice from SO conversion: {queueResult.ErrorMessage}"
-                }, cancellationToken);
+                }, unstoppable);
 
                 return Errors.DesktopIntegration.InvoiceCreationFailed(
                     queueResult.ErrorMessage ?? "Failed to queue invoice for SAP posting");
@@ -299,7 +326,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
             // Mark the sales order as fulfilled
             try
             {
-                await salesOrderService.MarkAsFulfilledAsync(order.Id, null, cancellationToken);
+                await salesOrderService.MarkAsFulfilledAsync(order.Id, null, unstoppable);
             }
             catch (Exception ex)
             {
@@ -374,19 +401,20 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
     /// the entry at all is it posted here unlinked — the direct sale's fallback, and better than an invoice
     /// nothing will ever post.</para>
     ///
-    /// <para>Nothing after the device answers takes the request's token. From a signed receipt on, it is the
-    /// record of a sale that happened, and the handset going away must not stop it being written.</para>
+    /// <para>Nothing here takes the request's token, the device's question included (see
+    /// <see cref="ConvertAsync"/>). From a signed receipt on, it is the record of a sale that happened, and
+    /// the handset going away must not stop it being written.</para>
     /// </remarks>
     private async Task<ErrorOr<ConvertSalesOrderToInvoiceResponseDto>> SignThenQueueAsync(
         ConvertSalesOrderToInvoiceCommand command,
         SalesOrderDto order,
         CreateStockReservationRequest reservationRequest,
         string reservationId,
-        string externalRef,
-        CancellationToken cancellationToken)
+        string externalRef)
     {
         var request = command.Request;
         var createdBy = command.CreatedBy ?? "anonymous";
+        var persist = CancellationToken.None;
 
         var fiscalFirst = new VanSaleFiscalFirstRequest(
             reservationId,
@@ -396,8 +424,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
             Comments: reservationRequest.Notes,
             PostToSapNow: false);
 
-        var outcome = await poster.FiscaliseThenPostAsync(fiscalFirst, cancellationToken);
-        var persist = CancellationToken.None;
+        var outcome = await poster.FiscaliseThenPostAsync(fiscalFirst, persist);
 
         switch (outcome.Status)
         {
@@ -467,14 +494,13 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
     private async Task<ErrorOr<ConvertSalesOrderToInvoiceResponseDto>?> SignedReplayAsync(
         SalesOrderDto order,
         string reference,
-        InvoiceQueueStatusDto queued,
-        CancellationToken cancellationToken)
+        InvoiceQueueStatusDto queued)
     {
         var sale = await db.DesktopSales
             .AsNoTracking()
             .FirstOrDefaultAsync(
                 s => s.ExternalReferenceId == reference && s.SourceSystem == SaleSourceSystems.VanSalesOnline,
-                cancellationToken);
+                CancellationToken.None);
 
         if (sale is null)
             return null;
