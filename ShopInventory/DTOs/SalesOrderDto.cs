@@ -210,6 +210,12 @@ public class SalesOrderListSummaryDto
 
     /// <summary>When the longest-waiting pending order arrived, or null when none is pending.</summary>
     public DateTime? OldestPendingCreatedAt { get; set; }
+
+    /// <summary>Every currency the orders use, for the list's currency filter.</summary>
+    public List<string> Currencies { get; set; } = [];
+
+    /// <summary>Every status the orders show, for the list's status tabs.</summary>
+    public List<SalesOrderStatus> Statuses { get; set; } = [];
 }
 
 #endregion

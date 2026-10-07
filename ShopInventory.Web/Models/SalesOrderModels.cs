@@ -309,4 +309,55 @@ public class SalesOrderListSummary
 
     [JsonPropertyName("oldestPendingCreatedAt")]
     public DateTime? OldestPendingCreatedAt { get; set; }
+
+    /// <summary>Every currency the orders use, for the currency filter.</summary>
+    [JsonPropertyName("currencies")]
+    public List<string> Currencies { get; set; } = [];
+
+    /// <summary>Every status the orders show, for the status tabs.</summary>
+    [JsonPropertyName("statuses")]
+    public List<SalesOrderStatus> Statuses { get; set; } = [];
+}
+
+/// <summary>The columns Mobile Orders sorts by. The names are the API's SalesOrderListSort.</summary>
+public enum SalesOrderListSort
+{
+    Ordered,
+    Number,
+    Customer,
+    Delivery,
+    Status,
+    Total,
+    SapDoc
+}
+
+/// <summary>
+/// One page of Mobile Orders, filtered and sorted by the API. Text filters match anywhere in the
+/// value ignoring case; dates match the calendar day.
+/// </summary>
+public sealed record SalesOrderPageRequest
+{
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 10;
+    public SalesOrderSource? Source { get; init; }
+    public bool? VanSalesUsersOnly { get; init; }
+    public SalesOrderStatus? Status { get; init; }
+
+    /// <summary>Earliest order date. Null for every order ever made.</summary>
+    public DateTime? FromDate { get; init; }
+
+    /// <summary>With <see cref="FromDate"/>, still return an order waiting on someone that is older.</summary>
+    public bool KeepOpenOrders { get; init; }
+
+    /// <summary>Part of the customer code or name.</summary>
+    public string? Customer { get; init; }
+    public string? OrderNumber { get; init; }
+    public DateTime? OrderDate { get; init; }
+    public DateTime? DeliveryDate { get; init; }
+    public string? Currency { get; init; }
+    public string? Total { get; init; }
+    public string? SapDocNum { get; init; }
+    public SalesOrderListSort SortBy { get; init; } = SalesOrderListSort.Ordered;
+    public bool SortDescending { get; init; } = true;
+    public bool IncludeSummary { get; init; }
 }

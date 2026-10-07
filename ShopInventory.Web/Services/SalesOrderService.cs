@@ -10,6 +10,9 @@ namespace ShopInventory.Web.Services;
 public interface ISalesOrderService
 {
     Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null, bool openOnly = false, bool includeSummary = false);
+
+    /// <summary>One page of the local sales order list, filtered and sorted by the API. Null when the read failed.</summary>
+    Task<SalesOrderListResponse?> GetSalesOrderPageAsync(SalesOrderPageRequest request);
     Task<SalesOrderDto?> GetSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetLocalSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber);
@@ -98,34 +101,88 @@ public class SalesOrderService : ISalesOrderService
             if (includeSummary)
                 queryParams.Add("includeSummary=true");
 
-            var url = $"api/salesorder?{string.Join("&", queryParams)}";
-            _logger.LogInformation("Fetching sales orders from API: {Url}", url);
-
-            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead));
-
-            _logger.LogInformation("API Response Status: {StatusCode}, Content Length: {Length}",
-                response.StatusCode, response.Content.Headers.ContentLength);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogError("API returned error: {StatusCode} - {Content}", response.StatusCode, await response.Content.ReadAsStringAsync());
-                return null;
-            }
-
-            // Mobile Orders asks for up to 10,000 orders with their lines. Read as one string that is tens of
-            // MB of UTF-16 on the large object heap per load, before deserializing; streamed it is never held whole.
-            var result = await response.Content.ReadFromJsonAsync<SalesOrderListResponse>();
-
-            _logger.LogInformation("Deserialized {OrderCount} orders, TotalCount: {TotalCount}",
-                result?.Orders?.Count ?? 0, result?.TotalCount ?? 0);
-
-            return NormalizeOrderListResponse(result);
+            return await FetchOrderListAsync($"api/salesorder?{string.Join("&", queryParams)}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching sales orders");
             return null;
         }
+    }
+
+    public async Task<SalesOrderListResponse?> GetSalesOrderPageAsync(SalesOrderPageRequest request)
+    {
+        try
+        {
+            var queryParams = new List<string>
+            {
+                $"page={request.Page}",
+                $"pageSize={request.PageSize}",
+                $"sortBy={request.SortBy}",
+                $"sortDescending={(request.SortDescending ? "true" : "false")}"
+            };
+
+            if (request.Source.HasValue)
+                queryParams.Add($"source={(int)request.Source.Value}");
+            if (request.VanSalesUsersOnly.HasValue)
+                queryParams.Add($"vanSalesUsersOnly={(request.VanSalesUsersOnly.Value ? "true" : "false")}");
+            if (request.Status.HasValue)
+                queryParams.Add($"status={(int)request.Status.Value}");
+            if (request.FromDate.HasValue)
+                queryParams.Add($"fromDate={request.FromDate.Value:yyyy-MM-dd}");
+            if (request.KeepOpenOrders)
+                queryParams.Add("keepOpenOrders=true");
+            if (request.IncludeSummary)
+                queryParams.Add("includeSummary=true");
+            if (request.OrderDate.HasValue)
+                queryParams.Add($"orderDate={request.OrderDate.Value:yyyy-MM-dd}");
+            if (request.DeliveryDate.HasValue)
+                queryParams.Add($"deliveryDate={request.DeliveryDate.Value:yyyy-MM-dd}");
+
+            AddText("cardCode", request.Customer);
+            AddText("orderNumber", request.OrderNumber);
+            AddText("currency", request.Currency);
+            AddText("total", request.Total);
+            AddText("sapDocNum", request.SapDocNum);
+
+            return await FetchOrderListAsync($"api/salesorder?{string.Join("&", queryParams)}");
+
+            void AddText(string name, string? value)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    queryParams.Add($"{name}={Uri.EscapeDataString(value.Trim())}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching a page of sales orders");
+            return null;
+        }
+    }
+
+    private async Task<SalesOrderListResponse?> FetchOrderListAsync(string url)
+    {
+        _logger.LogInformation("Fetching sales orders from API: {Url}", url);
+
+        using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead));
+
+        _logger.LogInformation("API Response Status: {StatusCode}, Content Length: {Length}",
+            response.StatusCode, response.Content.Headers.ContentLength);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("API returned error: {StatusCode} - {Content}", response.StatusCode, await response.Content.ReadAsStringAsync());
+            return null;
+        }
+
+        // A list can be up to 10,000 orders (an export, a dashboard). Read as one string that is tens of MB
+        // of UTF-16 on the large object heap per load, before deserializing; streamed it is never held whole.
+        var result = await response.Content.ReadFromJsonAsync<SalesOrderListResponse>();
+
+        _logger.LogInformation("Deserialized {OrderCount} orders, TotalCount: {TotalCount}",
+            result?.Orders?.Count ?? 0, result?.TotalCount ?? 0);
+
+        return NormalizeOrderListResponse(result);
     }
 
     public async Task<SalesOrderDto?> GetSalesOrderByIdAsync(int id)
