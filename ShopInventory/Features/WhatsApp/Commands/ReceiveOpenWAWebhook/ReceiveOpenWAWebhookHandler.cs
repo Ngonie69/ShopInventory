@@ -121,17 +121,30 @@ public sealed class ReceiveOpenWAWebhookHandler(
                 }
             }
 
-            var entity = ParsePayload(command.RawPayload, command.ProvidedEventType, command.SourcePath);
+            var entity = ParsePayload(command.RawPayload, command.ProvidedEventType, command.SourcePath, out var isStatusPost);
             entity.IdempotencyKey = normalizedIdempotencyKey;
             entity.DeliveryId = command.ProvidedDeliveryId;
-            _dbContext.WhatsAppWebhookEvents.Add(entity);
-            await _dbContext.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation(
-                "Stored OpenWA webhook event {EventType} for sender {SenderNumber} at {ReceivedAtUtc}",
-                entity.EventType,
-                entity.SenderNumber,
-                entity.ReceivedAtUtc);
+            // A contact's WhatsApp Status post reaches the session as an ordinary message on
+            // status@broadcast. Nobody sent it to us, so it is acknowledged and not kept: kept, it
+            // showed in the inbox as a "+status" thread full of other people's adverts.
+            if (isStatusPost)
+            {
+                _logger.LogDebug(
+                    "Dropped OpenWA webhook event {EventType}: a WhatsApp Status post, not a message",
+                    entity.EventType);
+            }
+            else
+            {
+                _dbContext.WhatsAppWebhookEvents.Add(entity);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "Stored OpenWA webhook event {EventType} for sender {SenderNumber} at {ReceivedAtUtc}",
+                    entity.EventType,
+                    entity.SenderNumber,
+                    entity.ReceivedAtUtc);
+            }
 
             var response = new WhatsAppWebhookReceiptDto
             {
@@ -171,8 +184,10 @@ public sealed class ReceiveOpenWAWebhookHandler(
         }
     }
 
-    private WhatsAppWebhookEventEntity ParsePayload(string rawPayload, string? providedEventType, string? sourcePath)
+    private WhatsAppWebhookEventEntity ParsePayload(string rawPayload, string? providedEventType, string? sourcePath, out bool isStatusPost)
     {
+        isStatusPost = false;
+
         try
         {
             using var jsonDocument = JsonDocument.Parse(rawPayload);
@@ -180,6 +195,8 @@ public sealed class ReceiveOpenWAWebhookHandler(
             var payload = root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
                 ? data
                 : root;
+
+            isStatusPost = IsStatusPost(payload);
 
             var isFromMe = ReadBool(payload, "fromMe")
                 ?? ReadNestedBool(payload, "id", "fromMe")
@@ -254,6 +271,31 @@ public sealed class ReceiveOpenWAWebhookHandler(
             };
         }
     }
+
+    /// <summary>
+    /// A Status post names <c>status@broadcast</c> as its chat. Which field carries it depends on
+    /// direction: <c>from</c> for a contact's post, <c>to</c> for the session's own, and
+    /// <c>chatId</c> / <c>id.remote</c> for either, so all four are checked as well as the
+    /// <c>isStatus</c> flag.
+    /// </summary>
+    private static bool IsStatusPost(JsonElement payload)
+    {
+        if (ReadBool(payload, "isStatus") == true)
+        {
+            return true;
+        }
+
+        return new[]
+            {
+                ReadString(payload, "chatId"),
+                ReadNestedString(payload, "id", "remote"),
+                ReadString(payload, "from"),
+                ReadString(payload, "to")
+            }
+            .Any(chatId => string.Equals(chatId?.Trim(), StatusBroadcastChatId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private const string StatusBroadcastChatId = "status@broadcast";
 
     private static string? ReadString(JsonElement element, string propertyName)
     {
