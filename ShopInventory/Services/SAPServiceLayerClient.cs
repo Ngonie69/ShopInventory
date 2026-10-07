@@ -13761,6 +13761,82 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return int.TryParse(content.Trim(), out var count) ? count : 0;
     }
 
+    public async Task<List<SAPPurchaseOrder>> GetPurchaseOrderPageAsync(string? cardCode, DateTime? fromDate, DateTime? toDate,
+        string? statusFilter, int skip, int top, CancellationToken cancellationToken = default)
+    {
+        var filter = BuildPurchaseOrderFilter(cardCode, fromDate, toDate, statusFilter);
+        var filterPart = filter is null ? string.Empty : "$filter=" + filter + "&";
+        var url = $"PurchaseOrders?{filterPart}{PurchaseOrderSelect}&$orderby=DocEntry desc&$top={top}&$skip={skip}";
+
+        using var response = await SendPurchaseOrderReadAsync(url, top, cancellationToken);
+        await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var result = await JsonSerializer.DeserializeAsync<SAPResponse<SAPPurchaseOrder>>(body, cancellationToken: cancellationToken);
+        return result?.Value ?? new List<SAPPurchaseOrder>();
+    }
+
+    public async Task<int> CountPurchaseOrdersAsync(string? cardCode, DateTime? fromDate, DateTime? toDate,
+        string? statusFilter, CancellationToken cancellationToken = default)
+    {
+        var filter = BuildPurchaseOrderFilter(cardCode, fromDate, toDate, statusFilter);
+        var url = filter is null ? "PurchaseOrders/$count" : "PurchaseOrders/$count?$filter=" + filter;
+
+        using var response = await SendPurchaseOrderReadAsync(url, pageSize: null, cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return int.TryParse(content.Trim(), out var count)
+            ? count
+            : throw new Exception($"SAP answered a purchase order count with '{content.Trim()}'");
+    }
+
+    private static string? BuildPurchaseOrderFilter(string? cardCode, DateTime? fromDate, DateTime? toDate, string? statusFilter)
+    {
+        var filters = new List<string>();
+        if (!string.IsNullOrEmpty(cardCode))
+            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+        if (!string.IsNullOrEmpty(statusFilter))
+            filters.Add(statusFilter);
+
+        return filters.Count == 0 ? null : string.Join(" and ", filters);
+    }
+
+    /// <summary>A purchase order read, signing in again once on a 401. Throws on any other failure.</summary>
+    private async Task<HttpResponseMessage> SendPurchaseOrderReadAsync(string url, int? pageSize, CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var response = await _httpClient.SendAsync(BuildRequest(), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            response.Dispose();
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response = await _httpClient.SendAsync(BuildRequest(), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            response.Dispose();
+            _logger.LogError("Failed to read purchase orders ({Url}): {StatusCode} - {Error}", url, response.StatusCode, errorContent);
+            throw new Exception($"Failed to read purchase orders: {response.StatusCode} - {errorContent}");
+        }
+
+        return response;
+
+        HttpRequestMessage BuildRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            if (pageSize.HasValue)
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize.Value}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
+    }
+
     #endregion
 
     #region Purchase Request Operations

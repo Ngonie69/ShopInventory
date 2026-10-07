@@ -5,7 +5,7 @@ namespace ShopInventory.Web.Services;
 
 public interface ICreditNoteService
 {
-    Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20, CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false, bool? vanSalesOnly = null);
+    Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20, CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false, bool? vanSalesOnly = null, CreditNotePageOptions? pageOptions = null);
     Task<CreditNoteDto?> GetCreditNoteByIdAsync(int id);
     Task<CreditNoteDto?> GetCreditNoteByNumberAsync(string creditNoteNumber);
     Task<CreditNotesByInvoiceResponse?> GetCreditNotesForInvoiceAsync(int invoiceId);
@@ -43,7 +43,7 @@ public class CreditNoteService : ICreditNoteService
     /// </summary>
     public async Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20,
         CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        bool includeLines = false, bool? vanSalesOnly = null)
+        bool includeLines = false, bool? vanSalesOnly = null, CreditNotePageOptions? pageOptions = null)
     {
         try
         {
@@ -61,9 +61,23 @@ public class CreditNoteService : ICreditNoteService
                 queryParams.Add("includeLines=true");
             if (vanSalesOnly.HasValue)
                 queryParams.Add($"vanSalesOnly={vanSalesOnly.Value.ToString().ToLowerInvariant()}");
+            if (pageOptions is not null)
+            {
+                queryParams.Add($"sortBy={pageOptions.SortBy}");
+                queryParams.Add($"sortDescending={(pageOptions.SortDescending ? "true" : "false")}");
+                AddText("creditNoteNumber", pageOptions.CreditNoteNumber);
+                AddText("customer", pageOptions.Customer);
+                AddText("fiscalStatus", pageOptions.FiscalStatus);
+            }
 
             var url = $"api/creditnote?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<CreditNoteListResponse>(url);
+
+            void AddText(string name, string? value)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    queryParams.Add($"{name}={Uri.EscapeDataString(value.Trim())}");
+            }
         }
         catch (Exception ex)
         {

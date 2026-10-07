@@ -167,6 +167,21 @@ public class PurchaseOrderListResponseDto
     public int TotalCount { get; set; }
     public int TotalPages { get; set; }
     public List<PurchaseOrderDto> Orders { get; set; } = new();
+
+    /// <summary>Counts by status over every order the filters match, when asked for with <c>includeSummary</c>.</summary>
+    public PurchaseOrderListSummaryDto? Summary { get; set; }
+}
+
+/// <summary>The Purchase Orders figures: how many matching orders are in each status.</summary>
+public class PurchaseOrderListSummaryDto
+{
+    public int Total { get; set; }
+    public int Draft { get; set; }
+    public int Pending { get; set; }
+
+    /// <summary>Approved and partially received: through approval, with stock still expected.</summary>
+    public int Approved { get; set; }
+    public int Received { get; set; }
 }
 
 #endregion

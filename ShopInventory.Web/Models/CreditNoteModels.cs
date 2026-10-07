@@ -180,6 +180,25 @@ public class CreditNoteListResponse
     public List<CreditNoteDto> CreditNotes { get; set; } = new();
 }
 
+/// <summary>The Credit Notes sortable columns. The names are the API's CreditNoteListSort.</summary>
+public enum CreditNoteListSort
+{
+    Number,
+    Date,
+    Total
+}
+
+/// <summary>
+/// The Credit Notes page's own filters and sort, applied by the API before it pages. Text matches anywhere,
+/// ignoring case; the fiscal state is "Fiscalised", "Not Fiscalised" or "Unknown".
+/// </summary>
+public sealed record CreditNotePageOptions(
+    string? CreditNoteNumber = null,
+    string? Customer = null,
+    string? FiscalStatus = null,
+    CreditNoteListSort SortBy = CreditNoteListSort.Number,
+    bool SortDescending = true);
+
 /// <summary>
 /// Response for credit notes associated with a specific invoice
 /// </summary>

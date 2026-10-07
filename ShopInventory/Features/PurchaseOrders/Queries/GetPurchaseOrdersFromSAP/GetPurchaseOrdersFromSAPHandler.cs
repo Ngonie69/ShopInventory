@@ -17,53 +17,72 @@ public sealed class GetPurchaseOrdersFromSAPHandler(
         GetPurchaseOrdersFromSAPQuery request,
         CancellationToken cancellationToken)
     {
+        // Filtered, counted and paged by SAP. The page used to ask for up to ten thousand orders with their
+        // lines, and with a date or supplier this read every match and paged it here.
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Max(1, request.PageSize);
+
         try
         {
-            List<SAPPurchaseOrder> sapOrders;
-
-            if (request.FromDate.HasValue && request.ToDate.HasValue)
+            string? statusFilter = null;
+            if (request.Status is { } status && !PurchaseOrderSapStatus.TryGetFilter(status, out statusFilter))
             {
-                sapOrders = await sapClient.GetPurchaseOrdersByDateRangeAsync(request.FromDate.Value, request.ToDate.Value, cancellationToken);
-            }
-            else if (!string.IsNullOrEmpty(request.CardCode))
-            {
-                sapOrders = await sapClient.GetPurchaseOrdersBySupplierAsync(request.CardCode, cancellationToken);
-            }
-            else
-            {
-                sapOrders = await sapClient.GetPagedPurchaseOrdersFromSAPAsync(request.Page, request.PageSize, cancellationToken);
+                // Draft, pending, on hold and partially received are local states; SAP holds none of them.
+                return new PurchaseOrderListResponseDto
+                {
+                    Page = page,
+                    PageSize = pageSize,
+                    Summary = request.IncludeSummary ? new PurchaseOrderListSummaryDto() : null
+                };
             }
 
-            if (!string.IsNullOrEmpty(request.CardCode) && request.FromDate.HasValue)
-            {
-                sapOrders = sapOrders.Where(o => o.CardCode == request.CardCode).ToList();
-            }
+            var totalCount = await sapClient.CountPurchaseOrdersAsync(
+                request.CardCode, request.FromDate, request.ToDate, statusFilter, cancellationToken);
 
-            var totalCount = sapOrders.Count;
-
-            if (request.FromDate.HasValue || !string.IsNullOrEmpty(request.CardCode))
-            {
-                sapOrders = sapOrders
-                    .Skip((request.Page - 1) * request.PageSize)
-                    .Take(request.PageSize)
-                    .ToList();
-            }
-
-            var orders = sapOrders.Select(MapSAPToPurchaseOrderDto).ToList();
+            var sapOrders = totalCount <= (page - 1) * pageSize
+                ? new List<SAPPurchaseOrder>()
+                : await sapClient.GetPurchaseOrderPageAsync(
+                    request.CardCode, request.FromDate, request.ToDate, statusFilter, (page - 1) * pageSize, pageSize, cancellationToken);
 
             return new PurchaseOrderListResponseDto
             {
-                Page = request.Page,
-                PageSize = request.PageSize,
+                Page = page,
+                PageSize = pageSize,
                 TotalCount = totalCount,
-                TotalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
-                Orders = orders
+                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+                Orders = sapOrders.Select(MapSAPToPurchaseOrderDto).ToList(),
+                Summary = request.IncludeSummary ? await SummarizeAsync(request, totalCount, cancellationToken) : null
             };
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching purchase orders from SAP");
             return Errors.PurchaseOrder.SapError(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// The figures for the matching orders. SAP's orders read as Approved, Received or Cancelled only,
+    /// so Draft and Pending are none; with a status filter only that status has any.
+    /// </summary>
+    private async Task<PurchaseOrderListSummaryDto> SummarizeAsync(
+        GetPurchaseOrdersFromSAPQuery request, int totalCount, CancellationToken cancellationToken)
+    {
+        return new PurchaseOrderListSummaryDto
+        {
+            Total = totalCount,
+            Approved = await CountAsync(PurchaseOrderStatus.Approved),
+            Received = await CountAsync(PurchaseOrderStatus.Received)
+        };
+
+        async Task<int> CountAsync(PurchaseOrderStatus status)
+        {
+            if (request.Status.HasValue)
+                return request.Status == status ? totalCount : 0;
+
+            PurchaseOrderSapStatus.TryGetFilter(status, out var filter);
+            return await sapClient.CountPurchaseOrdersAsync(
+                request.CardCode, request.FromDate, request.ToDate, filter, cancellationToken);
         }
     }
 
@@ -120,5 +139,26 @@ public sealed class GetPurchaseOrdersFromSAPHandler(
             CreatedByUserName = "SAP",
             Source = "SAP"
         };
+    }
+}
+
+/// <summary>
+/// The SAP condition for each status <c>MapSAPToPurchaseOrderDto</c> gives a SAP order: cancelled first,
+/// then closed (received), else open (approved). A cancelled order is closed too, so the other two
+/// exclude it.
+/// </summary>
+public static class PurchaseOrderSapStatus
+{
+    public static bool TryGetFilter(PurchaseOrderStatus status, out string? filter)
+    {
+        filter = status switch
+        {
+            PurchaseOrderStatus.Cancelled => "Cancelled eq 'tYES'",
+            PurchaseOrderStatus.Received => "DocumentStatus eq 'bost_Close' and Cancelled eq 'tNO'",
+            PurchaseOrderStatus.Approved => "DocumentStatus eq 'bost_Open' and Cancelled eq 'tNO'",
+            _ => null
+        };
+
+        return filter is not null;
     }
 }

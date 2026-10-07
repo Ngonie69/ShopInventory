@@ -256,4 +256,28 @@ public class PurchaseOrderListResponse
 
     [JsonPropertyName("orders")]
     public List<PurchaseOrderDto> Orders { get; set; } = new();
+
+    /// <summary>Counts by status over every matching order, when asked for. Mirrors PurchaseOrderListSummaryDto.</summary>
+    [JsonPropertyName("summary")]
+    public PurchaseOrderListSummary? Summary { get; set; }
+}
+
+/// <summary>How many matching purchase orders are in each status.</summary>
+public class PurchaseOrderListSummary
+{
+    [JsonPropertyName("total")]
+    public int Total { get; set; }
+
+    [JsonPropertyName("draft")]
+    public int Draft { get; set; }
+
+    [JsonPropertyName("pending")]
+    public int Pending { get; set; }
+
+    /// <summary>Approved and partially received.</summary>
+    [JsonPropertyName("approved")]
+    public int Approved { get; set; }
+
+    [JsonPropertyName("received")]
+    public int Received { get; set; }
 }

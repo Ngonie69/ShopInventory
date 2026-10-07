@@ -1183,10 +1183,17 @@ A partial credit is not a cancellation: use `POST /api/CreditNote/from-invoice/{
 | DELETE | `/api/CreditNote/{id}` | `invoices.delete` | Delete one |
 
 **Query parameters:** `page` (1), `pageSize` (20), `status`, `cardCode`, `fromDate`, `toDate`,
-`includeLines` (default **false**)
+`includeLines` (default **false**), `vanSalesOnly`, `creditNoteNumber`, `customer`, `fiscalStatus`,
+`sortBy` (`Number`), `sortDescending` (true)
 
 The list answers **headers only** unless `includeLines=true` is passed, so anything that aggregates
 by item — and not just the ones that read `lines` directly — totals zero against the default.
+
+Any of `creditNoteNumber`, `customer`, `fiscalStatus` or `sortBy` asks for the Credit Notes page's
+view: the whole date range is read, filtered, sorted and then paged, and `totalCount` counts what the
+filters left. `creditNoteNumber` and `customer` (code or name) match anywhere, ignoring case;
+`fiscalStatus` is `Fiscalised`, `Not Fiscalised` or `Unknown`; `sortBy` is `Number`, `Date` or
+`Total`, with the SAP document entry, descending, breaking ties.
 
 **Credit Note Types:** `Return`, `PriceAdjustment`, `Discount`, `Damaged`, `Other`, `Cancellation`  
 **Credit Note Statuses:** `Draft`, `Pending`, `Approved`, `Cancelled`, `Applied`
@@ -1513,8 +1520,15 @@ quotation, keyed by its own id. A `{docEntry}` and an `{id}` are not interchange
 | POST | `/api/PurchaseOrder/documents/upload` | `purchasing.upload_documents` | Attach a document (multipart; `poReferenceNumber`, `description`) |
 | GET | `/api/PurchaseOrder/documents` | `purchasing.view` or `salesorders.view` | Attached documents (`poReferenceNumber`) |
 
-**Query parameters:** `page` (1), `pageSize` (20), `cardCode`, `fromDate`, `toDate`; the local list
-also takes `status`
+**Query parameters:** `page` (1), `pageSize` (20), `cardCode`, `fromDate`, `toDate`, `status`,
+`includeSummary` (false)
+
+Both lists are paged where they are read: the local one by the database, the SAP one by SAP
+(`$filter`, `$count`, `$top`/`$skip`, newest DocEntry first). A SAP order reads as `Approved` (open),
+`Received` (closed) or `Cancelled`, so a SAP `status` of anything else answers no orders without
+asking SAP. `includeSummary=true` adds `summary` — `total`, `draft`, `pending`, `approved` (approved
+plus partially received) and `received` — over every order the filters match; on the SAP list it costs
+up to two more SAP counts.
 
 Documents are keyed by the **PO reference number**, not by the order's id, so one can be uploaded
 before the order exists here. The other four purchasing documents are in

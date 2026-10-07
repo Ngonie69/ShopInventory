@@ -44,7 +44,8 @@ public interface IPurchaseOrderService
     Task<PurchaseOrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<PurchaseOrderDto?> GetByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
     Task<PurchaseOrderListResponseDto> GetAllAsync(int page, int pageSize, PurchaseOrderStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeSummary = false,
+        CancellationToken cancellationToken = default);
     Task<PurchaseOrderDto> CreateAsync(CreatePurchaseOrderRequest request, Guid? userId, CancellationToken cancellationToken = default);
     Task<PurchaseOrderDto> UpdateAsync(int id, CreatePurchaseOrderRequest request, CancellationToken cancellationToken = default);
     Task<PurchaseOrderDto> UpdateStatusAsync(int id, PurchaseOrderStatus status, Guid? userId, string? comments = null, CancellationToken cancellationToken = default);
