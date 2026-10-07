@@ -47,11 +47,10 @@ public class PurchaseOrderService : IPurchaseOrderService
     }
 
     public async Task<PurchaseOrderListResponseDto> GetAllAsync(int page, int pageSize, PurchaseOrderStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeSummary = false,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.PurchaseOrders
-            .Include(o => o.Lines)
-            .Include(o => o.CreatedByUser)
             .AsNoTracking()
             .AsQueryable();
 
@@ -69,6 +68,8 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await query
+            .Include(o => o.Lines)
+            .Include(o => o.CreatedByUser)
             .OrderByDescending(o => o.OrderDate)
             .ThenByDescending(o => o.Id)
             .Skip((page - 1) * pageSize)
@@ -81,7 +82,30 @@ public class PurchaseOrderService : IPurchaseOrderService
             PageSize = pageSize,
             TotalCount = totalCount,
             TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-            Orders = orders.Select(MapToDto).ToList()
+            Orders = orders.Select(MapToDto).ToList(),
+            Summary = includeSummary ? await SummarizeAsync(query, totalCount, cancellationToken) : null
+        };
+    }
+
+    /// <summary>
+    /// The page's figures over every matching order. It used to load up to ten thousand orders with
+    /// their lines to count them.
+    /// </summary>
+    private static async Task<PurchaseOrderListSummaryDto> SummarizeAsync(
+        IQueryable<PurchaseOrderEntity> matching, int totalCount, CancellationToken cancellationToken)
+    {
+        var counts = await matching
+            .GroupBy(o => o.Status)
+            .Select(group => new { Status = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(row => row.Status, row => row.Count, cancellationToken);
+
+        return new PurchaseOrderListSummaryDto
+        {
+            Total = totalCount,
+            Draft = counts.GetValueOrDefault(PurchaseOrderStatus.Draft),
+            Pending = counts.GetValueOrDefault(PurchaseOrderStatus.Pending),
+            Approved = counts.GetValueOrDefault(PurchaseOrderStatus.Approved) + counts.GetValueOrDefault(PurchaseOrderStatus.PartiallyReceived),
+            Received = counts.GetValueOrDefault(PurchaseOrderStatus.Received)
         };
     }
 

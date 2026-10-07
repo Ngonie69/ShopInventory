@@ -33,3 +33,11 @@ success toast.
   your change introduced.
 - Money-touching. Anything altering totals, tax base or currency needs the
   numbers asserted, not eyeballed from a screenshot.
+- The list pages on the API (`.cnx-count` is the filtered total, `.cnx-range` the page). The number,
+  customer and fiscal filters and the sort apply only on **Apply** (or Enter), not as you type.
+- The list reads the credit-note projection only while it is fresh and backfilled. On a throwaway
+  database seed `SapCreditNoteSnapshots` plus a `CacheSyncStates` row (`CacheKey` "CreditNotes",
+  `LastSyncedAt` now) and a `SystemConfigs` row `CreditNoteSync.Checkpoint` =
+  `{"BackfillCompleted":true}`, and run the API with `SAP__Enabled=false` (no sync job) and
+  `CreditNoteSync__StaleAfterMinutes` large. Otherwise it falls back to SAP.
+  `scripts/drive_credit_notes_purchase_orders_paging.py` drives filters, sort and paging this way.

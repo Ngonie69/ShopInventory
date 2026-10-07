@@ -44,10 +44,21 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] bool includeLines = false,
         [FromQuery] bool? vanSalesOnly = null,
+        [FromQuery] string? creditNoteNumber = null,
+        [FromQuery] string? customer = null,
+        [FromQuery] string? fiscalStatus = null,
+        [FromQuery] CreditNoteListSort? sortBy = null,
+        [FromQuery] bool sortDescending = true,
         CancellationToken cancellationToken = default)
     {
+        // Any of the page's own filters or a sort asks for the filtered, sorted page; without them the
+        // list answers as it always has.
+        var listOptions = creditNoteNumber is null && customer is null && fiscalStatus is null && sortBy is null
+            ? null
+            : new CreditNoteListOptions(creditNoteNumber, customer, fiscalStatus, sortBy ?? CreditNoteListSort.Number, sortDescending);
+
         var result = await mediator.Send(
-            new GetAllCreditNotesQuery(page, pageSize, status, cardCode, fromDate, toDate, includeLines, vanSalesOnly),
+            new GetAllCreditNotesQuery(page, pageSize, status, cardCode, fromDate, toDate, includeLines, vanSalesOnly, listOptions),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

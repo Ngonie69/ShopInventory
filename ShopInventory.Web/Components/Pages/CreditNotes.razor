@@ -624,16 +624,16 @@
     private enum SortKey { Number, Date, Total }
 
     /// <summary>
-    /// The date range is the server-side filter; everything else is applied here, so the fetch asks
-    /// for the whole range in one go rather than paging the API.
+    /// The page on screen, filtered, sorted and paged by the API. The page used to fetch the whole date
+    /// range, up to ten thousand notes, and hold it for as long as it stayed open.
     /// </summary>
-    private const int FetchPageSize = 10000;
+    private List<CreditNoteDto> pageRows = new();
 
     /// <summary>
-    /// The whole filtered result set, kept sorted; <see cref="pageRows"/> is the slice on screen.
+    /// The selected notes as they were when picked. Selection outlives the page it was made on, and the
+    /// other pages are not held.
     /// </summary>
-    private List<CreditNoteDto> creditNotes = new();
-    private List<CreditNoteDto> pageRows = new();
+    private readonly Dictionary<int, CreditNoteDto> selectedCreditNoteSnapshots = new();
 
     private CreditNoteDto? selectedCreditNote;
     private InvoiceDto? selectedSourceInvoice;
@@ -691,8 +691,8 @@
     private DateTime? appliedFromDate;
     private DateTime? appliedToDate;
 
-    // Paging and sorting are done here rather than in a table component: the design's
-    // pager is prev/next over a fixed page size, and the sort is on three columns.
+    // The design's pager is prev/next over a fixed page size, and the sort is on three columns. The API
+    // sorts and pages; this keeps the state it is asked with.
     private int currentPage = 1;
     private int pageSize = 25;
     private int totalPages = 1;
@@ -730,8 +730,9 @@
         || fromDate?.Date != DefaultFromDate
         || toDate?.Date != DateTime.Today;
 
-    private IReadOnlyList<CreditNoteDto> SelectedCreditNotes => creditNotes
-        .Where(note => selectedCreditNoteDocEntries.Contains(GetCreditNoteSelectionKey(note)))
+    private IReadOnlyList<CreditNoteDto> SelectedCreditNotes => selectedCreditNoteDocEntries
+        .Select(key => selectedCreditNoteSnapshots.GetValueOrDefault(key))
+        .OfType<CreditNoteDto>()
         .ToList();
 
     private int SelectedCreditNoteCount => SelectedCreditNotes.Count;
@@ -801,14 +802,20 @@
         if (isSelected)
         {
             selectedCreditNoteDocEntries.Add(key);
+            selectedCreditNoteSnapshots[key] = note;
         }
         else
         {
             selectedCreditNoteDocEntries.Remove(key);
+            selectedCreditNoteSnapshots.Remove(key);
         }
     }
 
-    private void ClearSelection() => selectedCreditNoteDocEntries.Clear();
+    private void ClearSelection()
+    {
+        selectedCreditNoteDocEntries.Clear();
+        selectedCreditNoteSnapshots.Clear();
+    }
 
     private static bool IsChecked(ChangeEventArgs args) =>
         args.Value is bool value
@@ -833,17 +840,8 @@
         foreach (var docEntry in docEntries)
         {
             selectedCreditNoteDocEntries.Remove(docEntry);
+            selectedCreditNoteSnapshots.Remove(docEntry);
         }
-    }
-
-    private void PruneSelectedCreditNotes()
-    {
-        var currentKeys = creditNotes
-            .Where(CanSelectCreditNote)
-            .Select(GetCreditNoteSelectionKey)
-            .ToHashSet();
-
-        selectedCreditNoteDocEntries.RemoveWhere(key => !currentKeys.Contains(key));
     }
 
     protected override void OnInitialized()
@@ -890,7 +888,8 @@
         using var pageReads = PageReads.Bind(PageLifetime);
         if (loadedVanSalesView.HasValue && loadedVanSalesView.Value != IsVanSalesView)
         {
-            selectedCreditNoteDocEntries.Clear();
+            ClearSelection();
+            currentPage = 1;
             await LoadCreditNotes();
         }
     }
@@ -928,22 +927,24 @@
 
         try
         {
-            var result = await Mediator.Send(new GetCreditNotesQuery(
-                1,
-                FetchPageSize,
-                null,
-                null,
-                appliedFromDate,
-                appliedToDate,
-                VanSalesOnly: vanSalesView));
+            var result = await Mediator.Send(BuildQuery(vanSalesView));
+
+            // A cancel or a narrower result can leave the page past the end; show the last page with rows.
+            if (!result.IsError && result.Value.CreditNotes.Count == 0 && result.Value.TotalCount > 0 && currentPage > 1)
+            {
+                currentPage = Math.Max(1, (int)Math.Ceiling(result.Value.TotalCount / (double)pageSize));
+                result = await Mediator.Send(BuildQuery(vanSalesView));
+            }
 
             if (!result.IsError)
             {
-                creditNotes = ApplyVisibleCreditNoteFilters(result.Value.CreditNotes ?? new List<CreditNoteDto>());
-                PruneSelectedCreditNotes();
-                SortCreditNotes();
-                currentPage = 1;
-                RecomputePage();
+                pageRows = result.Value.CreditNotes ?? new List<CreditNoteDto>();
+                totalCount = result.Value.TotalCount;
+                totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+                foreach (var note in pageRows.Where(note => selectedCreditNoteSnapshots.ContainsKey(GetCreditNoteSelectionKey(note))))
+                {
+                    selectedCreditNoteSnapshots[GetCreditNoteSelectionKey(note)] = note;
+                }
             }
             else
             {
@@ -962,50 +963,48 @@
         }
     }
 
-    private void SortCreditNotes()
-    {
-        var direction = sortAscending ? 1 : -1;
-        creditNotes.Sort((left, right) => direction * (sortKey switch
-        {
-            SortKey.Date => left.CreditNoteDate.CompareTo(right.CreditNoteDate),
-            SortKey.Total => left.DocTotal.CompareTo(right.DocTotal),
-            _ => (left.SAPDocNum ?? left.Id).CompareTo(right.SAPDocNum ?? right.Id)
-        }));
-    }
+    /// <summary>The applied filters, the sort and the page on screen, as one API request.</summary>
+    private GetCreditNotesQuery BuildQuery(bool vanSalesView) => new(
+        currentPage,
+        pageSize,
+        ParseStatusFilter(appliedStatusFilter),
+        null,
+        appliedFromDate,
+        appliedToDate,
+        VanSalesOnly: vanSalesView,
+        PageOptions: new CreditNotePageOptions(
+            appliedCreditNoteNumberFilter,
+            appliedCustomerFilter,
+            appliedFiscalStatusFilter,
+            sortKey switch
+            {
+                SortKey.Date => CreditNoteListSort.Date,
+                SortKey.Total => CreditNoteListSort.Total,
+                _ => CreditNoteListSort.Number
+            },
+            SortDescending: !sortAscending));
 
-    private void RecomputePage()
-    {
-        totalCount = creditNotes.Count;
-        totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
-        currentPage = Math.Clamp(currentPage, 1, totalPages);
-        pageRows = creditNotes
-            .Skip((currentPage - 1) * pageSize)
-            .Take(pageSize)
-            .ToList();
-    }
-
-    private void SortBy(SortKey key)
+    private async Task SortBy(SortKey key)
     {
         // A fresh column starts descending — newest note, latest date, largest total first.
         sortAscending = sortKey == key && !sortAscending;
         sortKey = key;
-        SortCreditNotes();
         currentPage = 1;
-        RecomputePage();
+        await LoadCreditNotes();
     }
 
     private string SortMark(SortKey key) => sortKey != key ? string.Empty : sortAscending ? "▲" : "▼";
 
-    private void PreviousPage()
+    private async Task PreviousPage()
     {
         currentPage = Math.Max(1, currentPage - 1);
-        RecomputePage();
+        await LoadCreditNotes();
     }
 
-    private void NextPage()
+    private async Task NextPage()
     {
         currentPage = Math.Min(totalPages, currentPage + 1);
-        RecomputePage();
+        await LoadCreditNotes();
     }
 
     private static string? NormalizeFilterValue(string? value) =>
@@ -1024,6 +1023,9 @@
     private async Task ApplyFilters()
     {
         SyncAppliedFilters();
+        // A selection made under other filters may name notes these leave out; bulk actions act on it.
+        ClearSelection();
+        currentPage = 1;
         await LoadCreditNotes();
     }
 
@@ -1048,40 +1050,10 @@
         await ApplyFilters();
     }
 
-    private List<CreditNoteDto> ApplyVisibleCreditNoteFilters(IEnumerable<CreditNoteDto> source)
-    {
-        var status = ParseStatusFilter(appliedStatusFilter);
-
-        return source
-            .Where(note => string.IsNullOrWhiteSpace(appliedCustomerFilter)
-                || MatchesCustomerFilter(note, appliedCustomerFilter))
-            .Where(note => !status.HasValue || note.Status == status.Value)
-            .Where(note => string.IsNullOrWhiteSpace(appliedFiscalStatusFilter)
-                || MatchesFiscalStatus(note.FiscalizationStatus, appliedFiscalStatusFilter))
-            .Where(note => string.IsNullOrWhiteSpace(appliedCreditNoteNumberFilter)
-                || (note.CreditNoteNumber?.Contains(appliedCreditNoteNumberFilter, StringComparison.OrdinalIgnoreCase) == true))
-            .ToList();
-    }
-
     private static CreditNoteStatus? ParseStatusFilter(string? filterValue)
         => int.TryParse(filterValue, out var statusValue) && Enum.IsDefined(typeof(CreditNoteStatus), statusValue)
             ? (CreditNoteStatus)statusValue
             : null;
-
-    private static bool MatchesCustomerFilter(CreditNoteDto note, string customerFilter)
-        => (note.CardCode?.Contains(customerFilter, StringComparison.OrdinalIgnoreCase) == true)
-            || (note.CardName?.Contains(customerFilter, StringComparison.OrdinalIgnoreCase) == true);
-
-    private static bool MatchesFiscalStatus(string? actualStatus, string? filterStatus)
-        => NormalizeFiscalStatus(actualStatus) == NormalizeFiscalStatus(filterStatus);
-
-    private static string NormalizeFiscalStatus(string? status)
-        => status?.Trim().ToLowerInvariant() switch
-        {
-            "fiscalised" => "fiscalised",
-            "not fiscalised" => "not fiscalised",
-            _ => "unknown"
-        };
 
     /// <summary>
     /// Opens the drawer on the row's own header, then fetches the document. The list is served from

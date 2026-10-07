@@ -39,9 +39,10 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         [FromQuery] string? cardCode = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
+        [FromQuery] bool includeSummary = false,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetAllPurchaseOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate), cancellationToken);
+        var result = await mediator.Send(new GetAllPurchaseOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, includeSummary), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -56,9 +57,11 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         [FromQuery] string? cardCode = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
+        [FromQuery] PurchaseOrderStatus? status = null,
+        [FromQuery] bool includeSummary = false,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPurchaseOrdersFromSAPQuery(page, pageSize, cardCode, fromDate, toDate), cancellationToken);
+        var result = await mediator.Send(new GetPurchaseOrdersFromSAPQuery(page, pageSize, cardCode, fromDate, toDate, status, includeSummary), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

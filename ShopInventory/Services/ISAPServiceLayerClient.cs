@@ -550,6 +550,20 @@ public interface ISAPServiceLayerClient
     Task<List<SAPPurchaseOrder>> GetPurchaseOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetPurchaseOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One page of purchase orders, newest DocEntry first, filtered in SAP: exact supplier, an inclusive
+    /// document-date range, and an extra OData condition (the status, see PurchaseOrderSapStatus).
+    /// </summary>
+    Task<List<SAPPurchaseOrder>> GetPurchaseOrderPageAsync(string? cardCode, DateTime? fromDate, DateTime? toDate,
+        string? statusFilter, int skip, int top, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many purchase orders <see cref="GetPurchaseOrderPageAsync"/> pages over. Throws when SAP does
+    /// not answer, rather than reporting none.
+    /// </summary>
+    Task<int> CountPurchaseOrdersAsync(string? cardCode, DateTime? fromDate, DateTime? toDate,
+        string? statusFilter, CancellationToken cancellationToken = default);
+
     // Purchase Request Operations (from SAP)
     Task<List<SAPPurchaseRequest>> GetPagedPurchaseRequestsAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPPurchaseRequest?> GetPurchaseRequestByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);

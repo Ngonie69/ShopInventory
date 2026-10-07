@@ -11,5 +11,6 @@ public sealed record GetAllPurchaseOrdersQuery(
     PurchaseOrderStatus? Status,
     string? CardCode,
     DateTime? FromDate,
-    DateTime? ToDate
+    DateTime? ToDate,
+    bool IncludeSummary = false
 ) : IRequest<ErrorOr<PurchaseOrderListResponseDto>>;

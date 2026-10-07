@@ -5,8 +5,10 @@ namespace ShopInventory.Web.Services;
 
 public interface IPurchaseOrderService
 {
-    Task<PurchaseOrderListResponse?> GetPurchaseOrdersAsync(int page = 1, int pageSize = 20, PurchaseOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
-    Task<PurchaseOrderListResponse?> GetPurchaseOrdersFromSAPAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<PurchaseOrderListResponse?> GetPurchaseOrdersAsync(int page = 1, int pageSize = 20, PurchaseOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeSummary = false);
+
+    /// <summary>One page of SAP's purchase orders, filtered, counted and paged by SAP.</summary>
+    Task<PurchaseOrderListResponse?> GetPurchaseOrdersFromSAPAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, PurchaseOrderStatus? status = null, bool includeSummary = false);
     Task<PurchaseOrderDto?> GetPurchaseOrderFromSAPByDocEntryAsync(int docEntry);
     Task<PurchaseOrderDto?> GetPurchaseOrderByIdAsync(int id);
     Task<PurchaseOrderDto?> GetPurchaseOrderByNumberAsync(string orderNumber);
@@ -31,7 +33,8 @@ public class PurchaseOrderService : IPurchaseOrderService
     }
 
     public async Task<PurchaseOrderListResponse?> GetPurchaseOrdersAsync(int page = 1, int pageSize = 20,
-        PurchaseOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+        PurchaseOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        bool includeSummary = false)
     {
         try
         {
@@ -39,6 +42,8 @@ public class PurchaseOrderService : IPurchaseOrderService
 
             if (status.HasValue)
                 queryParams.Add($"status={(int)status.Value}");
+            if (includeSummary)
+                queryParams.Add("includeSummary=true");
             if (!string.IsNullOrEmpty(cardCode))
                 queryParams.Add($"cardCode={Uri.EscapeDataString(cardCode)}");
             if (fromDate.HasValue)
@@ -76,12 +81,17 @@ public class PurchaseOrderService : IPurchaseOrderService
     }
 
     public async Task<PurchaseOrderListResponse?> GetPurchaseOrdersFromSAPAsync(int page = 1, int pageSize = 20,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, PurchaseOrderStatus? status = null,
+        bool includeSummary = false)
     {
         try
         {
             var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
 
+            if (status.HasValue)
+                queryParams.Add($"status={(int)status.Value}");
+            if (includeSummary)
+                queryParams.Add("includeSummary=true");
             if (!string.IsNullOrEmpty(cardCode))
                 queryParams.Add($"cardCode={Uri.EscapeDataString(cardCode)}");
             if (fromDate.HasValue)

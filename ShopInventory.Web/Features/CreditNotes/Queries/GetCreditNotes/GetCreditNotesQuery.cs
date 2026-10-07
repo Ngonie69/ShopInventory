@@ -14,4 +14,7 @@ public sealed record GetCreditNotesQuery(
 
     // True: only credit notes against van invoices (/van-sales-credit-notes). False: none of them
     // (/credit-notes). Null: no van filter. The API decides which is which.
-    bool? VanSalesOnly = null) : IRequest<ErrorOr<CreditNoteListResponse>>;
+    bool? VanSalesOnly = null,
+
+    // The Credit Notes page's own filters and sort, applied by the API before it pages.
+    CreditNotePageOptions? PageOptions = null) : IRequest<ErrorOr<CreditNoteListResponse>>;
