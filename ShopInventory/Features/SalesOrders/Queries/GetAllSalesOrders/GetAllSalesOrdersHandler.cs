@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -47,7 +48,11 @@ public sealed class GetAllSalesOrdersHandler(
                 request.VanSalesUsersOnly,
                 cancellationToken,
                 request.OpenOnly,
-                request.IncludeSummary);
+                request.IncludeSummary,
+                request.Columns,
+                request.Sort,
+                request.SortDescending,
+                request.KeepOpenOrders);
         }
 
         var localOffset = Math.Max(0, (page - 1) * pageSize);
@@ -147,7 +152,11 @@ public sealed class GetAllSalesOrdersHandler(
                 request.VanSalesUsersOnly,
                 cancellationToken,
                 request.OpenOnly,
-                request.IncludeSummary);
+                request.IncludeSummary,
+                request.Columns,
+                request.Sort,
+                request.SortDescending,
+                request.KeepOpenOrders);
         }
     }
 
@@ -160,7 +169,9 @@ public sealed class GetAllSalesOrdersHandler(
         SalesOrderSource? source,
         string? orderSearch,
         bool? vanSalesUsersOnly,
-        bool openOnly = false)
+        bool openOnly = false,
+        SalesOrderColumnFilters? columns = null,
+        bool keepOpenOrders = false)
     {
         var query = context.SalesOrders.AsNoTracking().AsQueryable();
 
@@ -174,8 +185,18 @@ public sealed class GetAllSalesOrdersHandler(
                 || o.Status == SalesOrderStatus.OnHold
                 || (o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0)));
 
+        // By the status the list shows (see ProjectSalesOrderListItems), so an order only turns up under
+        // the tab it reads as: an approved order that has not reached SAP reads as Pending.
         if (status.HasValue)
-            query = query.Where(o => o.Status == status.Value);
+        {
+            query = status.Value switch
+            {
+                SalesOrderStatus.Pending => query.Where(o => o.Status == SalesOrderStatus.Pending
+                    || (o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0))),
+                SalesOrderStatus.Approved => query.Where(o => o.Status == SalesOrderStatus.Approved && o.SAPDocNum > 0),
+                _ => query.Where(o => o.Status == status.Value)
+            };
+        }
 
         if (!string.IsNullOrWhiteSpace(customerSearch))
         {
@@ -186,7 +207,16 @@ public sealed class GetAllSalesOrdersHandler(
         }
 
         if (fromDate.HasValue)
-            query = query.Where(o => o.OrderDate >= fromDate.Value);
+        {
+            // Mobile Orders shows a recent window, but never hides an order still waiting on someone.
+            query = keepOpenOrders
+                ? query.Where(o => o.OrderDate >= fromDate.Value
+                    || o.Status == SalesOrderStatus.Draft
+                    || o.Status == SalesOrderStatus.Pending
+                    || o.Status == SalesOrderStatus.OnHold
+                    || (o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0)))
+                : query.Where(o => o.OrderDate >= fromDate.Value);
+        }
 
         if (toExclusive.HasValue)
             query = query.Where(o => o.OrderDate < toExclusive.Value);
@@ -236,8 +266,104 @@ public sealed class GetAllSalesOrdersHandler(
             }
         }
 
+        if (columns is not null)
+            query = ApplyColumnFilters(query, columns);
+
         return query;
     }
+
+    /// <summary>
+    /// The Mobile Orders column filters. Lower-cased <c>Contains</c> rather than ILIKE, which needs no
+    /// escaping of the user's text and translates on SQLite, where the tests run, as well.
+    /// </summary>
+    internal static IQueryable<SalesOrderEntity> ApplyColumnFilters(IQueryable<SalesOrderEntity> query, SalesOrderColumnFilters columns)
+    {
+        if (!string.IsNullOrWhiteSpace(columns.OrderNumber))
+        {
+            var term = columns.OrderNumber.Trim().ToLower();
+            query = query.Where(o => o.OrderNumber.ToLower().Contains(term));
+        }
+
+        if (columns.OrderDate is { } orderDate)
+        {
+            var day = DateTime.SpecifyKind(orderDate.Date, DateTimeKind.Utc);
+            var nextDay = day.AddDays(1);
+            query = query.Where(o => o.OrderDate >= day && o.OrderDate < nextDay);
+        }
+
+        if (columns.DeliveryDate is { } deliveryDate)
+        {
+            var day = DateTime.SpecifyKind(deliveryDate.Date, DateTimeKind.Utc);
+            var nextDay = day.AddDays(1);
+            query = query.Where(o => o.DeliveryDate >= day && o.DeliveryDate < nextDay);
+        }
+
+        if (!string.IsNullOrWhiteSpace(columns.Currency))
+        {
+            var currency = columns.Currency.Trim().ToLower();
+            query = query.Where(o => o.Currency != null && o.Currency.ToLower() == currency);
+        }
+
+        // The page matched the total as displayed ("1,234.50"); the column's text form has no separators.
+        if (!string.IsNullOrWhiteSpace(columns.Total))
+        {
+            var term = columns.Total.Trim().Replace(",", string.Empty);
+            query = query.Where(o => o.DocTotal.ToString().Contains(term));
+        }
+
+        if (!string.IsNullOrWhiteSpace(columns.SapDocNum))
+        {
+            var term = columns.SapDocNum.Trim();
+            query = query.Where(o => o.SAPDocNum != null && o.SAPDocNum.Value.ToString().Contains(term));
+        }
+
+        return query;
+    }
+
+    /// <summary>
+    /// Sorts the local list. Id descending breaks ties so equal keys keep one order between pages.
+    /// </summary>
+    internal static IOrderedQueryable<SalesOrderEntity> ApplySort(
+        IQueryable<SalesOrderEntity> query,
+        SalesOrderListSort sort,
+        bool descending)
+    {
+        var ordered = sort switch
+        {
+            SalesOrderListSort.Number => By(o => o.OrderNumber),
+            SalesOrderListSort.Customer => By(o => o.CardName ?? o.CardCode),
+            // An order with no delivery date sorts as the earliest, as it did in the page: last when
+            // descending. PostgreSQL would put NULLs first there.
+            SalesOrderListSort.Delivery => descending
+                ? query.OrderBy(o => o.DeliveryDate == null).ThenByDescending(o => o.DeliveryDate)
+                : query.OrderByDescending(o => o.DeliveryDate == null).ThenBy(o => o.DeliveryDate),
+            SalesOrderListSort.Status => By(StatusSortOrder),
+            SalesOrderListSort.Total => By(o => o.DocTotal),
+            SalesOrderListSort.SapDoc => By(o => o.SAPDocNum ?? 0),
+            _ => By(o => o.OrderDate)
+        };
+
+        return ordered.ThenByDescending(o => o.Id);
+
+        IOrderedQueryable<SalesOrderEntity> By<TKey>(Expression<Func<SalesOrderEntity, TKey>> key) =>
+            descending ? query.OrderByDescending(key) : query.OrderBy(key);
+    }
+
+    /// <summary>
+    /// The page's status order, by the status the list shows. Delivered and Invoiced come from SAP
+    /// after the page has loaded, so they sort with the status stored here.
+    /// </summary>
+    private static readonly Expression<Func<SalesOrderEntity, int>> StatusSortOrder = o =>
+        o.Status == SalesOrderStatus.Draft ? 0
+        : o.Status == SalesOrderStatus.Pending
+            || (o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0)) ? 1
+        : o.Status == SalesOrderStatus.Approved ? 2
+        : o.Status == SalesOrderStatus.PartiallyFulfilled ? 3
+        : o.Status == SalesOrderStatus.Fulfilled ? 4
+        : o.Status == SalesOrderStatus.Cancelled ? 6
+        : o.Status == SalesOrderStatus.OnHold ? 7
+        : o.Status == SalesOrderStatus.Rejected ? 8
+        : 9;
 
     private async Task<SalesOrderListResponseDto> GetAllFromLocalAsync(
         int page,
@@ -251,13 +377,16 @@ public sealed class GetAllSalesOrdersHandler(
         bool? vanSalesUsersOnly,
         CancellationToken cancellationToken,
         bool openOnly = false,
-        bool includeSummary = false)
+        bool includeSummary = false,
+        SalesOrderColumnFilters? columns = null,
+        SalesOrderListSort sort = SalesOrderListSort.Ordered,
+        bool sortDescending = true,
+        bool keepOpenOrders = false)
     {
-        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch, vanSalesUsersOnly, openOnly);
+        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch, vanSalesUsersOnly, openOnly, columns, keepOpenOrders);
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await ProjectSalesOrderListItems(
-            query.OrderByDescending(o => o.OrderDate)
-                .ThenByDescending(o => o.Id)
+            ApplySort(query, sort, sortDescending)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize),
             cancellationToken);
@@ -289,11 +418,35 @@ public sealed class GetAllSalesOrdersHandler(
         bool? vanSalesUsersOnly,
         CancellationToken cancellationToken)
     {
-        var summary = await SummaryQuery(BuildLocalOrdersQuery(false, null, null, null, null, source, null, vanSalesUsersOnly))
+        var allOrders = BuildLocalOrdersQuery(false, null, null, null, null, source, null, vanSalesUsersOnly);
+        var summary = await SummaryQuery(allOrders)
             // Single, not First: one group is one row or none.
-            .SingleOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? new SalesOrderListSummaryDto();
 
-        return summary ?? new SalesOrderListSummaryDto();
+        // The page's currency filter and status tabs offer only what exists. It used to read them off
+        // every order it held; it now holds one page.
+        var currencies = await allOrders
+            .Where(o => o.Currency != null && o.Currency != string.Empty)
+            .Select(o => o.Currency!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        summary.Currencies = currencies
+            .Select(currency => currency.Trim())
+            .Where(currency => currency.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        summary.Statuses = await allOrders
+            .Select(o => o.Status == SalesOrderStatus.Approved && (o.SAPDocNum == null || o.SAPDocNum <= 0)
+                ? SalesOrderStatus.Pending
+                : o.Status)
+            .Distinct()
+            .OrderBy(status => status)
+            .ToListAsync(cancellationToken);
+
+        return summary;
     }
 
     /// <summary>The counts <see cref="BuildSummaryAsync"/> reads, as one grouped query.</summary>

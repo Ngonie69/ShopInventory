@@ -94,22 +94,22 @@
         <section class="mox-stats">
             <div class="mox-stat is-lead">
                 <div class="mox-stat-label"><span class="mox-stat-mark"></span>Total orders</div>
-                <div class="mox-stat-value">@StatValue(summary?.Total ?? totalCount)</div>
+                <div class="mox-stat-value">@StatValue(summary?.Total)</div>
                 <div class="mox-stat-foot">@(IsVanSalesView ? "All time, van sales" : "All time, mobile app")</div>
             </div>
             <div class="mox-stat">
                 <div class="mox-stat-label"><span class="mox-stat-mark"></span>Draft</div>
-                <div class="mox-stat-value is-quiet">@StatValue(CountByStatus(SalesOrderStatus.Draft))</div>
+                <div class="mox-stat-value is-quiet">@StatValue(summary?.Draft)</div>
                 <div class="mox-stat-foot">Not yet submitted</div>
             </div>
             <div class="mox-stat is-live">
                 <div class="mox-stat-label"><span class="mox-stat-pip"></span>Pending review</div>
-                <div class="mox-stat-value">@StatValue(CountByStatus(SalesOrderStatus.Pending))</div>
+                <div class="mox-stat-value">@StatValue(summary?.Pending)</div>
                 <div class="mox-stat-foot">@OldestPendingLabel</div>
             </div>
             <div class="mox-stat">
                 <div class="mox-stat-label"><span class="mox-stat-mark"></span>Approved</div>
-                <div class="mox-stat-value is-quiet">@StatValue(summary?.Approved ?? CountByStatus(SalesOrderStatus.Approved))</div>
+                <div class="mox-stat-value is-quiet">@StatValue(summary?.Approved)</div>
                 <div class="mox-stat-foot">Posted to SAP</div>
             </div>
         </section>
@@ -179,12 +179,12 @@
                     <div class="mox-field" style="width:148px">
                         <label for="mox-f-number">Order #</label>
                         <input id="mox-f-number" class="mox-input mox-input-num" type="text" placeholder="SO-…"
-                               @bind="orderNumberFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                               @bind="orderNumberFilter" @bind:event="oninput" @bind:after="OnFilterTextChanged" />
                     </div>
                     <div class="mox-field" style="width:210px">
                         <label for="mox-f-customer">Customer</label>
                         <input id="mox-f-customer" class="mox-input" type="text" placeholder="Name or code"
-                               @bind="customerFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                               @bind="customerFilter" @bind:event="oninput" @bind:after="OnFilterTextChanged" />
                     </div>
                     <div class="mox-field" style="width:146px">
                         <label for="mox-f-ordered">Order date</label>
@@ -200,18 +200,18 @@
                         <label for="mox-f-currency">Currency</label>
                         <NocturneSelect Id="mox-f-currency" Class="nsel-block" TValue="string"
                                         Options="CurrencyFilterSelectOptions" @bind-Value="currencyFilter"
-                                        OnChanged="ResetToFirstPage" Caption="Filter by currency"
+                                        OnChanged="OnFilterChanged" Caption="Filter by currency"
                                         AriaLabel="Filter by currency" Placeholder="All" />
                     </div>
                     <div class="mox-field" style="width:130px">
                         <label for="mox-f-total">Total</label>
                         <input id="mox-f-total" class="mox-input mox-input-num" type="text" placeholder="Amount"
-                               @bind="totalFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                               @bind="totalFilter" @bind:event="oninput" @bind:after="OnFilterTextChanged" />
                     </div>
                     <div class="mox-field" style="width:130px">
                         <label for="mox-f-sap">SAP doc #</label>
                         <input id="mox-f-sap" class="mox-input mox-input-num" type="text" placeholder="SAP #"
-                               @bind="sapDocFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                               @bind="sapDocFilter" @bind:event="oninput" @bind:after="OnFilterTextChanged" />
                     </div>
                     <div class="mox-filter-actions">
                         <button type="button" class="mox-btn mox-btn-ghost" disabled="@(!HasActiveFilters())"
@@ -277,7 +277,7 @@
                                 <td colspan="10">
                                     <div class="mox-empty">
                                         <i class="ph ph-device-mobile" aria-hidden="true"></i>
-                                        @if (orders?.Any() == true)
+                                        @if (HasActiveFilters() || !IsStatusTabActive(null) || summary?.Total > 0)
                                         {
                                             <strong>No orders match these filters</strong>
                                             <span>Switch tab or clear the filters to see more orders.</span>
@@ -311,7 +311,7 @@
                                         <input class="mox-check" type="checkbox"
                                                aria-label="@($"Select order {order.OrderNumber}")"
                                                checked="@IsOrderSelected(order.Id)"
-                                               @onchange="() => ToggleOrderSelection(order.Id)" />
+                                               @onchange="() => ToggleOrderSelection(order)" />
                                     </td>
                                     <td>
                                         <button type="button" class="mox-docnum" title="View this order"
@@ -502,7 +502,7 @@
                 <div class="mox-pagesize">
                     <span>Rows</span>
                     <NocturneSelect Class="nsel-sm nsel-end nsel-up" Options="PageSizeSelectOptions"
-                                    @bind-Value="_pageSize" OnChanged="ResetToFirstPage"
+                                    @bind-Value="_pageSize" OnChanged="OnFilterChanged"
                                     AriaLabel="Rows per page" />
                 </div>
                 <div class="mox-pager">
@@ -870,6 +870,12 @@
     private readonly HashSet<int> selectedOrderIds = new();
     private OrderSortKey sortKey = OrderSortKey.Ordered;
     private bool sortDescending = true;
+
+    /// <summary>
+    /// The page on screen, filtered, sorted and paged by the API. The page used to hold every order
+    /// in the window, up to ten thousand of the recent ones and ten thousand open ones, for as long
+    /// as the tab stayed open, and filter and sort them here.
+    /// </summary>
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
     private readonly List<DocumentAttachmentDto> purchaseOrderAttachments = new();
@@ -896,7 +902,7 @@
     };
     private int ordersLoadVersion;
     private CancellationTokenSource? podStatusCancellation;
-    private const string DeliveredStatusFilterValue = "delivered";
+    private CancellationTokenSource? filterDebounce;
 
     private sealed record StatusFilterOption(string Value, string Label);
 
@@ -907,7 +913,6 @@
         new("2", "Approved"),
         new("3", "Partially Fulfilled"),
         new("4", "Fulfilled"),
-        new(DeliveredStatusFilterValue, "Delivered"),
         new("5", "Cancelled"),
         new("6", "On Hold"),
         new("7", "Rejected")
@@ -923,28 +928,27 @@
     private string? totalFilter;
     private string? sapDocFilter;
 
-    // Pagination
-    private int currentPage = 1;
-    private int pageSize = 10000;
-
     /// <summary>
     /// How far back the list reaches until someone asks for more. Every open order (draft, pending,
     /// on hold) is loaded whatever its age, so nothing waiting on review is hidden by the window.
     /// </summary>
-    /// <remarks>
-    /// The page used to load every mobile order ever made, up to ten thousand with their lines, on
-    /// every visit, and filter and sort all of them in the browser session on each keystroke.
-    /// </remarks>
     private const int RecentDays = 90;
 
     private bool showAllHistory;
 
-    /// <summary>All-time counts from the API for the tiles; null from an API that predates them.</summary>
+    /// <summary>All-time counts, currencies and statuses from the API, for the tiles, filter and tabs.</summary>
     private SalesOrderListSummary? summary;
 
     private static DateTime RecentFrom => DateTime.Today.AddDays(-RecentDays);
-    private int totalPages = 1;
-    private int totalCount = 0;
+
+    /// <summary>How many orders the filters leave standing, across every page.</summary>
+    private int totalCount;
+
+    /// <summary>
+    /// The selected orders as they were when picked. Selection outlives the page it was made on, and
+    /// the other pages are not held.
+    /// </summary>
+    private readonly Dictionary<int, SalesOrderDto> selectedOrderSnapshots = new();
 
     private enum OrderActionType
     {
@@ -972,6 +976,7 @@
         // Moving the version on retires every background load still running for this page.
         System.Threading.Interlocked.Increment(ref ordersLoadVersion);
         podStatusCancellation?.Cancel();
+        filterDebounce?.Cancel();
     }
 
     protected override async Task OnInitializedAsync()
@@ -982,7 +987,7 @@
         var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
         canSaveOrderPrices = user.IsInRole(UserRoles.Admin) || user.IsInRole(UserRoles.Cashier) || user.IsInRole(UserRoles.SalesRep);
 
-        await LoadOrders();
+        await LoadOrders(includeSummary: true);
     }
 
     /// <summary>
@@ -991,14 +996,15 @@
     /// </summary>
     private bool canSaveOrderPrices;
 
-    private void GoToPage(int page)
+    private async Task GoToPage(int page)
     {
         _page = Math.Clamp(page, 1, GetVisiblePageCount());
+        await LoadOrders();
     }
 
     // Both lists are computed rather than static: the page size can be a value
     // Settings carries that is not one of the five, and the currencies are
-    // whichever ones the loaded orders actually use.
+    // whichever ones the orders actually use.
     private IEnumerable<NocturneSelectOption<int>> PageSizeSelectOptions =>
         GetPageSizeOptions().Select(size => new NocturneSelectOption<int>(size, size.ToString()));
 
@@ -1027,51 +1033,10 @@
         _page = 1;
     }
 
-    /// <summary>
-    /// The filtered orders in sort order. The list is held whole in memory
-    /// (LoadOrders fetches every mobile order in one page), so sorting and
-    /// paging are both done here rather than round-tripping to the API.
-    /// </summary>
-    private List<SalesOrderDto> GetSortedOrders()
-    {
-        var filtered = GetFilteredOrders();
+    /// <summary>The page on screen, already filtered, sorted and paged by the API.</summary>
+    private List<SalesOrderDto> GetPageOrders() => orders ?? [];
 
-        // Id descends alongside creation, so it breaks ties into a stable order
-        // instead of leaving equal-key rows to shuffle between renders.
-        IOrderedEnumerable<SalesOrderDto> sorted = sortKey switch
-        {
-            OrderSortKey.Number => Order(filtered, order => order.OrderNumber ?? string.Empty),
-            OrderSortKey.Customer => Order(filtered, order => order.CardName ?? order.CardCode ?? string.Empty),
-            OrderSortKey.Delivery => Order(filtered, order => order.DeliveryDate ?? DateTime.MinValue),
-            OrderSortKey.Status => Order(filtered, GetDisplayStatusSortOrder),
-            OrderSortKey.Total => Order(filtered, order => order.DocTotal),
-            OrderSortKey.SapDoc => Order(filtered, order => order.SAPDocNum ?? 0),
-            _ => Order(filtered, order => order.OrderDate)
-        };
-
-        return sorted.ThenByDescending(order => order.Id).ToList();
-
-        IOrderedEnumerable<SalesOrderDto> Order<TKey>(IEnumerable<SalesOrderDto> source, Func<SalesOrderDto, TKey> key)
-            => sortDescending ? source.OrderByDescending(key) : source.OrderBy(key);
-    }
-
-    private List<SalesOrderDto> GetPageOrders()
-    {
-        if (orders == null)
-            return [];
-
-        var sorted = GetSortedOrders();
-        var pageCount = Math.Max(1, (sorted.Count + _pageSize - 1) / _pageSize);
-
-        // A page can fall off the end when a filter narrows the list; clamp on
-        // read so the table never renders empty with rows still to show.
-        if (_page > pageCount)
-            _page = pageCount;
-
-        return sorted.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
-    }
-
-    private void SortBy(OrderSortKey key)
+    private async Task SortBy(OrderSortKey key)
     {
         if (sortKey == key)
         {
@@ -1084,6 +1049,7 @@
         }
 
         ResetToFirstPage();
+        await LoadOrders();
     }
 
     private string SortMark(OrderSortKey key)
@@ -1096,12 +1062,8 @@
 
         var first = ((_page - 1) * _pageSize) + 1;
         var last = Math.Min(_page * _pageSize, filteredCount);
-        var loadedCount = orders?.Count ?? 0;
-        var narrowed = filteredCount == loadedCount
-            ? string.Empty
-            : $" (filtered from {loadedCount:N0})";
 
-        return $"Showing {first:N0}–{last:N0} of {filteredCount:N0} orders{narrowed}";
+        return $"Showing {first:N0}–{last:N0} of {filteredCount:N0} orders";
     }
 
     private void ToggleFilters()
@@ -1127,9 +1089,6 @@
         return false;
     }
 
-    private static bool IsDeliveredStatusFilterValue(string? value)
-        => string.Equals(value, DeliveredStatusFilterValue, StringComparison.OrdinalIgnoreCase);
-
     private SalesOrderStatus? GetSelectedStatusFilter()
     {
         if (TryParseStatusFilterValue(statusFilter, out var selectedStatus))
@@ -1138,9 +1097,11 @@
         return null;
     }
 
-    private bool IsDeliveredStatusFilterSelected()
-        => IsDeliveredStatusFilterValue(statusFilter);
-
+    /// <summary>
+    /// The statuses some order is in. Delivered is not one: whether an order was delivered is SAP's
+    /// answer about its invoice, asked for the rows on screen, so it labels a row but cannot filter
+    /// the list. A delivered order sits under Approved.
+    /// </summary>
     private IEnumerable<StatusFilterOption> GetStatusFilterOptions()
     {
         var selectedStatus = GetSelectedStatusFilter();
@@ -1150,17 +1111,9 @@
         }
 
         return AllStatusFilterOptions.Where(option =>
-        {
-            if (IsDeliveredStatusFilterValue(option.Value))
-                return IsDeliveredStatusFilterSelected() || HasDeliveredOrders();
-
-            return TryParseStatusFilterValue(option.Value, out var parsedStatus)
-                && availableStatusFilters.Contains(parsedStatus);
-        });
+            TryParseStatusFilterValue(option.Value, out var parsedStatus)
+            && availableStatusFilters.Contains(parsedStatus));
     }
-
-    private bool HasDeliveredOrders()
-        => orders?.Any(IsOrderDelivered) == true;
 
     /// <summary>
     /// The design's tab strip owns the status filter, so the filter panel has
@@ -1173,17 +1126,15 @@
     private bool IsStatusTabActive(string? value)
         => string.Equals(statusFilter ?? string.Empty, value ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
-    private void SelectStatusTab(string? value)
+    private async Task SelectStatusTab(string? value)
     {
         statusFilter = string.IsNullOrEmpty(value) ? null : value;
         ClearSelection();
         ResetToFirstPage();
+        await LoadOrders();
     }
 
-    private int CountByStatus(SalesOrderStatus status)
-        => orders?.Count(order => order.Status == status) ?? 0;
-
-    private string StatValue(int count) => orders == null ? "—" : count.ToString("N0");
+    private static string StatValue(int? count) => count?.ToString("N0") ?? "—";
 
     /// <summary>
     /// The design's "Oldest waiting 3 days" line under the pending tile —
@@ -1194,13 +1145,10 @@
     {
         get
         {
-            if (orders == null)
+            if (summary == null)
                 return "—";
 
-            var oldest = orders
-                .Where(order => order.Status == SalesOrderStatus.Pending)
-                .Select(order => (DateTime?)order.CreatedAt)
-                .Min();
+            var oldest = summary.OldestPendingCreatedAt;
 
             if (!oldest.HasValue)
                 return "Nothing waiting on review";
@@ -1220,13 +1168,7 @@
 
     private IEnumerable<string> GetCurrencyFilterOptions()
     {
-        var options = orders?
-            .Select(order => order.Currency?.Trim())
-            .Where(currency => !string.IsNullOrWhiteSpace(currency))
-            .Select(currency => currency!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(currency => currency, StringComparer.OrdinalIgnoreCase)
-            .ToList() ?? [];
+        var options = summary?.Currencies.ToList() ?? [];
 
         if (!string.IsNullOrWhiteSpace(currencyFilter) && !options.Contains(currencyFilter, StringComparer.OrdinalIgnoreCase))
         {
@@ -1235,86 +1177,6 @@
         }
 
         return options;
-    }
-
-    private IEnumerable<SalesOrderDto> GetFilteredOrders()
-    {
-        return orders?.Where(MatchesColumnFilters) ?? Enumerable.Empty<SalesOrderDto>();
-    }
-
-    private bool MatchesColumnFilters(SalesOrderDto order)
-    {
-        if (!string.IsNullOrWhiteSpace(orderNumberFilter) &&
-            !(order.OrderNumber?.Contains(orderNumberFilter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false))
-        {
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(customerFilter))
-        {
-            var customerTerm = customerFilter.Trim();
-            var matchesCustomer = (order.CardName?.Contains(customerTerm, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (order.CardCode?.Contains(customerTerm, StringComparison.OrdinalIgnoreCase) ?? false);
-
-            if (!matchesCustomer)
-            {
-                return false;
-            }
-        }
-
-        if (orderDateFilter.HasValue && order.OrderDate.Date != orderDateFilter.Value.Date)
-        {
-            return false;
-        }
-
-        if (deliveryDateFilter.HasValue
-            && (!order.DeliveryDate.HasValue || order.DeliveryDate.Value.Date != deliveryDateFilter.Value.Date))
-        {
-            return false;
-        }
-
-        var selectedStatus = GetSelectedStatusFilter();
-        if (IsDeliveredStatusFilterSelected())
-        {
-            if (!IsOrderDelivered(order))
-            {
-                return false;
-            }
-        }
-        else if (selectedStatus.HasValue && (IsOrderDelivered(order) || order.Status != selectedStatus.Value))
-        {
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(currencyFilter) &&
-            !string.Equals(order.Currency, currencyFilter, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(totalFilter))
-        {
-            var totalTerm = totalFilter.Trim();
-            var formattedTotal = order.DocTotal.ToString("N2");
-            var compactTotal = order.DocTotal.ToString("0.##");
-
-            if (!formattedTotal.Contains(totalTerm, StringComparison.OrdinalIgnoreCase)
-                && !compactTotal.Contains(totalTerm, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(sapDocFilter))
-        {
-            var sapDocNumber = order.SAPDocNum?.ToString() ?? string.Empty;
-            if (!sapDocNumber.Contains(sapDocFilter.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /// <summary>
@@ -1340,10 +1202,7 @@
         }
     }
 
-    private int GetVisibleOrderCount()
-    {
-        return GetFilteredOrders().Count();
-    }
+    private int GetVisibleOrderCount() => totalCount;
 
     private int GetVisiblePageCount()
     {
@@ -1362,27 +1221,46 @@
         }
     }
 
-    private async Task LoadOrders()
+    /// <summary>
+    /// Loads the page on screen. The tiles' counts come with it only when asked for: they cover every
+    /// order, so a filter or a page turn does not change them.
+    /// </summary>
+    private async Task LoadOrders(bool includeSummary = false)
     {
         var loadVersion = System.Threading.Interlocked.Increment(ref ordersLoadVersion);
         podStatusCancellation?.Cancel();
-        isLoading = true;
+        // The skeleton is for the first load; after that the rows stay until the next page replaces them.
+        isLoading = orders == null;
         errorMessage = null;
 
         try
         {
-            var response = await FetchOrdersAsync();
+            var response = await SalesOrderService.GetSalesOrderPageAsync(BuildPageRequest(includeSummary || summary == null));
             if (loadVersion != ordersLoadVersion)
                 return;
+
+            // A filter or a removed order can leave the page past the end; go to the last page that has rows.
+            if (response is { Orders.Count: 0, TotalCount: > 0 } && _page > 1)
+            {
+                _page = Math.Max(1, (response.TotalCount + _pageSize - 1) / _pageSize);
+                response = await SalesOrderService.GetSalesOrderPageAsync(BuildPageRequest(includeSummary: false));
+                if (loadVersion != ordersLoadVersion)
+                    return;
+            }
 
             if (response != null)
             {
                 orders = response.Orders;
-                summary = response.Summary;
+                if (response.Summary != null)
+                {
+                    summary = response.Summary;
+                    foreach (var status in summary.Statuses)
+                        availableStatusFilters.Add(status);
+                }
+
                 totalCount = response.TotalCount;
-                totalPages = response.TotalPages;
                 TrackAvailableStatusFilters(orders);
-                PruneSelection();
+                RefreshSelectionSnapshots(orders);
 
                 // After the list is shown rather than before: the API prices mobile orders once they are
                 // captured, so this only fills gaps, and it used to hold the whole page on a skeleton
@@ -1412,60 +1290,84 @@
     }
 
     /// <summary>
-    /// The recent orders and every open one, as one list; or every order once someone has asked for
-    /// the older ones. Null when either read failed.
+    /// The recent orders and every open one, or every order once someone has asked for the older ones,
+    /// through the filters and sort on screen.
     /// </summary>
-    private async Task<SalesOrderListResponse?> FetchOrdersAsync()
+    private SalesOrderPageRequest BuildPageRequest(bool includeSummary, int? page = null, int? pageSize = null) => new()
     {
+        Page = page ?? _page,
+        PageSize = pageSize ?? _pageSize,
+        Source = SalesOrderSource.Mobile,
         // Van handsets file their sales orders as Mobile too. Mobile Orders is the retail queue, so it
         // asks for the complement of Van Sales Orders rather than for everything.
-        var vanSalesUsersOnly = IsVanSalesView;
-
-        if (showAllHistory)
+        VanSalesUsersOnly = IsVanSalesView,
+        Status = GetSelectedStatusFilter(),
+        FromDate = showAllHistory ? null : RecentFrom,
+        KeepOpenOrders = !showAllHistory,
+        Customer = customerFilter,
+        OrderNumber = orderNumberFilter,
+        OrderDate = orderDateFilter,
+        DeliveryDate = deliveryDateFilter,
+        Currency = currencyFilter,
+        Total = totalFilter,
+        SapDocNum = sapDocFilter,
+        SortBy = sortKey switch
         {
-            return await SalesOrderService.GetSalesOrdersAsync(
-                currentPage,
-                pageSize,
-                source: SalesOrderSource.Mobile,
-                vanSalesUsersOnly: vanSalesUsersOnly,
-                includeSummary: true);
+            OrderSortKey.Number => SalesOrderListSort.Number,
+            OrderSortKey.Customer => SalesOrderListSort.Customer,
+            OrderSortKey.Delivery => SalesOrderListSort.Delivery,
+            OrderSortKey.Status => SalesOrderListSort.Status,
+            OrderSortKey.Total => SalesOrderListSort.Total,
+            OrderSortKey.SapDoc => SalesOrderListSort.SapDoc,
+            _ => SalesOrderListSort.Ordered
+        },
+        SortDescending = sortDescending,
+        IncludeSummary = includeSummary
+    };
+
+    /// <summary>A typed filter waits for a pause in typing, so a word costs one read rather than one per key.</summary>
+    private async Task OnFilterTextChanged()
+    {
+        filterDebounce?.Cancel();
+        var debounce = filterDebounce = new CancellationTokenSource();
+
+        try
+        {
+            await Task.Delay(300, debounce.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
 
-        var recentRead = SalesOrderService.GetSalesOrdersAsync(
-            1,
-            pageSize,
-            fromDate: RecentFrom,
-            source: SalesOrderSource.Mobile,
-            vanSalesUsersOnly: vanSalesUsersOnly,
-            includeSummary: true);
-        var openRead = SalesOrderService.GetSalesOrdersAsync(
-            1,
-            pageSize,
-            source: SalesOrderSource.Mobile,
-            vanSalesUsersOnly: vanSalesUsersOnly,
-            openOnly: true);
+        await OnFilterChanged();
+    }
 
-        await Task.WhenAll(recentRead, openRead);
-        var recent = await recentRead;
-        var open = await openRead;
-        if (recent is null || open is null)
-            return null;
+    private async Task OnFilterChanged()
+    {
+        ResetToFirstPage();
+        await LoadOrders();
+    }
 
-        var merged = recent.Orders
-            .Concat(open.Orders)
-            .GroupBy(order => order.Id)
-            .Select(group => group.First())
-            .ToList();
-
-        return new SalesOrderListResponse
+    /// <summary>
+    /// Re-reads the tiles after an order moved status here. They used to be counted off the orders the
+    /// page held, so they followed an approval at once.
+    /// </summary>
+    private async Task RefreshSummaryAsync()
+    {
+        try
         {
-            Page = 1,
-            PageSize = pageSize,
-            TotalCount = recent.Summary?.Total ?? merged.Count,
-            TotalPages = 1,
-            Orders = merged,
-            Summary = recent.Summary
-        };
+            var response = await SalesOrderService.GetSalesOrderPageAsync(BuildPageRequest(includeSummary: true, page: 1, pageSize: 1));
+            if (response?.Summary == null)
+                return;
+
+            summary = response.Summary;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not refresh the mobile order counts");
+        }
     }
 
     private async Task LoadAllHistory()
@@ -1474,16 +1376,20 @@
             return;
 
         showAllHistory = true;
+        ResetToFirstPage();
         await LoadOrders();
     }
 
     private async Task OnDateFilterChanged()
     {
-        ResetToFirstPage();
-
         // A date before the window would otherwise find nothing that exists.
         if (!showAllHistory && (orderDateFilter < RecentFrom || deliveryDateFilter < RecentFrom))
+        {
             await LoadAllHistory();
+            return;
+        }
+
+        await OnFilterChanged();
     }
 
     private async Task LoadOrderPodStatusesInBackgroundAsync(int loadVersion)
@@ -1507,8 +1413,15 @@
     /// own visible control, and the panel's Clear button should not silently
     /// undo a choice made outside the panel.
     /// </summary>
-    private void ClearFilter()
+    private async Task ClearFilter()
     {
+        ClearFilterValues();
+        await OnFilterChanged();
+    }
+
+    private void ClearFilterValues()
+    {
+        filterDebounce?.Cancel();
         orderNumberFilter = null;
         customerFilter = null;
         orderDateFilter = null;
@@ -1516,14 +1429,13 @@
         currencyFilter = null;
         totalFilter = null;
         sapDocFilter = null;
-        ResetToFirstPage();
     }
 
     /// <summary>The empty state's way back: panel filters and the tab together.</summary>
-    private void ResetAllFilters()
+    private async Task ResetAllFilters()
     {
-        ClearFilter();
-        SelectStatusTab(null);
+        ClearFilterValues();
+        await SelectStatusTab(null);
     }
 
     private async Task ViewOrder(SalesOrderDto order)
@@ -1610,9 +1522,13 @@
         }
     }
 
-    private async Task LoadOrderPodStatusesAsync(IEnumerable<SalesOrderDto> loadedOrders, int loadVersion)
+    /// <param name="loadedOrders">The orders to ask about: the page on screen, or an export's rows.</param>
+    /// <param name="loadVersion">The load this belongs to; a newer load retires it.</param>
+    /// <param name="keepKnown">Add to the answers already held rather than replacing them.</param>
+    private async Task LoadOrderPodStatusesAsync(IEnumerable<SalesOrderDto> loadedOrders, int loadVersion, bool keepKnown = false)
     {
-        podStatusByOrderId.Clear();
+        if (!keepKnown)
+            podStatusByOrderId.Clear();
 
         var ordersBySalesOrderDocNum = loadedOrders
             .Where(ShouldCheckPodStatus)
@@ -1739,27 +1655,6 @@
             SalesOrderStatus.Cancelled or SalesOrderStatus.Rejected => "is-bad",
             _ => string.Empty
         };
-    }
-
-    private static int GetStatusSortOrder(SalesOrderStatus status) => status switch
-    {
-        SalesOrderStatus.Draft => 0,
-        SalesOrderStatus.Pending => 1,
-        SalesOrderStatus.Approved => 2,
-        SalesOrderStatus.PartiallyFulfilled => 3,
-        SalesOrderStatus.Fulfilled => 4,
-        SalesOrderStatus.Cancelled => 6,
-        SalesOrderStatus.OnHold => 7,
-        SalesOrderStatus.Rejected => 8,
-        _ => 9
-    };
-
-    private int GetDisplayStatusSortOrder(SalesOrderDto order)
-    {
-        if (IsOrderDelivered(order))
-            return 5;
-
-        return IsOrderInvoiced(order) ? GetStatusSortOrder(SalesOrderStatus.Invoiced) : GetStatusSortOrder(order.Status);
     }
 
     private int? GetOrderPodInvoiceDocNum(SalesOrderDto order)
@@ -2560,17 +2455,20 @@
         if (index < 0)
             return;
 
+        _ = RefreshSummaryAsync();
+
         var activeStatusFilter = GetSelectedStatusFilter();
         if (activeStatusFilter.HasValue && updatedOrder.Status != activeStatusFilter.Value)
         {
             orders.RemoveAt(index);
-            selectedOrderIds.Remove(updatedOrder.Id);
+            DeselectOrder(updatedOrder.Id);
             totalCount = Math.Max(0, totalCount - 1);
-            totalPages = totalCount == 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
             return;
         }
 
         orders[index] = updatedOrder;
+        if (selectedOrderSnapshots.ContainsKey(updatedOrder.Id))
+            selectedOrderSnapshots[updatedOrder.Id] = updatedOrder;
     }
 
     private async Task RemoveOrderFromListAsync(int id)
@@ -2581,7 +2479,7 @@
         }
 
         podStatusByOrderId.Remove(id);
-        selectedOrderIds.Remove(id);
+        DeselectOrder(id);
 
         if (orders == null)
             return;
@@ -2591,7 +2489,7 @@
             return;
 
         totalCount = Math.Max(0, totalCount - removedCount);
-        totalPages = totalCount == 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
+        _ = RefreshSummaryAsync();
     }
 
     // ── Row selection ──────────────────────────────────────────────────────
@@ -2600,15 +2498,31 @@
 
     private bool IsOrderSelected(int id) => selectedOrderIds.Contains(id);
 
-    private void ToggleOrderSelection(int id)
+    private void ToggleOrderSelection(SalesOrderDto order)
     {
-        if (!selectedOrderIds.Add(id))
-        {
-            selectedOrderIds.Remove(id);
-        }
+        if (selectedOrderIds.Contains(order.Id))
+            DeselectOrder(order.Id);
+        else
+            SelectOrder(order);
     }
 
-    private void ClearSelection() => selectedOrderIds.Clear();
+    private void SelectOrder(SalesOrderDto order)
+    {
+        selectedOrderIds.Add(order.Id);
+        selectedOrderSnapshots[order.Id] = order;
+    }
+
+    private void DeselectOrder(int id)
+    {
+        selectedOrderIds.Remove(id);
+        selectedOrderSnapshots.Remove(id);
+    }
+
+    private void ClearSelection()
+    {
+        selectedOrderIds.Clear();
+        selectedOrderSnapshots.Clear();
+    }
 
     private bool AreAllPageOrdersSelected(IReadOnlyCollection<SalesOrderDto> pageOrders)
         => pageOrders.Count > 0 && pageOrders.All(order => selectedOrderIds.Contains(order.Id));
@@ -2621,33 +2535,30 @@
         {
             if (selectAll)
             {
-                selectedOrderIds.Add(order.Id);
+                SelectOrder(order);
             }
             else
             {
-                selectedOrderIds.Remove(order.Id);
+                DeselectOrder(order.Id);
             }
         }
     }
 
-    /// <summary>
-    /// Drops selections for orders that are no longer in the list, so a reload
-    /// cannot leave a count pointing at rows nobody can see.
-    /// </summary>
-    private void PruneSelection()
+    /// <summary>Keeps a selected order's snapshot current when its page comes round again.</summary>
+    private void RefreshSelectionSnapshots(IEnumerable<SalesOrderDto> pageOrders)
     {
-        if (orders == null)
+        foreach (var order in pageOrders)
         {
-            selectedOrderIds.Clear();
-            return;
+            if (selectedOrderIds.Contains(order.Id))
+                selectedOrderSnapshots[order.Id] = order;
         }
-
-        var present = orders.Select(order => order.Id).ToHashSet();
-        selectedOrderIds.RemoveWhere(id => !present.Contains(id));
     }
 
     private List<SalesOrderDto> GetSelectedOrders()
-        => orders?.Where(order => selectedOrderIds.Contains(order.Id)).ToList() ?? [];
+        => selectedOrderIds
+            .Select(id => selectedOrderSnapshots.GetValueOrDefault(id))
+            .OfType<SalesOrderDto>()
+            .ToList();
 
     private List<SalesOrderDto> GetApprovableSelectedOrders()
         => GetSelectedOrders().Where(SalesOrderActions.CanApprove).ToList();
@@ -2707,7 +2618,7 @@
                     if (result != null)
                     {
                         approved++;
-                        selectedOrderIds.Remove(order.Id);
+                        DeselectOrder(order.Id);
                     }
                     else
                     {
@@ -2740,10 +2651,13 @@
             Snackbar.Add($"Could not approve {failures.Count} order{(failures.Count == 1 ? string.Empty : "s")}: {named}{more}", Severity.Error);
         }
 
-        await LoadOrders();
+        await LoadOrders(includeSummary: true);
     }
 
     // ── Export ─────────────────────────────────────────────────────────────
+
+    /// <summary>The most orders one export reads, the API's page limit.</summary>
+    private const int ExportRowLimit = 10000;
 
     private string ExportLabel => SelectedOrderCount > 0
         ? $"Export {SelectedOrderCount} to Excel"
@@ -2752,29 +2666,48 @@
     /// <summary>
     /// The design exports the selection when there is one and everything the
     /// filters leave standing otherwise — the same rows the table is showing,
-    /// in the same order, not just the page on screen.
+    /// in the same order, not just the page on screen. Those are read from the
+    /// API for the export and let go once it is downloaded.
     /// </summary>
     private async Task ExportToExcel()
     {
         if (isExporting)
             return;
 
-        var sorted = GetSortedOrders();
-        var rows = selectedOrderIds.Count > 0
-            ? sorted.Where(order => selectedOrderIds.Contains(order.Id)).ToList()
-            : sorted;
-
-        if (rows.Count == 0)
-        {
-            Snackbar.Add("There are no orders to export.", Severity.Info);
-            return;
-        }
-
         isExporting = true;
         StateHasChanged();
 
         try
         {
+            List<SalesOrderDto> rows;
+            if (selectedOrderIds.Count > 0)
+            {
+                rows = GetSelectedOrders();
+            }
+            else
+            {
+                var response = await SalesOrderService.GetSalesOrderPageAsync(
+                    BuildPageRequest(includeSummary: false, page: 1, pageSize: ExportRowLimit));
+                if (response == null)
+                {
+                    Snackbar.Add("Could not read the orders to export.", Severity.Error);
+                    return;
+                }
+
+                rows = response.Orders;
+                if (response.TotalCount > rows.Count)
+                    Snackbar.Add($"Exporting the first {rows.Count:N0} of {response.TotalCount:N0} orders. Narrow the filters to export the rest.", Severity.Warning);
+            }
+
+            if (rows.Count == 0)
+            {
+                Snackbar.Add("There are no orders to export.", Severity.Info);
+                return;
+            }
+
+            // Delivered and the invoice number come from SAP; the page asks only about the rows on screen.
+            await LoadOrderPodStatusesAsync(rows, ordersLoadVersion, keepKnown: true);
+
             var title = IsVanSalesView ? "Van Sales Orders" : "Mobile Orders";
             var bytes = ExportService.ExportMobileOrdersToExcel(rows, title, GetOrderInvoiceDocNum, GetDisplayStatusName);
             var prefix = IsVanSalesView ? "Van_Sales_Orders" : "Mobile_Orders";

@@ -1262,14 +1262,25 @@ neither the picker nor the payload may hard-code it. `value` is what goes on the
 | DELETE | `/api/SalesOrder/{id}` | `salesorders.delete` | Cancel it |
 | POST | `/api/SalesOrder/backfill-web-order-tax` | Admin role | One-off tax repair (`dryRun` **true**, `maxPostedOrders` 200) |
 
-**Query parameters:** `page` (1), `pageSize` (20), `status`, `cardCode`, `fromDate`, `toDate`,
-`source`, `search`, `vanSalesUsersOnly`, `openOnly` (false), `includeSummary` (false)
+**Query parameters:** `page` (1), `pageSize` (20, at most 10,000), `status`, `cardCode`, `fromDate`,
+`toDate`, `source`, `search`, `vanSalesUsersOnly`, `openOnly` (false), `includeSummary` (false),
+`keepOpenOrders` (false), `orderNumber`, `orderDate`, `deliveryDate`, `currency`, `total`, `sapDocNum`,
+`sortBy` (`Ordered`), `sortDescending` (true)
 
-`openOnly=true` returns only orders still waiting on someone (Draft, Pending, OnHold, and an approved
-order not yet in SAP, which the list shows as Pending), from the local tables alone.
-`includeSummary=true` adds `summary` — `total`, `draft`, `pending`, `approved` and
-`oldestPendingCreatedAt`, all time for the `source` and `vanSalesUsersOnly` given, whatever the other
-filters.
+`status` is the status the list shows: `Pending` includes an approved order not yet in SAP, and
+`Approved` is posted orders only. `openOnly=true` returns only orders still waiting on someone (Draft,
+Pending, OnHold, and an approved order not yet in SAP), from the local tables alone.
+`includeSummary=true` adds `summary` — `total`, `draft`, `pending`, `approved`,
+`oldestPendingCreatedAt`, `currencies` and `statuses`, all time for the `source` and
+`vanSalesUsersOnly` given, whatever the other filters.
+
+The rest serve Mobile Orders, which pages here rather than holding every order, and apply to the
+local list (a `source` or `openOnly` request) only. `keepOpenOrders=true` with `fromDate` still
+returns an open order dated earlier. `cardCode`, `orderNumber`, `total` and `sapDocNum` match
+anywhere in the value, ignoring case (`total` ignores thousands separators); `currency` matches
+exactly, ignoring case; `orderDate` and `deliveryDate` match the calendar day. `sortBy` is one of
+`Ordered`, `Number`, `Customer`, `Delivery`, `Status`, `Total`, `SapDoc`; a missing delivery date
+sorts as the earliest, and id descending breaks ties.
 
 Approving, posting and deleting are three separate permissions, not one: `salesorders.approve`
 decides, `salesorders.post_to_sap` commits, and neither implies the other. The backfill defaults to

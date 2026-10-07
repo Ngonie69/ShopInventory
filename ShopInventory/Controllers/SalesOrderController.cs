@@ -49,10 +49,21 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
         [FromQuery] bool? vanSalesUsersOnly = null,
         [FromQuery] bool openOnly = false,
         [FromQuery] bool includeSummary = false,
+        [FromQuery] string? orderNumber = null,
+        [FromQuery] DateTime? orderDate = null,
+        [FromQuery] DateTime? deliveryDate = null,
+        [FromQuery] string? currency = null,
+        [FromQuery] string? total = null,
+        [FromQuery] string? sapDocNum = null,
+        [FromQuery] SalesOrderListSort sortBy = SalesOrderListSort.Ordered,
+        [FromQuery] bool sortDescending = true,
+        [FromQuery] bool keepOpenOrders = false,
         CancellationToken cancellationToken = default)
     {
+        var columns = new SalesOrderColumnFilters(orderNumber, orderDate, deliveryDate, currency, total, sapDocNum);
         var result = await mediator.Send(
-            new GetAllSalesOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, source, search, vanSalesUsersOnly, openOnly, includeSummary),
+            new GetAllSalesOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, source, search, vanSalesUsersOnly, openOnly, includeSummary,
+                columns, sortBy, sortDescending, keepOpenOrders),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
