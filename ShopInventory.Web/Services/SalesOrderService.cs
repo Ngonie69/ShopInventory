@@ -101,24 +101,20 @@ public class SalesOrderService : ISalesOrderService
             var url = $"api/salesorder?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching sales orders from API: {Url}", url);
 
-            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url));
-            var content = await response.Content.ReadAsStringAsync();
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead));
 
             _logger.LogInformation("API Response Status: {StatusCode}, Content Length: {Length}",
-                response.StatusCode, content.Length);
+                response.StatusCode, response.Content.Headers.ContentLength);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("API returned error: {StatusCode} - {Content}", response.StatusCode, content);
+                _logger.LogError("API returned error: {StatusCode} - {Content}", response.StatusCode, await response.Content.ReadAsStringAsync());
                 return null;
             }
 
-            _logger.LogDebug("API Response Content: {Content}", content.Length > 500 ? content.Substring(0, 500) + "..." : content);
-
-            var result = System.Text.Json.JsonSerializer.Deserialize<SalesOrderListResponse>(content, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            // Mobile Orders asks for up to 10,000 orders with their lines. Read as one string that is tens of
+            // MB of UTF-16 on the large object heap per load, before deserializing; streamed it is never held whole.
+            var result = await response.Content.ReadFromJsonAsync<SalesOrderListResponse>();
 
             _logger.LogInformation("Deserialized {OrderCount} orders, TotalCount: {TotalCount}",
                 result?.Orders?.Count ?? 0, result?.TotalCount ?? 0);

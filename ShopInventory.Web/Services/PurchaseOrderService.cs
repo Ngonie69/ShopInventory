@@ -49,22 +49,19 @@ public class PurchaseOrderService : IPurchaseOrderService
             var url = $"api/purchaseorder?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching purchase orders from API: {Url}", url);
 
-            var response = await _httpClient.GetAsync(url);
-            var content = await response.Content.ReadAsStringAsync();
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
 
             _logger.LogInformation("API Response Status: {StatusCode}, Content Length: {Length}",
-                response.StatusCode, content.Length);
+                response.StatusCode, response.Content.Headers.ContentLength);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("API returned error: {StatusCode} - {Content}", response.StatusCode, content);
+                _logger.LogError("API returned error: {StatusCode} - {Content}", response.StatusCode, await response.Content.ReadAsStringAsync());
                 return null;
             }
 
-            var result = System.Text.Json.JsonSerializer.Deserialize<PurchaseOrderListResponse>(content, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            // Purchase Orders asks for up to 10,000 orders with their lines; streamed, the body is never held whole.
+            var result = await response.Content.ReadFromJsonAsync<PurchaseOrderListResponse>();
 
             _logger.LogInformation("Deserialized {OrderCount} purchase orders, TotalCount: {TotalCount}",
                 result?.Orders?.Count ?? 0, result?.TotalCount ?? 0);
@@ -95,19 +92,15 @@ public class PurchaseOrderService : IPurchaseOrderService
             var url = $"api/purchaseorder/sap?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching purchase orders from SAP API: {Url}", url);
 
-            var response = await _httpClient.GetAsync(url);
-            var content = await response.Content.ReadAsStringAsync();
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("SAP API returned error: {StatusCode} - {Content}", response.StatusCode, content);
+                _logger.LogError("SAP API returned error: {StatusCode} - {Content}", response.StatusCode, await response.Content.ReadAsStringAsync());
                 return null;
             }
 
-            var result = System.Text.Json.JsonSerializer.Deserialize<PurchaseOrderListResponse>(content, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var result = await response.Content.ReadFromJsonAsync<PurchaseOrderListResponse>();
 
             _logger.LogInformation("Fetched {Count} purchase orders from SAP", result?.Orders?.Count ?? 0);
             return result;

@@ -10,6 +10,10 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
     <UserSecretsId>e57cecec-6502-42fd-9f52-59181c014695</UserSecretsId>
+    <!-- Workstation GC. The Web SDK defaults to Server GC, which sizes its budgets for throughput and keeps
+         freed heap committed; the worker sat at ~1.2 GB. Blazor Server here is I/O-bound on the API, so one
+         heap is plenty. StockSheets runs the same way. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
     <!-- ApiErrorResponse is internal and holds the log sanitizers. A sanitizer nobody can test is
