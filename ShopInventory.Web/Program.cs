@@ -108,9 +108,10 @@ try
             // Enable detailed errors for debugging (configured in appsettings)
             options.DetailedErrors = builder.Configuration.GetValue<bool>("DetailedErrors", false);
 
-            // Circuit retention limits to cap memory usage from disconnected browsers.
-            // Default is 100 retained circuits / 3 min retention; tune for expected user count.
-            options.DisconnectedCircuitMaxRetained = 200;
+            // Circuit retention limits to cap memory usage from disconnected browsers. Each retained
+            // circuit keeps its page's state; 100 is the framework default (it was 200), and a browser
+            // that comes back after its circuit was dropped reloads the page.
+            options.DisconnectedCircuitMaxRetained = 100;
             options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
 
             // Max render batches the server will buffer while waiting for client acknowledgement.
