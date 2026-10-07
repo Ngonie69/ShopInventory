@@ -126,24 +126,57 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
             warehouseCode,
             costCentreCode);
 
+        // The last point at which the caller going away stops the sale: only the user and its scope have
+        // been read, and nothing is reserved, signed or posted yet, so there is nothing to finish.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return await SellAsync(command, invoiceRequest, customer, warehouseCode, costCentreCode, handsetSigns);
+    }
+
+    /// <summary>
+    /// The sale, from its reservation to its answer. Once started it runs to the end.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>It takes no token, and that is the guard.</b> ASP.NET binds the request's token to
+    /// <c>HttpContext.RequestAborted</c>, and a van handset hangs up after 30 seconds. On 2026-10-07 sales
+    /// order conversions waiting on SAP inside their reservation outlived that: the hang-up cancelled them
+    /// mid-way and the server answered "The operation was canceled" to nobody. This sale reserves through
+    /// the same service. Run to the end instead, the work is done once, and the handset's resend under the
+    /// same van order finds its own reservation and receipt and is handed that receipt.</para>
+    ///
+    /// <para>Nothing waits forever for want of a token. Every SAP read is bounded by the client's own
+    /// budget, and the fiscal device by its own timeout; the request's token only ever added a deadline the
+    /// work did not need and the caller had already stopped waiting for.</para>
+    /// </remarks>
+    private async Task<ErrorOr<VanSalesDirectInvoiceResponse>> SellAsync(
+        CreateVanSalesDirectInvoiceCommand command,
+        CreateDesktopInvoiceRequest invoiceRequest,
+        VanSalesCustomerResolution customer,
+        string warehouseCode,
+        string costCentreCode,
+        bool handsetSigns)
+    {
+        // Deliberately and literally CancellationToken.None — see the remarks. Held in a local so that a
+        // future edit adding a call here cannot quietly reintroduce the request token.
+        var unstoppable = CancellationToken.None;
+
         // A sale the handset did not stamp is fiscalised here — before SAP, not after. A stamped one already
         // carries its receipt and keeps the path below, where the server must not sign it a second time.
         if (!command.Request.ClaimsReceiptSequence())
         {
-            return await FiscaliseThenPostAsync(command, invoiceRequest, handsetSigns, cancellationToken);
+            return await FiscaliseThenPostAsync(command, invoiceRequest, handsetSigns);
         }
 
         var result = await mediator.Send(
             new CreateInvoiceDirectCommand(invoiceRequest, command.UserId.ToString()),
-            cancellationToken);
+            unstoppable);
 
         if (result.IsError)
         {
             return result.Errors;
         }
 
-        // No cancellationToken past this line, and that is the point of where the line is. The money is
-        // in SAP; everything after it is a durable obligation the caller no longer governs.
+        // The money is in SAP; the receipt row is a durable obligation the caller no longer governs.
         await PersistSignedReceiptAsync(
             command.Request,
             result.Value,
@@ -177,13 +210,17 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     /// is unchanged — and finds its own reservation and receipt row, so the device is asked for an existing
     /// receipt before anything is signed. One that finds only a reservation that lapsed with nothing signed
     /// against it reserves afresh — see <see cref="SetAsideLapsedReservationAsync"/>.</para>
+    ///
+    /// <para>Nothing here takes the request's token, the reservation and the device's question included
+    /// (see <see cref="SellAsync"/>). From a signed receipt on, it is the record of a sale that happened, and
+    /// the handset going away must not stop it being written.</para>
     /// </remarks>
     private async Task<ErrorOr<VanSalesDirectInvoiceResponse>> FiscaliseThenPostAsync(
         CreateVanSalesDirectInvoiceCommand command,
         CreateDesktopInvoiceRequest invoiceRequest,
-        bool handsetSigns,
-        CancellationToken cancellationToken)
+        bool handsetSigns)
     {
+        var persist = CancellationToken.None;
         var reference = command.Request.VanOrder?.Trim();
 
         if (string.IsNullOrEmpty(reference))
@@ -194,17 +231,17 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                 "This sale carries no van order reference, so it cannot be fiscalised.");
         }
 
-        var existing = await reservations.GetReservationByExternalReferenceAsync(reference, cancellationToken);
+        var existing = await reservations.GetReservationByExternalReferenceAsync(reference, persist);
 
         if (existing is { SAPDocNum: null } &&
             existing.Status is ReservationStatus.Expired or ReservationStatus.Failed)
         {
-            await SetAsideLapsedReservationAsync(existing.ReservationId, existing.Status, reference, cancellationToken);
+            await SetAsideLapsedReservationAsync(existing.ReservationId, existing.Status, reference);
 
             // Read again whether or not this request was the one that set it aside: a concurrent resend may
             // have done it and reserved afresh already, and a reservation that turned out to have a receipt
             // behind it is still there and goes on as before.
-            existing = await reservations.GetReservationByExternalReferenceAsync(reference, cancellationToken);
+            existing = await reservations.GetReservationByExternalReferenceAsync(reference, persist);
         }
 
         string reservationId;
@@ -217,7 +254,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
         if (existing is null)
         {
             var created = await reservations.CreateReservationAsync(
-                reservationRequest, command.UserId.ToString(), cancellationToken);
+                reservationRequest, command.UserId.ToString(), persist);
 
             if (!created.Success || created.Reservation is null)
             {
@@ -249,11 +286,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
             MayAlreadyBeFiscalised: existing is not null,
             PostToSapNow: false);
 
-        var outcome = await poster.FiscaliseThenPostAsync(fiscalFirst, cancellationToken);
-
-        // Nothing below may be cancelled by the handset going away: from a signed receipt on, it is the
-        // record of a sale that happened.
-        var persist = CancellationToken.None;
+        var outcome = await poster.FiscaliseThenPostAsync(fiscalFirst, persist);
 
         if (outcome.Sale is not null && handsetSigns && outcome.IsFiscalised)
         {
@@ -274,7 +307,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
             case VanSaleFiscalFirstStatus.AwaitingSap:
             {
                 var queued = await QueueForPostingAsync(
-                    reservationRequest, reservationId, command.UserId, outcome, persist);
+                    reservationRequest, reservationId, command.UserId, outcome);
 
                 if (queued is null && outcome.Deferred)
                 {
@@ -287,7 +320,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                     if (outcome.Status == VanSaleFiscalFirstStatus.AwaitingSap)
                     {
                         queued = await QueueForPostingAsync(
-                            reservationRequest, reservationId, command.UserId, outcome, persist);
+                            reservationRequest, reservationId, command.UserId, outcome);
                     }
                 }
 
@@ -297,7 +330,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
             case VanSaleFiscalFirstStatus.FiscalUnresolved:
                 // Queued straight to review, so it holds its stock and a person sees it. Marked as started, so
                 // a Retry has InvoicePostingJob ask the device for the receipt before it signs anything.
-                await QueueForPostingAsync(reservationRequest, reservationId, command.UserId, outcome, persist);
+                await QueueForPostingAsync(reservationRequest, reservationId, command.UserId, outcome);
 
                 return Error.Conflict(
                     "VanSalesCompatibility.FiscalOutcomeUnknown",
@@ -365,8 +398,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     private async Task SetAsideLapsedReservationAsync(
         string reservationId,
         string status,
-        string reference,
-        CancellationToken cancellationToken)
+        string reference)
     {
         var now = DateTime.UtcNow;
         var suffix = $"~lapsed-{now:yyyyMMddHHmmss}";
@@ -391,7 +423,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                 update => update
                     .SetProperty(row => row.ExternalReferenceId, setAsideAs)
                     .SetProperty(row => row.CancellationReason, reason),
-                cancellationToken);
+                CancellationToken.None);
 
         if (setAside == 0)
         {
@@ -435,10 +467,9 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
         CreateStockReservationRequest reservationRequest,
         string reservationId,
         Guid userId,
-        VanSaleFiscalFirstOutcome outcome,
-        CancellationToken cancellationToken) =>
+        VanSaleFiscalFirstOutcome outcome) =>
         queue.EnqueueSignedVanSaleAsync(
-            reservationRequest, reservationId, userId.ToString(), outcome, salesOrderId: null, cancellationToken);
+            reservationRequest, reservationId, userId.ToString(), outcome, salesOrderId: null, CancellationToken.None);
 
     /// <summary>Money the business kept: the tender less the change, never below zero.</summary>
     private static decimal SettledAmount(VanSalesOrderRequest request) =>
