@@ -6,9 +6,10 @@ public sealed class EditPendingTransferLinesValidator : AbstractValidator<EditPe
 {
     public EditPendingTransferLinesValidator()
     {
-        RuleFor(command => command.Lines)
-            .NotEmpty()
-            .WithMessage("Name at least one line to change.");
+        RuleFor(command => command)
+            .Must(command => command.Lines is { Count: > 0 } || command.AddedLines is { Count: > 0 })
+            .WithName("Lines")
+            .WithMessage("Name at least one line to change or one item to add.");
 
         RuleForEach(command => command.Lines).ChildRules(line =>
         {
@@ -18,6 +19,16 @@ public sealed class EditPendingTransferLinesValidator : AbstractValidator<EditPe
             line.RuleFor(item => item.Quantity)
                 .GreaterThanOrEqualTo(0)
                 .WithMessage("A quantity cannot be negative; use 0 to take the line out.");
+        });
+
+        RuleForEach(command => command.AddedLines).ChildRules(line =>
+        {
+            line.RuleFor(item => item.ItemCode)
+                .NotEmpty()
+                .WithMessage("An added line needs an item code.");
+            line.RuleFor(item => item.Quantity)
+                .GreaterThan(0)
+                .WithMessage("An added line needs a quantity above zero.");
         });
 
         RuleFor(command => command.Reason)

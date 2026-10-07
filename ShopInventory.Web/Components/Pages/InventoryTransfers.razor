@@ -7,6 +7,7 @@
 @inject IInventoryTransferService TransferService
 @inject IApprovalProcessService ApprovalProcessService
 @inject IMasterDataCacheService CacheService
+@inject IWarehouseStockCacheService StockCacheService
 @inject ILogger<InventoryTransfers> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
@@ -1035,8 +1036,8 @@ else if (pendingActionTitle is not null)
             else if (pendingEditLines is not null)
             {
                 <p class="itx-note">
-                    Lower a quantity or take a line out so the transfer fits what @selectedPendingTransfer.FromWarehouse holds.
-                    Quantities can only go down: the approval covers what was asked for, not more.
+                    Change a quantity, take a line out or add an item. The transfer stays approved, and each
+                    change is recorded against your name with the reason.
                 </p>
                 @if (isCheckingPendingEditStock)
                 {
@@ -1050,7 +1051,7 @@ else if (pendingActionTitle is not null)
                         <thead>
                             <tr>
                                 <th>Item</th>
-                                <th class="num">Approved</th>
+                                <th class="num">Was</th>
                                 <th class="num">Quantity</th>
                                 <th style="width:48px;"></th>
                             </tr>
@@ -1079,7 +1080,16 @@ else if (pendingActionTitle is not null)
                                             </div>
                                         }
                                     </td>
-                                    <td class="num muted">@QuantityDisplay.Format(line.OriginalQuantity, line.UoMCode)</td>
+                                    <td class="num muted">
+                                        @if (line.IsNew)
+                                        {
+                                            <span class="itx-status approved">New</span>
+                                        }
+                                        else
+                                        {
+                                            @QuantityDisplay.Format(line.OriginalQuantity, line.UoMCode)
+                                        }
+                                    </td>
                                     <td class="num">
                                         @if (line.Removed)
                                         {
@@ -1087,7 +1097,7 @@ else if (pendingActionTitle is not null)
                                         }
                                         else
                                         {
-                                            <input type="number" step="any" min="0" max="@line.OriginalQuantity"
+                                            <input type="number" step="any" min="0"
                                                    class="itx-input itx-input-num itx-qty-input"
                                                    aria-label="@($"Quantity of {line.ItemCode}")"
                                                    disabled="@isSavingPendingEdit"
@@ -1122,6 +1132,14 @@ else if (pendingActionTitle is not null)
                             </tr>
                         </tfoot>
                     </table>
+                </div>
+
+                <div class="itx-add-line">
+                    <NocturnePicker Class="npick-block" Options="pendingEditItemOptions"
+                                    Value="@null" ValueChanged="@(code => AddPendingEditItem(code))"
+                                    Loading="isLoadingPendingEditItems" Disabled="isSavingPendingEdit"
+                                    Placeholder="Add an item…" EmptyText="No items to add"
+                                    Caption="Add an item" AriaLabel="Add an item to the transfer" />
                 </div>
 
                 <label class="itx-label" for="itx-pending-edit-reason">Reason (optional)</label>
@@ -1222,7 +1240,7 @@ else if (pendingActionTitle is not null)
             @if (CanEditPendingLines(selectedPendingTransfer))
             {
                 <button type="button" class="itx-btn" disabled="@isDecidingPending"
-                        title="Lower or take out lines so the transfer can post"
+                        title="Change, take out or add lines before the transfer posts"
                         @onclick="BeginPendingLineEdit">
                     <i class="bi bi-pencil"></i>
                     <span>Edit lines</span>
@@ -1884,8 +1902,16 @@ else if (pendingActionTitle is not null)
     // ── Changing an approved draft's lines before it posts ──
     // Null while the drawer is only showing the draft. SAP refuses a whole transfer for one short
     // line, so an approved draft a few units over what the depot holds could otherwise only be
-    // posted without that line or withdrawn.
+    // posted without that line or withdrawn. Lines can also go up and items can be added: the
+    // draft stays approved and the API audits each change.
     private List<PendingEditLineModel>? pendingEditLines;
+    private List<ProductDto> pendingEditProducts = [];
+    private IReadOnlyList<NocturnePickerOption> pendingEditItemOptions = [];
+    private bool isLoadingPendingEditItems;
+
+    // What the source warehouse holds by item, from the web app's stock cache. A hint for raised and
+    // added lines; the stock check's live figure wins for a line it found short.
+    private readonly Dictionary<string, decimal> pendingEditStock = new(StringComparer.OrdinalIgnoreCase);
     private string? pendingEditReason;
     private string? pendingEditError;
     private string? pendingEditSavedMessage;
@@ -2773,9 +2799,8 @@ else if (pendingActionTitle is not null)
     }
 
     /// <summary>
-    /// Approved and not in SAP: the only drafts whose lines can still change without a new approval,
-    /// and then only downwards. The API holds the same line, and also refuses a draft whose last post
-    /// timed out, since that one may already be in SAP.
+    /// Approved and not in SAP: the only drafts whose lines can still change. The API holds the same
+    /// line, and also refuses a draft whose last post timed out, since that one may already be in SAP.
     /// </summary>
     private bool CanEditPendingLines(PendingInventoryTransferDto pending) =>
         pending.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed
@@ -2801,28 +2826,137 @@ else if (pendingActionTitle is not null)
         pendingEditReason = null;
         pendingEditError = null;
         pendingEditSavedMessage = null;
+        pendingEditStock.Clear();
 
         // What the depot holds now, so the short line can be set to it rather than guessed at.
         // Editing does not wait on it: the post re-checks stock either way.
         isCheckingPendingEditStock = true;
+        isLoadingPendingEditItems = true;
         StateHasChanged();
         try
         {
+            await LoadPendingEditItemsAsync(pending.FromWarehouse);
+            if (pendingEditLines is null || selectedPendingTransfer?.Id != pending.Id) return;
+            foreach (var line in pendingEditLines)
+                line.Available = CachedStock(line.ItemCode);
+            RefreshPendingEditItemOptions();
+            isLoadingPendingEditItems = false;
+            StateHasChanged();
+
             var check = await TransferService.CheckPendingTransferStockAsync(pending.Id);
             if (check is null || pendingEditLines is null || selectedPendingTransfer?.Id != pending.Id) return;
 
-            foreach (var shortLine in check.Lines.Where(line => line.IsShort && line.AvailableQuantity.HasValue))
+            foreach (var checkedLine in check.Lines)
             {
-                var model = pendingEditLines.FirstOrDefault(line => line.LineNum == shortLine.LineNumber - 1);
-                if (model is not null)
-                    model.Available = shortLine.AvailableQuantity;
+                var model = pendingEditLines.FirstOrDefault(line => !line.IsNew && line.LineNum == checkedLine.LineNumber - 1);
+                if (model is null) continue;
+
+                if (checkedLine.IsShort && checkedLine.AvailableQuantity.HasValue)
+                    model.Available = checkedLine.AvailableQuantity;
+                else if (checkedLine.State == "InStock" && model.Available < model.OriginalQuantity)
+                    // Live SAP says the line as drafted fits, so a cache figure below it is stale. How
+                    // much more there is goes unknown rather than understated.
+                    model.Available = null;
             }
         }
         finally
         {
             isCheckingPendingEditStock = false;
+            isLoadingPendingEditItems = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>
+    /// The product cache for the item picker and the source warehouse's cached stock. Both are the
+    /// web app's own caches, never SAP; a failure leaves the picker empty and the edit still usable.
+    /// </summary>
+    private async Task LoadPendingEditItemsAsync(string? fromWarehouse)
+    {
+        try
+        {
+            pendingEditProducts = (await CacheService.GetProductsAsync())
+                .Where(product => !string.IsNullOrWhiteSpace(product.ItemCode))
+                .OrderBy(product => product.ItemCode, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load products to add to a held transfer");
+            pendingEditProducts = [];
+        }
+
+        if (string.IsNullOrWhiteSpace(fromWarehouse)) return;
+        try
+        {
+            var stock = await StockCacheService.GetAllCachedStockAsync(fromWarehouse);
+            foreach (var product in stock?.Products ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(product.ItemCode))
+                    pendingEditStock[product.ItemCode] = product.QuantityInStock;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load cached stock for {Warehouse} while editing a held transfer", fromWarehouse);
+        }
+    }
+
+    private decimal? CachedStock(string? itemCode) =>
+        itemCode is not null && pendingEditStock.TryGetValue(itemCode, out var quantity) ? quantity : null;
+
+    /// <summary>
+    /// The picker offers every product not already on a line that stays, what the source warehouse
+    /// holds first: the catalogue opens on lab supplies by code, and a depot sends what it has.
+    /// </summary>
+    private void RefreshPendingEditItemOptions()
+    {
+        var onTransfer = (pendingEditLines ?? [])
+            .Where(line => !line.Removed && !string.IsNullOrWhiteSpace(line.ItemCode))
+            .Select(line => line.ItemCode!.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        pendingEditItemOptions = pendingEditProducts
+            .Where(product => !onTransfer.Contains(product.ItemCode!))
+            .OrderByDescending(product => CachedStock(product.ItemCode) > 0)
+            .Select(product => new NocturnePickerOption(
+                product.ItemCode!,
+                string.IsNullOrWhiteSpace(product.ItemName) ? product.ItemCode! : product.ItemName,
+                CachedStock(product.ItemCode) is { } inStock
+                    ? $"{QuantityDisplay.Format(inStock, product.UoM)} in stock"
+                    : null))
+            .ToList();
+    }
+
+    private void AddPendingEditItem(string? itemCode)
+    {
+        if (pendingEditLines is null || string.IsNullOrWhiteSpace(itemCode)) return;
+
+        var product = pendingEditProducts.FirstOrDefault(item =>
+            string.Equals(item.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+        if (product is null) return;
+
+        // An item taken out and picked again goes back on its own line rather than a second one.
+        var removed = pendingEditLines.FirstOrDefault(line => line.Removed &&
+            string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+        if (removed is not null)
+        {
+            TogglePendingEditLineRemoval(removed);
+            return;
+        }
+
+        pendingEditLines.Add(new PendingEditLineModel
+        {
+            LineNum = -1,
+            IsNew = true,
+            ItemCode = product.ItemCode,
+            ItemName = product.ItemName,
+            UoMCode = string.IsNullOrWhiteSpace(product.UoM) ? null : product.UoM.Trim(),
+            Quantity = 0m,
+            Available = CachedStock(product.ItemCode)
+        });
+        pendingEditError = null;
+        RefreshPendingEditItemOptions();
     }
 
     private void CancelPendingLineEdit() => ResetPendingLineEdit();
@@ -2833,6 +2967,9 @@ else if (pendingActionTitle is not null)
         pendingEditReason = null;
         pendingEditError = null;
         isCheckingPendingEditStock = false;
+        isLoadingPendingEditItems = false;
+        pendingEditItemOptions = [];
+        pendingEditStock.Clear();
     }
 
     private static void SetPendingEditQuantity(PendingEditLineModel line, string? value)
@@ -2840,16 +2977,26 @@ else if (pendingActionTitle is not null)
         line.Quantity = decimal.TryParse(value, out var quantity) ? quantity : 0m;
     }
 
-    private static void TogglePendingEditLineRemoval(PendingEditLineModel line)
+    private void TogglePendingEditLineRemoval(PendingEditLineModel line)
     {
-        line.Removed = !line.Removed;
-        if (!line.Removed && line.Quantity <= 0)
-            line.Quantity = line.OriginalQuantity;
+        if (line.IsNew)
+        {
+            // Nothing to keep a record of: an added line taken out again simply goes.
+            pendingEditLines?.Remove(line);
+        }
+        else
+        {
+            line.Removed = !line.Removed;
+            if (!line.Removed && line.Quantity <= 0)
+                line.Quantity = line.OriginalQuantity;
+        }
+
+        RefreshPendingEditItemOptions();
     }
 
     /// <summary>
     /// The most of what is in stock the line can take: whole units unless the line is weighed, and
-    /// never more than was approved.
+    /// never more than it asks for now.
     /// </summary>
     private static decimal UsableQuantity(PendingEditLineModel line)
     {
@@ -2858,7 +3005,7 @@ else if (pendingActionTitle is not null)
         var usable = string.Equals(line.UoMCode?.Trim(), "KG", StringComparison.OrdinalIgnoreCase)
             ? available
             : decimal.Floor(available);
-        return Math.Clamp(usable, 0m, line.OriginalQuantity);
+        return Math.Clamp(usable, 0m, line.Quantity);
     }
 
     private static void UseAvailableQuantity(PendingEditLineModel line) => line.Quantity = UsableQuantity(line);
@@ -2875,25 +3022,33 @@ else if (pendingActionTitle is not null)
             return;
         }
 
-        var invalid = pendingEditLines.FirstOrDefault(line =>
-            !line.Removed && (line.Quantity <= 0 || line.Quantity > line.OriginalQuantity));
+        var invalid = pendingEditLines.FirstOrDefault(line => !line.Removed && line.Quantity <= 0);
         if (invalid is not null)
         {
-            pendingEditError = invalid.Quantity <= 0
-                ? $"{invalid.ItemCode} needs a quantity above zero. Take the line out instead."
-                : $"{invalid.ItemCode} can go no higher than the {QuantityDisplay.Format(invalid.OriginalQuantity, invalid.UoMCode)} approved.";
+            pendingEditError = invalid.IsNew
+                ? $"{invalid.ItemCode} needs a quantity above zero."
+                : $"{invalid.ItemCode} needs a quantity above zero. Take the line out instead.";
             return;
         }
 
         var changed = pendingEditLines
-            .Where(line => line.Removed || line.Quantity != line.OriginalQuantity)
+            .Where(line => !line.IsNew && (line.Removed || line.Quantity != line.OriginalQuantity))
             .Select(line => new EditPendingTransferLineRequest
             {
                 LineNum = line.LineNum,
                 Quantity = line.Removed ? 0m : line.Quantity
             })
             .ToList();
-        if (changed.Count == 0)
+        var added = pendingEditLines
+            .Where(line => line.IsNew)
+            .Select(line => new AddPendingTransferLineRequest
+            {
+                ItemCode = line.ItemCode ?? string.Empty,
+                Quantity = line.Quantity,
+                UoMCode = line.UoMCode
+            })
+            .ToList();
+        if (changed.Count == 0 && added.Count == 0)
         {
             pendingEditError = "Nothing has changed.";
             return;
@@ -2908,6 +3063,7 @@ else if (pendingActionTitle is not null)
                 new EditPendingTransferLinesRequest
                 {
                     Lines = changed,
+                    AddedLines = added,
                     Reason = string.IsNullOrWhiteSpace(pendingEditReason) ? null : pendingEditReason.Trim()
                 });
 
@@ -3939,7 +4095,11 @@ else if (pendingActionTitle is not null)
 
     private sealed class PendingEditLineModel
     {
+        /// <summary>The line's place on the draft; -1 for an item added in this edit.</summary>
         public int LineNum { get; set; }
+
+        /// <summary>Added in this edit rather than on the draft already.</summary>
+        public bool IsNew { get; set; }
         public string? ItemCode { get; set; }
         public string? ItemName { get; set; }
         public string? UoMCode { get; set; }
@@ -3947,7 +4107,10 @@ else if (pendingActionTitle is not null)
         public decimal Quantity { get; set; }
         public bool Removed { get; set; }
 
-        /// <summary>What the source warehouse holds, known only for a line the stock check found short.</summary>
+        /// <summary>
+        /// What the source warehouse holds: the stock check's live figure for a line it found short,
+        /// else the web app's stock cache. Null when neither knows.
+        /// </summary>
         public decimal? Available { get; set; }
     }
 

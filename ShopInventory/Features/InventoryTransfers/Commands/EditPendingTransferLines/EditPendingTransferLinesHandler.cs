@@ -57,7 +57,13 @@ public sealed class EditPendingTransferLinesHandler(
             return Errors.InventoryTransfer.ValidationFailed(exception.Message);
         }
 
-        var edited = ApplyEdits(payload, command.Lines);
+        var added = command.AddedLines ?? [];
+        // An added line sent without a unit takes the product's, so a fractional quantity is measured
+        // against the unit SAP will post it in.
+        var uomLookup = await UomQuantityValidation.ResolveUomLookupAsync(
+            context, added.Select(line => ((string?)line.ItemCode, line.UoMCode)), cancellationToken);
+
+        var edited = ApplyEdits(payload, command.Lines, added, uomLookup);
         if (edited.IsError)
             return edited.Errors;
 
@@ -134,11 +140,14 @@ public sealed class EditPendingTransferLinesHandler(
     }
 
     /// <summary>
-    /// The transfer's lines with <paramref name="edits"/> applied, and a line of text per change.
+    /// The transfer's lines with <paramref name="edits"/> applied and <paramref name="added"/> put on
+    /// the end, and a line of text per change.
     /// </summary>
     internal static ErrorOr<(List<CreateInventoryTransferLineRequest> Lines, List<string> Changes)> ApplyEdits(
         CreateInventoryTransferRequest payload,
-        IReadOnlyList<EditPendingTransferLineDto> edits)
+        IReadOnlyList<EditPendingTransferLineDto> edits,
+        IReadOnlyList<AddPendingTransferLineDto>? added = null,
+        IReadOnlyDictionary<string, string>? uomLookup = null)
     {
         var current = payload.Lines!;
         var problems = new List<string>();
@@ -170,16 +179,6 @@ public sealed class EditPendingTransferLinesHandler(
                 continue;
             }
 
-            if (quantity > line.Quantity)
-            {
-                // The approval was given for the quantity on the line. More than that is a request
-                // nobody has approved, so it goes through as a new transfer.
-                problems.Add(
-                    $"{label}: {Format(quantity)} is more than the {Format(line.Quantity)} approved. " +
-                    "Raise a new transfer for the extra.");
-                continue;
-            }
-
             if (quantity == 0)
             {
                 changes.Add($"{line.ItemCode} {Format(line.Quantity)} → taken out");
@@ -196,13 +195,71 @@ public sealed class EditPendingTransferLinesHandler(
 
             if (line.SerialNumbers is { Count: > 0 })
             {
-                // Which serials stay behind cannot be chosen here, and SAP needs one per unit.
+                // Which serials stay behind, or which join, cannot be chosen here, and SAP needs one
+                // per unit.
                 problems.Add($"{label} carries serial numbers, so it can only be taken out or left whole.");
                 continue;
             }
 
             kept.Add(WithQuantity(line, quantity));
-            changes.Add($"{line.ItemCode} {Format(line.Quantity)} → {Format(quantity)}");
+            changes.Add(quantity > line.Quantity && line.BatchNumbers is { Count: > 0 }
+                ? $"{line.ItemCode} {Format(line.Quantity)} → {Format(quantity)} (batches picked again at post)"
+                : $"{line.ItemCode} {Format(line.Quantity)} → {Format(quantity)}");
+        }
+
+        // An item already on a line that stays is changed on that line. A second line for it would
+        // ask the depot for the same stock twice and read as two requests on the printed transfer.
+        var onTransfer = new HashSet<string>(
+            kept.Select(line => line.ItemCode?.Trim() ?? string.Empty), StringComparer.OrdinalIgnoreCase);
+        var addedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < (added?.Count ?? 0); index++)
+        {
+            var addition = added![index];
+            var itemCode = addition.ItemCode?.Trim();
+            var lineNumber = current.Count + index + 1;
+            if (string.IsNullOrEmpty(itemCode))
+            {
+                problems.Add($"Line {lineNumber} needs an item code.");
+                continue;
+            }
+
+            if (onTransfer.Contains(itemCode))
+            {
+                problems.Add($"{itemCode} is already on this transfer; change that line's quantity instead.");
+                continue;
+            }
+
+            if (!addedCodes.Add(itemCode))
+            {
+                problems.Add($"{itemCode} is added twice.");
+                continue;
+            }
+
+            if (addition.Quantity <= 0)
+            {
+                problems.Add($"Line {lineNumber} ({itemCode}) needs a quantity above zero.");
+                continue;
+            }
+
+            var uomCode = UomQuantityValidation.ResolveLineUomCode(
+                addition.UoMCode, itemCode, uomLookup ?? new Dictionary<string, string>());
+            var fractional = UomQuantityValidation.BuildFractionalQuantityValidationError(
+                lineNumber, itemCode, addition.Quantity, uomCode);
+            if (fractional is not null)
+            {
+                problems.Add(fractional);
+                continue;
+            }
+
+            // No warehouse on the line: it takes the transfer's own, as the lines it was raised with
+            // do. No batch either: the post picks batches for a line that arrives without any.
+            kept.Add(new CreateInventoryTransferLineRequest
+            {
+                ItemCode = itemCode,
+                Quantity = addition.Quantity,
+                UoMCode = uomCode
+            });
+            changes.Add($"{itemCode} added at {Format(addition.Quantity)}");
         }
 
         if (problems.Count > 0)
@@ -219,13 +276,15 @@ public sealed class EditPendingTransferLinesHandler(
     }
 
     /// <summary>
-    /// A copy of the line at a lower quantity. A batch selection keeps its batches in order until it
-    /// covers the new quantity, so the batches chosen first — the ones due out first — still go.
+    /// A copy of the line at a new quantity. Lowered, a batch selection keeps its batches in order
+    /// until it covers the new quantity, so the batches chosen first — the ones due out first — still
+    /// go. Raised, the selection no longer covers the line and SAP refuses a partial one, so it is
+    /// dropped and the post picks batches as it does for a line that arrives without any.
     /// </summary>
     private static CreateInventoryTransferLineRequest WithQuantity(CreateInventoryTransferLineRequest line, decimal quantity)
     {
         List<TransferBatchRequest>? batches = null;
-        if (line.BatchNumbers is { Count: > 0 })
+        if (line.BatchNumbers is { Count: > 0 } && quantity <= line.Quantity)
         {
             batches = [];
             var remaining = quantity;

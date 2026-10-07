@@ -5,16 +5,19 @@ using ShopInventory.DTOs;
 namespace ShopInventory.Features.InventoryTransfers.Commands.EditPendingTransferLines;
 
 /// <summary>
-/// Lowers or takes out lines of an approved transfer that has not reached SAP, so it can post.
+/// Changes the lines of an approved transfer that has not reached SAP: lowers, raises or takes out a
+/// line, or adds an item.
 /// </summary>
 /// <remarks>
 /// The usual case is a depot a few units short: SAP refuses the whole transfer for one line asking
 /// 720 against 715 on hand, and before this the only ways out were to post without that line or to
-/// withdraw the lot. Quantities may only go down and no item may be added, so the approval already
-/// given still covers what posts; anything more is a new transfer and a new approval.
+/// withdraw the lot. Raising a line or adding an item goes past what the approver signed off, and is
+/// allowed on purpose: the transfer stays approved and the audit log records each change, its reason
+/// and who made it, rather than the transfer going back round the approval stages.
 /// </remarks>
 public sealed record EditPendingTransferLinesCommand(
     Guid PendingTransferId,
     Guid UserId,
     IReadOnlyList<EditPendingTransferLineDto> Lines,
-    string? Reason) : IRequest<ErrorOr<PendingInventoryTransferDecisionResponseDto>>;
+    string? Reason,
+    IReadOnlyList<AddPendingTransferLineDto>? AddedLines = null) : IRequest<ErrorOr<PendingInventoryTransferDecisionResponseDto>>;

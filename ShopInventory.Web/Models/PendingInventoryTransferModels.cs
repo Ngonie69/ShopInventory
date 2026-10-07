@@ -156,11 +156,16 @@ public class PendingInventoryTransferDecisionResponse
     public InventoryTransferDto? Transfer { get; set; }
 }
 
-/// <summary>New quantities for an approved transfer's lines; zero takes a line out.</summary>
+/// <summary>
+/// New quantities for an approved transfer's lines, zero taking a line out, and items added to it.
+/// </summary>
 public class EditPendingTransferLinesRequest
 {
     [JsonPropertyName("lines")]
     public List<EditPendingTransferLineRequest> Lines { get; set; } = [];
+
+    [JsonPropertyName("addedLines")]
+    public List<AddPendingTransferLineRequest> AddedLines { get; set; } = [];
 
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
@@ -173,6 +178,18 @@ public class EditPendingTransferLineRequest
 
     [JsonPropertyName("quantity")]
     public decimal Quantity { get; set; }
+}
+
+public class AddPendingTransferLineRequest
+{
+    [JsonPropertyName("itemCode")]
+    public string ItemCode { get; set; } = string.Empty;
+
+    [JsonPropertyName("quantity")]
+    public decimal Quantity { get; set; }
+
+    [JsonPropertyName("uoMCode")]
+    public string? UoMCode { get; set; }
 }
 
 public class SubmitPendingTransferDecisionRequest

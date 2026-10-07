@@ -252,22 +252,163 @@ public sealed class PendingTransferRecoveryTests : IDisposable
     }
 
     [Fact]
-    public async Task A_quantity_above_the_approved_one_is_refused_and_nothing_changes()
+    public async Task A_raised_line_and_an_added_item_post_with_the_rest()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
+        var sap = new RecordingSap();
+
+        var edited = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller,
+                [new() { LineNum = 1, Quantity = 5000 }], "Extra cones for the weekend",
+                [new() { ItemCode = " LAC005 ", Quantity = 12, UoMCode = "EA" }]),
+            default);
+
+        Assert.False(edited.IsError);
+        Assert.Contains("RMA001 4275 → 5000", edited.Value.Message);
+        Assert.Contains("LAC005 added at 12", edited.Value.Message);
+
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.Approved, stored.Status);
+        Assert.Equal(3, stored.LineCount);
+        Assert.Equal(720 + 5000 + 12, stored.TotalQuantity);
+
+        var posted = await Retry(new DepotStock(), sap).Handle(new RetryPendingTransferPostCommand(pending.Id, Controller), default);
+
+        Assert.False(posted.IsError);
+        var sent = Assert.Single(sap.Created);
+        Assert.Equal(["YOG144", "RMA001", "LAC005"], sent.Lines!.Select(line => line.ItemCode));
+        Assert.Equal([720m, 5000m, 12m], sent.Lines!.Select(line => line.Quantity));
+        Assert.Equal("EA", sent.Lines![2].UoMCode);
+    }
+
+    [Fact]
+    public async Task Items_can_be_added_without_changing_any_line()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720));
+
+        var result = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [], null,
+                [new() { ItemCode = "YOG020", Quantity = 30, UoMCode = "EA" }]),
+            default);
+
+        Assert.False(result.IsError);
+        var lines = PendingInventoryTransferMapper.DeserializePayload(await ReadAsync(pending.Id)).Lines!;
+        Assert.Equal(["YOG144", "YOG020"], lines.Select(line => line.ItemCode));
+    }
+
+    [Fact]
+    public async Task An_item_already_on_the_transfer_is_changed_on_its_line_not_added_again()
     {
         var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
 
         var result = await EditLines(BuildStore()).Handle(
             new EditPendingTransferLinesCommand(pending.Id, Controller,
-                [new() { LineNum = 0, Quantity = 700 }, new() { LineNum = 1, Quantity = 5000 }], null),
+                [new() { LineNum = 1, Quantity = 4000 }], null,
+                [new() { ItemCode = "yog144", Quantity = 10, UoMCode = "EA" }]),
             default);
 
         Assert.True(result.IsError);
-        Assert.Contains("more than the 4275 approved", result.FirstError.Description);
+        Assert.Contains("yog144 is already on this transfer", result.FirstError.Description);
 
         // All or nothing: the valid half of the edit is not kept either.
         var stored = await ReadAsync(pending.Id);
         Assert.Equal(PendingInventoryTransferStatuses.PostFailed, stored.Status);
         Assert.Equal([720m, 4275m], PendingInventoryTransferMapper.DeserializePayload(stored).Lines!.Select(line => line.Quantity));
+    }
+
+    [Fact]
+    public async Task A_line_taken_out_can_have_its_item_added_back()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
+
+        var result = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller,
+                [new() { LineNum = 0, Quantity = 0 }], null,
+                [new() { ItemCode = "YOG144", Quantity = 10, UoMCode = "EA" }]),
+            default);
+
+        Assert.False(result.IsError);
+        var lines = PendingInventoryTransferMapper.DeserializePayload(await ReadAsync(pending.Id)).Lines!;
+        Assert.Equal(["RMA001", "YOG144"], lines.Select(line => line.ItemCode));
+    }
+
+    [Fact]
+    public void An_added_item_is_refused_twice_or_at_a_fraction_of_a_whole_unit()
+    {
+        var payload = new CreateInventoryTransferRequest
+        {
+            Lines = [new CreateInventoryTransferLineRequest { ItemCode = "YOG144", Quantity = 720, UoMCode = "EA" }]
+        };
+
+        var twice = EditPendingTransferLinesHandler.ApplyEdits(payload, [],
+            [new() { ItemCode = "LAC005", Quantity = 5, UoMCode = "EA" }, new() { ItemCode = "LAC005", Quantity = 2, UoMCode = "EA" }]);
+        Assert.True(twice.IsError);
+        Assert.Contains("LAC005 is added twice", twice.FirstError.Description);
+
+        var fraction = EditPendingTransferLinesHandler.ApplyEdits(payload, [],
+            [new() { ItemCode = "LAC005", Quantity = 2.5m, UoMCode = "EA" }]);
+        Assert.True(fraction.IsError);
+        Assert.Contains("Fractional quantities are only allowed for KG items", fraction.FirstError.Description);
+
+        // The unit comes from the product when the client sends none.
+        var weighed = EditPendingTransferLinesHandler.ApplyEdits(payload, [],
+            [new() { ItemCode = "CHE001", Quantity = 2.5m }],
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["CHE001"] = "KG" });
+        Assert.False(weighed.IsError);
+        Assert.Equal("KG", weighed.Value.Lines[1].UoMCode);
+    }
+
+    [Fact]
+    public void A_raised_line_drops_its_batch_selection_for_the_post_to_pick_again()
+    {
+        var payload = new CreateInventoryTransferRequest
+        {
+            Lines =
+            [
+                new CreateInventoryTransferLineRequest
+                {
+                    ItemCode = "YOG144",
+                    Quantity = 700,
+                    UoMCode = "EA",
+                    BatchNumbers =
+                    [
+                        new TransferBatchRequest { BatchNumber = "B-0901", Quantity = 400 },
+                        new TransferBatchRequest { BatchNumber = "B-0915", Quantity = 300 }
+                    ]
+                }
+            ]
+        };
+
+        var result = EditPendingTransferLinesHandler.ApplyEdits(payload, [new() { LineNum = 0, Quantity = 720 }]);
+
+        Assert.False(result.IsError);
+        var line = Assert.Single(result.Value.Lines);
+        Assert.Equal(720, line.Quantity);
+        Assert.Null(line.BatchNumbers);
+        Assert.Contains("batches picked again at post", Assert.Single(result.Value.Changes));
+    }
+
+    [Fact]
+    public void A_serial_numbered_line_cannot_be_raised()
+    {
+        var payload = new CreateInventoryTransferRequest
+        {
+            Lines =
+            [
+                new CreateInventoryTransferLineRequest
+                {
+                    ItemCode = "FRZ001",
+                    Quantity = 1,
+                    UoMCode = "EA",
+                    SerialNumbers = [new TransferSerialRequest { InternalSerialNumber = "SN-1" }]
+                }
+            ]
+        };
+
+        var result = EditPendingTransferLinesHandler.ApplyEdits(payload, [new() { LineNum = 0, Quantity = 2 }]);
+
+        Assert.True(result.IsError);
+        Assert.Contains("carries serial numbers", result.FirstError.Description);
     }
 
     [Fact]

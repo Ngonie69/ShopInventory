@@ -117,12 +117,15 @@ public class WithdrawPendingTransferDto
 }
 
 /// <summary>
-/// New quantities for the lines of an approved transfer that has not reached SAP. Lines not named
-/// keep their quantity; a quantity of zero takes the line out.
+/// Changes to the lines of an approved transfer that has not reached SAP. Lines not named keep their
+/// quantity; a quantity of zero takes the line out; <see cref="AddedLines"/> are items put on.
 /// </summary>
 public class EditPendingTransferLinesDto
 {
     public List<EditPendingTransferLineDto> Lines { get; set; } = [];
+
+    /// <summary>Items not on the transfer, added to it.</summary>
+    public List<AddPendingTransferLineDto> AddedLines { get; set; } = [];
 
     /// <summary>Optional; recorded in the audit log beside what changed.</summary>
     public string? Reason { get; set; }
@@ -134,6 +137,16 @@ public class EditPendingTransferLineDto
     public int LineNum { get; set; }
 
     public decimal Quantity { get; set; }
+}
+
+public class AddPendingTransferLineDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+
+    public decimal Quantity { get; set; }
+
+    /// <summary>Optional; taken from the product when left out. Only KG may be fractional.</summary>
+    public string? UoMCode { get; set; }
 }
 
 /// <summary>The SAP number of a transfer found in SAP after its post timed out.</summary>

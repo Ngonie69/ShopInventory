@@ -502,7 +502,7 @@ new("GET", "/api/InventoryTransfer/requests/{warehouseCode}", "Get transfer requ
 new("POST", "/api/InventoryTransfer", "Submit an inventory transfer for approval"),
 new("POST", "/api/InventoryTransfer/pending/{id}/cancel", "Cancel pending inventory transfer"),
 new("POST", "/api/InventoryTransfer/pending/{id}/decision", "Decide pending inventory transfer"),
-new("PUT", "/api/InventoryTransfer/pending/{id}/lines", "Lower or take out lines of an approved transfer before it posts"),
+new("PUT", "/api/InventoryTransfer/pending/{id}/lines", "Change, take out or add lines of an approved transfer before it posts"),
 new("POST", "/api/InventoryTransfer/pending/{id}/post", "Retry posting an approved transfer to SAP"),
 new("POST", "/api/InventoryTransfer/pending/{id}/post-in-stock", "Post pending inventory transfer lines in stock"),
 new("POST", "/api/InventoryTransfer/pending/{id}/record-sap-document", "Record pending inventory transfer SAP document"),
