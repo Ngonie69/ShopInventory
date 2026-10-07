@@ -129,6 +129,41 @@ public sealed class IngestVanSalesOfflineSalesHandler(
 
         var resolveCustomer = await BuildCustomerResolverAsync(user, cancellationToken);
 
+        // The last point at which the caller going away stops the upload: only the user and its scope have
+        // been read, and nothing of the backlog has been looked at or stored, so there is nothing to finish.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return await IngestAsync(command, sales, user, warehouseCode, costCentreCode, resolveCustomer);
+    }
+
+    /// <summary>
+    /// The upload, from reading which of the backlog is already held to its answer. Once started it runs to
+    /// the end.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>It takes no token, and that is the guard.</b> ASP.NET binds the request's token to
+    /// <c>HttpContext.RequestAborted</c>, and a van handset hangs up after 30 seconds. A van back in coverage
+    /// after a day out sends its whole backlog in one request. If that outlives the handset, cancelling it
+    /// stores nothing, and the resend of the same backlog takes as long and is cancelled the same way, so
+    /// the takings never leave the phone. Run to the end instead, the batch lands once, and the resend is
+    /// answered <c>duplicate</c> for every sale so the handset clears its queue.</para>
+    ///
+    /// <para>Nothing here waits on anything but this server's own database, which bounds every command
+    /// with its own timeout; the request's token only ever added a deadline the work did not need and the
+    /// caller had already stopped waiting for.</para>
+    /// </remarks>
+    private async Task<ErrorOr<VanSalesOfflineSaleBatchResponse>> IngestAsync(
+        IngestVanSalesOfflineSalesCommand command,
+        List<VanSalesOfflineSaleRequest> sales,
+        Models.User user,
+        string warehouseCode,
+        string costCentreCode,
+        Func<string, string?, VanSalesCustomerResolution?> resolveCustomer)
+    {
+        // Deliberately and literally CancellationToken.None — see the remarks. Held in a local so that a
+        // future edit adding a call here cannot quietly reintroduce the request token.
+        var unstoppable = CancellationToken.None;
+
         var response = new VanSalesOfflineSaleBatchResponse();
 
         // How the batch attributed, counted rather than logged one by one. A van that names its own
@@ -159,7 +194,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             .AsNoTracking()
             .Where(s => references.Contains(s.ExternalReferenceId))
             .Select(s => new { s.ExternalReferenceId, s.SapDocNum })
-            .ToListAsync(cancellationToken);
+            .ToListAsync(unstoppable);
 
         var existingByReference = existing.ToDictionary(
             e => e.ExternalReferenceId, e => e.SapDocNum, StringComparer.OrdinalIgnoreCase);
@@ -307,7 +342,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
 
         if (response.Accepted > 0)
         {
-            await db.SaveChangesAsync(cancellationToken);
+            await db.SaveChangesAsync(unstoppable);
         }
 
         logger.LogInformation(

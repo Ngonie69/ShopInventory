@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
@@ -63,9 +65,9 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
         _connection.Dispose();
     }
 
-    private IngestVanSalesOfflineSalesHandler BuildHandler() =>
+    private IngestVanSalesOfflineSalesHandler BuildHandler(ApplicationDbContext? context = null) =>
         new(
-            _context,
+            context ?? _context,
             _audit,
             Options.Create(new FiscalisationSettings()),
             NullLogger<IngestVanSalesOfflineSalesHandler>.Instance);
@@ -197,6 +199,92 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
         Assert.Equal(1, second.Duplicates);
         Assert.Equal("duplicate", second.Results.Single().Status);
         Assert.Equal(1, await _context.DesktopSales.CountAsync());
+    }
+
+    /// <summary>
+    /// The handset gives up after 30 s and ASP.NET then cancels the request token. A van back in coverage
+    /// after a day out sends its whole backlog, and on 2026-10-07 the server was slow enough for van requests
+    /// to outlive that. Cancelled half way, the upload stored nothing, and the resend of the same backlog
+    /// takes as long and is cancelled the same way. Past the commit point the caller going away must not
+    /// stop the work: the batch lands, and the resend is answered as duplicates.
+    /// </summary>
+    [Fact]
+    public async Task A_phone_that_hangs_up_while_the_backlog_is_stored_does_not_stop_the_upload()
+    {
+        using var hangUp = new CancellationTokenSource();
+        using var hangingUp = new ApplicationDbContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseSqlite(_connection)
+                .AddInterceptors(new HangUpOnBacklogInterceptor(hangUp))
+                .Options);
+
+        var result = await BuildHandler(hangingUp).Handle(
+            new IngestVanSalesOfflineSalesCommand(
+                new VanSalesOfflineSaleBatchRequest
+                {
+                    Sales =
+                    [
+                        BuildSale("VAN006-INV-20260810-AAA111"),
+                        BuildSale("VAN006-INV-20260810-BBB222", receiptGlobalNo: 502)
+                    ]
+                },
+                VanUser),
+            hangUp.Token);
+
+        Assert.True(hangUp.IsCancellationRequested);
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(2, result.Value.Accepted);
+        Assert.Equal(2, await _context.DesktopSales.CountAsync());
+
+        // The handset never saw that answer, so it sends the same backlog again. It is told both are
+        // already held, clears its queue, and nothing is stored twice.
+        var resent = await IngestAsync(
+            BuildSale("VAN006-INV-20260810-AAA111"),
+            BuildSale("VAN006-INV-20260810-BBB222", receiptGlobalNo: 502));
+
+        Assert.Equal(0, resent.Accepted);
+        Assert.Equal(2, resent.Duplicates);
+        Assert.Equal(2, await _context.DesktopSales.CountAsync());
+    }
+
+    /// <summary>
+    /// The other side of the commit point: a handset that is already gone before the backlog is looked at
+    /// stores nothing, so there is nothing to finish.
+    /// </summary>
+    [Fact]
+    public async Task A_phone_that_hung_up_before_the_upload_started_stores_nothing()
+    {
+        using var goneAlready = new CancellationTokenSource();
+        goneAlready.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => BuildHandler().Handle(
+            new IngestVanSalesOfflineSalesCommand(
+                new VanSalesOfflineSaleBatchRequest { Sales = [BuildSale("VAN006-INV-20260810-AAA111")] },
+                VanUser),
+            goneAlready.Token));
+
+        Assert.Empty(await _context.DesktopSales.ToListAsync());
+    }
+
+    /// <summary>
+    /// Hangs up the request the moment the handler reads which of the backlog it already holds. It passes
+    /// the token through untouched, so the provider honours it exactly as Npgsql would.
+    /// </summary>
+    private sealed class HangUpOnBacklogInterceptor(CancellationTokenSource hangUp) : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("FROM \"DesktopSales\"", StringComparison.Ordinal))
+            {
+                hangUp.Cancel();
+            }
+
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
     }
 
     /// <summary>
