@@ -107,6 +107,58 @@ public sealed class EndpointAuditFilterTests
     }
 
     /// <summary>
+    /// A validator refuses by throwing, and the caller gets a 400 from ValidationExceptionHandler. The
+    /// row said 500 — a van sales order refused for a missing ClientRequestId (2026-10-07) read in the
+    /// audit as a server crash, which sent the investigation after a fault the server never had.
+    /// </summary>
+    [Fact]
+    public async Task Van_sales_filter_records_a_validation_refusal_as_the_400_the_caller_got()
+    {
+        var audit = new RecordingAuditService();
+        var refusal = new FluentValidation.ValidationException(
+        [
+            new FluentValidation.Results.ValidationFailure("Request.ClientRequestId", "Client request ID is required.")
+        ]);
+
+        await Assert.ThrowsAsync<FluentValidation.ValidationException>(() => RunAsync(
+            VanFilter(audit), "POST", "/api/vansales/sales-order", "CreateSalesOrder", throws: refusal));
+
+        var entry = Assert.Single(audit.Entries);
+        Assert.False(entry.Success);
+        Assert.Equal("POST /api/vansales/sales-order returned 400.", entry.Details);
+    }
+
+    [Fact]
+    public async Task Van_sales_filter_records_a_permission_refusal_as_the_403_the_caller_got()
+    {
+        var audit = new RecordingAuditService();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => RunAsync(
+            VanFilter(audit),
+            "POST",
+            "/api/vansales/sales-order",
+            "CreateSalesOrder",
+            throws: new UnauthorizedAccessException("Not your customer")));
+
+        Assert.Equal("POST /api/vansales/sales-order returned 403.", Assert.Single(audit.Entries).Details);
+    }
+
+    [Fact]
+    public async Task Any_other_thrown_exception_is_still_recorded_as_a_500()
+    {
+        var audit = new RecordingAuditService();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RunAsync(
+            VanFilter(audit),
+            "POST",
+            "/api/vansales/sales-order",
+            "CreateSalesOrder",
+            throws: new InvalidOperationException("SAP is not answering")));
+
+        Assert.Equal("POST /api/vansales/sales-order returned 500.", Assert.Single(audit.Entries).Details);
+    }
+
+    /// <summary>
     /// An audit failure must never cost the caller their sale. The row is best-effort; the response
     /// is not.
     /// </summary>
