@@ -100,6 +100,11 @@ Write-Host "Stderr log: $stderrLog"
 
 Push-Location $resolvedOpenWARoot
 try {
+    # Windows PowerShell 5.1 turns each stderr line of a redirected native command into an error
+    # record, and under 'Stop' the first one ends this script and takes Node with it. Node writes a
+    # punycode deprecation warning to stderr at every start, so the boot task exited 1 within
+    # seconds of starting. Node's stderr is log output here; its exit code is what reports failure.
+    $ErrorActionPreference = 'Continue'
     & $nodeExe '.\dist\main.js' 1>> $stdoutLog 2>> $stderrLog
     exit $LASTEXITCODE
 }
