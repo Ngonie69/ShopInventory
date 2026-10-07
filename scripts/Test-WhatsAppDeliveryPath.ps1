@@ -38,6 +38,7 @@
 .PARAMETER Username
 .PARAMETER Password
     An Admin account on the API. Every /api/whatsapp route except the inbound webhook is AdminOnly.
+    If the account has two-factor authentication on, the script prompts for the current code.
 
 .EXAMPLE
     ./scripts/Test-WhatsAppDeliveryPath.ps1 -ApiBaseUrl http://127.0.0.1:5106 `
@@ -96,6 +97,9 @@ function Get-HmacSignature {
 
 # Invoke-RestMethod throws on any non-2xx, and a rejection is a result here rather than an error -
 # step 4 is built on getting a 401 back. This returns the status either way.
+#
+# Runs under Windows PowerShell 5.1 as well as 7, because that is what the servers have. 5.1 has no
+# -SkipHttpErrorCheck, so a non-2xx arrives as a WebException and the body is read off it instead.
 function Invoke-Api {
     param(
         [string]$Method,
@@ -105,27 +109,46 @@ function Invoke-Api {
     )
 
     $arguments = @{
-        Method             = $Method
-        Uri                = $Uri
-        Headers            = $Headers
-        SkipHttpErrorCheck = $true
-        TimeoutSec         = 60
+        Method          = $Method
+        Uri             = $Uri
+        Headers         = $Headers
+        TimeoutSec      = 60
+        UseBasicParsing = $true
+    }
+
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        $arguments.SkipHttpErrorCheck = $true
     }
 
     if ($PSBoundParameters.ContainsKey('Body')) {
         $arguments.Body = $Body
-        $arguments.ContentType = 'application/json'
+        # The charset is load-bearing on 5.1, which otherwise encodes a string body as ISO-8859-1
+        # while the signature is computed over its UTF-8 bytes.
+        $arguments.ContentType = 'application/json; charset=utf-8'
     }
 
-    $response = Invoke-WebRequest @arguments
+    try {
+        $response = Invoke-WebRequest @arguments
+        $statusCode = [int]$response.StatusCode
+        $content = $response.Content
+    }
+    catch [System.Net.WebException] {
+        $errorResponse = $_.Exception.Response
+        if ($null -eq $errorResponse) { throw }
+
+        $statusCode = [int]$errorResponse.StatusCode
+        $reader = New-Object System.IO.StreamReader($errorResponse.GetResponseStream())
+        try { $content = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    }
+
     $parsed = $null
-    if ($response.Content) {
-        try { $parsed = $response.Content | ConvertFrom-Json } catch { $parsed = $null }
+    if ($content) {
+        try { $parsed = $content | ConvertFrom-Json } catch { $parsed = $null }
     }
 
     return [pscustomobject]@{
-        StatusCode = [int]$response.StatusCode
-        Content    = $response.Content
+        StatusCode = $statusCode
+        Content    = $content
         Json       = $parsed
     }
 }
@@ -147,6 +170,15 @@ try {
     # The token key is accessToken, not token - the other spelling silently yields a null bearer
     # and every later step comes back 401 looking like a permissions problem.
     $token = $login.Json.accessToken
+
+    # An Admin with 2FA gets a 200 carrying a challenge and an empty accessToken. The code is asked
+    # for here rather than taken as a parameter because a TOTP code lapses in 30 seconds.
+    if ($login.Json.requiresTwoFactor) {
+        $code = (Read-Host "    Two-factor code for $Username").Trim()
+        $login = Invoke-Api -Method Post -Uri "$ApiBaseUrl/api/auth/login/two-factor" `
+            -Body (@{ twoFactorToken = $login.Json.twoFactorToken; code = $code; isBackupCode = $false } | ConvertTo-Json)
+        $token = $login.Json.accessToken
+    }
     Assert-That "The API issued an access token" ([bool]$token) "HTTP $($login.StatusCode)"
     if (-not $token) { throw "Cannot continue without a token. Body: $($login.Content)" }
 
