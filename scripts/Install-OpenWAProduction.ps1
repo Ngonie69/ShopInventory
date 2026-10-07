@@ -120,6 +120,12 @@ if ($nodeMajor -lt 20) {
 }
 Write-Host "  Node               $node ($nodeVersion)" -ForegroundColor Green
 
+# Start-OpenWA, Register-OpenWAStartupTask and Install-OpenWAUserStartup each default -NodeHome to a
+# developer machine's nvm folder, so every call below passes the Node this script resolved. Without
+# it the first start fails on a server ("Node executable not found"), and the boot task registers
+# against a path that does not exist and fails silently at the next reboot.
+$nodeHome = Split-Path -Parent $node
+
 $chrome = Resolve-Executable -Name 'chrome' -Candidates @(
     'C:\Program Files\Google\Chrome\Application\chrome.exe',
     'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'
@@ -257,7 +263,7 @@ if ($alreadyListening) {
     Write-Host "  Something is already listening on $Port. Leaving it running." -ForegroundColor Green
 }
 elseif ($PSCmdlet.ShouldProcess("localhost:$Port", "Start OpenWA")) {
-    & (Join-Path $PSScriptRoot 'Start-OpenWA.ps1')
+    & (Join-Path $PSScriptRoot 'Start-OpenWA.ps1') -NodeHome $nodeHome -ChromePath $chrome
 
     $ready = $false
     foreach ($attempt in 1..30) {
@@ -288,8 +294,9 @@ OpenWA is holding the development API key 'dev-admin-key'.
 
 That key is seeded when NODE_ENV is not 'production', and it is public - it is in the repository.
 It is now fixed in the database, and rewriting .env does not replace it. Mint a real one and revoke
-this one from the OpenWA dashboard, or stop OpenWA, delete data\openwa.sqlite and start again
-(which also drops the paired session and every captured webhook registration).
+this one from the OpenWA dashboard, or stop OpenWA, delete data\main.sqlite* and start again.
+API keys live in main.sqlite, not openwa.sqlite (sessions, webhooks and messages): deleting only
+openwa.sqlite drops the paired session and keeps this key.
 "@
 }
 
@@ -307,11 +314,11 @@ else {
 Not elevated, so the boot task was not registered. Either re-run this from an elevated PowerShell,
 or install the per-user fallback, which starts OpenWA when that user signs in:
 
-    .\scripts\Install-OpenWAUserStartup.ps1
+    .\scripts\Install-OpenWAUserStartup.ps1 -NodeHome '$nodeHome' -ChromePath '$chrome'
 "@
     }
     elseif ($PSCmdlet.ShouldProcess($TaskName, "Register scheduled task")) {
-        & (Join-Path $PSScriptRoot 'Register-OpenWAStartupTask.ps1')
+        & (Join-Path $PSScriptRoot 'Register-OpenWAStartupTask.ps1') -NodeHome $nodeHome -ChromePath $chrome
         Write-Host "  Registered $TaskName." -ForegroundColor Green
     }
 }
