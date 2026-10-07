@@ -55,7 +55,36 @@ public class InvoiceListResponse
     public int TotalPages { get; set; }
     public bool HasMore { get; set; }
     public List<InvoiceDto>? Invoices { get; set; }
+
+    /// <summary>Totals over every matching invoice, when asked for. Mirrors InvoiceListSummaryDto.</summary>
+    public InvoiceListSummary? Summary { get; set; }
+
+    /// <summary>A fiscal filter's scan stopped at its limit; invoices past it were not considered.</summary>
+    public bool ScanLimitReached { get; set; }
 }
+
+/// <summary>The Invoices tiles, over every invoice the filters match.</summary>
+public class InvoiceListSummary
+{
+    public int Count { get; set; }
+    public decimal Total { get; set; }
+    public decimal Vat { get; set; }
+    public int Customers { get; set; }
+
+    /// <summary>How many could be fiscalised; known only when the fiscal state was looked up for every match.</summary>
+    public int? FiscalisableCount { get; set; }
+}
+
+/// <summary>
+/// The Invoices page's own options on top of the list's filters: the quick search, the fiscal filter, the
+/// tiles, a fresh scan, and "every invoice still to fiscalise".
+/// </summary>
+public sealed record InvoicePageOptions(
+    string? Search = null,
+    string? FiscalStatus = null,
+    bool IncludeSummary = false,
+    bool Refresh = false,
+    bool FiscalisableOnly = false);
 
 public class InvoiceDateResponse
 {

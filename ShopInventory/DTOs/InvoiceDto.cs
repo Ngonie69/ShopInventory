@@ -122,7 +122,30 @@ public class InvoiceListResponseDto
     public int TotalPages { get; set; }
     public bool HasMore { get; set; }
     public List<InvoiceDto>? Invoices { get; set; }
+
+    /// <summary>Totals over every invoice the filters match, when asked for with <c>includeSummary</c>.</summary>
+    public InvoiceListSummaryDto? Summary { get; set; }
+
+    /// <summary>
+    /// True when a fiscal filter's scan stopped at its limit, so invoices past it were not considered.
+    /// </summary>
+    public bool ScanLimitReached { get; set; }
 }
+
+/// <summary>The Invoices page's tiles, over every invoice the filters match.</summary>
+public class InvoiceListSummaryDto
+{
+    public int Count { get; set; }
+    public decimal Total { get; set; }
+    public decimal Vat { get; set; }
+    public int Customers { get; set; }
+
+    /// <summary>How many could be fiscalised; known only when the fiscal state was looked up for every match.</summary>
+    public int? FiscalisableCount { get; set; }
+}
+
+/// <summary>What <c>ISAPServiceLayerClient.SummarizeInvoicesAsync</c> adds up.</summary>
+public sealed record InvoiceListTotals(int Count, decimal Total, decimal Vat, int Customers);
 
 /// <summary>
 /// DTO for invoice list by date response

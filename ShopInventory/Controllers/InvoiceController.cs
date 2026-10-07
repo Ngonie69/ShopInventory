@@ -560,10 +560,16 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
         [FromQuery] bool? vanSalesOnly = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? fiscalStatus = null,
+        [FromQuery] bool includeSummary = false,
+        [FromQuery] bool refresh = false,
+        [FromQuery] bool fiscalisableOnly = false,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetPagedInvoicesQuery(page, pageSize, docNum, cardCode, fromDate, toDate, vanSalesOnly), cancellationToken);
+            new GetPagedInvoicesQuery(page, pageSize, docNum, cardCode, fromDate, toDate, vanSalesOnly,
+                search, fiscalStatus, includeSummary, refresh, fiscalisableOnly), cancellationToken);
 
         return result.Match(Ok, Problem);
     }

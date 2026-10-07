@@ -60,11 +60,11 @@ public sealed class GetAllCreditNotesHandler(
 
         // The fiscal state is looked up rather than stored, so filtering on it means looking up every
         // match; without that filter only the page on screen is looked up.
-        var fiscalFilter = string.IsNullOrWhiteSpace(options.FiscalStatus) ? null : NormalizeFiscalStatus(options.FiscalStatus);
+        var fiscalFilter = string.IsNullOrWhiteSpace(options.FiscalStatus) ? null : FiscalStatusFilter.Normalize(options.FiscalStatus);
         if (fiscalFilter is not null)
         {
             await FiscalDocumentStatusProjector.EnrichCreditNotesAsync(dbContext, notes, cancellationToken);
-            notes = notes.Where(note => NormalizeFiscalStatus(note.FiscalizationStatus) == fiscalFilter).ToList();
+            notes = notes.Where(note => FiscalStatusFilter.Normalize(note.FiscalizationStatus) == fiscalFilter).ToList();
         }
 
         var pageSize = Math.Max(1, request.PageSize);
@@ -102,13 +102,4 @@ public sealed class GetAllCreditNotesHandler(
         IOrderedEnumerable<CreditNoteDto> By<TKey>(Func<CreditNoteDto, TKey> key) =>
             options.SortDescending ? notes.OrderByDescending(key) : notes.OrderBy(key);
     }
-
-    /// <summary>The page's three fiscal states; anything the projector writes besides the first two is Unknown.</summary>
-    internal static string NormalizeFiscalStatus(string? status) =>
-        status?.Trim().ToLowerInvariant() switch
-        {
-            "fiscalised" => "fiscalised",
-            "not fiscalised" => "not fiscalised",
-            _ => "unknown"
-        };
 }

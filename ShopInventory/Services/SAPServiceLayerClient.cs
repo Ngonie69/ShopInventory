@@ -3067,24 +3067,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return await GetPagedInvoicesByOffsetAsync(skip, pageSize, null, null, null, null, null, cancellationToken: cancellationToken);
     }
 
-    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default)
+    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default, string? search = null)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var filters = new List<string>();
-        if (docNum.HasValue)
-            filters.Add($"DocNum eq {docNum.Value}");
-        if (!string.IsNullOrEmpty(cardCode))
-            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
-        if (fromDate.HasValue)
-            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
-        if (toDate.HasValue)
-            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
-        if (vanSalesOnly.HasValue)
-            filters.Add(vanSalesOnly.Value
-                ? "(U_Van_saleorder ne null and U_Van_saleorder ne '')"
-                : "(U_Van_saleorder eq null or U_Van_saleorder eq '')");
+        var filters = BuildInvoiceListFilters(docNum, cardCode, fromDate, toDate, vanSalesOnly, search);
 
         var filterClause = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}&" : "";
         var selectFields = "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,U_Van_saleorder";
@@ -3171,24 +3159,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return allInvoices;
     }
 
-    public async Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default)
+    public async Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default, string? search = null)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var filters = new List<string>();
-        if (docNum.HasValue)
-            filters.Add($"DocNum eq {docNum.Value}");
-        if (!string.IsNullOrEmpty(cardCode))
-            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
-        if (fromDate.HasValue)
-            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
-        if (toDate.HasValue)
-            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
-        if (vanSalesOnly.HasValue)
-            filters.Add(vanSalesOnly.Value
-                ? "(U_Van_saleorder ne null and U_Van_saleorder ne '')"
-                : "(U_Van_saleorder eq null or U_Van_saleorder eq '')");
+        var filters = BuildInvoiceListFilters(docNum, cardCode, fromDate, toDate, vanSalesOnly, search);
 
         var url = "Invoices/$count";
         if (filters.Count > 0)
@@ -3221,6 +3197,103 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             return count;
 
         return 0;
+    }
+
+    public async Task<InvoiceListTotals> SummarizeInvoicesAsync(int? docNum, string? cardCode, DateTime? fromDate, DateTime? toDate,
+        bool? vanSalesOnly, string? search, CancellationToken cancellationToken = default)
+    {
+        var filters = BuildInvoiceListFilters(docNum, cardCode, fromDate, toDate, vanSalesOnly, search);
+        var filterStep = filters.Count == 0 ? string.Empty : $"filter({string.Join(" and ", filters)})/";
+
+        var totalsUrl = "Invoices?$apply=" + Uri.EscapeDataString(
+            filterStep + "aggregate(DocTotal with sum as Total,VatSum with sum as Vat,$count as Count)");
+        decimal total = 0, vat = 0;
+        var count = 0;
+        using (var response = await SendDocumentReadAsync(totalsUrl, pageSize: null, "invoice totals", cancellationToken))
+        {
+            using var doc = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            if (doc.RootElement.GetProperty("value").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Object } row)
+            {
+                total = row.TryGetProperty("Total", out var t) && t.ValueKind == JsonValueKind.Number ? t.GetDecimal() : 0;
+                vat = row.TryGetProperty("Vat", out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0;
+                count = row.TryGetProperty("Count", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 0;
+            }
+        }
+
+        // Distinct customers: SAP groups, this counts the groups. A page that brings no new code ends the
+        // walk, so a Service Layer that ignored $skip could not loop.
+        const int groupPage = 1000;
+        var customers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var skip = 0; ; skip += groupPage)
+        {
+            var groupsUrl = "Invoices?$apply=" + Uri.EscapeDataString(filterStep + "groupby((CardCode))")
+                + $"&$top={groupPage}&$skip={skip}";
+            using var response = await SendDocumentReadAsync(groupsUrl, groupPage, "invoice customers", cancellationToken);
+            using var doc = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+
+            var rows = 0;
+            var added = 0;
+            foreach (var row in doc.RootElement.GetProperty("value").EnumerateArray())
+            {
+                rows++;
+                if (row.TryGetProperty("CardCode", out var code) && code.GetString() is { } cardCodeValue && customers.Add(cardCodeValue))
+                    added++;
+            }
+
+            if (rows < groupPage || added == 0)
+                break;
+        }
+
+        return new InvoiceListTotals(count, total, vat, customers.Count);
+    }
+
+    /// <summary>
+    /// The invoice list's SAP conditions. The search is an exact doc number or text anywhere in the
+    /// customer code or name, the way the page's quick filter read before it paged on the server.
+    /// </summary>
+    private static List<string> BuildInvoiceListFilters(int? docNum, string? cardCode, DateTime? fromDate, DateTime? toDate,
+        bool? vanSalesOnly, string? search)
+    {
+        var filters = new List<string>();
+        if (docNum.HasValue)
+            filters.Add($"DocNum eq {docNum.Value}");
+        if (!string.IsNullOrEmpty(cardCode))
+            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+        if (vanSalesOnly.HasValue)
+            filters.Add(vanSalesOnly.Value
+                ? "(U_Van_saleorder ne null and U_Van_saleorder ne '')"
+                : "(U_Van_saleorder eq null or U_Van_saleorder eq '')");
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            // contains() is case-sensitive here and the Service Layer refuses tolower()/toupper(), so the
+            // text is tried as typed, in capitals and in title case: codes are capitals, names mostly
+            // title case or capitals. On the test company "kefalos" alone found none of 4,535 invoices.
+            var term = search.Trim();
+            var variants = new[]
+                {
+                    term,
+                    term.ToUpperInvariant(),
+                    System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(term.ToLowerInvariant())
+                }
+                .Distinct(StringComparer.Ordinal)
+                .Select(SanitizeODataValue)
+                .ToList();
+
+            var clauses = variants
+                .SelectMany(variant => new[] { $"contains(CardCode,'{variant}')", $"contains(CardName,'{variant}')" })
+                .ToList();
+            if (int.TryParse(term, out var searchDocNum))
+                clauses.Insert(0, $"DocNum eq {searchDocNum}");
+            filters.Add($"({string.Join(" or ", clauses)})");
+        }
+
+        return filters;
     }
 
     public async Task<Invoice?> GetInvoiceByVanSaleOrderAsync(
@@ -13768,7 +13841,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         var filterPart = filter is null ? string.Empty : "$filter=" + filter + "&";
         var url = $"PurchaseOrders?{filterPart}{PurchaseOrderSelect}&$orderby=DocEntry desc&$top={top}&$skip={skip}";
 
-        using var response = await SendPurchaseOrderReadAsync(url, top, cancellationToken);
+        using var response = await SendDocumentReadAsync(url, top, "purchase orders", cancellationToken);
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
         var result = await JsonSerializer.DeserializeAsync<SAPResponse<SAPPurchaseOrder>>(body, cancellationToken: cancellationToken);
         return result?.Value ?? new List<SAPPurchaseOrder>();
@@ -13780,7 +13853,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         var filter = BuildPurchaseOrderFilter(cardCode, fromDate, toDate, statusFilter);
         var url = filter is null ? "PurchaseOrders/$count" : "PurchaseOrders/$count?$filter=" + filter;
 
-        using var response = await SendPurchaseOrderReadAsync(url, pageSize: null, cancellationToken);
+        using var response = await SendDocumentReadAsync(url, pageSize: null, "a purchase order count", cancellationToken);
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         return int.TryParse(content.Trim(), out var count)
             ? count
@@ -13802,8 +13875,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return filters.Count == 0 ? null : string.Join(" and ", filters);
     }
 
-    /// <summary>A purchase order read, signing in again once on a 401. Throws on any other failure.</summary>
-    private async Task<HttpResponseMessage> SendPurchaseOrderReadAsync(string url, int? pageSize, CancellationToken cancellationToken)
+    /// <summary>A document read, signing in again once on a 401. Throws on any other failure.</summary>
+    private async Task<HttpResponseMessage> SendDocumentReadAsync(string url, int? pageSize, string what, CancellationToken cancellationToken)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
@@ -13820,8 +13893,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             response.Dispose();
-            _logger.LogError("Failed to read purchase orders ({Url}): {StatusCode} - {Error}", url, response.StatusCode, errorContent);
-            throw new Exception($"Failed to read purchase orders: {response.StatusCode} - {errorContent}");
+            _logger.LogError("Failed to read {What} ({Url}): {StatusCode} - {Error}", what, url, response.StatusCode, errorContent);
+            throw new Exception($"Failed to read {what}: {response.StatusCode} - {errorContent}");
         }
 
         return response;

@@ -40,7 +40,7 @@
                 </p>
             </div>
             <div class="ivx-head-actions">
-                <span class="ivx-count">@LoadedCount.ToString("N0") invoices</span>
+                <span class="ivx-count">@totalCount.ToString("N0") invoices</span>
                 @* A manager opens the page to read; raising an invoice stays with the invoicing roles. *@
                 <AuthorizeView Roles="@UserRoles.InvoicingRoles" Context="createAuth">
                     <a class="ivx-btn ivx-btn-primary" href="/invoices/create">
@@ -68,33 +68,33 @@
         @* A fiscalisation's outcome is a toast, not a banner. The TransactM request and response are
            not shown here at all: the API records both in the fiscal transaction log. *@
 
-        @* Counted over what is loaded, not over the whole ledger — the labels say so. *@
+        @* Over every invoice the filters match: SAP adds them up, or the fiscal scan does. *@
         <section class="ivx-stats" aria-label="Invoice totals">
             <div class="ivx-stat">
                 <span class="ivx-stat-mark" aria-hidden="true"><i class="ph ph-receipt"></i></span>
                 <div>
-                    <div class="ivx-stat-value">@LoadedCount.ToString("N0")</div>
-                    <div class="ivx-stat-label">Invoices loaded</div>
+                    <div class="ivx-stat-value">@Figure(summary?.Count)</div>
+                    <div class="ivx-stat-label">Invoices</div>
                 </div>
             </div>
             <div class="ivx-stat">
                 <span class="ivx-stat-mark" aria-hidden="true"><i class="ph ph-coins"></i></span>
                 <div>
-                    <div class="ivx-stat-value">@((invoices?.Sum(i => i.DocTotal) ?? 0).ToString("N0"))</div>
+                    <div class="ivx-stat-value">@Figure(summary?.Total)</div>
                     <div class="ivx-stat-label">Total value</div>
                 </div>
             </div>
             <div class="ivx-stat">
                 <span class="ivx-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-users-three"></i></span>
                 <div>
-                    <div class="ivx-stat-value">@(invoices?.Select(i => i.CardCode).Distinct().Count() ?? 0)</div>
+                    <div class="ivx-stat-value">@Figure(summary?.Customers)</div>
                     <div class="ivx-stat-label">Unique customers</div>
                 </div>
             </div>
             <div class="ivx-stat">
                 <span class="ivx-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-percent"></i></span>
                 <div>
-                    <div class="ivx-stat-value">@((invoices?.Sum(i => i.VatSum) ?? 0).ToString("N0"))</div>
+                    <div class="ivx-stat-value">@Figure(summary?.Vat)</div>
                     <div class="ivx-stat-label">Total VAT</div>
                 </div>
             </div>
@@ -113,9 +113,8 @@
             </div>
             <div class="ivx-field" style="width:170px">
                 <label for="ivx-f-fiscal">Fiscal status</label>
-                @* Refetches rather than filtering in place: the fiscal status is part of what
-                   LoadInvoices counts as "filtered", and that widens the fetch from 100 rows to
-                   5000. Narrowing the loaded 100 instead would quietly hide the rest. *@
+                @* The API answers the fiscal filter: SAP holds no fiscal state, so it checks the
+                   matches against the fiscal log and keeps that scan briefly for the page turns. *@
                 <NocturneSelect Id="ivx-f-fiscal" Class="nsel-block" TValue="string"
                                 Options="FiscalFilterOptions" @bind-Value="fiscalStatusFilter"
                                 OnChanged="ApplyFilter" Caption="Filter by fiscal status"
@@ -143,7 +142,11 @@
 
             @{
                 var selectedForFiscalisation = SelectedInvoices;
-                var fiscalisableCount = FiscalisableInvoices.Count;
+                // Known only when the fiscal state was looked up for every match (the fiscal filter's scan).
+                var fiscalisableCount = summary?.FiscalisableCount;
+                var selectAllLabel = fiscalisableCount is int knownCount
+                    ? $"Select all {knownCount:N0} not fiscalised"
+                    : "Select all not fiscalised";
             }
             <div class="ivx-toolbar">
                 @if (selectedForFiscalisation.Count > 0)
@@ -153,11 +156,11 @@
                             @onclick="OpenBulkFiscaliseDialog">
                         Fiscalise @selectedForFiscalisation.Count.ToString("N0")
                     </button>
-                    @if (selectedForFiscalisation.Count < fiscalisableCount)
+                    @if (fiscalisableCount is null || selectedForFiscalisation.Count < fiscalisableCount)
                     {
-                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@IsFiscalisingAny"
+                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@(IsFiscalisingAny || isSelectingAll)"
                                 @onclick="SelectAllFiscalisable">
-                            Select all @fiscalisableCount.ToString("N0") not fiscalised
+                            @selectAllLabel
                         </button>
                     }
                     <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@IsFiscalisingAny"
@@ -168,18 +171,22 @@
                 else
                 {
                     <span class="ivx-range">@RangeLabel</span>
-                    @if (fiscalisableCount > 0)
+                    @if (scanLimitReached)
                     {
-                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@IsFiscalisingAny"
+                        <span class="ivx-range" title="Narrow the dates or the customer to check the rest">Newest @ScanLimit.ToString("N0") matches checked</span>
+                    }
+                    @if (canInvoice && totalCount > 0 && fiscalisableCount is null or > 0)
+                    {
+                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@(IsFiscalisingAny || isSelectingAll)"
                                 @onclick="SelectAllFiscalisable">
-                            Select all @fiscalisableCount.ToString("N0") not fiscalised
+                            @selectAllLabel
                         </button>
                     }
                 }
                 <div class="ivx-quick">
                     <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
                     <input class="ivx-input" type="search" placeholder="Quick filter…" aria-label="Quick filter"
-                           @bind="_searchString" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                           @bind="_searchString" @bind:event="oninput" @bind:after="OnSearchChanged" />
                 </div>
             </div>
 
@@ -232,7 +239,7 @@
                                                    aria-label="Select invoice @invoice.DocNum"
                                                    checked="@selectedDocEntries.Contains(invoice.DocEntry)"
                                                    disabled="@IsFiscalisingAny"
-                                                   @onchange="e => ToggleSelection(invoice.DocEntry, e)" />
+                                                   @onchange="e => ToggleSelection(invoice, e)" />
                                         }
                                     </td>
                                     <td>
@@ -304,7 +311,7 @@
                 </table>
             </div>
 
-            @if (!isLoading && FilteredCount == 0)
+            @if (!isLoading && totalCount == 0)
             {
                 <div class="ivx-empty">
                     <i class="ph ph-funnel-simple" aria-hidden="true"></i>
@@ -323,7 +330,7 @@
                 <span class="ivx-pagesize">
                     <span>Rows</span>
                     <NocturneSelect Class="nsel-sm nsel-end nsel-up" Options="PageSizeSelectOptions"
-                                    @bind-Value="_pageSize" OnChanged="ResetToFirstPage"
+                                    @bind-Value="_pageSize" OnChanged="OnPageSizeChanged"
                                     AriaLabel="Rows per page" />
                 </span>
                 <div class="ivx-pager">
@@ -962,8 +969,31 @@
     ];
 
     private int _pageSize = 10;
+    /// <summary>
+    /// The page on screen. The page used to load up to 5,000 invoices (100 unfiltered) into every open
+    /// tab and filter, count and page them itself.
+    /// </summary>
     private List<InvoiceDto>? invoices;
-    private List<InvoiceDto>? allInvoices;
+
+    /// <summary>How many invoices the filters match, across every page.</summary>
+    private int totalCount;
+
+    /// <summary>The tiles, over every match; kept across page turns, which do not change them.</summary>
+    private InvoiceListSummary? summary;
+
+    /// <summary>The fiscal filter's scan stopped at <see cref="ScanLimit"/>.</summary>
+    private bool scanLimitReached;
+
+    /// <summary>The API's limit on the invoices one fiscal scan checks.</summary>
+    private const int ScanLimit = 5000;
+
+    /// <summary>
+    /// Set when an invoice is fiscalised here: the API's fiscal scan behind the page turns predates it,
+    /// so the next read asks for a fresh one.
+    /// </summary>
+    private bool scanStale;
+
+    private bool isSelectingAll;
     private InvoiceDto? selectedInvoice;
     private bool isLoading = true;
     private bool isFiscalizingInvoice;
@@ -973,6 +1003,9 @@
     // Bulk fiscalisation. The run sends a snapshot taken when its dialog opens, so rows leaving the
     // filtered list as they fiscalise cannot change what is sent.
     private readonly HashSet<int> selectedDocEntries = [];
+
+    // The selected invoices as they were when picked. Selection outlives the page it was made on.
+    private readonly Dictionary<int, InvoiceDto> selectedInvoiceSnapshots = [];
     // Invoices whose outcome nobody could establish, for as long as this page is open. They lose their
     // checkbox and Fiscalise button: the receipt may already exist at FDMS.
     private readonly HashSet<int> unresolvedDocEntries = [];
@@ -983,9 +1016,7 @@
     private int bulkDone;
     private int? bulkCurrentDocNum;
 
-    // The fetch pulls one large page and the pager below works over it in the browser,
-    // which is what the 100/5000 fetch sizes in LoadInvoices are sized for.
-    private int currentPage = 1;
+    // The page on screen; the API pages.
     private int displayPage = 1;
     private string _searchString = string.Empty;
 
@@ -1024,39 +1055,13 @@
     private string creditNoteProgressMessage = "Initializing...";
     private CancellationTokenSource? _progressCancellationTokenSource;
 
-    private int LoadedCount => invoices?.Count ?? 0;
+    private static string Figure(int? value) => value?.ToString("N0") ?? "—";
 
-    /// <summary>
-    /// The quick filter narrows what is already loaded — it never refetches, which is why it
-    /// lives on the table's own toolbar rather than in the filter row.
-    /// </summary>
-    private IEnumerable<InvoiceDto> FilteredInvoices
-    {
-        get
-        {
-            if (invoices is null)
-                return [];
+    private static string Figure(decimal? value) => value?.ToString("N0") ?? "—";
 
-            if (string.IsNullOrWhiteSpace(_searchString))
-                return invoices;
+    private int DisplayPageCount => Math.Max(1, (totalCount + _pageSize - 1) / _pageSize);
 
-            var search = _searchString.Trim();
-            return invoices.Where(invoice =>
-                invoice.DocNum.ToString().Contains(search, StringComparison.OrdinalIgnoreCase)
-                || invoice.CardCode?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
-                || invoice.CardName?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
-                || invoice.DocCurrency?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
-                || invoice.FiscalizationStatus?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
-                || $"{invoice.DocEntry} {invoice.DocTotal}".Contains(search));
-        }
-    }
-
-    private int FilteredCount => FilteredInvoices.Count();
-
-    private int DisplayPageCount => Math.Max(1, (FilteredCount + _pageSize - 1) / _pageSize);
-
-    private IEnumerable<InvoiceDto> PageRows
-        => FilteredInvoices.Skip((displayPage - 1) * _pageSize).Take(_pageSize);
+    private IEnumerable<InvoiceDto> PageRows => invoices ?? [];
 
     private string RangeLabel
     {
@@ -1065,7 +1070,7 @@
             if (isLoading && invoices is null)
                 return "Loading…";
 
-            var count = FilteredCount;
+            var count = totalCount;
             if (count == 0)
                 return "No invoices";
 
@@ -1095,14 +1100,33 @@
         }
     }
 
-    private void ResetToFirstPage() => displayPage = 1;
-
-    private void GoToDisplayPage(int page)
+    private async Task GoToDisplayPage(int page)
     {
         if (page >= 1 && page <= DisplayPageCount)
         {
             displayPage = page;
+            await LoadInvoices(filtersChanged: false);
         }
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        displayPage = 1;
+        await LoadInvoices(filtersChanged: false);
+    }
+
+    /// <summary>The quick filter is a search on the API now, so it waits for a pause in typing.</summary>
+    private async Task OnSearchChanged()
+    {
+        _debounceTokenSource?.Cancel();
+        _debounceTokenSource = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(DebounceDelayMs, _debounceTokenSource.Token);
+            displayPage = 1;
+            await LoadInvoices();
+        }
+        catch (TaskCanceledException) { }
     }
 
     private string FormatDate(string? dateStr)
@@ -1113,34 +1137,44 @@
         return dateStr;
     }
 
-    private async Task LoadInvoices()
+    /// <summary>
+    /// Loads the page on screen. A filter change also refreshes the tiles, asks for a fresh fiscal scan
+    /// and drops the selection, which was made over other rows; a page turn does none of that.
+    /// </summary>
+    private async Task LoadInvoices(bool filtersChanged = true)
     {
-        isLoading = true;
+        isLoading = invoices is null;
         errorMessage = null;
-        // The rows are about to be replaced, so a selection made over the old set means nothing.
-        selectedDocEntries.Clear();
+        if (filtersChanged)
+        {
+            ClearSelection();
+        }
 
         try
         {
-            var hasFilters = docNumSearch.HasValue
-                || !string.IsNullOrWhiteSpace(customerCode)
-                || !string.IsNullOrWhiteSpace(fiscalStatusFilter)
-                || fromDate.HasValue
-                || toDate.HasValue;
-            var effectivePageSize = hasFilters ? 5000 : 100;
+            var response = await FetchPageAsync(filtersChanged);
 
-            var response = await InvoiceService.GetInvoicesAsync(
-                currentPage,
-                effectivePageSize,
-                docNumSearch,
-                customerCode,
-                fromDate,
-                toDate);
+            // A fiscalised row leaving a "Not fiscalised" list can leave the page past the end.
+            if (response is { TotalCount: > 0 } && (response.Invoices?.Count ?? 0) == 0 && displayPage > 1)
+            {
+                displayPage = Math.Max(1, (response.TotalCount + _pageSize - 1) / _pageSize);
+                response = await FetchPageAsync(filtersChanged: false);
+            }
+
             if (response != null)
             {
-                var loadedInvoices = response.Invoices ?? new List<InvoiceDto>();
-                allInvoices = loadedInvoices;
-                invoices = ApplyFiscalStatusFilter(loadedInvoices);
+                invoices = response.Invoices ?? new List<InvoiceDto>();
+                totalCount = response.TotalCount;
+                scanLimitReached = response.ScanLimitReached;
+                if (response.Summary != null)
+                {
+                    summary = response.Summary;
+                }
+
+                foreach (var invoice in invoices.Where(invoice => selectedInvoiceSnapshots.ContainsKey(invoice.DocEntry)))
+                {
+                    selectedInvoiceSnapshots[invoice.DocEntry] = invoice;
+                }
             }
             else
             {
@@ -1154,9 +1188,27 @@
         finally
         {
             isLoading = false;
-            // The set changed underneath the display pager, so start it over.
-            displayPage = 1;
         }
+    }
+
+    private Task<InvoiceListResponse?> FetchPageAsync(bool filtersChanged, int? page = null, int? pageSize = null, bool fiscalisableOnly = false)
+    {
+        var refresh = filtersChanged || scanStale;
+        scanStale = false;
+
+        return InvoiceService.GetInvoicesAsync(
+            page ?? displayPage,
+            pageSize ?? _pageSize,
+            docNumSearch,
+            customerCode,
+            fromDate,
+            toDate,
+            pageOptions: new InvoicePageOptions(
+                _searchString,
+                fiscalStatusFilter,
+                IncludeSummary: filtersChanged || summary is null,
+                Refresh: refresh,
+                FiscalisableOnly: fiscalisableOnly));
     }
 
     private async Task OnDocNumChanged()
@@ -1196,7 +1248,7 @@
             return;
         }
 
-        currentPage = 1;
+        displayPage = 1;
         await LoadInvoices();
         StateHasChanged();
     }
@@ -1214,14 +1266,14 @@
             return;
         }
 
-        currentPage = 1;
+        displayPage = 1;
         await LoadInvoices();
         StateHasChanged();
     }
 
     private async Task ApplyFilter()
     {
-        currentPage = 1;
+        displayPage = 1;
         await LoadInvoices();
     }
 
@@ -1233,30 +1285,9 @@
         fromDate = null;
         toDate = null;
         _searchString = string.Empty;
-        currentPage = 1;
-        allInvoices = null;
+        displayPage = 1;
         await LoadInvoices();
     }
-
-    /// <summary>
-    /// The API does not take the fiscal status as a parameter — it is applied to whatever the fetch
-    /// returned. LoadInvoices still counts it as a filter, which is what widens the fetch from 100
-    /// rows to 5000 so there is enough to filter over.
-    /// </summary>
-    private List<InvoiceDto> ApplyFiscalStatusFilter(IEnumerable<InvoiceDto> source)
-    {
-        if (string.IsNullOrWhiteSpace(fiscalStatusFilter))
-        {
-            return source.ToList();
-        }
-
-        return source
-            .Where(invoice => MatchesFiscalStatus(invoice.FiscalizationStatus, fiscalStatusFilter))
-            .ToList();
-    }
-
-    private static bool MatchesFiscalStatus(string? actualStatus, string? filterStatus)
-        => NormalizeFiscalStatus(actualStatus) == NormalizeFiscalStatus(filterStatus);
 
     private static string NormalizeFiscalStatus(string? status)
         => status?.Trim().ToLowerInvariant() switch
@@ -1286,13 +1317,13 @@
 
     private bool IsFiscalisingAny => isFiscalizingInvoice || isBulkFiscalising;
 
-    private List<InvoiceDto> FiscalisableInvoices => FilteredInvoices.Where(CanFiscalize).ToList();
-
     /// <summary>
-    /// Only what the current filters still show. A row selected and then filtered out is not sent.
+    /// The selection as picked, across pages. A filter change clears it, so a row filtered out is not sent.
     /// </summary>
-    private List<InvoiceDto> SelectedInvoices => FilteredInvoices
-        .Where(invoice => selectedDocEntries.Contains(invoice.DocEntry) && CanFiscalize(invoice))
+    private List<InvoiceDto> SelectedInvoices => selectedDocEntries
+        .Select(docEntry => selectedInvoiceSnapshots.GetValueOrDefault(docEntry))
+        .OfType<InvoiceDto>()
+        .Where(CanFiscalize)
         .ToList();
 
     private List<InvoiceDto> PageFiscalisableInvoices => PageRows.Where(CanFiscalize).ToList();
@@ -1300,35 +1331,74 @@
     private bool AllPageSelected => PageFiscalisableInvoices is { Count: > 0 } rows
                                     && rows.All(invoice => selectedDocEntries.Contains(invoice.DocEntry));
 
-    private void ToggleSelection(int docEntry, ChangeEventArgs e)
+    private void ToggleSelection(InvoiceDto invoice, ChangeEventArgs e)
     {
         if (e.Value is true)
         {
-            selectedDocEntries.Add(docEntry);
+            selectedDocEntries.Add(invoice.DocEntry);
+            selectedInvoiceSnapshots[invoice.DocEntry] = invoice;
         }
         else
         {
-            selectedDocEntries.Remove(docEntry);
+            Deselect(invoice.DocEntry);
         }
+    }
+
+    private void Deselect(int docEntry)
+    {
+        selectedDocEntries.Remove(docEntry);
+        selectedInvoiceSnapshots.Remove(docEntry);
     }
 
     private void TogglePageSelection(ChangeEventArgs e)
     {
         foreach (var invoice in PageFiscalisableInvoices)
         {
-            ToggleSelection(invoice.DocEntry, e);
+            ToggleSelection(invoice, e);
         }
     }
 
-    private void SelectAllFiscalisable()
+    /// <summary>
+    /// Every invoice still to fiscalise under the current filters, on any page. The API finds them from
+    /// the same fiscal scan the fiscal filter uses.
+    /// </summary>
+    private async Task SelectAllFiscalisable()
     {
-        foreach (var invoice in FiscalisableInvoices)
+        if (isSelectingAll)
+            return;
+
+        isSelectingAll = true;
+        try
         {
-            selectedDocEntries.Add(invoice.DocEntry);
+            var response = await FetchPageAsync(filtersChanged: false, page: 1, pageSize: ScanLimit, fiscalisableOnly: true);
+            if (response?.Invoices is null)
+            {
+                Snackbar.Add("Could not read the invoices still to fiscalise.", Severity.Error);
+                return;
+            }
+
+            foreach (var invoice in response.Invoices.Where(CanFiscalize))
+            {
+                selectedDocEntries.Add(invoice.DocEntry);
+                selectedInvoiceSnapshots[invoice.DocEntry] = invoice;
+            }
+
+            if (response.ScanLimitReached)
+            {
+                Snackbar.Add($"Only the newest {ScanLimit:N0} matching invoices were checked. Narrow the filters to reach the rest.", Severity.Warning);
+            }
+        }
+        finally
+        {
+            isSelectingAll = false;
         }
     }
 
-    private void ClearSelection() => selectedDocEntries.Clear();
+    private void ClearSelection()
+    {
+        selectedDocEntries.Clear();
+        selectedInvoiceSnapshots.Clear();
+    }
 
     private async Task ViewInvoice(int docEntry)
     {
@@ -1451,7 +1521,7 @@
 
         if (result.IsSettled || result.MustNotRetry)
         {
-            selectedDocEntries.Remove(docEntry);
+            Deselect(docEntry);
         }
 
         if (result.MustNotRetry)
@@ -1461,6 +1531,7 @@
 
         if (result.IsSettled)
         {
+            scanStale = true;
             InvoiceDto? refreshedInvoice = null;
             try
             {
@@ -1534,19 +1605,23 @@
 
     private void UpsertInvoice(InvoiceDto updatedInvoice)
     {
-        if (allInvoices != null)
+        if (invoices is null)
+            return;
+
+        var existingIndex = invoices.FindIndex(invoice => invoice.DocEntry == updatedInvoice.DocEntry);
+        if (existingIndex < 0)
+            return;
+
+        // Under the "Not fiscalised" filter a fiscalised row leaves the list.
+        if (!string.IsNullOrWhiteSpace(fiscalStatusFilter)
+            && NormalizeFiscalStatus(updatedInvoice.FiscalizationStatus) != NormalizeFiscalStatus(fiscalStatusFilter))
         {
-            var existingIndex = allInvoices.FindIndex(invoice => invoice.DocEntry == updatedInvoice.DocEntry);
-            if (existingIndex >= 0)
-            {
-                allInvoices[existingIndex] = updatedInvoice;
-            }
+            invoices.RemoveAt(existingIndex);
+            totalCount = Math.Max(0, totalCount - 1);
+            return;
         }
 
-        invoices = ApplyFiscalStatusFilter(allInvoices ?? new List<InvoiceDto>());
-
-        // Under the "Not fiscalised" filter a fiscalised row leaves the list, which can empty the page.
-        displayPage = Math.Clamp(displayPage, 1, DisplayPageCount);
+        invoices[existingIndex] = updatedInvoice;
     }
 
     private void CloseModal()

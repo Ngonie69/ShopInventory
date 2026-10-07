@@ -217,8 +217,17 @@ public interface ISAPServiceLayerClient
     /// only, and expanding lines multiplies the payload. A caller that renders a document has to ask
     /// for it: an invoice that arrives without its lines looks exactly like one that has none.
     /// </remarks>
-    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default);
-    Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
+    /// <param name="search">An exact doc number, or text anywhere in the customer code or name.</param>
+    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default, string? search = null);
+    Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default, string? search = null);
+
+    /// <summary>
+    /// The count, document total, VAT and distinct customers of every invoice the filters match, added up
+    /// by SAP (<c>$apply</c>) rather than by reading the invoices. Totals mix currencies, as the page's
+    /// tiles always have.
+    /// </summary>
+    Task<InvoiceListTotals> SummarizeInvoicesAsync(int? docNum, string? cardCode, DateTime? fromDate, DateTime? toDate,
+        bool? vanSalesOnly, string? search, CancellationToken cancellationToken = default);
 
     // Product/Item Operations
     Task<List<Item>> GetAllItemsAsync(CancellationToken cancellationToken = default);
