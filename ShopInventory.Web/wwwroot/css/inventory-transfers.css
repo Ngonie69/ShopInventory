@@ -334,6 +334,16 @@
     --nsel-edge: var(--itx-field-edge);
     --nsel-edge-hi: var(--itx-field-edge-hi);
     --nsel-radius: var(--itx-r-md);
+
+    /* The item picker on a held transfer's Edit lines, fitted the same way. */
+    --npick-h: 2.25rem;
+    --npick-pad-y: .35rem;
+    --npick-pad-x: .6rem;
+    --npick-fs: .875rem;
+    --npick-fill: var(--itx-field);
+    --npick-edge: var(--itx-field-edge);
+    --npick-edge-hi: var(--itx-field-edge-hi);
+    --npick-radius: var(--itx-r-md);
 }
 
 .itx .itx-input,
@@ -1341,6 +1351,11 @@
     max-width: 7rem;
     margin-left: auto;
     text-align: right;
+}
+
+/* Under the lines being edited: the picker that puts another item on. */
+.itx-drawer .itx-add-line {
+    margin-top: .6rem;
 }
 
 /* A line asking for more than the source warehouse holds, while its quantity is

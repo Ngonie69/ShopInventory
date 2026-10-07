@@ -200,8 +200,8 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>
-    /// Lowers or takes out lines of an approved transfer that has not reached SAP, so it can post —
-    /// a depot a few units short, say. Quantities may only go down; the approval still stands.
+    /// Changes the lines of an approved transfer that has not reached SAP — lowers, raises or takes
+    /// out a line, or adds an item — so it can post. The transfer stays approved; each change is audited.
     /// </summary>
     [HttpPut("pending/{id:guid}/lines")]
     [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
@@ -218,7 +218,8 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(
-            new EditPendingTransferLinesCommand(id, userId.Value, request.Lines, request.Reason), cancellationToken);
+            new EditPendingTransferLinesCommand(id, userId.Value, request.Lines, request.Reason, request.AddedLines),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
