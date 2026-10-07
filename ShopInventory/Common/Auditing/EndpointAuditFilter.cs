@@ -132,12 +132,12 @@ public abstract class EndpointAuditFilter(
     {
         if (pipelineException is not null)
         {
-            return StatusCodes.Status500InternalServerError;
+            return StatusForUnhandled(pipelineException);
         }
 
         if (context?.Exception is not null && !context.ExceptionHandled)
         {
-            return StatusCodes.Status500InternalServerError;
+            return StatusForUnhandled(context.Exception);
         }
 
         if (context?.Result is ObjectResult objectResult && objectResult.StatusCode.HasValue)
@@ -154,6 +154,24 @@ public abstract class EndpointAuditFilter(
             ? context.HttpContext.Response.StatusCode
             : StatusCodes.Status200OK;
     }
+
+    /// <summary>
+    /// The status an exception that left the action will reach the caller as.
+    /// </summary>
+    /// <remarks>
+    /// The filter runs before the exception handlers, so it has to say what they will answer. A
+    /// validator that refuses a request throws, and ValidationExceptionHandler answers that with a 400;
+    /// recording it as a 500 put a server fault in the trail for what was the caller's mistake, and sent
+    /// the reader of the row hunting a crash that never happened. The same goes for the 403 that
+    /// AuthorizationExceptionHandler makes of an UnauthorizedAccessException. Anything else is a 500
+    /// until a handler is known to say otherwise.
+    /// </remarks>
+    private static int StatusForUnhandled(Exception exception) => exception switch
+    {
+        FluentValidation.ValidationException => StatusCodes.Status400BadRequest,
+        UnauthorizedAccessException => StatusCodes.Status403Forbidden,
+        _ => StatusCodes.Status500InternalServerError
+    };
 
     private static string? ResolveErrorMessage(ActionExecutedContext? context, Exception? pipelineException)
     {
