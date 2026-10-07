@@ -1126,7 +1126,8 @@ public sealed class FiscalisationConsoleTests : IDisposable
 
         public Task<InvoiceListResponse?> GetInvoicesAsync(
             int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null,
-            DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null) =>
+            DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null,
+            InvoicePageOptions? pageOptions = null) =>
             throw new NotSupportedException();
 
         public Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry) => throw new NotSupportedException();

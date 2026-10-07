@@ -7,7 +7,7 @@ namespace ShopInventory.Web.Services;
 
 public interface IInvoiceService
 {
-    Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null);
+    Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, InvoicePageOptions? pageOptions = null);
     Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry);
     Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
     Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry);
@@ -52,7 +52,7 @@ public class InvoiceService : IInvoiceService
         _logger = logger;
     }
 
-    public async Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null)
+    public async Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, InvoicePageOptions? pageOptions = null)
     {
         try
         {
@@ -67,6 +67,19 @@ public class InvoiceService : IInvoiceService
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
             if (vanSalesOnly.HasValue)
                 queryParams.Add($"vanSalesOnly={vanSalesOnly.Value.ToString().ToLowerInvariant()}");
+            if (pageOptions is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(pageOptions.Search))
+                    queryParams.Add($"search={Uri.EscapeDataString(pageOptions.Search.Trim())}");
+                if (!string.IsNullOrWhiteSpace(pageOptions.FiscalStatus))
+                    queryParams.Add($"fiscalStatus={Uri.EscapeDataString(pageOptions.FiscalStatus)}");
+                if (pageOptions.IncludeSummary)
+                    queryParams.Add("includeSummary=true");
+                if (pageOptions.Refresh)
+                    queryParams.Add("refresh=true");
+                if (pageOptions.FiscalisableOnly)
+                    queryParams.Add("fiscalisableOnly=true");
+            }
 
             var url = $"api/invoice/paged?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<InvoiceListResponse>(url);

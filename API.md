@@ -1051,8 +1051,20 @@ this controller reads them — granting one to a user changes nothing here.
 | POST | `/api/Invoice/{docEntry}/fiscalize` | Admin, Cashier | Fiscalise a posted invoice |
 | POST | `/api/Invoice/{docEntry}/cancel` | `invoices.void` | Cancel the invoice, reversing it in full with a credit note |
 
-**Query parameters for `/paged`:** `page` (1), `pageSize` (20), `docNum`, `cardCode`, `fromDate`,
-`toDate`, `vanSalesOnly`
+**Query parameters for `/paged`:** `page` (1), `pageSize` (20; at most 200 unfiltered, 5,000
+filtered), `docNum`, `cardCode`, `fromDate`, `toDate`, `vanSalesOnly`, `search`, `fiscalStatus`,
+`includeSummary` (false), `refresh` (false), `fiscalisableOnly` (false)
+
+SAP filters, counts and pages the list. `search` is an exact doc number or text anywhere in the
+customer code or name. `includeSummary=true` adds `summary` — `count`, `total`, `vat` and `customers`
+over every match, added up by SAP (`$apply`); totals mix currencies.
+
+SAP holds no fiscal state, so `fiscalStatus` (`Fiscalised`, `Not Fiscalised`, `Unknown`) and
+`fiscalisableOnly` read the matches from SAP — the newest 5,000, flagged by `scanLimitReached` — look
+up their fiscal state, and keep that scan for two minutes so later pages do not read SAP again;
+`refresh=true` reads it afresh. On that path `summary.fiscalisableCount` is set, and
+`fiscalisableOnly=true` answers every match that could be fiscalised (posted, not reposted, not
+fiscalised), unpaged.
 
 There is **no update and no delete route**: an invoice is created by posting it to SAP, and
 correcting one is a credit note.

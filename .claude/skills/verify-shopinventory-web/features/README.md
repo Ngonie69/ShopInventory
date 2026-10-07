@@ -20,6 +20,7 @@ approval and the request flow are both in scope.
 | Maintenance mode | `/settings` (General) | [maintenance-mode.md](maintenance-mode.md) |
 | Mobile Orders / Van Sales Orders | `/mobile-drafts`, `/van-sales-orders` | [mobile-orders.md](mobile-orders.md) |
 | Purchase Orders | `/purchase-orders` | [purchase-orders.md](purchase-orders.md) |
+| Invoices | `/invoices` | [invoices.md](invoices.md) |
 
 Seeded from the five surfaces with the heaviest change traffic. The app has 112
 routes; add a file when you verify a feature this map does not cover yet.
