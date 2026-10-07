@@ -333,6 +333,64 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     }
 
     /// <summary>
+    /// 2026-10-07: sales order conversions sat in their reservation for over 30 s waiting on SAP's stock, UoM
+    /// and batch reads, the handset gave up at 30, ASP.NET cancelled the request token, and the server
+    /// answered "The operation was canceled" to nobody. A direct sale reserves through the same service. Past
+    /// the commit point the caller going away must not stop the work: the sale is signed and queued, and the
+    /// handset's resend under the same van order is answered with that receipt.
+    /// </summary>
+    [Fact]
+    public async Task A_phone_that_hangs_up_while_stock_is_reserved_does_not_stop_the_sale()
+    {
+        using var hangUp = new CancellationTokenSource();
+        _reservations.ReservationStarted = hangUp.Cancel;
+
+        var result = await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped("VAN006-INV-20260810-BBB222"), VanUser),
+            hangUp.Token);
+
+        Assert.True(hangUp.IsCancellationRequested);
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(["sign"], _calls);
+        Assert.Equal("vc-server", result.Value.VerificationCode);
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+        Assert.Equal(InvoiceQueueStatus.Fiscalized, (await _context.InvoiceQueue.SingleAsync()).Status);
+
+        // The handset never saw that answer, so it resends the basket under the same van order. It finds its
+        // own reservation and receipt and is handed the same receipt, not a second one.
+        _reservations.ReservationStarted = null;
+        var resent = await SellAsync(Unstamped("VAN006-INV-20260810-BBB222"));
+
+        Assert.Equal(1, _calls.Count(call => call == "sign"));
+        Assert.Equal(result.Value.SaleNumber, resent.SaleNumber);
+        Assert.Equal(result.Value.VerificationCode, resent.VerificationCode);
+        Assert.Single(await _context.DesktopSales.ToListAsync());
+        Assert.Single(await _context.InvoiceQueue.ToListAsync());
+        Assert.Single(await _context.StockReservations.ToListAsync());
+    }
+
+    /// <summary>
+    /// The other side of the commit point: a handset that is already gone before anything was reserved starts
+    /// nothing, so there is nothing to finish.
+    /// </summary>
+    [Fact]
+    public async Task A_phone_that_hung_up_before_the_sale_started_starts_nothing()
+    {
+        using var goneAlready = new CancellationTokenSource();
+        goneAlready.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped("VAN006-INV-20260810-BBB222"), VanUser),
+            goneAlready.Token));
+
+        Assert.Empty(_calls);
+        Assert.Empty(await _context.StockReservations.ToListAsync());
+        Assert.Empty(await _context.DesktopSales.ToListAsync());
+    }
+
+    /// <summary>
     /// The basket that could never be sent. A first attempt reserved the stock and died before anything was
     /// signed — the handset gave up at two minutes, or the API restarted — and the clock expired the
     /// reservation an hour later. The handset tells the rep to resend the basket unchanged, and every resend
@@ -1086,6 +1144,10 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     /// The reservation service, over the test's own database: it reserves by writing the row, and confirms by
     /// posting to a SAP that can be switched off or refuse the stock.
     /// </summary>
+    /// <remarks>
+    /// A reservation honours the token it is handed, as the real service's SAP and database reads do. A stub
+    /// that ignored it would let the hang-up test pass against the very code it was written to catch.
+    /// </remarks>
     private sealed class ReservationStub(ApplicationDbContext context, List<string> calls)
     {
         public const int DocEntry = 6100;
@@ -1095,12 +1157,15 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
 
         public bool SapDown { get; set; }
 
+        /// <summary>Runs as a reservation is asked for, before it is made.</summary>
+        public Action? ReservationStarted { get; set; }
+
         public IStockReservationService Service => StubProxy.For<IStockReservationService>((method, args) => method.Name switch
         {
             nameof(IStockReservationService.GetReservationByExternalReferenceAsync) =>
                 (object)Task.FromResult(Find((string)args![0]!)),
             nameof(IStockReservationService.CreateReservationAsync) =>
-                Task.FromResult(Create((CreateStockReservationRequest)args![0]!)),
+                CreateAsync((CreateStockReservationRequest)args![0]!, (CancellationToken)args[2]!),
             nameof(IStockReservationService.ConfirmReservationAsync) =>
                 Task.FromResult(Confirm((ConfirmReservationRequest)args![0]!)),
             _ => throw new InvalidOperationException($"IStockReservationService.{method.Name} was not expected.")
@@ -1117,6 +1182,17 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                     SAPDocNum = r.SAPDocNum
                 })
                 .FirstOrDefault();
+
+        private Task<StockReservationResponseDto> CreateAsync(
+            CreateStockReservationRequest request,
+            CancellationToken cancellationToken)
+        {
+            ReservationStarted?.Invoke();
+
+            return cancellationToken.IsCancellationRequested
+                ? Task.FromCanceled<StockReservationResponseDto>(cancellationToken)
+                : Task.FromResult(Create(request));
+        }
 
         private StockReservationResponseDto Create(CreateStockReservationRequest request)
         {
