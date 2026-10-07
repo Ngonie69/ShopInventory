@@ -69,9 +69,37 @@ public sealed class CreateVanSalesSalesOrderHandler(
             costCentreCode,
             command.DeviceInfo);
 
-        var result = await mediator.Send(
-            new CreateSalesOrderCommand(salesOrderRequest, command.UserId),
-            cancellationToken);
+        // The last point at which the caller going away stops the order: only the user and its scope have
+        // been read, and nothing has been asked of SAP or stored, so there is nothing to finish.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return await CreateAsync(salesOrderRequest, command.UserId);
+    }
+
+    /// <summary>
+    /// The order, from its first SAP read to its answer. Once started it runs to the end.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>It takes no token, and that is the guard.</b> ASP.NET binds the request's token to
+    /// <c>HttpContext.RequestAborted</c>, and a van handset hangs up after 30 seconds. Before the order is
+    /// stored, <c>SalesOrderService.CreateAsync</c> asks SAP for the sales unit of every line, and on
+    /// 2026-10-07 van requests waiting on SAP outlived the handset. Cancelled there, the order was not
+    /// stored, and <see cref="CreateSalesOrderHandler"/> — which answers every exception as a failed order —
+    /// told nobody "The operation was canceled". The resend met the same read. Run to the end instead, the
+    /// order is captured once under its van order, and the handset's resend under the same reference is
+    /// handed that order by <c>ClientRequestId</c>.</para>
+    ///
+    /// <para>Nothing waits forever for want of a token. Every SAP read is bounded by the client's own
+    /// budget; the request's token only ever added a deadline the work did not need and the caller had
+    /// already stopped waiting for.</para>
+    /// </remarks>
+    private async Task<ErrorOr<VanSalesLegacyOrderDto>> CreateAsync(CreateSalesOrderRequest salesOrderRequest, Guid userId)
+    {
+        // Deliberately and literally CancellationToken.None — see the remarks. Held in a local so that a
+        // future edit adding a call here cannot quietly reintroduce the request token.
+        var unstoppable = CancellationToken.None;
+
+        var result = await mediator.Send(new CreateSalesOrderCommand(salesOrderRequest, userId), unstoppable);
 
         if (result.IsError)
         {
