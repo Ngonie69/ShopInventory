@@ -41,6 +41,12 @@
       Remove once Microsoft.AspNetCore.DataProtection references a patched version directly.
     -->
     <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.12" />
+    <!--
+      SkiaSharp ships native Skia for Windows and macOS only. Production is IIS on Windows; the unit tests
+      run on Linux in CI, where AttachmentImageCompressionTests needs libSkiaSharp too. NoDependencies
+      links fontconfig statically, so the runner needs no system packages.
+    -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
   </ItemGroup>
   <ItemGroup>
     <!--
@@ -53,6 +59,7 @@
     <Content Include="..\ShopInventory\appsettings.json" Link="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <None Include="Fixtures\Images\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -6,9 +6,7 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Processing;
+using SkiaSharp;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -505,6 +503,16 @@ public class DocumentService : IDocumentService
         "image/jpeg", "image/png", "image/webp"
     };
 
+    /// <summary>
+    /// What the bytes of a compressible upload must actually be: the formats of
+    /// <see cref="CompressibleImageTypes"/>. A file sent as one of those types but encoded as something
+    /// else is refused rather than handed to a decoder nobody meant to expose.
+    /// </summary>
+    private static readonly HashSet<SKEncodedImageFormat> CompressibleImageFormats =
+    [
+        SKEncodedImageFormat.Jpeg, SKEncodedImageFormat.Png, SKEncodedImageFormat.Webp
+    ];
+
     /// <summary>Max dimension (width or height) for uploaded images.</summary>
     private const int MaxImageDimension = 1920;
 
@@ -759,27 +767,80 @@ public class DocumentService : IDocumentService
         return attachment is null ? null : MapToDto(attachment);
     }
 
+    /// <summary>
+    /// Stores an uploaded photo as a JPEG no larger than <see cref="MaxImageDimension"/> on its long side,
+    /// turned the way its EXIF orientation says.
+    /// </summary>
+    /// <remarks>
+    /// Decoded by what the bytes are, not by the MIME type the client sent, and only if they are one of
+    /// <see cref="CompressibleImageFormats"/>: anything else is refused as bad input before a file is
+    /// written. A transparent pixel is stored black, as the ImageSharp implementation this replaced did.
+    /// </remarks>
     private async Task CompressAndSaveImageAsync(Stream sourceStream, string outputPath, CancellationToken cancellationToken)
     {
-        using var image = await Image.LoadAsync(sourceStream, cancellationToken);
+        // The codec reads where it likes and a request body cannot seek, so the upload is read in first.
+        using var buffer = new MemoryStream();
+        await sourceStream.CopyToAsync(buffer, cancellationToken);
 
-        // Resize if larger than max dimension while preserving aspect ratio
-        if (image.Width > MaxImageDimension || image.Height > MaxImageDimension)
+        using var data = SKData.CreateCopy(buffer.GetBuffer().AsSpan(0, (int)buffer.Length));
+        using var codec = SKCodec.Create(data);
+
+        if (codec is null || !CompressibleImageFormats.Contains(codec.EncodedFormat))
         {
-            var options = new ResizeOptions
-            {
-                Mode = ResizeMode.Max,
-                Size = new Size(MaxImageDimension, MaxImageDimension)
-            };
-            image.Mutate(x => x.Resize(options));
+            throw new InvalidDataException("The file is not a JPEG, PNG or WebP image.");
         }
 
-        // Auto-orient based on EXIF data (phone photos are often rotated)
-        image.Mutate(x => x.AutoOrient());
+        using var decoded = SKBitmap.Decode(codec, codec.Info.WithColorType(SKColorType.Rgba8888).WithAlphaType(SKAlphaType.Premul))
+            ?? throw new InvalidDataException("The image could not be read.");
 
-        var encoder = new JpegEncoder { Quality = JpegCompressionQuality };
-        await image.SaveAsync(outputPath, encoder, cancellationToken);
+        // Shrunk to fit a square box, so whether it is turned afterwards does not change the scale.
+        var scale = Math.Min(1d, Math.Min((double)MaxImageDimension / decoded.Width, (double)MaxImageDimension / decoded.Height));
+        var width = Math.Max(1, (int)Math.Round(decoded.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(decoded.Height * scale));
+
+        var origin = codec.EncodedOrigin;
+        var turnedSideways = origin is SKEncodedOrigin.LeftTop or SKEncodedOrigin.RightTop
+            or SKEncodedOrigin.RightBottom or SKEncodedOrigin.LeftBottom;
+
+        using var surface = SKSurface.Create(new SKImageInfo(
+            turnedSideways ? height : width,
+            turnedSideways ? width : height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul))
+            ?? throw new InvalidDataException("The image is too large to process.");
+
+        var canvas = surface.Canvas;
+        canvas.Clear(SKColors.Transparent);
+        canvas.SetMatrix(OrientationMatrix(origin, width, height));
+
+        using (var source = SKImage.FromBitmap(decoded))
+        {
+            canvas.DrawImage(source, new SKRect(0, 0, width, height), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        }
+
+        using var stored = surface.Snapshot();
+        using var jpeg = stored.Encode(SKEncodedImageFormat.Jpeg, JpegCompressionQuality);
+
+        await using var file = File.Create(outputPath);
+        await jpeg.AsStream().CopyToAsync(file, cancellationToken);
     }
+
+    /// <summary>
+    /// Maps a <paramref name="width"/> × <paramref name="height"/> picture, as stored, onto the way it was
+    /// taken. For the four sideways origins the result is <paramref name="height"/> wide.
+    /// </summary>
+    internal static SKMatrix OrientationMatrix(SKEncodedOrigin origin, float width, float height) => origin switch
+    {
+        // x' = ScaleX·x + SkewX·y + TransX;  y' = SkewY·x + ScaleY·y + TransY
+        SKEncodedOrigin.TopRight => new SKMatrix(-1, 0, width, 0, 1, 0, 0, 0, 1),        // mirrored
+        SKEncodedOrigin.BottomRight => new SKMatrix(-1, 0, width, 0, -1, height, 0, 0, 1), // upside down
+        SKEncodedOrigin.BottomLeft => new SKMatrix(1, 0, 0, 0, -1, height, 0, 0, 1),       // flipped
+        SKEncodedOrigin.LeftTop => new SKMatrix(0, 1, 0, 1, 0, 0, 0, 0, 1),                // transposed
+        SKEncodedOrigin.RightTop => new SKMatrix(0, -1, height, 1, 0, 0, 0, 0, 1),         // 90° clockwise
+        SKEncodedOrigin.RightBottom => new SKMatrix(0, -1, height, -1, 0, width, 0, 0, 1), // transversed
+        SKEncodedOrigin.LeftBottom => new SKMatrix(0, 1, 0, -1, 0, width, 0, 0, 1),        // 90° anticlockwise
+        _ => SKMatrix.Identity
+    };
 
     public async Task<DocumentAttachmentListResponseDto> GetAttachmentsAsync(string entityType, int entityId, CancellationToken cancellationToken = default)
     {
