@@ -16,6 +16,19 @@ otherwise be surprised.
 
 ## Unreleased
 
+### Added
+
+- **Invoices can be sent to customers on WhatsApp.** The new routes are under
+  `/api/customer-whatsapp-contacts` and `/api/customer-document-deliveries` (see API.md §40a). There
+  are two new permissions, `invoices.send_whatsapp` and `customers.whatsapp.manage`; Cashier has both
+  by default and Manager has neither. Operators should know four things:
+  - The job `customer-document-delivery` is scheduled on every node, because
+    `CustomerDocuments:Enabled` ships `true`.
+  - It sends nothing until an administrator chooses a session on `/whatsapp-deliveries`.
+  - Automatic sending ships off.
+  - OpenWA refuses every invoice with `413` until its request body limit is raised (see
+    `docs/operations/whatsapp-production.md`).
+
 ### Changed
 
 - **REVMax is no longer asked about SAP documents dated after 30 September 2026.** `Revmax:LastFilingDate`

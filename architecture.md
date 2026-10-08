@@ -278,6 +278,19 @@ The solution supports real-time and push-style notifications through:
 
 When enabled, ShopInventory uses OpenWA as an external gateway for WhatsApp messaging and inbox workflows. The .NET API remains the policy and orchestration layer while OpenWA handles WhatsApp session mechanics.
 
+Invoices also go to customers on WhatsApp, as the Fiscal Tax Invoice PDF. That feature lives in
+`Features/CustomerDocuments` and is built as an outbox:
+
+- `CustomerWhatsAppContacts` holds each number a customer gave, with its consent and any opt-out.
+- `CustomerDocumentDeliveries` holds one row per document and number.
+- One clustered Quartz job, `customer-document-delivery`, sends the rows. No web request calls
+  OpenWA itself.
+
+The job confirms the invoice's fiscal receipt before sending (`FiscalLinkVerifier`). It builds the
+PDF with the same composer the invoice download uses (`InvoicePdfComposer`). It saves the row as
+`Sending` before the call, so a send cut off mid-flight is settled from OpenWA's own message log
+rather than repeated. Operations: `docs/operations/whatsapp-production.md`.
+
 ## Key Request and Processing Flows
 
 ### Standard Web Flow

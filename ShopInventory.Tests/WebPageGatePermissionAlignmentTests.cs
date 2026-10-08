@@ -214,6 +214,82 @@ public sealed class WebPageGatePermissionAlignmentTests
         }
     }
 
+    /// <summary>
+    /// The invoice drawer shows every role /invoices admits what was sent on WhatsApp, a manager
+    /// included.
+    /// </summary>
+    [Fact]
+    public async Task Every_role_the_invoices_page_admits_can_read_an_invoices_whatsapp_sends()
+    {
+        foreach (var role in PageRoles("ShopInventory.Web.Components.Pages.Invoices"))
+        {
+            Assert.True(
+                await Passes<CustomerDocumentDeliveriesController>(nameof(CustomerDocumentDeliveriesController.GetDeliveries), role),
+                $"{role} can open /invoices but the API refuses the invoice's WhatsApp history.");
+        }
+    }
+
+    /// <summary>
+    /// The drawer offers sending, previewing, resending and withdrawing to
+    /// <c>UserRoles.DocumentWhatsAppRoles</c>, and the dialogs as well as the buttons sit behind that
+    /// gate; each of those roles must get past the API.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.RequestInvoice))]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.PreviewInvoice))]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.Retry))]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.Cancel))]
+    public async Task The_roles_offered_whatsapp_sending_can_send(string action)
+    {
+        foreach (var role in WebRoles(ShopInventory.Web.Data.UserRoles.DocumentWhatsAppRoles))
+        {
+            Assert.True(
+                await Passes<CustomerDocumentDeliveriesController>(action, role),
+                $"{role} is offered WhatsApp sending on /invoices but the API refuses {action}.");
+        }
+    }
+
+    /// <summary>The negative control: a manager reads the invoice and its sends, and sends nothing.</summary>
+    [Theory]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.RequestInvoice))]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.PreviewInvoice))]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.Retry))]
+    [InlineData(nameof(CustomerDocumentDeliveriesController.Cancel))]
+    public async Task A_manager_cannot_send_an_invoice_on_whatsapp(string action)
+    {
+        Assert.DoesNotContain(ApplicationRoles.Manager, WebRoles(ShopInventory.Web.Data.UserRoles.DocumentWhatsAppRoles));
+        Assert.False(await Passes<CustomerDocumentDeliveriesController>(action, ApplicationRoles.Manager));
+    }
+
+    /// <summary>
+    /// /customers shows the WhatsApp numbers panel to <c>UserRoles.CustomerWhatsAppRoles</c>, and every
+    /// one of them must be able to keep the register it shows.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(CustomerWhatsAppContactsController.GetContacts))]
+    [InlineData(nameof(CustomerWhatsAppContactsController.Save))]
+    [InlineData(nameof(CustomerWhatsAppContactsController.Update))]
+    [InlineData(nameof(CustomerWhatsAppContactsController.OptOut))]
+    [InlineData(nameof(CustomerWhatsAppContactsController.Recheck))]
+    [InlineData(nameof(CustomerWhatsAppContactsController.Remove))]
+    public async Task The_roles_shown_customers_whatsapp_numbers_can_keep_them(string action)
+    {
+        foreach (var role in WebRoles(ShopInventory.Web.Data.UserRoles.CustomerWhatsAppRoles))
+        {
+            Assert.True(
+                await Passes<CustomerWhatsAppContactsController>(action, role),
+                $"{role} is shown the WhatsApp numbers on /customers but the API refuses {action}.");
+        }
+
+        Assert.False(await Passes<CustomerWhatsAppContactsController>(action, ApplicationRoles.Manager));
+    }
+
+    /// <summary>The non-Admin roles in a Web role list such as <c>UserRoles.DocumentWhatsAppRoles</c>.</summary>
+    private static string[] WebRoles(string roleList) => roleList
+        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+        .Where(role => role != ApplicationRoles.Admin)
+        .ToArray();
+
     /// <summary>The non-Admin roles a compiled Web page admits, read off its [Authorize] attribute.</summary>
     internal static string[] PageRoles(string pageTypeName)
     {

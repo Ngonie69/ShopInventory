@@ -1,0 +1,425 @@
+@page "/whatsapp-deliveries"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Components.CustomerDocuments
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>WhatsApp deliveries - Shop Inventory</PageTitle>
+
+@* Styles live in wwwroot/css/whatsapp-deliveries.css under `wdl-`, on the Nocturne tokens, in both
+   themes. The status chips and their wording come from CustomerDocumentDisplay, shared with the
+   invoice drawer, so one send never reads two ways. A status is always a word as well as a colour. *@
+
+<div class="wdl">
+
+    <header class="wdl-head">
+        <div class="wdl-head-main">
+            <nav class="wdl-crumb" aria-label="Breadcrumb">
+                <span>Administration</span>
+                <span aria-hidden="true">/</span>
+                <span class="wdl-crumb-here" aria-current="page">WhatsApp deliveries</span>
+            </nav>
+            <h1 class="wdl-title">WhatsApp deliveries</h1>
+            <div class="wdl-lede">
+                Invoices sent to customers on WhatsApp: the number they go from, today's sends against the caps,
+                and every send that needs a person.
+            </div>
+        </div>
+        <div class="wdl-head-actions">
+            @if (loadedAtUtc.HasValue)
+            {
+                <span class="wdl-stamp">Read @CustomerDocumentDisplay.Stamp(loadedAtUtc)</span>
+            }
+            <button type="button" class="wdl-btn" @onclick="RefreshAsync" disabled="@IsRefreshing">
+                @if (IsRefreshing)
+                {
+                    <span class="wdl-spin" aria-hidden="true"></span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                }
+                <span>Refresh</span>
+            </button>
+        </div>
+    </header>
+
+    @if (isLoadingStatus && status is null)
+    {
+        <div class="wdl-loading"><span class="wdl-spin" aria-hidden="true"></span>Reading where sending stands…</div>
+    }
+    else
+    {
+        var verdict = Verdict();
+        <section class="wdl-verdict wdl-tone-@verdict.Tone" aria-label="Sending">
+            <i class="ph @verdict.Icon wdl-verdict-mark" aria-hidden="true"></i>
+            <div class="wdl-verdict-body">
+                <h2 class="wdl-verdict-head">@verdict.Headline</h2>
+                @if (!string.IsNullOrWhiteSpace(verdict.Detail))
+                {
+                    <div class="wdl-verdict-detail">@verdict.Detail</div>
+                }
+            </div>
+        </section>
+    }
+
+    @if (status is not null)
+    {
+        <section class="wdl-figures" aria-label="Today">
+            <div class="wdl-figure">
+                <span class="wdl-figure-label">Sent today</span>
+                <span class="wdl-figure-value">@status.SentToday.ToString("N0")</span>
+                <span class="wdl-figure-note">of @status.HardMaxPerDay.ToString("N0") a day, every kind</span>
+            </div>
+            <div class="wdl-figure">
+                <span class="wdl-figure-label">Last hour</span>
+                <span class="wdl-figure-value">@status.SentLastHour.ToString("N0")</span>
+                <span class="wdl-figure-note">of @status.MaxPerHour.ToString("N0") an hour</span>
+            </div>
+            <div class="wdl-figure">
+                <span class="wdl-figure-label">Automatic today</span>
+                <span class="wdl-figure-value">@status.AutoSentToday.ToString("N0")</span>
+                <span class="wdl-figure-note">
+                    of @status.MaxAutoPerDay.ToString("N0") ·
+                    @(status.WithinAutoWindow ? "inside the window" : "outside the window")
+                </span>
+            </div>
+            <div class="wdl-figure">
+                <span class="wdl-figure-label">Waiting</span>
+                <span class="wdl-figure-value">@((status.Waiting + status.WaitingForFiscal).ToString("N0"))</span>
+                <span class="wdl-figure-note">@status.WaitingForFiscal.ToString("N0") for a fiscal receipt</span>
+            </div>
+            <div class="wdl-figure @(NeedsAPerson > 0 ? "wdl-figure-bad" : null)">
+                <span class="wdl-figure-label">Needs a person</span>
+                <span class="wdl-figure-value">@NeedsAPerson.ToString("N0")</span>
+                <span class="wdl-figure-note">
+                    @status.Held held · @status.Uncertain unsure · @status.FailedToday failed today
+                </span>
+                @if (NeedsAPerson > 0)
+                {
+                    <button type="button" class="wdl-btn wdl-btn-link" @onclick="ShowNeedingAPersonAsync">Show them</button>
+                }
+            </div>
+            <div class="wdl-figure">
+                <span class="wdl-figure-label">Last sent</span>
+                <span class="wdl-figure-value wdl-figure-value-sm">@CustomerDocumentDisplay.Stamp(status.LastSentAtUtc)</span>
+                <span class="wdl-figure-note">CAT</span>
+            </div>
+        </section>
+    }
+
+    <div class="wdl-columns">
+
+        <section class="wdl-log" aria-label="Delivery log">
+            <div class="wdl-section-head">
+                <h2 class="wdl-section-title">Delivery log</h2>
+                @if (log is not null)
+                {
+                    <span class="wdl-section-note">@log.TotalCount.ToString("N0") @(log.TotalCount == 1 ? "send" : "sends"), newest first</span>
+                }
+            </div>
+
+            <div class="wdl-filters">
+                <div class="wdl-filter wdl-filter-status">
+                    <span class="wdl-filter-label">Status</span>
+                    <NocturneSelect Class="nsel-block" TValue="string" Options="StatusOptions" @bind-Value="statusFilter"
+                                    OnChanged="ApplyFiltersAsync" Caption="Filter by status" AriaLabel="Filter by status"
+                                    Placeholder="Every status" />
+                </div>
+                <div class="wdl-filter wdl-filter-trigger">
+                    <span class="wdl-filter-label">How</span>
+                    <NocturneSelect Class="nsel-block" TValue="string" Options="TriggerOptions" @bind-Value="triggerFilter"
+                                    OnChanged="ApplyFiltersAsync" Caption="Filter by how it was sent" AriaLabel="Filter by how it was sent"
+                                    Placeholder="Every way" />
+                </div>
+                <div class="wdl-filter wdl-filter-search">
+                    <label class="wdl-filter-label" for="wdl-search">Document or customer</label>
+                    <input id="wdl-search" class="wdl-input" type="search" maxlength="100" placeholder="Number, card code or name"
+                           @bind="searchText" @bind:after="ApplyFiltersAsync" />
+                </div>
+                <div class="wdl-filter wdl-filter-date">
+                    <span class="wdl-filter-label">From</span>
+                    <NocturneDateField Id="wdl-from" @bind-Date="fromDate" @bind-Date:after="ApplyFiltersAsync" AriaLabel="From date" />
+                </div>
+                <div class="wdl-filter wdl-filter-date">
+                    <span class="wdl-filter-label">To</span>
+                    <NocturneDateField Id="wdl-to" @bind-Date="toDate" @bind-Date:after="ApplyFiltersAsync" AriaLabel="To date" />
+                </div>
+                @if (HasFilters)
+                {
+                    <div class="wdl-filter-actions">
+                        <button type="button" class="wdl-btn wdl-btn-quiet" @onclick="ClearFiltersAsync">Clear</button>
+                    </div>
+                }
+            </div>
+
+            @if (notice is not null)
+            {
+                <div class="wdl-alert @(noticeIsError ? "wdl-alert-bad" : "wdl-alert-good")" role="@(noticeIsError ? "alert" : "status")">
+                    <i class="ph @(noticeIsError ? "ph-warning-circle" : "ph-check-circle")" aria-hidden="true"></i>
+                    <span class="wdl-alert-body">@notice</span>
+                    <button type="button" class="wdl-alert-close" aria-label="Dismiss" @onclick="() => notice = null">
+                        <i class="ph ph-x" aria-hidden="true"></i>
+                    </button>
+                </div>
+            }
+
+            @if (logError is not null)
+            {
+                <div class="wdl-alert wdl-alert-bad" role="alert">
+                    <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                    <span class="wdl-alert-body">@logError</span>
+                </div>
+            }
+
+            @if (isLoadingLog && log is null)
+            {
+                <div class="wdl-loading"><span class="wdl-spin" aria-hidden="true"></span>Loading the log…</div>
+            }
+            else if (log is not null && log.Items.Count == 0)
+            {
+                <div class="wdl-empty">
+                    <div class="wdl-empty-title">@(HasFilters ? "Nothing matches these filters" : "Nothing has been sent on WhatsApp yet")</div>
+                    <div class="wdl-empty-note">
+                        @(HasFilters
+                            ? "Widen the dates or clear a filter."
+                            : "A send starts from an invoice's drawer, or by itself once a customer's number is marked for automatic invoices.")
+                    </div>
+                </div>
+            }
+            else if (log is not null)
+            {
+                <div class="wdl-table-wrap">
+                    <table class="wdl-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Document</th>
+                                <th scope="col">Customer</th>
+                                <th scope="col">To</th>
+                                <th scope="col">How</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">When</th>
+                                <th scope="col"><span class="wdl-sr">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var delivery in log.Items)
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="wdl-cell-strong wdl-num">@delivery.DocumentNumber</span>
+                                        <span class="wdl-cell-sub wdl-num">
+                                            @(delivery.DocumentDate?.ToString("dd MMM yyyy") ?? "—") ·
+                                            @CustomerDocumentDisplay.Money(delivery.DocumentTotal, delivery.Currency)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="wdl-cell-strong">@(delivery.CardName ?? delivery.RouteCustomerName ?? "—")</span>
+                                        @if (!string.IsNullOrWhiteSpace(delivery.CardCode))
+                                        {
+                                            <span class="wdl-cell-sub wdl-num">@delivery.CardCode</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="wdl-num">@delivery.RecipientMasked</span>
+                                        @if (!string.IsNullOrWhiteSpace(delivery.RecipientName))
+                                        {
+                                            <span class="wdl-cell-sub">@delivery.RecipientName</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span>@CustomerDocumentDisplay.TriggerLabel(delivery.Trigger)</span>
+                                        <span class="wdl-cell-sub">@(delivery.RequestedBy ?? "—")</span>
+                                    </td>
+                                    <td class="wdl-cell-status">
+                                        <span class="wdl-chip wdl-chip-@CustomerDocumentDisplay.StatusTone(delivery.Status)">
+                                            @CustomerDocumentDisplay.StatusLabel(delivery.Status)
+                                        </span>
+                                        @if (!string.IsNullOrWhiteSpace(delivery.StatusReason))
+                                        {
+                                            <span class="wdl-cell-reason">@delivery.StatusReason</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(delivery.LastError))
+                                        {
+                                            <span class="wdl-cell-error" title="As the gateway answered">@delivery.LastError</span>
+                                        }
+                                        @if (delivery.SupersedesDeliveryId is { } supersedes)
+                                        {
+                                            <span class="wdl-cell-sub">Resend of #@supersedes</span>
+                                        }
+                                    </td>
+                                    <td class="wdl-nowrap">
+                                        <span class="wdl-num">@CustomerDocumentDisplay.Stamp(delivery.SentAtUtc ?? delivery.CreatedAtUtc)</span>
+                                        <span class="wdl-cell-sub">
+                                            @(delivery.SentAtUtc.HasValue ? "sent" : "queued")@(delivery.DispatchAttempts > 1 ? $" · {delivery.DispatchAttempts} attempts" : string.Empty)
+                                        </span>
+                                    </td>
+                                    <td class="wdl-cell-actions">
+                                        @if (delivery.CanCancel)
+                                        {
+                                            <button type="button" class="wdl-btn wdl-btn-sm" disabled="@(busyDeliveryId == delivery.Id)"
+                                                    @onclick="() => CancelAsync(delivery)">
+                                                Withdraw
+                                            </button>
+                                        }
+                                        @if (delivery.CanRetry)
+                                        {
+                                            <button type="button" class="wdl-btn wdl-btn-sm wdl-btn-accent" disabled="@(busyDeliveryId == delivery.Id)"
+                                                    @onclick="() => BeginRetry(delivery)">
+                                                Send again
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (TotalPages > 1)
+                {
+                    <div class="wdl-pager">
+                        <span class="wdl-pager-info">Page @pageNumber of @TotalPages</span>
+                        <div class="wdl-pager-end">
+                            <button type="button" class="wdl-btn wdl-btn-sm" disabled="@(pageNumber <= 1 || isLoadingLog)"
+                                    @onclick="() => GoToPageAsync(pageNumber - 1)">
+                                Newer
+                            </button>
+                            <button type="button" class="wdl-btn wdl-btn-sm" disabled="@(pageNumber >= TotalPages || isLoadingLog)"
+                                    @onclick="() => GoToPageAsync(pageNumber + 1)">
+                                Older
+                            </button>
+                        </div>
+                    </div>
+                }
+            }
+        </section>
+
+        <aside class="wdl-aside" aria-label="Settings">
+            <section class="wdl-card">
+                <h2 class="wdl-section-title">Settings</h2>
+
+                @if (status is null)
+                {
+                    <div class="wdl-card-note">The settings appear once the status can be read.</div>
+                }
+                else
+                {
+                    <div class="wdl-setting">
+                        <span class="wdl-setting-label">Send documents from</span>
+                        <NocturneSelect Class="nsel-block" TValue="string" Options="sessionOptions" @bind-Value="settingsSessionId"
+                                        Caption="WhatsApp session" AriaLabel="WhatsApp session documents are sent from"
+                                        Placeholder="None — nothing is sent" EmptyText="The gateway lists no sessions" />
+                        <span class="wdl-setting-help">
+                            Use the dedicated invoices number, paired on the WhatsApp Inbox. Choosing None stops every send at once;
+                            queued documents wait.
+                        </span>
+                    </div>
+
+                    <div class="wdl-setting">
+                        <label class="wdl-switch">
+                            <input type="checkbox" class="wdl-switch-input" role="switch" @bind="settingsAutoSend" />
+                            <span class="wdl-switch-track" aria-hidden="true"></span>
+                            <span class="wdl-switch-text">Send new invoices automatically</span>
+                        </label>
+                        <span class="wdl-setting-help">
+                            To the numbers marked for automatic invoices, once each invoice's fiscal receipt is confirmed,
+                            @status.AutoWindow.
+                        </span>
+                    </div>
+
+                    <div class="wdl-setting">
+                        <label class="wdl-setting-label" for="wdl-max-auto">Automatic sends a day</label>
+                        <input id="wdl-max-auto" class="wdl-input wdl-input-num" type="number" min="0" max="1000" step="1"
+                               @bind="settingsMaxAutoPerDay" />
+                        <span class="wdl-setting-help">
+                            Raise it slowly while the number is new: WhatsApp watches how fast a fresh number sends.
+                        </span>
+                    </div>
+
+                    @if (settingsMessage is not null)
+                    {
+                        <div class="wdl-alert @(settingsMessageIsError ? "wdl-alert-bad" : "wdl-alert-good")" role="@(settingsMessageIsError ? "alert" : "status")">
+                            <span class="wdl-alert-body">@settingsMessage</span>
+                        </div>
+                    }
+
+                    <div class="wdl-card-foot">
+                        <button type="button" class="wdl-btn wdl-btn-quiet" disabled="@(!SettingsChanged || isSavingSettings)" @onclick="ResetSettings">
+                            Undo
+                        </button>
+                        <button type="button" class="wdl-btn wdl-btn-accent" disabled="@(!SettingsChanged || isSavingSettings)" @onclick="SaveSettingsAsync">
+                            @(isSavingSettings ? "Saving…" : "Save")
+                        </button>
+                    </div>
+
+                    @if (status.SettingsChangedAtUtc.HasValue)
+                    {
+                        <div class="wdl-card-note">
+                            Last changed by @(status.SettingsChangedBy ?? "—"), @CustomerDocumentDisplay.Stamp(status.SettingsChangedAtUtc).
+                        </div>
+                    }
+                }
+            </section>
+
+            @if (status is not null)
+            {
+                <section class="wdl-card">
+                    <h2 class="wdl-section-title">Fixed limits</h2>
+                    <div class="wdl-rows">
+                        <div class="wdl-row">
+                            <span class="wdl-row-label">Every send, an hour</span>
+                            <span class="wdl-row-value wdl-num">@status.MaxPerHour.ToString("N0")</span>
+                        </div>
+                        <div class="wdl-row">
+                            <span class="wdl-row-label">Every send, a day</span>
+                            <span class="wdl-row-value wdl-num">@status.HardMaxPerDay.ToString("N0")</span>
+                        </div>
+                        <div class="wdl-row">
+                            <span class="wdl-row-label">Automatic window</span>
+                            <span class="wdl-row-value">@status.AutoWindow</span>
+                        </div>
+                    </div>
+                    <div class="wdl-card-note">
+                        Set in the server's appsettings.json, the same on every server. Changing them needs a deploy.
+                    </div>
+                </section>
+            }
+        </aside>
+    </div>
+</div>
+
+@if (retrying is not null)
+{
+    <div class="wdl-dialog-wrap" @onclick="CloseRetry">
+        <div class="wdl wdl-dialog" role="dialog" aria-modal="true" aria-labelledby="wdl-retry-title" @onclick:stopPropagation="true">
+            <h2 id="wdl-retry-title" class="wdl-dialog-title">Send @retrying.DocumentNumber again?</h2>
+            <div class="wdl-dialog-copy">
+                To @retrying.RecipientMasked@(string.IsNullOrWhiteSpace(retrying.CardName) ? string.Empty : $", {retrying.CardName}").
+                The earlier send is <strong>@CustomerDocumentDisplay.StatusLabel(retrying.Status).ToLowerInvariant()</strong>.
+            </div>
+            @if (retrying.RetryNeedsConfirmation)
+            {
+                <label class="wdl-check">
+                    <input type="checkbox" class="wdl-checkbox" @bind="retryConfirmed" />
+                    <span>The customer told us they did not receive it. A second copy will arrive if the first did.</span>
+                </label>
+            }
+            @if (retryError is not null)
+            {
+                <div class="wdl-alert wdl-alert-bad" role="alert">
+                    <span class="wdl-alert-body">@retryError</span>
+                </div>
+            }
+            <div class="wdl-dialog-foot">
+                <button type="button" class="wdl-btn wdl-btn-quiet" disabled="@isRetrying" @onclick="CloseRetry">Cancel</button>
+                <button type="button" class="wdl-btn wdl-btn-accent"
+                        disabled="@(isRetrying || (retrying.RetryNeedsConfirmation && !retryConfirmed))"
+                        @onclick="RetryAsync">
+                    @(isRetrying ? "Queuing…" : "Send again")
+                </button>
+            </div>
+        </div>
+    </div>
+}

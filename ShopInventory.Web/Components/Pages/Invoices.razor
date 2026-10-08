@@ -514,6 +514,13 @@
                     <span class="ivx-total-label">Invoice total</span>
                     <span class="ivx-total-value">@selectedInvoice.DocCurrency @selectedInvoice.DocTotal.ToString("N2")</span>
                 </div>
+
+                @* What was sent to the customer on WhatsApp, for everyone who reads the invoice; the
+                   Send button inside is gated to the roles that may send. *@
+                <InvoiceWhatsAppPanel DocEntry="@selectedInvoice.DocEntry"
+                                      DocNum="@selectedInvoice.DocNum"
+                                      CardCode="@selectedInvoice.CardCode"
+                                      CardName="@selectedInvoice.CardName" />
             </div>
             <div class="ivx-drawer-foot">
                 <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isPdfLoading" @onclick="DownloadInvoicePdf">

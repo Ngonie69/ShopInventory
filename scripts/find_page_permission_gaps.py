@@ -1106,14 +1106,32 @@ LIFECYCLE_MEMBERS = {
 }
 
 
+_AUTHORIZE_VIEW_TAG = re.compile(r"<(/?)AuthorizeView\b[^>]*?(/?)>")
+
+
+def _authorize_view_end(src, pos):
+    """Where the AuthorizeView whose opening tag ends at pos closes, counting the views nested inside
+    it. Stopping at the first closing tag instead cut an outer view short at the end of an inner
+    one, and left the rest of the outer view's markup counted as ungated."""
+    depth = 1
+    for tag in _AUTHORIZE_VIEW_TAG.finditer(src, pos):
+        if tag.group(1):
+            depth -= 1
+            if depth == 0:
+                return tag.start()
+        elif not tag.group(2):
+            depth += 1
+    return len(src)
+
+
 def authorize_view_spans(src, web_roles):
-    """(start, end, roles) for each <AuthorizeView Roles=...>. A span stops at the first closing tag
-    and at any <NotAuthorized>, whose content renders for everyone else; both errors are on the
-    side of treating markup as ungated."""
+    """(start, end, roles) for each <AuthorizeView Roles=...>, to its own closing tag. A span also
+    stops at any <NotAuthorized> inside it, whose content renders for everyone else; that error is
+    on the side of treating markup as ungated. Where views nest, a position inside both is
+    restricted to the roles they share (see restriction_at)."""
     spans = []
     for m in re.finditer(r'<AuthorizeView\b[^>]*\bRoles\s*=\s*"([^"]*)"[^>]*>', src):
-        end = src.find("</AuthorizeView>", m.end())
-        end = end if end > 0 else len(src)
+        end = _authorize_view_end(src, m.end())
         not_authorized = src.find("<NotAuthorized", m.end(), end)
         if not_authorized > 0:
             end = not_authorized

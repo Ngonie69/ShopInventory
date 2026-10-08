@@ -1,0 +1,186 @@
+@using ShopInventory.Web.Models
+
+@* The WhatsApp numbers a customer gave for their invoices, on the customer's drawer. Shown only to
+   the roles that keep the register (the call site wraps it in AuthorizeView); styled by
+   wwwroot/css/customer-whatsapp.css on the shared Nocturne tokens, in both themes. *@
+
+<section class="cwa cwa-panel" aria-label="WhatsApp for invoices">
+    <div class="cwa-panel-head">
+        <div class="cwa-panel-title">
+            <i class="ph ph-whatsapp-logo" aria-hidden="true"></i>
+            <span>WhatsApp for invoices</span>
+        </div>
+        @if (!isAdding)
+        {
+            <button type="button" class="cwa-btn cwa-btn-quiet" @onclick="BeginAdd">
+                <i class="ph ph-plus" aria-hidden="true"></i>Add a number
+            </button>
+        }
+    </div>
+
+    @if (message is not null)
+    {
+        <div class="cwa-msg @(messageIsError ? "cwa-msg-bad" : "cwa-msg-good")" role="@(messageIsError ? "alert" : "status")">@message</div>
+    }
+
+    @if (isLoading && contacts.Count == 0)
+    {
+        <div class="cwa-quiet">Loading…</div>
+    }
+    else if (contacts.Count == 0 && !isAdding)
+    {
+        <div class="cwa-quiet">
+            No number saved. Add the WhatsApp number the customer gave, with their agreement, and their
+            invoices can be sent there.
+        </div>
+    }
+
+    @if (contacts.Count > 0)
+    {
+        <ul class="cwa-contacts">
+            @foreach (var contact in contacts)
+            {
+                <li class="cwa-contact @(contact.IsOptedOut ? "is-off" : "")">
+                    <div class="cwa-contact-main">
+                        <span class="cwa-num">@contact.PhoneE164</span>
+                        @if (!string.IsNullOrWhiteSpace(contact.ContactName))
+                        {
+                            <span class="cwa-quiet">@contact.ContactName</span>
+                        }
+                        @if (contact.IsOptedOut)
+                        {
+                            <span class="cwa-chip cwa-chip-warn">Opted out</span>
+                        }
+                        else if (contact.AutoSendInvoices)
+                        {
+                            <span class="cwa-chip cwa-chip-good">Invoices sent automatically</span>
+                        }
+                        else
+                        {
+                            <span class="cwa-chip cwa-chip-neutral">Sent on request</span>
+                        }
+                        @if (contact.WhatsAppExists == false)
+                        {
+                            <span class="cwa-chip cwa-chip-warn">Not on WhatsApp</span>
+                        }
+                    </div>
+                    <div class="cwa-contact-meta">
+                        Agreed @CustomerDocumentDisplay.Stamp(contact.ConsentRecordedAtUtc), recorded by @contact.ConsentRecordedBy
+                        @if (!string.IsNullOrWhiteSpace(contact.ConsentNote))
+                        {
+                            <span> — @contact.ConsentNote</span>
+                        }
+                        @if (contact.IsOptedOut)
+                        {
+                            <span>. Opted out @CustomerDocumentDisplay.Stamp(contact.OptedOutAtUtc)@(contact.OptedOutSource == "StopKeyword" ? " by replying STOP" : $" by {contact.OptedOutBy}").</span>
+                        }
+                    </div>
+                    <div class="cwa-contact-actions">
+                        @if (!contact.IsOptedOut)
+                        {
+                            <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@(busyContactId == contact.Id)"
+                                    @onclick="() => ToggleAutoSendAsync(contact)">
+                                @(contact.AutoSendInvoices ? "Stop automatic invoices" : "Send invoices automatically")
+                            </button>
+                            <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@(busyContactId == contact.Id)"
+                                    @onclick="() => RecheckAsync(contact)">
+                                Check on WhatsApp
+                            </button>
+                            <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@(busyContactId == contact.Id)"
+                                    @onclick="() => BeginConfirm(contact, ContactAction.OptOut)">
+                                Customer asked to stop
+                            </button>
+                        }
+                        <button type="button" class="cwa-btn cwa-btn-quiet cwa-btn-bad" disabled="@(busyContactId == contact.Id)"
+                                @onclick="() => BeginConfirm(contact, ContactAction.Remove)">
+                            Remove
+                        </button>
+                    </div>
+                    @if (confirming?.Id == contact.Id)
+                    {
+                        <div class="cwa-confirm" role="group" aria-label="Confirm">
+                            <span>
+                                @(confirmAction == ContactAction.OptOut
+                                    ? "Stop all documents to this number, on every customer it is saved on?"
+                                    : "Take this number off the customer? Documents already sent stay on record.")
+                            </span>
+                            <button type="button" class="cwa-btn cwa-btn-quiet" @onclick="CancelConfirm">Keep it</button>
+                            <button type="button" class="cwa-btn cwa-btn-bad" disabled="@(busyContactId == contact.Id)" @onclick="ConfirmAsync">
+                                @(confirmAction == ContactAction.OptOut ? "Opt out" : "Remove")
+                            </button>
+                        </div>
+                    }
+                </li>
+            }
+        </ul>
+    }
+
+    @if (isAdding)
+    {
+        <div class="cwa-form">
+            <div class="cwa-grid">
+                <div class="cwa-field">
+                    <label class="cwa-label" for="@($"cwa-add-phone-{IdSuffix}")">WhatsApp number</label>
+                    <input id="@($"cwa-add-phone-{IdSuffix}")" class="cwa-input" type="tel" inputmode="tel" maxlength="40"
+                           placeholder="0771 234 567" @bind="newPhone" @bind:event="oninput" />
+                    @if (SuggestedPhones?.Count > 0)
+                    {
+                        <div class="cwa-suggest">
+                            <span class="cwa-quiet">From SAP:</span>
+                            @foreach (var suggestion in SuggestedPhones)
+                            {
+                                <button type="button" class="cwa-btn cwa-btn-link" @onclick="() => newPhone = suggestion">@suggestion</button>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="cwa-field">
+                    <label class="cwa-label" for="@($"cwa-add-name-{IdSuffix}")">Who answers on it</label>
+                    <input id="@($"cwa-add-name-{IdSuffix}")" class="cwa-input" type="text" maxlength="100"
+                           placeholder="Buyer, owner, accounts…" @bind="newContactName" />
+                </div>
+            </div>
+
+            <label class="cwa-check">
+                <input type="checkbox" class="cwa-checkbox" @bind="newConsent" />
+                <span>The customer agreed to receive their invoices on this WhatsApp number.</span>
+            </label>
+            <div class="cwa-field">
+                <label class="cwa-label" for="@($"cwa-add-note-{IdSuffix}")">How they agreed</label>
+                <input id="@($"cwa-add-note-{IdSuffix}")" class="cwa-input" type="text" maxlength="500"
+                       placeholder="Asked on the phone, signed the account form…" @bind="newConsentNote" />
+            </div>
+            <label class="cwa-check">
+                <input type="checkbox" class="cwa-checkbox" @bind="newAutoSend" />
+                <span>Send their new invoices to it automatically</span>
+            </label>
+
+            @if (SiblingCards?.Count > 0)
+            {
+                <div class="cwa-sect">The same shop's other accounts</div>
+                <div class="cwa-choices">
+                    @foreach (var sibling in SiblingCards)
+                    {
+                        <label class="cwa-choice">
+                            <input type="checkbox" class="cwa-checkbox" checked="@chosenSiblings.Contains(sibling.CardCode)"
+                                   @onchange="e => ToggleSibling(sibling.CardCode, e.Value is true)" />
+                            <span class="cwa-choice-main">
+                                <span class="cwa-num">@sibling.CardCode</span>
+                                <span class="cwa-quiet">@sibling.CardName@(string.IsNullOrWhiteSpace(sibling.Currency) ? "" : $" · {sibling.Currency}")</span>
+                            </span>
+                        </label>
+                    }
+                </div>
+            }
+
+            <div class="cwa-form-foot">
+                <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@isSaving" @onclick="CancelAdd">Cancel</button>
+                <button type="button" class="cwa-btn cwa-btn-primary"
+                        disabled="@(isSaving || string.IsNullOrWhiteSpace(newPhone) || !newConsent)"
+                        @onclick="SaveAsync">
+                    @(isSaving ? "Saving…" : "Save number")
+                </button>
+            </div>
+        </div>
+    }
+</section>
