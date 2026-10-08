@@ -1210,6 +1210,323 @@ namespace ShopInventory.Migrations
                     b.ToTable("CreditNoteLines", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.CustomerDocumentDeliveryEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Caption")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("CardCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CardName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ClaimToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ClosedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClosedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("ConsentAffirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("ContactId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<int?>("DesktopSaleId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DispatchAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DocumentDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("DocumentNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal?>("DocumentTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("DocumentTotalFc")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int?>("FileBytes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("FileSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("FiscalEvidenceSource")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("FiscalQrCode")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FiscalVerificationCode")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long?>("GatewayTimestamp")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RecipientCheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecipientE164")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("RecipientName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RequestedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RouteCustomerCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("RouteCustomerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RouteCustomerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SaleReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("SapDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SendIssuedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("StatusReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<long?>("SupersedesDeliveryId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContactId");
+
+                    b.HasIndex("SapDocEntry");
+
+                    b.HasIndex("SendIssuedAtUtc");
+
+                    b.HasIndex("CardCode", "CreatedAtUtc");
+
+                    b.HasIndex("DesktopSaleId", "RecipientE164")
+                        .IsUnique()
+                        .HasFilter("\"Trigger\" = 'Counter' AND \"DesktopSaleId\" IS NOT NULL");
+
+                    b.HasIndex("RecipientE164", "CreatedAtUtc");
+
+                    b.HasIndex("RouteCustomerId", "CreatedAtUtc");
+
+                    b.HasIndex("SapDocEntry", "RecipientE164")
+                        .IsUnique()
+                        .HasFilter("\"Trigger\" = 'Auto' AND \"SapDocEntry\" IS NOT NULL");
+
+                    b.HasIndex("Status", "NextAttemptAtUtc");
+
+                    b.ToTable("CustomerDocumentDeliveries", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustomerDocumentDeliveries_DispatchAttempts_NonNegative", "\"DispatchAttempts\" >= 0");
+
+                            t.HasCheckConstraint("CK_CustomerDocumentDeliveries_OneDocument", "(\"SapDocEntry\" IS NULL) <> (\"DesktopSaleId\" IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CustomerWhatsAppContactEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("AutoSendInvoices")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("CardCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ConsentNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("ConsentRecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ConsentRecordedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ConsentRecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConsentSource")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ContactName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("OptedOutAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OptedOutBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("OptedOutSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("OwnerName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PhoneE164")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("RemovedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RemovedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("RouteCustomerId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("WhatsAppCheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool?>("WhatsAppExists")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhoneE164");
+
+                    b.HasIndex("CardCode", "PhoneE164")
+                        .IsUnique()
+                        .HasFilter("\"CardCode\" IS NOT NULL AND \"RemovedAtUtc\" IS NULL");
+
+                    b.HasIndex("RouteCustomerId", "PhoneE164")
+                        .IsUnique()
+                        .HasFilter("\"RouteCustomerId\" IS NOT NULL AND \"RemovedAtUtc\" IS NULL");
+
+                    b.ToTable("CustomerWhatsAppContacts", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustomerWhatsAppContacts_OneOwner", "(\"CardCode\" IS NULL) <> (\"RouteCustomerId\" IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.DailyIncomingPaymentEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -8768,6 +9085,34 @@ namespace ShopInventory.Migrations
                     b.Navigation("CreditNote");
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CustomerDocumentDeliveryEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.CustomerWhatsAppContactEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ShopInventory.Models.Entities.DesktopSaleEntity", null)
+                        .WithMany()
+                        .HasForeignKey("DesktopSaleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ShopInventory.Models.Entities.RouteCustomerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RouteCustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CustomerWhatsAppContactEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.RouteCustomerEntity", "RouteCustomer")
+                        .WithMany()
+                        .HasForeignKey("RouteCustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("RouteCustomer");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.DailyIncomingPaymentLineEntity", b =>

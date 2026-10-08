@@ -1,0 +1,271 @@
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+
+@* The invoice drawer's WhatsApp section: what was sent, to whom, and where it stands, for everyone who
+   may read the invoice; and the Send button, for the roles that may send. Styled by
+   wwwroot/css/customer-whatsapp.css on the shared Nocturne tokens, so it follows the app's theme. *@
+
+<section class="cwa cwa-panel" aria-label="WhatsApp">
+    <div class="cwa-panel-head">
+        <div class="cwa-panel-title">
+            <i class="ph ph-whatsapp-logo" aria-hidden="true"></i>
+            <span>WhatsApp</span>
+        </div>
+        <div class="cwa-panel-tools">
+            <button type="button" class="cwa-btn cwa-btn-ghost cwa-btn-icon" title="Refresh" aria-label="Refresh the WhatsApp history"
+                    disabled="@isLoading" @onclick="LoadAsync">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"></path></svg>
+            </button>
+            <AuthorizeView Roles="@UserRoles.DocumentWhatsAppRoles" Context="sendAuth">
+                <button type="button" class="cwa-btn cwa-btn-primary" disabled="@isLoading" @onclick="OpenSendAsync">
+                    <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>Send via WhatsApp
+                </button>
+            </AuthorizeView>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="cwa-msg cwa-msg-bad" role="alert">@loadError</div>
+    }
+
+    @if (isLoading && deliveries.Count == 0)
+    {
+        <div class="cwa-quiet">Loading…</div>
+    }
+    else if (deliveries.Count == 0)
+    {
+        <div class="cwa-quiet">Not sent on WhatsApp yet.</div>
+    }
+    else
+    {
+        <ul class="cwa-history">
+            @foreach (var delivery in deliveries)
+            {
+                <li class="cwa-history-row">
+                    <div class="cwa-history-main">
+                        <span class="cwa-chip cwa-chip-@CustomerDocumentDisplay.StatusTone(delivery.Status)">
+                            @CustomerDocumentDisplay.StatusLabel(delivery.Status)
+                        </span>
+                        <span class="cwa-history-to">@delivery.RecipientMasked</span>
+                        @if (!string.IsNullOrWhiteSpace(delivery.RecipientName))
+                        {
+                            <span class="cwa-quiet">@delivery.RecipientName</span>
+                        }
+                    </div>
+                    <div class="cwa-history-meta">
+                        @CustomerDocumentDisplay.TriggerLabel(delivery.Trigger)@(string.IsNullOrWhiteSpace(delivery.RequestedBy) ? null : $" · {delivery.RequestedBy}") ·
+                        @CustomerDocumentDisplay.Stamp(delivery.SentAtUtc ?? delivery.CreatedAtUtc)
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(delivery.StatusReason))
+                    {
+                        <div class="cwa-history-reason">@delivery.StatusReason</div>
+                    }
+                    <AuthorizeView Roles="@UserRoles.DocumentWhatsAppRoles" Context="rowAuth">
+                        @if (delivery.CanRetry || delivery.CanCancel)
+                        {
+                            <div class="cwa-history-actions">
+                                @if (delivery.CanCancel)
+                                {
+                                    <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@(busyDeliveryId == delivery.Id)"
+                                            @onclick="() => CancelAsync(delivery)">
+                                        Withdraw
+                                    </button>
+                                }
+                                @if (delivery.CanRetry)
+                                {
+                                    <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@(busyDeliveryId == delivery.Id)"
+                                            @onclick="() => BeginRetry(delivery)">
+                                        Send again
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </AuthorizeView>
+                </li>
+            }
+        </ul>
+    }
+</section>
+
+@* The dialogs are gated as well as the buttons that open them: what decides whether a send can
+   be made is the role, never only whether a flag happened to be set. *@
+<AuthorizeView Roles="@UserRoles.DocumentWhatsAppRoles" Context="dialogAuth">
+    @if (retrying is not null)
+    {
+        <div class="cwa-overlay">
+            <div class="cwa-dialog-wrap" @onclick="CloseRetry">
+                <div class="cwa cwa-dialog" role="dialog" aria-modal="true" aria-labelledby="cwa-retry-title" @onclick:stopPropagation="true">
+                    <h3 id="cwa-retry-title" class="cwa-dialog-title">Send invoice #@DocNum again?</h3>
+                    <p class="cwa-dialog-copy">
+                        To @retrying.RecipientMasked — the earlier send is
+                        <strong>@CustomerDocumentDisplay.StatusLabel(retrying.Status).ToLowerInvariant()</strong>.
+                    </p>
+                    @if (retrying.RetryNeedsConfirmation)
+                    {
+                        <label class="cwa-check">
+                            <input type="checkbox" class="cwa-checkbox" @bind="retryConfirmed" />
+                            <span>The customer told us they did not receive it. A second copy will arrive if the first did.</span>
+                        </label>
+                    }
+                    @if (retryError is not null)
+                    {
+                        <div class="cwa-msg cwa-msg-bad" role="alert">@retryError</div>
+                    }
+                    <div class="cwa-dialog-foot">
+                        <button type="button" class="cwa-btn cwa-btn-quiet" @onclick="CloseRetry">Cancel</button>
+                        <button type="button" class="cwa-btn cwa-btn-primary"
+                                disabled="@(isRetrying || (retrying.RetryNeedsConfirmation && !retryConfirmed))"
+                                @onclick="RetryAsync">
+                            @(isRetrying ? "Sending…" : "Send again")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (isSendOpen)
+    {
+        <div class="cwa-overlay">
+            <div class="cwa-dialog-wrap" @onclick="CloseSend">
+                <div class="cwa cwa-dialog cwa-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="cwa-send-title"
+                     @onclick:stopPropagation="true">
+                    <h3 id="cwa-send-title" class="cwa-dialog-title">Send invoice #@DocNum on WhatsApp</h3>
+                    <p class="cwa-dialog-copy">
+                        @CardName <span class="cwa-quiet">(@CardCode)</span>. It is sent as the Fiscal Tax Invoice PDF once its
+                        fiscal receipt is confirmed, usually within a minute.
+                    </p>
+
+                    <div class="cwa-sect">Saved numbers</div>
+                    @if (isLoadingContacts)
+                    {
+                        <div class="cwa-quiet">Loading…</div>
+                    }
+                    else if (contacts.Count == 0)
+                    {
+                        <div class="cwa-quiet">No WhatsApp number is saved on this customer. Type one below, or save one on the customer's page.</div>
+                    }
+                    else
+                    {
+                        <div class="cwa-choices">
+                            @foreach (var contact in contacts)
+                            {
+                                var unavailable = contact.IsOptedOut || contact.IsRemoved;
+                                <label class="cwa-choice @(unavailable ? "is-off" : "")">
+                                    <input type="checkbox" class="cwa-checkbox" disabled="@unavailable"
+                                           checked="@chosenContacts.Contains(contact.Id)"
+                                           @onchange="e => ToggleContact(contact.Id, e.Value is true)" />
+                                    <span class="cwa-choice-main">
+                                        <span class="cwa-num">@contact.PhoneE164</span>
+                                        @if (!string.IsNullOrWhiteSpace(contact.ContactName))
+                                        {
+                                            <span class="cwa-quiet">@contact.ContactName</span>
+                                        }
+                                    </span>
+                                    @if (contact.IsOptedOut)
+                                    {
+                                        <span class="cwa-chip cwa-chip-warn">Opted out</span>
+                                    }
+                                    else if (contact.WhatsAppExists == false)
+                                    {
+                                        <span class="cwa-chip cwa-chip-warn">Not on WhatsApp</span>
+                                    }
+                                    else if (contact.AutoSendInvoices)
+                                    {
+                                        <span class="cwa-chip cwa-chip-neutral">Gets invoices automatically</span>
+                                    }
+                                </label>
+                            }
+                        </div>
+                    }
+
+                    <div class="cwa-sect">Another number</div>
+                    <div class="cwa-grid">
+                        <div class="cwa-field">
+                            <label class="cwa-label" for="cwa-oneoff-phone">WhatsApp number</label>
+                            <input id="cwa-oneoff-phone" class="cwa-input" type="tel" inputmode="tel" maxlength="40"
+                                   placeholder="0771 234 567" @bind="oneOffPhone" @bind:event="oninput" @bind:after="ClearCheck" />
+                        </div>
+                        <div class="cwa-field">
+                            <label class="cwa-label" for="cwa-oneoff-name">Who answers on it</label>
+                            <input id="cwa-oneoff-name" class="cwa-input" type="text" maxlength="100"
+                                   placeholder="Optional" @bind="oneOffName" />
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(oneOffPhone))
+                    {
+                        <div class="cwa-oneoff">
+                            <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@isChecking" @onclick="CheckOneOffAsync">
+                                @(isChecking ? "Checking…" : "Check number")
+                            </button>
+                            @if (oneOffCheck is not null)
+                            {
+                                <span class="cwa-check-result @(oneOffCheck.IsValid && !oneOffCheck.OptedOut ? "is-good" : "is-bad")">
+                                    @(oneOffCheck.IsValid ? $"Will send to {oneOffCheck.PhoneE164}." : "")
+                                    @oneOffCheck.Message
+                                </span>
+                            }
+                        </div>
+                        <label class="cwa-check">
+                            <input type="checkbox" class="cwa-checkbox" @bind="consentAffirmed" />
+                            <span>The customer asked for this invoice on this WhatsApp number.</span>
+                        </label>
+                        <AuthorizeView Roles="@UserRoles.CustomerWhatsAppRoles" Context="saveAuth">
+                            <label class="cwa-check">
+                                <input type="checkbox" class="cwa-checkbox" @bind="saveAsContact" />
+                                <span>Save it on the customer</span>
+                            </label>
+                            @if (saveAsContact)
+                            {
+                                <label class="cwa-check cwa-check-indent">
+                                    <input type="checkbox" class="cwa-checkbox" @bind="autoSendFuture" />
+                                    <span>Send the customer's future invoices to it automatically</span>
+                                </label>
+                            }
+                        </AuthorizeView>
+                    }
+
+                    <div class="cwa-sect">The document</div>
+                    <div class="cwa-preview">
+                        <button type="button" class="cwa-btn cwa-btn-quiet" disabled="@isPreviewing" @onclick="PreviewAsync">
+                            @(isPreviewing ? "Preparing…" : "Preview what will be sent")
+                        </button>
+                        @if (preview is not null)
+                        {
+                            @if (preview.Ready)
+                            {
+                                <div class="cwa-preview-ready">
+                                    <div class="cwa-preview-file">
+                                        <i class="ph ph-file-pdf" aria-hidden="true"></i>
+                                        <span>@preview.FileName</span>
+                                        <button type="button" class="cwa-btn cwa-btn-link" @onclick="DownloadPreviewAsync">Download</button>
+                                    </div>
+                                    <div class="cwa-preview-caption">@preview.Caption</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="cwa-msg cwa-msg-warn">
+                                    Not ready to go yet: @preview.Reason It will be sent as soon as it is.
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    @if (sendError is not null)
+                    {
+                        <div class="cwa-msg cwa-msg-bad" role="alert">@sendError</div>
+                    }
+
+                    <div class="cwa-dialog-foot">
+                        <button type="button" class="cwa-btn cwa-btn-quiet" @onclick="CloseSend">Cancel</button>
+                        <button type="button" class="cwa-btn cwa-btn-primary" disabled="@(!CanSend || isSending)" @onclick="SendAsync">
+                            @(isSending ? "Queuing…" : SendLabel)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</AuthorizeView>

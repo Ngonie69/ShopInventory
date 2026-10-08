@@ -98,9 +98,17 @@
          see scripts/derive_daily_payments_css.py. -->
     <StaffStylesheetLate Include="wwwroot/css/daily-payments.css" />
     <StaffStylesheetLate Include="wwwroot/css/whatsapp-console.css" />
+    <!-- /whatsapp-deliveries — the documents sent to customers on WhatsApp, for administrators.
+         Derived from fiscal-console.css's header, filter bar and table, under `wdl-`; reads
+         nocturne-tokens.css directly. -->
+    <StaffStylesheetLate Include="wwwroot/css/whatsapp-deliveries.css" />
     <StaffStylesheetLate Include="wwwroot/css/quotations.css" />
     <StaffStylesheetLate Include="wwwroot/css/sales-orders.css" />
     <StaffStylesheetLate Include="wwwroot/css/invoices.css" />
+    <!-- The WhatsApp numbers on a customer and the WhatsApp history and Send dialog on an invoice,
+         under `cwa-`. Components that sit inside the /customers and /invoices drawers, so they read
+         nocturne-tokens.css directly rather than aliasing either host's prefix. -->
+    <StaffStylesheetLate Include="wwwroot/css/customer-whatsapp.css" />
     <StaffStylesheetLate Include="wwwroot/css/payments.css" />
     <!-- One sheet, four purchase registers — quotations, requests, A/P invoices and goods receipt
          POs. Derived from audit-trail.css; see its header for why the four share a sheet and why

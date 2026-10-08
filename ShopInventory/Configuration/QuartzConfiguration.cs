@@ -42,6 +42,8 @@ public static class QuartzConfiguration
             .Get<FiscalisationSettings>() ?? new FiscalisationSettings();
         var cartrack = configuration.GetSection(CartrackSettings.SectionName)
             .Get<CartrackSettings>() ?? new CartrackSettings();
+        var customerDocuments = configuration.GetSection(CustomerDocumentDeliverySettings.SectionName)
+            .Get<CustomerDocumentDeliverySettings>() ?? new CustomerDocumentDeliverySettings();
 
         services.AddQuartz(q =>
         {
@@ -412,6 +414,19 @@ public static class QuartzConfiguration
             // Nightly at 04:15, clear of the telematics passes (02:30, 03:15, Sunday 03:45) and long
             // before trading. What each table keeps is listed in the job.
             AddCronJob<DatabaseRetentionJob>(q, DatabaseRetentionJob.JobName, "0 15 4 * * ?");
+
+            // Customer documents on WhatsApp. Declared from appsettings alone — never from whether this
+            // node has OpenWA configured, which lives in its own web.config: a node declaring the job
+            // differently would have QuartzStoredJobReconciler delete it for the whole cluster. A pass
+            // on a node without the gateway claims nothing and leaves the sending to one with it.
+            if (customerDocuments.Enabled)
+            {
+                AddIntervalJob<CustomerDocumentDeliveryJob>(
+                    q,
+                    CustomerDocumentDeliveryJob.JobName,
+                    TimeSpan.FromSeconds(Math.Max(15, customerDocuments.SendIntervalSeconds)),
+                    startDelay: TimeSpan.FromMinutes(3));
+            }
         });
 
         // Before Quartz's own hosted service, so this node knows whether the cluster holds a newer

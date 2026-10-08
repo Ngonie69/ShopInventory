@@ -22,6 +22,11 @@ public static class Permissions
     public const string DeleteInvoices = "invoices.delete";
     public const string VoidInvoices = "invoices.void";
 
+    // Sending an invoice to a customer's WhatsApp. Its own permission rather than a part of creating
+    // one, because it decides where a company document goes — and to a number typed at the time, if
+    // the sender chooses. A manager reads invoices and their delivery history, and does not send.
+    public const string SendInvoicesWhatsApp = "invoices.send_whatsapp";
+
     // Purchasing
     public const string ViewPurchaseOrders = "purchasing.view";
     public const string CreatePurchaseOrders = "purchasing.create";
@@ -65,6 +70,11 @@ public static class Permissions
     public const string CreateCustomers = "customers.create";
     public const string EditCustomers = "customers.edit";
     public const string DeleteCustomers = "customers.delete";
+
+    // The WhatsApp numbers customers gave for their documents, and their consent. Separate from
+    // customers.edit, which a manager holds: saving a number here is what points every new invoice of
+    // that customer at a phone.
+    public const string ManageCustomerWhatsApp = "customers.whatsapp.manage";
 
     // Users & Admin
     public const string ViewUsers = "users.view";
@@ -184,7 +194,8 @@ public static class Permissions
                 new(CreateInvoices, "Create Invoices", "Create new invoices"),
                 new(EditInvoices, "Edit Invoices", "Modify draft invoices"),
                 new(DeleteInvoices, "Delete Invoices", "Delete draft invoices"),
-                new(VoidInvoices, "Void Invoices", "Void posted invoices")
+                new(VoidInvoices, "Void Invoices", "Void posted invoices"),
+                new(SendInvoicesWhatsApp, "Send Invoices on WhatsApp", "Send or resend an invoice to a customer's WhatsApp number")
             },
             ["Purchasing"] = new()
             {
@@ -232,7 +243,8 @@ public static class Permissions
                 new(ViewCustomers, "View Customers", "View customer/business partner information"),
                 new(CreateCustomers, "Create Customers", "Add new customers"),
                 new(EditCustomers, "Edit Customers", "Modify customer information"),
-                new(DeleteCustomers, "Delete Customers", "Remove customers")
+                new(DeleteCustomers, "Delete Customers", "Remove customers"),
+                new(ManageCustomerWhatsApp, "Manage Customer WhatsApp Numbers", "Record the WhatsApp numbers customers give for their invoices, with their consent, and opt them out")
             },
             ["Users"] = new()
             {
@@ -363,9 +375,13 @@ public static class Permissions
             {
                 ViewDashboard, ViewProducts,
                 ViewInvoices, CreateInvoices, EditInvoices,
+                // The cashier raises the invoices, so the cashier sends them and keeps the numbers
+                // customers give for them.
+                SendInvoicesWhatsApp,
                 ViewPayments, CreatePayments,
                 ViewStock, ViewInventory,
                 ViewCustomers, CreateCustomers, EditCustomers,
+                ManageCustomerWhatsApp,
                 // Posting to SAP as well as approving: /mobile-drafts and /sales-orders offer a cashier
                 // "Post to SAP" on purpose (MobileDrafts.razor gates it on Admin,Cashier,SalesRep). The
                 // two stay separate permissions; a cashier holds both, as a sales rep already did.
@@ -523,6 +539,7 @@ public static class Permission
     public const string EditInvoices = Permissions.EditInvoices;
     public const string DeleteInvoices = Permissions.DeleteInvoices;
     public const string VoidInvoices = Permissions.VoidInvoices;
+    public const string SendInvoicesWhatsApp = Permissions.SendInvoicesWhatsApp;
 
     // Purchasing
     public const string ViewPurchaseOrders = Permissions.ViewPurchaseOrders;
@@ -567,6 +584,7 @@ public static class Permission
     public const string CreateCustomers = Permissions.CreateCustomers;
     public const string EditCustomers = Permissions.EditCustomers;
     public const string DeleteCustomers = Permissions.DeleteCustomers;
+    public const string ManageCustomerWhatsApp = Permissions.ManageCustomerWhatsApp;
 
     // Users & Admin
     public const string ViewUsers = Permissions.ViewUsers;

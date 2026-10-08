@@ -277,5 +277,14 @@ public class WhatsAppDeliveryPathTests
 
         public Task<WhatsAppMessageDispatchDto> ReplyAsync(string sessionId, WhatsAppReplyRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<WhatsAppMessageDispatchDto> SendDocumentAsync(string sessionId, WhatsAppSendDocumentRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<WhatsAppNumberCheckDto> CheckNumberAsync(string sessionId, string digits, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<WhatsAppMessageHistoryDto> GetMessagesAsync(string sessionId, string chatId, int limit, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

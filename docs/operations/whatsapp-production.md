@@ -1,7 +1,8 @@
 # WhatsApp in production
 
 How the WhatsApp operator console is turned on for the live estate, and what to check when it stops
-working. For starting OpenWA on a developer machine, see
+working. Sending invoices to customers rides on the same gateway; see
+[Customer documents](#customer-documents). For starting OpenWA on a developer machine, see
 [openwa-windows-startup.md](openwa-windows-startup.md).
 
 ## What has to be true
@@ -30,22 +31,24 @@ OpenWA runs on **10.10.10.9 only**.
 
 WhatsApp Web allows one linked browser session per number. A second OpenWA instance paired to the
 same number fights the first for it: both flap between connected and disconnected and inbound
-messages land on whichever won the race. So the load-balanced pair shares one gateway:
+messages land on whichever won the race. So there is one gateway, and only .9's API talks to it:
 
 ```
   10.10.10.9                                  10.10.10.58
-  ┌──────────────────────────────┐            ┌──────────────────────┐
-  │ IIS  ShopInventory-API :5106 │◀───────────│ (no OpenWA here)     │
-  │ IIS  ShopInventory-Web  :5107│            │ IIS  API :5106       │
-  │                              │            │ IIS  Web :5107       │
-  │ OpenWA (Node + Chrome) :2785 │◀───────────│ OpenWA__BaseUrl      │
-  └──────────────────────────────┘            └──────────────────────┘
+  ┌──────────────────────────────┐            ┌──────────────────────────┐
+  │ IIS  ShopInventory-API :5106 │            │ No OpenWA__* settings.   │
+  │ IIS  ShopInventory-Web  :5107│            │ A WhatsApp request it    │
+  │                              │            │ serves answers "WhatsApp │
+  │ OpenWA (Node + Chrome) :2785 │            │ integration is disabled" │
+  └──────────────────────────────┘            └──────────────────────────┘
             ▲        │
             │        └─ webhook → http://10.10.10.9:5106/api/whatsapp/webhook/openwa
-            └────────── OpenWA__BaseUrl = http://10.10.10.9:2785
+            └────────── OpenWA__BaseUrl = http://10.10.10.9:2785 (on .9 only)
 ```
 
-Both nodes read the same Postgres, so a message delivered to .9 is in the inbox .58 serves. If .9 is
+.58 was left unconfigured on purpose on 2026-10-07. If it is ever configured, point it at
+`http://10.10.10.9:2785` and pin its `-WebhookPublicUrl` to .9's URL as well: OpenWA matches webhooks
+by URL alone, so a per-node URL registers a second webhook and delivers every message twice. If .9 is
 down, WhatsApp is down; the rest of the app is not.
 
 ## Install
@@ -131,6 +134,95 @@ sessions being restarted. Press **Repair delivery** on each session, or restart 
 **Session dropped to `disconnected` after a reboot.** The boot task did not run, or Chrome could not
 start under SYSTEM. `Get-ScheduledTask ShopInventory-OpenWA`, then the newest `OpenWA\logs\*.err.log`.
 The stored session survives a restart, so this does not need a fresh QR scan.
+
+## Customer documents
+
+Invoices sent to customers on WhatsApp, as the Fiscal Tax Invoice PDF, from a **dedicated number**
+paired as its own session. Staff send from the invoice drawer on `/invoices`, numbers are kept with
+the customer's consent on `/customers`, and administrators run it from `/whatsapp-deliveries`.
+
+Every send is a row in `CustomerDocumentDeliveries`. One clustered Quartz job,
+`customer-document-delivery`, sends them one at a time with a randomised gap, and only once the
+invoice's fiscal receipt is confirmed. No web request calls WhatsApp directly.
+
+### Before the first send
+
+1. **OpenWA must accept a request over 100 KB.** Express's default JSON limit is 100 KB, and the
+   invoice PDF carries a 117 KB logo before any lines. Until the gateway's body limit is raised
+   (`API_BODY_LIMIT` in `OpenWA\.env`, written by `Install-OpenWAProduction.ps1` once the fork
+   change ships), every send is refused with `413`. The row is marked **Failed** and administrators
+   get a *document too large* alert.
+2. **Pair the dedicated number.** Use a SIM and phone that are used for nothing else, with WhatsApp
+   Business, the profile name *Kefalos Cheese — Invoices* and the office number in the description.
+   On `/whatsapp-inbox`: **New** → `customer-documents` → **Create + start**, then scan the QR code.
+   Its webhook registers itself, so customers' replies land in the inbox. Keep the phone charged and
+   online.
+3. **Warm it up.** Have five to ten staff message the number first. A new number that only sends is
+   the pattern WhatsApp bans.
+4. **Choose it.** On `/whatsapp-deliveries`, set **Send documents from** to `customer-documents`.
+   Leave **Send new invoices automatically** off for the first week, and the automatic cap at 20.
+
+### Where its settings live
+
+| Setting | Where | Changed by |
+|---|---|---|
+| `CustomerDocuments:Enabled`, the send window, gaps, hourly/daily/per-number caps, caption | `appsettings.json` | A deploy. The same on every node, and it decides whether the job is scheduled at all |
+| The session, automatic sending on/off, the automatic daily cap | `SystemConfigs` | `/whatsapp-deliveries`. Every node reads them on its next pass |
+| `OpenWA__*`, including `OpenWA:DocumentTimeoutSeconds` (60) | `web.config` | `Set-OpenWAApiConfig.ps1`. A node without them sends nothing and claims nothing |
+
+The job is declared from `appsettings.json` alone, never from `web.config`. `QuartzStoredJobReconciler`
+deletes a job that the starting node does not declare, so a per-node setting would let .58 delete .9's
+job. A node without the gateway settings runs the job, finds it cannot send, and leaves every row for a
+node that can.
+
+### Switching it off
+
+| To | Do |
+|---|---|
+| Stop automatic sends at once | `/whatsapp-deliveries` → turn **Send new invoices automatically** off |
+| Stop every send at once | `/whatsapp-deliveries` → **Send documents from** → *None*. Queued sends wait |
+| Remove the job | `CustomerDocuments:Enabled = false` in `appsettings.json`, then deploy |
+
+### Proving it works
+
+Judge by what arrives on the phone, never by the row's status:
+
+1. Save a staff member's number on a test customer and send one invoice from its drawer.
+2. On the phone: the PDF opens, the file name is `Kefalos-Invoice-<number>.pdf`, the caption names
+   the right customer and total, and the QR code verifies on ZIMRA's page.
+3. Compare `CustomerDocumentDeliveries` with OpenWA's own message log for the session. Every **Sent**
+   and **Sent (unconfirmed)** row should have an outgoing message to that chat with that file name.
+
+**Sent (unconfirmed)** is normal. Current WhatsApp Web builds often accept a message without returning
+its id. It is finished and is never sent again by itself.
+
+### When it goes wrong
+
+`/whatsapp-deliveries` → **Needs a person** lists the three states that wait for someone:
+
+- **Needs attention (Held).** The fiscal receipt could not be confirmed. Either the receipt's
+  customer, total or date disagreed with the invoice, or it waited longer than
+  `MaxFiscalWaitHours` (24). Check the invoice on `/fiscalisation` before resending. A receipt that
+  disagrees is exactly the stale-repost link the check exists to stop.
+- **Checking whether it went (Uncertain).** The call to OpenWA was cut off: a timeout, a 5xx, or a
+  restart mid-send. After five minutes the job settles it from OpenWA's own message log. If the log
+  shows the message, the row becomes Sent. If the log has no record of it, the row is queued again,
+  because OpenWA writes its log row before it sends.
+- **Failed.** OpenWA refused the request, or five attempts in a row could not reach it. The reason
+  is on the row, quoted as the gateway gave it.
+
+**Send again** creates a new row and never repeats the old one. For a send that may already have
+arrived, it asks for a tick confirming the customer did not receive it.
+
+Administrators get at most one notification per condition every six hours, never one per document.
+The conditions are:
+
+- the session is not ready, or the gateway cannot be reached;
+- the gateway refused the job (`401`, `403` or `404`);
+- a document is too large (`413`);
+- a pass held sends or left them uncertain;
+- the hourly or daily cap stopped sends that were due;
+- more than `BacklogAlertThreshold` (50) sends are waiting.
 
 ## Rotating the webhook secret
 

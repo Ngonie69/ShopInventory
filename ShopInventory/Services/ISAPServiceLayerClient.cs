@@ -173,6 +173,13 @@ public interface ISAPServiceLayerClient
     Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// What sending an invoice to its customer needs to know about it, and no lines: who it is for,
+    /// what it is for, and whether it is a document that should go at all (cancelled, reposted,
+    /// consolidated).
+    /// </summary>
+    Task<List<Invoice>> GetInvoiceDeliveryHeadersAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// DocTotal, PaidToDate, status and cancellation for each invoice, without lines. What a payment
     /// needs to know it is not settling an invoice twice.
     /// </summary>

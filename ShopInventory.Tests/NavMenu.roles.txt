@@ -387,6 +387,7 @@ Administration
     Volume Factors  /reports/volume-conversions
     Webhooks  /webhooks
     WhatsApp Inbox  /whatsapp-inbox
+    WhatsApp Deliveries  /whatsapp-deliveries
     API Docs  /swagger
     Audit Trail  /audit-trail
     Backups  /backups

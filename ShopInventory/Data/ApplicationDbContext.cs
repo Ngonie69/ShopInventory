@@ -281,6 +281,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   /// <summary>When SAP was down, as the cluster saw it. See <see cref="SapOutageEntity"/>.</summary>
   public DbSet<SapOutageEntity> SapOutages { get; set; }
 
+  // Customers' WhatsApp numbers with their consent, and every document sent to one.
+  public DbSet<CustomerWhatsAppContactEntity> CustomerWhatsAppContacts { get; set; }
+  public DbSet<CustomerDocumentDeliveryEntity> CustomerDocumentDeliveries { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -2286,6 +2290,91 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
       entity.ToTable("StockMovements");
       entity.HasKey(e => e.Id);
+    });
+
+    modelBuilder.Entity<CustomerWhatsAppContactEntity>(entity =>
+    {
+      entity.ToTable("CustomerWhatsAppContacts", t =>
+        t.HasCheckConstraint("CK_CustomerWhatsAppContacts_OneOwner", "(\"CardCode\" IS NULL) <> (\"RouteCustomerId\" IS NULL)"));
+
+      entity.Property(e => e.ConsentSource)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.OptedOutSource)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+      // One live row per number per customer. An opted-out row still counts, so saving the same
+      // number again with fresh consent revives that row rather than adding a second beside it.
+      entity.HasIndex(e => new { e.CardCode, e.PhoneE164 })
+            .IsUnique()
+            .HasFilter("\"CardCode\" IS NOT NULL AND \"RemovedAtUtc\" IS NULL");
+
+      entity.HasIndex(e => new { e.RouteCustomerId, e.PhoneE164 })
+            .IsUnique()
+            .HasFilter("\"RouteCustomerId\" IS NOT NULL AND \"RemovedAtUtc\" IS NULL");
+
+      // Route customers are deactivated, never deleted, and a contact must not vanish with one.
+      entity.HasOne(e => e.RouteCustomer)
+            .WithMany()
+            .HasForeignKey(e => e.RouteCustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+    });
+
+    modelBuilder.Entity<CustomerDocumentDeliveryEntity>(entity =>
+    {
+      entity.ToTable("CustomerDocumentDeliveries", t =>
+      {
+        t.HasCheckConstraint("CK_CustomerDocumentDeliveries_OneDocument", "(\"SapDocEntry\" IS NULL) <> (\"DesktopSaleId\" IS NULL)");
+        t.HasCheckConstraint("CK_CustomerDocumentDeliveries_DispatchAttempts_NonNegative", "\"DispatchAttempts\" >= 0");
+      });
+
+      // Stored by name so a person reading the table can tell a stuck send from a finished one.
+      entity.Property(e => e.DocumentType)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.Status)
+            .HasConversion<string>()
+            .HasMaxLength(30);
+
+      entity.Property(e => e.Trigger)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+      entity.HasIndex(e => new { e.Status, e.NextAttemptAtUtc });
+      entity.HasIndex(e => e.SapDocEntry);
+      entity.HasIndex(e => new { e.CardCode, e.CreatedAtUtc });
+      entity.HasIndex(e => new { e.RouteCustomerId, e.CreatedAtUtc });
+      entity.HasIndex(e => new { e.RecipientE164, e.CreatedAtUtc });
+      entity.HasIndex(e => e.SendIssuedAtUtc);
+
+      // The guard against sending one invoice to one number twice on its own. A person may still
+      // resend on purpose: those rows are Manual and sit outside the filter.
+      entity.HasIndex(e => new { e.SapDocEntry, e.RecipientE164 })
+            .IsUnique()
+            .HasFilter("\"Trigger\" = 'Auto' AND \"SapDocEntry\" IS NOT NULL");
+
+      // What makes the till's "send this receipt" call safe to repeat.
+      entity.HasIndex(e => new { e.DesktopSaleId, e.RecipientE164 })
+            .IsUnique()
+            .HasFilter("\"Trigger\" = 'Counter' AND \"DesktopSaleId\" IS NOT NULL");
+
+      entity.HasOne<DesktopSaleEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.DesktopSaleId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne<RouteCustomerEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.RouteCustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne<CustomerWhatsAppContactEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.ContactId)
+            .OnDelete(DeleteBehavior.Restrict);
     });
 
     // Last, and it has to be last: it reads each property's configured column type to tell an instant

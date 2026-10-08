@@ -477,6 +477,15 @@
                     </div>
                 </section>
 
+                @* Shown to the roles that keep the register of customers' WhatsApp numbers; a manager
+                   reads this page and does not point a customer's invoices at a phone. *@
+                <AuthorizeView Roles="@UserRoles.CustomerWhatsAppRoles" Context="whatsAppAccess">
+                    <CustomerWhatsAppContacts CardCode="@cardCode"
+                                              OwnerName="@partner.CardName"
+                                              SuggestedPhones="@selectedSuggestedPhones"
+                                              SiblingCards="@selectedSiblings" />
+                </AuthorizeView>
+
                 <section class="bp-section">
                     <h3>Financial</h3>
                     <div class="bp-dl">

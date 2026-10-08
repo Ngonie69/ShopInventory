@@ -1,0 +1,301 @@
+using System.Globalization;
+using ErrorOr;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Common.Errors;
+using ShopInventory.Common.Fiscalization;
+using ShopInventory.Configuration;
+using ShopInventory.Data;
+using ShopInventory.DTOs;
+using ShopInventory.Features.CustomerDocuments.Delivery;
+using ShopInventory.Models;
+using ShopInventory.Models.Entities;
+using ShopInventory.Services;
+
+namespace ShopInventory.Features.CustomerDocuments.Commands.RequestInvoiceWhatsApp;
+
+/// <summary>
+/// Queues an invoice for the customer's WhatsApp, to saved numbers or to one typed for this send.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Nothing is sent here. Each number becomes a delivery row and the delivery job is woken, so a send
+/// asked for by a person keeps to the same pacing, the same fiscal check and the same duplicate guard
+/// as every other — and still goes when the node that took the request has no gateway configured.
+/// </para>
+/// <para>
+/// The invoice is checked first, so the person is told at once rather than finding a held row later:
+/// a cancelled invoice, a repost after the SAP update and an end-of-day consolidation are refused. A
+/// saved number must be on the invoice's own customer and not opted out. A one-off number needs the
+/// sender to confirm the customer asked for it there, and one-offs are capped per person per day —
+/// they are where a typo or a misunderstanding sends a company document to a stranger.
+/// </para>
+/// </remarks>
+public sealed class RequestInvoiceWhatsAppHandler(
+    ApplicationDbContext context,
+    ISAPServiceLayerClient sapClient,
+    IOptions<SAPSettings> sapSettings,
+    IOptions<CustomerDocumentDeliverySettings> options,
+    IOptions<FiscalisationSettings> fiscalisationOptions,
+    ICustomerDocumentDispatchTrigger dispatchTrigger,
+    IAuditService auditService,
+    ILogger<RequestInvoiceWhatsAppHandler> logger)
+    : IRequestHandler<RequestInvoiceWhatsAppCommand, ErrorOr<List<CustomerDocumentDeliveryDto>>>
+{
+    private static readonly Func<CustomerDocumentDeliveryEntity, CustomerDocumentDeliveryDto> ToDto =
+        CustomerDocumentProjections.Delivery.Compile();
+
+    public async Task<ErrorOr<List<CustomerDocumentDeliveryDto>>> Handle(
+        RequestInvoiceWhatsAppCommand command,
+        CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+        var request = command.Request;
+
+        if (!settings.Enabled)
+            return Errors.CustomerDocuments.Disabled;
+
+        if (!sapSettings.Value.Enabled)
+            return Errors.CustomerDocuments.DocumentUnavailable("SAP is switched off, so no invoice can be read to send.");
+
+        var actorName = await CustomerDocumentActor.ResolveNameAsync(context, command.UserId, cancellationToken);
+        if (actorName is null)
+            return Errors.CustomerDocuments.UserNotFound;
+
+        var runtime = await CustomerDocumentDeliveryKeys.ReadAsync(context, cancellationToken);
+        if (runtime.WhatsAppSessionId is null)
+            return Errors.CustomerDocuments.SessionNotConfigured;
+
+        Invoice? invoice;
+        try
+        {
+            invoice = (await sapClient.GetInvoiceDeliveryHeadersAsync([command.DocEntry], cancellationToken))
+                .FirstOrDefault(header => header.DocEntry == command.DocEntry);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read invoice {DocEntry} from SAP to send it on WhatsApp", command.DocEntry);
+            return Errors.CustomerDocuments.GatewayUnavailable("SAP could not be asked about the invoice. Try again in a moment.");
+        }
+
+        if (invoice is null)
+            return Errors.CustomerDocuments.InvoiceNotFound(command.DocEntry);
+
+        if (InvoiceDeliveryRules.IsCancelled(invoice))
+            return Errors.CustomerDocuments.InvoiceCancelled(invoice.DocNum);
+
+        if (InvoiceDeliveryRules.IsReposted(fiscalisationOptions.Value, invoice))
+            return Errors.CustomerDocuments.RepostedNotSendable(invoice.DocNum, RepostedInvoiceMarker.OldInvoiceNumber(invoice.Comments));
+
+        if (await InvoiceDeliveryRules.IsConsolidatedAsync(context, invoice, cancellationToken))
+            return Errors.CustomerDocuments.ConsolidatedNotSendable(invoice.DocNum);
+
+        var now = DateTime.UtcNow;
+        var recipients = new List<Recipient>();
+
+        var savedRecipients = await ResolveSavedContactsAsync(invoice, request.ContactIds, cancellationToken);
+        if (savedRecipients.IsError)
+            return savedRecipients.Errors;
+        recipients.AddRange(savedRecipients.Value);
+
+        if (!string.IsNullOrWhiteSpace(request.OneOffPhone))
+        {
+            var oneOff = await ResolveOneOffAsync(invoice, request, command.UserId, actorName, now, cancellationToken);
+            if (oneOff.IsError)
+                return oneOff.Errors;
+            recipients.Add(oneOff.Value);
+        }
+
+        recipients = recipients
+            .GroupBy(recipient => recipient.PhoneE164, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+
+        if (recipients.Count == 0)
+            return Errors.CustomerDocuments.RecipientRequired;
+
+        var deliveries = recipients
+            .Select(recipient => new CustomerDocumentDeliveryEntity
+            {
+                DocumentType = CustomerDocumentType.SapInvoice,
+                SapDocEntry = invoice.DocEntry,
+                SapDocNum = invoice.DocNum,
+                DocumentNumber = invoice.DocNum.ToString(CultureInfo.InvariantCulture),
+                SaleReference = Clean(invoice.U_Van_saleorder),
+                DocumentDate = InvoiceDeliveryRules.ParseDocDate(invoice.DocDate),
+                DocumentTotal = invoice.DocTotal,
+                DocumentTotalFc = InvoiceDeliveryRules.ForeignTotal(invoice),
+                Currency = Clean(invoice.DocCurrency),
+                CardCode = Clean(invoice.CardCode),
+                CardName = CustomerDocumentDeliveryRules.Truncate(Clean(invoice.CardName), 200),
+                ContactId = recipient.ContactId,
+                RecipientE164 = recipient.PhoneE164,
+                RecipientName = CustomerDocumentDeliveryRules.Truncate(recipient.Name, 100),
+                Trigger = CustomerDocumentDeliveryTrigger.Manual,
+                ConsentAffirmed = recipient.ConsentAffirmed,
+                RequestedByUserId = command.UserId,
+                RequestedBy = actorName,
+                Priority = 1,
+                Status = CustomerDocumentDeliveryStatus.Pending,
+                NextAttemptAtUtc = now,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            })
+            .ToList();
+
+        context.CustomerDocumentDeliveries.AddRange(deliveries);
+        await context.SaveChangesAsync(cancellationToken);
+
+        foreach (var delivery in deliveries)
+        {
+            await AuditAsync(delivery);
+        }
+
+        await dispatchTrigger.TriggerAsync(cancellationToken);
+
+        return deliveries.Select(ToDto).ToList();
+    }
+
+    private async Task<ErrorOr<List<Recipient>>> ResolveSavedContactsAsync(
+        Invoice invoice,
+        List<int>? contactIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = (contactIds ?? []).Distinct().ToList();
+        if (ids.Count == 0)
+            return new List<Recipient>();
+
+        var contacts = await context.CustomerWhatsAppContacts
+            .AsNoTracking()
+            .Where(contact => ids.Contains(contact.Id) && contact.RemovedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+        var recipients = new List<Recipient>();
+        foreach (var id in ids)
+        {
+            var contact = contacts.FirstOrDefault(row => row.Id == id);
+
+            // A contact on another customer is refused as if it did not exist: the invoice is this
+            // customer's, and a number saved for someone else did not agree to receive it.
+            if (contact is null
+                || !string.Equals(contact.CardCode?.Trim(), invoice.CardCode?.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.CustomerDocuments.ContactNotFound(id);
+            }
+
+            if (contact.OptedOutAtUtc is not null)
+                return Errors.CustomerDocuments.NumberOptedOut(WhatsAppRecipients.Mask(contact.PhoneE164));
+
+            recipients.Add(new Recipient(contact.PhoneE164, contact.Id, contact.ContactName ?? contact.OwnerName, false));
+        }
+
+        return recipients;
+    }
+
+    private async Task<ErrorOr<Recipient>> ResolveOneOffAsync(
+        Invoice invoice,
+        RequestInvoiceWhatsAppRequest request,
+        Guid userId,
+        string actorName,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+
+        if (!WhatsAppRecipients.TryNormalise(request.OneOffPhone, settings.DefaultCountryCode, out var phoneE164))
+            return Errors.CustomerDocuments.InvalidPhone(request.OneOffPhone!);
+
+        if (!request.ConsentAffirmed)
+            return Errors.CustomerDocuments.ConsentRequired;
+
+        var name = Clean(request.OneOffName);
+
+        if (request.SaveAsContact)
+        {
+            var cardCode = Clean(invoice.CardCode);
+            if (cardCode is null)
+                return Errors.CustomerDocuments.OwnerRequired;
+
+            if (await SellingAccountCards.IsSellingAccountAsync(context, cardCode, cancellationToken))
+                return Errors.CustomerDocuments.SellingAccountNotAllowed(cardCode);
+
+            var staged = await CustomerWhatsAppContactWriter.StageAsync(
+                context,
+                new ContactOwner(cardCode, null, Clean(invoice.CardName) ?? cardCode),
+                phoneE164,
+                name,
+                request.AutoSendFutureInvoices,
+                WhatsAppConsentSource.Web,
+                $"Given for invoice {invoice.DocNum}",
+                userId,
+                actorName,
+                settings.MaxContactsPerOwner,
+                nowUtc,
+                cancellationToken);
+
+            if (staged.IsError)
+                return staged.Errors;
+
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex) when (CustomerDocumentDbErrors.IsDuplicate(ex, "PhoneE164"))
+            {
+                return Error.Conflict(
+                    "CustomerDocuments.ContactSavedConcurrently",
+                    "This number was saved on the customer by someone else a moment ago. Refresh and try again.");
+            }
+
+            return new Recipient(phoneE164, staged.Value.Id, name ?? staged.Value.OwnerName, true);
+        }
+
+        var optedOut = await context.CustomerWhatsAppContacts
+            .AsNoTracking()
+            .AnyAsync(contact => contact.PhoneE164 == phoneE164
+                && contact.OptedOutAtUtc != null
+                && contact.RemovedAtUtc == null, cancellationToken);
+
+        if (optedOut)
+            return Errors.CustomerDocuments.NumberOptedOut(WhatsAppRecipients.Mask(phoneE164));
+
+        var dayStart = DeliveryBudget.CatDayStartUtc(nowUtc);
+        var oneOffsToday = await context.CustomerDocumentDeliveries
+            .AsNoTracking()
+            .CountAsync(delivery => delivery.RequestedByUserId == userId
+                && delivery.ContactId == null
+                && delivery.CreatedAtUtc >= dayStart, cancellationToken);
+
+        if (oneOffsToday >= settings.MaxOneOffPerUserPerDay)
+            return Errors.CustomerDocuments.OneOffLimitReached(settings.MaxOneOffPerUserPerDay);
+
+        return new Recipient(phoneE164, null, name, true);
+    }
+
+    private async Task AuditAsync(CustomerDocumentDeliveryEntity delivery)
+    {
+        try
+        {
+            await auditService.LogAsync(
+                AuditActions.RequestDocumentWhatsApp,
+                "CustomerDocumentDelivery",
+                delivery.Id.ToString(CultureInfo.InvariantCulture),
+                $"Asked to send invoice {delivery.DocumentNumber} ({delivery.CardCode}) to {WhatsAppRecipients.Mask(delivery.RecipientE164)}"
+                + (delivery.ContactId is null ? " — a number typed for this send" : string.Empty),
+                true);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not audit WhatsApp delivery {DeliveryId}", delivery.Id);
+        }
+    }
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private sealed record Recipient(string PhoneE164, int? ContactId, string? Name, bool ConsentAffirmed);
+}

@@ -81,6 +81,7 @@ Examples:
   - [Merchandiser](#38-merchandiser)
   - [Sync & SAP Connection](#39-sync--sap-connection)
   - [WhatsApp](#40-whatsapp)
+  - [Customer Documents on WhatsApp](#40a-customer-documents-on-whatsapp)
   - [Email](#41-email)
   - [Push Notifications](#42-push-notifications)
   - [Exception Center](#43-exception-center)
@@ -4655,6 +4656,67 @@ and signed with `OpenWA:WebhookSecret`, and `GET .../webhook` reports whether Op
 holding it. When it is not, the inbox stays empty and nothing anywhere reports an error — which is
 what the `Delivery` row on the operator console and `scripts/Test-WhatsAppDeliveryPath.ps1` exist to
 catch.
+
+---
+
+### 40a. Customer Documents on WhatsApp
+
+**Base routes:** `/api/customer-whatsapp-contacts`, `/api/customer-document-deliveries`  
+**Auth:** Bearer + `ApiAccess`, then the permission in each row  
+**Audit:** saving, opting out and removing a number, and requesting, resending and withdrawing a send,
+each write a row; so does a change to the settings.
+
+Customers' WhatsApp numbers, kept with the consent they were given under, and the invoices sent to
+them. Every send is a row in `CustomerDocumentDeliveries` that one clustered Quartz job,
+`customer-document-delivery`, sends through OpenWA. A request never calls WhatsApp itself: it queues
+the row, starts the job, and answers `202`.
+
+**Numbers**
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/customer-whatsapp-contacts` | `customers.whatsapp.manage` or `invoices.send_whatsapp` | A customer's numbers (`cardCode` or `routeCustomerId`) |
+| GET | `/api/customer-whatsapp-contacts/phone-check` | `customers.whatsapp.manage` or `invoices.send_whatsapp` | Normalise a typed number (`phone`) and say whether it is opted out or already saved. Asks nothing of WhatsApp |
+| POST | `/api/customer-whatsapp-contacts` | `customers.whatsapp.manage` | Save a number. Needs `consentConfirmed`; `alsoApplyToCardCodes` saves it on the same shop's other currency cards in one transaction |
+| PUT | `/api/customer-whatsapp-contacts/{id}` | `customers.whatsapp.manage` | Change the name, or whether new invoices go to it automatically |
+| POST | `/api/customer-whatsapp-contacts/{id}/opt-out` | `customers.whatsapp.manage` | Stop every document to that number, on every customer it is saved on |
+| POST | `/api/customer-whatsapp-contacts/{id}/check` | `customers.whatsapp.manage` | Ask WhatsApp whether the number has an account. Capped a day |
+| DELETE | `/api/customer-whatsapp-contacts/{id}` | `customers.whatsapp.manage` | Take the number off the customer. `204` |
+
+A number is stored in E.164: `0771 234 567` becomes `+263771234567`. A customer holds at most three.
+Selling-account cards are refused (shop tills, vans, cart vendors), because their invoices belong to
+many buyers. An opt-out is by number, and holds until the number is saved again with new consent.
+
+**Sends**
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/customer-document-deliveries` | `invoices.view` | One invoice's sends (`sapDocEntry`), numbers masked |
+| POST | `/api/customer-document-deliveries/invoices/{docEntry}` | `invoices.send_whatsapp` | Send an invoice to saved numbers (`contactIds`), a number typed for this send (`oneOffPhone` with `consentAffirmed`), or both. `202` |
+| GET | `/api/customer-document-deliveries/invoices/{docEntry}/preview` | `invoices.send_whatsapp` | The PDF, file name and caption that would be sent, or why it cannot go yet |
+| POST | `/api/customer-document-deliveries/{id}/retry` | `invoices.send_whatsapp` | Send again as a new row. `confirmNotReceived` is required when the first may have arrived. `202` |
+| POST | `/api/customer-document-deliveries/{id}/cancel` | `invoices.send_whatsapp` | Withdraw a send that has not started |
+| GET | `/api/customer-document-deliveries/log` | **Admin** | Every send, newest first (`status` or `attention`, `trigger`, `search`, `fromDate`, `toDate`, `page`, `pageSize` ≤ 200) |
+| GET | `/api/customer-document-deliveries/status` | **Admin** | The session, today's counts against the caps, and what is waiting |
+| PUT | `/api/customer-document-deliveries/settings` | **Admin** | The session documents go from, automatic sending on or off, and the automatic daily cap |
+
+A manual send refuses a cancelled invoice, a reposted one, and a consolidated till or van invoice,
+whose buyer is not the card it is posted to. The document is the Fiscal Tax Invoice PDF that the
+invoice download serves. It goes only once its fiscal receipt is confirmed: by the invoice's sale
+reference first, then by a fiscal transaction whose customer, total and date all agree, then by
+asking the device. Until then the send waits, and after `CustomerDocuments:MaxFiscalWaitHours` it is
+held for a person.
+
+**Statuses.** `Pending`, `Preparing`, `WaitingForFiscal` and `Sending` are on their way. `Sent` and
+`SentUnconfirmed` are finished; the second means WhatsApp accepted the message without giving it an
+id. `Uncertain` means the call was cut off: the job settles it from OpenWA's own message log rather
+than sending again. `Held` needs a person. `NotOnWhatsApp`, `Failed`, `Cancelled` and `Skipped` are
+final. A send that may already have arrived is never repeated by the job.
+
+**Limits.** Sends go one at a time with a randomised gap. They are capped per pass, per hour, per CAT
+day, per number per day, and per person per day for typed numbers. Automatic sends also keep to the
+window in `CustomerDocuments` and to the cap set on `/whatsapp-deliveries`. Choosing no session stops
+every send; the job then waits without claiming anything.
 
 ---
 

@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
+using ShopInventory.Web.Common;
+using ShopInventory.Web.Components.CustomerDocuments;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -36,6 +38,8 @@ public partial class Customers : ComponentBase
 
     private List<BusinessPartnerDto> customers = [];
     private BusinessPartnerDto? selectedCustomer;
+    private IReadOnlyList<SiblingCard> selectedSiblings = [];
+    private IReadOnlyList<string> selectedSuggestedPhones = [];
     private bool isLoading = true;
     private bool isGeneratingStatement;
     private bool isExporting;
@@ -289,9 +293,42 @@ public partial class Customers : ComponentBase
 
     // ── Drawer ──────────────────────────────────────────────────────────────
 
-    private void ViewCustomer(BusinessPartnerDto partner) => selectedCustomer = partner;
+    private void ViewCustomer(BusinessPartnerDto partner)
+    {
+        selectedCustomer = partner;
+        selectedSiblings = SiblingCardsOf(partner);
+        selectedSuggestedPhones = new[] { partner.Phone1, partner.Phone2 }
+            .Where(phone => !string.IsNullOrWhiteSpace(phone))
+            .Select(phone => phone!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
 
     private void CloseDrawer() => selectedCustomer = null;
+
+    /// <summary>
+    /// The same shop's cards in its other currencies — SAP keeps a shop once per currency — so a
+    /// WhatsApp number given for the shop can be saved on each. Matched by the shop name with its
+    /// currency tag removed, as the delivery routes were; worked out once when the drawer opens.
+    /// Only active cards are cached here, so a frozen sibling is not offered.
+    /// </summary>
+    private IReadOnlyList<SiblingCard> SiblingCardsOf(BusinessPartnerDto partner)
+    {
+        var key = BusinessPartnerShopKey.For(partner.CardName);
+        if (key.Length == 0)
+        {
+            return [];
+        }
+
+        return customers
+            .Where(other => !string.IsNullOrWhiteSpace(other.CardCode)
+                && !string.Equals(other.CardCode, partner.CardCode, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(other.CardType, partner.CardType, StringComparison.OrdinalIgnoreCase)
+                && BusinessPartnerShopKey.For(other.CardName) == key)
+            .OrderBy(other => other.CardCode, StringComparer.OrdinalIgnoreCase)
+            .Select(other => new SiblingCard(other.CardCode!, other.CardName ?? other.CardCode!, other.Currency))
+            .ToList();
+    }
 
     private void NavigateToInvoices(string cardCode)
     {

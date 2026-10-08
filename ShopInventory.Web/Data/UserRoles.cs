@@ -148,6 +148,20 @@ public static class UserRoles
     public const string InvoiceViewRoles = "Admin,Cashier,Manager";
 
     /// <summary>
+    /// Who may send an invoice to a customer's WhatsApp, resend one, or withdraw one waiting to go.
+    /// The roles that raise invoices; a manager reads the delivery history and sends nothing. The API
+    /// agrees through <c>invoices.send_whatsapp</c>, which Admin and Cashier hold and a manager does not.
+    /// </summary>
+    public const string DocumentWhatsAppRoles = "Admin,Cashier";
+
+    /// <summary>
+    /// Who may save, change, opt out or remove the WhatsApp numbers customers gave for their documents.
+    /// A saved number points every new invoice of that customer at a phone, so it is not part of
+    /// editing a customer. The API agrees through <c>customers.whatsapp.manage</c>.
+    /// </summary>
+    public const string CustomerWhatsAppRoles = "Admin,Cashier";
+
+    /// <summary>
     /// Who can open /payments: <see cref="PaymentRoles"/> and the manager, read only. The API agrees
     /// through <c>payments.view</c>, which is all a manager holds of the family.
     /// </summary>

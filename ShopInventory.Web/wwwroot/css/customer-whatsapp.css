@@ -1,0 +1,633 @@
+/* ==========================================================================
+   Customer WhatsApp — Nocturne
+
+   Two components that sit inside other pages' drawers rather than a page of
+   their own: the WhatsApp numbers on a customer (/customers, inside
+   `.bp-drawer`) and the WhatsApp history and Send dialog on an invoice
+   (/invoices, inside `.ivx-drawer`). Both live in
+   Components/CustomerDocuments, under `cwa-`.
+
+   They read nocturne-tokens.css directly instead of aliasing it under a
+   prefix: the same markup has to look the same in two hosts whose own aliases
+   differ, and only the shared tokens are the same in both. They flip at the
+   root, so this sheet needs no `.dark-theme` block of its own.
+
+   `.cwa` sits on the panel and on each dialog, never on a page root, so it
+   carries no `min-height` — see business-partners.css for the dialog that hung
+   below the fold when it did.
+
+   Every control selector is two classes deep. app.css has global
+   `.dark-theme input/textarea/select` rules at (0,1,1) that set
+   `appearance: none` and a slate fill. On a checkbox those rules remove the
+   tick, so a ticked box and an empty one look the same in dark. `.dark-theme p`
+   and `.dark-theme h3` repaint text the same way. The dialog's copy and title
+   are therefore pinned at (0,2,0), and headings keep Nocturne's 500 over
+   Bootstrap's 600.
+
+   The dialog's scrim starts below the top bar and stacks at 10000, the same
+   as `.ivx-dialog-wrap`, so it covers the drawer it was opened from (9999).
+   It is fixed to the viewport because neither host drawer keeps a transform
+   once its entry animation ends.
+   ========================================================================== */
+
+.cwa {
+    color-scheme: var(--noct-scheme);
+    color: var(--noct-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+}
+
+.cwa,
+.cwa *,
+.cwa-overlay,
+.cwa-overlay * {
+    box-sizing: border-box;
+}
+
+.cwa :focus-visible {
+    outline: 2px solid var(--noct-accent);
+    outline-offset: 2px;
+}
+
+/* ── Panel ─────────────────────────────────────────────────────────────── */
+
+.cwa-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s3);
+}
+
+.cwa-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--noct-s4);
+    min-height: 32px;
+}
+
+.cwa-panel-title {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s2);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--noct-mute-3);
+}
+
+.cwa-panel-title i {
+    font-size: 15px;
+    color: var(--noct-fam-good);
+}
+
+.cwa-panel-tools {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s2);
+}
+
+.cwa .cwa-quiet {
+    color: var(--noct-mute-2);
+    font-size: 13px;
+}
+
+.cwa .cwa-num {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--noct-ink);
+}
+
+.cwa .cwa-sect {
+    margin-top: var(--noct-s3);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--noct-accent-text);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.cwa .cwa-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 var(--noct-s4);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    color: var(--noct-ink);
+    background: transparent;
+    border: 1px solid var(--noct-divider);
+    border-radius: var(--noct-r-md);
+    cursor: pointer;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.cwa .cwa-btn:hover:not(:disabled) {
+    background: var(--noct-hover);
+}
+
+.cwa .cwa-btn:active:not(:disabled) {
+    background: var(--noct-press);
+}
+
+.cwa .cwa-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.cwa .cwa-btn i {
+    font-size: 15px;
+}
+
+/* Outlined, not filled: the primary button in both host drawers is drawn
+   this way, and a filled one here would outrank the drawer's own actions. */
+.cwa .cwa-btn-primary {
+    color: var(--noct-accent);
+    border-color: var(--noct-accent);
+    letter-spacing: .02em;
+}
+
+.cwa .cwa-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--noct-accent-rgb), .12);
+}
+
+.cwa .cwa-btn-primary:active:not(:disabled) {
+    background: rgba(var(--noct-accent-rgb), .22);
+}
+
+.cwa .cwa-btn-ghost {
+    border-color: transparent;
+    color: var(--noct-accent-text);
+}
+
+.cwa .cwa-btn-icon {
+    width: 30px;
+    padding: 0;
+}
+
+.cwa .cwa-btn-icon svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.cwa .cwa-btn-bad {
+    color: var(--noct-fam-bad);
+    border-color: rgba(var(--noct-fam-bad-rgb), .4);
+}
+
+.cwa .cwa-btn-bad:hover:not(:disabled) {
+    background: rgba(var(--noct-fam-bad-rgb), .1);
+}
+
+.cwa .cwa-btn-link {
+    height: auto;
+    padding: 0 var(--noct-s1);
+    border: 0;
+    color: var(--noct-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cwa .cwa-btn-link:hover:not(:disabled) {
+    background: transparent;
+    color: var(--noct-accent);
+}
+
+/* ── Chips and notices ─────────────────────────────────────────────────── */
+
+.cwa .cwa-chip {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 var(--noct-s3);
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--noct-fam-neutral);
+    background: rgba(var(--noct-fam-neutral-rgb), .1);
+    border: 1px solid rgba(var(--noct-fam-neutral-rgb), .24);
+}
+
+.cwa .cwa-chip-good {
+    color: var(--noct-fam-good);
+    background: rgba(var(--noct-fam-good-rgb), .1);
+    border-color: rgba(var(--noct-fam-good-rgb), .3);
+}
+
+.cwa .cwa-chip-info {
+    color: var(--noct-fam-info);
+    background: rgba(var(--noct-fam-info-rgb), .1);
+    border-color: rgba(var(--noct-fam-info-rgb), .3);
+}
+
+.cwa .cwa-chip-warn {
+    color: var(--noct-fam-warn);
+    background: rgba(var(--noct-fam-warn-rgb), .1);
+    border-color: rgba(var(--noct-fam-warn-rgb), .32);
+}
+
+.cwa .cwa-chip-bad {
+    color: var(--noct-fam-bad);
+    background: rgba(var(--noct-fam-bad-rgb), .1);
+    border-color: rgba(var(--noct-fam-bad-rgb), .32);
+}
+
+.cwa .cwa-msg {
+    padding: var(--noct-s3) var(--noct-s4);
+    border-radius: var(--noct-r-md);
+    border: 1px solid var(--noct-divider);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.cwa .cwa-msg-good {
+    color: var(--noct-fam-good);
+    background: rgba(var(--noct-fam-good-rgb), .08);
+    border-color: rgba(var(--noct-fam-good-rgb), .3);
+}
+
+.cwa .cwa-msg-bad {
+    color: var(--noct-fam-bad);
+    background: rgba(var(--noct-fam-bad-rgb), .08);
+    border-color: rgba(var(--noct-fam-bad-rgb), .32);
+}
+
+.cwa .cwa-msg-warn {
+    color: var(--noct-warn-ink);
+    background: var(--noct-warn-bg);
+    border-color: var(--noct-warn-edge);
+}
+
+/* ── Invoice history ───────────────────────────────────────────────────── */
+
+.cwa .cwa-history,
+.cwa .cwa-contacts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--noct-rule);
+}
+
+.cwa .cwa-history-row,
+.cwa .cwa-contact {
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s1);
+    padding: var(--noct-s3) 0;
+    border-bottom: 1px solid var(--noct-rule);
+}
+
+.cwa .cwa-history-main,
+.cwa .cwa-contact-main {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--noct-s2) var(--noct-s3);
+}
+
+.cwa .cwa-history-to {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+
+.cwa .cwa-history-meta,
+.cwa .cwa-contact-meta {
+    font-size: 12.5px;
+    color: var(--noct-mute-2);
+}
+
+.cwa .cwa-history-reason {
+    font-size: 12.5px;
+    color: var(--noct-mute);
+}
+
+.cwa .cwa-history-actions,
+.cwa .cwa-contact-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--noct-s2);
+    margin-top: var(--noct-s1);
+}
+
+.cwa .cwa-contact.is-off .cwa-num {
+    color: var(--noct-mute-3);
+    text-decoration: line-through;
+    text-decoration-color: var(--noct-faint);
+}
+
+.cwa .cwa-confirm {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--noct-s2) var(--noct-s3);
+    margin-top: var(--noct-s2);
+    padding: var(--noct-s3) var(--noct-s4);
+    border-radius: var(--noct-r-md);
+    background: rgba(var(--noct-fam-bad-rgb), .06);
+    border: 1px solid rgba(var(--noct-fam-bad-rgb), .24);
+    font-size: 13px;
+}
+
+.cwa .cwa-confirm > span {
+    flex: 1 1 220px;
+}
+
+/* ── Forms ─────────────────────────────────────────────────────────────── */
+
+.cwa .cwa-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s4);
+    padding: var(--noct-s4);
+    border-radius: var(--noct-r-md);
+    border: 1px solid var(--noct-divider);
+    background: var(--noct-wash);
+}
+
+.cwa .cwa-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--noct-s4);
+}
+
+.cwa .cwa-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s1);
+    min-width: 0;
+}
+
+.cwa .cwa-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--noct-mute);
+    margin: 0;
+}
+
+.cwa .cwa-input {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--noct-ink);
+    background-color: var(--noct-field-bg);
+    border: 1px solid var(--noct-field-edge);
+    border-radius: var(--noct-r-md);
+    transition: border-color .12s ease, box-shadow .12s ease;
+}
+
+.cwa .cwa-input:hover {
+    border-color: var(--noct-field-edge-hi);
+}
+
+.cwa .cwa-input:focus {
+    outline: none;
+    border-color: var(--noct-accent);
+    box-shadow: 0 0 0 3px rgba(var(--noct-accent-rgb), .18);
+}
+
+.cwa .cwa-input::placeholder {
+    color: var(--noct-placeholder);
+    -webkit-text-fill-color: var(--noct-placeholder);
+    opacity: 1;
+}
+
+.cwa .cwa-checkbox {
+    -webkit-appearance: checkbox;
+    appearance: auto;
+    background-color: initial;
+    flex: none;
+    width: 15px;
+    height: 15px;
+    margin: 2px 0 0;
+    accent-color: var(--noct-box);
+    cursor: pointer;
+}
+
+.cwa .cwa-checkbox:disabled {
+    cursor: not-allowed;
+    opacity: .4;
+}
+
+.cwa .cwa-check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--noct-s3);
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--noct-ink-2);
+    cursor: pointer;
+}
+
+.cwa .cwa-check-indent {
+    padding-left: calc(15px + var(--noct-s3));
+}
+
+.cwa .cwa-suggest {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--noct-s1) var(--noct-s2);
+    font-size: 12.5px;
+}
+
+.cwa .cwa-form-foot,
+.cwa .cwa-dialog-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--noct-s2);
+}
+
+.cwa .cwa-choices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s2);
+}
+
+.cwa .cwa-choice {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    margin: 0;
+    padding: var(--noct-s3) var(--noct-s4);
+    border-radius: var(--noct-r-md);
+    border: 1px solid var(--noct-divider);
+    cursor: pointer;
+    transition: background-color .12s ease, border-color .12s ease;
+}
+
+.cwa .cwa-choice:hover {
+    background: var(--noct-hover);
+}
+
+.cwa .cwa-choice:has(.cwa-checkbox:checked) {
+    border-color: rgba(var(--noct-accent-rgb), .55);
+    background: rgba(var(--noct-accent-rgb), .06);
+}
+
+.cwa .cwa-choice.is-off {
+    cursor: not-allowed;
+    opacity: .7;
+}
+
+.cwa .cwa-choice .cwa-checkbox {
+    margin-top: 0;
+}
+
+.cwa .cwa-choice-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--noct-s1) var(--noct-s3);
+}
+
+.cwa .cwa-oneoff {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--noct-s3);
+}
+
+.cwa .cwa-check-result {
+    font-size: 13px;
+}
+
+.cwa .cwa-check-result.is-good {
+    color: var(--noct-fam-good);
+}
+
+.cwa .cwa-check-result.is-bad {
+    color: var(--noct-fam-bad);
+}
+
+/* ── Dialogs ───────────────────────────────────────────────────────────── */
+
+.cwa-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--noct-s4);
+    background: var(--noct-scrim);
+}
+
+.cwa.cwa-dialog {
+    width: min(520px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--noct-s8));
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s4);
+    padding: var(--noct-s6);
+    border-radius: var(--noct-r-lg);
+    background: var(--noct-surface);
+    box-shadow: var(--noct-shadow-pop);
+}
+
+.cwa.cwa-dialog-wide {
+    width: min(640px, 100%);
+}
+
+.cwa .cwa-dialog-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    line-height: 1.3;
+    color: var(--noct-ink);
+}
+
+.cwa .cwa-dialog-copy {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--noct-mute);
+}
+
+.cwa .cwa-dialog-copy strong {
+    font-weight: 600;
+    color: var(--noct-ink);
+}
+
+.cwa .cwa-dialog-foot {
+    margin-top: var(--noct-s2);
+    padding-top: var(--noct-s4);
+    border-top: 1px solid var(--noct-rule);
+}
+
+.cwa .cwa-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--noct-s3);
+}
+
+.cwa .cwa-preview-ready {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s2);
+    padding: var(--noct-s3) var(--noct-s4);
+    border-radius: var(--noct-r-md);
+    border: 1px solid var(--noct-divider);
+    background: var(--noct-wash);
+}
+
+.cwa .cwa-preview-file {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s2);
+    font-size: 13px;
+    font-weight: 500;
+    word-break: break-all;
+}
+
+.cwa .cwa-preview-file i {
+    font-size: 17px;
+    color: var(--noct-fam-bad);
+}
+
+.cwa .cwa-preview-caption {
+    white-space: pre-wrap;
+    font-size: 13px;
+    color: var(--noct-mute);
+}
+
+@media (max-width: 560px) {
+    .cwa .cwa-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cwa.cwa-dialog {
+        padding: var(--noct-s4);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cwa .cwa-btn,
+    .cwa .cwa-input,
+    .cwa .cwa-choice {
+        transition: none;
+    }
+}

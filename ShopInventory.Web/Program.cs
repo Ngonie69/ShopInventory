@@ -350,6 +350,8 @@ try
     builder.Services.AddScoped<IVanSalesOrderService, VanSalesOrderService>();
     builder.Services.AddScoped<IVanSalesCustomerAccountService, VanSalesCustomerAccountService>();
     builder.Services.AddScoped<IVanSalesDocumentService, VanSalesDocumentService>();
+    // Customers' WhatsApp numbers and the invoices sent to them.
+    builder.Services.AddScoped<ICustomerDocumentService, CustomerDocumentService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<IPurchaseRequestService, PurchaseRequestService>();
     builder.Services.AddScoped<IPurchaseQuotationService, PurchaseQuotationService>();

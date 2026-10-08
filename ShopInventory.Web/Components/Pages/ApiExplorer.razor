@@ -483,7 +483,7 @@ BasePath = "/api/InventoryTransfer",
 Description = "Transfer stock between warehouses with batch tracking.",
 Icon = Icons.Material.Filled.SwapHoriz,
 Color = Color.Warning,
-Methods = new[] { "GET", "PATCH", "POST" },
+Methods = new[] { "GET", "PATCH", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/InventoryTransfer/{warehouseCode}", "Get transfers for a warehouse"),
@@ -1655,6 +1655,45 @@ Endpoints = new List<ApiEndpoint>
 new("GET", "/api/count-variance/{documentEntry}", "One count's variance, valued at the van sales price list"),
 new("GET", "/api/count-variance/documents", "SAP inventory counts, newest first"),
 new("GET", "/api/count-variance/vans", "Every van's latest count in a date range, consolidated")
+}
+},
+new ApiModule
+{
+Name = "Customer Document Deliveries",
+BasePath = "/api/customer-document-deliveries",
+Description = "Invoices sent to customers on WhatsApp: queue a send, resend or withdraw one, and the administrators' log and switches.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/customer-document-deliveries", "One invoice's WhatsApp sends, numbers masked"),
+new("GET", "/api/customer-document-deliveries/invoices/{docEntry}/preview", "The PDF and caption a send would carry, or why it cannot go yet"),
+new("GET", "/api/customer-document-deliveries/log", "Every send, newest first (Admin)"),
+new("GET", "/api/customer-document-deliveries/status", "The session, today's sends against the caps, and what waits (Admin)"),
+new("POST", "/api/customer-document-deliveries/{id}/cancel", "Withdraw a send that has not started"),
+new("POST", "/api/customer-document-deliveries/{id}/retry", "Send again as a new row"),
+new("POST", "/api/customer-document-deliveries/invoices/{docEntry}", "Queue an invoice for WhatsApp"),
+new("PUT", "/api/customer-document-deliveries/settings", "Session, automatic sending and its daily cap (Admin)")
+}
+},
+new ApiModule
+{
+Name = "Customer WhatsApp Numbers",
+BasePath = "/api/customer-whatsapp-contacts",
+Description = "The WhatsApp numbers customers gave for their documents, kept with their consent and opt-out.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Success,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/customer-whatsapp-contacts", "A customer's WhatsApp numbers"),
+new("GET", "/api/customer-whatsapp-contacts/phone-check", "Normalise a typed number and say whether it is opted out"),
+new("POST", "/api/customer-whatsapp-contacts", "Save a number, with consent"),
+new("DELETE", "/api/customer-whatsapp-contacts/{id}", "Take a number off the customer"),
+new("PUT", "/api/customer-whatsapp-contacts/{id}", "Rename it, or switch automatic invoices"),
+new("POST", "/api/customer-whatsapp-contacts/{id}/check", "Ask WhatsApp whether the number has an account"),
+new("POST", "/api/customer-whatsapp-contacts/{id}/opt-out", "Stop every document to the number")
 }
 },
 new ApiModule
