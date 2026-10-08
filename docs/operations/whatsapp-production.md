@@ -75,6 +75,40 @@ session.
 Note the API key it prints — OpenWA mints a random one on first start under `NODE_ENV=production`
 and writes it to `OpenWA\data\.api-key`.
 
+### Upgrading OpenWA
+
+On 10.10.10.9, after the ShopInventory commit that moves the `OpenWA` pointer is on the checkout
+there, run these in an elevated PowerShell:
+
+```bash
+git -C C:\path\to\ShopInventory submodule update --init OpenWA
+```
+
+```bash
+.\scripts\Install-OpenWAProduction.ps1
+```
+
+The installer keeps stamps of the commit it built and the `package-lock.json` it installed from,
+and does only what changed:
+
+- **A new commit.** It rebuilds while the gateway keeps running, then restarts it.
+- **A new `package-lock.json`.** It stops the gateway, because `npm ci` replaces files it holds
+  open, then installs, builds and starts it.
+- **A changed `.env`.** It restarts the gateway.
+- **Nothing changed.** It leaves the gateway running.
+
+A restart goes through the `ShopInventory-OpenWA` boot task, so the gateway runs as SYSTEM and
+outlives your session. The paired session reconnects without a new QR code.
+
+The first run on an install made before the stamps adopts its dependencies when `npm ls` finds
+them complete, so that upgrade is a rebuild and a restart, not a reinstall.
+
+Confirm it took:
+
+1. `GET http://127.0.0.1:2785/api/health` answers 200.
+2. `fiscal-alerts` reads `ready` on `/whatsapp-inbox`.
+3. `scripts/Test-WhatsAppDeliveryPath.ps1` passes.
+
 ## Point the API at it
 
 On **each** API node, elevated. Generate one webhook secret and use the same string on both — the
@@ -148,10 +182,11 @@ invoice's fiscal receipt is confirmed. No web request calls WhatsApp directly.
 ### Before the first send
 
 1. **OpenWA must accept a request over 100 KB.** Express's default JSON limit is 100 KB, and the
-   invoice PDF carries a 117 KB logo before any lines. Until the gateway's body limit is raised
-   (`API_BODY_LIMIT` in `OpenWA\.env`, written by `Install-OpenWAProduction.ps1` once the fork
-   change ships), every send is refused with `413`. The row is marked **Failed** and administrators
-   get a *document too large* alert.
+   invoice PDF carries a 117 KB logo before any lines. OpenWA from Ngonie69/OpenWA#2 on reads
+   `API_BODY_LIMIT` (16mb) and also answers `503`, not `500`, while a session is not ready. A gateway
+   older than that refuses every send with `413`: the row is marked **Failed** and administrators get
+   a *document too large* alert. Bring .9 up to date as described in
+   [Upgrading OpenWA](#upgrading-openwa).
 2. **Pair the dedicated number.** Use a SIM and phone that are used for nothing else, with WhatsApp
    Business, the profile name *Kefalos Cheese — Invoices* and the office number in the description.
    On `/whatsapp-inbox`: **New** → `customer-documents` → **Create + start**, then scan the QR code.

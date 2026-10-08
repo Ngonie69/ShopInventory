@@ -26,10 +26,20 @@ otherwise be surprised.
     `CustomerDocuments:Enabled` ships `true`.
   - It sends nothing until an administrator chooses a session on `/whatsapp-deliveries`.
   - Automatic sending ships off.
-  - OpenWA refuses every invoice with `413` until its request body limit is raised (see
-    `docs/operations/whatsapp-production.md`).
+  - OpenWA on .9 refuses every invoice with `413` until it runs Ngonie69/OpenWA#2, which this
+    repository's `OpenWA` pointer now includes. Update the submodule there and re-run
+    `Install-OpenWAProduction.ps1` (see "Upgrading OpenWA" in `docs/operations/whatsapp-production.md`).
 
 ### Changed
+
+- **`Install-OpenWAProduction.ps1` now upgrades as well as installs.** It used to build only when
+  `dist\main.js` was missing and to leave a running gateway alone, so a re-run after a submodule
+  update kept serving the old build. It now rebuilds when the OpenWA commit or `package-lock.json`
+  changed and restarts the gateway onto the new build or `.env`, through the boot task.
+  - It writes `API_BODY_LIMIT=16mb` into `OpenWA\.env`.
+  - It sets `PUPPETEER_SKIP_DOWNLOAD` for `npm ci`. Current Puppeteer ignores the
+    `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD` it set before, so every reinstall tried to download a browser,
+    and failed when that download did.
 
 - **REVMax is no longer asked about SAP documents dated after 30 September 2026.** `Revmax:LastFilingDate`
   ships as `2026-09-30`, the platform cut-over day; it was null, and production never overrode it, so

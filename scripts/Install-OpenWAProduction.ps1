@@ -18,10 +18,15 @@
     What this does:
 
       1. Checks Node and Chrome are present and new enough.
-      2. Builds the submodule at OpenWA/ if dist\main.js is missing.
+      2. Installs the submodule's dependencies and builds it when nothing is built yet, or when its
+         package-lock.json or checked-out commit differs from what the current build was made from.
+         A running gateway is stopped only for a dependency install, which replaces files it holds
+         open; a rebuild happens while it runs, and it is restarted onto the new build after.
       3. Writes OpenWA\.env for a production run - SQLite, local storage, no Redis, the installed
-         Chrome rather than a downloaded Chromium.
-      4. Starts it once so it mints its admin API key into data\.api-key.
+         Chrome rather than a downloaded Chromium, and a request body limit that fits an invoice PDF.
+      4. Starts it, so it mints its admin API key into data\.api-key on a first install. A gateway
+         that was rebuilt or reinstalled, or whose .env changed, is restarted - under the boot task
+         when it is registered, so it outlives this console's session.
       5. Registers a Scheduled Task that starts it as SYSTEM at boot.
       6. Opens the API port to this host only, if a firewall rule is missing.
       7. Prints the four OpenWA__* values to set on the API, and the command that verifies them.
@@ -30,8 +35,9 @@
     applied by Set-OpenWAApiConfig.ps1, so that one host's install cannot silently repoint both API
     nodes at itself.
 
-    Re-runnable. An existing install keeps its data directory, its API key and its paired session;
-    only the .env and the scheduled task are rewritten.
+    Re-runnable, and the way to upgrade: update the submodule, then run this again. An existing
+    install keeps its data directory, its API key and its paired session; a restart reconnects the
+    session without a new QR code. A re-run with nothing changed leaves a running gateway alone.
 
 .PARAMETER RepositoryRoot
     The ShopInventory checkout holding the OpenWA submodule. Defaults to this script's parent.
@@ -88,6 +94,96 @@ function Resolve-Executable {
     }
 
     return $null
+}
+
+function Test-OpenWAListening {
+    param([int]$Port)
+
+    try {
+        return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Stop-OpenWAAndWait {
+    param([int]$Port, [string]$TaskName)
+
+    & (Join-Path $PSScriptRoot 'Stop-OpenWA.ps1')
+
+    # The boot task's runner exits once node does. Wait for both: a start issued while the task still
+    # shows Running is ignored as a second instance, and the gateway would stay down.
+    foreach ($attempt in 1..15) {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+        $taskRunning = $task -and $task.State -eq 'Running'
+        if (-not (Test-OpenWAListening -Port $Port) -and -not $taskRunning) {
+            return
+        }
+        Start-Sleep -Seconds 2
+    }
+
+    throw "OpenWA still holds port $Port 30s after it was stopped. Stop it with .\scripts\Stop-OpenWA.ps1, then re-run."
+}
+
+function Read-Stamp {
+    param([string]$Path)
+
+    if (Test-Path -LiteralPath $Path) {
+        return (Get-Content -LiteralPath $Path -Raw).Trim()
+    }
+
+    return $null
+}
+
+function Test-DependenciesComplete {
+    # Whether npm finds every dependency in package.json installed, at a version it accepts.
+    param([string]$Root, [string]$Npm)
+
+    $ErrorActionPreference = 'Continue'
+    Push-Location $Root
+    try {
+        & $Npm ls --depth=0 *> $null
+        return $LASTEXITCODE -eq 0
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Get-Sha256 {
+    # Not Get-FileHash: in Windows PowerShell it honours -WhatIf and returns nothing, so a dry run
+    # would report the dependencies current when a real run reinstalls them.
+    param([string]$Path)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash([System.IO.File]::ReadAllBytes($Path))) -replace '-', '')
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-SourceVersion {
+    # The checked-out commit, or $null when it cannot vouch for the source - not a git checkout, or
+    # tracked files edited in place. A $null always rebuilds.
+    param([string]$Root)
+
+    # Windows PowerShell turns a native command's redirected stderr into errors, which 'Stop' would
+    # make fatal; git writes to stderr for an ordinary "not a repository".
+    $ErrorActionPreference = 'Continue'
+
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) { return $null }
+
+    $commit = & $git.Source -C $Root rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $commit) { return $null }
+
+    $edits = & $git.Source -C $Root status --porcelain --untracked-files=no 2>$null
+    if ($LASTEXITCODE -ne 0 -or $edits) { return $null }
+
+    return ([string]$commit).Trim()
 }
 
 $openWaRoot = Join-Path $RepositoryRoot 'OpenWA'
@@ -147,25 +243,64 @@ if (-not $npm) { throw "npm was not found beside $node." }
 Write-Section "Build"
 
 $distEntry = Join-Path $openWaRoot 'dist\main.js'
-$needsInstall = -not (Test-Path -LiteralPath (Join-Path $openWaRoot 'node_modules'))
-$needsBuild = -not (Test-Path -LiteralPath $distEntry)
+$nodeModules = Join-Path $openWaRoot 'node_modules'
+
+# What the installed dependencies and the built dist were made from. A submodule update changes the
+# source under a dist\main.js that is still there, and a re-run that only checked for that file kept
+# serving the old build. npm ci and the build each empty their folder first, so a stamp never outlives
+# what it describes.
+$installStamp = Join-Path $nodeModules '.shopinventory-install'
+$buildStamp = Join-Path $openWaRoot 'dist\.shopinventory-build'
+$lockVersion = Get-Sha256 -Path (Join-Path $openWaRoot 'package-lock.json')
+$sourceVersion = Get-SourceVersion -Root $openWaRoot
+
+$needsInstall = (-not (Test-Path -LiteralPath $nodeModules)) -or ((Read-Stamp -Path $installStamp) -ne $lockVersion)
+
+# An install made before these stamps has none. Reinstalling it would stop the gateway for the minutes
+# npm ci takes, so when npm finds the installed tree complete it is adopted instead.
+if ($needsInstall -and (Test-Path -LiteralPath $nodeModules) -and -not (Test-Path -LiteralPath $installStamp)) {
+    if (Test-DependenciesComplete -Root $openWaRoot -Npm $npm) {
+        Write-Host "  Adopting the dependencies already installed: npm finds them complete." -ForegroundColor Green
+        if ($PSCmdlet.ShouldProcess($installStamp, "Record the installed dependencies")) {
+            Set-Content -LiteralPath $installStamp -Value $lockVersion -Encoding ASCII
+        }
+        $needsInstall = $false
+    }
+}
+
+$needsBuild = $needsInstall -or (-not (Test-Path -LiteralPath $distEntry)) -or (-not $sourceVersion) -or
+    ((Read-Stamp -Path $buildStamp) -ne $sourceVersion)
+
+# npm ci replaces node_modules, which a running gateway holds open, so it has to stop first. A rebuild
+# alone does not: the gateway keeps serving the build it loaded until it is restarted onto the new one
+# below, and a build that fails leaves it running.
+if ($needsInstall -and (Test-OpenWAListening -Port $Port)) {
+    if ($PSCmdlet.ShouldProcess("localhost:$Port", "Stop OpenWA to reinstall its dependencies")) {
+        Write-Host "  Stopping OpenWA: its dependencies changed." -ForegroundColor Yellow
+        Stop-OpenWAAndWait -Port $Port -TaskName $TaskName
+    }
+}
 
 if ($needsInstall) {
     if ($PSCmdlet.ShouldProcess($openWaRoot, "npm ci")) {
         Write-Host "  Installing dependencies (this takes a few minutes)..." -ForegroundColor Yellow
         Push-Location $openWaRoot
         try {
-            # Chromium is ~150MB and this host already has Chrome; PUPPETEER_EXECUTABLE_PATH below
-            # is what actually gets used, so downloading it would be dead weight.
+            # This host already has Chrome and PUPPETEER_EXECUTABLE_PATH below is what gets used, so
+            # Puppeteer's own ~150MB browser is dead weight - and when its download fails, npm ci fails.
+            # Current Puppeteer reads PUPPETEER_SKIP_DOWNLOAD and ignores the older name, which stays
+            # for older versions.
+            $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
             $env:PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
             & $npm ci
             if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE." }
+            Set-Content -LiteralPath $installStamp -Value $lockVersion -Encoding ASCII
         }
         finally { Pop-Location }
     }
 }
 else {
-    Write-Host "  Dependencies already installed." -ForegroundColor Green
+    Write-Host "  Dependencies already installed from this package-lock.json." -ForegroundColor Green
 }
 
 if ($needsBuild) {
@@ -174,13 +309,18 @@ if ($needsBuild) {
         Push-Location $openWaRoot
         try {
             & $npm run build
-            if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE." }
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm run build failed with exit code $LASTEXITCODE. A running OpenWA keeps serving the build it loaded, but dist is now incomplete: fix the build before anything restarts it."
+            }
+            if ($sourceVersion) {
+                Set-Content -LiteralPath $buildStamp -Value $sourceVersion -Encoding ASCII
+            }
         }
         finally { Pop-Location }
     }
 }
 else {
-    Write-Host "  dist\main.js is already built." -ForegroundColor Green
+    Write-Host "  dist\main.js is already built from $sourceVersion." -ForegroundColor Green
 }
 
 Write-Section "Configuration"
@@ -199,6 +339,10 @@ $envLines = @(
     'NODE_ENV=production',
     "PORT=$Port",
     'LOG_LEVEL=info',
+    '',
+    '# The largest request body OpenWA accepts. ShopInventory sends invoices as base64 PDFs, a third',
+    '# larger than the file, and Express''s own default of 100kb refused every one with 413.',
+    'API_BODY_LIMIT=16mb',
     '',
     '# SQLite beside the app. The volume here is a message log, not a business database, and a',
     '# Postgres dependency would mean the gateway cannot start while the cluster is failing over.',
@@ -239,7 +383,17 @@ $envLines = @(
 )
 
 $envPath = Join-Path $openWaRoot '.env'
-if ($PSCmdlet.ShouldProcess($envPath, "Write production .env")) {
+$currentEnv = @()
+if (Test-Path -LiteralPath $envPath) {
+    $currentEnv = @(Get-Content -LiteralPath $envPath)
+}
+
+# A running gateway read its .env when it started, so a change only takes effect with a restart.
+$envChanged = ($currentEnv -join "`n") -ne ($envLines -join "`n")
+if (-not $envChanged) {
+    Write-Host "  $envPath is already current." -ForegroundColor Green
+}
+elseif ($PSCmdlet.ShouldProcess($envPath, "Write production .env")) {
     Set-Content -LiteralPath $envPath -Value $envLines -Encoding UTF8
     Write-Host "  Wrote $envPath" -ForegroundColor Green
 }
@@ -251,19 +405,35 @@ if (-not (Test-Path -LiteralPath $runner)) {
     throw "Run-OpenWA.ps1 was not found beside this script at $runner."
 }
 
-$alreadyListening = $false
-try {
-    $alreadyListening = [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-}
-catch {
-    $alreadyListening = $false
+$alreadyListening = Test-OpenWAListening -Port $Port
+
+# A running gateway read its .env and loaded its build when it started; either changing takes a restart.
+if ($alreadyListening -and ($envChanged -or $needsBuild)) {
+    if ($PSCmdlet.ShouldProcess("localhost:$Port", "Restart OpenWA onto the new build and .env")) {
+        Write-Host "  Restarting OpenWA onto the new build and .env." -ForegroundColor Yellow
+        Stop-OpenWAAndWait -Port $Port -TaskName $TaskName
+        $alreadyListening = $false
+    }
 }
 
 if ($alreadyListening) {
-    Write-Host "  Something is already listening on $Port. Leaving it running." -ForegroundColor Green
+    Write-Host "  OpenWA is already running this build and .env. Leaving it running." -ForegroundColor Green
 }
 elseif ($PSCmdlet.ShouldProcess("localhost:$Port", "Start OpenWA")) {
-    & (Join-Path $PSScriptRoot 'Start-OpenWA.ps1') -NodeHome $nodeHome -ChromePath $chrome
+    # A gateway started from here runs in this console's session and dies when it signs out. Where
+    # the boot task is registered, start that instead: it runs as SYSTEM, the way the gateway runs
+    # after a reboot. A first install has no task yet - it is registered below.
+    $bootTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $canStartTask = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if ($bootTask -and $canStartTask) {
+        Start-ScheduledTask -TaskName $TaskName
+        Write-Host "  Started the '$TaskName' boot task." -ForegroundColor Green
+    }
+    else {
+        & (Join-Path $PSScriptRoot 'Start-OpenWA.ps1') -NodeHome $nodeHome -ChromePath $chrome
+    }
 
     $ready = $false
     foreach ($attempt in 1..30) {
