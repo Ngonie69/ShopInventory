@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -5,6 +6,7 @@ using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Features.VanSalesDocuments.Queries.GetVanSalesInvoices;
 using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Models.Entities;
@@ -126,6 +128,7 @@ public sealed class GetVanSalesCreditNotesHandler(
                 c.SapDocNum,
                 c.SapError,
                 c.Message,
+                c.FiscalResultJson,
                 c.CreatedAtUtc,
                 SaleReference = c.Sale.ExternalReferenceId,
                 SaleDocNum = c.Sale.SapDocNum,
@@ -157,6 +160,26 @@ public sealed class GetVanSalesCreditNotesHandler(
             .ToList();
         await FiscalDocumentStatusProjector.EnrichCreditNotesAsync(db, fiscalProbes, cancellationToken);
 
+        // A memo a till credit became was signed under the credit's number, so the fiscal log has nothing under
+        // the memo's DocNum: the receipt is the device's answer stored on the credit. Read for every listed memo,
+        // not only those whose credit was raised inside the period.
+        var vanMemoEntries = vanMemos.Select(m => m.SapDocEntry).ToList();
+
+        var tillReceiptByDocEntry = vanMemoEntries.Count == 0
+            ? []
+            : (await db.DesktopCreditNotes
+                    .AsNoTracking()
+                    .Where(c => c.SapDocEntry != null
+                                && vanMemoEntries.Contains(c.SapDocEntry.Value)
+                                && c.Status == DesktopCreditStatuses.Fiscalised
+                                && c.FiscalResultJson != null)
+                    .Select(c => new { DocEntry = c.SapDocEntry!.Value, c.FiscalResultJson })
+                    .ToListAsync(cancellationToken))
+                .Select(c => (c.DocEntry, Receipt: StoredReceipt(c.FiscalResultJson)))
+                .Where(c => c.Receipt is not null)
+                .GroupBy(c => c.DocEntry)
+                .ToDictionary(g => g.Key, g => g.First().Receipt!);
+
         var rows = new List<VanSalesCreditNoteRow>();
 
         for (var i = 0; i < vanMemos.Count; i++)
@@ -164,6 +187,7 @@ public sealed class GetVanSalesCreditNotesHandler(
             var memo = vanMemos[i];
             var probe = fiscalProbes[i];
             tillCreditByDocEntry.TryGetValue(memo.SapDocEntry, out var tillCredit);
+            tillReceiptByDocEntry.TryGetValue(memo.SapDocEntry, out var tillReceipt);
 
             // Filed at the till before SAP saw it: the memo's own DocNum finds nothing in the fiscal log, but
             // the credit that became it carries the receipt.
@@ -193,9 +217,15 @@ public sealed class GetVanSalesCreditNotesHandler(
                 Reason: reasonByMemo.GetValueOrDefault(memo.SapDocEntry) ?? tillCredit?.Reason ?? memo.Comments,
                 IsCancelled: memo.IsCancelled,
                 CreditedInvoices: credited,
-                FiscalReceiptNumber: probe.FiscalReceiptGlobalNo?.ToString() ?? tillCredit?.Number,
+                FiscalReceiptNumber: probe.FiscalReceiptGlobalNo?.ToString()
+                                     ?? NonBlank(tillReceipt?.ReceiptGlobalNo)
+                                     ?? tillCredit?.Number,
                 State: VanSalesDocumentStates.Decide(fiscalised, inSap: true, hasFailure: false),
-                Problem: null));
+                Problem: null,
+                FiscalVerificationCode: NonBlank(probe.FiscalVerificationCode) ?? NonBlank(tillReceipt?.VerificationCode),
+                FiscalQrCode: NonBlank(probe.FiscalQrCode) ?? NonBlank(tillReceipt?.QRCode),
+                FiscalDay: NonBlank(probe.FiscalDay) ?? NonBlank(tillReceipt?.FiscalDayNo),
+                FiscalDeviceSerial: NonBlank(probe.FiscalDeviceId) ?? NonBlank(tillReceipt?.DeviceSerial)));
         }
 
         // Till credits SAP has not taken — or took, but outside the period's memo dates.
@@ -204,7 +234,8 @@ public sealed class GetVanSalesCreditNotesHandler(
         foreach (var credit in tillCredits.Where(c => c.SapDocEntry is null || !listedMemoEntries.Contains(c.SapDocEntry.Value)))
         {
             var fiscalised = credit.Status == DesktopCreditStatuses.Fiscalised;
-            var inSap = credit.SapStatus is DesktopCreditSapStatuses.Posted or DesktopCreditSapStatuses.NotRequired;
+            var receipt = fiscalised ? StoredReceipt(credit.FiscalResultJson) : null;
+            var inSap =credit.SapStatus is DesktopCreditSapStatuses.Posted or DesktopCreditSapStatuses.NotRequired;
 
             var failure = credit.Status == DesktopCreditStatuses.ReconciliationRequired
                 ? credit.Message ?? "The fiscal device could not confirm whether this credit was filed."
@@ -240,9 +271,13 @@ public sealed class GetVanSalesCreditNotesHandler(
                         ChannelOf(credit.SaleSource),
                         credit.SaleWarehouse)
                 ],
-                FiscalReceiptNumber: fiscalised ? credit.Number : null,
+                FiscalReceiptNumber: fiscalised ? NonBlank(receipt?.ReceiptGlobalNo) ?? credit.Number : null,
                 State: VanSalesDocumentStates.Decide(fiscalised, inSap, failure is not null),
-                Problem: failure));
+                Problem: failure,
+                FiscalVerificationCode: NonBlank(receipt?.VerificationCode),
+                FiscalQrCode: NonBlank(receipt?.QRCode),
+                FiscalDay: NonBlank(receipt?.FiscalDayNo),
+                FiscalDeviceSerial: NonBlank(receipt?.DeviceSerial)));
         }
 
         var searched = rows.Where(row => Matches(row, request.Search)).ToList();
@@ -318,6 +353,26 @@ public sealed class GetVanSalesCreditNotesHandler(
             credited,
             topCustomers);
     }
+
+    /// <summary>What the device last answered for a till credit, as it was recorded.</summary>
+    private static FiscalizationResult? StoredReceipt(string? fiscalResultJson)
+    {
+        if (string.IsNullOrWhiteSpace(fiscalResultJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<FiscalizationResult>(fiscalResultJson, DesktopCreditNoteService.Json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string ChannelOf(string? source) =>
         source == SaleSourceSystems.VanSales ? "Offline" : "Online";

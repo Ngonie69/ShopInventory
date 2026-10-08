@@ -1,5 +1,6 @@
 @page "/van-sales/credit-notes"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Common
 @using ShopInventory.Web.Features.VanSalesDocuments
 @using ShopInventory.Web.Models
 @attribute [Authorize(Roles = "Admin,Manager,Cashier")]
@@ -438,7 +439,7 @@
                     </div>
                     <div>
                         <div class="vsd-def-k">Fiscal receipt</div>
-                        <div class="vsd-def-v @(string.IsNullOrWhiteSpace(note.FiscalReceiptNumber) ? "is-none" : null)">@(note.FiscalReceiptNumber ?? "None found")</div>
+                        <div class="vsd-def-v @(string.IsNullOrWhiteSpace(note.FiscalReceiptNumber) ? "is-none" : null)">@(note.FiscalReceiptNumber ?? (IsSigned(note) ? "Not recorded" : "None found"))</div>
                     </div>
                 </div>
 
@@ -509,6 +510,57 @@
                                 }
                             </div>
                         }
+                    </div>
+                }
+
+                @if (IsSigned(note))
+                {
+                    var qrImage = FiscalQrCode.ToImageSource(note.FiscalQrCode);
+                    var recorded = !string.IsNullOrWhiteSpace(note.FiscalReceiptNumber)
+                                   || !string.IsNullOrWhiteSpace(note.FiscalVerificationCode)
+                                   || !string.IsNullOrWhiteSpace(qrImage);
+
+                    <div class="vsd-qr">
+                        @if (!string.IsNullOrWhiteSpace(qrImage))
+                        {
+                            <div class="vsd-qr-plate">
+                                <img src="@qrImage" alt="ZIMRA fiscal receipt QR code" />
+                            </div>
+                        }
+                        @* The invoice drawer's fiscal signature panel, worded the same, so a sale and the credit
+                           that reverses it read alike. A memo the fiscal log holds evidence for without the receipt
+                           itself still gets the panel: it says the receipt exists and that its details do not. *@
+                        <div class="vsd-qr-copy">
+                            <div class="vsd-def-k">Fiscal signature</div>
+                            <div class="vsd-qr-title">@(!string.IsNullOrWhiteSpace(qrImage)
+                                ? "Scan to verify this fiscal receipt"
+                                : !string.IsNullOrWhiteSpace(note.FiscalReceiptNumber)
+                                    ? $"Receipt {note.FiscalReceiptNumber}"
+                                    : "Fiscalised by ZIMRA")</div>
+                            <p>
+                                @(recorded
+                                    ? $"Issued on the device for credit note {note.Number}"
+                                      + (string.IsNullOrWhiteSpace(note.FiscalDeviceSerial) ? "" : $" · device {note.FiscalDeviceSerial}")
+                                      + (string.IsNullOrWhiteSpace(note.FiscalDay) ? "" : $" · fiscal day {note.FiscalDay}") + "."
+                                    : "ZIMRA holds a receipt for this credit note, but its number, code and QR were not recorded here.")
+                            </p>
+                            @if (!string.IsNullOrWhiteSpace(note.FiscalVerificationCode))
+                            {
+                                <div class="vsd-qr-code">
+                                    <span class="vsd-def-k">Verification code</span>
+                                    <span class="vsd-code">@FiscalQrCode.FormatVerificationCode(note.FiscalVerificationCode)</span>
+                                </div>
+                            }
+                            @if (Uri.TryCreate(note.FiscalQrCode?.Trim(), UriKind.Absolute, out var verify)
+                                 && (verify.Scheme == Uri.UriSchemeHttp || verify.Scheme == Uri.UriSchemeHttps))
+                            {
+                                <div class="vsd-qr-code">
+                                    <a class="vsd-verify" href="@verify.AbsoluteUri" target="_blank" rel="noopener noreferrer">
+                                        Verify with ZIMRA<i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+                                    </a>
+                                </div>
+                            }
+                        </div>
                     </div>
                 }
 

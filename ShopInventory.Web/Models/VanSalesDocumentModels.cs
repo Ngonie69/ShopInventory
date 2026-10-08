@@ -249,6 +249,10 @@ public class VanSalesCreditNoteRowModel
     public bool IsCancelled { get; set; }
     public List<VanSalesCreditedInvoiceModel> CreditedInvoices { get; set; } = [];
     public string? FiscalReceiptNumber { get; set; }
+    public string? FiscalVerificationCode { get; set; }
+    public string? FiscalQrCode { get; set; }
+    public string? FiscalDay { get; set; }
+    public string? FiscalDeviceSerial { get; set; }
     public string State { get; set; } = string.Empty;
     public string? Problem { get; set; }
 }

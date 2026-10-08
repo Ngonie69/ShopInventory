@@ -81,6 +81,10 @@ public sealed record VanSalesCreditNoteCounts(
 /// sale that SAP has not taken yet.</para>
 /// <para><c>Number</c>: The number the customer's copy carries: SAP's DocNum, or the till credit's own.</para>
 /// <para><c>State</c>: One of <see cref="VanSalesDocumentStates"/>.</para>
+/// <para><c>FiscalVerificationCode</c>, <c>FiscalQrCode</c>, <c>FiscalDay</c>, <c>FiscalDeviceSerial</c>: the
+/// receipt as it was recorded — the fiscal log's row for a memo, the device's stored answer for a till credit —
+/// so the drawer can show the receipt and not only that one exists. Never asked of ZIMRA here: the list has no
+/// detail call, and a page of fifty would be fifty lookups.</para>
 /// </remarks>
 public sealed record VanSalesCreditNoteRow(
     string Key,
@@ -99,7 +103,11 @@ public sealed record VanSalesCreditNoteRow(
     List<VanSalesCreditedInvoice> CreditedInvoices,
     string? FiscalReceiptNumber,
     string State,
-    string? Problem);
+    string? Problem,
+    string? FiscalVerificationCode = null,
+    string? FiscalQrCode = null,
+    string? FiscalDay = null,
+    string? FiscalDeviceSerial = null);
 
 /// <summary>The van invoice a credit note reverses.</summary>
 /// <remarks>
