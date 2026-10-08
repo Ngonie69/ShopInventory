@@ -27,6 +27,16 @@ public static class AuditActions
     /// <summary>An admin withdrew a posted invoice by raising the credit note that reverses it.</summary>
     public const string CancelInvoice = "CancelInvoice";
 
+    // Customers' WhatsApp numbers and the documents sent to them. A saved number decides where every
+    // new invoice of that customer goes, and a send cannot be taken back, so who did each is kept.
+    public const string SaveCustomerWhatsAppContact = "SaveCustomerWhatsAppContact";
+    public const string OptOutCustomerWhatsAppContact = "OptOutCustomerWhatsAppContact";
+    public const string RemoveCustomerWhatsAppContact = "RemoveCustomerWhatsAppContact";
+    public const string RequestDocumentWhatsApp = "RequestDocumentWhatsApp";
+    public const string RetryDocumentWhatsApp = "RetryDocumentWhatsApp";
+    public const string CancelDocumentWhatsApp = "CancelDocumentWhatsApp";
+    public const string UpdateCustomerDocumentSettings = "UpdateCustomerDocumentSettings";
+
     // Payment actions
     public const string CreatePayment = "CreatePayment";
     public const string InitiatePayment = "InitiatePayment";

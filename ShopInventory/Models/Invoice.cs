@@ -54,6 +54,13 @@ public class Invoice
     [JsonPropertyName("Cancelled")]
     public string? Cancelled { get; set; }
 
+    /// <summary>
+    /// <c>csNo</c>, or <c>csYes</c> on an invoice that has been cancelled, or <c>csCancellation</c> on
+    /// the document that cancels one. Only read where it is selected; null everywhere else.
+    /// </summary>
+    [JsonPropertyName("CancelStatus")]
+    public string? CancelStatus { get; set; }
+
     [JsonPropertyName("PaidToDate")]
     public decimal PaidToDate { get; set; }
 

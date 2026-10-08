@@ -33,6 +33,33 @@ public class QuartzScheduleShapeTests
         Assert.Equal("20", options["quartz.threadPool.maxConcurrency"]);
     }
 
+    [Fact]
+    public void The_customer_document_job_is_declared_from_appsettings_whatever_OpenWA_says()
+    {
+        // OpenWA's settings live in each node's web.config. Were the declaration to follow them, a node
+        // without the gateway would have QuartzStoredJobReconciler delete the job for the whole cluster.
+        var withoutGateway = Build(new Dictionary<string, string?>
+        {
+            ["CustomerDocuments:Enabled"] = "true",
+            ["OpenWA:Enabled"] = "false"
+        });
+        var switchedOff = Build(new Dictionary<string, string?>
+        {
+            ["CustomerDocuments:Enabled"] = "false",
+            ["OpenWA:Enabled"] = "true"
+        });
+
+        Assert.Contains(withoutGateway.JobDetails, job => job.Key.Name == ShopInventory.Services.CustomerDocumentDeliveryJob.JobName);
+        Assert.DoesNotContain(switchedOff.JobDetails, job => job.Key.Name == ShopInventory.Services.CustomerDocumentDeliveryJob.JobName);
+    }
+
+    [Fact]
+    public void The_customer_document_job_never_runs_twice_at_once()
+    {
+        // Half of the guard against sending a document twice; the conditional claim is the other half.
+        Assert.True(Attribute.IsDefined(typeof(ShopInventory.Services.CustomerDocumentDeliveryJob), typeof(DisallowConcurrentExecutionAttribute)));
+    }
+
     private static QuartzOptions Build(Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();

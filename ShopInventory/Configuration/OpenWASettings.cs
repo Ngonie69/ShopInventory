@@ -28,6 +28,14 @@ public class OpenWASettings
     public int TimeoutSeconds { get; set; } = 30;
 
     /// <summary>
+    /// How long a document send may take, in seconds. Longer than <see cref="TimeoutSeconds"/> because
+    /// the gateway hands the file to WhatsApp Web, which uploads it before it answers. Kept below the
+    /// 90 seconds IIS gives a stopping app, so a deploy never cuts a send off half way without the
+    /// delivery job seeing it end.
+    /// </summary>
+    public int DocumentTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
     /// Shared secret used to authenticate inbound OpenWA webhooks.
     /// </summary>
     public string WebhookSecret { get; set; } = string.Empty;

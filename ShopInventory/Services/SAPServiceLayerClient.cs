@@ -2408,6 +2408,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign,DocumentStatus,Cancelled,DocumentLines",
             cancellationToken);
 
+    public Task<List<Invoice>> GetInvoiceDeliveryHeadersAsync(
+        IEnumerable<int> docEntries,
+        CancellationToken cancellationToken = default) =>
+        // No DocumentLines: deciding whether and where to send an invoice needs none of them, and the
+        // full document is read only once it is about to be rendered.
+        GetInvoicesByDocEntriesAsync(
+            docEntries,
+            "$select=DocEntry,DocNum,DocDate,CardCode,CardName,NumAtCard,DocTotal,DocTotalFc,DocCurrency,Comments,U_Van_saleorder,Cancelled,CancelStatus,DocumentStatus",
+            cancellationToken);
+
     public Task<List<Invoice>> GetInvoiceBalancesByDocEntriesAsync(
         IEnumerable<int> docEntries,
         CancellationToken cancellationToken = default) =>

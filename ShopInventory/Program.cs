@@ -661,6 +661,7 @@ try
         ShopInventory.Features.Statements.IStatementBuildCache,
         ShopInventory.Features.Statements.StatementBuildCache>();
     builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
+    builder.Services.AddScoped<ShopInventory.Features.Invoices.IInvoicePdfComposer, ShopInventory.Features.Invoices.InvoicePdfComposer>();
     builder.Services.AddScoped<IQuotationPdfService, QuotationPdfService>();
     builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
     builder.Services.AddScoped<IIncomingPaymentService, IncomingPaymentService>();
@@ -1163,7 +1164,10 @@ try
         }
 
         client.BaseAddress = baseUri;
-        client.Timeout = TimeSpan.FromSeconds(Math.Max(openWaSettings.TimeoutSeconds, 1));
+        // The longest per-call deadline plus a margin: OpenWAClient bounds every call itself, so this
+        // only has to be long enough never to cut a document send short.
+        client.Timeout = TimeSpan.FromSeconds(
+            Math.Max(Math.Max(openWaSettings.TimeoutSeconds, openWaSettings.DocumentTimeoutSeconds), 1) + 5);
         client.DefaultRequestHeaders.Add("Accept", "application/json");
     });
 
@@ -1204,6 +1208,19 @@ try
     // Registers this API's inbound webhook against each OpenWA session. Without it a paired
     // session delivers nothing and the inbox stays empty with no error raised anywhere.
     builder.Services.AddScoped<IOpenWAWebhookRegistrar, OpenWAWebhookRegistrar>();
+
+    // Customer documents on WhatsApp: the register of numbers, and the delivery job's collaborators.
+    // The job itself is declared in QuartzConfiguration from CustomerDocuments:Enabled.
+    builder.Services.Configure<CustomerDocumentDeliverySettings>(
+        builder.Configuration.GetSection(CustomerDocumentDeliverySettings.SectionName));
+    builder.Services.AddScoped<ShopInventory.Features.CustomerDocuments.Documents.ISapInvoiceDocumentComposer,
+        ShopInventory.Features.CustomerDocuments.Documents.SapInvoiceDocumentComposer>();
+    builder.Services.AddScoped<ShopInventory.Features.CustomerDocuments.Delivery.ICustomerDocumentAlerts,
+        ShopInventory.Features.CustomerDocuments.Delivery.CustomerDocumentAlerts>();
+    builder.Services.AddScoped<ShopInventory.Features.CustomerDocuments.Delivery.ICustomerDocumentDispatchTrigger,
+        ShopInventory.Features.CustomerDocuments.Delivery.CustomerDocumentDispatchTrigger>();
+    builder.Services.AddSingleton<ShopInventory.Features.CustomerDocuments.Delivery.ICustomerDocumentPacer,
+        ShopInventory.Features.CustomerDocuments.Delivery.CustomerDocumentPacer>();
 
     var app = builder.Build();
     var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();

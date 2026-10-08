@@ -50,8 +50,13 @@ public sealed class OpenWAClient(
                     request.Headers.TryAddWithoutValidation("X-API-Key", _settings.ApiKey);
                 }
 
-                using var response = await _httpClient.SendAsync(request, cancellationToken);
-                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                // Its own deadline, as every call here has: the client's timeout is sized for the
+                // longest call, a document send, and a health probe must not wait that long.
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                deadline.CancelAfter(TimeSpan.FromSeconds(Math.Max(_settings.TimeoutSeconds, 1)));
+
+                using var response = await _httpClient.SendAsync(request, deadline.Token);
+                var responseBody = await response.Content.ReadAsStringAsync(deadline.Token);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -120,6 +125,46 @@ public sealed class OpenWAClient(
             HttpMethod.Post,
             $"/api/sessions/{Uri.EscapeDataString(sessionId)}/messages/reply",
             request,
+            cancellationToken);
+    }
+
+    public Task<WhatsAppMessageDispatchDto> SendDocumentAsync(
+        string sessionId,
+        WhatsAppSendDocumentRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return SendForJsonAsync<WhatsAppMessageDispatchDto>(
+            HttpMethod.Post,
+            $"/api/sessions/{Uri.EscapeDataString(sessionId)}/messages/send-document",
+            request,
+            cancellationToken,
+            _settings.DocumentTimeoutSeconds);
+    }
+
+    public Task<WhatsAppNumberCheckDto> CheckNumberAsync(
+        string sessionId,
+        string digits,
+        CancellationToken cancellationToken = default)
+    {
+        return SendForJsonAsync<WhatsAppNumberCheckDto>(
+            HttpMethod.Get,
+            $"/api/sessions/{Uri.EscapeDataString(sessionId)}/contacts/check/{Uri.EscapeDataString(digits)}",
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<WhatsAppMessageHistoryDto> GetMessagesAsync(
+        string sessionId,
+        string chatId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var boundedLimit = Math.Clamp(limit, 1, 200);
+
+        return SendForJsonAsync<WhatsAppMessageHistoryDto>(
+            HttpMethod.Get,
+            $"/api/sessions/{Uri.EscapeDataString(sessionId)}/messages?chatId={Uri.EscapeDataString(chatId)}&limit={boundedLimit}",
+            payload: null,
             cancellationToken);
     }
 
@@ -195,15 +240,37 @@ public sealed class OpenWAClient(
         return health;
     }
 
+    /// <remarks>
+    /// Each call carries its own deadline rather than leaning on <see cref="HttpClient.Timeout"/>, which
+    /// is one value for every call: a document needs far longer than a session read, and lifting the
+    /// shared timeout for it would have let every other call hang that long too. The client's own
+    /// timeout is set to the longest of these, so it never cuts one short. A deadline that passes is
+    /// reported the way HttpClient reports its own — a <see cref="TaskCanceledException"/> over a
+    /// <see cref="TimeoutException"/> — so a caller tells it from its own cancellation the same way.
+    /// </remarks>
     private async Task<T> SendForJsonAsync<T>(
         HttpMethod method,
         string path,
         object? payload,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? timeoutSeconds = null)
     {
-        using var request = CreateRequest(method, path, payload);
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        return await ReadJsonResponseAsync<T>(response, cancellationToken);
+        var seconds = Math.Max(timeoutSeconds ?? _settings.TimeoutSeconds, 1);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(seconds));
+
+        try
+        {
+            using var request = CreateRequest(method, path, payload);
+            using var response = await _httpClient.SendAsync(request, deadline.Token);
+            return await ReadJsonResponseAsync<T>(response, deadline.Token);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TaskCanceledException(
+                $"OpenWA did not answer {method} {path} within {seconds} seconds.",
+                new TimeoutException($"OpenWA did not answer within {seconds} seconds.", ex));
+        }
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, object? payload)

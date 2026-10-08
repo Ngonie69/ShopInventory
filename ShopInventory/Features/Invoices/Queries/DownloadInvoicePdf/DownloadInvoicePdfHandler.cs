@@ -1,87 +1,33 @@
 using ErrorOr;
 using MediatR;
-using ShopInventory.Common.Fiscalization;
-using ShopInventory.Common.Errors;
-using ShopInventory.Configuration;
-using ShopInventory.Data;
-using ShopInventory.Mappings;
-using ShopInventory.Services;
-using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.Invoices.Queries.DownloadInvoicePdf;
 
+/// <summary>
+/// The invoice PDF a member of staff downloads or prints.
+/// </summary>
+/// <remarks>
+/// The rendering lives in <see cref="IInvoicePdfComposer"/>, shared with the copy sent to a customer
+/// on WhatsApp, so what a customer receives is the document the office sees.
+/// </remarks>
 public sealed class DownloadInvoicePdfHandler(
-    ApplicationDbContext dbContext,
-    ISAPServiceLayerClient sapClient,
-    IFiscalReceiptReader fiscalReceiptReader,
-    IInvoicePdfService invoicePdfService,
-    IOptions<SAPSettings> settings,
-    ILogger<DownloadInvoicePdfHandler> logger
+    IInvoicePdfComposer composer
 ) : IRequestHandler<DownloadInvoicePdfQuery, ErrorOr<(byte[] PdfBytes, string FileName)>>
 {
     public async Task<ErrorOr<(byte[] PdfBytes, string FileName)>> Handle(
         DownloadInvoicePdfQuery request,
         CancellationToken cancellationToken)
     {
-        if (!settings.Value.Enabled)
-            return Errors.Invoice.SapDisabled;
+        var composed = await composer.ComposeAsync(
+            request.DocEntry,
+            request.FiscalQrCode,
+            verifiedReceipt: null,
+            cancellationToken);
 
-        try
-        {
-            var invoice = await sapClient.GetInvoiceByDocEntryAsync(request.DocEntry, cancellationToken);
-            if (invoice is null)
-                return Errors.Invoice.NotFound(request.DocEntry);
+        if (composed.IsError)
+            return composed.Errors;
 
-            var invoiceDto = invoice.ToDto();
-            await FiscalDocumentStatusProjector.EnrichInvoiceAsync(dbContext, invoiceDto, cancellationToken);
-
-            // Enrich with business partner details
-            if (!string.IsNullOrEmpty(invoice.CardCode))
-            {
-                try
-                {
-                    var bp = await sapClient.GetBusinessPartnerByCodeAsync(invoice.CardCode, cancellationToken);
-                    if (bp != null)
-                    {
-                        invoiceDto.CustomerVatNo = bp.VatRegNo;
-                        invoiceDto.CustomerTinNumber = bp.TinNumber;
-                        invoiceDto.CustomerPhone = bp.Phone1;
-                        invoiceDto.CustomerEmail = bp.Email;
-                    }
-                }
-                catch (Exception bpEx)
-                {
-                    logger.LogWarning(bpEx, "Could not fetch business partner {CardCode} for PDF enrichment", invoice.CardCode);
-                }
-            }
-
-            var fiscalQrCode = await InvoicePdfFiscalDetail.ResolveAsync(
-                dbContext,
-                fiscalReceiptReader,
-                invoiceDto,
-                request.FiscalQrCode,
-                logger,
-                cancellationToken);
-
-            var pdfBytes = await invoicePdfService.GenerateInvoicePdfAsync(invoiceDto, fiscalQrCode);
-            var fileName = $"Invoice_{invoiceDto.DocNum}_{DateTime.Now:yyyyMMdd}.pdf";
-
-            return (pdfBytes, fileName);
-        }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
-        {
-            logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return Errors.Invoice.SapTimeout;
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return Errors.Invoice.SapConnectionError(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error generating PDF for invoice {DocEntry}", request.DocEntry);
-            return Errors.Invoice.CreationFailed(ex.Message);
-        }
+        var fileName = $"Invoice_{composed.Value.Invoice.DocNum}_{DateTime.Now:yyyyMMdd}.pdf";
+        return (composed.Value.PdfBytes, fileName);
     }
 }

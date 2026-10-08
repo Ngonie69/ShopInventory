@@ -32,6 +32,9 @@ public sealed class ManagerRoleScopeTests
         Permission.CreatePayments, Permission.RefundPayments, Permission.ProcessRefunds,
         Permission.CreateSalesOrders, Permission.EditSalesOrders, Permission.DeleteSalesOrders, Permission.PostSalesOrdersToSAP,
         Permission.CreateQuotations, Permission.EditQuotations,
+        // Sending a customer an invoice, and pointing a customer's invoices at a phone, are the
+        // cashier's; a manager reads the delivery history and sends nothing.
+        Permission.SendInvoicesWhatsApp, Permission.ManageCustomerWhatsApp,
     ];
 
     [Theory]

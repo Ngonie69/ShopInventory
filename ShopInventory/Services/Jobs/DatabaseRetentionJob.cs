@@ -19,6 +19,9 @@ namespace ShopInventory.Services;
 /// <list type="bullet">
 /// <item><c>AuditLogs</c> and <c>WhatsAppWebhookEvents</c> are kept for good. The audit trail is
 /// unconditional, and the WhatsApp events are the inbox people search.</item>
+/// <item><c>CustomerWhatsAppContacts</c> and <c>CustomerDocumentDeliveries</c> are kept for good too:
+/// the consent a number was saved under and every document sent to it are the record of what the
+/// company sent a customer, which cannot be taken back.</item>
 /// <item><c>InvoiceQueue</c> and <c>InventoryTransferQueue</c>: a finished row is what refuses a
 /// resent external reference, and on the invoice side it is also what stops a second fiscal
 /// receipt for a van-sale invoice. Deleting one would reopen the duplicate it guards.</item>

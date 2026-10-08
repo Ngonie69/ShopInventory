@@ -142,6 +142,69 @@ internal static class PerSaleInvoiceRegistry
     }
 
     /// <summary>
+    /// The receipt a per-sale invoice's own sale holds, found by the sale reference the invoice
+    /// carries (<c>U_Van_saleorder</c>), with the DocNum that sale recorded for its invoice.
+    /// </summary>
+    /// <remarks>
+    /// The reference rather than the DocNum because a DocNum can now name the wrong document. After
+    /// the September 2026 SAP update SAP reissued old DocEntries and DocNums, and sale rows that were
+    /// never told their invoices' new numbers still hold the old ones — which today belong to other
+    /// customers' invoices. A lookup by DocNum then answers with another sale's receipt. The reference
+    /// is written onto the invoice by the post itself and cannot drift like that. The DocNum the sale
+    /// recorded is returned beside it so a caller can see when the sale names some other invoice.
+    /// </remarks>
+    public static async Task<PerSaleReferencedReceipt?> FindReceiptByReferenceAsync(
+        ApplicationDbContext dbContext,
+        string? reference,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            return null;
+        }
+
+        var trimmed = reference.Trim();
+
+        var sale = await dbContext.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.ExternalReferenceId == trimmed
+                && sale.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success)
+            .OrderByDescending(sale => sale.Id)
+            .Select(sale => new PerSaleReferencedReceipt(
+                new PerSaleFiscalReceipt(
+                    sale.FiscalQRCode,
+                    sale.FiscalVerificationCode,
+                    sale.FiscalDayNo,
+                    sale.FiscalDeviceId,
+                    sale.ReceiptGlobalNo),
+                sale.SapDocNum))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (sale is not null && HasSomethingToPrint(sale.Receipt))
+        {
+            return sale;
+        }
+
+        var queued = await FiscalisedQueuedSales(dbContext)
+            .Where(queued => queued.ExternalReference == trimmed)
+            .OrderByDescending(queued => queued.QueueId)
+            .Select(queued => new PerSaleReferencedReceipt(
+                new PerSaleFiscalReceipt(
+                    queued.FiscalQrCode,
+                    queued.FiscalVerificationCode,
+                    queued.FiscalDayNo,
+                    null,
+                    null),
+                queued.DocNum))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return queued is not null && HasSomethingToPrint(queued.Receipt) ? queued : null;
+    }
+
+    private static bool HasSomethingToPrint(PerSaleFiscalReceipt receipt) =>
+        !string.IsNullOrWhiteSpace(receipt.QrCode) || !string.IsNullOrWhiteSpace(receipt.VerificationCode);
+
+    /// <summary>
     /// Narrows a page of document numbers to those that came from an already-fiscalised sale, in one
     /// query per marker.
     /// </summary>
@@ -418,6 +481,12 @@ public sealed record PerSaleInvoiceSaleFacts(
     string? QrCode,
     string? FiscalDay,
     string? DeviceSerial);
+
+/// <summary>
+/// A per-sale receipt found by its sale reference, and the DocNum its sale recorded for the invoice —
+/// null when the sale has not reached SAP yet.
+/// </summary>
+internal sealed record PerSaleReferencedReceipt(PerSaleFiscalReceipt Receipt, int? RecordedDocNum);
 
 /// <summary>
 /// The ZIMRA receipt held against a sale, as the invoice PDF prints it.
