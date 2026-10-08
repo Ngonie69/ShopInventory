@@ -329,6 +329,9 @@ internal static class FiscalDocumentStatusProjector
         creditNote.FiscalizationStatus = status;
         creditNote.FiscalQrCode = transaction?.QRCode;
         creditNote.FiscalReceiptGlobalNo = transaction?.ReceiptGlobalNo;
+        creditNote.FiscalVerificationCode = transaction?.VerificationCode;
+        creditNote.FiscalDeviceId = transaction?.DeviceId;
+        creditNote.FiscalDay = transaction?.FiscalDay;
         creditNote.FiscalizedAtUtc = isFiscalized == true ? transaction?.TimestampUtc : null;
     }
 
