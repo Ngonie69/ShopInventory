@@ -12,13 +12,13 @@ namespace ShopInventory.Features.CustomerDocuments.Delivery;
 /// <para>
 /// The line that matters is whether the message can have reached WhatsApp. A send can be retried only
 /// when it provably did not: the gateway refused it before the send (session not active, too many
-/// requests, the engine not ready once the fork answers 503 for it), or the connection was never made.
+/// requests, the engine not ready - a 503 from Ngonie69/OpenWA#2 on), or the connection was never made.
 /// </para>
 /// <para>
 /// Anything after the request may have arrived — a timeout, a 500, a reply cut short — is
 /// <see cref="OpenWADispatchOutcomeKind.Uncertain"/>. Retrying that would send the customer a second
-/// copy whenever the first did go, so it is settled from the gateway's own log instead. Until the fork
-/// answers 503 for an engine that is not ready, that case is a 500 and lands here too; the log then
+/// copy whenever the first did go, so it is settled from the gateway's own log instead. A gateway
+/// older than OpenWA#2 answers 500 for an engine that is not ready, which lands here too; the log then
 /// shows it failed, and it is failed rather than resent.
 /// </para>
 /// </remarks>
