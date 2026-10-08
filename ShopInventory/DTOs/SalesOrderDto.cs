@@ -277,6 +277,9 @@ public class CreditNoteDto
     public string? FiscalQrCode { get; set; }
 
     public int? FiscalReceiptGlobalNo { get; set; }
+    public string? FiscalVerificationCode { get; set; }
+    public string? FiscalDeviceId { get; set; }
+    public string? FiscalDay { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
     public List<CreditNoteLineDto> Lines { get; set; } = new();
 }

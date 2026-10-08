@@ -687,6 +687,106 @@ public sealed class VanSalesDocumentsTests : IDisposable
         Assert.Equal("VAN-OFF-CR", Assert.Single(row.CreditedInvoices).Reference);
     }
 
+    /// <summary>
+    /// The drawer shows the receipt as the invoice drawer does — QR, verification code, device, fiscal day —
+    /// taken from the fiscal log's row for the memo's DocNum.
+    /// </summary>
+    [Fact]
+    public async Task A_SAP_memo_carries_the_receipt_the_fiscal_log_holds_for_it()
+    {
+        AddReservation("VAN-FR", ReservationStatus.Confirmed, docEntry: 840, docNum: 9840);
+        AddCreditMemo(docEntry: 61, docNum: 3061, baseEntry: 840);
+        _context.DesktopFiscalTransactions.Add(new DesktopFiscalTransactionEntity
+        {
+            ClientTransactionId = "credit-note-fiscalisation-3061",
+            DocumentType = "CreditNote",
+            DocNum = 3061,
+            Status = "Success",
+            ReceiptGlobalNo = 912,
+            VerificationCode = "ABCD1234EFGH5678",
+            QRCode = "https://fdms.zimra.co.zw/verify/3061",
+            DeviceId = "21604",
+            FiscalDay = "88"
+        });
+        await _context.SaveChangesAsync();
+
+        var row = Assert.Single((await ListCreditNotesAsync()).Rows);
+
+        Assert.Equal(VanSalesDocumentStates.Complete, row.State);
+        Assert.Equal("912", row.FiscalReceiptNumber);
+        Assert.Equal("ABCD1234EFGH5678", row.FiscalVerificationCode);
+        Assert.Equal("https://fdms.zimra.co.zw/verify/3061", row.FiscalQrCode);
+        Assert.Equal("21604", row.FiscalDeviceSerial);
+        Assert.Equal("88", row.FiscalDay);
+    }
+
+    /// <summary>
+    /// A till credit is signed under its own number, so the fiscal log has nothing under the memo it becomes:
+    /// the receipt is the device's answer stored on the credit, whether it is listed as itself or as the memo.
+    /// </summary>
+    [Fact]
+    public async Task A_till_credit_carries_the_receipt_the_device_answered_with()
+    {
+        var sale = AddOfflineSale("VAN-TR", SaleSourceSystems.VanSales, docNum: null);
+        _context.DesktopCreditNotes.Add(new DesktopCreditNoteEntity
+        {
+            Id = Guid.NewGuid(),
+            Sale = sale,
+            Number = "CR-VAN-TR-1",
+            OriginalFiscalNumber = "VAN-TR",
+            Reason = "Damaged",
+            Currency = "USD",
+            Amount = 7m,
+            Status = DesktopCreditStatuses.Fiscalised,
+            SapStatus = DesktopCreditSapStatuses.Deferred,
+            FiscalResultJson = """
+                {"success":true,"receiptGlobalNo":"4410","verificationCode":"WXYZ9876","qrCode":"https://fdms.zimra.co.zw/verify/4410","deviceSerial":"SN-77","fiscalDayNo":"12"}
+                """,
+            CreatedAtUtc = DuringDayUtc
+        });
+        await _context.SaveChangesAsync();
+
+        var row = Assert.Single((await ListCreditNotesAsync()).Rows);
+
+        Assert.Equal("4410", row.FiscalReceiptNumber);
+        Assert.Equal("WXYZ9876", row.FiscalVerificationCode);
+        Assert.Equal("https://fdms.zimra.co.zw/verify/4410", row.FiscalQrCode);
+        Assert.Equal("SN-77", row.FiscalDeviceSerial);
+        Assert.Equal("12", row.FiscalDay);
+    }
+
+    [Fact]
+    public async Task A_memo_a_till_credit_became_carries_the_till_receipt()
+    {
+        var sale = AddOfflineSale("VAN-TM", SaleSourceSystems.VanSales, docNum: 9850, docEntry: 850);
+        _context.DesktopCreditNotes.Add(new DesktopCreditNoteEntity
+        {
+            Id = Guid.NewGuid(),
+            Sale = sale,
+            Number = "CR-VAN-TM-1",
+            OriginalFiscalNumber = "VAN-TM",
+            Reason = "Damaged",
+            Currency = "USD",
+            Amount = 20m,
+            Status = DesktopCreditStatuses.Fiscalised,
+            SapStatus = DesktopCreditSapStatuses.Posted,
+            SapDocEntry = 62,
+            SapDocNum = 3062,
+            FiscalResultJson = """{"success":true,"receiptGlobalNo":"4420","verificationCode":"MEMO4420","qrCode":"https://fdms.zimra.co.zw/verify/4420"}""",
+            CreatedAtUtc = DuringDayUtc
+        });
+        AddCreditMemo(docEntry: 62, docNum: 3062, baseEntry: 850);
+        await _context.SaveChangesAsync();
+
+        var row = Assert.Single((await ListCreditNotesAsync()).Rows);
+
+        Assert.Equal("SAP", row.Origin);
+        Assert.Equal(VanSalesDocumentStates.Complete, row.State);
+        Assert.Equal("4420", row.FiscalReceiptNumber);
+        Assert.Equal("MEMO4420", row.FiscalVerificationCode);
+        Assert.Equal("https://fdms.zimra.co.zw/verify/4420", row.FiscalQrCode);
+    }
+
     [Theory]
     [InlineData(true, true, false, VanSalesDocumentStates.Complete)]
     [InlineData(true, true, true, VanSalesDocumentStates.Complete)]

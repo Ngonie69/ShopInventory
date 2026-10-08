@@ -43,7 +43,7 @@
     <PackageReference Include="Quartz.Extensions.Hosting" Version="3.22.3" />
     <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.22.3" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SkiaSharp" Version="4.153.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="10.2.3" />
   </ItemGroup>
