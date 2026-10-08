@@ -40,6 +40,9 @@ otherwise be surprised.
   - It sets `PUPPETEER_SKIP_DOWNLOAD` for `npm ci`. Current Puppeteer ignores the
     `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD` it set before, so every reinstall tried to download a browser,
     and failed when that download did.
+  - It waits up to 180s (`-StartTimeoutSeconds`) for a started gateway while its node process is alive,
+    and fails at once when that process exits. The first upgrade on .9 (2026-10-08) threw at the old
+    60s limit while the gateway was still starting, and skipped the boot-task and firewall steps.
 
 - **REVMax is no longer asked about SAP documents dated after 30 September 2026.** `Revmax:LastFilingDate`
   ships as `2026-09-30`, the platform cut-over day; it was null, and production never overrode it, so

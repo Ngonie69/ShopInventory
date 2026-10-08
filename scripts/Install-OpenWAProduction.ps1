@@ -56,6 +56,10 @@
     Do not register the boot task. Requires elevation when not set; without the task OpenWA does not
     come back after a reboot and the console reports the gateway unreachable with no other clue.
 
+.PARAMETER StartTimeoutSeconds
+    How long to wait for a started gateway to answer its health check while its node process is
+    alive. A gateway whose process exits fails at once instead.
+
 .PARAMETER WhatIf
     Report what would change without changing it.
 
@@ -72,7 +76,8 @@ param(
     [string[]]$ApiNodeAddresses = @('10.10.10.9', '10.10.10.58'),
     [string]$TaskName = 'ShopInventory-OpenWA',
     [switch]$SkipFirewall,
-    [switch]$SkipScheduledTask
+    [switch]$SkipScheduledTask,
+    [int]$StartTimeoutSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,6 +129,59 @@ function Stop-OpenWAAndWait {
     }
 
     throw "OpenWA still holds port $Port 30s after it was stopped. Stop it with .\scripts\Stop-OpenWA.ps1, then re-run."
+}
+
+function Test-OpenWAProcessRunning {
+    # The same match Stop-OpenWA.ps1 uses to find the gateway's node process.
+    [bool](Get-CimInstance Win32_Process -Filter "name = 'node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $commandLine = $_.CommandLine
+            $commandLine -and (
+                $commandLine -like "*\OpenWA\dist\main*" -or
+                $commandLine -like "* .\dist\main.js*"
+            )
+        })
+}
+
+function Wait-OpenWAHealthy {
+    param([int]$Port, [string]$TaskName, [int]$TimeoutSeconds, [string]$LogsPath)
+
+    # On 10.10.10.9 a restart took longer than a minute to answer: the old 60s wait threw while the
+    # boot task was still bringing up a healthy gateway, and the run stopped before registering the
+    # task and checking the firewall. So wait as long as node is alive, and give up early only once
+    # it is gone - that is a gateway that crashed, not one that is slow.
+    $graceSeconds = 20
+    $started = Get-Date
+    $nextNote = 30
+
+    while ($true) {
+        Start-Sleep -Seconds 2
+        try {
+            $probe = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/health" -UseBasicParsing -TimeoutSec 5
+            if ($probe.StatusCode -eq 200) {
+                Write-Host "  OpenWA is answering on $Port." -ForegroundColor Green
+                return
+            }
+        }
+        catch { }
+
+        $elapsed = [int]((Get-Date) - $started).TotalSeconds
+
+        if ($elapsed -ge $graceSeconds -and -not (Test-OpenWAProcessRunning)) {
+            $task = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
+            $taskNote = if ($task) { " The '$TaskName' task last returned $($task.LastTaskResult)." } else { '' }
+            throw "OpenWA exited without answering http://127.0.0.1:$Port/api/health.$taskNote Read the newest log under $LogsPath."
+        }
+
+        if ($elapsed -ge $TimeoutSeconds) {
+            throw "OpenWA is running but did not answer http://127.0.0.1:$Port/api/health within ${TimeoutSeconds}s. It may still be starting: check it again, then re-run this script to finish the remaining steps. Logs are under $LogsPath."
+        }
+
+        if ($elapsed -ge $nextNote) {
+            Write-Host "  Still starting (${elapsed}s)..."
+            $nextNote += 30
+        }
+    }
 }
 
 function Read-Stamp {
@@ -435,21 +493,7 @@ elseif ($PSCmdlet.ShouldProcess("localhost:$Port", "Start OpenWA")) {
         & (Join-Path $PSScriptRoot 'Start-OpenWA.ps1') -NodeHome $nodeHome -ChromePath $chrome
     }
 
-    $ready = $false
-    foreach ($attempt in 1..30) {
-        Start-Sleep -Seconds 2
-        try {
-            $probe = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/health" -UseBasicParsing -TimeoutSec 5
-            if ($probe.StatusCode -eq 200) { $ready = $true; break }
-        }
-        catch { }
-    }
-
-    if (-not $ready) {
-        throw "OpenWA did not answer http://127.0.0.1:$Port/api/health within 60s. Read the newest log under $openWaRoot\logs."
-    }
-
-    Write-Host "  OpenWA is answering on $Port." -ForegroundColor Green
+    Wait-OpenWAHealthy -Port $Port -TaskName $TaskName -TimeoutSeconds $StartTimeoutSeconds -LogsPath (Join-Path $openWaRoot 'logs')
 }
 
 $apiKeyPath = Join-Path $dataPath '.api-key'
