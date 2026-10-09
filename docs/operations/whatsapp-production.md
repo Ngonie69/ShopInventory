@@ -98,7 +98,10 @@ and does only what changed:
 - **Nothing changed.** It leaves the gateway running.
 
 A restart goes through the `ShopInventory-OpenWA` boot task, so the gateway runs as SYSTEM and
-outlives your session. The paired session reconnects without a new QR code.
+outlives your session. Every session that was running is started again by the gateway itself, three
+seconds apart, and a paired one reconnects without a new QR code. A session someone pressed **Stop**
+on stays stopped. (Before Ngonie69/OpenWA#3 the gateway started nothing: every restart left every
+session `disconnected` until someone pressed **Start**.)
 
 The first run on an install made before the stamps adopts its dependencies when `npm ls` finds
 them complete, so that upgrade is a rebuild and a restart, not a reinstall.
@@ -106,7 +109,8 @@ them complete, so that upgrade is a rebuild and a restart, not a reinstall.
 Confirm it took:
 
 1. `GET http://127.0.0.1:2785/api/health` answers 200.
-2. `fiscal-alerts` reads `ready` on `/whatsapp-inbox`.
+2. `fiscal-alerts` reads `ready` on `/whatsapp-inbox` within a few minutes, without anyone pressing
+   **Start**.
 3. `scripts/Test-WhatsAppDeliveryPath.ps1` passes.
 
 ## Point the API at it
@@ -167,7 +171,22 @@ sessions being restarted. Press **Repair delivery** on each session, or restart 
 
 **Session dropped to `disconnected` after a reboot.** The boot task did not run, or Chrome could not
 start under SYSTEM. `Get-ScheduledTask ShopInventory-OpenWA`, then the newest `OpenWA\logs\*.err.log`.
-The stored session survives a restart, so this does not need a fresh QR scan.
+The stored session survives a restart, so this does not need a fresh QR scan. A session that had been
+stopped by hand before the reboot stays stopped. That is deliberate, so press **Start**.
+
+**Session stuck in `authenticating` or `initializing`.** WhatsApp Web loaded but never finished.
+whatsapp-web.js can accept the stored login and then never report ready. The gateway restarts an
+engine that is still in either state after five minutes (`readyTimeoutMs` in the session's config),
+up to five times with a growing gap. After that it marks the session `failed`, so a session in
+either state for more than about half an hour means the gateway is older than Ngonie69/OpenWA#3.
+On that older gateway, press **Stop** and then **Start**: Start alone answers "Session is already
+started".
+
+**Session reads `failed`.** Its retries are used up. Press **Start**. If it shows a QR code, the
+phone has dropped the linked device: scan it from WhatsApp → Linked devices. If it fails again,
+the reason is in the newest `OpenWA\logs\*.log`. *Execution context was destroyed* is whatsapp-web.js
+losing a race with WhatsApp Web reloading itself. It is usually transient, and the gateway already
+retries it.
 
 ## Customer documents
 
