@@ -21,9 +21,14 @@ public interface IInvoicePdfComposer
     /// QR, verification code, day and device together — and nothing keyed on the DocNum is consulted.
     /// </param>
     /// <param name="cancellationToken">Cancels the SAP reads.</param>
+    /// <param name="buyer">
+    /// Who to print as the customer instead of the SAP card — a van sale's shop. Null prints the card,
+    /// as every download does.
+    /// </param>
     Task<ErrorOr<ComposedInvoicePdf>> ComposeAsync(
         int docEntry,
         string? requestedQrCode,
         InvoicePdfReceipt? verifiedReceipt,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        InvoicePdfBuyer? buyer = null);
 }

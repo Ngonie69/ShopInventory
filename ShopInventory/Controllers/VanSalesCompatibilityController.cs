@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
+using ShopInventory.Features.CustomerDocuments.Commands.RequestVanSaleWhatsApp;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesDirectInvoice;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ChangeVanSalesPassword;
 using ShopInventory.Features.VanSalesCompatibility.Commands.DeleteVanSalesCustomer;
@@ -586,6 +587,39 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
 
         var result = await mediator.Send(new GetVanSalesSaleByVanOrderQuery(userId.Value, vanOrder), cancellationToken);
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Sends a sale's invoice to the WhatsApp number the customer gave at the sale.
+    /// </summary>
+    /// <remarks>
+    /// Queued, never sent here: the invoice goes once the office has posted the sale to SAP and its fiscal
+    /// receipt is confirmed, with the shop named as the buyer. Safe to repeat — the same sale and number
+    /// answer with the delivery already made, <c>already_requested</c> true. Only the rep's own sales, or
+    /// sales in their customer scope; any other is a 404, the same as a sale that does not exist.
+    /// </remarks>
+    [HttpPost("sale/{vanOrder}/whatsapp")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.CreateInvoices)]
+    [ProducesResponseType(typeof(VanSaleWhatsAppResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(VanSaleWhatsAppResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SendSaleOnWhatsApp(
+        string vanOrder,
+        [FromBody] VanSaleWhatsAppRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new RequestVanSaleWhatsAppCommand(userId.Value, vanOrder, request), cancellationToken);
+        return result.Match<IActionResult>(
+            value => value.AlreadyRequested ? Ok(value) : Accepted(value),
+            errors => Problem(errors));
     }
 
     /// <summary>

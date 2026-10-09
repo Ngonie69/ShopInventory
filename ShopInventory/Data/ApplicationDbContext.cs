@@ -2326,7 +2326,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
       entity.ToTable("CustomerDocumentDeliveries", t =>
       {
-        t.HasCheckConstraint("CK_CustomerDocumentDeliveries_OneDocument", "(\"SapDocEntry\" IS NULL) <> (\"DesktopSaleId\" IS NULL)");
+        // A send asked for at a van sale names the sale first and takes the SAP invoice's numbers once the
+        // office has posted it, so both can be set; one of them always is.
+        t.HasCheckConstraint("CK_CustomerDocumentDeliveries_HasDocument", "\"SapDocEntry\" IS NOT NULL OR \"DesktopSaleId\" IS NOT NULL");
         t.HasCheckConstraint("CK_CustomerDocumentDeliveries_DispatchAttempts_NonNegative", "\"DispatchAttempts\" >= 0");
       });
 

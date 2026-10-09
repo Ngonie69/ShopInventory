@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using ErrorOr;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
@@ -31,6 +33,13 @@ public sealed class SapInvoiceDocumentComposer(
         DateTime nowUtc,
         CancellationToken cancellationToken)
     {
+        if (delivery.SapDocEntry is null && delivery.DesktopSaleId is { } saleId)
+        {
+            var waiting = await AdoptPostedSaleAsync(delivery, saleId, cancellationToken);
+            if (waiting is not null)
+                return waiting;
+        }
+
         if (delivery.SapDocEntry is not { } docEntry || delivery.SapDocNum is not { } docNum)
         {
             return DocumentComposition.Fail("The delivery names no SAP invoice.");
@@ -62,7 +71,8 @@ public sealed class SapInvoiceDocumentComposer(
                 return DocumentComposition.Hold(verdict.Reason ?? "The fiscal receipt found does not belong to this invoice.");
         }
 
-        var composed = await pdfComposer.ComposeAsync(docEntry, null, verdict.Receipt, cancellationToken);
+        var buyer = await ResolveBuyerAsync(delivery, cancellationToken);
+        var composed = await pdfComposer.ComposeAsync(docEntry, null, verdict.Receipt, cancellationToken, buyer);
         if (composed.IsError)
         {
             return composed.FirstError.Type == ErrorType.NotFound
@@ -103,7 +113,7 @@ public sealed class SapInvoiceDocumentComposer(
         var number = invoice.DocNum.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var caption = CustomerDocumentCaption.Render(
             settings.CaptionTemplate,
-            invoice.CardName,
+            buyer?.Name ?? invoice.CardName,
             number,
             InvoiceDeliveryRules.ParseDocDate(invoice.DocDate),
             invoice.DocCurrency,
@@ -116,5 +126,74 @@ public sealed class SapInvoiceDocumentComposer(
             Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             verdict.Receipt!,
             verdict.Source ?? FiscalLinkVerifier.TransactionLogSource));
+    }
+
+    /// <summary>
+    /// A send asked for at a van sale names the sale, because the handset asks before the office has
+    /// posted it. Once the sale row carries its SAP numbers the delivery takes them and is an ordinary
+    /// invoice send from then on; until then it waits, and is held for a person if it waits too long.
+    /// </summary>
+    private async Task<DocumentComposition?> AdoptPostedSaleAsync(
+        CustomerDocumentDeliveryEntity delivery,
+        int saleId,
+        CancellationToken cancellationToken)
+    {
+        var sale = await dbContext.DesktopSales
+            .AsNoTracking()
+            .Where(row => row.Id == saleId)
+            .Select(row => new { row.SapDocEntry, row.SapDocNum, row.CardCode })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (sale is null)
+            return DocumentComposition.Fail("The van sale is no longer on record.");
+
+        if (sale.SapDocEntry is not { } docEntry || sale.SapDocNum is not { } docNum)
+            return DocumentComposition.WaitForFiscal("Waiting for the van sale to reach SAP.");
+
+        // The invoice bills the van's card, as the sale did; anything else is not this sale's invoice.
+        if (!string.Equals(sale.CardCode?.Trim(), delivery.CardCode?.Trim(), StringComparison.OrdinalIgnoreCase))
+            return DocumentComposition.Hold($"The van sale now bills {sale.CardCode}, not {delivery.CardCode} as when it was asked for.");
+
+        delivery.SapDocEntry = docEntry;
+        delivery.SapDocNum = docNum;
+        delivery.DocumentNumber = docNum.ToString(CultureInfo.InvariantCulture);
+        logger.LogInformation(
+            "WhatsApp delivery {DeliveryId} for van sale {SaleId} now sends SAP invoice {DocNum}",
+            delivery.Id, saleId, docNum);
+        return null;
+    }
+
+    /// <summary>
+    /// The shop a van sale was for, printed as the buyer in place of the van's own card. Null for an
+    /// account customer's invoice, which prints its card as it always has.
+    /// </summary>
+    private async Task<InvoicePdfBuyer?> ResolveBuyerAsync(
+        CustomerDocumentDeliveryEntity delivery,
+        CancellationToken cancellationToken)
+    {
+        if (delivery.RouteCustomerId is not { } routeCustomerId)
+            return null;
+
+        var shop = await dbContext.RouteCustomers
+            .AsNoTracking()
+            .Where(customer => customer.Id == routeCustomerId)
+            .Select(customer => new { customer.Name, customer.Surname, customer.Address, customer.VatNumber, customer.Phone, customer.Email })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (shop is null)
+        {
+            return string.IsNullOrWhiteSpace(delivery.RouteCustomerName)
+                ? null
+                : new InvoicePdfBuyer(delivery.RouteCustomerName.Trim(), null, null, null, null);
+        }
+
+        return new InvoicePdfBuyer(
+            $"{shop.Name} {shop.Surname}".Trim(),
+            Blank(shop.Address),
+            Blank(shop.VatNumber),
+            Blank(shop.Phone),
+            Blank(shop.Email));
+
+        static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }

@@ -216,6 +216,18 @@ invoice's fiscal receipt is confirmed. No web request calls WhatsApp directly.
 4. **Choose it.** On `/whatsapp-deliveries`, set **Send documents from** to `customer-documents`.
    Leave **Send new invoices automatically** off for the first week, and the automatic cap at 20.
 
+### Van sales
+
+After a sale the van app offers **Send on WhatsApp**: the rep types the number the customer gives and
+confirms the customer asked for it. The API queues it against the sale (`trigger: Counter`). It waits
+as *Waiting for fiscal receipt*, reason "Waiting for the van sale to reach SAP", until the office has
+posted the sale, then goes as that SAP invoice with the shop as the buyer, not the van. Counter sends
+keep to the hourly, daily and per-number caps but not the automatic window. Each rep may send
+`MaxVanSaleSendsPerUserPerDay` (80) a day. The number is not saved on the shop: saving a shop's
+number, with its consent, is done on **Route Customers** on the Web.
+
+A sale that never reaches SAP is held for a person after `MaxFiscalWaitHours` (24), like any other.
+
 ### Automatic sends
 
 A second clustered job, `customer-invoice-scan`, looks for new SAP invoices every two minutes and

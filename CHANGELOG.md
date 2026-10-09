@@ -38,6 +38,12 @@ otherwise be surprised.
   sends the history. `GET /api/customer-document-deliveries/status` gains `invoiceScanAtUtc` and
   `invoiceScanLastDocEntry`.
 
+- **A van rep can send a sale's invoice to the customer's WhatsApp from the handset.** New route
+  `POST /api/vansales/sale/{vanOrder}/whatsapp` (permission `invoices.create`, the one that makes the
+  sale). The invoice goes once the office has posted the sale, naming the shop rather than the van.
+  Needs the van app release that adds the button. Adds a migration that relaxes
+  `CK_CustomerDocumentDeliveries_OneDocument` to `CK_CustomerDocumentDeliveries_HasDocument`.
+
 ### Changed
 
 - **`Install-OpenWAProduction.ps1` now upgrades as well as installs.** It used to build only when
