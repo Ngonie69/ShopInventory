@@ -63,6 +63,14 @@ public static partial class Errors
             Error.Validation("CustomerDocuments.OneOffLimitReached",
                 $"You have sent documents to {limit} unsaved numbers today, the most allowed. Save the number on the customer instead.");
 
+        public static Error VanSaleNotFound(string vanOrder) =>
+            Error.NotFound("CustomerDocuments.VanSaleNotFound",
+                $"No sale under {vanOrder} was found on this van. If it was made offline it has not reached the office yet; try again once it has uploaded.");
+
+        public static Error VanSaleSendLimitReached(int limit) =>
+            Error.Validation("CustomerDocuments.VanSaleSendLimitReached",
+                $"You have sent {limit} invoices on WhatsApp today, the most allowed. The office can send this one from the invoice.");
+
         public static Error InvoiceNotFound(int docEntry) =>
             Error.NotFound("CustomerDocuments.InvoiceNotFound", $"Invoice {docEntry} was not found in SAP.");
 

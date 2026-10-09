@@ -98,6 +98,12 @@ public sealed class CustomerDocumentDeliverySettings
     /// </summary>
     public int MaxOneOffPerUserPerDay { get; set; } = 30;
 
+    /// <summary>
+    /// The most invoices one van rep may send from the handset in a CAT day, to numbers a customer gave
+    /// at the sale. A rep's busiest day is about this many sales.
+    /// </summary>
+    public int MaxVanSaleSendsPerUserPerDay { get; set; } = 80;
+
     /// <summary>The most "is this number on WhatsApp" checks made in a CAT day.</summary>
     public int MaxNumberChecksPerDay { get; set; } = 50;
 

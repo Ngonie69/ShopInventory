@@ -4323,6 +4323,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
 | GET | `/api/vansales/sale/{vanOrder}` | `invoices.view` | Whether the sale posted under that `van_order` landed, for a handset whose `POST order` lost its reply: sale number, receipt, and SAP numbers once the queue has posted it. Read off the sale row, so a sale signed and not yet in SAP is answered — invoice history, which reads SAP, has nothing. **Always `200`**: not found, and another van's sale, are both `found: false`, because the handset reads a `404` as a server without this route. Returned **bare**, not enveloped |
+| POST | `/api/vansales/sale/{vanOrder}/whatsapp` | `invoices.create` | Send that sale's invoice to the WhatsApp number the customer gave at the sale: `{"phone": "0771234567", "consent": true}`. Queued, not sent: it goes once the office has posted the sale to SAP and its fiscal receipt is confirmed, with the shop (the route customer) named as the buyer instead of the van. `202` when queued; `200` with `already_requested: true` when this sale was already sent to that number, so a retry is safe. The rep's own sales, or sales on a card in their scope; any other is a `404`, the same as no sale. Capped per rep per CAT day (`CustomerDocuments:MaxVanSaleSendsPerUserPerDay`, 80). The number is kept on that send only, not saved on the shop |
 | GET | `/api/vansales/fiscal` | `invoices.view` | Fiscal device details for the handset |
 | GET | `/api/vansales/fiscal/lease` | `invoices.create` | Optional `pendingSales`. Returned **bare**, not enveloped |
 | POST | `/api/vansales/fiscal/day-close` | `invoices.create` | The close a handset signed for its own fiscal day. Held rather than forwarded — the day is packaged once its receipts have landed |
@@ -4706,6 +4707,11 @@ invoice download serves. It goes only once its fiscal receipt is confirmed: by t
 reference first, then by a fiscal transaction whose customer, total and date all agree, then by
 asking the device. Until then the send waits, and after `CustomerDocuments:MaxFiscalWaitHours` it is
 held for a person.
+
+**Van sales.** A van rep sends a sale's invoice from the handset with
+`POST /api/vansales/sale/{vanOrder}/whatsapp` (§ Van Sales). That send is a `trigger: Counter` row
+naming the sale; it waits as `WaitingForFiscal` until the sale's row carries its SAP numbers, then
+takes them and goes as that invoice, printed with the route customer as the buyer.
 
 **Automatic sends.** A second clustered job, `customer-invoice-scan`, reads the invoices SAP has
 posted since its last pass, every two minutes, and queues a `trigger: Auto` row for each number on

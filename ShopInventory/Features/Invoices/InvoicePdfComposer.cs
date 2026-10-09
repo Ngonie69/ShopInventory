@@ -31,7 +31,8 @@ public sealed class InvoicePdfComposer(
         int docEntry,
         string? requestedQrCode,
         InvoicePdfReceipt? verifiedReceipt,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        InvoicePdfBuyer? buyer = null)
     {
         if (!settings.Value.Enabled)
             return Errors.Invoice.SapDisabled;
@@ -45,8 +46,18 @@ public sealed class InvoicePdfComposer(
             var invoiceDto = invoice.ToDto();
             await FiscalDocumentStatusProjector.EnrichInvoiceAsync(dbContext, invoiceDto, cancellationToken);
 
+            if (buyer is not null)
+            {
+                // The shop, not the van's selling account: nothing of the card is the buyer's.
+                invoiceDto.CardName = buyer.Name;
+                invoiceDto.BillToAddress = buyer.Address;
+                invoiceDto.CustomerVatNo = buyer.VatNumber;
+                invoiceDto.CustomerTinNumber = null;
+                invoiceDto.CustomerPhone = buyer.Phone;
+                invoiceDto.CustomerEmail = buyer.Email;
+            }
             // Enrich with business partner details
-            if (!string.IsNullOrEmpty(invoice.CardCode))
+            else if (!string.IsNullOrEmpty(invoice.CardCode))
             {
                 try
                 {

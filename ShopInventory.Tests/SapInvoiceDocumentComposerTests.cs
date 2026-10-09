@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using ErrorOr;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -118,6 +119,112 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
         Assert.Equal(DocumentCompositionKind.Fail, gone.Kind);
     }
 
+    [Fact]
+    public async Task A_van_sale_not_yet_in_SAP_waits_and_reads_nothing()
+    {
+        var saleId = await AddVanSaleAsync(sapDocEntry: null, sapDocNum: null);
+
+        var composition = await ComposeAsync(VanRow(saleId));
+
+        Assert.Equal(DocumentCompositionKind.WaitForFiscal, composition.Kind);
+        Assert.Contains("reach SAP", composition.Reason);
+        Assert.Equal(0, _pdf.Calls);
+    }
+
+    [Fact]
+    public async Task A_van_sale_once_posted_is_sent_as_its_invoice_with_the_shop_as_buyer()
+    {
+        var saleId = await AddVanSaleAsync(sapDocEntry: 2400100, sapDocNum: 780100);
+        await AddReceiptAsync(cardCode: "VAN008");
+        _pdf.Invoice = invoice =>
+        {
+            invoice.CardCode = "VAN008";
+            invoice.CardName = "Van Sales West 2";
+        };
+        CustomerDocumentDeliveryEntity? row = null;
+
+        var composition = await ComposeAsync(delivery =>
+        {
+            VanRow(saleId)(delivery);
+            row = delivery;
+        });
+
+        Assert.Equal(DocumentCompositionKind.Ready, composition.Kind);
+        Assert.Equal(2400100, row!.SapDocEntry);
+        Assert.Equal(780100, row.SapDocNum);
+        Assert.Equal("780100", row.DocumentNumber);
+        Assert.Equal(new InvoicePdfBuyer("Mbare Tuck Shop", "Stand 12, Mbare", "220000041", "0772000041", null), _pdf.Buyer);
+        Assert.Contains("Mbare Tuck Shop", composition.Document!.Caption);
+        Assert.DoesNotContain("Van Sales West 2", composition.Document.Caption);
+        Assert.Equal("Kefalos-Invoice-780100.pdf", composition.Document.FileName);
+    }
+
+    [Fact]
+    public async Task An_account_customers_invoice_prints_its_card_as_before()
+    {
+        await AddReceiptAsync();
+
+        await ComposeAsync();
+
+        Assert.Null(_pdf.Buyer);
+    }
+
+    [Fact]
+    public async Task A_van_sale_that_now_bills_another_card_is_held()
+    {
+        var saleId = await AddVanSaleAsync(sapDocEntry: 2400100, sapDocNum: 780100, cardCode: "VAN009");
+
+        var composition = await ComposeAsync(VanRow(saleId));
+
+        Assert.Equal(DocumentCompositionKind.Hold, composition.Kind);
+        Assert.Equal(0, _pdf.Calls);
+    }
+
+    private static Action<CustomerDocumentDeliveryEntity> VanRow(int saleId) => row =>
+    {
+        row.SapDocEntry = null;
+        row.SapDocNum = null;
+        row.DesktopSaleId = saleId;
+        row.DocumentNumber = $"INV{saleId}";
+        row.CardCode = "VAN008";
+        row.CardName = "Mbare Tuck Shop";
+        row.RouteCustomerId = 41;
+        row.RouteCustomerName = "Mbare Tuck Shop";
+        row.SaleReference = "VO-20261009-0042";
+        row.Trigger = CustomerDocumentDeliveryTrigger.Counter;
+    };
+
+    private async Task<int> AddVanSaleAsync(int? sapDocEntry, int? sapDocNum, string cardCode = "VAN008")
+    {
+        await using var context = _kit.NewContext();
+        if (!await context.RouteCustomers.AnyAsync(customer => customer.Id == 41))
+        {
+            context.RouteCustomers.Add(new RouteCustomerEntity
+            {
+                Id = 41, AssignedBusinessPartnerCode = "VAN008", Code = "S41", Name = "Mbare Tuck Shop",
+                Address = "Stand 12, Mbare", VatNumber = "220000041", Phone = "0772000041"
+            });
+        }
+
+        var sale = new DesktopSaleEntity
+        {
+            ExternalReferenceId = "VO-20261009-0042",
+            SourceSystem = "KefalosVanSalesOnline",
+            CardCode = cardCode,
+            RouteCustomerId = 41,
+            RouteCustomerName = "Mbare Tuck Shop",
+            DocDate = DateTime.UtcNow.Date,
+            TotalAmount = 125.50m,
+            Currency = "USD",
+            WarehouseCode = "VAN004",
+            SapDocEntry = sapDocEntry,
+            SapDocNum = sapDocNum
+        };
+        context.DesktopSales.Add(sale);
+        await context.SaveChangesAsync();
+        return sale.Id;
+    }
+
     private async Task<DocumentComposition> ComposeAsync(
         Action<CustomerDocumentDeliveryEntity>? delivery = null,
         Action<CustomerDocumentDeliverySettings>? settings = null)
@@ -149,7 +256,7 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
         return await composer.ComposeAsync(row, DateTime.UtcNow, CancellationToken.None);
     }
 
-    private async Task AddReceiptAsync(decimal total = 125.50m)
+    private async Task AddReceiptAsync(decimal total = 125.50m, string cardCode = CustomerDocumentTestKit.CardCode)
     {
         await using var context = _kit.NewContext();
         context.DesktopFiscalTransactions.Add(new DesktopFiscalTransactionEntity
@@ -160,7 +267,7 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
             Status = "Success",
             QRCode = "QR-LOG",
             VerificationCode = "LOG-CODE",
-            CardCode = CustomerDocumentTestKit.CardCode,
+            CardCode = cardCode,
             DocTotal = total,
             TimestampUtc = DateTime.UtcNow
         });
@@ -175,10 +282,13 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
         public byte[] Bytes { get; set; } = [0x25, 0x50, 0x44, 0x46];
         public Error? Error { get; set; }
 
-        public Task<ErrorOr<ComposedInvoicePdf>> ComposeAsync(int docEntry, string? requestedQrCode, InvoicePdfReceipt? verifiedReceipt, CancellationToken cancellationToken)
+        public InvoicePdfBuyer? Buyer { get; private set; }
+
+        public Task<ErrorOr<ComposedInvoicePdf>> ComposeAsync(int docEntry, string? requestedQrCode, InvoicePdfReceipt? verifiedReceipt, CancellationToken cancellationToken, InvoicePdfBuyer? buyer = null)
         {
             Calls++;
             Receipt = verifiedReceipt;
+            Buyer = buyer;
 
             if (Error is { } error)
                 return Task.FromResult<ErrorOr<ComposedInvoicePdf>>(error);
