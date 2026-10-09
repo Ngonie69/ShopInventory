@@ -1760,6 +1760,19 @@ new("GET", "/api/fiscalisation-console/work-queue", "Get work queue")
 },
 new ApiModule
 {
+Name = "Live Transactions",
+BasePath = "/api/live-transactions",
+Description = "1 endpoint under /api/live-transactions.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Success,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/live-transactions/feed", "Get feed")
+}
+},
+new ApiModule
+{
 Name = "Maintenance",
 BasePath = "/api/Maintenance",
 Description = "6 endpoints under /api/Maintenance.",
