@@ -4707,6 +4707,16 @@ reference first, then by a fiscal transaction whose customer, total and date all
 asking the device. Until then the send waits, and after `CustomerDocuments:MaxFiscalWaitHours` it is
 held for a person.
 
+**Automatic sends.** A second clustered job, `customer-invoice-scan`, reads the invoices SAP has
+posted since its last pass, every two minutes, and queues a `trigger: Auto` row for each number on
+the invoice's own card that is marked for automatic invoices. It never sends anything itself; the
+delivery job does, under the same checks. Its first pass only records the newest DocEntry, so no
+invoice from before it started is ever sent. Cancelled and consolidated invoices, and anything on a
+selling account, get no row. A reposted invoice, or one dated more than
+`CustomerDocuments:AutoMaxDocumentAgeDays` (7) back, gets a `Skipped` row saying why. With automatic
+sending off the scan still moves on, so switching it on never sends the backlog. `status` reports
+when it last ran (`invoiceScanAtUtc`, `invoiceScanLastDocEntry`).
+
 **Statuses.** `Pending`, `Preparing`, `WaitingForFiscal` and `Sending` are on their way. `Sent` and
 `SentUnconfirmed` are finished; the second means WhatsApp accepted the message without giving it an
 id. `Uncertain` means the call was cut off: the job settles it from OpenWA's own message log rather

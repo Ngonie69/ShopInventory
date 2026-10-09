@@ -56,6 +56,15 @@ public sealed class CustomerDocumentDeliveryStatusDto
 
     public DateTime? LastSentAtUtc { get; set; }
 
+    /// <summary>
+    /// When the scan for new SAP invoices last ran, the producer of automatic sends; null before its
+    /// first pass, or where it is not scheduled (SAP switched off).
+    /// </summary>
+    public DateTime? InvoiceScanAtUtc { get; set; }
+
+    /// <summary>The last SAP invoice DocEntry the scan has read.</summary>
+    public int? InvoiceScanLastDocEntry { get; set; }
+
     public string? SettingsChangedBy { get; set; }
 
     public DateTime? SettingsChangedAtUtc { get; set; }

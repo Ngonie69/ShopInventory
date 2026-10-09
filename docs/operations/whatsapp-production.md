@@ -216,11 +216,32 @@ invoice's fiscal receipt is confirmed. No web request calls WhatsApp directly.
 4. **Choose it.** On `/whatsapp-deliveries`, set **Send documents from** to `customer-documents`.
    Leave **Send new invoices automatically** off for the first week, and the automatic cap at 20.
 
+### Automatic sends
+
+A second clustered job, `customer-invoice-scan`, looks for new SAP invoices every two minutes and
+queues one for each number marked **Send new invoices automatically** on the invoice's own customer.
+It reads past a DocEntry watermark kept in `SystemConfigs` as `CustomerDocuments.InvoiceScanCheckpoint`,
+re-reading the last 20 in case two posts finished out of order. It sees every invoice, including
+ones keyed straight into B1. It sends nothing itself: its rows go through the same fiscal check,
+window and caps as a manual send, and only within the automatic cap.
+
+- **The first pass sends nothing.** It records the newest invoice, so nothing from before the scan
+  ran is ever sent. With automatic sending off it still moves the watermark, so turning it on later
+  never sends the backlog.
+- **What it leaves alone.** No row for cancelled or consolidated invoices, or for anything on a
+  selling account (shop tills, vans, cart vendors), whatever numbers are saved. A **Skipped** row
+  with the reason for a reposted invoice, or one dated more than `AutoMaxDocumentAgeDays` (7) back.
+  Either can still be sent by hand.
+- **Is it running?** Under the automatic switch, `/whatsapp-deliveries` says when SAP was last
+  checked. During an SAP outage it waits and starts again from the same invoice.
+- **To start again from now**, delete the `CustomerDocuments.InvoiceScanCheckpoint` row. The next
+  pass records the newest invoice and sends nothing older.
+
 ### Where its settings live
 
 | Setting | Where | Changed by |
 |---|---|---|
-| `CustomerDocuments:Enabled`, the send window, gaps, hourly/daily/per-number caps, caption | `appsettings.json` | A deploy. The same on every node, and it decides whether the job is scheduled at all |
+| `CustomerDocuments:Enabled`, the send window, gaps, hourly/daily/per-number caps, caption, the scan's interval and page size | `appsettings.json` | A deploy. The same on every node, and it decides whether the job is scheduled at all |
 | The session, automatic sending on/off, the automatic daily cap | `SystemConfigs` | `/whatsapp-deliveries`. Every node reads them on its next pass |
 | `OpenWA__*`, including `OpenWA:DocumentTimeoutSeconds` (60) | `web.config` | `Set-OpenWAApiConfig.ps1`. A node without them sends nothing and claims nothing |
 

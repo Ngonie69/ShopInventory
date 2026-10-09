@@ -59,6 +59,12 @@ internal static class CustomerDocumentStatusReader
             LastSentAtUtc = await deliveries.MaxAsync(d => d.SentAtUtc, cancellationToken)
         };
 
+        if (await InvoiceScanCheckpoint.ReadAsync(context, cancellationToken) is { } scan)
+        {
+            status.InvoiceScanAtUtc = scan.LastScanAtUtc;
+            status.InvoiceScanLastDocEntry = scan.LastDocEntry;
+        }
+
         if (!status.GatewayConfigured)
         {
             status.SessionError = "WhatsApp is not configured on the server that answered.";

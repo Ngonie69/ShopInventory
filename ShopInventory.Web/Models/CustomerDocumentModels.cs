@@ -146,6 +146,8 @@ public sealed class CustomerDocumentDeliveryStatusModel
     public int Uncertain { get; set; }
     public int FailedToday { get; set; }
     public DateTime? LastSentAtUtc { get; set; }
+    public DateTime? InvoiceScanAtUtc { get; set; }
+    public int? InvoiceScanLastDocEntry { get; set; }
     public string? SettingsChangedBy { get; set; }
     public DateTime? SettingsChangedAtUtc { get; set; }
 }
