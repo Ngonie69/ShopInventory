@@ -86,6 +86,7 @@ Account
 ## Manager
 Overview
     Dashboard  /manager-dashboard
+    Live transactions  /live-transactions
 Sales
     Invoices  /invoices
     Sales Orders  /sales-orders
@@ -278,6 +279,7 @@ Account
 ## Admin
 Overview
     Dashboard  /dashboard
+    Live transactions  /live-transactions
 Sales
     Invoices  /invoices
     Create Invoice  /invoices/create

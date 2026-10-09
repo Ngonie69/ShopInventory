@@ -1,0 +1,311 @@
+@page "/live-transactions"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.LiveTransactionRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>Live transactions - Shop Inventory</PageTitle>
+
+@* Styles live in wwwroot/css/live-transactions.css (StaffStylesheets.targets), aliasing the
+   Nocturne tokens. Every count on the page is derived from the events the page holds, so the
+   tiles and the list cannot disagree. Status is always a dot plus a word, never colour alone. *@
+
+<div class="ltx">
+
+    <header class="ltx-head">
+        <div class="ltx-head-inner">
+            <nav class="ltx-crumbs" aria-label="Breadcrumb">
+                <span>Overview</span>
+                <span class="ltx-crumb-sep" aria-hidden="true">/</span>
+                <span class="ltx-crumb-now" aria-current="page">Live transactions</span>
+            </nav>
+            <div class="ltx-head-actions">
+                <span class="ltx-live @(_loadFailed ? "ltx-tone-bad" : "ltx-tone-good")" role="status" aria-live="polite">
+                    <span class="ltx-dot @(_loadFailed ? null : "ltx-dot-pulse")" aria-hidden="true"></span>
+                    @if (_loadFailed)
+                    {
+                        <span>Reconnecting</span>
+                    }
+                    else
+                    {
+                        <span>Live</span>
+                    }
+                </span>
+                @if (_lastUpdatedUtc is { } updated)
+                {
+                    <span class="ltx-asof">
+                        @if (_isRefreshing)
+                        {
+                            <span class="ltx-spin" aria-hidden="true"></span>
+                        }
+                        updated @Clock(updated)
+                    </span>
+                }
+                <button type="button" class="ltx-btn" @onclick="ManualRefreshAsync" disabled="@_isRefreshing">
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="ltx-body">
+        <div class="ltx-intro">
+            <h1>Live transactions</h1>
+            <p>
+                Today's sales, invoices and payments, and every receipt the Fiscalisation platform files from any
+                source, as they happen. Updates every @((int)PollInterval.TotalSeconds) seconds, and at once when a
+                till or van sale arrives.
+            </p>
+        </div>
+
+        @if (_loadFailed && _lastUpdatedUtc is not null)
+        {
+            <div class="ltx-notice ltx-notice-bad" role="alert">
+                <i class="ph ph-plugs" aria-hidden="true"></i>
+                <span>The API stopped answering. What is shown was true at @Clock(_lastUpdatedUtc.Value); the page keeps trying.</span>
+            </div>
+        }
+
+        @if (!_isLoading && !_fiscalAvailable)
+        {
+            <div class="ltx-notice ltx-notice-warn" role="status">
+                <i class="ph ph-receipt-x" aria-hidden="true"></i>
+                <span>
+                    <strong>Fiscal activity unavailable.</strong>
+                    @(_fiscalMessage ?? "The Fiscalisation platform did not answer.")
+                    Sales below still show the fiscal status this system holds.
+                </span>
+            </div>
+        }
+
+        @if (_trimmed)
+        {
+            <div class="ltx-notice" role="status">
+                <i class="ph ph-info" aria-hidden="true"></i>
+                <span>Today is busy: only the latest @MaxHeldEvents.ToString("N0") events are held, and the figures below cover those.</span>
+            </div>
+        }
+
+        @if (_isLoading)
+        {
+            <div class="ltx-empty">
+                <span class="ltx-spin" aria-hidden="true"></span>
+                <span>Reading today's transactions…</span>
+            </div>
+        }
+        else if (_loadFailed && _lastUpdatedUtc is null)
+        {
+            <div class="ltx-empty ltx-tone-bad" role="alert">
+                <i class="ph ph-plugs" aria-hidden="true"></i>
+                <span>The live feed could not be read. The page will keep trying every @((int)PollInterval.TotalSeconds) seconds.</span>
+            </div>
+        }
+        else
+        {
+            var (fiscalised, salesTotal) = SalesFiscalised();
+            var failures = OpenFailureCount;
+            var salesTotals = TotalsByCurrency(Sales).ToList();
+            var paymentTotals = TotalsByCurrency(Payments).ToList();
+            var days = FiscalDays();
+
+            <section class="ltx-tiles" aria-label="Today so far">
+                <article class="ltx-tile">
+                    <h2 class="ltx-tile-label">Sales today</h2>
+                    <p class="ltx-tile-value ltx-num">@Sales.Count().ToString("N0")</p>
+                    <p class="ltx-tile-sub ltx-num">
+                        @if (salesTotals.Count == 0)
+                        {
+                            <span>No sales yet</span>
+                        }
+                        @foreach (var (currency, total) in salesTotals.Take(3))
+                        {
+                            <span class="ltx-tile-money">@Money(total, currency)</span>
+                        }
+                    </p>
+                </article>
+
+                <article class="ltx-tile">
+                    <h2 class="ltx-tile-label">Sales fiscalised</h2>
+                    <p class="ltx-tile-value ltx-num">
+                        @(salesTotal == 0 ? "—" : $"{fiscalised * 100 / salesTotal}%")
+                    </p>
+                    <p class="ltx-tile-sub ltx-num">
+                        @fiscalised.ToString("N0") of @salesTotal.ToString("N0")
+                        @if (_fiscalAvailable)
+                        {
+                            <span> · @FiscalReceiptCount.ToString("N0") receipts filed, all sources</span>
+                        }
+                    </p>
+                </article>
+
+                <article class="ltx-tile @(failures > 0 ? "ltx-tile-bad" : null)">
+                    <h2 class="ltx-tile-label">Open failures</h2>
+                    <p class="ltx-tile-value ltx-num">@failures.ToString("N0")</p>
+                    <p class="ltx-tile-sub">
+                        @if (failures > 0)
+                        {
+                            <button type="button" class="ltx-link" @onclick="() => SetFilter(Filter.Failures)">Show them</button>
+                        }
+                        else
+                        {
+                            <span>Nothing failing</span>
+                        }
+                    </p>
+                </article>
+
+                <article class="ltx-tile">
+                    <h2 class="ltx-tile-label">Payments received</h2>
+                    <p class="ltx-tile-value ltx-num">@Payments.Count().ToString("N0")</p>
+                    <p class="ltx-tile-sub ltx-num">
+                        @if (paymentTotals.Count == 0)
+                        {
+                            <span>None yet</span>
+                        }
+                        @foreach (var (currency, total) in paymentTotals.Take(3))
+                        {
+                            <span class="ltx-tile-money">@Money(total, currency)</span>
+                        }
+                    </p>
+                </article>
+            </section>
+
+            @if (days.Count > 0)
+            {
+                <section class="ltx-days" aria-label="Fiscal days">
+                    <h2 class="ltx-section-label">Fiscal days</h2>
+                    <ul class="ltx-day-list">
+                        @foreach (var day in days)
+                        {
+                            var tone = RowTone(day.Latest);
+                            <li class="ltx-day @ToneClass(tone)" title="@day.Latest.Detail">
+                                <span class="ltx-dot" aria-hidden="true"></span>
+                                <span class="ltx-day-device">Device @day.DeviceId</span>
+                                <span class="ltx-day-state">@day.Latest.Reference · @Humanise(day.Latest.Status)</span>
+                                <span class="ltx-day-time ltx-num">@Clock(day.Latest.OccurredAtUtc)</span>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            }
+
+            <section class="ltx-feed-wrap" aria-label="Transactions">
+                <div class="ltx-toolbar">
+                    <div class="ltx-seg" role="group" aria-label="Show">
+                        @foreach (var (filter, label) in new[]
+                        {
+                            (Filter.All, "All"),
+                            (Filter.Sales, "Sales"),
+                            (Filter.Money, "Invoices & payments"),
+                            (Filter.Fiscal, "Fiscal"),
+                            (Filter.Failures, "Failures")
+                        })
+                        {
+                            var count = CountFor(filter);
+                            <button type="button"
+                                    class="ltx-seg-btn @(_filter == filter ? "is-on" : null) @(filter == Filter.Failures && count > 0 ? "ltx-seg-bad" : null)"
+                                    aria-pressed="@(_filter == filter ? "true" : "false")"
+                                    @onclick="() => SetFilter(filter)">
+                                <span>@label</span>
+                                <span class="ltx-seg-count ltx-num">@count.ToString("N0")</span>
+                            </button>
+                        }
+                    </div>
+                    <label class="ltx-search">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <span class="visually-hidden">Search</span>
+                        <input type="search" class="ltx-search-input" placeholder="Reference, customer, shop, device…"
+                               @bind="_search" @bind:event="oninput" />
+                    </label>
+                </div>
+
+                @{
+                    var rows = VisibleRows(out var matching);
+                }
+
+                @if (rows.Count == 0)
+                {
+                    <div class="ltx-empty">
+                        <i class="ph ph-hourglass-medium" aria-hidden="true"></i>
+                        <span>
+                            @(string.IsNullOrWhiteSpace(_search) && _filter == Filter.All
+                                ? "Nothing yet today. New transactions appear here as they happen."
+                                : "Nothing today matches.")
+                        </span>
+                    </div>
+                }
+                else
+                {
+                    <ol class="ltx-feed">
+                        @foreach (var e in rows)
+                        {
+                            var tone = RowTone(e);
+                            var fiscal = FiscalStateOf(e);
+                            <li class="ltx-row @(IsFresh(e.EventId) ? "is-fresh" : null)" @key="e.EventId">
+                                <time class="ltx-time ltx-num" datetime="@e.OccurredAtUtc.ToString("O")">@Clock(e.OccurredAtUtc)</time>
+                                <span class="ltx-kind @KindClass(e)">@KindLabel(e)</span>
+                                <div class="ltx-main">
+                                    <div class="ltx-line">
+                                        <span class="ltx-ref">@(e.Reference ?? "—")</span>
+                                        @if (!string.IsNullOrWhiteSpace(e.Counterparty))
+                                        {
+                                            <span class="ltx-party">@e.Counterparty</span>
+                                        }
+                                    </div>
+                                    <div class="ltx-meta">
+                                        @if (!string.IsNullOrWhiteSpace(e.Location))
+                                        {
+                                            <span class="ltx-chip"><i class="ph ph-storefront" aria-hidden="true"></i>@e.Location</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(e.Channel))
+                                        {
+                                            <span class="ltx-chip">@e.Channel</span>
+                                        }
+                                        @if (e.FiscalDeviceId is { } device)
+                                        {
+                                            <span class="ltx-chip ltx-num">Device @device@(e.ReceiptGlobalNo is { } g ? $" · #{g}" : null)</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(e.Status) && e.Kind != LiveTransactionKinds.Sale)
+                                        {
+                                            <span class="ltx-status @ToneClass(tone)">
+                                                <span class="ltx-dot" aria-hidden="true"></span>@Humanise(e.Status)
+                                            </span>
+                                        }
+                                        @if (e.Kind == LiveTransactionKinds.Sale)
+                                        {
+                                            <span class="ltx-status ltx-tone-idle">
+                                                <span class="ltx-dot" aria-hidden="true"></span>@e.Status
+                                            </span>
+                                        }
+                                        @if (fiscal is not null)
+                                        {
+                                            <span class="ltx-status @ToneClass(fiscal.Tone)">
+                                                <i class="ph ph-receipt" aria-hidden="true"></i>@fiscal.Word@(fiscal.Detail is { } fd ? $" · {fd}" : null)
+                                            </span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(e.Detail) && (e.IsFailure || e.Kind == LiveTransactionKinds.FiscalDay) && fiscal?.Detail != e.Detail)
+                                    {
+                                        <p class="ltx-detail">@e.Detail</p>
+                                    }
+                                </div>
+                                <div class="ltx-amount ltx-num">
+                                    @if (e.Amount is { } amount)
+                                    {
+                                        @Money(amount, e.Currency)
+                                    }
+                                </div>
+                            </li>
+                        }
+                    </ol>
+
+                    @if (matching > rows.Count)
+                    {
+                        <p class="ltx-foot">Showing the latest @rows.Count.ToString("N0") of @matching.ToString("N0"). Search or filter to find older ones.</p>
+                    }
+                }
+            </section>
+        }
+    </main>
+</div>

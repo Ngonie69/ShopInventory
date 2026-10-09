@@ -341,6 +341,7 @@ try
     builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
     builder.Services.AddScoped<IExceptionCenterService, ExceptionCenterService>();
+    builder.Services.AddScoped<ILiveTransactionService, LiveTransactionService>();
     builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
     builder.Services.AddScoped<ITransferListenerService, TransferListenerService>();
 

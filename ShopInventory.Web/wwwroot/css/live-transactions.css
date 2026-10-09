@@ -1,0 +1,725 @@
+/* ==========================================================================
+   Live Transactions — Nocturne
+
+   /live-transactions: today's sales, invoices and payments here, and every
+   receipt, failure and fiscal day the Fiscalisation platform records, merged
+   into one timeline that updates while it is open.
+
+   Shaped after transfer-listener.css, its sibling monitoring page: the same
+   sticky header, buttons and tone vocabulary. Palette and spacing alias
+   nocturne-tokens.css, so there is no `.dark-theme .ltx` palette block — those
+   tokens flip at the root and every alias resolves against the scheme in force.
+
+   Tone is one class, `.ltx-tone-{good|warn|bad|idle}`, which sets `--tone` and
+   `--tone-rgb`; dots, status words and the failures tile read those. A tone
+   always arrives with a word — a dot is never the only signal.
+
+   Element selectors are two classes deep because app.css carries global
+   `.dark-theme input/button` rules that have to be out-specified.
+   ========================================================================== */
+
+.ltx {
+    --ltx-bg: var(--noct-bg);
+    --ltx-surface: var(--noct-surface);
+    --ltx-wash: var(--noct-wash);
+    --ltx-ink: var(--noct-ink);
+    --ltx-ink-2: var(--noct-ink-2);
+    --ltx-mute: var(--noct-mute);
+    --ltx-mute-2: var(--noct-mute-2);
+    --ltx-mute-3: var(--noct-mute-3);
+    --ltx-faint: var(--noct-faint);
+    --ltx-divider: var(--noct-divider);
+    --ltx-rule: var(--noct-rule);
+    --ltx-hover: var(--noct-hover);
+    --ltx-press: var(--noct-press);
+    --ltx-field-bg: var(--noct-field-bg);
+    --ltx-field-edge: var(--noct-field-edge);
+    --ltx-field-edge-hi: var(--noct-field-edge-hi);
+    --ltx-placeholder: var(--noct-placeholder);
+    --ltx-accent: var(--noct-accent);
+    --ltx-accent-rgb: var(--noct-accent-rgb);
+    --ltx-accent-text: var(--noct-accent-text);
+    --ltx-on-accent: var(--noct-on-accent);
+
+    --ltx-good: var(--noct-fam-good);
+    --ltx-good-rgb: var(--noct-fam-good-rgb);
+    --ltx-warn: var(--noct-fam-warn);
+    --ltx-warn-rgb: var(--noct-fam-warn-rgb);
+    --ltx-bad: var(--noct-fam-bad);
+    --ltx-bad-rgb: var(--noct-fam-bad-rgb);
+    --ltx-info: var(--noct-fam-info);
+    --ltx-info-rgb: var(--noct-fam-info-rgb);
+    --ltx-neutral: var(--noct-fam-neutral);
+    --ltx-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --ltx-fam-accent: var(--noct-fam-accent);
+    --ltx-fam-accent-rgb: var(--noct-fam-accent-rgb);
+
+    --ltx-warn-bg: var(--noct-warn-bg);
+    --ltx-warn-edge: var(--noct-warn-edge);
+    --ltx-warn-ink: var(--noct-warn-ink);
+
+    --ltx-s1: var(--noct-s1);
+    --ltx-s2: var(--noct-s2);
+    --ltx-s3: var(--noct-s3);
+    --ltx-s4: var(--noct-s4);
+    --ltx-s6: var(--noct-s6);
+    --ltx-s8: var(--noct-s8);
+    --ltx-r-sm: var(--noct-r-sm);
+    --ltx-r-md: var(--noct-r-md);
+    --ltx-r-lg: var(--noct-r-lg);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.ltx {
+    min-height: 100vh;
+    background: var(--ltx-bg);
+    color: var(--ltx-ink);
+    color-scheme: var(--noct-scheme);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+
+    /* `clip`, never `hidden`: `hidden` would make this a scrollport and the
+       sticky header would stop sticking. */
+    overflow-x: clip;
+}
+
+.ltx * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; here that would flatten every tone on WebKit. */
+.dark-theme .ltx,
+.dark-theme .ltx * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.ltx :focus-visible {
+    outline: 2px solid var(--ltx-accent);
+    outline-offset: 2px;
+}
+
+.ltx h1,
+.ltx h2 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.ltx p {
+    margin: 0;
+}
+
+.ltx-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Tones ─────────────────────────────────────────────────────────────── */
+
+.ltx-tone-good { --tone: var(--ltx-good); --tone-rgb: var(--ltx-good-rgb); }
+.ltx-tone-warn { --tone: var(--ltx-warn); --tone-rgb: var(--ltx-warn-rgb); }
+.ltx-tone-bad  { --tone: var(--ltx-bad);  --tone-rgb: var(--ltx-bad-rgb); }
+.ltx-tone-idle { --tone: var(--ltx-neutral); --tone-rgb: var(--ltx-neutral-rgb); }
+
+.ltx-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tone, var(--ltx-neutral));
+}
+
+.ltx-dot-pulse {
+    box-shadow: 0 0 0 0 rgba(var(--tone-rgb), .55);
+    animation: ltx-pulse 2s ease-out infinite;
+}
+
+@keyframes ltx-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(var(--tone-rgb), .55); }
+    70% { box-shadow: 0 0 0 6px rgba(var(--tone-rgb), 0); }
+    100% { box-shadow: 0 0 0 0 rgba(var(--tone-rgb), 0); }
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.ltx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--ltx-bg);
+    border-bottom: 1px solid var(--ltx-divider);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .ltx-head {
+        background: color-mix(in srgb, var(--ltx-bg) 88%, transparent);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+}
+
+.ltx-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--ltx-s6);
+}
+
+.ltx-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--ltx-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--ltx-mute-3);
+}
+
+.ltx-crumb-sep {
+    color: var(--ltx-faint);
+}
+
+.ltx-crumb-now {
+    color: var(--ltx-ink-2);
+    white-space: nowrap;
+}
+
+.ltx-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--ltx-s4);
+}
+
+.ltx-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(var(--tone-rgb), .12);
+    color: var(--tone);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.ltx-asof {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--ltx-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.ltx .ltx-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--ltx-r-sm);
+    border: 1px solid var(--ltx-field-edge);
+    background: var(--ltx-surface);
+    color: var(--ltx-ink-2);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+
+.ltx .ltx-btn:hover:not(:disabled) {
+    background: var(--ltx-hover);
+}
+
+.ltx .ltx-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.ltx .ltx-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ltx-accent-text);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.ltx-spin {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: ltx-spin .7s linear infinite;
+}
+
+@keyframes ltx-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.ltx-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px 28px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ltx-s8);
+}
+
+.ltx-intro h1 {
+    font-size: 22px;
+    color: var(--ltx-ink);
+    letter-spacing: -.01em;
+}
+
+.ltx-intro p {
+    margin-top: var(--ltx-s2);
+    max-width: 72ch;
+    color: var(--ltx-mute-2);
+    font-size: 13.5px;
+}
+
+.ltx-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ltx-s4);
+    padding: 10px 14px;
+    border-radius: var(--ltx-r-md);
+    border: 1px solid var(--ltx-divider);
+    background: var(--ltx-surface);
+    color: var(--ltx-mute);
+    font-size: 13px;
+}
+
+.ltx-notice i {
+    font-size: 16px;
+    margin-top: 1px;
+}
+
+.ltx-notice-warn {
+    background: var(--ltx-warn-bg);
+    border-color: var(--ltx-warn-edge);
+    color: var(--ltx-warn-ink);
+}
+
+.ltx-notice-bad {
+    background: rgba(var(--ltx-bad-rgb), .1);
+    border-color: rgba(var(--ltx-bad-rgb), .45);
+    color: var(--ltx-ink);
+}
+
+.ltx-notice-bad i {
+    color: var(--ltx-bad);
+}
+
+.ltx-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ltx-s4);
+    padding: 48px 16px;
+    border: 1px dashed var(--ltx-divider);
+    border-radius: var(--ltx-r-lg);
+    color: var(--ltx-mute-3);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.ltx-empty.ltx-tone-bad {
+    color: var(--tone);
+}
+
+/* ── Tiles ─────────────────────────────────────────────────────────────── */
+
+.ltx-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--ltx-s6);
+}
+
+.ltx-tile {
+    padding: 16px 18px;
+    border-radius: var(--ltx-r-lg);
+    background: var(--ltx-surface);
+    box-shadow: 0 0 0 1px var(--ltx-divider);
+    min-width: 0;
+}
+
+.ltx-tile-label {
+    font-size: 12px;
+    color: var(--ltx-mute-3);
+    letter-spacing: .02em;
+}
+
+.ltx-tile-value {
+    margin-top: 6px;
+    font-size: 28px;
+    line-height: 1.15;
+    font-weight: 500;
+    color: var(--ltx-ink);
+}
+
+.ltx-tile-sub {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    font-size: 12.5px;
+    color: var(--ltx-mute-2);
+}
+
+.ltx-tile-money {
+    white-space: nowrap;
+}
+
+.ltx-tile-bad {
+    box-shadow: 0 0 0 1px rgba(var(--ltx-bad-rgb), .55);
+}
+
+.ltx-tile-bad .ltx-tile-value {
+    color: var(--ltx-bad);
+}
+
+/* ── Fiscal days ───────────────────────────────────────────────────────── */
+
+.ltx-section-label {
+    font-size: 12px;
+    color: var(--ltx-mute-3);
+    letter-spacing: .02em;
+    margin-bottom: var(--ltx-s3);
+}
+
+.ltx-day-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ltx-s3);
+}
+
+.ltx-day {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--ltx-surface);
+    box-shadow: 0 0 0 1px var(--ltx-divider);
+    font-size: 12.5px;
+    color: var(--ltx-ink-2);
+}
+
+.ltx-day-device {
+    font-weight: 500;
+}
+
+.ltx-day-state {
+    color: var(--tone);
+}
+
+.ltx-day-time {
+    color: var(--ltx-mute-3);
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────────── */
+
+.ltx-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ltx-s4);
+    margin-bottom: var(--ltx-s4);
+}
+
+.ltx-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--ltx-r-md);
+    background: var(--ltx-field-bg);
+    box-shadow: inset 0 0 0 1px var(--ltx-field-edge);
+}
+
+.ltx .ltx-seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px;
+    border: 0;
+    border-radius: calc(var(--ltx-r-md) - 2px);
+    background: transparent;
+    color: var(--ltx-mute-2);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.ltx .ltx-seg-btn:hover {
+    background: var(--ltx-hover);
+    color: var(--ltx-ink-2);
+}
+
+.ltx .ltx-seg-btn.is-on {
+    background: var(--ltx-surface);
+    color: var(--ltx-ink);
+    box-shadow: 0 0 0 1px var(--ltx-divider);
+}
+
+.ltx-seg-count {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--ltx-rule);
+    color: var(--ltx-mute-3);
+    font-size: 11px;
+    text-align: center;
+}
+
+.ltx-seg-bad .ltx-seg-count {
+    background: rgba(var(--ltx-bad-rgb), .16);
+    color: var(--ltx-bad);
+}
+
+.ltx-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1 1 260px;
+    max-width: 380px;
+    margin-left: auto;
+}
+
+.ltx-search > i {
+    position: absolute;
+    left: 10px;
+    color: var(--ltx-mute-3);
+    pointer-events: none;
+}
+
+.ltx .ltx-search-input {
+    width: 100%;
+    padding: 7px 10px 7px 32px;
+    border-radius: var(--ltx-r-sm);
+    border: 1px solid var(--ltx-field-edge);
+    background: var(--ltx-field-bg);
+    color: var(--ltx-ink);
+    font-family: inherit;
+    font-size: 13px;
+}
+
+.ltx .ltx-search-input::placeholder {
+    color: var(--ltx-placeholder);
+}
+
+.ltx .ltx-search-input:focus {
+    outline: none;
+    border-color: var(--ltx-field-edge-hi);
+}
+
+/* ── Feed ──────────────────────────────────────────────────────────────── */
+
+.ltx-feed {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-radius: var(--ltx-r-lg);
+    background: var(--ltx-surface);
+    box-shadow: 0 0 0 1px var(--ltx-divider);
+    overflow: hidden;
+}
+
+.ltx-row {
+    display: grid;
+    grid-template-columns: 72px 92px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--ltx-s6);
+    padding: 11px 18px;
+    border-top: 1px solid var(--ltx-rule);
+}
+
+.ltx-row:first-child {
+    border-top: 0;
+}
+
+.ltx-row:hover {
+    background: var(--ltx-hover);
+}
+
+/* Arrived while the page was open. Fades out by itself; with reduced motion it
+   is a static rule on the left edge instead. */
+.ltx-row.is-fresh {
+    animation: ltx-fresh 4s ease-out;
+    box-shadow: inset 3px 0 0 var(--ltx-accent);
+}
+
+@keyframes ltx-fresh {
+    from { background: rgba(var(--ltx-accent-rgb), .16); }
+    to { background: transparent; }
+}
+
+.ltx-time {
+    padding-top: 1px;
+    font-size: 12.5px;
+    color: var(--ltx-mute-3);
+}
+
+.ltx-kind {
+    justify-self: start;
+    padding: 1px 8px;
+    border-radius: var(--ltx-r-sm);
+    background: rgba(var(--fam-rgb), .12);
+    color: var(--fam);
+    font-size: 11.5px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.ltx-kind-sale    { --fam: var(--ltx-fam-accent); --fam-rgb: var(--ltx-fam-accent-rgb); }
+.ltx-kind-invoice { --fam: var(--ltx-info);       --fam-rgb: var(--ltx-info-rgb); }
+.ltx-kind-pay     { --fam: var(--ltx-good);       --fam-rgb: var(--ltx-good-rgb); }
+.ltx-kind-fiscal  { --fam: var(--ltx-warn);       --fam-rgb: var(--ltx-warn-rgb); }
+
+.ltx-main {
+    min-width: 0;
+}
+
+.ltx-line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--ltx-s4);
+    min-width: 0;
+}
+
+.ltx-ref {
+    font-weight: 500;
+    color: var(--ltx-ink);
+    white-space: nowrap;
+}
+
+.ltx-party {
+    min-width: 0;
+    color: var(--ltx-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ltx-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--ltx-mute-3);
+}
+
+.ltx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ltx-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--tone);
+}
+
+.ltx-detail {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ltx-mute-2);
+    overflow-wrap: anywhere;
+}
+
+.ltx-amount {
+    padding-top: 1px;
+    font-weight: 500;
+    color: var(--ltx-ink);
+    white-space: nowrap;
+    text-align: right;
+}
+
+.ltx-foot {
+    margin-top: var(--ltx-s4);
+    font-size: 12.5px;
+    color: var(--ltx-mute-3);
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+    .ltx-tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .ltx-head-inner,
+    .ltx-body {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    .ltx-asof {
+        display: none;
+    }
+
+    .ltx-tiles {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ltx-search {
+        max-width: none;
+        margin-left: 0;
+    }
+
+    .ltx-row {
+        grid-template-columns: 64px minmax(0, 1fr) auto;
+        gap: var(--ltx-s4);
+        padding: 10px 14px;
+    }
+
+    .ltx-kind {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .ltx-main {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .ltx-amount {
+        grid-column: 3;
+        grid-row: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ltx-dot-pulse,
+    .ltx-spin,
+    .ltx-row.is-fresh {
+        animation: none;
+    }
+}
