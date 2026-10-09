@@ -118,6 +118,9 @@ public class VanSalesInvoiceRowModel
     /// <summary><c>INV10427</c>, as Desktop Sales shows the same sale. Null for an old online sale with no sale row.</summary>
     public string? SaleNumber { get; set; }
 
+    /// <summary>The shop the sale was for, when the van recorded one — whose WhatsApp numbers its invoice goes to.</summary>
+    public int? RouteCustomerId { get; set; }
+
     /// <summary>What the invoice is called on screen: its sale number, or its reference when it has none.</summary>
     public string Number => string.IsNullOrWhiteSpace(SaleNumber) ? Reference : SaleNumber;
 

@@ -43,7 +43,8 @@ internal static class CustomerDocumentDisplay
     {
         "Auto" => "Automatic",
         "Manual" => "Sent by staff",
-        "Counter" => "Till counter",
+        // A number the customer gave at the sale itself: at the van today, at a till counter later.
+        "Counter" => "Given at the sale",
         _ => trigger ?? "—"
     };
 

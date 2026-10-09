@@ -4686,7 +4686,7 @@ the row, starts the job, and answers `202`.
 
 A number is stored in E.164: `0771 234 567` becomes `+263771234567`. A customer holds at most three.
 Selling-account cards are refused (shop tills, vans, cart vendors), because their invoices belong to
-many buyers. An opt-out is by number, and holds until the number is saved again with new consent.
+many buyers. A van's shops are route customers: their numbers are saved with `routeCustomerId`. An opt-out is by number, and holds until the number is saved again with new consent.
 
 **Sends**
 
@@ -4712,6 +4712,15 @@ held for a person.
 `POST /api/vansales/sale/{vanOrder}/whatsapp` (§ Van Sales). That send is a `trigger: Counter` row
 naming the sale; it waits as `WaitingForFiscal` until the sale's row carries its SAP numbers, then
 takes them and goes as that invoice, printed with the route customer as the buyer.
+
+A van invoice is billed to the van's own card, so every send of one, automatic or by hand, goes to
+the **shop**: the invoice's `U_Van_saleorder` is matched to the van sale row (or, for an online sale,
+its confirmed reservation) and the route customer it records. Its numbers are the shop's
+(`routeCustomerId`), a number typed for it is saved on the shop, and the PDF names the shop. A sale row
+that records a different SAP DocEntry is a stale link: the invoice is not sent to anyone automatically
+and a person must type the number to send it to. A number that was already sent the invoice, from the van or by
+hand, is not sent it again automatically. `/van-sales/invoices` shows the WhatsApp panel in the drawer
+of any invoice SAP holds; `GET /api/van-sales/invoices` rows carry `routeCustomerId` for it.
 
 **Automatic sends.** A second clustered job, `customer-invoice-scan`, reads the invoices SAP has
 posted since its last pass, every two minutes, and queues a `trigger: Auto` row for each number on

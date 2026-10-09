@@ -95,17 +95,21 @@ public sealed class RequestInvoiceWhatsAppHandler(
         if (await InvoiceDeliveryRules.IsConsolidatedAsync(context, invoice, cancellationToken))
             return Errors.CustomerDocuments.ConsolidatedNotSendable(invoice.DocNum);
 
+        // A van invoice is billed to the van's own card; the shop it was for is the customer here.
+        var shop = (await RouteCustomerInvoiceResolver.ResolveAsync(context, [invoice], logger, cancellationToken))
+            .GetValueOrDefault(invoice.DocEntry);
+
         var now = DateTime.UtcNow;
         var recipients = new List<Recipient>();
 
-        var savedRecipients = await ResolveSavedContactsAsync(invoice, request.ContactIds, cancellationToken);
+        var savedRecipients = await ResolveSavedContactsAsync(invoice, shop, request.ContactIds, cancellationToken);
         if (savedRecipients.IsError)
             return savedRecipients.Errors;
         recipients.AddRange(savedRecipients.Value);
 
         if (!string.IsNullOrWhiteSpace(request.OneOffPhone))
         {
-            var oneOff = await ResolveOneOffAsync(invoice, request, command.UserId, actorName, now, cancellationToken);
+            var oneOff = await ResolveOneOffAsync(invoice, shop, request, command.UserId, actorName, now, cancellationToken);
             if (oneOff.IsError)
                 return oneOff.Errors;
             recipients.Add(oneOff.Value);
@@ -132,7 +136,10 @@ public sealed class RequestInvoiceWhatsAppHandler(
                 DocumentTotalFc = InvoiceDeliveryRules.ForeignTotal(invoice),
                 Currency = Clean(invoice.DocCurrency),
                 CardCode = Clean(invoice.CardCode),
-                CardName = CustomerDocumentDeliveryRules.Truncate(Clean(invoice.CardName), 200),
+                CardName = CustomerDocumentDeliveryRules.Truncate(shop?.RouteCustomerName ?? Clean(invoice.CardName), 200),
+                RouteCustomerId = shop?.RouteCustomerId,
+                RouteCustomerCode = shop?.RouteCustomerCode,
+                RouteCustomerName = shop?.RouteCustomerName,
                 ContactId = recipient.ContactId,
                 RecipientE164 = recipient.PhoneE164,
                 RecipientName = CustomerDocumentDeliveryRules.Truncate(recipient.Name, 100),
@@ -163,6 +170,7 @@ public sealed class RequestInvoiceWhatsAppHandler(
 
     private async Task<ErrorOr<List<Recipient>>> ResolveSavedContactsAsync(
         Invoice invoice,
+        RouteCustomerInvoiceLink? shop,
         List<int>? contactIds,
         CancellationToken cancellationToken)
     {
@@ -181,9 +189,13 @@ public sealed class RequestInvoiceWhatsAppHandler(
             var contact = contacts.FirstOrDefault(row => row.Id == id);
 
             // A contact on another customer is refused as if it did not exist: the invoice is this
-            // customer's, and a number saved for someone else did not agree to receive it.
-            if (contact is null
-                || !string.Equals(contact.CardCode?.Trim(), invoice.CardCode?.Trim(), StringComparison.OrdinalIgnoreCase))
+            // customer's, and a number saved for someone else did not agree to receive it. A van
+            // invoice's customer is its shop, never the van's card.
+            var ownsInvoice = contact is not null && (shop is not null
+                ? contact.RouteCustomerId == shop.RouteCustomerId
+                : contact.RouteCustomerId is null
+                    && string.Equals(contact.CardCode?.Trim(), invoice.CardCode?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (contact is null || !ownsInvoice)
             {
                 return Errors.CustomerDocuments.ContactNotFound(id);
             }
@@ -199,6 +211,7 @@ public sealed class RequestInvoiceWhatsAppHandler(
 
     private async Task<ErrorOr<Recipient>> ResolveOneOffAsync(
         Invoice invoice,
+        RouteCustomerInvoiceLink? shop,
         RequestInvoiceWhatsAppRequest request,
         Guid userId,
         string actorName,
@@ -217,16 +230,13 @@ public sealed class RequestInvoiceWhatsAppHandler(
 
         if (request.SaveAsContact)
         {
-            var cardCode = Clean(invoice.CardCode);
-            if (cardCode is null)
-                return Errors.CustomerDocuments.OwnerRequired;
-
-            if (await SellingAccountCards.IsSellingAccountAsync(context, cardCode, cancellationToken))
-                return Errors.CustomerDocuments.SellingAccountNotAllowed(cardCode);
+            var owner = await ResolveOwnerAsync(invoice, shop, cancellationToken);
+            if (owner.IsError)
+                return owner.Errors;
 
             var staged = await CustomerWhatsAppContactWriter.StageAsync(
                 context,
-                new ContactOwner(cardCode, null, Clean(invoice.CardName) ?? cardCode),
+                owner.Value,
                 phoneE164,
                 name,
                 request.AutoSendFutureInvoices,
@@ -277,6 +287,42 @@ public sealed class RequestInvoiceWhatsAppHandler(
         return new Recipient(phoneE164, null, name, true);
     }
 
+    /// <summary>
+    /// Who a number typed for an invoice is saved on: the shop for a van invoice, the card otherwise —
+    /// and never a selling account's card, whose invoices belong to every buyer.
+    /// </summary>
+    private async Task<ErrorOr<ContactOwner>> ResolveOwnerAsync(
+        Invoice invoice,
+        RouteCustomerInvoiceLink? shop,
+        CancellationToken cancellationToken)
+    {
+        if (shop is not null)
+        {
+            var routeCustomer = await context.RouteCustomers
+                .AsNoTracking()
+                .Where(customer => customer.Id == shop.RouteCustomerId)
+                .Select(customer => new { customer.Name, customer.Surname, customer.IsActive })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (routeCustomer is null)
+                return Errors.CustomerDocuments.RouteCustomerNotFound(shop.RouteCustomerId);
+
+            if (!routeCustomer.IsActive)
+                return Errors.CustomerDocuments.RouteCustomerInactive(shop.RouteCustomerId);
+
+            return new ContactOwner(null, shop.RouteCustomerId, $"{routeCustomer.Name} {routeCustomer.Surname}".Trim());
+        }
+
+        var cardCode = Clean(invoice.CardCode);
+        if (cardCode is null)
+            return Errors.CustomerDocuments.OwnerRequired;
+
+        if (await SellingAccountCards.IsSellingAccountAsync(context, cardCode, cancellationToken))
+            return Errors.CustomerDocuments.SellingAccountNotAllowed(cardCode);
+
+        return new ContactOwner(cardCode, null, Clean(invoice.CardName) ?? cardCode);
+    }
+
     private async Task AuditAsync(CustomerDocumentDeliveryEntity delivery)
     {
         try
@@ -285,7 +331,7 @@ public sealed class RequestInvoiceWhatsAppHandler(
                 AuditActions.RequestDocumentWhatsApp,
                 "CustomerDocumentDelivery",
                 delivery.Id.ToString(CultureInfo.InvariantCulture),
-                $"Asked to send invoice {delivery.DocumentNumber} ({delivery.CardCode}) to {WhatsAppRecipients.Mask(delivery.RecipientE164)}"
+                $"Asked to send invoice {delivery.DocumentNumber} ({delivery.RouteCustomerName ?? delivery.CardCode}) to {WhatsAppRecipients.Mask(delivery.RecipientE164)}"
                 + (delivery.ContactId is null ? " — a number typed for this send" : string.Empty),
                 true);
         }

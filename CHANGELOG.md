@@ -44,6 +44,13 @@ otherwise be surprised.
   Needs the van app release that adds the button. Adds a migration that relaxes
   `CK_CustomerDocumentDeliveries_OneDocument` to `CK_CustomerDocumentDeliveries_HasDocument`.
 
+- **Van invoices go to the shop's WhatsApp numbers.** The invoice scan now finds the shop behind a van
+  invoice (by its sale reference) and sends it to the numbers saved on that route customer with
+  automatic sending on, naming the shop. A manual send of a van invoice offers the shop's numbers and
+  saves a typed one on the shop. `/van-sales/invoices` shows the WhatsApp panel in the drawer.
+  `GET /api/van-sales/invoices` rows gain `routeCustomerId`. A number already sent an invoice, by any
+  route, is no longer sent it automatically as well.
+
 ### Changed
 
 - **`Install-OpenWAProduction.ps1` now upgrades as well as installs.** It used to build only when
