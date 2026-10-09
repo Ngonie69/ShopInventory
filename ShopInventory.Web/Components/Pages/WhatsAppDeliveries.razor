@@ -327,6 +327,11 @@
                             To the numbers marked for automatic invoices, once each invoice's fiscal receipt is confirmed,
                             @status.AutoWindow.
                         </span>
+                        <span class="wdl-setting-help">
+                            @(status.InvoiceScanAtUtc is null
+                                ? "SAP has not been checked for new invoices yet."
+                                : $"SAP last checked for new invoices {CustomerDocumentDisplay.Stamp(status.InvoiceScanAtUtc)} CAT.")
+                        </span>
                     </div>
 
                     <div class="wdl-setting">

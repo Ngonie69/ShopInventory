@@ -170,6 +170,23 @@ public class SapDocumentQueryTests(SapClientFixture fixture)
     /// be empty — a test company need not hold any given document type — so nothing asserts on
     /// count.
     /// </summary>
+    [SapFact]
+    public async Task The_automatic_send_scan_reads_new_invoices_oldest_first_from_a_watermark()
+    {
+        // The scan's watermark arithmetic assumes SAP honours the order and the bound, and its paging
+        // assumes a full page comes back - the 20-row default would silently stall a backlog.
+        var latest = await fixture.Client.GetLatestInvoiceDocEntryAsync();
+        Assert.True(latest is > 200, "SAP returned no invoices, so the scan reads cannot be exercised. Point these tests at a company with data.");
+
+        var after = latest!.Value - 200;
+        var page = await fixture.Client.GetInvoiceDeliveryHeadersAfterDocEntryAsync(after, 30);
+
+        Assert.Equal(30, page.Count);
+        Assert.All(page, invoice => Assert.True(invoice.DocEntry > after));
+        Assert.Equal(page.Select(invoice => invoice.DocEntry).OrderBy(docEntry => docEntry), page.Select(invoice => invoice.DocEntry));
+        Assert.All(page, invoice => Assert.True(invoice.DocEntry <= latest.Value));
+    }
+
     private static async Task ShouldBeAccepted<T>(Func<Task<T>> query)
     {
         try

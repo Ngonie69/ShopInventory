@@ -60,6 +60,33 @@ public class QuartzScheduleShapeTests
         Assert.True(Attribute.IsDefined(typeof(ShopInventory.Services.CustomerDocumentDeliveryJob), typeof(DisallowConcurrentExecutionAttribute)));
     }
 
+    [Fact]
+    public void The_invoice_scan_is_declared_only_with_SAP_and_customer_documents_both_on()
+    {
+        // It reads SAP and needs no gateway, so OpenWA does not come into it either way.
+        var both = Build(new Dictionary<string, string?>
+        {
+            ["CustomerDocuments:Enabled"] = "true",
+            ["SAP:Enabled"] = "true",
+            ["OpenWA:Enabled"] = "false"
+        });
+        var noSap = Build(new Dictionary<string, string?>
+        {
+            ["CustomerDocuments:Enabled"] = "true",
+            ["SAP:Enabled"] = "false"
+        });
+        var noDocuments = Build(new Dictionary<string, string?>
+        {
+            ["CustomerDocuments:Enabled"] = "false",
+            ["SAP:Enabled"] = "true"
+        });
+
+        Assert.Contains(both.JobDetails, job => job.Key.Name == ShopInventory.Services.CustomerInvoiceScanJob.JobName);
+        Assert.DoesNotContain(noSap.JobDetails, job => job.Key.Name == ShopInventory.Services.CustomerInvoiceScanJob.JobName);
+        Assert.DoesNotContain(noDocuments.JobDetails, job => job.Key.Name == ShopInventory.Services.CustomerInvoiceScanJob.JobName);
+        Assert.True(Attribute.IsDefined(typeof(ShopInventory.Services.CustomerInvoiceScanJob), typeof(DisallowConcurrentExecutionAttribute)));
+    }
+
     private static QuartzOptions Build(Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();

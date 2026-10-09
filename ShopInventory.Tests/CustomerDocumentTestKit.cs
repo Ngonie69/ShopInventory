@@ -47,8 +47,8 @@ internal sealed class CustomerDocumentTestKit : IDisposable
         context.SaveChanges();
     }
 
-    public ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options);
+    public ApplicationDbContext NewContext(params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors) =>
+        new(new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).AddInterceptors(interceptors).Options);
 
     public void Dispose() => _connection.Dispose();
 

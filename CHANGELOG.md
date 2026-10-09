@@ -30,6 +30,14 @@ otherwise be surprised.
     repository's `OpenWA` pointer now includes. Update the submodule there and re-run
     `Install-OpenWAProduction.ps1` (see "Upgrading OpenWA" in `docs/operations/whatsapp-production.md`).
 
+- **Invoices can go to customers on WhatsApp automatically.** A new clustered job,
+  `customer-invoice-scan`, is scheduled on every node where `CustomerDocuments:Enabled` and
+  `SAP:Enabled` are both on in appsettings.json, which they are. It only queues; nothing is sent while
+  **Send new invoices automatically** is off on `/whatsapp-deliveries`, and it ships off. Its first
+  pass records the newest SAP invoice and sends nothing, so switching automatic sending on never
+  sends the history. `GET /api/customer-document-deliveries/status` gains `invoiceScanAtUtc` and
+  `invoiceScanLastDocEntry`.
+
 ### Changed
 
 - **`Install-OpenWAProduction.ps1` now upgrades as well as installs.** It used to build only when

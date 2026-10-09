@@ -180,6 +180,16 @@ public interface ISAPServiceLayerClient
     Task<List<Invoice>> GetInvoiceDeliveryHeadersAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The same headers as <see cref="GetInvoiceDeliveryHeadersAsync"/> for the invoices after
+    /// <paramref name="afterDocEntry"/>, oldest first, at most <paramref name="top"/> of them — how the
+    /// automatic-send scan finds what was posted since it last looked.
+    /// </summary>
+    Task<List<Invoice>> GetInvoiceDeliveryHeadersAfterDocEntryAsync(int afterDocEntry, int top, CancellationToken cancellationToken = default);
+
+    /// <summary>The highest invoice DocEntry in SAP, or null when there are no invoices at all.</summary>
+    Task<int?> GetLatestInvoiceDocEntryAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// DocTotal, PaidToDate, status and cancellation for each invoice, without lines. What a payment
     /// needs to know it is not settling an invoice twice.
     /// </summary>

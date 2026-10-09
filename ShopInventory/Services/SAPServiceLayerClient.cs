@@ -2413,10 +2413,86 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default) =>
         // No DocumentLines: deciding whether and where to send an invoice needs none of them, and the
         // full document is read only once it is about to be rendered.
-        GetInvoicesByDocEntriesAsync(
-            docEntries,
-            "$select=DocEntry,DocNum,DocDate,CardCode,CardName,NumAtCard,DocTotal,DocTotalFc,DocCurrency,Comments,U_Van_saleorder,Cancelled,CancelStatus,DocumentStatus",
+        GetInvoicesByDocEntriesAsync(docEntries, InvoiceDeliveryHeaderSelect, cancellationToken);
+
+    private const string InvoiceDeliveryHeaderSelect =
+        "$select=DocEntry,DocNum,DocDate,CardCode,CardName,NumAtCard,DocTotal,DocTotalFc,DocCurrency,Comments,U_Van_saleorder,Cancelled,CancelStatus,DocumentStatus";
+
+    public async Task<List<Invoice>> GetInvoiceDeliveryHeadersAfterDocEntryAsync(
+        int afterDocEntry,
+        int top,
+        CancellationToken cancellationToken = default)
+    {
+        var pageSize = Math.Clamp(top, 1, 500);
+        return await GetInvoicePageAsync(
+            $"Invoices?$filter=DocEntry gt {Math.Max(0, afterDocEntry)}&{InvoiceDeliveryHeaderSelect}&$orderby=DocEntry asc&$top={pageSize}",
+            pageSize,
+            $"invoice headers after DocEntry {afterDocEntry}",
             cancellationToken);
+    }
+
+    public async Task<int?> GetLatestInvoiceDocEntryAsync(CancellationToken cancellationToken = default)
+    {
+        var newest = await GetInvoicePageAsync(
+            "Invoices?$select=DocEntry&$orderby=DocEntry desc&$top=1",
+            1,
+            "the newest invoice DocEntry",
+            cancellationToken);
+
+        return newest.Count == 0 ? null : newest[0].DocEntry;
+    }
+
+    /// <summary>One page of invoices, no paging: the caller's query already says how many it wants.</summary>
+    private async Task<List<Invoice>> GetInvoicePageAsync(
+        string url,
+        int pageSize,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            // Without it the Service Layer pages at 20 whatever $top says.
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
+
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            operation,
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"{operation} after SAP re-authentication",
+                cancellationToken);
+        }
+
+        using var responseOwner = response;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to read {Operation}: {StatusCode} - {Error}", operation, response.StatusCode, errorContent);
+            throw new Exception($"Failed to read {operation}: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<SAPResponse<Invoice>>(content)?.Value ?? [];
+    }
 
     public Task<List<Invoice>> GetInvoiceBalancesByDocEntriesAsync(
         IEnumerable<int> docEntries,

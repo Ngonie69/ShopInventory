@@ -427,6 +427,17 @@ public static class QuartzConfiguration
                     TimeSpan.FromSeconds(Math.Max(15, customerDocuments.SendIntervalSeconds)),
                     startDelay: TimeSpan.FromMinutes(3));
             }
+
+            // The producer of automatic sends. Both switches are appsettings, so every node declares
+            // it alike; it needs no gateway, only SAP.
+            if (customerDocuments.Enabled && sap.Enabled)
+            {
+                AddIntervalJob<CustomerInvoiceScanJob>(
+                    q,
+                    CustomerInvoiceScanJob.JobName,
+                    TimeSpan.FromSeconds(Math.Max(30, customerDocuments.InvoiceScanIntervalSeconds)),
+                    startDelay: TimeSpan.FromMinutes(4));
+            }
         });
 
         // Before Quartz's own hosted service, so this node knows whether the cluster holds a newer

@@ -36,6 +36,30 @@ public sealed class CustomerDocumentDeliverySettings
     public int SendIntervalSeconds { get; set; } = 60;
 
     /// <summary>
+    /// How often SAP is asked for invoices posted since the last look, to queue automatic sends. The
+    /// scan is declared only when SAP is switched on as well.
+    /// </summary>
+    public int InvoiceScanIntervalSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// How many DocEntries below the last one seen each scan reads again. SAP hands DocEntries out in
+    /// order but two posts can finish out of it, so an invoice can appear just under one already read.
+    /// </summary>
+    public int InvoiceScanOverlap { get; set; } = 20;
+
+    /// <summary>How many invoice headers one SAP read asks for.</summary>
+    public int InvoiceScanPageSize { get; set; } = 200;
+
+    /// <summary>The most reads one scan makes; a backlog after an outage is worked off over several.</summary>
+    public int InvoiceScanMaxPagesPerPass { get; set; } = 5;
+
+    /// <summary>
+    /// An invoice dated further back than this is not sent automatically: one keyed in late, or a
+    /// backlog after a long outage, is no longer news to the customer. A person can still send it.
+    /// </summary>
+    public int AutoMaxDocumentAgeDays { get; set; } = 7;
+
+    /// <summary>
     /// When automatic sends may go out, as CAT wall-clock times. A person pressing Send is not held to
     /// it: they are looking at the invoice and the customer is usually waiting for it.
     /// </summary>

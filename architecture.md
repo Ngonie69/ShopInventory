@@ -285,6 +285,9 @@ Invoices also go to customers on WhatsApp, as the Fiscal Tax Invoice PDF. That f
 - `CustomerDocumentDeliveries` holds one row per document and number.
 - One clustered Quartz job, `customer-document-delivery`, sends the rows. No web request calls
   OpenWA itself.
+- A second, `customer-invoice-scan`, produces the automatic rows. It reads SAP's new invoices past a
+  DocEntry watermark (`CustomerDocuments.InvoiceScanCheckpoint` in `SystemConfigs`) rather than
+  hooking each posting path, so it also sees invoices keyed straight into B1.
 
 The job confirms the invoice's fiscal receipt before sending (`FiscalLinkVerifier`). It builds the
 PDF with the same composer the invoice download uses (`InvoicePdfComposer`). It saves the row as
