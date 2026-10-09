@@ -36,8 +36,10 @@
     nodes at itself.
 
     Re-runnable, and the way to upgrade: update the submodule, then run this again. An existing
-    install keeps its data directory, its API key and its paired session; a restart reconnects the
-    session without a new QR code. A re-run with nothing changed leaves a running gateway alone.
+    install keeps its data directory, its API key and its paired session. After a restart the
+    gateway starts every session that was running again (from Ngonie69/OpenWA#3 on; older gateways
+    start none), and a paired one reconnects without a new QR code. A re-run with nothing changed
+    leaves a running gateway alone.
 
 .PARAMETER RepositoryRoot
     The ShopInventory checkout holding the OpenWA submodule. Defaults to this script's parent.
