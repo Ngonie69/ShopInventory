@@ -122,6 +122,7 @@ public sealed record VanSalesInvoiceRow(
     string? FiscalDeviceSerial,
     string State,
     string? Problem,
-    string? SaleNumber = null);
+    string? SaleNumber = null,
+    int? RouteCustomerId = null);
 
 public sealed record VanSalesRepOption(Guid UserId, string Name);

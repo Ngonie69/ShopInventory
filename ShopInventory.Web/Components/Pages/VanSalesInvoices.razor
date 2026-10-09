@@ -633,6 +633,19 @@
                             }
                         </div>
                     </div>
+
+                    @* What went to the shop on WhatsApp, and Send for those allowed to send. Only once SAP holds
+                       the invoice: what is sent is the SAP invoice, with the shop named as the buyer. *@
+                    @if (detail.Invoice.SapDocEntry is { } sapDocEntry)
+                    {
+                        <div class="vsd-block">
+                            <InvoiceWhatsAppPanel DocEntry="@sapDocEntry"
+                                                  DocNum="@(detail.Invoice.SapDocNum ?? 0)"
+                                                  CardCode="@detail.Invoice.CustomerCode"
+                                                  CardName="@detail.Invoice.CustomerName"
+                                                  RouteCustomerId="@detail.Invoice.RouteCustomerId" />
+                        </div>
+                    }
                 }
             </div>
 

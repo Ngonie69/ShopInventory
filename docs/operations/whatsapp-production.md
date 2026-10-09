@@ -228,6 +228,13 @@ number, with its consent, is done on **Route Customers** on the Web.
 
 A sale that never reaches SAP is held for a person after `MaxFiscalWaitHours` (24), like any other.
 
+**Shops that want every invoice.** Save the shop's number on **Route Customers** with *Send their new invoices
+to it automatically* ticked. The invoice scan then sends each of that shop's van invoices once SAP has it,
+naming the shop, not the van. It reads the van invoice's sale reference to find the shop. If the rep
+already sent the invoice to that number at the van, or someone sent it by hand, it is not sent again.
+`/van-sales/invoices` shows what was sent in each invoice's drawer, with **Send via WhatsApp** for
+staff who may send.
+
 ### Automatic sends
 
 A second clustered job, `customer-invoice-scan`, looks for new SAP invoices every two minutes and
@@ -241,7 +248,9 @@ window and caps as a manual send, and only within the automatic cap.
   ran is ever sent. With automatic sending off it still moves the watermark, so turning it on later
   never sends the backlog.
 - **What it leaves alone.** No row for cancelled or consolidated invoices, or for anything on a
-  selling account (shop tills, vans, cart vendors), whatever numbers are saved. A **Skipped** row
+  selling account (shop tills, cart vendors), whatever numbers are saved. A van invoice whose shop is
+  found goes to the shop's numbers instead (see *Van sales*); one whose shop cannot be found, or whose
+  sale row names another invoice, goes to no one automatically. A **Skipped** row
   with the reason for a reposted invoice, or one dated more than `AutoMaxDocumentAgeDays` (7) back.
   Either can still be sent by hand.
 - **Is it running?** Under the automatic switch, `/whatsapp-deliveries` says when SAP was last

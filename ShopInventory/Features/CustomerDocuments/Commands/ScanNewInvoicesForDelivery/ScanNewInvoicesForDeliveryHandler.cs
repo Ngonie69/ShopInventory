@@ -147,49 +147,72 @@ public sealed class ScanNewInvoicesForDeliveryHandler(
         DateTime now,
         CancellationToken cancellationToken)
     {
+        // A van invoices every shop to its own card; the sale reference says which shop it was.
+        var routeLinks = await RouteCustomerInvoiceResolver.ResolveAsync(context, invoices, logger, cancellationToken);
+
         var cardCodes = invoices
+            .Where(invoice => !routeLinks.ContainsKey(invoice.DocEntry))
             .Select(invoice => Clean(invoice.CardCode))
             .OfType<string>()
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        var routeCustomerIds = routeLinks.Values.Select(link => link.RouteCustomerId).Distinct().ToList();
 
-        if (cardCodes.Count == 0)
+        if (cardCodes.Count == 0 && routeCustomerIds.Count == 0)
             return (0, 0);
 
-        // Only numbers on an account customer's card. A route customer's numbers belong to sales made
-        // under a van's card, which this scan does not send.
         var contacts = await context.CustomerWhatsAppContacts
             .AsNoTracking()
-            .Where(contact => contact.CardCode != null
-                && cardCodes.Contains(contact.CardCode)
-                && contact.RouteCustomerId == null
-                && contact.RemovedAtUtc == null
+            .Where(contact => contact.RemovedAtUtc == null
                 && contact.OptedOutAtUtc == null
-                && contact.AutoSendInvoices)
+                && contact.AutoSendInvoices
+                && ((contact.CardCode != null && contact.RouteCustomerId == null && cardCodes.Contains(contact.CardCode))
+                    || (contact.RouteCustomerId != null && routeCustomerIds.Contains(contact.RouteCustomerId.Value))))
             .ToListAsync(cancellationToken);
 
         if (contacts.Count == 0)
             return (0, 0);
 
         var contactsByCard = contacts
+            .Where(contact => contact.RouteCustomerId == null)
             .GroupBy(contact => contact.CardCode!.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var contactsByShop = contacts
+            .Where(contact => contact.RouteCustomerId != null)
+            .GroupBy(contact => contact.RouteCustomerId!.Value)
+            .ToDictionary(group => group.Key, group => group.ToList());
 
-        var candidates = invoices
-            .Where(invoice => Clean(invoice.CardCode) is { } card && contactsByCard.ContainsKey(card))
-            .ToList();
+        List<CustomerWhatsAppContactEntity>? ContactsFor(Invoice invoice) =>
+            routeLinks.TryGetValue(invoice.DocEntry, out var link)
+                ? contactsByShop.GetValueOrDefault(link.RouteCustomerId)
+                : Clean(invoice.CardCode) is { } card ? contactsByCard.GetValueOrDefault(card) : null;
 
+        var candidates = invoices.Where(invoice => ContactsFor(invoice) is { Count: > 0 }).ToList();
         if (candidates.Count == 0)
             return (0, 0);
 
+        // Whatever already went, or is on its way, to a number for this invoice by any route: an
+        // earlier pass, a person pressing Send, or the rep at the van, whose request names the sale
+        // until the office posts it. The customer gets one copy.
         var candidateDocEntries = candidates.Select(invoice => (int?)invoice.DocEntry).ToList();
-        var alreadyQueued = (await context.CustomerDocumentDeliveries
-                .AsNoTracking()
-                .Where(delivery => delivery.Trigger == CustomerDocumentDeliveryTrigger.Auto
-                    && candidateDocEntries.Contains(delivery.SapDocEntry))
-                .Select(delivery => new { delivery.SapDocEntry, delivery.RecipientE164 })
-                .ToListAsync(cancellationToken))
+        var candidateSaleIds = candidates
+            .Select(invoice => routeLinks.GetValueOrDefault(invoice.DocEntry)?.DesktopSaleId)
+            .OfType<int>()
+            .Select(id => (int?)id)
+            .ToList();
+        var earlier = await context.CustomerDocumentDeliveries
+            .AsNoTracking()
+            .Where(delivery => candidateDocEntries.Contains(delivery.SapDocEntry)
+                || (delivery.DesktopSaleId != null && candidateSaleIds.Contains(delivery.DesktopSaleId)))
+            .Select(delivery => new { delivery.SapDocEntry, delivery.DesktopSaleId, delivery.RecipientE164 })
+            .ToListAsync(cancellationToken);
+        var sentForInvoice = earlier
+            .Where(row => row.SapDocEntry != null)
             .Select(row => (row.SapDocEntry!.Value, row.RecipientE164))
+            .ToHashSet();
+        var sentForSale = earlier
+            .Where(row => row.DesktopSaleId != null)
+            .Select(row => (row.DesktopSaleId!.Value, row.RecipientE164))
             .ToHashSet();
 
         var sellingAccounts = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -200,8 +223,10 @@ public sealed class ScanNewInvoicesForDeliveryHandler(
         foreach (var invoice in candidates)
         {
             var cardCode = Clean(invoice.CardCode)!;
-            var recipients = contactsByCard[cardCode]
-                .Where(contact => !alreadyQueued.Contains((invoice.DocEntry, contact.PhoneE164)))
+            var link = routeLinks.GetValueOrDefault(invoice.DocEntry);
+            var recipients = ContactsFor(invoice)!
+                .Where(contact => !sentForInvoice.Contains((invoice.DocEntry, contact.PhoneE164))
+                    && !(link?.DesktopSaleId is { } saleId && sentForSale.Contains((saleId, contact.PhoneE164))))
                 .GroupBy(contact => contact.PhoneE164, StringComparer.Ordinal)
                 .Select(group => group.First())
                 .ToList();
@@ -209,7 +234,10 @@ public sealed class ScanNewInvoicesForDeliveryHandler(
             if (recipients.Count == 0)
                 continue;
 
-            if (!sellingAccounts.TryGetValue(cardCode, out var isSellingAccount))
+            // The van's card is a selling account, but the buyer of a resolved van invoice is its shop,
+            // so the card is no reason to leave it alone.
+            var isSellingAccount = false;
+            if (link is null && !sellingAccounts.TryGetValue(cardCode, out isSellingAccount))
             {
                 isSellingAccount = await SellingAccountCards.IsSellingAccountAsync(context, cardCode, cancellationToken);
                 sellingAccounts[cardCode] = isSellingAccount;
@@ -231,7 +259,7 @@ public sealed class ScanNewInvoicesForDeliveryHandler(
 
             foreach (var contact in recipients)
             {
-                var delivery = NewDelivery(invoice, cardCode, contact, now);
+                var delivery = NewDelivery(invoice, cardCode, contact, link, now);
 
                 if (decision.Kind == InvoiceDeliveryDecisionKind.Skip)
                 {
@@ -257,6 +285,7 @@ public sealed class ScanNewInvoicesForDeliveryHandler(
         Invoice invoice,
         string cardCode,
         CustomerWhatsAppContactEntity contact,
+        RouteCustomerInvoiceLink? shop,
         DateTime now) => new()
     {
         DocumentType = CustomerDocumentType.SapInvoice,
@@ -269,7 +298,11 @@ public sealed class ScanNewInvoicesForDeliveryHandler(
         DocumentTotalFc = InvoiceDeliveryRules.ForeignTotal(invoice),
         Currency = Clean(invoice.DocCurrency),
         CardCode = cardCode,
-        CardName = CustomerDocumentDeliveryRules.Truncate(Clean(invoice.CardName), 200),
+        CardName = CustomerDocumentDeliveryRules.Truncate(shop?.RouteCustomerName ?? Clean(invoice.CardName), 200),
+        // The shop, when it is a van invoice: the PDF then names it as the buyer, not the van.
+        RouteCustomerId = shop?.RouteCustomerId,
+        RouteCustomerCode = shop?.RouteCustomerCode,
+        RouteCustomerName = shop?.RouteCustomerName,
         ContactId = contact.Id,
         RecipientE164 = contact.PhoneE164,
         RecipientName = CustomerDocumentDeliveryRules.Truncate(contact.ContactName ?? contact.OwnerName, 100),

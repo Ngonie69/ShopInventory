@@ -4,7 +4,9 @@ using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.CustomerDocuments.Delivery;
 using ShopInventory.Features.CustomerDocuments.Documents;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -20,6 +22,7 @@ namespace ShopInventory.Features.CustomerDocuments.Queries.PreviewInvoiceWhatsAp
 /// The device is asked at once rather than after the job's delay: a person is waiting on the answer.
 /// </remarks>
 public sealed class PreviewInvoiceWhatsAppDocumentHandler(
+    ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     ISapInvoiceDocumentComposer composer,
     IOptions<SAPSettings> sapSettings,
@@ -53,6 +56,10 @@ public sealed class PreviewInvoiceWhatsAppDocumentHandler(
         if (invoice is null)
             return Errors.CustomerDocuments.InvoiceNotFound(query.DocEntry);
 
+        // The shop for a van invoice, so the preview is the document the customer would be sent.
+        var shop = (await RouteCustomerInvoiceResolver.ResolveAsync(context, [invoice], logger, cancellationToken))
+            .GetValueOrDefault(invoice.DocEntry);
+
         var now = DateTime.UtcNow;
         var probe = new CustomerDocumentDeliveryEntity
         {
@@ -66,7 +73,9 @@ public sealed class PreviewInvoiceWhatsAppDocumentHandler(
             DocumentTotalFc = InvoiceDeliveryRules.ForeignTotal(invoice),
             Currency = invoice.DocCurrency,
             CardCode = invoice.CardCode,
-            CardName = invoice.CardName,
+            CardName = shop?.RouteCustomerName ?? invoice.CardName,
+            RouteCustomerId = shop?.RouteCustomerId,
+            RouteCustomerName = shop?.RouteCustomerName,
             RecipientE164 = string.Empty,
             // Old enough that the device may be asked straight away.
             CreatedAtUtc = now.AddMinutes(-Math.Max(0, options.Value.DeviceLookupAfterMinutes) - 1)

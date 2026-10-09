@@ -76,6 +76,12 @@ public partial class InvoiceWhatsAppPanel : ComponentBase, IDisposable
 
     [Parameter] public string? CardName { get; set; }
 
+    /// <summary>
+    /// The shop a van invoice was for. A van bills every shop to its own card, so for a van invoice the
+    /// numbers offered, checked and saved are the shop's, never the card's.
+    /// </summary>
+    [Parameter] public int? RouteCustomerId { get; set; }
+
     private bool HasOneOff => !string.IsNullOrWhiteSpace(oneOffPhone);
 
     // A typed number holds the whole send back until its consent is ticked, even with saved numbers
@@ -144,7 +150,7 @@ public partial class InvoiceWhatsAppPanel : ComponentBase, IDisposable
         chosenContacts.Clear();
         contacts = [];
 
-        if (string.IsNullOrWhiteSpace(CardCode))
+        if (RouteCustomerId is null && string.IsNullOrWhiteSpace(CardCode))
         {
             return;
         }
@@ -152,7 +158,11 @@ public partial class InvoiceWhatsAppPanel : ComponentBase, IDisposable
         isLoadingContacts = true;
         try
         {
-            var result = await Mediator.Send(new GetCustomerWhatsAppContactsQuery(CardCode, null), disposal.Token);
+            var result = await Mediator.Send(
+                RouteCustomerId is { } shop
+                    ? new GetCustomerWhatsAppContactsQuery(null, shop)
+                    : new GetCustomerWhatsAppContactsQuery(CardCode, null),
+                disposal.Token);
             if (result.IsError)
             {
                 sendError = result.FirstError.Description;
@@ -210,7 +220,11 @@ public partial class InvoiceWhatsAppPanel : ComponentBase, IDisposable
         isChecking = true;
         try
         {
-            var result = await Mediator.Send(new CheckWhatsAppNumberQuery(oneOffPhone!.Trim(), CardCode, null), disposal.Token);
+            var result = await Mediator.Send(
+                RouteCustomerId is { } shop
+                    ? new CheckWhatsAppNumberQuery(oneOffPhone!.Trim(), null, shop)
+                    : new CheckWhatsAppNumberQuery(oneOffPhone!.Trim(), CardCode, null),
+                disposal.Token);
             oneOffCheck = result.IsError
                 ? new WhatsAppNumberCheckResultModel { Input = oneOffPhone!, Message = result.FirstError.Description }
                 : result.Value;
