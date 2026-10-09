@@ -1,4 +1,5 @@
 @page "/live-transactions"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
@@ -9,7 +10,8 @@
 
 @* Styles live in wwwroot/css/live-transactions.css (StaffStylesheets.targets), aliasing the
    Nocturne tokens. Every count on the page is derived from the events the page holds, so the
-   tiles and the list cannot disagree. Status is always a dot plus a word, never colour alone. *@
+   figures, the attention lanes and the list cannot disagree. Status is always a dot plus a word,
+   never colour alone. *@
 
 <div class="ltx">
 
@@ -21,16 +23,9 @@
                 <span class="ltx-crumb-now" aria-current="page">Live transactions</span>
             </nav>
             <div class="ltx-head-actions">
-                <span class="ltx-live @(_loadFailed ? "ltx-tone-bad" : "ltx-tone-good")" role="status" aria-live="polite">
-                    <span class="ltx-dot @(_loadFailed ? null : "ltx-dot-pulse")" aria-hidden="true"></span>
-                    @if (_loadFailed)
-                    {
-                        <span>Reconnecting</span>
-                    }
-                    else
-                    {
-                        <span>Live</span>
-                    }
+                <span class="ltx-live @(_loadFailed ? "ltx-tone-bad" : _paused ? "ltx-tone-idle" : "ltx-tone-good")" role="status" aria-live="polite">
+                    <span class="ltx-dot @(_loadFailed || _paused ? null : "ltx-dot-pulse")" aria-hidden="true"></span>
+                    <span>@(_loadFailed ? "Reconnecting" : _paused ? "Paused" : "Live")</span>
                 </span>
                 @if (_lastUpdatedUtc is { } updated)
                 {
@@ -42,6 +37,10 @@
                         updated @Clock(updated)
                     </span>
                 }
+                <button type="button" class="ltx-btn" aria-pressed="@(_paused ? "true" : "false")" @onclick="TogglePauseAsync">
+                    <i class="ph @(_paused ? "ph-play" : "ph-pause")" aria-hidden="true"></i>
+                    <span>@(_paused ? "Resume" : "Pause")</span>
+                </button>
                 <button type="button" class="ltx-btn" @onclick="ManualRefreshAsync" disabled="@_isRefreshing">
                     <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
                     <span>Refresh</span>
@@ -52,12 +51,17 @@
 
     <main class="ltx-body">
         <div class="ltx-intro">
-            <h1>Live transactions</h1>
-            <p>
-                Today's sales, invoices and payments, and every receipt the Fiscalisation platform files from any
-                source, as they happen. Updates every @((int)PollInterval.TotalSeconds) seconds, and at once when a
-                till or van sale arrives.
-            </p>
+            <div>
+                <h1>Live transactions</h1>
+                <p>
+                    @_tradingDayCat.ToString("dddd d MMMM", CultureInfo.InvariantCulture) · tills, vans, SAP invoices
+                    and payments, and every receipt the Fiscalisation platform files
+                </p>
+            </div>
+            @if (FirstEventUtc is { } first)
+            {
+                <p class="ltx-intro-meta ltx-num">First event @ShortClock(first) · @_events.Count.ToString("N0") today</p>
+            }
         </div>
 
         @if (_loadFailed && _lastUpdatedUtc is not null)
@@ -75,7 +79,7 @@
                 <span>
                     <strong>Fiscal activity unavailable.</strong>
                     @(_fiscalMessage ?? "The Fiscalisation platform did not answer.")
-                    Sales below still show the fiscal status this system holds.
+                    Sales below show the fiscal status this system held when they arrived.
                 </span>
             </div>
         }
@@ -104,208 +108,419 @@
         }
         else
         {
-            var (fiscalised, salesTotal) = SalesFiscalised();
-            var failures = OpenFailureCount;
+            var fiscal = SalesFiscalised();
             var salesTotals = TotalsByCurrency(Sales).ToList();
+            var invoiceTotals = TotalsByCurrency(Invoices).ToList();
             var paymentTotals = TotalsByCurrency(Payments).ToList();
-            var days = FiscalDays();
+            var hours = SalesByHour();
+            var busiest = Math.Max(1, hours.Max(h => h.Sales));
+            var lanes = AttentionLanes();
+            var attention = lanes.Sum(l => l.Cards.Count);
+            var devices = Devices();
+            var locations = SalesByLocation();
 
-            <section class="ltx-tiles" aria-label="Today so far">
-                <article class="ltx-tile">
-                    <h2 class="ltx-tile-label">Sales today</h2>
-                    <p class="ltx-tile-value ltx-num">@Sales.Count().ToString("N0")</p>
-                    <p class="ltx-tile-sub ltx-num">
-                        @if (salesTotals.Count == 0)
-                        {
-                            <span>No sales yet</span>
-                        }
-                        @foreach (var (currency, total) in salesTotals.Take(3))
-                        {
-                            <span class="ltx-tile-money">@Money(total, currency)</span>
-                        }
-                    </p>
-                </article>
-
-                <article class="ltx-tile">
-                    <h2 class="ltx-tile-label">Sales fiscalised</h2>
-                    <p class="ltx-tile-value ltx-num">
-                        @(salesTotal == 0 ? "—" : $"{fiscalised * 100 / salesTotal}%")
-                    </p>
-                    <p class="ltx-tile-sub ltx-num">
-                        @fiscalised.ToString("N0") of @salesTotal.ToString("N0")
-                        @if (_fiscalAvailable)
-                        {
-                            <span> · @FiscalReceiptCount.ToString("N0") receipts filed, all sources</span>
-                        }
-                    </p>
-                </article>
-
-                <article class="ltx-tile @(failures > 0 ? "ltx-tile-bad" : null)">
-                    <h2 class="ltx-tile-label">Open failures</h2>
-                    <p class="ltx-tile-value ltx-num">@failures.ToString("N0")</p>
-                    <p class="ltx-tile-sub">
-                        @if (failures > 0)
-                        {
-                            <button type="button" class="ltx-link" @onclick="() => SetFilter(Filter.Failures)">Show them</button>
-                        }
-                        else
-                        {
-                            <span>Nothing failing</span>
-                        }
-                    </p>
-                </article>
-
-                <article class="ltx-tile">
-                    <h2 class="ltx-tile-label">Payments received</h2>
-                    <p class="ltx-tile-value ltx-num">@Payments.Count().ToString("N0")</p>
-                    <p class="ltx-tile-sub ltx-num">
-                        @if (paymentTotals.Count == 0)
-                        {
-                            <span>None yet</span>
-                        }
-                        @foreach (var (currency, total) in paymentTotals.Take(3))
-                        {
-                            <span class="ltx-tile-money">@Money(total, currency)</span>
-                        }
-                    </p>
-                </article>
-            </section>
-
-            @if (days.Count > 0)
-            {
-                <section class="ltx-days" aria-label="Fiscal days">
-                    <h2 class="ltx-section-label">Fiscal days</h2>
-                    <ul class="ltx-day-list">
-                        @foreach (var day in days)
-                        {
-                            var tone = RowTone(day.Latest);
-                            <li class="ltx-day @ToneClass(tone)" title="@day.Latest.Detail">
-                                <span class="ltx-dot" aria-hidden="true"></span>
-                                <span class="ltx-day-device">Device @day.DeviceId</span>
-                                <span class="ltx-day-state">@day.Latest.Reference · @Humanise(day.Latest.Status)</span>
-                                <span class="ltx-day-time ltx-num">@Clock(day.Latest.OccurredAtUtc)</span>
-                            </li>
-                        }
-                    </ul>
-                </section>
-            }
-
-            <section class="ltx-feed-wrap" aria-label="Transactions">
-                <div class="ltx-toolbar">
-                    <div class="ltx-seg" role="group" aria-label="Show">
-                        @foreach (var (filter, label) in new[]
-                        {
-                            (Filter.All, "All"),
-                            (Filter.Sales, "Sales"),
-                            (Filter.Money, "Invoices & payments"),
-                            (Filter.Fiscal, "Fiscal"),
-                            (Filter.Failures, "Failures")
-                        })
-                        {
-                            var count = CountFor(filter);
-                            <button type="button"
-                                    class="ltx-seg-btn @(_filter == filter ? "is-on" : null) @(filter == Filter.Failures && count > 0 ? "ltx-seg-bad" : null)"
-                                    aria-pressed="@(_filter == filter ? "true" : "false")"
-                                    @onclick="() => SetFilter(filter)">
-                                <span>@label</span>
-                                <span class="ltx-seg-count ltx-num">@count.ToString("N0")</span>
-                            </button>
-                        }
+            <section class="ltx-panel ltx-summary" aria-label="Today so far">
+                <div class="ltx-kpis">
+                    <div class="ltx-kpi">
+                        <h2 class="ltx-label">Sales</h2>
+                        @{ var salesCount = Sales.Count().ToString("N0"); }
+                        <p class="ltx-kpi-value ltx-num" @key="salesCount">@salesCount</p>
+                        <p class="ltx-kpi-sub ltx-num">
+                            @if (salesTotals.Count == 0)
+                            {
+                                <span>No sales yet</span>
+                            }
+                            @foreach (var (currency, total) in salesTotals.Take(3))
+                            {
+                                <span class="ltx-nowrap">@Money(total, currency)</span>
+                            }
+                        </p>
                     </div>
-                    <label class="ltx-search">
-                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                        <span class="visually-hidden">Search</span>
-                        <input type="search" class="ltx-search-input" placeholder="Reference, customer, shop, device…"
-                               @bind="_search" @bind:event="oninput" />
-                    </label>
+
+                    <div class="ltx-kpi">
+                        <h2 class="ltx-label">Fiscalised</h2>
+                        @{ var fiscalisedShare = fiscal.Total == 0 ? "—" : $"{(fiscal.Fiscalised * 100.0 / fiscal.Total).ToString("0.0", CultureInfo.InvariantCulture)}%"; }
+                        <p class="ltx-kpi-value ltx-num" @key="fiscalisedShare">@fiscalisedShare</p>
+                        @if (fiscal.Total > 0)
+                        {
+                            <div class="ltx-meter" aria-hidden="true">
+                                <span class="ltx-tone-good" style="width: @Percent(fiscal.Fiscalised, fiscal.Total)%"></span>
+                                <span class="ltx-tone-info" style="width: @Percent(fiscal.InFlight, fiscal.Total)%"></span>
+                                <span class="ltx-tone-warn" style="width: @Percent(fiscal.Waiting, fiscal.Total)%"></span>
+                                <span class="ltx-tone-bad" style="width: @Percent(fiscal.Refused, fiscal.Total)%"></span>
+                            </div>
+                        }
+                        <p class="ltx-kpi-sub ltx-num">
+                            <span>@fiscal.Fiscalised.ToString("N0") of @fiscal.Total.ToString("N0")</span>
+                            @if (fiscal.InFlight > 0)
+                            {
+                                <span>@fiscal.InFlight in flight</span>
+                            }
+                            @if (fiscal.Waiting > 0)
+                            {
+                                <span class="ltx-tone-warn ltx-toned">@fiscal.Waiting waiting</span>
+                            }
+                            @if (fiscal.Refused > 0)
+                            {
+                                <span class="ltx-tone-bad ltx-toned">@fiscal.Refused refused</span>
+                            }
+                        </p>
+                    </div>
+
+                    <div class="ltx-kpi">
+                        <h2 class="ltx-label">Invoices</h2>
+                        @{ var invoiceCount = Invoices.Count().ToString("N0"); }
+                        <p class="ltx-kpi-value ltx-num" @key="invoiceCount">@invoiceCount</p>
+                        <p class="ltx-kpi-sub ltx-num">
+                            @if (invoiceTotals.Count == 0)
+                            {
+                                <span>None yet</span>
+                            }
+                            @foreach (var (currency, total) in invoiceTotals.Take(3))
+                            {
+                                <span class="ltx-nowrap">@Money(total, currency)</span>
+                            }
+                        </p>
+                    </div>
+
+                    <div class="ltx-kpi">
+                        <h2 class="ltx-label">Payments in</h2>
+                        @{ var paymentCount = Payments.Count().ToString("N0"); }
+                        <p class="ltx-kpi-value ltx-num" @key="paymentCount">@paymentCount</p>
+                        <p class="ltx-kpi-sub ltx-num">
+                            @if (paymentTotals.Count == 0)
+                            {
+                                <span>None yet</span>
+                            }
+                            @foreach (var (currency, total) in paymentTotals.Take(3))
+                            {
+                                <span class="ltx-nowrap">@Money(total, currency)</span>
+                            }
+                        </p>
+                    </div>
                 </div>
 
-                @{
-                    var rows = VisibleRows(out var matching);
-                }
-
-                @if (rows.Count == 0)
-                {
-                    <div class="ltx-empty">
-                        <i class="ph ph-hourglass-medium" aria-hidden="true"></i>
-                        <span>
-                            @(string.IsNullOrWhiteSpace(_search) && _filter == Filter.All
-                                ? "Nothing yet today. New transactions appear here as they happen."
-                                : "Nothing today matches.")
+                <div class="ltx-hours">
+                    <div class="ltx-hours-head">
+                        <h2 class="ltx-label">Sales per hour</h2>
+                        <span class="ltx-legend">
+                            <span><span class="ltx-key ltx-key-bar" aria-hidden="true"></span>Sales</span>
+                            <span><span class="ltx-key ltx-key-fail" aria-hidden="true"></span>Open failure</span>
                         </span>
                     </div>
-                }
-                else
-                {
-                    <ol class="ltx-feed">
-                        @foreach (var e in rows)
+                    <ol class="ltx-bars" style="grid-template-columns: repeat(@hours.Count, minmax(0, 1fr))">
+                        @foreach (var (bar, index) in hours.Select((b, i) => (b, i)))
                         {
-                            var tone = RowTone(e);
-                            var fiscal = FiscalStateOf(e);
-                            <li class="ltx-row @(IsFresh(e.EventId) ? "is-fresh" : null)" @key="e.EventId">
-                                <time class="ltx-time ltx-num" datetime="@e.OccurredAtUtc.ToString("O")">@Clock(e.OccurredAtUtc)</time>
-                                <span class="ltx-kind @KindClass(e)">@KindLabel(e)</span>
-                                <div class="ltx-main">
-                                    <div class="ltx-line">
-                                        <span class="ltx-ref">@(e.Reference ?? "—")</span>
-                                        @if (!string.IsNullOrWhiteSpace(e.Counterparty))
-                                        {
-                                            <span class="ltx-party">@e.Counterparty</span>
-                                        }
-                                    </div>
-                                    <div class="ltx-meta">
-                                        @if (!string.IsNullOrWhiteSpace(e.Location))
-                                        {
-                                            <span class="ltx-chip"><i class="ph ph-storefront" aria-hidden="true"></i>@e.Location</span>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(e.Channel))
-                                        {
-                                            <span class="ltx-chip">@e.Channel</span>
-                                        }
-                                        @if (e.FiscalDeviceId is { } device)
-                                        {
-                                            <span class="ltx-chip ltx-num">Device @device@(e.ReceiptGlobalNo is { } g ? $" · #{g}" : null)</span>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(e.Status) && e.Kind != LiveTransactionKinds.Sale)
-                                        {
-                                            <span class="ltx-status @ToneClass(tone)">
-                                                <span class="ltx-dot" aria-hidden="true"></span>@Humanise(e.Status)
-                                            </span>
-                                        }
-                                        @if (e.Kind == LiveTransactionKinds.Sale)
-                                        {
-                                            <span class="ltx-status ltx-tone-idle">
-                                                <span class="ltx-dot" aria-hidden="true"></span>@e.Status
-                                            </span>
-                                        }
-                                        @if (fiscal is not null)
-                                        {
-                                            <span class="ltx-status @ToneClass(fiscal.Tone)">
-                                                <i class="ph ph-receipt" aria-hidden="true"></i>@fiscal.Word@(fiscal.Detail is { } fd ? $" · {fd}" : null)
-                                            </span>
-                                        }
-                                    </div>
-                                    @if (!string.IsNullOrWhiteSpace(e.Detail) && (e.IsFailure || e.Kind == LiveTransactionKinds.FiscalDay) && fiscal?.Detail != e.Detail)
+                            <li class="ltx-bar-col @(bar.Current ? "is-now" : null) @(bar.Future ? "is-future" : null)">
+                                <span class="ltx-bar-value ltx-num">@(bar.Future ? null : bar.Sales.ToString(CultureInfo.InvariantCulture))</span>
+                                <span class="ltx-bar-track">
+                                    <span class="ltx-bar" style="height: @(bar.Future ? "4px" : $"{Math.Max(4, bar.Sales * 100 / busiest)}%"); animation-delay: @(index * 35)ms"></span>
+                                </span>
+                                <span class="ltx-bar-hour ltx-num">
+                                    @bar.Hour.ToString("00", CultureInfo.InvariantCulture)
+                                    @if (bar.Failures > 0)
                                     {
-                                        <p class="ltx-detail">@e.Detail</p>
+                                        <span class="ltx-bar-fail" title="@bar.Failures open @(bar.Failures == 1 ? "failure" : "failures")"></span>
+                                        <span class="visually-hidden">, @bar.Failures open @(bar.Failures == 1 ? "failure" : "failures")</span>
                                     }
-                                </div>
-                                <div class="ltx-amount ltx-num">
-                                    @if (e.Amount is { } amount)
-                                    {
-                                        @Money(amount, e.Currency)
-                                    }
-                                </div>
+                                </span>
                             </li>
                         }
                     </ol>
+                </div>
+            </section>
 
-                    @if (matching > rows.Count)
+            <section class="ltx-attn" aria-label="Needs attention">
+                <div class="ltx-attn-head">
+                    @if (attention > 0)
                     {
-                        <p class="ltx-foot">Showing the latest @rows.Count.ToString("N0") of @matching.ToString("N0"). Search or filter to find older ones.</p>
+                        <h2>Needs attention <span class="ltx-count ltx-tone-bad ltx-num" @key="attention">@attention</span></h2>
+                        <span class="ltx-hint">A card leaves by itself once the platform files the receipt</span>
                     }
+                    else
+                    {
+                        <h2 class="ltx-all-clear ltx-tone-good"><span class="ltx-dot" aria-hidden="true"></span>Nothing needs attention</h2>
+                    }
+                </div>
+                @if (attention > 0)
+                {
+                    <div class="ltx-lanes">
+                        @foreach (var lane in lanes)
+                        {
+                            <div class="ltx-lane @ToneClass(lane.Tone)">
+                                <h3 class="ltx-lane-title">
+                                    <span class="ltx-dot" aria-hidden="true"></span>
+                                    <span>@lane.Title</span>
+                                    <span class="ltx-lane-count ltx-num">@lane.Cards.Count</span>
+                                </h3>
+                                @if (lane.Cards.Count == 0)
+                                {
+                                    <p class="ltx-lane-empty">@lane.EmptyText</p>
+                                }
+                                @foreach (var card in lane.Cards.Take(MaxCardsPerLane))
+                                {
+                                    var retry = card.RetrySale is { } s && _retries.TryGetValue(s.EventId, out var r) ? r : null;
+                                    <article class="ltx-card @ToneClass(card.Tone)" @key="card.Key">
+                                        <div class="ltx-card-top">
+                                            <h4 class="ltx-num">@card.Reference</h4>
+                                            @if (card.Amount is not null)
+                                            {
+                                                <span class="ltx-card-amount ltx-num">@card.Amount</span>
+                                            }
+                                        </div>
+                                        @if (card.Where is not null)
+                                        {
+                                            <p class="ltx-card-where">@card.Where</p>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(card.Reason))
+                                        {
+                                            <p class="ltx-card-reason">@card.Reason</p>
+                                        }
+                                        @if (retry is { Busy: false, Succeeded: false, Message: { } failedWith })
+                                        {
+                                            <p class="ltx-card-error" role="alert">@failedWith</p>
+                                        }
+                                        <div class="ltx-card-foot">
+                                            <span class="ltx-card-state ltx-num">
+                                                <span class="ltx-dot" aria-hidden="true"></span>@card.State
+                                            </span>
+                                            @if (card.RetrySale is { } sale)
+                                            {
+                                                <button type="button" class="ltx-btn ltx-btn-primary"
+                                                        @onclick="() => RetryAsync(sale)"
+                                                        disabled="@(retry?.Busy == true)">
+                                                    @if (retry?.Busy == true)
+                                                    {
+                                                        <span class="ltx-spin" aria-hidden="true"></span>
+                                                        <span>Retrying…</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>Retry</span>
+                                                    }
+                                                </button>
+                                            }
+                                        </div>
+                                    </article>
+                                }
+                                @if (lane.Cards.Count > MaxCardsPerLane)
+                                {
+                                    <button type="button" class="ltx-link ltx-lane-more" @onclick="() => SetFilter(Filter.Failures)">
+                                        and @(lane.Cards.Count - MaxCardsPerLane) more in the list below
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
                 }
             </section>
+
+            <div class="ltx-split">
+                <section class="ltx-panel ltx-feed-panel" aria-label="Transactions">
+                    <div class="ltx-toolbar">
+                        <div class="ltx-seg" role="group" aria-label="Show">
+                            @foreach (var (filter, label) in new[]
+                            {
+                                (Filter.All, "All"),
+                                (Filter.Sales, "Sales"),
+                                (Filter.Money, "Invoices & payments"),
+                                (Filter.Fiscal, "Fiscal"),
+                                (Filter.Failures, "Failures")
+                            })
+                            {
+                                var count = CountFor(filter);
+                                <button type="button"
+                                        class="ltx-seg-btn @(_filter == filter ? "is-on" : null) @(filter == Filter.Failures && count > 0 ? "ltx-seg-bad" : null)"
+                                        aria-pressed="@(_filter == filter ? "true" : "false")"
+                                        @onclick="() => SetFilter(filter)">
+                                    <span>@label</span>
+                                    <span class="ltx-seg-count ltx-num">@count.ToString("N0")</span>
+                                </button>
+                            }
+                        </div>
+                        <label class="ltx-search">
+                            <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                            <span class="visually-hidden">Search</span>
+                            <input type="search" class="ltx-search-input" placeholder="Reference, customer, shop, device"
+                                   @bind="_search" @bind:event="oninput" />
+                        </label>
+                    </div>
+
+                    @{
+                        var rows = VisibleRows(out var matching);
+                    }
+
+                    @if (rows.Count == 0)
+                    {
+                        <div class="ltx-empty ltx-empty-inline">
+                            <i class="ph ph-hourglass-medium" aria-hidden="true"></i>
+                            <span>
+                                @(string.IsNullOrWhiteSpace(_search) && _filter == Filter.All
+                                    ? "Nothing yet today. New transactions appear here as they happen."
+                                    : "Nothing today matches.")
+                            </span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ltx-grid ltx-colhead" aria-hidden="true">
+                            <span>Time</span><span class="ltx-c-kind">Kind</span><span class="ltx-c-main">Reference · where</span><span class="ltx-c-status">Status</span><span class="ltx-c-amount">Amount</span>
+                        </div>
+                        <ol class="ltx-feed">
+                            @foreach (var e in rows)
+                            {
+                                var status = StatusOf(e);
+                                var open = _openEventId == e.EventId;
+                                var where = JoinWhere(e.Location, e.Kind == LiveTransactionKinds.Sale ? e.Channel : null);
+                                <li class="ltx-row @(IsFresh(e.EventId) ? "is-fresh" : null) @(status.Tone == Tone.Bad ? "is-bad" : null)" @key="e.EventId">
+                                    <button type="button" class="ltx-grid ltx-row-btn" aria-expanded="@(open ? "true" : "false")"
+                                            @onclick="() => ToggleOpen(e.EventId)">
+                                        <time class="ltx-time ltx-num" datetime="@e.OccurredAtUtc.ToString("O")">@Clock(e.OccurredAtUtc)</time>
+                                        <span class="ltx-c-kind"><span class="ltx-kind @KindClass(e)">@KindLabel(e)</span></span>
+                                        <span class="ltx-c-main">
+                                            <span class="ltx-line">
+                                                <span class="ltx-ref ltx-num">@(e.Reference ?? "—")</span>
+                                                @if (!string.IsNullOrWhiteSpace(e.Counterparty))
+                                                {
+                                                    <span class="ltx-party">@e.Counterparty</span>
+                                                }
+                                                @if (IsFresh(e.EventId))
+                                                {
+                                                    <span class="ltx-new">New</span>
+                                                }
+                                            </span>
+                                            @if (where is not null)
+                                            {
+                                                <span class="ltx-where">@where</span>
+                                            }
+                                        </span>
+                                        <span class="ltx-c-status @ToneClass(status.Tone)">
+                                            <span class="ltx-status"><span class="ltx-dot" aria-hidden="true"></span>@status.Word</span>
+                                            @if (!string.IsNullOrWhiteSpace(status.Detail))
+                                            {
+                                                <span class="ltx-status-detail ltx-num">@status.Detail</span>
+                                            }
+                                        </span>
+                                        <span class="ltx-c-amount ltx-num">
+                                            @if (e.Amount is { } amount)
+                                            {
+                                                @Money(amount, e.Currency)
+                                            }
+                                        </span>
+                                    </button>
+                                    @if (open)
+                                    {
+                                        var note = NoteOf(e);
+                                        <div class="ltx-chain-wrap">
+                                            <ol class="ltx-chain">
+                                                @foreach (var step in ChainOf(e))
+                                                {
+                                                    <li class="ltx-step @ToneClass(step.Tone)">
+                                                        <span class="ltx-step-mark" aria-hidden="true"><i class="ph @StepIcon(step.Tone)"></i></span>
+                                                        <span class="ltx-step-text">
+                                                            <span class="ltx-step-label">@step.Label</span>
+                                                            @if (!string.IsNullOrWhiteSpace(step.Sub))
+                                                            {
+                                                                <span class="ltx-step-sub ltx-num">@step.Sub</span>
+                                                            }
+                                                        </span>
+                                                    </li>
+                                                }
+                                            </ol>
+                                            @if (!string.IsNullOrWhiteSpace(note))
+                                            {
+                                                <p class="ltx-chain-note">@note</p>
+                                            }
+                                        </div>
+                                    }
+                                </li>
+                            }
+                        </ol>
+
+                        <p class="ltx-foot">
+                            @if (matching > rows.Count)
+                            {
+                                <span>Showing the latest @rows.Count.ToString("N0") of @matching.ToString("N0"). Search or filter to find older ones.</span>
+                            }
+                            else
+                            {
+                                <span>@matching.ToString("N0") @(matching == 1 ? "event" : "events").</span>
+                            }
+                            @if (_filter == Filter.All)
+                            {
+                                <span>Receipts filed for a sale or invoice on this list are folded into its row.</span>
+                            }
+                        </p>
+                    }
+                </section>
+
+                <aside class="ltx-side">
+                    <section class="ltx-panel" aria-label="Fiscal devices">
+                        <div class="ltx-panel-head">
+                            <h2>Fiscal devices</h2>
+                            @if (devices.Count > 0)
+                            {
+                                <span class="ltx-hint ltx-num">@devices.Sum(d => d.Receipts).ToString("N0") receipts today</span>
+                            }
+                        </div>
+                        @if (devices.Count == 0)
+                        {
+                            <p class="ltx-panel-empty">
+                                @(_fiscalAvailable ? "No device has reported today." : "Unavailable while fiscal activity cannot be read.")
+                            </p>
+                        }
+                        else
+                        {
+                            <ul class="ltx-devices">
+                                @foreach (var d in devices)
+                                {
+                                    <li class="ltx-device @ToneClass(d.Tone)">
+                                        <span class="ltx-device-name">
+                                            Device @d.DeviceId
+                                            @if (!string.IsNullOrWhiteSpace(d.Location))
+                                            {
+                                                <span class="ltx-device-where">&nbsp;· @d.Location</span>
+                                            }
+                                        </span>
+                                        <span class="ltx-device-state"><span class="ltx-dot" aria-hidden="true"></span>@d.State</span>
+                                        <span class="ltx-device-meta ltx-num">
+                                            @(d.DayNo is { } day ? $"Day {day} · " : null)@d.Receipts.ToString("N0") @(d.Receipts == 1 ? "receipt" : "receipts")
+                                        </span>
+                                        <span class="ltx-device-meta ltx-device-last ltx-num">
+                                            @(d.LastReceiptUtc is { } last ? $"last {Clock(last)}" : null)
+                                        </span>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </section>
+
+                    <section class="ltx-panel" aria-label="Sales by location">
+                        <div class="ltx-panel-head">
+                            <h2>Sales by location</h2>
+                        </div>
+                        @if (locations.Count == 0)
+                        {
+                            <p class="ltx-panel-empty">No sales yet.</p>
+                        }
+                        else
+                        {
+                            <ul class="ltx-locations">
+                                @foreach (var l in locations)
+                                {
+                                    <li>
+                                        <span class="ltx-location-line">
+                                            <span class="ltx-location-name">@l.Name <span class="ltx-location-count ltx-num">· @l.Count.ToString("N0")</span></span>
+                                            <span class="ltx-location-total ltx-num">@l.Totals</span>
+                                        </span>
+                                        <span class="ltx-location-track" aria-hidden="true"><span style="width: @l.Percent%"></span></span>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </section>
+                </aside>
+            </div>
         }
     </main>
 </div>

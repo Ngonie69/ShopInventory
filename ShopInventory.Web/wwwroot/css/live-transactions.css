@@ -3,16 +3,22 @@
 
    /live-transactions: today's sales, invoices and payments here, and every
    receipt, failure and fiscal day the Fiscalisation platform records, merged
-   into one timeline that updates while it is open.
+   into one page that updates while it is open.
 
-   Shaped after transfer-listener.css, its sibling monitoring page: the same
-   sticky header, buttons and tone vocabulary. Palette and spacing alias
-   nocturne-tokens.css, so there is no `.dark-theme .ltx` palette block — those
-   tokens flip at the root and every alias resolves against the scheme in force.
+   Laid out after the "Control room" design with its attention lanes: one
+   summary panel (four figures over a sales-per-hour chart), the lanes of what
+   needs someone, then the feed beside a column of fiscal devices and
+   locations. Palette and spacing alias nocturne-tokens.css, so there is no
+   `.dark-theme .ltx` palette block — those tokens flip at the root and every
+   alias resolves against the scheme in force.
 
-   Tone is one class, `.ltx-tone-{good|warn|bad|idle}`, which sets `--tone` and
-   `--tone-rgb`; dots, status words and the failures tile read those. A tone
-   always arrives with a word — a dot is never the only signal.
+   Tone is one class, `.ltx-tone-{good|info|warn|bad|idle}`, which sets
+   `--tone` and `--tone-rgb`; dots, status words, cards and meter segments read
+   those. A tone always arrives with a word — a dot is never the only signal.
+
+   The header is opaque: a translucent header behind a `backdrop-filter`
+   @supports guard shows the page through it wherever the compositor skips the
+   blur, and those are the environments that pass the guard.
 
    Element selectors are two classes deep because app.css carries global
    `.dark-theme input/button` rules that have to be out-specified.
@@ -21,7 +27,6 @@
 .ltx {
     --ltx-bg: var(--noct-bg);
     --ltx-surface: var(--noct-surface);
-    --ltx-wash: var(--noct-wash);
     --ltx-ink: var(--noct-ink);
     --ltx-ink-2: var(--noct-ink-2);
     --ltx-mute: var(--noct-mute);
@@ -39,7 +44,8 @@
     --ltx-accent: var(--noct-accent);
     --ltx-accent-rgb: var(--noct-accent-rgb);
     --ltx-accent-text: var(--noct-accent-text);
-    --ltx-on-accent: var(--noct-on-accent);
+    --ltx-box: var(--noct-box);
+    --ltx-on-box: var(--noct-on-box);
 
     --ltx-good: var(--noct-fam-good);
     --ltx-good-rgb: var(--noct-fam-good-rgb);
@@ -67,6 +73,10 @@
     --ltx-r-sm: var(--noct-r-sm);
     --ltx-r-md: var(--noct-r-md);
     --ltx-r-lg: var(--noct-r-lg);
+
+    /* The chart's empty track and the meter's ground: a film, not a colour,
+       so it sits on the panel in both schemes. */
+    --ltx-track: rgba(var(--ltx-neutral-rgb), .14);
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
@@ -78,7 +88,7 @@
     color-scheme: var(--noct-scheme);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
-    line-height: 1.55;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
 
     /* `clip`, never `hidden`: `hidden` would make this a scrollport and the
@@ -103,9 +113,10 @@
 }
 
 .ltx h1,
-.ltx h2 {
+.ltx h2,
+.ltx h3,
+.ltx h4 {
     font-family: 'Inter', system-ui, sans-serif;
-    font-weight: 500;
     margin: 0;
 }
 
@@ -117,15 +128,39 @@
     font-variant-numeric: tabular-nums;
 }
 
+.ltx-nowrap {
+    white-space: nowrap;
+}
+
+/* The small uppercase label over a figure or a chart. */
+.ltx-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ltx-mute-3);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+
+.ltx-hint {
+    font-size: 12.5px;
+    color: var(--ltx-mute-3);
+}
+
 /* ── Tones ─────────────────────────────────────────────────────────────── */
 
 .ltx-tone-good { --tone: var(--ltx-good); --tone-rgb: var(--ltx-good-rgb); }
+.ltx-tone-info { --tone: var(--ltx-info); --tone-rgb: var(--ltx-info-rgb); }
 .ltx-tone-warn { --tone: var(--ltx-warn); --tone-rgb: var(--ltx-warn-rgb); }
 .ltx-tone-bad  { --tone: var(--ltx-bad);  --tone-rgb: var(--ltx-bad-rgb); }
 .ltx-tone-idle { --tone: var(--ltx-neutral); --tone-rgb: var(--ltx-neutral-rgb); }
 
+.ltx-toned {
+    color: var(--tone);
+}
+
 .ltx-dot {
     flex: none;
+    display: inline-block;
     width: 7px;
     height: 7px;
     border-radius: 50%;
@@ -150,24 +185,17 @@
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
     background: var(--ltx-bg);
-    border-bottom: 1px solid var(--ltx-divider);
-}
-
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .ltx-head {
-        background: color-mix(in srgb, var(--ltx-bg) 88%, transparent);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-    }
+    border-bottom: 1px solid var(--ltx-rule);
 }
 
 .ltx-head-inner {
-    max-width: 1400px;
+    max-width: 1440px;
     margin: 0 auto;
-    padding: 13px 28px;
+    padding: 12px 32px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--ltx-s6);
+    gap: 10px var(--ltx-s6);
 }
 
 .ltx-crumbs {
@@ -175,6 +203,7 @@
     align-items: center;
     gap: var(--ltx-s3);
     min-width: 0;
+    flex-grow: 1;
     font-size: 12.5px;
     color: var(--ltx-mute-3);
 }
@@ -184,13 +213,13 @@
 }
 
 .ltx-crumb-now {
-    color: var(--ltx-ink-2);
+    color: var(--ltx-ink);
     white-space: nowrap;
 }
 
 .ltx-head-actions {
-    margin-left: auto;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--ltx-s4);
 }
@@ -198,20 +227,17 @@
 .ltx-live {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 3px 10px;
-    border-radius: 999px;
-    background: rgba(var(--tone-rgb), .12);
+    gap: 8px;
     color: var(--tone);
-    font-size: 12px;
-    font-weight: 500;
+    font-size: 12.5px;
+    font-weight: 600;
 }
 
 .ltx-asof {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px;
+    font-size: 12.5px;
     color: var(--ltx-mute-3);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
@@ -222,16 +248,18 @@
 .ltx .ltx-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: var(--ltx-r-sm);
+    justify-content: center;
+    gap: 7px;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: var(--ltx-r-md);
     border: 1px solid var(--ltx-field-edge);
-    background: var(--ltx-surface);
+    background: var(--ltx-field-bg);
     color: var(--ltx-ink-2);
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 500;
-    line-height: 1.4;
+    line-height: 1.2;
     white-space: nowrap;
     cursor: pointer;
     transition: background .15s ease;
@@ -246,12 +274,27 @@
     cursor: not-allowed;
 }
 
+/* A filled control: held on `box`, not `accent`, so its ink stays near-white
+   in both schemes. */
+.ltx .ltx-btn-primary {
+    border-color: transparent;
+    background: var(--ltx-box);
+    color: var(--ltx-on-box);
+    font-weight: 600;
+}
+
+.ltx .ltx-btn-primary:hover:not(:disabled) {
+    background: var(--ltx-box);
+    filter: brightness(1.08);
+}
+
 .ltx .ltx-link {
     padding: 0;
     border: 0;
     background: none;
     color: var(--ltx-accent-text);
     font: inherit;
+    font-size: 12.5px;
     text-decoration: underline;
     text-underline-offset: 2px;
     cursor: pointer;
@@ -273,25 +316,39 @@
 /* ── Body ──────────────────────────────────────────────────────────────── */
 
 .ltx-body {
-    max-width: 1400px;
+    max-width: 1440px;
     margin: 0 auto;
-    padding: 24px 28px 48px;
+    padding: 28px 32px 56px;
     display: flex;
     flex-direction: column;
-    gap: var(--ltx-s8);
+    gap: 24px;
+}
+
+.ltx-intro {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px 24px;
 }
 
 .ltx-intro h1 {
-    font-size: 22px;
+    font-size: 24px;
+    font-weight: 600;
     color: var(--ltx-ink);
     letter-spacing: -.01em;
 }
 
 .ltx-intro p {
-    margin-top: var(--ltx-s2);
-    max-width: 72ch;
+    margin-top: 4px;
     color: var(--ltx-mute-2);
     font-size: 13.5px;
+}
+
+.ltx .ltx-intro-meta {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ltx-mute-3);
 }
 
 .ltx-notice {
@@ -344,38 +401,73 @@
     color: var(--tone);
 }
 
-/* ── Tiles ─────────────────────────────────────────────────────────────── */
-
-.ltx-tiles {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--ltx-s6);
+.ltx-empty-inline {
+    margin: 16px;
 }
 
-.ltx-tile {
-    padding: 16px 18px;
-    border-radius: var(--ltx-r-lg);
+/* ── Panels ────────────────────────────────────────────────────────────── */
+
+.ltx-panel {
     background: var(--ltx-surface);
-    box-shadow: 0 0 0 1px var(--ltx-divider);
+    border: 1px solid var(--ltx-rule);
+    border-radius: var(--ltx-r-lg);
     min-width: 0;
 }
 
-.ltx-tile-label {
-    font-size: 12px;
-    color: var(--ltx-mute-3);
-    letter-spacing: .02em;
+.ltx-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 4px 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--ltx-rule);
 }
 
-.ltx-tile-value {
-    margin-top: 6px;
-    font-size: 28px;
-    line-height: 1.15;
-    font-weight: 500;
+.ltx-panel-head h2 {
+    font-size: 14px;
+    font-weight: 600;
     color: var(--ltx-ink);
 }
 
-.ltx-tile-sub {
-    margin-top: 6px;
+.ltx-panel-empty {
+    padding: 16px;
+    font-size: 13px;
+    color: var(--ltx-mute-3);
+}
+
+/* ── Summary: figures ──────────────────────────────────────────────────── */
+
+.ltx-summary {
+    overflow: hidden;
+}
+
+.ltx-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ltx-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 20px 24px;
+    min-width: 0;
+}
+
+.ltx-kpi + .ltx-kpi {
+    border-left: 1px solid var(--ltx-rule);
+}
+
+.ltx .ltx-kpi-value {
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    color: var(--ltx-ink);
+}
+
+.ltx-kpi-sub {
     display: flex;
     flex-wrap: wrap;
     gap: 2px 10px;
@@ -383,113 +475,348 @@
     color: var(--ltx-mute-2);
 }
 
-.ltx-tile-money {
-    white-space: nowrap;
+.ltx-meter {
+    display: flex;
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--ltx-track);
 }
 
-.ltx-tile-bad {
-    box-shadow: 0 0 0 1px rgba(var(--ltx-bad-rgb), .55);
+.ltx-meter > span {
+    display: block;
+    background: var(--tone);
 }
 
-.ltx-tile-bad .ltx-tile-value {
-    color: var(--ltx-bad);
+/* ── Summary: sales per hour ───────────────────────────────────────────── */
+
+.ltx-hours {
+    padding: 16px 24px 14px;
+    border-top: 1px solid var(--ltx-rule);
 }
 
-/* ── Fiscal days ───────────────────────────────────────────────────────── */
+.ltx-hours-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px 12px;
+    margin-bottom: 10px;
+}
 
-.ltx-section-label {
+.ltx-legend {
+    display: inline-flex;
+    gap: 14px;
     font-size: 12px;
-    color: var(--ltx-mute-3);
-    letter-spacing: .02em;
-    margin-bottom: var(--ltx-s3);
+    color: var(--ltx-mute-2);
 }
 
-.ltx-day-list {
+.ltx-legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ltx-key {
+    width: 8px;
+    height: 8px;
+}
+
+.ltx-key-bar {
+    border-radius: 2px;
+    background: var(--ltx-accent);
+}
+
+.ltx-key-fail {
+    border-radius: 50%;
+    background: var(--ltx-bad);
+}
+
+.ltx-bars {
     list-style: none;
     margin: 0;
     padding: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.ltx-bar-col {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--ltx-s3);
-}
-
-.ltx-day {
-    display: inline-flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    background: var(--ltx-surface);
-    box-shadow: 0 0 0 1px var(--ltx-divider);
-    font-size: 12.5px;
-    color: var(--ltx-ink-2);
+    gap: 4px;
+    min-width: 0;
 }
 
-.ltx-day-device {
-    font-weight: 500;
-}
-
-.ltx-day-state {
-    color: var(--tone);
-}
-
-.ltx-day-time {
+.ltx-bar-value {
+    height: 15px;
+    font-size: 11px;
     color: var(--ltx-mute-3);
 }
 
-/* ── Toolbar ───────────────────────────────────────────────────────────── */
+.ltx-bar-track {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    width: 100%;
+    height: 64px;
+}
+
+.ltx-bar {
+    display: block;
+    width: 100%;
+    max-width: 44px;
+    border-radius: 4px 4px 1px 1px;
+    background: var(--ltx-accent);
+}
+
+/* The hour still under way: a lighter bar, so a half-hour is not read as a
+   slow hour. */
+.ltx-bar-col.is-now .ltx-bar {
+    background: rgba(var(--ltx-accent-rgb), .45);
+}
+
+.ltx-bar-col.is-future .ltx-bar {
+    background: transparent;
+    border: 1px dashed var(--ltx-divider);
+}
+
+.ltx-bar-hour {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--ltx-mute-3);
+}
+
+.ltx-bar-col.is-now .ltx-bar-hour {
+    color: var(--ltx-ink);
+    font-weight: 600;
+}
+
+.ltx-bar-fail {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ltx-bad);
+}
+
+/* ── Needs attention ───────────────────────────────────────────────────── */
+
+.ltx-attn {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ltx-attn-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px 16px;
+}
+
+.ltx-attn-head h2 {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ltx-ink);
+}
+
+.ltx-attn-head .ltx-all-clear {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--tone);
+}
+
+.ltx-count {
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(var(--tone-rgb), .14);
+    color: var(--tone);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.ltx-lanes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+.ltx-lane {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.ltx-lane-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ltx-mute);
+}
+
+.ltx-lane-count {
+    padding: 0 7px;
+    border-radius: 9px;
+    background: var(--ltx-track);
+    color: var(--ltx-mute-2);
+    font-size: 12px;
+}
+
+.ltx-lane-empty {
+    padding: 18px 16px;
+    border-radius: 12px;
+    border: 1px dashed var(--ltx-divider);
+    color: var(--ltx-mute-3);
+    font-size: 13px;
+}
+
+.ltx .ltx-lane-more {
+    align-self: flex-start;
+}
+
+.ltx-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--ltx-surface);
+    border: 1px solid rgba(var(--tone-rgb), .45);
+}
+
+.ltx-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.ltx-card-top h4 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ltx-ink);
+    overflow-wrap: anywhere;
+}
+
+.ltx-card-amount {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.ltx-card-where {
+    font-size: 12.5px;
+    color: var(--ltx-mute-3);
+}
+
+.ltx-card-reason {
+    font-size: 13px;
+    color: var(--ltx-ink-2);
+    overflow-wrap: anywhere;
+}
+
+.ltx-card-error {
+    font-size: 12.5px;
+    color: var(--ltx-bad);
+    overflow-wrap: anywhere;
+}
+
+.ltx-card-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.ltx-card-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--tone);
+}
+
+/* ── Feed and side column ──────────────────────────────────────────────── */
+
+.ltx-split {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+.ltx-feed-panel {
+    flex: 999 1 640px;
+}
+
+.ltx-side {
+    flex: 1 1 320px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
 
 .ltx-toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--ltx-s4);
-    margin-bottom: var(--ltx-s4);
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--ltx-rule);
 }
 
 .ltx-seg {
-    display: inline-flex;
+    display: flex;
     flex-wrap: wrap;
-    gap: 2px;
-    padding: 3px;
-    border-radius: var(--ltx-r-md);
-    background: var(--ltx-field-bg);
-    box-shadow: inset 0 0 0 1px var(--ltx-field-edge);
+    gap: 4px;
+    flex-grow: 1;
 }
 
 .ltx .ltx-seg-btn {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 5px 11px;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 12px;
     border: 0;
-    border-radius: calc(var(--ltx-r-md) - 2px);
+    border-radius: var(--ltx-r-md);
     background: transparent;
-    color: var(--ltx-mute-2);
+    color: var(--ltx-mute);
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
 }
 
 .ltx .ltx-seg-btn:hover {
     background: var(--ltx-hover);
-    color: var(--ltx-ink-2);
 }
 
 .ltx .ltx-seg-btn.is-on {
-    background: var(--ltx-surface);
-    color: var(--ltx-ink);
-    box-shadow: 0 0 0 1px var(--ltx-divider);
+    background: rgba(var(--ltx-accent-rgb), .16);
+    color: var(--ltx-accent-text);
 }
 
 .ltx-seg-count {
-    min-width: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--ltx-rule);
-    color: var(--ltx-mute-3);
-    font-size: 11px;
+    min-width: 20px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: var(--ltx-track);
+    color: var(--ltx-mute-2);
+    font-size: 11.5px;
+    font-weight: 600;
     text-align: center;
 }
 
@@ -502,22 +829,22 @@
     position: relative;
     display: flex;
     align-items: center;
-    flex: 1 1 260px;
-    max-width: 380px;
-    margin-left: auto;
+    flex: 1 1 220px;
+    max-width: 300px;
 }
 
 .ltx-search > i {
     position: absolute;
-    left: 10px;
+    left: 12px;
     color: var(--ltx-mute-3);
     pointer-events: none;
 }
 
 .ltx .ltx-search-input {
     width: 100%;
-    padding: 7px 10px 7px 32px;
-    border-radius: var(--ltx-r-sm);
+    min-height: 36px;
+    padding: 0 12px 0 34px;
+    border-radius: var(--ltx-r-md);
     border: 1px solid var(--ltx-field-edge);
     background: var(--ltx-field-bg);
     color: var(--ltx-ink);
@@ -534,40 +861,47 @@
     border-color: var(--ltx-field-edge-hi);
 }
 
-/* ── Feed ──────────────────────────────────────────────────────────────── */
+/* One grid for the column heads and every row, so they line up. */
+.ltx-grid {
+    display: grid;
+    grid-template-columns: 72px 104px minmax(0, 1fr) 220px 128px;
+    column-gap: 16px;
+    row-gap: 6px;
+    align-items: center;
+}
+
+.ltx-colhead {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--ltx-rule);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ltx-mute-3);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+
+.ltx-c-amount {
+    text-align: right;
+}
 
 .ltx-feed {
     list-style: none;
     margin: 0;
     padding: 0;
-    border-radius: var(--ltx-r-lg);
-    background: var(--ltx-surface);
-    box-shadow: 0 0 0 1px var(--ltx-divider);
-    overflow: hidden;
 }
 
 .ltx-row {
-    display: grid;
-    grid-template-columns: 72px 92px minmax(0, 1fr) auto;
-    align-items: start;
-    gap: var(--ltx-s6);
-    padding: 11px 18px;
-    border-top: 1px solid var(--ltx-rule);
+    border-bottom: 1px solid var(--ltx-rule);
 }
 
-.ltx-row:first-child {
-    border-top: 0;
-}
-
-.ltx-row:hover {
-    background: var(--ltx-hover);
+.ltx-row.is-bad {
+    background: rgba(var(--ltx-bad-rgb), .06);
 }
 
 /* Arrived while the page was open. Fades out by itself; with reduced motion it
-   is a static rule on the left edge instead. */
+   is a static film until the mark expires. */
 .ltx-row.is-fresh {
-    animation: ltx-fresh 4s ease-out;
-    box-shadow: inset 3px 0 0 var(--ltx-accent);
+    animation: ltx-fresh 6s ease-out;
 }
 
 @keyframes ltx-fresh {
@@ -575,151 +909,517 @@
     to { background: transparent; }
 }
 
+.ltx .ltx-row-btn {
+    width: 100%;
+    padding: 12px 16px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ltx .ltx-row-btn:hover {
+    background: var(--ltx-hover);
+}
+
 .ltx-time {
-    padding-top: 1px;
-    font-size: 12.5px;
-    color: var(--ltx-mute-3);
+    font-size: 13px;
+    color: var(--ltx-mute-2);
 }
 
 .ltx-kind {
-    justify-self: start;
-    padding: 1px 8px;
-    border-radius: var(--ltx-r-sm);
-    background: rgba(var(--fam-rgb), .12);
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: rgba(var(--fam-rgb), .14);
     color: var(--fam);
-    font-size: 11.5px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: 600;
     white-space: nowrap;
 }
 
 .ltx-kind-sale    { --fam: var(--ltx-fam-accent); --fam-rgb: var(--ltx-fam-accent-rgb); }
 .ltx-kind-invoice { --fam: var(--ltx-info);       --fam-rgb: var(--ltx-info-rgb); }
 .ltx-kind-pay     { --fam: var(--ltx-good);       --fam-rgb: var(--ltx-good-rgb); }
-.ltx-kind-fiscal  { --fam: var(--ltx-warn);       --fam-rgb: var(--ltx-warn-rgb); }
+.ltx-kind-fiscal  { --fam: var(--ltx-neutral);    --fam-rgb: var(--ltx-neutral-rgb); }
 
-.ltx-main {
+.ltx-c-main,
+.ltx-c-status {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     min-width: 0;
 }
 
 .ltx-line {
     display: flex;
     align-items: baseline;
-    gap: var(--ltx-s4);
+    gap: 8px;
     min-width: 0;
 }
 
 .ltx-ref {
-    font-weight: 500;
+    font-weight: 600;
     color: var(--ltx-ink);
     white-space: nowrap;
 }
 
 .ltx-party {
     min-width: 0;
-    color: var(--ltx-mute-2);
+    color: var(--ltx-mute);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.ltx-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 12px;
-    margin-top: 3px;
-    font-size: 12px;
-    color: var(--ltx-mute-3);
+.ltx-new {
+    flex: none;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: rgba(var(--ltx-accent-rgb), .16);
+    color: var(--ltx-accent-text);
+    font-size: 11px;
+    font-weight: 600;
 }
 
-.ltx-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
+.ltx-where,
+.ltx-status-detail {
+    font-size: 12.5px;
+    color: var(--ltx-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ltx-status-detail {
+    font-size: 12px;
 }
 
 .ltx-status {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--tone);
 }
 
-.ltx-detail {
-    margin-top: 4px;
+.ltx-c-amount {
+    font-weight: 600;
+    color: var(--ltx-ink);
+    white-space: nowrap;
+}
+
+/* The opened row: the document's steps, under its reference column. */
+.ltx-chain-wrap {
+    padding: 2px 16px 16px 208px;
+}
+
+.ltx-chain {
+    list-style: none;
+    margin: 0;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--ltx-field-bg);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 0;
+}
+
+.ltx-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    flex: 1 1 180px;
+    min-width: 0;
+    padding-right: 16px;
+}
+
+.ltx-step-mark {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(var(--tone-rgb), .16);
+    color: var(--tone);
+    font-size: 12px;
+}
+
+.ltx-step-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.ltx-step-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ltx-ink);
+}
+
+.ltx-step-sub {
     font-size: 12px;
     color: var(--ltx-mute-2);
     overflow-wrap: anywhere;
 }
 
-.ltx-amount {
-    padding-top: 1px;
-    font-weight: 500;
-    color: var(--ltx-ink);
-    white-space: nowrap;
-    text-align: right;
+.ltx-chain-note {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--ltx-bad);
+    overflow-wrap: anywhere;
 }
 
 .ltx-foot {
-    margin-top: var(--ltx-s4);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    padding: 14px 16px;
     font-size: 12.5px;
     color: var(--ltx-mute-3);
+}
+
+/* ── Devices and locations ─────────────────────────────────────────────── */
+
+.ltx-devices {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+}
+
+.ltx-device {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 12px;
+    padding: 10px 16px;
+}
+
+.ltx-device + .ltx-device {
+    border-top: 1px solid var(--ltx-rule);
+}
+
+.ltx-device-name {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ltx-ink);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ltx-device-where {
+    font-weight: 400;
+    color: var(--ltx-mute-2);
+}
+
+.ltx-device-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: end;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--tone);
+}
+
+.ltx-device-meta {
+    font-size: 12px;
+    color: var(--ltx-mute-3);
+}
+
+.ltx-device-last {
+    text-align: right;
+}
+
+.ltx-locations {
+    list-style: none;
+    margin: 0;
+    padding: 10px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ltx-locations > li {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.ltx-location-line {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 2px 12px;
+    font-size: 13px;
+}
+
+.ltx-location-count {
+    color: var(--ltx-mute-3);
+}
+
+.ltx-location-total {
+    font-weight: 600;
+}
+
+.ltx-location-track {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--ltx-track);
+}
+
+.ltx-location-track > span {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--ltx-accent);
 }
 
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 1100px) {
-    .ltx-tiles {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .ltx-grid {
+        grid-template-columns: 72px 96px minmax(0, 1fr) 180px 112px;
+    }
+
+    .ltx-chain-wrap {
+        padding-left: 16px;
     }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 900px) {
+    .ltx-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ltx-kpi:nth-child(3) {
+        border-left: 0;
+    }
+
+    .ltx-kpi:nth-child(n + 3) {
+        border-top: 1px solid var(--ltx-rule);
+    }
+
+    .ltx-lanes {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 760px) {
     .ltx-head-inner,
     .ltx-body {
         padding-left: 16px;
         padding-right: 16px;
     }
 
-    .ltx-asof {
-        display: none;
+    .ltx-kpi {
+        padding: 16px;
     }
 
-    .ltx-tiles {
-        grid-template-columns: minmax(0, 1fr);
+    .ltx-hours {
+        padding: 14px 16px 12px;
+    }
+
+    .ltx-bar-value {
+        display: none;
     }
 
     .ltx-search {
         max-width: none;
-        margin-left: 0;
     }
 
-    .ltx-row {
-        grid-template-columns: 64px minmax(0, 1fr) auto;
-        gap: var(--ltx-s4);
-        padding: 10px 14px;
+    .ltx-colhead {
+        display: none;
     }
 
-    .ltx-kind {
-        grid-column: 2;
-        grid-row: 1;
+    /* Time | reference | amount on the first line; kind, then status, under
+       the reference. */
+    .ltx-grid {
+        grid-template-columns: 60px minmax(0, 1fr) auto;
     }
 
-    .ltx-main {
-        grid-column: 1 / -1;
-        grid-row: 2;
+    .ltx-c-main { grid-column: 2; grid-row: 1; }
+    .ltx-c-amount { grid-column: 3; grid-row: 1; }
+    .ltx-c-kind { grid-column: 2; grid-row: 2; }
+    .ltx-c-status { grid-column: 2 / 4; grid-row: 3; }
+}
+
+/* app.css's phone block (max-width: 480px) sets every h2 to 1.15rem and the
+   paragraph straight after one to .75rem, both !important. Here an h2 is a
+   small label over a large figure, so that block inverts them; the sizes are
+   restated the same way. */
+@media (max-width: 480px) {
+    .ltx h2.ltx-label {
+        font-size: 12px !important;
     }
 
-    .ltx-amount {
-        grid-column: 3;
-        grid-row: 1;
+    .ltx h2 + p.ltx-kpi-value {
+        font-size: 30px !important;
     }
+
+    .ltx .ltx-panel-head h2 {
+        font-size: 14px !important;
+    }
+
+    .ltx .ltx-attn-head h2 {
+        font-size: 15px !important;
+    }
+
+    .ltx .ltx-attn-head h2.ltx-all-clear {
+        font-size: 13.5px !important;
+    }
+
+    .ltx-asof {
+        display: none;
+    }
+}
+
+@media (max-width: 420px) {
+    .ltx-kpis {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ltx-kpi:nth-child(n) {
+        border-left: 0;
+    }
+
+    .ltx-kpi + .ltx-kpi {
+        border-top: 1px solid var(--ltx-rule);
+    }
+
+    .ltx-bar-hour {
+        font-size: 10px;
+    }
+}
+
+/* ── Motion ────────────────────────────────────────────────────────────────
+
+   Motion here means "this changed", never decoration. Each animation runs when
+   its element mounts, and Blazor re-mounts only what is new: a feed row or a
+   card keyed by its event, and a figure keyed by its own value, so a figure
+   ticks once when it changes and holds still on a quiet poll. Bars and meters
+   keep their element and ease to a new size instead.
+
+   All of it sits behind `no-preference`, so a reduced-motion setting sees the
+   finished state and nothing moving. Every animation fills `both`, so a
+   delayed one never flashes its end state before it starts. */
+
+@media (prefers-reduced-motion: no-preference) {
+    @keyframes ltx-tick {
+        from { opacity: 0; transform: translateY(35%); }
+        to { opacity: 1; transform: none; }
+    }
+
+    @keyframes ltx-rise {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: none; }
+    }
+
+    @keyframes ltx-slide-in {
+        from { opacity: 0; transform: translateX(-10px); }
+        to { opacity: 1; transform: none; }
+    }
+
+    @keyframes ltx-grow {
+        from { transform: scaleY(0); }
+        to { transform: scaleY(1); }
+    }
+
+    @keyframes ltx-reveal {
+        from { clip-path: inset(0 100% 0 0); }
+        to { clip-path: inset(0 0 0 0); }
+    }
+
+    @keyframes ltx-pop {
+        0% { opacity: 0; transform: scale(.6); }
+        60% { opacity: 1; transform: scale(1.12); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* Figures: a new value slides up into place. */
+    .ltx-kpi-value {
+        animation: ltx-tick .4s cubic-bezier(.2, .7, .2, 1) both;
+    }
+
+    .ltx-count {
+        display: inline-block;
+        animation: ltx-pop .35s ease-out both;
+    }
+
+    /* The chart grows in left to right on load (each bar's delay is inline),
+       then a bar eases to its new height as sales arrive. */
+    .ltx-bar {
+        transform-origin: bottom;
+        animation: ltx-grow .6s cubic-bezier(.2, .7, .2, 1) both;
+        transition: height .5s ease;
+    }
+
+    .ltx-meter,
+    .ltx-location-track > span {
+        animation: ltx-reveal .8s cubic-bezier(.2, .7, .2, 1) both;
+    }
+
+    .ltx-meter > span,
+    .ltx-location-track > span {
+        transition: width .5s ease;
+    }
+
+    /* Cards rise into their lane, a beat apart. */
+    .ltx-card {
+        animation: ltx-rise .35s ease-out both;
+    }
+
+    .ltx-card:nth-of-type(2) { animation-delay: 50ms; }
+    .ltx-card:nth-of-type(3) { animation-delay: 100ms; }
+    .ltx-card:nth-of-type(n + 4) { animation-delay: 150ms; }
+
+    /* A row that arrived while watching slides in under its flash; a row whose
+       fiscal outcome just landed is marked fresh again and nudges the same way. */
+    .ltx-row.is-fresh {
+        animation: ltx-fresh 6s ease-out, ltx-slide-in .35s ease-out;
+    }
+
+    .ltx-new {
+        animation: ltx-pop .35s ease-out both;
+    }
+
+    .ltx .ltx-row-btn {
+        transition: background .15s ease;
+    }
+
+    /* A sale still being fiscalised breathes until its receipt arrives. */
+    .ltx-c-status.ltx-tone-info .ltx-dot {
+        animation: ltx-pulse 1.6s ease-out infinite;
+    }
+
+    /* An opened row unfolds its steps in order. */
+    .ltx-chain-wrap {
+        animation: ltx-rise .2s ease-out both;
+    }
+
+    .ltx-step {
+        animation: ltx-rise .3s ease-out both;
+    }
+
+    .ltx-step:nth-child(2) { animation-delay: 70ms; }
+    .ltx-step:nth-child(3) { animation-delay: 140ms; }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .ltx-dot-pulse,
-    .ltx-spin,
+    .ltx-spin {
+        animation: none;
+    }
+
     .ltx-row.is-fresh {
         animation: none;
+        background: rgba(var(--ltx-accent-rgb), .08);
     }
 }
