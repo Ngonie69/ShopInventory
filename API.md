@@ -85,6 +85,7 @@ Examples:
   - [Email](#41-email)
   - [Push Notifications](#42-push-notifications)
   - [Exception Center](#43-exception-center)
+  - [Live Transactions](#43a-live-transactions)
   - [Approval Process](#44-approval-process)
   - [Fiscal Device Offline Leases](#45-fiscal-device-offline-leases)
   - [Batches](#46-batches)
@@ -4812,6 +4813,31 @@ key is only unique within the source.
 | POST | `/api/exception-center/items/{source}/{itemKey}/retry` | Retry one |
 | POST | `/api/exception-center/items/{source}/{itemKey}/acknowledge` | Mark one as seen |
 | POST | `/api/exception-center/items/{source}/{itemKey}/assign-to-me` | Take ownership |
+
+---
+
+### 43a. Live Transactions
+
+**Base route:** `/api/live-transactions`  
+**Auth:** Bearer + `ApiAccess`; **Admin, Manager**
+
+One timeline of what is happening now: this system's till and van sales, invoices, incoming payments
+and mobile payments, merged with the Fiscalisation platform's receipts (from every source), failed or
+retried attempts and fiscal day opens and closes. Each fiscal receipt or attempt carries
+`linkedEventId` when it could be matched to the sale (by external reference) or invoice (by SAP DocNum)
+it fiscalised. Drives the `/live-transactions` page.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/live-transactions/feed` | Events at or after `since` (UTC; default the start of today, CAT; at most 7 days back), oldest first, up to `limit` (1–1000, default 300) |
+
+Paging: when `hasMore` is true, ask again from the last event's `occurredAtUtc`. A poller should ask
+from a little before its newest event, since a row stamped earlier can commit later, and de-duplicate
+on `eventId` — an event whose row changes (a payment completing, a fiscal retry) arrives with a new id.
+
+The fiscal events need a Fiscalisation platform release that serves its activity feed, and the `activity.read` scope on
+`Fiscalisation:ApiKey`. Without them the feed still answers with the local events,
+`fiscalFeedAvailable: false` and a `fiscalFeedMessage` saying why.
 
 ---
 

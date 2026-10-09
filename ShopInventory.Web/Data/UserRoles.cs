@@ -130,6 +130,12 @@ public static class UserRoles
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";
 
     /// <summary>
+    /// Who can watch /live-transactions: every shop's takings and every fiscal device, unscoped.
+    /// Must match the API's LiveTransactionsController.
+    /// </summary>
+    public const string LiveTransactionRoles = "Admin,Manager";
+
+    /// <summary>
     /// Who can open the system pages that configure or administer the application rather than run
     /// the business: /sync-status, /document-templates and /exchange-rates. <see cref="SystemRoles"/>
     /// without the manager, who leaves set-up and administration to the administrator. The API agrees:

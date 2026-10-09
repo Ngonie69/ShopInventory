@@ -1049,6 +1049,23 @@ try
         }
     });
 
+    // The live transactions dashboard's fiscal half. Same key as above, but its own short timeout: the
+    // dashboard polls every few seconds and would rather show "fiscal feed unavailable" than wait out a
+    // timeout sized for a receipt submission.
+    builder.Services.AddHttpClient<IFiscalActivityFeedClient, FiscalActivityFeedClient>((serviceProvider, client) =>
+    {
+        var fiscalisationSettings = serviceProvider.GetRequiredService<IOptions<FiscalisationSettings>>().Value;
+
+        client.BaseAddress = new Uri(fiscalisationSettings.BaseUrl.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(fiscalisationSettings.TimeoutSeconds, 1, 10));
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+
+        if (!string.IsNullOrWhiteSpace(fiscalisationSettings.ApiKey))
+        {
+            client.DefaultRequestHeaders.Add("X-API-Key", fiscalisationSettings.ApiKey.Trim());
+        }
+    });
+
     // Scoped, not singleton: it depends on the typed FiscalisationApiClient, and a singleton would pin
     // one HttpClient forever and defeat the factory's handler rotation. The cached entries still
     // outlive the scope because the storage is the singleton HybridCache.
