@@ -328,6 +328,170 @@ public sealed class SapAvailabilityWithSlHealthTests : IDisposable
         Assert.Empty(await Outages());
     }
 
+    // ---- Answering slowly ----------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_failing_query_behind_a_ping_that_answers_is_mentioned_after_two_minutes()
+    {
+        using var slHealth = new SlHealthHarness();
+        var hanging = SlHealthJson.Status(level: "Critical", advice: "HoldBackground", queryOk: false);
+        var firstHeard = slHealth.Clock.GetUtcNow().UtcDateTime;
+
+        // Heard at 0:00, 0:15 ... 1:45: not yet two minutes.
+        await HearsForAsync(slHealth, hanging, TimeSpan.FromSeconds(105));
+        Assert.Equal(SapAvailabilityResult.Available, await AskAsync(slHealth));
+
+        await HearsForAsync(slHealth, hanging, TimeSpan.FromSeconds(15));
+
+        Assert.Equal(
+            new SapAvailabilityResult(false, null, null, null, 0, "the Items query is failing", IsSlow: true, SlowSinceUtc: firstHeard),
+            await AskAsync(slHealth));
+    }
+
+    [Fact]
+    public async Task Server_tools_down_is_mentioned_as_logins_that_will_fail()
+    {
+        using var slHealth = new SlHealthHarness();
+
+        await HearsForAsync(
+            slHealth, SlHealthJson.Status(level: "Critical", advice: "HoldBackground", serverToolsOk: false), TimeSpan.FromMinutes(2));
+
+        var answer = await AskAsync(slHealth);
+        Assert.True(answer.IsSlow);
+        Assert.False(answer.IsDown);
+        Assert.Equal("new logins will fail: Server Tools not answering", answer.Explanation);
+    }
+
+    [Fact]
+    public async Task One_good_answer_starts_the_two_minutes_again()
+    {
+        using var slHealth = new SlHealthHarness();
+        var hanging = SlHealthJson.Status(level: "Critical", advice: "HoldBackground", queryOk: false);
+
+        await HearsForAsync(slHealth, hanging, TimeSpan.FromSeconds(105));
+        await HearsForAsync(slHealth, SlHealthJson.Status(), TimeSpan.Zero);
+        await HearsForAsync(slHealth, hanging, TimeSpan.FromSeconds(105));
+
+        Assert.Equal(SapAvailabilityResult.Available, await AskAsync(slHealth));
+    }
+
+    [Fact]
+    public async Task One_missed_ask_does_not_break_the_run_but_a_minute_of_silence_ends_it()
+    {
+        using var slHealth = new SlHealthHarness();
+        var hanging = SlHealthJson.Status(level: "Critical", advice: "HoldBackground", queryOk: false);
+        await HearsForAsync(slHealth, hanging, TimeSpan.FromSeconds(60));
+
+        slHealth.Transport.Respond = (_, _) => throw new HttpRequestException("No connection could be made.");
+        slHealth.Clock.Advance(SlHealthMonitor.RefreshInterval);
+        await slHealth.Monitor.RefreshAsync();
+        await HearsForAsync(slHealth, hanging, TimeSpan.FromSeconds(60));
+
+        Assert.True((await AskAsync(slHealth)).IsSlow);
+
+        // SL Health is stopped. Its last answer is trusted for a minute and then the bar goes.
+        slHealth.Transport.Respond = (_, _) => throw new HttpRequestException("No connection could be made.");
+        slHealth.Clock.Advance(TimeSpan.FromSeconds(45));
+        await slHealth.Monitor.RefreshAsync();
+        Assert.True((await AskAsync(slHealth)).IsSlow);
+
+        slHealth.Clock.Advance(TimeSpan.FromSeconds(30));
+        await slHealth.Monitor.RefreshAsync();
+
+        Assert.Equal(SapAvailabilityResult.Available, await AskAsync(slHealth));
+    }
+
+    [Fact]
+    public async Task Sl_health_unable_to_ping_sap_at_all_is_not_sap_answering_slowly()
+    {
+        using var slHealth = new SlHealthHarness();
+
+        // This API reaches SAP and SL Health does not: a firewall between the two, say. They disagree on
+        // whether SAP is there, and neither a slow bar nor an outage follows from SL Health alone.
+        await HearsForAsync(
+            slHealth,
+            SlHealthJson.Status(level: "Down", advice: "Unavailable", pingOk: false, loginOk: false, queryOk: false),
+            TimeSpan.FromMinutes(10));
+
+        Assert.Equal(SapAvailabilityResult.Available, await AskAsync(slHealth));
+    }
+
+    [Fact]
+    public async Task During_an_outage_the_banner_says_unavailable_not_slow()
+    {
+        using var slHealth = new SlHealthHarness();
+        await HearsForAsync(
+            slHealth, SlHealthJson.Status(level: "Critical", advice: "HoldBackground", loginOk: false, serverToolsOk: false), TimeSpan.FromMinutes(3));
+        var since = DateTime.UtcNow.AddMinutes(-1);
+        _availability.Apply(new SapAvailabilityState(7, since, SapOutageCauses.Unreachable));
+
+        Assert.Equal(
+            new SapAvailabilityResult(true, SapOutageCauses.Unreachable, since, null, 0, "login is failing: Server Tools not answering"),
+            await AskAsync(slHealth));
+    }
+
+    [Fact]
+    public async Task While_this_nodes_own_circuit_is_open_it_is_not_called_slow()
+    {
+        using var slHealth = new SlHealthHarness();
+        await HearsForAsync(slHealth, SlHealthJson.Status(level: "Critical", advice: "HoldBackground", queryOk: false), TimeSpan.FromMinutes(3));
+        for (var failures = 0; failures < 20; failures++)
+        {
+            _circuit.RecordFailure("Connection refused");
+        }
+
+        Assert.True(_circuit.ShouldShortCircuit(out _));
+        Assert.Equal(SapAvailabilityResult.Available, await AskAsync(slHealth));
+    }
+
+    // ---- Nothing is held back on SL Health's word ------------------------------------------------
+
+    [Theory]
+    [InlineData("Critical", "HoldBackground")]
+    [InlineData("Down", "Unavailable")]
+    public async Task However_long_sl_health_reports_trouble_no_work_is_held_back_while_the_probe_is_answered(string level, string advice)
+    {
+        using var slHealth = new SlHealthHarness();
+        var trouble = SlHealthJson.Status(
+            level: level, advice: advice, loginOk: false, queryOk: false, serverToolsOk: false, restartTarget: "ServerTools",
+            maintenanceReason: "HANA backup", reasons: ["Host CPU 99% ≥ critical 90"]);
+
+        var run = SapProbeRun.None;
+        for (var probes = 0; probes < 120; probes++)
+        {
+            run = await ProbeAsync(slHealth, run, hears: trouble);
+            Assert.False(_circuit.ShouldHoldBackWork(out _));
+        }
+
+        Assert.Empty(await Outages());
+        Assert.False(_availability.IsInOutage);
+        Assert.False(_circuit.ShouldShortCircuit(out _));
+        Assert.Equal(HealthStatus.Healthy, (await CheckAsync(slHealth)).Status);
+    }
+
+    [Fact]
+    public void Only_the_probe_the_banner_and_the_health_check_can_read_sl_health()
+    {
+        // The posting passes ask SapCircuitBreakerState whether to hold back. If a pass, or that class,
+        // ever takes SL Health as a dependency, a badly tuned SL Health threshold can stop sales posting.
+        // Holding report scans back under load is a later step, and it should have to change this test.
+        var readers = typeof(SlHealthMonitor).Assembly.GetTypes()
+            .Where(type => type.GetConstructors().Any(constructor => constructor.GetParameters().Any(parameter =>
+                parameter.ParameterType == typeof(SlHealthMonitor) || parameter.ParameterType == typeof(ISlHealthClient))))
+            .Select(type => type.Name)
+            .Order();
+
+        Assert.Equal(
+            new[]
+            {
+                nameof(GetSapAvailabilityHandler),
+                nameof(SapAvailabilityProbe),
+                nameof(SapDependencyHealthCheck),
+                nameof(SlHealthRefresher)
+            }.Order(),
+            readers);
+    }
+
     // ---- Exactly as today when there is no answer ----------------------------------------------
 
     [Theory]
@@ -415,9 +579,20 @@ public sealed class SapAvailabilityWithSlHealthTests : IDisposable
         return next;
     }
 
+    /// <summary>SL Health says this now and at every 15-second ask for the time given, as the refresher would hear it.</summary>
+    private static async Task HearsForAsync(SlHealthHarness slHealth, string json, TimeSpan duration)
+    {
+        await slHealth.HasHeardAsync(json);
+        for (var elapsed = SlHealthMonitor.RefreshInterval; elapsed <= duration; elapsed += SlHealthMonitor.RefreshInterval)
+        {
+            slHealth.Clock.Advance(SlHealthMonitor.RefreshInterval);
+            await slHealth.Monitor.RefreshAsync();
+        }
+    }
+
     private async Task<SapAvailabilityResult> AskAsync(SlHealthHarness slHealth)
     {
-        var result = await new GetSapAvailabilityHandler(_context, _availability, slHealth.Monitor)
+        var result = await new GetSapAvailabilityHandler(_context, _availability, slHealth.Monitor, _circuit)
             .Handle(new GetSapAvailabilityQuery(), default);
         Assert.False(result.IsError);
         return result.Value;

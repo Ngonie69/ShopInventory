@@ -14,15 +14,23 @@ namespace ShopInventory.Features.Sync.Queries.GetSapAvailability;
 /// <param name="Explanation">
 /// Why, as SL Health tells it, in words for staff: for example <c>planned maintenance until 03:00 (HANA
 /// backup)</c> or <c>SAP is being restarted</c>. Null when SL Health is not being read or has nothing to
-/// add, and always null once SAP is back.
+/// add, and null on the "SAP is back" notice. While <paramref name="IsSlow"/> it is what SL Health finds
+/// failing: for example <c>the Items query is failing</c>.
 /// </param>
+/// <param name="IsSlow">
+/// SAP answers this API's ping, so no outage is open, but SL Health has reported a failing login or
+/// query for two minutes. For telling people only: nothing is held back on it.
+/// </param>
+/// <param name="SlowSinceUtc">When SL Health first reported it, as this node heard it. Null unless <paramref name="IsSlow"/>.</param>
 public sealed record SapAvailabilityResult(
     bool IsDown,
     string? Cause,
     DateTime? SinceUtc,
     DateTime? EndedAtUtc,
     int SalesAwaitingSap,
-    string? Explanation = null)
+    string? Explanation = null,
+    bool IsSlow = false,
+    DateTime? SlowSinceUtc = null)
 {
     public static readonly SapAvailabilityResult Available = new(false, null, null, null, 0);
 }

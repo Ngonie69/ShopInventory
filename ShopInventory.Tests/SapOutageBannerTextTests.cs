@@ -27,7 +27,7 @@ public sealed class SapOutageBannerTextTests
 
         Assert.Equal(
             new SapOutageBannerText(
-                true,
+                SapOutageBannerKind.Down,
                 "SAP is unavailable since 11:30",
                 null,
                 "Sales carry on and are kept here, and post to SAP when it returns. Stock transfers and van loads have to wait."),
@@ -42,7 +42,7 @@ public sealed class SapOutageBannerTextTests
 
         Assert.Equal(
             new SapOutageBannerText(
-                true,
+                SapOutageBannerKind.Down,
                 "SAP is unavailable since Sun 11 Oct 12:00",
                 null,
                 "Sales carry on and are kept here. 1,204 sales recorded since then will post to SAP when it returns."),
@@ -69,13 +69,13 @@ public sealed class SapOutageBannerTextTests
 
         Assert.Equal(
             new SapOutageBannerText(
-                false,
+                SapOutageBannerKind.Back,
                 "SAP is back since 11:50",
                 null,
                 "1 sale from the outage is still waiting to post. Van sales post at the end of the day as usual."),
             waiting);
         Assert.Equal(
-            new SapOutageBannerText(false, "SAP is back since 11:50", null, "Everything recorded during the outage has posted."),
+            new SapOutageBannerText(SapOutageBannerKind.Back, "SAP is back since 11:50", null, "Everything recorded during the outage has posted."),
             done);
     }
 
@@ -91,11 +91,45 @@ public sealed class SapOutageBannerTextTests
 
         Assert.Equal(
             new SapOutageBannerText(
-                true,
+                SapOutageBannerKind.Down,
                 "SAP is unavailable since 11:30",
                 shown,
                 "Sales carry on and are kept here, and post to SAP when it returns. Stock transfers and van loads have to wait."),
             text);
+    }
+
+    [Fact]
+    public void Slow_it_says_what_is_failing_and_that_sales_carry_on()
+    {
+        var text = SapOutageBannerText.For(
+            new SapAvailabilityResponse { IsSlow = true, SlowSinceUtc = Now.AddMinutes(-3), Explanation = "the Items query is failing" },
+            Now);
+
+        Assert.Equal(
+            new SapOutageBannerText(
+                SapOutageBannerKind.Slow,
+                "SAP is answering slowly since 11:57",
+                "The Items query is failing.",
+                "Sales carry on. Anything that reads from SAP, such as stock checks, transfers and reports, may be slow or fail. Try again in a few minutes."),
+            text);
+        Assert.Equal("sapo-banner-slow", text!.CssClass);
+        Assert.Equal("ph-cloud-warning", text.Icon);
+    }
+
+    [Fact]
+    public void Down_comes_before_slow_and_slow_before_back()
+    {
+        var everything = new SapAvailabilityResponse
+        {
+            IsDown = true, SinceUtc = Now.AddMinutes(-30), IsSlow = true, SlowSinceUtc = Now.AddMinutes(-3), EndedAtUtc = Now.AddMinutes(-10)
+        };
+        Assert.Equal(SapOutageBannerKind.Down, SapOutageBannerText.For(everything, Now)!.Kind);
+
+        everything.IsDown = false;
+        Assert.Equal(SapOutageBannerKind.Slow, SapOutageBannerText.For(everything, Now)!.Kind);
+
+        everything.IsSlow = false;
+        Assert.Equal(SapOutageBannerKind.Back, SapOutageBannerText.For(everything, Now)!.Kind);
     }
 
     [Fact]

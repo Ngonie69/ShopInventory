@@ -97,7 +97,7 @@ public sealed class GetSapAvailabilityTests : IDisposable
 
     private async Task<SapAvailabilityResult> AskAsync()
     {
-        var result = await new GetSapAvailabilityHandler(_context, _availability, _slHealth.Monitor)
+        var result = await new GetSapAvailabilityHandler(_context, _availability, _slHealth.Monitor, new SapCircuitBreakerState(Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.SAPSettings { Enabled = true })))
             .Handle(new GetSapAvailabilityQuery(), default);
         Assert.False(result.IsError);
         return result.Value;

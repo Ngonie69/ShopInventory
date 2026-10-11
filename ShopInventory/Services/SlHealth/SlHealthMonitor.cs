@@ -50,8 +50,9 @@ public sealed class SlHealthMonitor(
     public SlHealthStatus? Current => Usable(_reading, Now);
 
     /// <summary>
-    /// Since when SL Health has reported a failing login, query or Server Tools without a break, as this
-    /// node heard it. Null when it reports none, or when there is no answer fit to act on.
+    /// Since when SL Health has reported a failing login, query or Server Tools behind a ping that
+    /// answers, without a break, as this node heard it. Null when it reports none, or when there is no
+    /// answer fit to act on.
     /// </summary>
     public DateTime? TroubleSinceUtc
     {
@@ -61,6 +62,13 @@ public sealed class SlHealthMonitor(
             return Usable(reading, Now) is null ? null : reading.TroubleSinceUtc;
         }
     }
+
+    /// <summary>
+    /// <see cref="TroubleSinceUtc"/> once the run has lasted <see cref="TroubleNoticeAfter"/>, which is
+    /// when staff are told SAP is answering slowly. Null before then.
+    /// </summary>
+    public DateTime? SlowNoticeSinceUtc =>
+        TroubleSinceUtc is { } since && Now - since >= TroubleNoticeAfter ? since : null;
 
     /// <summary>Why SAP is unavailable or what about it is failing, for the staff banner. See <see cref="SlHealthExplanation.ForStaff"/>.</summary>
     public string? ExplanationForStaff => SlHealthExplanation.ForStaff(Current, Now);
@@ -103,7 +111,7 @@ public sealed class SlHealthMonitor(
         var usable = Usable(next, now);
         next = next with
         {
-            TroubleSinceUtc = usable is { HasFailingCheck: true }
+            TroubleSinceUtc = usable is { HasFailingCheckBehindPing: true }
                 ? Usable(previous, now) is not null ? previous.TroubleSinceUtc ?? now : now
                 : null
         };

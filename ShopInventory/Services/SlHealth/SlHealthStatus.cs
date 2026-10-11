@@ -58,13 +58,19 @@ public sealed record SlHealthStatus(
     };
 
     /// <summary>
-    /// SL Health itself cannot log in to SAP or cannot run its test queries, or Server Tools, which every
-    /// new login depends on, is not answering.
+    /// The Service Layer answers SL Health's ping, and yet SL Health cannot log in to it or run its test
+    /// queries through it, or Server Tools, which every new login depends on, is not answering.
     /// </summary>
-    public bool HasFailingCheck =>
-        Login is { Ok: false }
-        || ServerTools is { Ok: false }
-        || (Queries?.Any(query => query is { Ok: false }) ?? false);
+    /// <remarks>
+    /// This is the state this API's own probe cannot see, because it only pings. When SL Health's ping
+    /// fails as well it is reporting SAP down, not slow, and that is the probe's business: if this API
+    /// can still reach SAP then, the two disagree about whether it is there at all and nothing is said.
+    /// </remarks>
+    public bool HasFailingCheckBehindPing =>
+        Ping is not { Ok: false }
+        && (Login is { Ok: false }
+            || ServerTools is { Ok: false }
+            || (Queries?.Any(query => query is { Ok: false }) ?? false));
 }
 
 /// <summary>One of SL Health's own checks against the Service Layer.</summary>

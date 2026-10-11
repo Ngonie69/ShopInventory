@@ -51,6 +51,14 @@ public class SapAvailabilityResponse
 
     public int SalesAwaitingSap { get; set; }
 
-    /// <summary>Why SAP is unavailable, as SL Health tells it. Null when it has nothing to add.</summary>
+    /// <summary>
+    /// Why SAP is unavailable, or while <see cref="IsSlow"/> what is failing, as SL Health tells it. Null
+    /// when it has nothing to add.
+    /// </summary>
     public string? Explanation { get; set; }
+
+    /// <summary>SAP answers the API, but SL Health has found its logins or queries failing for two minutes.</summary>
+    public bool IsSlow { get; set; }
+
+    public DateTime? SlowSinceUtc { get; set; }
 }

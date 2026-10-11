@@ -2,11 +2,11 @@
 @implements IDisposable
 @inject ISapAvailabilityService SapAvailability
 
-@* Nothing at all while SAP is up and no outage has just ended: no bar, no reserved space. *@
+@* Nothing at all while SAP is up and well and no outage has just ended: no bar, no reserved space. *@
 @if (SapOutageBannerText.For(_status, DateTime.UtcNow) is { } text)
 {
-    <div class="sapo-banner @(text.Down ? "sapo-banner-down" : "sapo-banner-back")" role="status">
-        <i class="ph @(text.Down ? "ph-cloud-slash" : "ph-cloud-check")" aria-hidden="true"></i>
+    <div class="sapo-banner @text.CssClass" role="status">
+        <i class="ph @text.Icon" aria-hidden="true"></i>
         <div class="sapo-banner-text">
             <strong>@text.Headline</strong>
             @if (text.Why is not null)

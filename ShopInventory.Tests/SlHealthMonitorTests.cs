@@ -188,6 +188,29 @@ public sealed class SlHealthMonitorTests
     }
 
     [Fact]
+    public async Task Trouble_is_dated_from_the_first_answer_that_reported_it()
+    {
+        using var slHealth = new SlHealthHarness();
+        await slHealth.HasHeardAsync(SlHealthJson.Status());
+        Assert.Null(slHealth.Monitor.TroubleSinceUtc);
+
+        slHealth.Clock.Advance(SlHealthMonitor.RefreshInterval);
+        var firstHeard = slHealth.Clock.GetUtcNow().UtcDateTime;
+        await slHealth.HasHeardAsync(SlHealthJson.Status(level: "Critical", advice: "HoldBackground", loginOk: false));
+
+        slHealth.Clock.Advance(SlHealthMonitor.RefreshInterval);
+        await slHealth.HasHeardAsync(SlHealthJson.Status(level: "Critical", advice: "HoldBackground", queryOk: false));
+
+        Assert.Equal(firstHeard, slHealth.Monitor.TroubleSinceUtc);
+        Assert.Null(slHealth.Monitor.SlowNoticeSinceUtc);
+
+        slHealth.Clock.Advance(SlHealthMonitor.RefreshInterval);
+        await slHealth.HasHeardAsync(SlHealthJson.Status());
+
+        Assert.Null(slHealth.Monitor.TroubleSinceUtc);
+    }
+
+    [Fact]
     public async Task It_is_read_again_as_soon_as_it_answers_again()
     {
         using var slHealth = await SlHealthHarness.WithNoAnswerAsync("unreachable");
