@@ -31,7 +31,11 @@ namespace ShopInventory.Services;
 /// <para>
 /// SL Health watches the same Service Layer and is read beside the probe (<see cref="SlHealthMonitor"/>).
 /// What it says about why SAP is unavailable is written on the outage row. It never opens or ends an
-/// outage by itself.
+/// outage by itself: its advice can be wrong, a firewall between it and SAP is enough. But when it
+/// advises that SAP is unavailable and this probe has failed too, those are two independent findings,
+/// and the outage is declared on that first failed probe rather than the third. A minute sooner, the
+/// posting passes stop spending round trips on a SAP that two watchers agree is gone. Ending an outage
+/// is the probe's alone, whatever SL Health says.
 /// </para>
 /// </remarks>
 public sealed class SapAvailabilityProbe(
@@ -85,6 +89,14 @@ public sealed class SapAvailabilityProbe(
 
         run = answered ? run.Succeeded(probedAt) : run.Failed(probedAt, error!);
 
+        // Read after the probe, which can take its whole budget: the freshest thing SL Health has said.
+        var failuresToDeclare = Math.Max(1, options.FailuresToDeclare);
+        var secondOpinion = !answered
+            && run.Failures < failuresToDeclare
+            && slHealth.Current is { AdviceValue: SlHealthAdvice.Unavailable } advised
+                ? advised
+                : null;
+
         if (open is not null)
         {
             open.LastProbeAtUtc = probedAt;
@@ -104,7 +116,7 @@ public sealed class SapAvailabilityProbe(
                 open.Explanation = slHealth.ExplanationForRecord ?? open.Explanation;
             }
         }
-        else if (!answered && run.Failures >= Math.Max(1, options.FailuresToDeclare))
+        else if (!answered && (run.Failures >= failuresToDeclare || secondOpinion is not null))
         {
             open = new SapOutageEntity
             {
@@ -118,9 +130,19 @@ public sealed class SapAvailabilityProbe(
                 LastProbeAtUtc = probedAt
             };
             db.SapOutages.Add(open);
-            logger.LogWarning(
-                "SAP is unavailable: {Failures} probes failed in a row since {StartedAt:u}. Latest: {Error}",
-                run.Failures, run.RunStartedAtUtc, error);
+
+            if (secondOpinion is not null)
+            {
+                logger.LogWarning(
+                    "SAP is unavailable: the probe failed {Failures} time(s) since {StartedAt:u} and SL Health reports the Service Layer {SlHealthLevel}, so the outage is declared now rather than after {FailuresToDeclare} failures. Latest: {Error}",
+                    run.Failures, run.RunStartedAtUtc, secondOpinion.Label ?? secondOpinion.Level, failuresToDeclare, error);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "SAP is unavailable: {Failures} probes failed in a row since {StartedAt:u}. Latest: {Error}",
+                    run.Failures, run.RunStartedAtUtc, error);
+            }
         }
 
         if (db.ChangeTracker.HasChanges())

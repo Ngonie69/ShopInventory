@@ -11,6 +11,7 @@ using ShopInventory.Features.Sync.Queries.GetSapAvailability;
 using ShopInventory.Health;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.SlHealth;
 
 namespace ShopInventory.Tests;
 
@@ -207,6 +208,124 @@ public sealed class SapAvailabilityWithSlHealthTests : IDisposable
         Assert.Equal(7, outage.Data["outageId"]);
         Assert.Equal("Healthy", outage.Data["slHealthLevel"]);
         Assert.False(outage.Data.ContainsKey("slHealthExplanation"));
+    }
+
+    // ---- Declaring sooner -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("ServiceLayer")]
+    public async Task When_sl_health_says_unavailable_the_first_failed_probe_declares_the_outage(string? restartTarget)
+    {
+        using var slHealth = new SlHealthHarness();
+        _sapAnswers = false;
+        var firstFailure = slHealth.Clock.GetUtcNow().UtcDateTime;
+
+        var run = await ProbeAsync(slHealth, SapProbeRun.None, hears: SlHealthJson.Status(
+            level: restartTarget is null ? "Down" : "Healthy", advice: "Unavailable", pingOk: restartTarget is not null,
+            restartTarget: restartTarget, reasons: restartTarget is null ? ["Service Layer is not answering /ping"] : []));
+
+        var outage = Assert.Single(await Outages());
+        Assert.Equal(firstFailure, outage.StartedAtUtc);
+        Assert.Equal(firstFailure, outage.DeclaredAtUtc);
+        Assert.Equal(SapOutageCauses.Unreachable, outage.Cause);
+        Assert.Equal(1, outage.FailedProbes);
+        Assert.Contains("Connection refused", outage.FirstError);
+        Assert.Equal(
+            restartTarget is null ? "DOWN: Service Layer is not answering /ping" : "SAP is being restarted",
+            outage.Explanation);
+        Assert.True(_availability.IsInOutage);
+        Assert.True(_circuit.ShouldHoldBackWork(out _));
+        Assert.Equal(1, run.Failures);
+    }
+
+    [Fact]
+    public async Task Sl_health_saying_unavailable_changes_nothing_while_the_probe_is_answered()
+    {
+        using var slHealth = new SlHealthHarness();
+        var down = SlHealthJson.Status(level: "Down", advice: "Unavailable", pingOk: false, loginOk: false, queryOk: false, restartTarget: "ServiceLayer");
+
+        var run = SapProbeRun.None;
+        for (var probes = 0; probes < 10; probes++)
+        {
+            run = await ProbeAsync(slHealth, run, hears: down);
+        }
+
+        Assert.Empty(await Outages());
+        Assert.False(_availability.IsInOutage);
+        Assert.False(_circuit.ShouldHoldBackWork(out _));
+        Assert.Equal(10, run.Successes);
+    }
+
+    [Theory]
+    [InlineData("Critical", "HoldBackground")]
+    [InlineData("Warning", "Proceed")]
+    [InlineData("Healthy", "Proceed")]
+    public async Task Any_advice_short_of_unavailable_leaves_the_outage_to_the_third_failure(string level, string advice)
+    {
+        using var slHealth = new SlHealthHarness();
+        _sapAnswers = false;
+        var busy = SlHealthJson.Status(level: level, advice: advice, loginOk: false, queryOk: false, serverToolsOk: false);
+
+        var run = await ProbeAsync(slHealth, SapProbeRun.None, hears: busy);
+        run = await ProbeAsync(slHealth, run, hears: busy);
+        Assert.Empty(await Outages());
+
+        await ProbeAsync(slHealth, run, hears: busy);
+        Assert.Equal(3, Assert.Single(await Outages()).FailedProbes);
+    }
+
+    [Fact]
+    public async Task Sl_health_turning_unavailable_after_one_failure_declares_on_the_second_dated_from_the_first()
+    {
+        using var slHealth = new SlHealthHarness();
+        _sapAnswers = false;
+        var firstFailure = slHealth.Clock.GetUtcNow().UtcDateTime;
+
+        var run = await ProbeAsync(slHealth, SapProbeRun.None, hears: SlHealthJson.Status());
+        Assert.Empty(await Outages());
+
+        await ProbeAsync(slHealth, run, hears: SlHealthJson.Status(level: "Down", advice: "Unavailable", pingOk: false));
+
+        var outage = Assert.Single(await Outages());
+        Assert.Equal(firstFailure, outage.StartedAtUtc);
+        Assert.Equal(firstFailure.AddSeconds(30), outage.DeclaredAtUtc);
+        Assert.Equal(2, outage.FailedProbes);
+    }
+
+    [Fact]
+    public async Task An_outage_declared_sooner_still_ends_on_two_answers_whatever_sl_health_says()
+    {
+        using var slHealth = new SlHealthHarness();
+        var down = SlHealthJson.Status(level: "Down", advice: "Unavailable", pingOk: false);
+        _sapAnswers = false;
+        var run = await ProbeAsync(slHealth, SapProbeRun.None, hears: down);
+        Assert.Null(Assert.Single(await Outages()).EndedAtUtc);
+
+        // SAP answers this API again. SL Health still says it is down: a firewall between the two is enough.
+        _sapAnswers = true;
+        var firstAnswer = slHealth.Clock.GetUtcNow().UtcDateTime;
+        run = await ProbeAsync(slHealth, run, hears: down);
+        Assert.Null(Assert.Single(await Outages()).EndedAtUtc);
+
+        await ProbeAsync(slHealth, run, hears: down);
+
+        Assert.Equal(firstAnswer, Assert.Single(await Outages()).EndedAtUtc);
+        Assert.False(_availability.IsInOutage);
+        Assert.False(_circuit.ShouldHoldBackWork(out _));
+    }
+
+    [Fact]
+    public async Task One_failed_probe_with_an_answer_too_old_to_trust_declares_nothing()
+    {
+        using var slHealth = new SlHealthHarness();
+        await slHealth.HasHeardAsync(SlHealthJson.Status(level: "Down", advice: "Unavailable", pingOk: false));
+        slHealth.Clock.Advance(SlHealthMonitor.MaxAge + TimeSpan.FromSeconds(1));
+        _sapAnswers = false;
+
+        await ProbeAsync(slHealth, SapProbeRun.None);
+
+        Assert.Empty(await Outages());
     }
 
     // ---- Exactly as today when there is no answer ----------------------------------------------
