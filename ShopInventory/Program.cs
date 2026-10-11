@@ -35,6 +35,7 @@ using ShopInventory.Models;
 using ShopInventory.Services;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Services.Fiscalisation;
+using ShopInventory.Services.SlHealth;
 using ShopInventory.Services.Telematics;
 using System.IO.Compression;
 using System.Security.Claims;
@@ -244,6 +245,10 @@ try
     builder.Services.AddSingleton<SapAvailability>();
     builder.Services.AddHostedService<SapAvailabilityRefresher>();
     builder.Services.AddScoped<SapAvailabilityProbe>();
+    // SL Health's view of the same Service Layer, read every 15 seconds beside the two above. It explains
+    // an outage and backs up the probe; nothing waits on it, and with SlHealth:Url or SlHealth:Token
+    // empty nothing is ever asked.
+    builder.Services.AddSlHealth(builder.Configuration);
     builder.Services.AddSingleton<SapCircuitBreakerState>();
     // Retained as a Postgres advisory-lock primitive used by the price-catalog sync command
     // handlers to prevent concurrent syncs (a scheduled Quartz run vs a manual trigger).
