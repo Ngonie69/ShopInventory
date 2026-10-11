@@ -67,7 +67,7 @@ public sealed class SapAvailabilityProbe(
                     DeclaredAtUtc = now,
                     Cause = SapOutageCauses.SwitchedOff,
                     FirstError = "The SAP connection was turned off in Settings.",
-                    Explanation = slHealth.ExplanationForRecord,
+                    Explanation = Explain(null),
                     LastProbeAtUtc = now
                 };
                 db.SapOutages.Add(open);
@@ -76,7 +76,7 @@ public sealed class SapAvailabilityProbe(
             else
             {
                 open.LastProbeAtUtc = now;
-                open.Explanation = slHealth.ExplanationForRecord ?? open.Explanation;
+                open.Explanation = Explain(open.Explanation);
             }
 
             await db.SaveChangesAsync(CancellationToken.None);
@@ -112,8 +112,7 @@ public sealed class SapAvailabilityProbe(
             {
                 open.FailedProbes++;
                 open.LastError = Truncate(error, 1000);
-                // The latest it had: a restart that turns out to be a planned window should read as one.
-                open.Explanation = slHealth.ExplanationForRecord ?? open.Explanation;
+                open.Explanation = Explain(open.Explanation);
             }
         }
         else if (!answered && (run.Failures >= failuresToDeclare || secondOpinion is not null))
@@ -125,7 +124,7 @@ public sealed class SapAvailabilityProbe(
                 Cause = SapOutageCauses.Unreachable,
                 FirstError = Truncate(run.FirstError, 1000),
                 LastError = Truncate(error, 1000),
-                Explanation = slHealth.ExplanationForRecord,
+                Explanation = Explain(null),
                 FailedProbes = run.Failures,
                 LastProbeAtUtc = probedAt
             };
@@ -183,6 +182,20 @@ public sealed class SapAvailabilityProbe(
             return (false, $"{ex.GetType().Name}: {ex.GetBaseException().Message}");
         }
     }
+
+    /// <summary>
+    /// What the outage row should say SL Health's explanation is, given what it says already.
+    /// </summary>
+    /// <remarks>
+    /// Something specific (a planned window, a restart, a named failing check) always replaces what is
+    /// there: a restart that turns out to be a planned window should read as one. SL Health's general
+    /// level and reasons only fill a row that says nothing, so a window that overruns its end, after
+    /// which SL Health reports plain DOWN, keeps "planned maintenance until 03:00 (HANA backup)".
+    /// </remarks>
+    private string? Explain(string? existing) =>
+        slHealth.ExplanationForStaff is { } specific
+            ? Truncate(specific, SlHealthExplanation.MaxRecordLength)
+            : existing ?? slHealth.ExplanationForRecord;
 
     private static string? Truncate(string? value, int maxLength) =>
         string.IsNullOrEmpty(value) || value.Length <= maxLength ? value : value[..maxLength];

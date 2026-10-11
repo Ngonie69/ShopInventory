@@ -41,6 +41,7 @@ public sealed class SlHealthMonitor(
     public static readonly TimeSpan TroubleNoticeAfter = TimeSpan.FromMinutes(2);
 
     private volatile Reading _reading = Reading.None;
+    private bool _reported;
     private string? _lastFailure;
 
     /// <summary>Whether SL Health is asked at all.</summary>
@@ -130,16 +131,21 @@ public sealed class SlHealthMonitor(
             ? status
             : null;
 
-    /// <summary>One line when the reader stops having an answer and one when it has one again, not one every 15 seconds.</summary>
+    /// <summary>
+    /// One line for the first ask, one when the reader stops having an answer and one when it has one
+    /// again. Not one every 15 seconds.
+    /// </summary>
     private void Report(SlHealthAnswer answer, SlHealthStatus? usable)
     {
         var failure = answer.Failure
             ?? (usable is null ? "SL Health's answer is stale or it has no advice yet." : null);
 
-        if (failure == _lastFailure)
+        if (_reported && failure == _lastFailure)
         {
             return;
         }
+
+        _reported = true;
 
         if (failure is null)
         {

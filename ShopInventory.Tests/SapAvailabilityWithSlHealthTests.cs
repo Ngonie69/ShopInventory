@@ -95,7 +95,7 @@ public sealed class SapAvailabilityWithSlHealthTests : IDisposable
     }
 
     [Fact]
-    public async Task The_outage_row_keeps_the_latest_thing_sl_health_had_to_say()
+    public async Task The_outage_row_keeps_the_most_specific_thing_sl_health_had_to_say()
     {
         using var slHealth = new SlHealthHarness();
         _sapAnswers = false;
@@ -112,6 +112,10 @@ public sealed class SapAvailabilityWithSlHealthTests : IDisposable
         run = await ProbeAsync(slHealth, run, hears: SlHealthJson.Status(level: "Down", advice: "Unavailable", pingOk: false, restartTarget: "ServiceLayer"));
         Assert.Equal("SAP is being restarted", Assert.Single(await Outages()).Explanation);
 
+        // The restart is over and SAP is still away. Plain DOWN does not replace the specific thing said.
+        run = await ProbeAsync(slHealth, run, hears: down);
+        Assert.Equal("SAP is being restarted", Assert.Single(await Outages()).Explanation);
+
         // SL Health goes quiet for the rest of the outage: what it last said stays on the row.
         slHealth.Transport.Respond = (_, _) => throw new HttpRequestException("No connection could be made.");
         slHealth.Clock.Advance(TimeSpan.FromMinutes(5));
@@ -120,7 +124,29 @@ public sealed class SapAvailabilityWithSlHealthTests : IDisposable
 
         var outage = Assert.Single(await Outages());
         Assert.Equal("SAP is being restarted", outage.Explanation);
-        Assert.Equal(5, outage.FailedProbes);
+        Assert.Equal(6, outage.FailedProbes);
+    }
+
+    [Fact]
+    public async Task A_planned_window_that_overruns_stays_on_the_outage_row()
+    {
+        using var slHealth = new SlHealthHarness();
+        _sapAnswers = false;
+        var until = slHealth.Clock.GetUtcNow().AddHours(1);
+        var inWindow = SlHealthJson.Status(
+            level: "Down", advice: "Unavailable", pingOk: false, maintenanceReason: "HANA backup", maintenanceUntil: until,
+            reasons: ["Service Layer is not answering /ping"]);
+
+        var run = await ProbeAsync(slHealth, SapProbeRun.None, hears: inWindow);
+        Assert.Equal("planned maintenance until 03:00 (HANA backup)", Assert.Single(await Outages()).Explanation);
+
+        // The window ends, or is ended early, and SAP is not back.
+        await ProbeAsync(slHealth, run, hears: SlHealthJson.Status(
+            level: "Down", advice: "Unavailable", pingOk: false, reasons: ["Service Layer is not answering /ping"]));
+
+        var outage = Assert.Single(await Outages());
+        Assert.Equal("planned maintenance until 03:00 (HANA backup)", outage.Explanation);
+        Assert.Equal(2, outage.FailedProbes);
     }
 
     [Fact]

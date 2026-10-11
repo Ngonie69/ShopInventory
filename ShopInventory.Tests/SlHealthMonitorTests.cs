@@ -261,6 +261,18 @@ public sealed class SlHealthMonitorTests
     }
 
     [Fact]
+    public async Task The_first_answer_is_logged_so_a_start_up_log_shows_sl_health_is_being_read()
+    {
+        using var slHealth = new SlHealthHarness();
+
+        await slHealth.HasHeardAsync(SlHealthJson.Status());
+        await slHealth.Monitor.RefreshAsync();
+
+        var line = Assert.Single(slHealth.Logs.Entries, entry => entry.Message.Contains("SL Health is being read"));
+        Assert.Equal("SL Health is being read: Healthy, advice Proceed.", line.Message);
+    }
+
+    [Fact]
     public void The_reader_has_nowhere_to_put_the_certificate_sl_health_reports()
     {
         // Pinning a thumbprint because SL Health reported it would be trusting whatever answers on the
