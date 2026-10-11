@@ -213,6 +213,7 @@ it as part of teardown.
 |---|---|---|
 | `scripts/cdp.py` | Stdlib CDP client. Chrome launch, WebSocket, page ops. | imported by `verify.py`, or `from cdp import Chrome` |
 | `scripts/verify.py` | CLI: `doctor`, `smoke`, `shot`. | `python .claude/skills/verify-shopinventory-web/scripts/verify.py <cmd>` |
+| `scripts/read_sap_banner.py` | Reads the SAP banner's kind and words off the page, or waits for a kind. | `python .claude/skills/verify-shopinventory-web/scripts/read_sap_banner.py <tag> [--wait-kind down\|slow\|back\|none] [--shots]` |
 
 ## Feature map
 

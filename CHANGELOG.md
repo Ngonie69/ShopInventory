@@ -18,6 +18,24 @@ otherwise be surprised.
 
 ### Changed
 
+- **The API can ask SL Health what state SAP is in. It is off until configured.** Set `SlHealth:Url`
+  and the `SlHealth__Token` environment variable (the token SL Health lists for ShopInventory) on the
+  API to turn it on. With either empty nothing is asked and nothing below applies. Once on:
+  - The staff banner says why SAP is unavailable when SL Health knows: a planned maintenance window
+    and when it ends, a restart, a failing login. `GET /api/Sync/sap-availability` gains
+    `explanation`, and `SapOutages` gains an `Explanation` column (a migration).
+  - **An outage can be declared about a minute sooner.** One failed probe is enough when SL Health
+    also advises that SAP is unavailable. Without that, it is three failed probes as before. Ending
+    an outage is unchanged.
+  - A new banner, "SAP is answering slowly", appears when SAP answers the API's ping but SL Health
+    has found its logins or queries failing for two minutes. `sap-availability` gains `isSlow` and
+    `slowSinceUtc`. Nothing is held back or refused because of it.
+  - The `sap` check in `GET /api/health` gains `slHealthLevel`, `slHealthAdvice`, `slHealthReasons`
+    and `slHealthExplanation` in its data. That route is anonymous, and SL Health's reasons can name a
+    host and port of a dependency it could not reach.
+  - SL Health's word alone never opens or ends an outage and never stops any posting. See
+    `docs/operations/sap-outages.md`.
+
 - **A van sale that cannot be stock-checked is refused in different words.** This is the
   `STOCK_NOT_COUNTED` refusal on `POST /api/vansales/order`, `order/with-batches` and
   `order/convert-to-invoice`, reached when SAP gives no stock figure for a van and the van has no
