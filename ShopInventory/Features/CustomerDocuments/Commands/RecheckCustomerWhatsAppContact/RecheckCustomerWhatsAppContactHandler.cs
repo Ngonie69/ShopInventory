@@ -42,8 +42,13 @@ public sealed class RecheckCustomerWhatsAppContactHandler(
             return Errors.CustomerDocuments.UserNotFound;
 
         var runtime = await CustomerDocumentDeliveryKeys.ReadAsync(context, cancellationToken);
-        if (runtime.WhatsAppSessionId is null)
-            return Errors.CustomerDocuments.SessionNotConfigured;
+        var sending = await CustomerDocumentSession.EnsureAsync(
+            context, openWaClient, openWaOptions.Value, options.Value, runtime, logger, cancellationToken);
+        if (sending.SessionId is not { } sessionId)
+        {
+            return sending.Refusal(options.Value.PreferredSessionName)
+                ?? Errors.CustomerDocuments.GatewayUnavailable("The WhatsApp gateway could not be reached. Try again in a moment.");
+        }
 
         var contact = await context.CustomerWhatsAppContacts
             .AsTracking()
@@ -64,7 +69,7 @@ public sealed class RecheckCustomerWhatsAppContactHandler(
         try
         {
             check = await openWaClient.CheckNumberAsync(
-                runtime.WhatsAppSessionId,
+                sessionId,
                 WhatsAppRecipients.Digits(contact.PhoneE164),
                 cancellationToken);
         }

@@ -18,7 +18,7 @@ namespace ShopInventory.Web.Components.Pages;
 /// <para>
 /// The settings card edits the three run-time switches the sender reads on every pass, from every
 /// node: the session documents go from, whether new invoices go out without anyone pressing Send,
-/// and the daily cap on those. Clearing the session is the switch that stops all sending at once,
+/// and the daily cap on those. Choosing None for the session is the switch that stops all sending at once,
 /// so it is offered as a row of the picker rather than hidden behind a confirmation.
 /// </para>
 /// <para>
@@ -102,8 +102,15 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
 
     private bool SessionIsReady => IsReady(status?.SessionStatus);
 
+    /// <summary>The picker's value for "None": no session can carry it, as their ids are GUIDs.</summary>
+    private const string StopSendingValue = "stop-all-sending";
+
+    /// <summary>What the picker shows for the saved settings: a session, Automatic (blank) or None.</summary>
+    private static string SavedSessionChoice(CustomerDocumentDeliveryStatusModel value) =>
+        !string.IsNullOrEmpty(value.SessionId) ? value.SessionId : value.SendingStopped ? StopSendingValue : string.Empty;
+
     private bool SettingsChanged => status is not null
-        && (!string.Equals(settingsSessionId ?? string.Empty, status.SessionId ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+        && (!string.Equals(settingsSessionId ?? string.Empty, SavedSessionChoice(status), StringComparison.OrdinalIgnoreCase)
             || settingsAutoSend != status.AutoSendEnabled
             || settingsMaxAutoPerDay != status.MaxAutoPerDay);
 
@@ -146,7 +153,7 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
     private void ApplyStatus(CustomerDocumentDeliveryStatusModel value)
     {
         status = value;
-        settingsSessionId = value.SessionId ?? string.Empty;
+        settingsSessionId = SavedSessionChoice(value);
         settingsAutoSend = value.AutoSendEnabled;
         settingsMaxAutoPerDay = value.MaxAutoPerDay;
         sessionOptions = BuildSessionOptions(value);
@@ -228,7 +235,8 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
         {
             var result = await Mediator.Send(new UpdateCustomerDocumentDeliverySettingsCommand(new UpdateCustomerDocumentDeliverySettingsModel
             {
-                WhatsAppSessionId = NullIfBlank(settingsSessionId),
+                WhatsAppSessionId = settingsSessionId == StopSendingValue ? null : NullIfBlank(settingsSessionId),
+                StopSending = settingsSessionId == StopSendingValue,
                 AutoSendEnabled = settingsAutoSend,
                 MaxAutoPerDay = settingsMaxAutoPerDay
             }), disposal.Token);
@@ -241,9 +249,11 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
             }
 
             ApplyStatus(result.Value);
-            settingsMessage = string.IsNullOrEmpty(result.Value.SessionId)
-                ? "Saved. No session is chosen, so nothing will be sent."
-                : "Saved. Every server applies it on its next pass.";
+            settingsMessage = !string.IsNullOrEmpty(result.Value.SessionId)
+                ? "Saved. Every server applies it on its next pass."
+                : result.Value.SendingStopped
+                    ? "Saved. Sending is stopped, and nothing will be sent until a number is chosen here."
+                    : "Saved. The connected number is chosen automatically on the next pass.";
             settingsMessageIsError = false;
         }
         catch (OperationCanceledException) when (disposal.IsCancellationRequested)
@@ -367,10 +377,25 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
                 status.SessionError ?? "Its web.config has no OpenWA settings. Sends wait for a server that has them.");
         }
 
+        if (string.IsNullOrEmpty(status.SessionId) && status.SendingStopped)
+        {
+            return ("warn", "ph-pause-circle", "Sending is stopped",
+                "None is chosen below, so nothing is sent. Put it back to Automatic, or choose a number, to start again. Documents queued meanwhile wait.");
+        }
+
+        if (string.IsNullOrEmpty(status.SessionId) && !string.IsNullOrEmpty(status.AutomaticSessionName))
+        {
+            return ("neutral", "ph-hourglass", $"{status.AutomaticSessionName} will send the documents",
+                "It is connected and is taken on the sender's next pass, within a minute. Nothing has to be chosen here.");
+        }
+
         if (string.IsNullOrEmpty(status.SessionId))
         {
-            return ("warn", "ph-pause-circle", "No WhatsApp number is chosen to send from",
-                "Nothing is sent until a session is chosen below. Documents queued meanwhile wait.");
+            return status.SeveralSessionsReady
+                ? ("warn", "ph-pause-circle", "Several WhatsApp numbers are connected",
+                    "The system will not guess which one sends customers their documents. Choose it below once; documents queued meanwhile wait.")
+                : ("warn", "ph-pause-circle", "No WhatsApp number is connected to send from",
+                    "Connect one on the WhatsApp Inbox. It is used as soon as it is ready, with nothing to set here; documents queued meanwhile wait.");
         }
 
         if (!string.IsNullOrEmpty(status.SessionError))
@@ -398,7 +423,8 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
     {
         var options = new List<NocturneSelectOption<string>>
         {
-            new(string.Empty, "None — nothing is sent", "neutral") { RuleAfter = true, IsUnset = true }
+            new(string.Empty, "Automatic — the connected number", "neutral") { IsUnset = true },
+            new(StopSendingValue, "None — stop all sending", "warn") { RuleAfter = true }
         };
 
         options.AddRange(value.Sessions.Select(session => new NocturneSelectOption<string>(

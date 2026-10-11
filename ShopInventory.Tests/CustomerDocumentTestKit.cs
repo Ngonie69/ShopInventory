@@ -76,14 +76,59 @@ internal sealed class CustomerDocumentTestKit : IDisposable
         DocumentTimeoutSeconds = 60
     };
 
-    public async Task SetRuntimeAsync(bool autoSend = false, string? sessionId = SessionId, int maxAutoPerDay = 20)
+    /// <param name="stopped">
+    /// What saving the settings with no session records: an administrator stopped all sending. A null
+    /// <paramref name="sessionId"/> without it is a session nobody has chosen yet.
+    /// </param>
+    public async Task SetRuntimeAsync(bool autoSend = false, string? sessionId = SessionId, int maxAutoPerDay = 20, bool stopped = false)
     {
         await using var context = NewContext();
         context.SystemConfigs.AddRange(
             new SystemConfigEntity { Key = "CustomerDocuments.AutoSendEnabled", Value = autoSend ? "true" : "false" },
             new SystemConfigEntity { Key = "CustomerDocuments.WhatsAppSessionId", Value = sessionId },
             new SystemConfigEntity { Key = "CustomerDocuments.MaxAutoPerDay", Value = maxAutoPerDay.ToString() });
+        if (stopped)
+        {
+            context.SystemConfigs.Add(new SystemConfigEntity { Key = "CustomerDocuments.SendingStopped", Value = "true" });
+        }
+
         await context.SaveChangesAsync();
+    }
+
+    public async Task<string?> SavedSessionIdAsync()
+    {
+        await using var context = NewContext();
+        return await context.SystemConfigs
+            .AsNoTracking()
+            .Where(config => config.Key == "CustomerDocuments.WhatsAppSessionId")
+            .Select(config => config.Value)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>A number saved on a van's route customer rather than on a SAP card.</summary>
+    public async Task<CustomerWhatsAppContactEntity> AddShopContactAsync(
+        int routeCustomerId,
+        string phone = "+263771234567",
+        bool autoSend = true,
+        DateTime? optedOutAtUtc = null)
+    {
+        await using var context = NewContext();
+        var contact = new CustomerWhatsAppContactEntity
+        {
+            RouteCustomerId = routeCustomerId,
+            OwnerName = "Mbare Tuck Shop",
+            PhoneE164 = phone,
+            AutoSendInvoices = autoSend,
+            ConsentSource = WhatsAppConsentSource.Web,
+            ConsentRecordedAtUtc = DateTime.UtcNow,
+            ConsentRecordedBy = "Tendai Moyo",
+            OptedOutAtUtc = optedOutAtUtc,
+            WhatsAppExists = true,
+            WhatsAppCheckedAtUtc = DateTime.UtcNow.AddDays(-1)
+        };
+        context.CustomerWhatsAppContacts.Add(contact);
+        await context.SaveChangesAsync();
+        return contact;
     }
 
     public async Task<CustomerWhatsAppContactEntity> AddContactAsync(
@@ -169,6 +214,9 @@ internal sealed class FakeOpenWAClient : IOpenWAClient
     public List<WhatsAppOutboundMessageDto> Log { get; } = [];
     public Exception? SessionsFailure { get; set; }
 
+    /// <summary>What the gateway lists; null for the one documents session in <see cref="SessionStatus"/>.</summary>
+    public List<WhatsAppSessionDto>? Sessions { get; set; }
+
     public Task<WhatsAppMessageDispatchDto> SendDocumentAsync(string sessionId, WhatsAppSendDocumentRequestDto request, CancellationToken cancellationToken = default)
     {
         Documents.Add(request);
@@ -188,7 +236,7 @@ internal sealed class FakeOpenWAClient : IOpenWAClient
     public Task<List<WhatsAppSessionDto>> GetSessionsAsync(CancellationToken cancellationToken = default) =>
         SessionsFailure is not null
             ? Task.FromException<List<WhatsAppSessionDto>>(SessionsFailure)
-            : Task.FromResult(new List<WhatsAppSessionDto>
+            : Task.FromResult(Sessions ?? new List<WhatsAppSessionDto>
             {
                 new() { Id = CustomerDocumentTestKit.SessionId, Name = "customer-documents", Status = SessionStatus }
             });

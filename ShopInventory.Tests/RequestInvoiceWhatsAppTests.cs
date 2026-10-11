@@ -23,6 +23,7 @@ public sealed class RequestInvoiceWhatsAppTests : IDisposable
     private readonly CustomerDocumentTestKit _kit = new();
     private readonly RecordingAuditService _audit = new();
     private readonly RecordingDispatchTrigger _trigger = new();
+    private readonly FakeOpenWAClient _gateway = new();
 
     public void Dispose() => _kit.Dispose();
 
@@ -50,14 +51,55 @@ public sealed class RequestInvoiceWhatsAppTests : IDisposable
     }
 
     [Fact]
-    public async Task Nothing_is_queued_while_no_session_is_assigned()
+    public async Task With_no_session_chosen_the_gateways_ready_one_is_used_and_the_send_is_queued()
     {
-        await _kit.SetRuntimeAsync(sessionId: null);
+        // No settings saved at all: nobody has opened WhatsApp Deliveries.
         var contact = await _kit.AddContactAsync();
 
         var result = await RequestAsync(new RequestInvoiceWhatsAppRequest { ContactIds = [contact.Id] });
 
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Single(result.Value);
+        Assert.Equal(CustomerDocumentTestKit.SessionId, await _kit.SavedSessionIdAsync());
+    }
+
+    [Fact]
+    public async Task A_send_is_refused_when_the_gateway_has_no_number_to_send_from()
+    {
+        var contact = await _kit.AddContactAsync();
+        _gateway.SessionStatus = "disconnected";
+
+        var result = await RequestAsync(new RequestInvoiceWhatsAppRequest { ContactIds = [contact.Id] });
+
         Assert.Equal("CustomerDocuments.SessionNotConfigured", result.FirstError.Code);
+        Assert.Contains("No WhatsApp number is connected", result.FirstError.Description);
+        Assert.Null(await _kit.SavedSessionIdAsync());
+    }
+
+    [Fact]
+    public async Task A_send_is_refused_while_an_administrator_has_stopped_sending()
+    {
+        await _kit.SetRuntimeAsync(sessionId: null, stopped: true);
+        var contact = await _kit.AddContactAsync();
+
+        var result = await RequestAsync(new RequestInvoiceWhatsAppRequest { ContactIds = [contact.Id] });
+
+        Assert.Equal("CustomerDocuments.SendingStopped", result.FirstError.Code);
+        Assert.Null(await _kit.SavedSessionIdAsync());
+    }
+
+    [Fact]
+    public async Task A_node_that_cannot_ask_the_gateway_queues_for_the_node_that_sends()
+    {
+        var contact = await _kit.AddContactAsync();
+
+        var result = await RequestAsync(
+            new RequestInvoiceWhatsAppRequest { ContactIds = [contact.Id] },
+            openWa: CustomerDocumentTestKit.Gateway(configured: false));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Single(result.Value);
+        Assert.Null(await _kit.SavedSessionIdAsync());
     }
 
     [Theory]
@@ -260,7 +302,8 @@ public sealed class RequestInvoiceWhatsAppTests : IDisposable
     private async Task<ErrorOr<List<CustomerDocumentDeliveryDto>>> RequestAsync(
         RequestInvoiceWhatsAppRequest request,
         Invoice? invoice = null,
-        CustomerDocumentDeliverySettings? settings = null)
+        CustomerDocumentDeliverySettings? settings = null,
+        OpenWASettings? openWa = null)
     {
         var header = invoice ?? Invoice();
         var sap = SapAnswers.Create(new()
@@ -275,6 +318,8 @@ public sealed class RequestInvoiceWhatsAppTests : IDisposable
             Options.Create(new SAPSettings { Enabled = true }),
             Options.Create(settings ?? CustomerDocumentTestKit.Settings()),
             Options.Create(new FiscalisationSettings { RepostedInvoiceCommentsPrefix = "Invoice posted from SAP update." }),
+            _gateway,
+            Options.Create(openWa ?? CustomerDocumentTestKit.Gateway()),
             _trigger,
             _audit,
             NullLogger<RequestInvoiceWhatsAppHandler>.Instance);

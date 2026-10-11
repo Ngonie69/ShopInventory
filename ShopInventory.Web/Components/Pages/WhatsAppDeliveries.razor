@@ -310,10 +310,11 @@
                         <span class="wdl-setting-label">Send documents from</span>
                         <NocturneSelect Class="nsel-block" TValue="string" Options="sessionOptions" @bind-Value="settingsSessionId"
                                         Caption="WhatsApp session" AriaLabel="WhatsApp session documents are sent from"
-                                        Placeholder="None — nothing is sent" EmptyText="The gateway lists no sessions" />
+                                        Placeholder="Automatic — the connected number" EmptyText="The gateway lists no sessions" />
                         <span class="wdl-setting-help">
-                            Use the dedicated invoices number, paired on the WhatsApp Inbox. Choosing None stops every send at once;
-                            queued documents wait.
+                            Nothing has to be chosen: left on Automatic, the number connected on the WhatsApp Inbox is used, and
+                            the one named customer-documents when several are. Choosing None stops every send at once; queued
+                            documents wait.
                         </span>
                     </div>
 

@@ -193,15 +193,62 @@ public sealed class CustomerDocumentDispatchTests : IDisposable
     }
 
     [Fact]
-    public async Task Nothing_is_claimed_without_a_session_assigned()
+    public async Task With_no_session_chosen_the_pass_takes_the_gateways_ready_one_and_sends()
+    {
+        // Nothing saved: no administrator has been near the settings.
+        var delivery = await _kit.AddDeliveryAsync();
+
+        await PassAsync();
+
+        Assert.Single(_gateway.Documents);
+        var stored = await _kit.ReloadDeliveryAsync(delivery.Id);
+        Assert.Equal(CustomerDocumentDeliveryStatus.Sent, stored.Status);
+        Assert.Equal(CustomerDocumentTestKit.SessionId, stored.SessionId);
+        Assert.Equal(CustomerDocumentTestKit.SessionId, await _kit.SavedSessionIdAsync());
+    }
+
+    [Fact]
+    public async Task A_session_saved_blank_before_the_stop_flag_existed_is_chosen_too()
     {
         await _kit.SetRuntimeAsync(sessionId: null);
+        await _kit.AddDeliveryAsync();
+
+        await PassAsync();
+
+        Assert.Single(_gateway.Documents);
+        Assert.Equal(CustomerDocumentTestKit.SessionId, await _kit.SavedSessionIdAsync());
+    }
+
+    [Fact]
+    public async Task Nothing_is_claimed_while_an_administrator_has_stopped_sending()
+    {
+        await _kit.SetRuntimeAsync(sessionId: null, stopped: true);
         var delivery = await _kit.AddDeliveryAsync();
 
         await PassAsync();
 
         Assert.Equal(0, _composer.Calls);
         Assert.Equal(CustomerDocumentDeliveryStatus.Pending, (await _kit.ReloadDeliveryAsync(delivery.Id)).Status);
+        Assert.Null(await _kit.SavedSessionIdAsync());
+        Assert.Empty(_alerts.Raised);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task A_gateway_with_no_number_or_several_unmarked_ones_claims_nothing_and_tells_an_administrator(int readySessions)
+    {
+        var delivery = await _kit.AddDeliveryAsync();
+        _gateway.Sessions = Enumerable.Range(1, readySessions)
+            .Select(index => new WhatsAppSessionDto { Id = $"session-{index}", Name = $"line-{index}", Status = "ready" })
+            .ToList();
+
+        await PassAsync();
+
+        Assert.Equal(0, _composer.Calls);
+        Assert.Equal(CustomerDocumentDeliveryStatus.Pending, (await _kit.ReloadDeliveryAsync(delivery.Id)).Status);
+        Assert.Null(await _kit.SavedSessionIdAsync());
+        Assert.Contains("NoSession", _alerts.Raised);
     }
 
     [Fact]

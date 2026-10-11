@@ -190,9 +190,11 @@ retries it.
 
 ## Customer documents
 
-Invoices sent to customers on WhatsApp, as the Fiscal Tax Invoice PDF, from a **dedicated number**
-paired as its own session. Staff send from the invoice drawer on `/invoices`, numbers are kept with
-the customer's consent on `/customers`, and administrators run it from `/whatsapp-deliveries`.
+Invoices sent to customers on WhatsApp from a **dedicated number** paired as its own session: as the
+Fiscal Tax Invoice PDF, or as the till slip the van's printer gives when the sale was filed with ZIMRA
+as a 48 mm receipt (the partner's document type on Settings → Fiscalisation). Staff send from the
+invoice drawer on `/invoices`, numbers are kept with the customer's consent on `/customers`, and
+administrators run it from `/whatsapp-deliveries`.
 
 Every send is a row in `CustomerDocumentDeliveries`. One clustered Quartz job,
 `customer-document-delivery`, sends them one at a time with a randomised gap, and only once the
@@ -213,18 +215,32 @@ invoice's fiscal receipt is confirmed. No web request calls WhatsApp directly.
    online.
 3. **Warm it up.** Have five to ten staff message the number first. A new number that only sends is
    the pattern WhatsApp bans.
-4. **Choose it.** On `/whatsapp-deliveries`, set **Send documents from** to `customer-documents`.
-   Leave **Send new invoices automatically** off for the first week, and the automatic cap at 20.
+4. **Nothing to choose.** Once the session reads `ready` the delivery job takes it within a minute,
+   and `/whatsapp-deliveries` shows *Sending from customer-documents*, changed by *Chosen
+   automatically*. With one ready session that one is used whatever it is called; with several, the one
+   named `customer-documents` (`CustomerDocuments:PreferredSessionName`). Only when several are ready
+   and none has that name does an administrator have to pick it under **Send documents from**, and they
+   are sent a *no number to go from* alert if documents are waiting on it.
+5. **Mind the warm-up.** Automatic sending is on unless someone has switched it off, held to the
+   automatic cap (20 a day until raised) and the send window. For a number WhatsApp has never seen,
+   switch **Send new invoices automatically** off for its first week, or keep the cap low: a new
+   number that suddenly sends many documents to people who never wrote to it is the pattern WhatsApp
+   restricts. Sends a person or a van rep asks for are not held to that cap.
 
 ### Van sales
 
-After a sale the van app offers **Send on WhatsApp**: the rep types the number the customer gives and
-confirms the customer asked for it. The API queues it against the sale (`trigger: Counter`). It waits
+After a sale the van app asks the API to send the invoice to the shop's saved number, without the
+rep doing anything; the confirmation screen says where it went. A shop with no number yet shows
+**Send the invoice on WhatsApp**: the rep types the number the customer gives and reads it back, once.
+That number is saved on the shop, marked for automatic invoices, with the rep recorded as having taken
+the consent, so no later sale asks again. The API queues each send against the sale
+(`trigger: Counter`). It waits
 as *Waiting for fiscal receipt*, reason "Waiting for the van sale to reach SAP", until the office has
 posted the sale, then goes as that SAP invoice with the shop as the buyer, not the van. Counter sends
-keep to the hourly, daily and per-number caps but not the automatic window. Each rep may send
-`MaxVanSaleSendsPerUserPerDay` (80) a day. The number is not saved on the shop: saving a shop's
-number, with its consent, is done on **Route Customers** on the Web.
+keep to the hourly, daily and per-number caps but not the automatic window. Each rep may type
+`MaxVanSaleSendsPerUserPerDay` (80) numbers a day; sends to a saved number are not counted. A number
+is changed, set to only-when-asked, opted out or removed on **Route Customers** on the Web; a shop
+holds at most `MaxContactsPerOwner` (3), and a fourth given at the van is sent to without being saved.
 
 A sale that never reaches SAP is held for a person after `MaxFiscalWaitHours` (24), like any other.
 
@@ -263,7 +279,7 @@ window and caps as a manual send, and only within the automatic cap.
 | Setting | Where | Changed by |
 |---|---|---|
 | `CustomerDocuments:Enabled`, the send window, gaps, hourly/daily/per-number caps, caption, the scan's interval and page size | `appsettings.json` | A deploy. The same on every node, and it decides whether the job is scheduled at all |
-| The session, automatic sending on/off, the automatic daily cap | `SystemConfigs` | `/whatsapp-deliveries`. Every node reads them on its next pass |
+| The session, automatic sending on/off, the automatic daily cap | `SystemConfigs` | `/whatsapp-deliveries`, or nobody: with nothing saved the session is chosen automatically and automatic sending is on. Every node reads them on its next pass |
 | `OpenWA__*`, including `OpenWA:DocumentTimeoutSeconds` (60) | `web.config` | `Set-OpenWAApiConfig.ps1`. A node without them sends nothing and claims nothing |
 
 The job is declared from `appsettings.json` alone, never from `web.config`. `QuartzStoredJobReconciler`
@@ -276,7 +292,7 @@ node that can.
 | To | Do |
 |---|---|
 | Stop automatic sends at once | `/whatsapp-deliveries` → turn **Send new invoices automatically** off |
-| Stop every send at once | `/whatsapp-deliveries` → **Send documents from** → *None*. Queued sends wait |
+| Stop every send at once | `/whatsapp-deliveries` → **Send documents from** → *None — stop all sending*. Queued sends wait, and no session is chosen automatically until it is put back to *Automatic* or a number |
 | Remove the job | `CustomerDocuments:Enabled = false` in `appsettings.json`, then deploy |
 
 ### Proving it works

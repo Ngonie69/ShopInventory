@@ -6,8 +6,10 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Features.Invoices;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.CustomerDocuments.Documents;
 
@@ -19,11 +21,17 @@ namespace ShopInventory.Features.CustomerDocuments.Documents;
 /// A tax invoice without its fiscal block is not the document the customer is owed, so nothing is
 /// sent until the receipt is found — and found to be this invoice's (see <see cref="FiscalLinkVerifier"/>).
 /// Waiting costs no SAP reads: the check runs on the facts the delivery copied when it was queued.
+/// <para>
+/// The document is the one the sale was filed as. A sale filed as a 48 mm receipt goes out as the
+/// till slip the van's printer gives, not as an A4 invoice the customer never saw
+/// (<see cref="InvoicePrintFormLookup"/>); everything else is the A4 sheet.
+/// </para>
 /// </remarks>
 public sealed class SapInvoiceDocumentComposer(
     ApplicationDbContext dbContext,
     IFiscalReceiptReader fiscalReceiptReader,
     IInvoicePdfComposer pdfComposer,
+    IFiscalPrintFormResolver printForms,
     IOptions<CustomerDocumentDeliverySettings> options,
     IOptions<FiscalisationSettings> fiscalisationOptions,
     ILogger<SapInvoiceDocumentComposer> logger) : ISapInvoiceDocumentComposer
@@ -72,7 +80,9 @@ public sealed class SapInvoiceDocumentComposer(
         }
 
         var buyer = await ResolveBuyerAsync(delivery, cancellationToken);
-        var composed = await pdfComposer.ComposeAsync(docEntry, null, verdict.Receipt, cancellationToken, buyer);
+        var printForm = await InvoicePrintFormLookup.ResolveAsync(
+            dbContext, printForms, delivery.DesktopSaleId, delivery.SaleReference, delivery.CardCode, cancellationToken);
+        var composed = await pdfComposer.ComposeAsync(docEntry, null, verdict.Receipt, cancellationToken, buyer, printForm);
         if (composed.IsError)
         {
             return composed.FirstError.Type == ErrorType.NotFound
@@ -121,7 +131,9 @@ public sealed class SapInvoiceDocumentComposer(
 
         return DocumentComposition.Ready(new ComposedCustomerDocument(
             bytes,
-            CustomerDocumentCaption.FileName(settings.FileNameTemplate, number),
+            CustomerDocumentCaption.FileName(
+                printForm == ReceiptPrintForm.Receipt48 ? settings.ReceiptFileNameTemplate : settings.FileNameTemplate,
+                number),
             caption,
             Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             verdict.Receipt!,

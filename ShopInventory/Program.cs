@@ -661,6 +661,7 @@ try
         ShopInventory.Features.Statements.IStatementBuildCache,
         ShopInventory.Features.Statements.StatementBuildCache>();
     builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
+    builder.Services.AddScoped<ShopInventory.Features.Invoices.Slip.IInvoiceSlipPdfService, ShopInventory.Features.Invoices.Slip.InvoiceSlipPdfService>();
     builder.Services.AddScoped<ShopInventory.Features.Invoices.IInvoicePdfComposer, ShopInventory.Features.Invoices.InvoicePdfComposer>();
     builder.Services.AddScoped<IQuotationPdfService, QuotationPdfService>();
     builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();

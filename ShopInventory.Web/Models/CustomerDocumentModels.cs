@@ -127,6 +127,9 @@ public sealed class CustomerDocumentDeliveryStatusModel
     public bool GatewayConfigured { get; set; }
     public bool AutoSendEnabled { get; set; }
     public string? SessionId { get; set; }
+    public bool SendingStopped { get; set; }
+    public string? AutomaticSessionName { get; set; }
+    public bool SeveralSessionsReady { get; set; }
     public string? SessionName { get; set; }
     public string? SessionStatus { get; set; }
     public string? SessionPhone { get; set; }
@@ -156,6 +159,7 @@ public sealed class UpdateCustomerDocumentDeliverySettingsModel
 {
     public bool AutoSendEnabled { get; set; }
     public string? WhatsAppSessionId { get; set; }
+    public bool StopSending { get; set; }
     public int MaxAutoPerDay { get; set; }
 }
 
