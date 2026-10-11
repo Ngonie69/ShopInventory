@@ -16,6 +16,24 @@ public sealed class CustomerDocumentDeliveryStatusDto
 
     public string? SessionId { get; set; }
 
+    /// <summary>
+    /// An administrator stopped all sending. False with no session means none could be chosen yet: the
+    /// gateway's ready one is taken as soon as there is one.
+    /// </summary>
+    public bool SendingStopped { get; set; }
+
+    /// <summary>
+    /// With no session saved and sending not stopped: the ready session the next pass will take, or
+    /// null when there is none it can take.
+    /// </summary>
+    public string? AutomaticSessionName { get; set; }
+
+    /// <summary>
+    /// With no session saved: several are ready and none carries the documents name, so a person has
+    /// to choose. The page cannot work this out itself; it does not know the name.
+    /// </summary>
+    public bool SeveralSessionsReady { get; set; }
+
     public string? SessionName { get; set; }
 
     /// <summary>The session's state as the gateway reports it; null when it could not be asked.</summary>

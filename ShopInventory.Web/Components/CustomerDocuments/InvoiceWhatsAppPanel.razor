@@ -133,8 +133,8 @@
                      @onclick:stopPropagation="true">
                     <h3 id="cwa-send-title" class="cwa-dialog-title">Send invoice #@DocNum on WhatsApp</h3>
                     <p class="cwa-dialog-copy">
-                        @CardName <span class="cwa-quiet">(@CardCode)</span>. It is sent as the Fiscal Tax Invoice PDF once its
-                        fiscal receipt is confirmed, usually within a minute.
+                        @CardName <span class="cwa-quiet">(@CardCode)</span>. It is sent once its fiscal receipt is confirmed,
+                        usually within a minute: as the Fiscal Tax Invoice PDF, or as the till slip for a sale filed as a receipt.
                     </p>
 
                     <div class="cwa-sect">Saved numbers</div>
@@ -144,7 +144,7 @@
                     }
                     else if (contacts.Count == 0)
                     {
-                        <div class="cwa-quiet">No WhatsApp number is saved on this customer. Type one below, or save one on the customer's page.</div>
+                        <div class="cwa-quiet">No WhatsApp number is saved on this customer yet. Type one below and it is kept for their next invoices.</div>
                     }
                     else
                     {

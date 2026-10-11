@@ -11,9 +11,18 @@ public static partial class Errors
             Error.Validation("CustomerDocuments.Disabled",
                 "Sending documents on WhatsApp is switched off on this server.");
 
-        public static readonly Error SessionNotConfigured =
+        /// <summary>Nothing has to be chosen for a send to go; this is the gateway having no number at all.</summary>
+        public static readonly Error NoSendingNumber =
             Error.Validation("CustomerDocuments.SessionNotConfigured",
-                "No WhatsApp number has been chosen to send documents from. An administrator sets it on the WhatsApp Deliveries page.");
+                "No WhatsApp number is connected to send documents from. Connect one on the WhatsApp Inbox page, and it is used from then on.");
+
+        public static Error SeveralSendingNumbers(string preferredName) =>
+            Error.Validation("CustomerDocuments.SessionNotConfigured",
+                $"More than one WhatsApp number is connected and none is named '{preferredName}', so the system cannot tell which sends documents. An administrator picks it once on the WhatsApp Deliveries page.");
+
+        public static readonly Error SendingStopped =
+            Error.Validation("CustomerDocuments.SendingStopped",
+                "Sending documents on WhatsApp was stopped by an administrator. It starts again when a number is chosen on the WhatsApp Deliveries page.");
 
         public static readonly Error UserNotFound =
             Error.NotFound("CustomerDocuments.UserNotFound", "Your account could not be found.");

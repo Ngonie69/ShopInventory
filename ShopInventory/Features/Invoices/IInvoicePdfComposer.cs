@@ -1,9 +1,11 @@
 using ErrorOr;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.Invoices;
 
 /// <summary>
-/// Reads a SAP invoice and renders it as the Fiscal Tax Invoice PDF.
+/// Reads a SAP invoice and renders it as the Fiscal Tax Invoice PDF — the A4 sheet, or the till slip
+/// for a sale that was filed as a receipt.
 /// </summary>
 /// <remarks>
 /// One composer for every reader of the PDF — the download a member of staff presses and the copy a
@@ -25,10 +27,15 @@ public interface IInvoicePdfComposer
     /// Who to print as the customer instead of the SAP card — a van sale's shop. Null prints the card,
     /// as every download does.
     /// </param>
+    /// <param name="printForm">
+    /// The paper the document is laid out for. <see cref="ReceiptPrintForm.Receipt48"/> draws the till
+    /// slip a van's printer gives; the default is the A4 sheet, as every download is.
+    /// </param>
     Task<ErrorOr<ComposedInvoicePdf>> ComposeAsync(
         int docEntry,
         string? requestedQrCode,
         InvoicePdfReceipt? verifiedReceipt,
         CancellationToken cancellationToken,
-        InvoicePdfBuyer? buyer = null);
+        InvoicePdfBuyer? buyer = null,
+        ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4);
 }

@@ -39,8 +39,10 @@ namespace ShopInventory.Features.CustomerDocuments.Commands.DispatchCustomerDocu
 /// cap for automatic sends, and a daily cap on asking WhatsApp whether numbers exist.
 /// </para>
 /// <para>
-/// A pass on a node without the gateway configured, or with no session assigned, does nothing at all —
-/// it claims nothing, so a node that cannot send never strands a row another node could have sent.
+/// A pass on a node without the gateway configured, or with no session to send from, does nothing at
+/// all — it claims nothing, so a node that cannot send never strands a row another node could have
+/// sent. Nobody has to choose that session: when none is saved the pass picks the gateway's ready one
+/// and saves it (<see cref="CustomerDocumentSession"/>), and only tells an administrator when it cannot.
 /// </para>
 /// </remarks>
 public sealed class DispatchCustomerDocumentDeliveriesHandler(
@@ -60,6 +62,7 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
     private const string UncertainAlert = "Uncertain";
     private const string BacklogAlert = "Backlog";
     private const string CapReachedAlert = "CapReached";
+    private const string NoSessionAlert = "NoSession";
 
     private static readonly TimeSpan PrepareRetryDelay = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan PausedRetryDelay = TimeSpan.FromMinutes(15);
@@ -85,8 +88,10 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
         }
 
         var runtime = await CustomerDocumentDeliveryKeys.ReadAsync(context, cancellationToken);
-        if (runtime.WhatsAppSessionId is not { } sessionId)
-            return DispatchCustomerDocumentDeliveriesResult.Idle("No WhatsApp session is assigned to send documents from.");
+        var sending = await CustomerDocumentSession.EnsureAsync(
+            context, openWaClient, openWaOptions.Value, settings, runtime, logger, cancellationToken);
+        if (sending.SessionId is not { } sessionId)
+            return await IdleWithoutSessionAsync(sending, cancellationToken);
 
         if (Stopping)
             return DispatchCustomerDocumentDeliveriesResult.Idle("The application is stopping.");
@@ -177,6 +182,45 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
     }
 
     // ── Before sending ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Nothing is claimed without a session. When that is because the gateway has no number to offer,
+    /// or several and no way to tell them apart, and documents are waiting on it, an administrator is
+    /// told — that is the one case a person still has to act on.
+    /// </summary>
+    private async Task<ErrorOr<DispatchCustomerDocumentDeliveriesResult>> IdleWithoutSessionAsync(
+        SendingSession sending,
+        CancellationToken cancellationToken)
+    {
+        var reason = sending.Kind switch
+        {
+            SendingSessionKind.Stopped => "Sending was stopped by an administrator.",
+            SendingSessionKind.NoneReady => "No WhatsApp number is connected to send documents from.",
+            SendingSessionKind.SeveralReady => "Several WhatsApp numbers are connected and none is marked for documents.",
+            _ => "The WhatsApp gateway could not be asked which number sends documents."
+        };
+
+        if (sending.Kind is SendingSessionKind.NoneReady or SendingSessionKind.SeveralReady)
+        {
+            var waiting = await context.CustomerDocumentDeliveries
+                .AsNoTracking()
+                .CountAsync(delivery => delivery.Status == CustomerDocumentDeliveryStatus.Pending
+                    || delivery.Status == CustomerDocumentDeliveryStatus.WaitingForFiscal, cancellationToken);
+
+            if (waiting > 0)
+            {
+                await alerts.RaiseAsync(
+                    NoSessionAlert,
+                    "WhatsApp documents have no number to go from",
+                    sending.Kind == SendingSessionKind.NoneReady
+                        ? $"{waiting} customer document(s) are waiting because no WhatsApp number is connected. Connect one on the WhatsApp Inbox; it is used as soon as it is ready."
+                        : $"{waiting} customer document(s) are waiting because several WhatsApp numbers are connected and none is named '{options.Value.PreferredSessionName}'. Choose the one that sends documents on WhatsApp Deliveries.",
+                    cancellationToken);
+            }
+        }
+
+        return DispatchCustomerDocumentDeliveriesResult.Idle(reason);
+    }
 
     /// <summary>
     /// Puts back what an earlier pass left half done: a claim that never got as far as sending is

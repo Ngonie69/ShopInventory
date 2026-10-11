@@ -32,6 +32,13 @@ public sealed class CustomerDocumentDeliverySettings
     /// </summary>
     public bool Enabled { get; set; }
 
+    /// <summary>
+    /// The name of the session that sends documents, by convention. When no session has been chosen
+    /// and the gateway has several ready, the one carrying this name is used; with only one ready
+    /// session the name does not matter. See <c>CustomerDocumentSession</c>.
+    /// </summary>
+    public string PreferredSessionName { get; set; } = "customer-documents";
+
     /// <summary>How often the delivery job looks for documents to send.</summary>
     public int SendIntervalSeconds { get; set; } = 60;
 
@@ -153,6 +160,12 @@ public sealed class CustomerDocumentDeliverySettings
 
     /// <summary>The file name the customer sees. <c>{number}</c> is the document number.</summary>
     public string FileNameTemplate { get; set; } = "Kefalos-Invoice-{number}.pdf";
+
+    /// <summary>
+    /// The file name for a sale filed as a 48 mm receipt, which goes out as the till slip rather than
+    /// the A4 sheet. The number is the same invoice number either way.
+    /// </summary>
+    public string ReceiptFileNameTemplate { get; set; } = "Kefalos-Receipt-{number}.pdf";
 
     /// <summary>How long after an alert the same alert may be raised again.</summary>
     public int AlertCooldownHours { get; set; } = 6;

@@ -4324,7 +4324,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
 | GET | `/api/vansales/sale/{vanOrder}` | `invoices.view` | Whether the sale posted under that `van_order` landed, for a handset whose `POST order` lost its reply: sale number, receipt, and SAP numbers once the queue has posted it. Read off the sale row, so a sale signed and not yet in SAP is answered — invoice history, which reads SAP, has nothing. **Always `200`**: not found, and another van's sale, are both `found: false`, because the handset reads a `404` as a server without this route. Returned **bare**, not enveloped |
-| POST | `/api/vansales/sale/{vanOrder}/whatsapp` | `invoices.create` | Send that sale's invoice to the WhatsApp number the customer gave at the sale: `{"phone": "0771234567", "consent": true}`. Queued, not sent: it goes once the office has posted the sale to SAP and its fiscal receipt is confirmed, with the shop (the route customer) named as the buyer instead of the van. `202` when queued; `200` with `already_requested: true` when this sale was already sent to that number, so a retry is safe. The rep's own sales, or sales on a card in their scope; any other is a `404`, the same as no sale. Capped per rep per CAT day (`CustomerDocuments:MaxVanSaleSendsPerUserPerDay`, 80). The number is kept on that send only, not saved on the shop |
+| POST | `/api/vansales/sale/{vanOrder}/whatsapp` | `invoices.create` | Send that sale's invoice to the shop's WhatsApp. With an empty body (`{}`) it goes to the number saved on the shop (the route customer) that is marked for automatic invoices; `200` with `needs_number: true` and nothing queued when it has none. With `{"phone": "0771234567", "consent": true}` it goes to the number the customer gave, which is then **saved on the shop** and marked for automatic invoices, the rep recorded as having taken the consent, so the next sale needs no question (`saved: true`; a number the office set to only-when-asked is left as set, and a shop already holding `MaxContactsPerOwner` numbers is sent to without saving). Queued, not sent: it goes once the office has posted the sale to SAP and its fiscal receipt is confirmed, with the shop named as the buyer instead of the van. `202` when queued; `200` with `already_requested: true` when this invoice was already sent to that number by any route (a handset, the office, or the scan), so a retry is safe. `recipients` lists every number, masked. The rep's own sales, or sales on a card in their scope; any other is a `404`, the same as no sale. Numbers a rep types are capped per CAT day (`CustomerDocuments:MaxVanSaleSendsPerUserPerDay`, 80); sends to a saved number are not counted |
 | GET | `/api/vansales/fiscal` | `invoices.view` | Fiscal device details for the handset |
 | GET | `/api/vansales/fiscal/lease` | `invoices.create` | Optional `pendingSales`. Returned **bare**, not enveloped |
 | POST | `/api/vansales/fiscal/day-close` | `invoices.create` | The close a handset signed for its own fiscal day. Held rather than forwarded — the day is packaged once its receipts have landed |
@@ -4700,19 +4700,45 @@ many buyers. A van's shops are route customers: their numbers are saved with `ro
 | POST | `/api/customer-document-deliveries/{id}/cancel` | `invoices.send_whatsapp` | Withdraw a send that has not started |
 | GET | `/api/customer-document-deliveries/log` | **Admin** | Every send, newest first (`status` or `attention`, `trigger`, `search`, `fromDate`, `toDate`, `page`, `pageSize` ≤ 200) |
 | GET | `/api/customer-document-deliveries/status` | **Admin** | The session, today's counts against the caps, and what is waiting |
-| PUT | `/api/customer-document-deliveries/settings` | **Admin** | The session documents go from, automatic sending on or off, and the automatic daily cap |
+| PUT | `/api/customer-document-deliveries/settings` | **Admin** | The session documents go from (`whatsAppSessionId`; blank leaves it to be chosen automatically), `stopSending` to stop every send, automatic sending on or off, and the automatic daily cap |
+
+**Nothing has to be set up before a send.** With no session saved, the gateway's ready session is
+chosen and saved the first time one is needed, by a send or by the delivery job's next pass: the one
+named `CustomerDocuments:PreferredSessionName` (`customer-documents`) when several are ready, otherwise
+the only ready one. `status` then shows it with `settingsChangedBy: "Chosen automatically"`. A send is
+refused with `CustomerDocuments.SessionNotConfigured` only when the gateway was asked and has no ready
+session, or several with none carrying that name; a node that cannot reach the gateway queues the send
+for the node that can. `stopSending: true` is the one thing that is never overridden: `status` reports
+`sendingStopped`, sends answer `CustomerDocuments.SendingStopped`, and no session is chosen until the
+settings are saved again without it. Automatic sending is **on** until someone saves it off.
 
 A manual send refuses a cancelled invoice, a reposted one, and a consolidated till or van invoice,
-whose buyer is not the card it is posted to. The document is the Fiscal Tax Invoice PDF that the
-invoice download serves. It goes only once its fiscal receipt is confirmed: by the invoice's sale
-reference first, then by a fiscal transaction whose customer, total and date all agree, then by
-asking the device. Until then the send waits, and after `CustomerDocuments:MaxFiscalWaitHours` it is
-held for a person.
+whose buyer is not the card it is posted to. With `saveAsContact` the typed number is saved on the
+invoice's customer; on a selling account, where no number may be saved, the invoice is still sent to
+it for that send only and the row carries no `contactId`.
 
-**Van sales.** A van rep sends a sale's invoice from the handset with
-`POST /api/vansales/sale/{vanOrder}/whatsapp` (§ Van Sales). That send is a `trigger: Counter` row
-naming the sale; it waits as `WaitingForFiscal` until the sale's row carries its SAP numbers, then
-takes them and goes as that invoice, printed with the route customer as the buyer.
+**The document is the one the sale was filed as.** A sale filed with ZIMRA as a 48 mm receipt goes out
+as the **till slip** the van's printer gives (`Kefalos-Receipt-{number}.pdf`): one narrow page, 32
+columns, seller block, buyer, lines, total, QR and the fiscal details under it. Everything else is the
+A4 Fiscal Tax Invoice PDF the invoice download serves (`Kefalos-Invoice-{number}.pdf`). The form is
+the one the fiscaliser chose: the partner's print form on Settings → Fiscalisation
+(`/api/fiscalisation-settings/print-forms`) for the sale behind the invoice's `U_Van_saleorder`, which
+only till, vending and van sales follow; a receipt a handset signed itself is always a slip, and an
+invoice with no such sale behind it is always A4. Both print the same lines and totals. `preview`
+answers with whichever would be sent.
+
+Either goes only once its fiscal receipt is confirmed: by the invoice's sale reference first, then by
+a fiscal transaction whose customer, total and date all agree, then by asking the device. Until then
+the send waits, and after `CustomerDocuments:MaxFiscalWaitHours` it is held for a person.
+
+**Van sales.** After every sale the handset calls `POST /api/vansales/sale/{vanOrder}/whatsapp`
+(§ Van Sales) with no number. A shop with a saved number has the invoice queued for it there and then,
+with nothing asked of the rep or the customer; a shop without one answers `needs_number`, the rep
+takes the number once, and it is saved on the shop for every invoice after. Either way the send is a
+`trigger: Counter` row naming the sale; it waits as `WaitingForFiscal` until the sale's row carries its
+SAP numbers, then takes them and goes as that invoice, printed with the route customer as the buyer.
+A sale the handset never asks about — made offline, or raised at the office — is sent by the scan
+below, because the saved number is marked for automatic invoices.
 
 A van invoice is billed to the van's own card, so every send of one, automatic or by hand, goes to
 the **shop**: the invoice's `U_Van_saleorder` is matched to the van sale row (or, for an online sale,
@@ -4741,8 +4767,8 @@ final. A send that may already have arrived is never repeated by the job.
 
 **Limits.** Sends go one at a time with a randomised gap. They are capped per pass, per hour, per CAT
 day, per number per day, and per person per day for typed numbers. Automatic sends also keep to the
-window in `CustomerDocuments` and to the cap set on `/whatsapp-deliveries`. Choosing no session stops
-every send; the job then waits without claiming anything.
+window in `CustomerDocuments` and to the cap set on `/whatsapp-deliveries`. Choosing *None* there
+(`stopSending`) stops every send; the job then waits without claiming anything.
 
 ---
 

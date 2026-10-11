@@ -443,25 +443,8 @@ public class InvoicePdfService : IInvoicePdfService
                 .SetVerticalAlignment(VerticalAlignment.TOP)
                 .Add((tabular ? Figures(text, _regular, BodySize, color) : Body(text, color)).SetTextAlignment(align)));
 
-        /// <summary>A line's VAT and its VAT-inclusive total.</summary>
-        /// <remarks>
-        /// SAP's <c>GrossTotal</c> is the line after its discount with the line's own VAT group applied,
-        /// so its difference from <c>LineTotal</c> is the VAT actually charged on that line — nothing on
-        /// a zero-rated item. Spreading the document's VAT across lines by value put VAT on zero-rated
-        /// lines whenever they shared an invoice with standard-rated ones, and a flat 15% guess stood
-        /// in when the document carried no VAT at all. A line SAP returned without a gross total still
-        /// takes its share by value, because no better figure exists for it.
-        /// </remarks>
         private static (decimal Vat, decimal TotalInc) LineTax(InvoiceLineDto line, decimal netSum, decimal vatSum)
-        {
-            if (line.GrossTotal != 0m)
-            {
-                return (Math.Round(line.GrossTotal - line.LineTotal, 2), Math.Round(line.GrossTotal, 2));
-            }
-
-            var share = netSum != 0m ? Math.Round(vatSum * (line.LineTotal / netSum), 2) : 0m;
-            return (share, line.LineTotal + share);
-        }
+            => InvoiceLineTax.Of(line, netSum, vatSum);
 
         // ── Footer ──────────────────────────────────────────────────────────
 
@@ -931,5 +914,32 @@ public class InvoicePdfService : IInvoicePdfService
             var path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Fonts", name);
             return File.Exists(path) ? FontProgramFactory.CreateFont(File.ReadAllBytes(path)) : null;
         }
+    }
+}
+
+/// <summary>A line's VAT and its VAT-inclusive total, for every document an invoice is printed as.</summary>
+/// <remarks>
+/// SAP's <c>GrossTotal</c> is the line after its discount with the line's own VAT group applied,
+/// so its difference from <c>LineTotal</c> is the VAT actually charged on that line — nothing on
+/// a zero-rated item. Spreading the document's VAT across lines by value put VAT on zero-rated
+/// lines whenever they shared an invoice with standard-rated ones, and a flat 15% guess stood
+/// in when the document carried no VAT at all. A line SAP returned without a gross total still
+/// takes its share by value, because no better figure exists for it.
+/// <para>
+/// The A4 invoice and the till slip both print from here, so the two cannot state different amounts
+/// for the same line.
+/// </para>
+/// </remarks>
+public static class InvoiceLineTax
+{
+    public static (decimal Vat, decimal TotalInc) Of(InvoiceLineDto line, decimal netSum, decimal vatSum)
+    {
+        if (line.GrossTotal != 0m)
+        {
+            return (Math.Round(line.GrossTotal - line.LineTotal, 2), Math.Round(line.GrossTotal, 2));
+        }
+
+        var share = netSum != 0m ? Math.Round(vatSum * (line.LineTotal / netSum), 2) : 0m;
+        return (share, line.LineTotal + share);
     }
 }

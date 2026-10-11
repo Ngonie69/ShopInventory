@@ -4,8 +4,10 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.Invoices.Slip;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.Invoices;
 
@@ -24,6 +26,7 @@ public sealed class InvoicePdfComposer(
     ISAPServiceLayerClient sapClient,
     IFiscalReceiptReader fiscalReceiptReader,
     IInvoicePdfService invoicePdfService,
+    IInvoiceSlipPdfService invoiceSlipPdfService,
     IOptions<SAPSettings> settings,
     ILogger<InvoicePdfComposer> logger) : IInvoicePdfComposer
 {
@@ -32,7 +35,8 @@ public sealed class InvoicePdfComposer(
         string? requestedQrCode,
         InvoicePdfReceipt? verifiedReceipt,
         CancellationToken cancellationToken,
-        InvoicePdfBuyer? buyer = null)
+        InvoicePdfBuyer? buyer = null,
+        ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4)
     {
         if (!settings.Value.Enabled)
             return Errors.Invoice.SapDisabled;
@@ -99,7 +103,10 @@ public sealed class InvoicePdfComposer(
                     cancellationToken);
             }
 
-            var pdfBytes = await invoicePdfService.GenerateInvoicePdfAsync(invoiceDto, fiscalQrCode);
+            // The same invoice, receipt and buyer either way; only the paper differs.
+            var pdfBytes = printForm == ReceiptPrintForm.Receipt48
+                ? invoiceSlipPdfService.GenerateSlipPdf(invoiceDto, fiscalQrCode)
+                : await invoicePdfService.GenerateInvoicePdfAsync(invoiceDto, fiscalQrCode);
 
             return new ComposedInvoicePdf(pdfBytes, invoiceDto, invoice, fiscalQrCode);
         }

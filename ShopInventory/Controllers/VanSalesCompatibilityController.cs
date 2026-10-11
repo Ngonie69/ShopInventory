@@ -590,9 +590,12 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
     }
 
     /// <summary>
-    /// Sends a sale's invoice to the WhatsApp number the customer gave at the sale.
+    /// Sends a sale's invoice to the shop's saved WhatsApp number, or to one the customer gives at the sale.
     /// </summary>
     /// <remarks>
+    /// With no <c>phone</c> the invoice goes to the number saved on the shop, and the answer is 200 with
+    /// <c>needs_number</c> true when it has none. With a <c>phone</c> and <c>consent</c> it goes to that
+    /// number, which is then saved on the shop so its next invoices need no question.
     /// Queued, never sent here: the invoice goes once the office has posted the sale to SAP and its fiscal
     /// receipt is confirmed, with the shop named as the buyer. Safe to repeat — the same sale and number
     /// answer with the delivery already made, <c>already_requested</c> true. Only the rep's own sales, or
@@ -618,7 +621,7 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
 
         var result = await mediator.Send(new RequestVanSaleWhatsAppCommand(userId.Value, vanOrder, request), cancellationToken);
         return result.Match<IActionResult>(
-            value => value.AlreadyRequested ? Ok(value) : Accepted(value),
+            value => value.AlreadyRequested || value.NeedsNumber ? Ok(value) : Accepted(value),
             errors => Problem(errors));
     }
 

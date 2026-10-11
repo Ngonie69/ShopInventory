@@ -16,8 +16,9 @@ namespace ShopInventory.Features.CustomerDocuments.Commands.UpdateCustomerDocume
 /// </summary>
 /// <remarks>
 /// A session is accepted only if the gateway knows it, when this node can ask: a mistyped id would
-/// otherwise leave every document waiting on a session that does not exist. Clearing the session is
-/// always allowed — it is the switch that stops all sending at once.
+/// otherwise leave every document waiting on a session that does not exist. Saving with no session
+/// hands the choice back to the system (<see cref="CustomerDocumentSession"/>); stopping all sending
+/// is asked for by name, and recorded, so a session nobody chose is not picked over it.
 /// </remarks>
 public sealed class UpdateCustomerDocumentDeliverySettingsHandler(
     ApplicationDbContext context,
@@ -39,6 +40,7 @@ public sealed class UpdateCustomerDocumentDeliverySettingsHandler(
             return Errors.CustomerDocuments.UserNotFound;
 
         var sessionId = string.IsNullOrWhiteSpace(request.WhatsAppSessionId) ? null : request.WhatsAppSessionId.Trim();
+        var stopped = sessionId is null && request.StopSending;
 
         if (sessionId is not null && WhatsAppGateway.IsConfigured(openWaOptions.Value))
         {
@@ -70,8 +72,13 @@ public sealed class UpdateCustomerDocumentDeliverySettingsHandler(
 
         await CustomerDocumentDeliveryKeys.StageAsync(context, CustomerDocumentDeliveryKeys.WhatsAppSessionId, "string",
             sessionId,
-            "The OpenWA session customer documents are sent from. Blank stops all sending.",
+            "The OpenWA session customer documents are sent from. Blank leaves it to be chosen automatically.",
             isEditable: true, cancellationToken);
+
+        await CustomerDocumentDeliveryKeys.StageAsync(context, CustomerDocumentDeliveryKeys.SendingStopped, "bool",
+            stopped ? "true" : "false",
+            "Whether an administrator stopped all sending. While true no session is used and none is chosen automatically.",
+            isEditable: false, cancellationToken);
 
         await CustomerDocumentDeliveryKeys.StageAsync(context, CustomerDocumentDeliveryKeys.MaxAutoPerDay, "int",
             request.MaxAutoPerDay.ToString(CultureInfo.InvariantCulture),
@@ -91,7 +98,7 @@ public sealed class UpdateCustomerDocumentDeliverySettingsHandler(
                 AuditActions.UpdateCustomerDocumentSettings,
                 "CustomerDocumentSettings",
                 null,
-                $"Automatic sending {(request.AutoSendEnabled ? "on" : "off")}; session {sessionId ?? "none"}; "
+                $"Automatic sending {(request.AutoSendEnabled ? "on" : "off")}; session {sessionId ?? (stopped ? "none, all sending stopped" : "chosen automatically")}; "
                 + $"automatic cap {request.MaxAutoPerDay} a day",
                 true);
         }

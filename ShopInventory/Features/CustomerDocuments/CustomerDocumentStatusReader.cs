@@ -34,6 +34,7 @@ internal static class CustomerDocumentStatusReader
             GatewayConfigured = WhatsAppGateway.IsConfigured(openWaSettings),
             AutoSendEnabled = runtime.AutoSendEnabled,
             SessionId = runtime.WhatsAppSessionId,
+            SendingStopped = runtime.SendingStopped,
             MaxAutoPerDay = runtime.MaxAutoPerDay,
             MaxPerHour = settings.MaxPerHour,
             HardMaxPerDay = settings.HardMaxPerDay,
@@ -95,6 +96,14 @@ internal static class CustomerDocumentStatusReader
             if (runtime.WhatsAppSessionId is not null && selected is null)
             {
                 status.SessionError = "The session chosen to send documents no longer exists on the gateway.";
+            }
+
+            // Nothing is chosen here — a read does not write. This only says what the next pass will do.
+            if (runtime.WhatsAppSessionId is null && !runtime.SendingStopped)
+            {
+                var pick = CustomerDocumentSession.Pick(sessions, settings.PreferredSessionName);
+                status.AutomaticSessionName = pick.Session?.Name;
+                status.SeveralSessionsReady = pick.Kind == SendingSessionKind.SeveralReady;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

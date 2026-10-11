@@ -145,8 +145,11 @@ public partial class InvoiceWhatsAppPanel : ComponentBase, IDisposable
         oneOffPhone = null;
         oneOffName = null;
         consentAffirmed = false;
-        saveAsContact = false;
-        autoSendFuture = false;
+        // A number worth typing is worth keeping: saved on the customer and marked for their next
+        // invoices unless the person unticks it, so nobody has to type or send by hand again. Everyone
+        // who may send may also save (UserRoles.DocumentWhatsAppRoles and CustomerWhatsAppRoles).
+        saveAsContact = true;
+        autoSendFuture = true;
         chosenContacts.Clear();
         contacts = [];
 
@@ -302,6 +305,14 @@ public partial class InvoiceWhatsAppPanel : ComponentBase, IDisposable
                     ? $"Invoice #{DocNum} is queued for {result.Value[0].RecipientMasked}. It goes once its fiscal receipt is confirmed."
                     : $"Invoice #{DocNum} is queued for {result.Value.Count} numbers. They go once its fiscal receipt is confirmed.",
                 Severity.Success);
+
+            // The API keeps no number on a till's or a van's own account; the send itself still goes.
+            if (request.SaveAsContact && result.Value.Any(delivery => delivery.ContactId is null))
+            {
+                Snackbar.Add(
+                    "The number was not saved: this invoice is on a till or van account rather than a customer's, so it was sent to for this invoice only.",
+                    Severity.Info);
+            }
 
             await LoadAsync();
             _ = FollowAsync();

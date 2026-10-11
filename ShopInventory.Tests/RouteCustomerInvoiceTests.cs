@@ -212,6 +212,32 @@ public sealed class RouteCustomerInvoiceTests : IDisposable
         Assert.Equal(Shop, Assert.Single(check.CustomerDocumentDeliveries).RouteCustomerId);
     }
 
+    [Fact]
+    public async Task A_number_typed_for_a_walk_ins_invoice_on_a_selling_account_is_sent_to_but_not_saved()
+    {
+        await _kit.SetRuntimeAsync();
+        await using (var context = _kit.NewContext())
+        {
+            context.Users.Add(new User { Id = Guid.NewGuid(), Username = "rep", PasswordHash = "x", Role = "Sales", IsActive = true, AssignedBusinessPartnerCode = VanCard });
+            await context.SaveChangesAsync();
+        }
+
+        // No sale behind the reference, so the invoice has no shop: its customer is the van's own card.
+        var result = await RequestAsync(Invoice(5013, "VO-NO-SHOP"), new RequestInvoiceWhatsAppRequest
+        {
+            OneOffPhone = "0773333333",
+            ConsentAffirmed = true,
+            SaveAsContact = true,
+            AutoSendFutureInvoices = true
+        });
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Null(Assert.Single(result.Value).ContactId);
+        await using var check = _kit.NewContext();
+        Assert.Empty(check.CustomerWhatsAppContacts);
+        Assert.Equal("+263773333333", Assert.Single(check.CustomerDocumentDeliveries).RecipientE164);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private static Invoice Invoice(int docEntry, string reference) => new()
@@ -341,6 +367,8 @@ public sealed class RouteCustomerInvoiceTests : IDisposable
             Options.Create(new SAPSettings { Enabled = true }),
             Options.Create(CustomerDocumentTestKit.Settings()),
             Options.Create(new FiscalisationSettings()),
+            new FakeOpenWAClient(),
+            Options.Create(CustomerDocumentTestKit.Gateway()),
             _trigger,
             _audit,
             NullLogger<RequestInvoiceWhatsAppHandler>.Instance);

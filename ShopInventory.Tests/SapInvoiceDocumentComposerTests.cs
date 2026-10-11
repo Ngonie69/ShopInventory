@@ -7,6 +7,7 @@ using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Features.CustomerDocuments.Documents;
+using ShopInventory.Features.FiscalPrintForms;
 using ShopInventory.Features.Invoices;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -49,6 +50,86 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
         Assert.Contains("Spar Bridge", document.Caption);
         Assert.Contains("USD 125.50", document.Caption);
         Assert.Equal(64, document.Sha256.Length);
+    }
+
+    // ── The document is the one the sale was filed as ───────────────────
+
+    [Fact]
+    public async Task A_van_sale_filed_as_a_receipt_goes_out_as_the_till_slip()
+    {
+        await AddReceiptAsync(cardCode: "VAN008");
+        await AddVanSaleAsync(2400100, 780100);
+        await ChoosePrintFormAsync("VAN008", ReceiptPrintForm.Receipt48);
+        _pdf.Invoice = invoice => invoice.CardCode = "VAN008";
+
+        var composition = await ComposeAsync(delivery =>
+        {
+            delivery.CardCode = "VAN008";
+            delivery.SaleReference = "VO-20261009-0042";
+        });
+
+        Assert.Equal(DocumentCompositionKind.Ready, composition.Kind);
+        Assert.Equal(ReceiptPrintForm.Receipt48, _pdf.PrintForm);
+        Assert.Equal("Kefalos-Receipt-780100.pdf", composition.Document!.FileName);
+    }
+
+    [Fact]
+    public async Task A_van_sale_whose_partner_is_set_to_A4_stays_an_A4_invoice()
+    {
+        await AddReceiptAsync(cardCode: "VAN008");
+        await AddVanSaleAsync(2400100, 780100);
+        await ChoosePrintFormAsync("VAN008", ReceiptPrintForm.InvoiceA4);
+        _pdf.Invoice = invoice => invoice.CardCode = "VAN008";
+
+        var composition = await ComposeAsync(delivery =>
+        {
+            delivery.CardCode = "VAN008";
+            delivery.SaleReference = "VO-20261009-0042";
+        });
+
+        Assert.Equal(ReceiptPrintForm.InvoiceA4, _pdf.PrintForm);
+        Assert.Equal("Kefalos-Invoice-780100.pdf", composition.Document!.FileName);
+    }
+
+    [Fact]
+    public async Task An_invoice_with_no_sale_behind_it_is_an_A4_invoice_whatever_the_partner_chose()
+    {
+        // Raised on the web or keyed into SAP: only till, vending and van sales follow the choice.
+        await AddReceiptAsync();
+        await ChoosePrintFormAsync(CustomerDocumentTestKit.CardCode, ReceiptPrintForm.Receipt48);
+
+        var composition = await ComposeAsync(delivery => delivery.SaleReference = "KEF-WEB-1");
+
+        Assert.Equal(ReceiptPrintForm.InvoiceA4, _pdf.PrintForm);
+        Assert.Equal("Kefalos-Invoice-780100.pdf", composition.Document!.FileName);
+    }
+
+    [Fact]
+    public async Task A_receipt_the_handset_signed_itself_is_a_slip_without_any_choice_saved()
+    {
+        await AddReceiptAsync(cardCode: "VAN008");
+        await AddVanSaleAsync(2400100, 780100, signedOnHandset: true);
+        _pdf.Invoice = invoice => invoice.CardCode = "VAN008";
+
+        await ComposeAsync(delivery =>
+        {
+            delivery.CardCode = "VAN008";
+            delivery.SaleReference = "VO-20261009-0042";
+        });
+
+        Assert.Equal(ReceiptPrintForm.Receipt48, _pdf.PrintForm);
+    }
+
+    [Fact]
+    public async Task A_sale_under_the_same_reference_that_bills_another_card_does_not_decide_the_form()
+    {
+        await AddReceiptAsync();
+        await AddVanSaleAsync(null, null, cardCode: "VAN009");
+        await ChoosePrintFormAsync("VAN009", ReceiptPrintForm.Receipt48);
+
+        await ComposeAsync(delivery => delivery.SaleReference = "VO-20261009-0042");
+
+        Assert.Equal(ReceiptPrintForm.InvoiceA4, _pdf.PrintForm);
     }
 
     [Fact]
@@ -194,7 +275,18 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
         row.Trigger = CustomerDocumentDeliveryTrigger.Counter;
     };
 
-    private async Task<int> AddVanSaleAsync(int? sapDocEntry, int? sapDocNum, string cardCode = "VAN008")
+    private async Task ChoosePrintFormAsync(string cardCode, ReceiptPrintForm printForm)
+    {
+        await using var context = _kit.NewContext();
+        context.BusinessPartnerFiscalPrintForms.Add(new BusinessPartnerFiscalPrintFormEntity
+        {
+            CardCode = cardCode,
+            PrintForm = printForm
+        });
+        await context.SaveChangesAsync();
+    }
+
+    private async Task<int> AddVanSaleAsync(int? sapDocEntry, int? sapDocNum, string cardCode = "VAN008", bool signedOnHandset = false)
     {
         await using var context = _kit.NewContext();
         if (!await context.RouteCustomers.AnyAsync(customer => customer.Id == 41))
@@ -218,7 +310,8 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
             Currency = "USD",
             WarehouseCode = "VAN004",
             SapDocEntry = sapDocEntry,
-            SapDocNum = sapDocNum
+            SapDocNum = sapDocNum,
+            DeviceSignatureValue = signedOnHandset ? "c2lnbmVk" : null
         };
         context.DesktopSales.Add(sale);
         await context.SaveChangesAsync();
@@ -249,6 +342,7 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
             context,
             _device,
             _pdf,
+            new FiscalPrintFormResolver(context, NullLogger<FiscalPrintFormResolver>.Instance),
             Options.Create(CustomerDocumentTestKit.Settings(settings)),
             Options.Create(new FiscalisationSettings()),
             NullLogger<SapInvoiceDocumentComposer>.Instance);
@@ -284,11 +378,20 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
 
         public InvoicePdfBuyer? Buyer { get; private set; }
 
-        public Task<ErrorOr<ComposedInvoicePdf>> ComposeAsync(int docEntry, string? requestedQrCode, InvoicePdfReceipt? verifiedReceipt, CancellationToken cancellationToken, InvoicePdfBuyer? buyer = null)
+        public ReceiptPrintForm? PrintForm { get; private set; }
+
+        public Task<ErrorOr<ComposedInvoicePdf>> ComposeAsync(
+            int docEntry,
+            string? requestedQrCode,
+            InvoicePdfReceipt? verifiedReceipt,
+            CancellationToken cancellationToken,
+            InvoicePdfBuyer? buyer = null,
+            ReceiptPrintForm printForm = ReceiptPrintForm.InvoiceA4)
         {
             Calls++;
             Receipt = verifiedReceipt;
             Buyer = buyer;
+            PrintForm = printForm;
 
             if (Error is { } error)
                 return Task.FromResult<ErrorOr<ComposedInvoicePdf>>(error);

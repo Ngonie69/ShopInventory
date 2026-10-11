@@ -23,13 +23,17 @@ namespace ShopInventory.Features.CustomerDocuments.Commands.RequestInvoiceWhatsA
 /// Nothing is sent here. Each number becomes a delivery row and the delivery job is woken, so a send
 /// asked for by a person keeps to the same pacing, the same fiscal check and the same duplicate guard
 /// as every other — and still goes when the node that took the request has no gateway configured.
+/// Nothing has to be set up first either: with no session saved, the gateway's ready one is chosen
+/// here, and the send is refused only when the gateway was asked and has no number to send from.
 /// </para>
 /// <para>
 /// The invoice is checked first, so the person is told at once rather than finding a held row later:
 /// a cancelled invoice, a repost after the SAP update and an end-of-day consolidation are refused. A
 /// saved number must be on the invoice's own customer and not opted out. A one-off number needs the
 /// sender to confirm the customer asked for it there, and one-offs are capped per person per day —
-/// they are where a typo or a misunderstanding sends a company document to a stranger.
+/// they are where a typo or a misunderstanding sends a company document to a stranger. Asked to keep
+/// the number, it is saved on the invoice's customer; on a till's or a van's own account, which is
+/// nobody's to save a number on, the invoice still goes to it, for this send only.
 /// </para>
 /// </remarks>
 public sealed class RequestInvoiceWhatsAppHandler(
@@ -38,6 +42,8 @@ public sealed class RequestInvoiceWhatsAppHandler(
     IOptions<SAPSettings> sapSettings,
     IOptions<CustomerDocumentDeliverySettings> options,
     IOptions<FiscalisationSettings> fiscalisationOptions,
+    IOpenWAClient openWaClient,
+    IOptions<OpenWASettings> openWaOptions,
     ICustomerDocumentDispatchTrigger dispatchTrigger,
     IAuditService auditService,
     ILogger<RequestInvoiceWhatsAppHandler> logger)
@@ -64,8 +70,10 @@ public sealed class RequestInvoiceWhatsAppHandler(
             return Errors.CustomerDocuments.UserNotFound;
 
         var runtime = await CustomerDocumentDeliveryKeys.ReadAsync(context, cancellationToken);
-        if (runtime.WhatsAppSessionId is null)
-            return Errors.CustomerDocuments.SessionNotConfigured;
+        var sending = await CustomerDocumentSession.EnsureAsync(
+            context, openWaClient, openWaOptions.Value, settings, runtime, logger, cancellationToken);
+        if (sending.Refusal(settings.PreferredSessionName) is { } refusal)
+            return refusal;
 
         Invoice? invoice;
         try
@@ -228,15 +236,21 @@ public sealed class RequestInvoiceWhatsAppHandler(
 
         var name = Clean(request.OneOffName);
 
-        if (request.SaveAsContact)
-        {
-            var owner = await ResolveOwnerAsync(invoice, shop, cancellationToken);
-            if (owner.IsError)
-                return owner.Errors;
+        var owner = request.SaveAsContact
+            ? await ResolveOwnerAsync(invoice, shop, cancellationToken)
+            : (ErrorOr<ContactOwner>?)null;
 
+        // A walk-in's invoice sits on the till's or the van's own card. The number cannot be kept
+        // there — it would receive every invoice that account posts — but the customer in front of
+        // the till still asked for this one, so it goes as a one-off.
+        if (owner is { IsError: true } refused && refused.FirstError.Code != SellingAccountCode)
+            return refused.Errors;
+
+        if (owner is { IsError: false })
+        {
             var staged = await CustomerWhatsAppContactWriter.StageAsync(
                 context,
-                owner.Value,
+                owner.Value.Value,
                 phoneE164,
                 name,
                 request.AutoSendFutureInvoices,
@@ -342,6 +356,8 @@ public sealed class RequestInvoiceWhatsAppHandler(
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static readonly string SellingAccountCode = Errors.CustomerDocuments.SellingAccountNotAllowed(string.Empty).Code;
 
     private sealed record Recipient(string PhoneE164, int? ContactId, string? Name, bool ConsentAffirmed);
 }
