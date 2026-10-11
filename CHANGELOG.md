@@ -16,6 +16,25 @@ otherwise be surprised.
 
 ## Unreleased
 
+### Changed
+
+- **A van sale that cannot be stock-checked is refused in different words.** This is the
+  `STOCK_NOT_COUNTED` refusal on `POST /api/vansales/order`, `order/with-batches` and
+  `order/convert-to-invoice`, reached when SAP gives no stock figure for a van and the van has no
+  opening stock here for the day.
+  - The text no longer tells the rep to open Start the day or to sync. It says whether SAP was
+    unavailable or left the stock read unanswered, and whether the morning stock read is still to come
+    or did not finish. The four wordings are in `docs/operations/sap-outages.md`.
+  - The summary in front of it is `Van stock could not be checked`, where it was `Insufficient stock
+    available for reservation`.
+  - It is given once for the van. It used to be repeated for every line of the sale.
+  - A morning stock read that is still running or has failed no longer counts as the van's opening
+    stock. Such a van was refused line by line as holding none of each item; it now gets this refusal.
+    `GET /api/vansales/stock/position` answers `counted: false` for it, where it answered `counted:
+    true` with no lines.
+  - Operators: a rep told "this morning's 07:00 stock read has not finished for van …" needs the stock
+    fetch run for that van. Nothing retries a van's read during the day.
+
 ### Added
 
 - **Invoices can be sent to customers on WhatsApp.** The new routes are under

@@ -109,12 +109,15 @@ van against this system's own count in either of two cases:
 
 Either way:
 
-- **The figure.** The van's opening count, plus loads, less today's sales. It is the same arithmetic as
+- **The figure.** The van's opening stock, plus loads, less today's sales. It is the same arithmetic as
   `GET /api/vansales/stock/position` (`VanStockPosition`), with one difference: online sales whose
   reservation is still holding stock are left out, because live holds are subtracted separately.
+- **The opening stock is the morning read from SAP** (`DailyStock:StockFetchTimeCAT`, 07:00), and
+  nothing else. A handset's count has not been filed since 2026-09-29. Only a finished read counts: one
+  still running or left `Failed` is no opening stock, not a van that opened empty.
 - **A shortfall is refused** (`INSUFFICIENT_STOCK`), as at a till.
-- **A van with no opening count for the day is refused** (`STOCK_NOT_COUNTED`), telling the rep to
-  count the van first.
+- **A van with no opening stock for the day is refused** (`STOCK_NOT_COUNTED`), once for the van
+  however many lines the sale has. See the next section.
 - **Nothing on the van's lines asks SAP.** UoM conversion is taken as one-to-one, which is what it
   answers when SAP cannot be reached. Batches the handset named are kept; the rest are left empty.
 - **Only vans** (`VanWarehouses`) are checked locally. Every other warehouse still reads SAP.
@@ -125,6 +128,53 @@ Just before the invoice goes out, any batch-managed line with no batches gets th
 was up already has its batches and is not touched. If allocation fails, an unreadable warehouse returns
 the reservation to Pending for the queue to retry, and a real shortfall fails it for a person, as a SAP
 refusal would.
+
+### When a van has no opening stock
+
+A van has no opening stock here in two windows:
+
+- **From midnight CAT until the morning read.** The van's snapshot is dated by the calendar day, and
+  the day's row does not exist until the read writes it. Reps do sell in these hours.
+- **All day, when the morning read did not finish for that van.** The 10-minute retry is for shops
+  only, so nothing reads a van again that day unless the API restarts (the start-up catch-up fetches
+  every unfinished warehouse) or somebody fetches it by hand.
+
+In either window a van sale goes through only if SAP answers its stock read. If SAP is held back or
+leaves that read unanswered, the sale is refused before the receipt is signed, with
+`Van stock could not be checked` and one of these, according to what happened:
+
+| | Before the morning read | Once the read was due |
+|---|---|---|
+| SAP held back | "SAP is not available right now, and this system has no figure of its own for van VAN004 before the 07:00 stock read, so the sale cannot be checked. …" | "SAP is not available right now, and this morning's 07:00 stock read has not finished for van VAN004, so the sale cannot be checked. …" |
+| SAP left the read unanswered | "SAP did not answer when asked for the van's stock, and this system has no figure of its own for van VAN004 before the 07:00 stock read, so the sale cannot be checked. …" | "SAP did not answer when asked for the van's stock, and this morning's 07:00 stock read has not finished for van VAN004, so the sale cannot be checked. …" |
+
+Each goes on to say that nothing on the handset changes this, and to try again in a few minutes and
+tell the office. Until 2026-10-11 the text was "SAP is down, and van VAN004 has not sent today's stock
+count … Open Start the day, or sync the handset", which was untrue on both counts.
+
+**What the office can do.** When a rep reports the second column, run the stock fetch for that van
+(`POST api/DesktopIntegration/stock/fetch-daily` with the van in `warehouses`, or the fetch on the
+Web's Local stock page, `/local-stock`, which skips every warehouse that already has a finished
+snapshot). It needs SAP to answer the batch and warehouse reads for the van. Nothing can be done for
+the first column except wait for SAP or for the morning read.
+
+**Not built: selling from yesterday's figure (decided 2026-10-11).** Yesterday's opening stock, plus
+loads, less the sales since, is not what SAP holds this morning. Goods issues for breakages and posted
+stock counts move a van with no sale or transfer behind them. The loads and the returns to the depot
+do arrive as transfer adjustments, but a van's are never compared against SAP, as a shop's are every
+hour, so one the listener missed stays missed. A figure that reads high signs a receipt SAP then
+refuses, which is the failure the check exists to prevent; one that reads low refuses stock the van
+is holding. Nobody has measured how far off it is. `scripts/Check-VanStockRollForward.ps1` does, read-only,
+on the production database: for every van and morning with a finished read on that day and the day
+before, it sets the rolled-forward figure beside what the read brought back, item by item. Its second
+section is the decision: on how many mornings a van would have been offered units SAP did not have.
+
+**The wording is read by the handset.** KefalosVanSales passes the text through
+`StockValidationHelper.ParseSapError`, which replaces any message holding one of its keywords:
+"timeout" or "timed out", a connection word ("socket", "aborted", "ssl", "tls", "remote host" and
+others), "duplicate", "negative inventory". On a 2xx refusal it also offers to edit the basket when
+the text holds "insufficient". `VanStockNotCountedRefusalTests` runs every wording through a copy of
+that code. Change the text in `VanStockNotCountedRefusal` and nowhere else.
 
 ## Decided, and deliberately not built (2026-09-28)
 

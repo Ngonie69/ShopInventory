@@ -169,6 +169,33 @@ public sealed class VanSalesStockPositionReadTests : IDisposable
     }
 
     /// <summary>
+    /// A morning read that failed leaves its header and no rows. Read as an opening position, that is
+    /// a van carrying nothing — the answer this endpoint exists not to give, and one a handset
+    /// restoring its ledger from here would take as fact.
+    /// </summary>
+    [Theory]
+    [InlineData(StockSnapshotStatus.Pending)]
+    [InlineData(StockSnapshotStatus.Failed)]
+    public async Task A_morning_read_that_did_not_finish_is_told_as_unknown_rather_than_shown_an_empty_van(
+        StockSnapshotStatus status)
+    {
+        await SeedRepAsync();
+        _context.DailyStockSnapshots.Add(new DailyStockSnapshotEntity
+        {
+            SnapshotDate = TradingDate,
+            WarehouseCode = Van,
+            Status = status
+        });
+        await _context.SaveChangesAsync();
+
+        var result = await Handler().Handle(Query(), default);
+
+        Assert.False(result.IsError);
+        Assert.False(result.Value.Counted);
+        Assert.Empty(result.Value.Lines);
+    }
+
+    /// <summary>
     /// Another van's count is another van's business. The warehouse comes off the account through the
     /// same resolver the post uses, and is never taken from the caller.
     /// </summary>
