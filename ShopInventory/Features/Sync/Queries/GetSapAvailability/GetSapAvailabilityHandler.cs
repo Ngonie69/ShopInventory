@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.SlHealth;
 
 namespace ShopInventory.Features.Sync.Queries.GetSapAvailability;
 
@@ -23,10 +24,24 @@ namespace ShopInventory.Features.Sync.Queries.GetSapAvailability;
 /// invoice (<c>ConsolidationId</c>). Not the consolidation status: an online van sale is marked
 /// Consolidated the moment it is written, before SAP has anything.
 /// </para>
+/// <para>
+/// While an outage is open the answer also says why, when SL Health knows (<see cref="SlHealthMonitor"/>).
+/// That comes from the copy of SL Health's last answer this node holds, so it costs nothing either, and
+/// it is what SL Health says now, not what it said when the outage was declared.
+/// </para>
+/// <para>
+/// With no outage open it can still say SAP is answering slowly. The availability probe only pings, and
+/// a Service Layer that answers a ping can leave a query hanging or refuse every new login, so no
+/// outage is ever declared. SL Health logs in and runs queries of its own, and when it has reported one
+/// of them failing for two minutes the banner says so. That is all it does: no pass is held back and
+/// nothing is refused on it.
+/// </para>
 /// </remarks>
 public sealed class GetSapAvailabilityHandler(
     ApplicationDbContext db,
-    SapAvailability availability)
+    SapAvailability availability,
+    SlHealthMonitor slHealth,
+    SapCircuitBreakerState circuit)
     : IRequestHandler<GetSapAvailabilityQuery, ErrorOr<SapAvailabilityResult>>
 {
     /// <summary>How long after an outage ends the banner still says SAP is back and catching up.</summary>
@@ -41,7 +56,8 @@ public sealed class GetSapAvailabilityHandler(
         if (current is { InOutage: true, SinceUtc: { } since })
         {
             return new SapAvailabilityResult(
-                true, current.Cause, since, null, await SalesAwaitingSapAsync(since, cancellationToken));
+                true, current.Cause, since, null, await SalesAwaitingSapAsync(since, cancellationToken),
+                slHealth.ExplanationForStaff);
         }
 
         var endedAfter = DateTime.UtcNow - RecoveryNotice;
@@ -52,17 +68,20 @@ public sealed class GetSapAvailabilityHandler(
             .Select(outage => new { outage.Cause, outage.StartedAtUtc, outage.EndedAtUtc })
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (recent is null)
-        {
-            return SapAvailabilityResult.Available;
-        }
+        var answer = recent is null
+            ? SapAvailabilityResult.Available
+            : new SapAvailabilityResult(
+                false,
+                recent.Cause,
+                recent.StartedAtUtc,
+                recent.EndedAtUtc,
+                await SalesAwaitingSapAsync(recent.StartedAtUtc, cancellationToken));
 
-        return new SapAvailabilityResult(
-            false,
-            recent.Cause,
-            recent.StartedAtUtc,
-            recent.EndedAtUtc,
-            await SalesAwaitingSapAsync(recent.StartedAtUtc, cancellationToken));
+        // This node's own circuit open means this API cannot reach SAP either, which is the probe's
+        // finding to make and a different banner.
+        return slHealth.SlowNoticeSinceUtc is { } slowSince && !circuit.ShouldHoldBackWork(out _)
+            ? answer with { IsSlow = true, SlowSinceUtc = slowSince, Explanation = slHealth.ExplanationForStaff }
+            : answer;
     }
 
     private Task<int> SalesAwaitingSapAsync(DateTime sinceUtc, CancellationToken cancellationToken) =>

@@ -1,14 +1,44 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using ShopInventory.Services;
+using ShopInventory.Services.SlHealth;
 
 namespace ShopInventory.Health;
 
 public sealed class SapDependencyHealthCheck(
     IServiceScopeFactory scopeFactory,
     SapCircuitBreakerState circuitBreakerState,
-    SapAvailability? availability = null) : IHealthCheck
+    SapAvailability? availability = null,
+    SlHealthMonitor? slHealth = null) : IHealthCheck
 {
+    /// <summary>
+    /// SAP's state as this API finds it, with SL Health's view of the same Service Layer beside it in the
+    /// data when there is one. SL Health never changes the status: that stays this API's own finding.
+    /// </summary>
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        var result = await CheckSapAsync(cancellationToken);
+
+        if (slHealth?.Current is not { } status)
+        {
+            return result;
+        }
+
+        var data = new Dictionary<string, object>(result.Data)
+        {
+            ["slHealthLevel"] = status.Level ?? string.Empty,
+            ["slHealthAdvice"] = status.AdviceValue.ToString(),
+            ["slHealthReasons"] = (status.Reasons ?? []).ToArray()
+        };
+
+        if (slHealth.ExplanationForRecord is { } explanation)
+        {
+            data["slHealthExplanation"] = explanation;
+        }
+
+        return new HealthCheckResult(result.Status, result.Description, result.Exception, data);
+    }
+
+    private async Task<HealthCheckResult> CheckSapAsync(CancellationToken cancellationToken)
     {
         var circuitSnapshot = circuitBreakerState.GetSnapshot();
         if (!circuitSnapshot.IsEnabled)

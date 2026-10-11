@@ -2,14 +2,18 @@
 @implements IDisposable
 @inject ISapAvailabilityService SapAvailability
 
-@* Nothing at all while SAP is up and no outage has just ended: no bar, no reserved space. *@
-@if (_status is { IsDown: true } || _status is { EndedAtUtc: not null })
+@* Nothing at all while SAP is up and well and no outage has just ended: no bar, no reserved space. *@
+@if (SapOutageBannerText.For(_status, DateTime.UtcNow) is { } text)
 {
-    <div class="sapo-banner @(_status.IsDown ? "sapo-banner-down" : "sapo-banner-back")" role="status">
-        <i class="ph @(_status.IsDown ? "ph-cloud-slash" : "ph-cloud-check")" aria-hidden="true"></i>
+    <div class="sapo-banner @text.CssClass" role="status">
+        <i class="ph @text.Icon" aria-hidden="true"></i>
         <div class="sapo-banner-text">
-            <strong>@Headline</strong>
-            <span>@Detail</span>
+            <strong>@text.Headline</strong>
+            @if (text.Why is not null)
+            {
+                <span class="sapo-banner-why">@text.Why</span>
+            }
+            <span>@text.Detail</span>
         </div>
     </div>
 }
@@ -21,39 +25,6 @@
 
     private SapAvailabilityResponse? _status;
     private Timer? _timer;
-
-    private string Headline => _status switch
-    {
-        { IsDown: true, Cause: "SwitchedOff" } => $"The SAP connection is turned off{Since}",
-        { IsDown: true } => $"SAP is unavailable{Since}",
-        _ => $"SAP is back{Ended}"
-    };
-
-    private string Detail => _status switch
-    {
-        { IsDown: true, SalesAwaitingSap: > 0 } =>
-            $"Sales carry on and are kept here. {Sales(_status.SalesAwaitingSap)} recorded since then will post to SAP when it returns.",
-        { IsDown: true } =>
-            "Sales carry on and are kept here, and post to SAP when it returns. Stock transfers and van loads have to wait.",
-        { SalesAwaitingSap: > 0 } =>
-            $"{Sales(_status.SalesAwaitingSap)} from the outage {(_status.SalesAwaitingSap == 1 ? "is" : "are")} still waiting to post. Van sales post at the end of the day as usual.",
-        _ => "Everything recorded during the outage has posted."
-    };
-
-    private string Since => _status?.SinceUtc is { } since ? $" since {Cat(since)}" : string.Empty;
-
-    private string Ended => _status?.EndedAtUtc is { } ended ? $" since {Cat(ended)}" : string.Empty;
-
-    private static string Sales(int count) => count == 1 ? "1 sale" : $"{count:N0} sales";
-
-    // Today's outage by the clock alone; one that began on an earlier day says which.
-    private static string Cat(DateTime utc)
-    {
-        var cat = IAuditService.ToCAT(utc);
-        return cat.Date == IAuditService.ToCAT(DateTime.UtcNow).Date
-            ? cat.ToString("HH:mm")
-            : cat.ToString("ddd d MMM HH:mm");
-    }
 
     protected override async Task OnInitializedAsync()
     {

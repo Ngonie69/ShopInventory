@@ -6375,6 +6375,10 @@ namespace ShopInventory.Migrations
                     b.Property<DateTime?>("EndedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Explanation")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<int>("FailedProbes")
                         .HasColumnType("integer");
 

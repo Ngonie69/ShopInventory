@@ -12,7 +12,8 @@ and interactive priority, so a busy slot pool does not look like an outage.
 | Event | Rule |
 |---|---|
 | Outage declared | 3 failed probes in a row (about 90 s). The outage is dated from the **first** failed probe. |
-| Outage ended | 2 good probes in a row. The end is dated to the **first** good probe. |
+| Outage declared sooner | 1 failed probe, when SL Health also advises that SAP is unavailable. See [SL Health](#sl-health-a-second-opinion). |
+| Outage ended | 2 good probes in a row. The end is dated to the **first** good probe. SL Health has no say in this. |
 | SAP switched off in Settings | An outage opens at once, with cause `SwitchedOff`. Switching SAP back on does not end it; the next good probes do. |
 
 Outages are rows in `SapOutages`. At most one row is open (`EndedAtUtc` null). Every node re-reads the
@@ -20,6 +21,66 @@ open row every 15 seconds (`SapAvailability`); the node that writes a change app
 
 The per-node circuit breaker still exists and is unchanged. It protects one node from SAP for 30 seconds.
 The outage record is the cluster's view and is what the background passes use.
+
+## SL Health: a second opinion
+
+SL Health is a separate application that watches the same Service Layer. It pings it, logs in to it,
+runs test queries through it and watches Server Tools, and it knows about planned maintenance windows
+and restarts started from its dashboard. The API can ask it what state the Service Layer is in
+(`GET /api/integration/status` on SL Health, with a token of its own).
+
+Each API node asks every 15 seconds, with a 3-second timeout, and keeps the last answer in memory
+(`SlHealthMonitor`). **An answer is used only when it is fit to act on.** It is ignored when:
+
+- `SlHealth:Url` or `SlHealth:Token` is empty (the default), in which case nothing is ever asked
+- SL Health did not answer, answered with an error, or answered something that cannot be read
+- the last answer was received more than 60 seconds ago
+- SL Health marked it `stale` (its own checks have stopped) or gave the advice `Unknown`
+
+In every one of those cases the API does exactly what it did before it could ask. SL Health can be
+wrong about SAP (a firewall between the two is enough), so its word alone never opens an outage, never
+ends one, and never holds back or refuses any work.
+
+What an answer changes:
+
+| | What happens |
+|---|---|
+| **Saying why** | While an outage is open, the staff banner adds a sentence: "Planned maintenance until 03:00 (HANA backup).", "SAP is being restarted.", "Login is failing: Server Tools not answering." The same words are kept on the outage row (`SapOutages.Explanation`). |
+| **Declaring sooner** | When SL Health's advice is `Unavailable` (it finds SAP DOWN, or a Service Layer restart is running) **and** the API's own probe has failed, the outage is declared on that failed probe instead of the third. Either one alone changes nothing. |
+| **Answering slowly** | When no outage is open, and SL Health has reported a failing login, a failing test query or Server Tools not answering for 2 minutes while its own ping still answers, the banner reads "SAP is answering slowly since 12:08" and names what is failing. This is the gap described under [Van sales while SAP is down](#van-sales-while-sap-is-down): the API's probe only pings. **It is a notice and nothing else.** No pass is held back and no request is refused on it. |
+| **Health check** | The `sap` check's data gains `slHealthLevel`, `slHealthAdvice`, `slHealthReasons` and, when there is one, `slHealthExplanation`. Its status is still the API's own finding. |
+
+Details that matter when reading an incident:
+
+- **The banner never repeats SL Health's own reason sentences or a check's error text.** Those are
+  written for administrators and can name a host or a port. The banner is built from structure only:
+  the window, the restart, which check failed. The outage row and the health check do carry them.
+- **The outage row keeps the most specific thing SL Health said.** A planned window or a restart
+  replaces whatever is there. SL Health's general "DOWN: …" only fills a row that says nothing, so a
+  window that overruns its end still reads "planned maintenance until 03:00 (HANA backup)".
+- **SL Health unable to ping SAP while the API can** is a disagreement about whether SAP is there at
+  all. Nothing is shown for it.
+- **The slow notice is per node.** Each node times the two minutes from when it first heard of the
+  failing check, so two nodes can differ by up to 15 seconds.
+- **The certificate SL Health reports is not read.** The thumbprints the API trusts come from
+  `SAP:AllowedServerCertificateThumbprints` and nowhere else.
+- **Holding report scans back under load (`HoldBackground`) is not built.** The advice is read and
+  shown in the health check, and nothing acts on it.
+
+The API log says once when it starts reading SL Health, once when it stops having an answer and why,
+and once when it has one again:
+
+```text
+SL Health is being read: Healthy, advice Proceed.
+SL Health is not being read, so SAP is judged without it: SL Health did not answer within 3s.
+```
+
+An outage declared sooner says so:
+
+```text
+SAP is unavailable: the probe failed 1 time(s) since … and SL Health reports the Service Layer DOWN,
+so the outage is declared now rather than after 3 failures.
+```
 
 ## While SAP is down
 
@@ -106,6 +167,9 @@ van against this system's own count in either of two cases:
   504 ("a downstream service did not respond in time") with nothing signed. A request that also names
   a depot or shop still fails, since their stock is only in SAP. A refusal from SAP is SAP answering,
   and is not rescued. The API logs `SAP did not answer the stock read for van(s) …` each time.
+  When SL Health is being read, staff are also told: after two minutes of it reporting a failing
+  query or login the banner reads "SAP is answering slowly". That changes nothing about how the
+  sale is handled.
 
 Either way:
 
@@ -209,13 +273,32 @@ The probe is scheduled only when `SAP:Enabled` and `SapAvailability:Enabled` are
 job from code does not remove it from the clustered store. To stop the probe, set `Enabled` to false
 and delete its trigger from Quartz.
 
+`SlHealth` section. Both keys are empty by default, which turns the reader off.
+
+```json
+"SlHealth": {
+  "Url": "http://<sl-health-host>:5080",
+  "Token": ""
+}
+```
+
+`Token` is the one SL Health lists for ShopInventory under its own `Integration:Clients`. Set it as
+the `SlHealth__Token` environment variable in the API's `web.config`, never in `appsettings.json`. It
+is sent as a bearer header and is in no log line. The 15-second interval, the 3-second timeout, the
+60-second age limit and the 2 minutes before the slow notice are fixed in code (`SlHealthMonitor`,
+`SlHealthClient`). To turn the reader off, empty either key and restart the API; SL Health's SAP
+config page shows when each application last asked.
+
 ## Checking
 
 - `GET /api/health`: the `sap` check reads "SAP is unavailable (declared outage)", with `outageId`,
   `sinceUtc` and `cause` in its data. (`/health/dependencies` answers with the overall status only.)
-- Outage history:
+  While SL Health is being read the data also has `slHealthLevel`, `slHealthAdvice` and
+  `slHealthReasons`; their absence means the API has no answer from SL Health fit to act on.
+- Outage history. `Explanation` is what SL Health said; `StartedAtUtc` equal to `DeclaredAtUtc` with
+  one failed probe is an outage declared sooner on SL Health's advice:
   ```sql
-  SELECT "Id", "Cause", "StartedAtUtc", "DeclaredAtUtc", "EndedAtUtc", "FailedProbes", "LastError"
+  SELECT "Id", "Cause", "Explanation", "StartedAtUtc", "DeclaredAtUtc", "EndedAtUtc", "FailedProbes", "LastError"
   FROM "SapOutages" ORDER BY "Id" DESC LIMIT 20;
   ```
 - The API log line `SAP availability is now …` marks each change on each node.

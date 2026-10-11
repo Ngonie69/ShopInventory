@@ -87,6 +87,14 @@ dotnet user-secrets set "Email:Password" "YOUR_SMTP_PASSWORD"
 # dotnet user-secrets set "Cartrack:Username" "YOUR_CARTRACK_API_USERNAME"
 # dotnet user-secrets set "Cartrack:Password" "YOUR_CARTRACK_API_PASSWORD"
 
+# SL Health (the monitor of the SAP Service Layer) — the token it lists for ShopInventory under its
+# own Integration:Clients, so the API may ask it what state SAP is in. The reader is OFF unless both
+# SlHealth:Url and SlHealth:Token are set. See docs/operations/sap-outages.md.
+# Production: SlHealth__Url and SlHealth__Token as env vars in the API's IIS web.config. The token is
+# sent as a bearer header and is in no log line.
+# dotnet user-secrets set "SlHealth:Url" "http://localhost:5083"
+# dotnet user-secrets set "SlHealth:Token" "THE_TOKEN_SL_HEALTH_LISTS_FOR_SHOPINVENTORY"
+
 # MediatR licence key (MediatR 13+ is commercial; obtain a key from
 # https://luckypennysoftware.com). Without it MediatR logs a licence warning at every
 # start in BOTH the API and the Web app. Same key for both projects; env var MediatR__LicenseKey.

@@ -4,6 +4,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Middleware;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.SlHealth;
 
 namespace ShopInventory.Services;
 
@@ -27,12 +28,22 @@ namespace ShopInventory.Services;
 /// A probe refused by this node's open circuit counts as a failure. The circuit only opens on failed
 /// requests, and it closes on the first success, so it cannot keep a recovered SAP looking down.
 /// </para>
+/// <para>
+/// SL Health watches the same Service Layer and is read beside the probe (<see cref="SlHealthMonitor"/>).
+/// What it says about why SAP is unavailable is written on the outage row. It never opens or ends an
+/// outage by itself: its advice can be wrong, a firewall between it and SAP is enough. But when it
+/// advises that SAP is unavailable and this probe has failed too, those are two independent findings,
+/// and the outage is declared on that first failed probe rather than the third. A minute sooner, the
+/// posting passes stop spending round trips on a SAP that two watchers agree is gone. Ending an outage
+/// is the probe's alone, whatever SL Health says.
+/// </para>
 /// </remarks>
 public sealed class SapAvailabilityProbe(
     ApplicationDbContext db,
     ISAPServiceLayerClient sap,
     SapCircuitBreakerState circuit,
     SapAvailability availability,
+    SlHealthMonitor slHealth,
     IOptions<SapAvailabilitySettings> settings,
     TimeProvider timeProvider,
     ILogger<SapAvailabilityProbe> logger)
@@ -56,6 +67,7 @@ public sealed class SapAvailabilityProbe(
                     DeclaredAtUtc = now,
                     Cause = SapOutageCauses.SwitchedOff,
                     FirstError = "The SAP connection was turned off in Settings.",
+                    Explanation = Explain(null),
                     LastProbeAtUtc = now
                 };
                 db.SapOutages.Add(open);
@@ -64,6 +76,7 @@ public sealed class SapAvailabilityProbe(
             else
             {
                 open.LastProbeAtUtc = now;
+                open.Explanation = Explain(open.Explanation);
             }
 
             await db.SaveChangesAsync(CancellationToken.None);
@@ -75,6 +88,14 @@ public sealed class SapAvailabilityProbe(
         var probedAt = timeProvider.GetUtcNow().UtcDateTime;
 
         run = answered ? run.Succeeded(probedAt) : run.Failed(probedAt, error!);
+
+        // Read after the probe, which can take its whole budget: the freshest thing SL Health has said.
+        var failuresToDeclare = Math.Max(1, options.FailuresToDeclare);
+        var secondOpinion = !answered
+            && run.Failures < failuresToDeclare
+            && slHealth.Current is { AdviceValue: SlHealthAdvice.Unavailable } advised
+                ? advised
+                : null;
 
         if (open is not null)
         {
@@ -91,9 +112,10 @@ public sealed class SapAvailabilityProbe(
             {
                 open.FailedProbes++;
                 open.LastError = Truncate(error, 1000);
+                open.Explanation = Explain(open.Explanation);
             }
         }
-        else if (!answered && run.Failures >= Math.Max(1, options.FailuresToDeclare))
+        else if (!answered && (run.Failures >= failuresToDeclare || secondOpinion is not null))
         {
             open = new SapOutageEntity
             {
@@ -102,13 +124,24 @@ public sealed class SapAvailabilityProbe(
                 Cause = SapOutageCauses.Unreachable,
                 FirstError = Truncate(run.FirstError, 1000),
                 LastError = Truncate(error, 1000),
+                Explanation = Explain(null),
                 FailedProbes = run.Failures,
                 LastProbeAtUtc = probedAt
             };
             db.SapOutages.Add(open);
-            logger.LogWarning(
-                "SAP is unavailable: {Failures} probes failed in a row since {StartedAt:u}. Latest: {Error}",
-                run.Failures, run.RunStartedAtUtc, error);
+
+            if (secondOpinion is not null)
+            {
+                logger.LogWarning(
+                    "SAP is unavailable: the probe failed {Failures} time(s) since {StartedAt:u} and SL Health reports the Service Layer {SlHealthLevel}, so the outage is declared now rather than after {FailuresToDeclare} failures. Latest: {Error}",
+                    run.Failures, run.RunStartedAtUtc, secondOpinion.Label ?? secondOpinion.Level, failuresToDeclare, error);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "SAP is unavailable: {Failures} probes failed in a row since {StartedAt:u}. Latest: {Error}",
+                    run.Failures, run.RunStartedAtUtc, error);
+            }
         }
 
         if (db.ChangeTracker.HasChanges())
@@ -149,6 +182,20 @@ public sealed class SapAvailabilityProbe(
             return (false, $"{ex.GetType().Name}: {ex.GetBaseException().Message}");
         }
     }
+
+    /// <summary>
+    /// What the outage row should say SL Health's explanation is, given what it says already.
+    /// </summary>
+    /// <remarks>
+    /// Something specific (a planned window, a restart, a named failing check) always replaces what is
+    /// there: a restart that turns out to be a planned window should read as one. SL Health's general
+    /// level and reasons only fill a row that says nothing, so a window that overruns its end, after
+    /// which SL Health reports plain DOWN, keeps "planned maintenance until 03:00 (HANA backup)".
+    /// </remarks>
+    private string? Explain(string? existing) =>
+        slHealth.ExplanationForStaff is { } specific
+            ? Truncate(specific, SlHealthExplanation.MaxRecordLength)
+            : existing ?? slHealth.ExplanationForRecord;
 
     private static string? Truncate(string? value, int maxLength) =>
         string.IsNullOrEmpty(value) || value.Length <= maxLength ? value : value[..maxLength];
