@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Common.Stock;
 
@@ -24,6 +25,13 @@ namespace ShopInventory.Common.Stock;
 /// Dated by the CAT calendar date. The 07:00 read writes the day's row under the ledger day, which is
 /// the same date from then on; before it there is no row for the day and the position is unknown.
 /// </para>
+/// <para>
+/// Only a finished read is a position. The read saves its header as Pending before it asks SAP, and
+/// leaves it Failed with no rows when SAP does not answer; either used to read here as a van that had
+/// opened carrying nothing, so every sale was refused as a shortfall of stock the van was holding.
+/// The retry through the day is for shops, so a van's unfinished read stays unfinished, and its
+/// position unknown, until the API restarts or someone fetches it by hand.
+/// </para>
 /// </remarks>
 public static class VanStockPosition
 {
@@ -43,7 +51,9 @@ public static class VanStockPosition
     {
         var snapshotId = await db.DailyStockSnapshots
             .AsNoTracking()
-            .Where(header => header.WarehouseCode == warehouseCode && header.SnapshotDate == tradingDate)
+            .Where(header => header.WarehouseCode == warehouseCode
+                          && header.SnapshotDate == tradingDate
+                          && header.Status == StockSnapshotStatus.Complete)
             .Select(header => (int?)header.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -121,7 +131,10 @@ public static class VanStockPosition
     }
 }
 
-/// <param name="Counted">False when the van has filed no opening count for the day: its position is unknown.</param>
+/// <param name="Counted">
+/// False when the day's read of the van's stock from SAP has not finished, or has not been made yet:
+/// its position is unknown.
+/// </param>
 /// <param name="Items">One entry per item, in item-code order.</param>
 public sealed record VanStockPositionReading(bool Counted, IReadOnlyList<VanItemPosition> Items)
 {

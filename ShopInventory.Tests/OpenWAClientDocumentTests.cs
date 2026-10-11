@@ -114,21 +114,33 @@ public sealed class OpenWAClientDocumentTests
             .SendDocumentAsync("s", new WhatsAppSendDocumentRequestDto { ChatId = "c", Base64 = "b" });
         Assert.Equal("x", sent.MessageId);
 
-        var slowCheck = new RecordingHandler("""{"number":"1","exists":true}""") { Delay = TimeSpan.FromSeconds(2) };
+        // Never answers, and HttpClient's own timeout is off, so the call can end only by the client's
+        // deadline. This used to be an answer after two seconds against the one-second deadline. Both
+        // are timers, and on a busy runner the answer sometimes came first: no exception, and a red
+        // build with nothing wrong. The wait is not the test; it turns a deadline that never fires into
+        // a failure instead of a run that hangs.
+        var neverAnswers = new RecordingHandler("""{"number":"1","exists":true}""") { Delay = Timeout.InfiniteTimeSpan };
         var timeout = await Assert.ThrowsAsync<TaskCanceledException>(() =>
-            Client(slowCheck, settings).CheckNumberAsync("s", "263771234567"));
+            Client(neverAnswers, settings, Timeout.InfiniteTimeSpan)
+                .CheckNumberAsync("s", "263771234567")
+                .WaitAsync(TimeSpan.FromSeconds(60)));
 
         // Reported as HttpClient reports its own timeout, so callers tell it from their own cancellation.
         Assert.IsType<TimeoutException>(timeout.InnerException);
+
+        // The short deadline, not the document's.
+        Assert.Contains("within 1 seconds", timeout.Message);
     }
 
-    private static OpenWAClient Client(RecordingHandler handler, OpenWASettings? settings = null)
+    private static OpenWAClient Client(
+        RecordingHandler handler, OpenWASettings? settings = null, TimeSpan? httpTimeout = null)
     {
         var configured = settings ?? new OpenWASettings { ApiKey = "key", TimeoutSeconds = 30, DocumentTimeoutSeconds = 60 };
         var http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://127.0.0.1:2785"),
-            Timeout = TimeSpan.FromSeconds(Math.Max(configured.TimeoutSeconds, configured.DocumentTimeoutSeconds) + 5)
+            Timeout = httpTimeout
+                ?? TimeSpan.FromSeconds(Math.Max(configured.TimeoutSeconds, configured.DocumentTimeoutSeconds) + 5)
         };
 
         return new OpenWAClient(http, Options.Create(configured), NullLogger<OpenWAClient>.Instance);
@@ -148,6 +160,7 @@ public sealed class OpenWAClientDocumentTests
 
         public List<RecordedRequest> Requests { get; } = [];
 
+        /// <summary>How long before it answers. <see cref="Timeout.InfiniteTimeSpan"/> never answers.</summary>
         public TimeSpan Delay { get; init; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -159,7 +172,7 @@ public sealed class OpenWAClientDocumentTests
                 request.Headers.TryGetValues("X-API-Key", out var keys) ? keys.Single() : null,
                 request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken)));
 
-            if (Delay > TimeSpan.Zero)
+            if (Delay != TimeSpan.Zero)
                 await Task.Delay(Delay, cancellationToken);
 
             var (status, body) = _answers.Count > 1 ? _answers.Dequeue() : _answers.Peek();

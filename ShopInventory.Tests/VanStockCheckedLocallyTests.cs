@@ -21,7 +21,9 @@ namespace ShopInventory.Tests;
 /// <remarks>
 /// Before this, every online van sale during an outage failed at the reservation's SAP stock read, and
 /// the handset has no path to sell without the server. The policy (2026-09-28): refuse a shortfall, as
-/// a till does, and refuse a van that has not filed its opening count.
+/// a till does, and refuse a van with no opening stock for the day. That opening stock is the morning
+/// read from SAP; a van has none before it, nor on a day it did not finish, and is not given
+/// yesterday's instead (2026-10-11). What the rep is told then is in <see cref="VanStockNotCountedRefusalTests"/>.
 /// </remarks>
 public sealed class VanStockCheckedLocallyTests : IDisposable
 {
@@ -110,15 +112,55 @@ public sealed class VanStockCheckedLocallyTests : IDisposable
     }
 
     [Fact]
-    public async Task During_an_outage_a_van_that_has_not_counted_is_refused_with_a_reason_it_can_act_on()
+    public async Task During_an_outage_a_van_with_no_opening_stock_is_refused_and_told_sap_is_not_available()
     {
         SapIsDown();
 
         var (valid, errors) = await Service().ValidateStockAvailabilityAsync([Line(Van, 1m)]);
 
         Assert.False(valid);
-        Assert.Equal(ReservationErrorCode.StockNotCounted, Assert.Single(errors).ErrorCode);
+        var error = Assert.Single(errors);
+        Assert.Equal(ReservationErrorCode.StockNotCounted, error.ErrorCode);
+        Assert.StartsWith("SAP is not available right now, and ", error.Message);
+        Assert.Contains($"van {Van}", error.Message);
+        AssertAsksNothingOfTheHandset(error);
         Assert.Equal(0, _sapStockReads);
+    }
+
+    /// <summary>
+    /// The read saves its header before it asks SAP, and leaves it Failed with no rows when SAP does
+    /// not answer. Either read as a van that opened carrying nothing: every sale was then refused as
+    /// short of stock the van was holding, with "Available: 0.00" to make it look measured.
+    /// </summary>
+    [Theory]
+    [InlineData(StockSnapshotStatus.Pending)]
+    [InlineData(StockSnapshotStatus.Failed)]
+    public async Task A_morning_read_that_did_not_finish_is_no_opening_stock_rather_than_an_empty_van(
+        StockSnapshotStatus status)
+    {
+        SapIsDown();
+        await GivenUnfinishedReadAsync(status);
+
+        var (valid, errors) = await Service().ValidateStockAvailabilityAsync([Line(Van, 1m)]);
+
+        Assert.False(valid);
+        Assert.Equal(ReservationErrorCode.StockNotCounted, Assert.Single(errors).ErrorCode);
+    }
+
+    /// <summary>
+    /// The reason is the van's, not the line's. Refused once a line, a fourteen-line sale put the same
+    /// paragraph on the handset fourteen times.
+    /// </summary>
+    [Fact]
+    public async Task A_van_with_no_opening_stock_is_refused_once_however_many_lines_the_sale_has()
+    {
+        SapIsDown();
+
+        var (valid, errors) = await Service().ValidateStockAvailabilityAsync(
+            [Line(Van, 1m), Line(Van, 2m, item: "CHE011", lineNum: 2), Line(Van, 3m, item: "CON020", lineNum: 3)]);
+
+        Assert.False(valid);
+        Assert.Equal(ReservationErrorCode.StockNotCounted, Assert.Single(errors).ErrorCode);
     }
 
     [Fact]
@@ -188,9 +230,85 @@ public sealed class VanStockCheckedLocallyTests : IDisposable
         Assert.Equal(3m, error.AvailableQuantity);
     }
 
+    /// <summary>
+    /// VAN004, 2026-10-11, three times before the 07:00 read. SAP was up and had left one stock read
+    /// unanswered; the rep was told "SAP is down" and to send a count that is no longer filed anywhere.
+    /// </summary>
     [Fact]
-    public async Task When_sap_does_not_answer_a_van_that_has_not_counted_is_refused_with_a_reason_it_can_act_on()
+    public async Task When_sap_does_not_answer_a_van_with_no_opening_stock_is_refused_and_told_what_happened()
     {
+        var (valid, errors) = await Service(sapFails: SapReadTimedOut())
+            .ValidateStockAvailabilityAsync([Line(Van, 1m)]);
+
+        Assert.False(valid);
+        var error = Assert.Single(errors);
+        Assert.Equal(ReservationErrorCode.StockNotCounted, error.ErrorCode);
+        Assert.StartsWith("SAP did not answer when asked for the van's stock, and ", error.Message);
+        Assert.Contains($"van {Van}", error.Message);
+        AssertAsksNothingOfTheHandset(error);
+        Assert.Equal(1, _sapStockReads);
+    }
+
+    /// <summary>
+    /// What the direct van sale and the order conversion send the handset: the reservation's summary
+    /// and its reasons, joined. The summary used to be "Insufficient stock available for reservation"
+    /// whatever the reason, and nothing had been found short.
+    /// </summary>
+    [Fact]
+    public async Task When_sap_does_not_answer_the_refused_reservation_reaches_the_handset_as_written()
+    {
+        var refused = await Service(sapFails: SapReadTimedOut())
+            .CreateReservationAsync(new CreateStockReservationRequest
+            {
+                ExternalReferenceId = "VAN5-ONLINE-11",
+                SourceSystem = SaleSourceSystems.VanSales,
+                CardCode = "VAN010",
+                Currency = "USD",
+                ReservationDurationMinutes = 60,
+                Lines = [Line(Van, 4m), Line(Van, 1m, item: "CHE011", lineNum: 2)]
+            }, "van5");
+
+        Assert.False(refused.Success);
+        Assert.Equal("Van stock could not be checked", refused.Message);
+        Assert.Empty(await _context.StockReservations.ToListAsync());
+
+        var answered = string.Join("; ", new[] { refused.Message }.Concat(refused.Errors!.Select(e => e.Message)));
+
+        Assert.Equal($"Error: {answered}", HandsetSaleErrorReading.ParseSapError(answered));
+        Assert.False(HandsetSaleErrorReading.OffersToEditTheBasket(answered));
+        Assert.False(HandsetSaleErrorReading.IsDuplicateVanOrderError(answered));
+    }
+
+    [Fact]
+    public async Task A_real_shortfall_is_still_summarised_as_insufficient_stock()
+    {
+        await GivenOpeningCountAsync(2m);
+
+        var refused = await Service(sapFails: SapReadTimedOut())
+            .CreateReservationAsync(new CreateStockReservationRequest
+            {
+                ExternalReferenceId = "VAN5-ONLINE-12",
+                SourceSystem = SaleSourceSystems.VanSales,
+                CardCode = "VAN010",
+                Currency = "USD",
+                ReservationDurationMinutes = 60,
+                Lines = [Line(Van, 4m)]
+            }, "van5");
+
+        Assert.False(refused.Success);
+        Assert.Equal("Insufficient stock available for reservation", refused.Message);
+        Assert.Equal(ReservationErrorCode.InsufficientStock, Assert.Single(refused.Errors!).ErrorCode);
+    }
+
+    /// <summary>
+    /// A morning read that failed is the likeliest company for a stock read that goes unanswered: both
+    /// are SAP not answering for this van.
+    /// </summary>
+    [Fact]
+    public async Task When_sap_does_not_answer_a_failed_morning_read_is_no_opening_stock()
+    {
+        await GivenUnfinishedReadAsync(StockSnapshotStatus.Failed);
+
         var (valid, errors) = await Service(sapFails: SapReadTimedOut())
             .ValidateStockAvailabilityAsync([Line(Van, 1m)]);
 
@@ -496,6 +614,35 @@ public sealed class VanStockCheckedLocallyTests : IDisposable
             Version = 1
         }.Opened(quantity));
         await _context.SaveChangesAsync();
+    }
+
+    /// <summary>The header the morning read leaves behind when it has not finished: no rows under it.</summary>
+    private async Task GivenUnfinishedReadAsync(StockSnapshotStatus status)
+    {
+        _context.DailyStockSnapshots.Add(new DailyStockSnapshotEntity
+        {
+            SnapshotDate = AuditService.ToCAT(DateTime.UtcNow).Date,
+            WarehouseCode = Van,
+            Status = status,
+            LastError = status == StockSnapshotStatus.Failed ? "SAP stock read exceeded its 60-second budget" : null,
+            CreatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// The handset's count is logged and filed nowhere, so no refusal may send the rep to send one.
+    /// </summary>
+    private static void AssertAsksNothingOfTheHandset(StockReservationErrorDto error)
+    {
+        foreach (var text in new[] { error.Message, error.SuggestedAction ?? string.Empty })
+        {
+            Assert.DoesNotContain("Start the day", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("sync", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("SAP is down", text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Contains("Nothing on the handset changes this", error.Message);
     }
 
     private async Task GivenSaleTodayAsync(string reference, string source, decimal quantity)

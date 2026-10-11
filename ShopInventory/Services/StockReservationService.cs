@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Sales;
 using ShopInventory.Common.Stock;
 using ShopInventory.Common.Validation;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
@@ -159,6 +161,9 @@ public class StockReservationService : IStockReservationService
     private readonly ILogger<StockReservationService> _logger;
     private readonly SapCircuitBreakerState? _sapCircuit;
 
+    /// <summary>When the morning read of stock from SAP runs, in CAT. Before it a van has no figure here.</summary>
+    private readonly TimeSpan _stockFetchTimeCat;
+
     private const int MaxRenewals = 10;
     private const int MaxReservationDurationHours = 24;
 
@@ -171,7 +176,8 @@ public class StockReservationService : IStockReservationService
         IInvoiceFiscalizationQueue fiscalizationQueue,
         INotificationService notificationService,
         ILogger<StockReservationService> logger,
-        SapCircuitBreakerState? sapCircuit = null)
+        SapCircuitBreakerState? sapCircuit = null,
+        IOptions<DailyStockSettings>? dailyStock = null)
     {
         _dbContext = dbContext;
         _sapClient = sapClient;
@@ -182,6 +188,7 @@ public class StockReservationService : IStockReservationService
         _notificationService = notificationService;
         _logger = logger;
         _sapCircuit = sapCircuit;
+        _stockFetchTimeCat = StockLedgerDay.ParseFetchTime(dailyStock?.Value.StockFetchTimeCAT);
     }
 
     /// <inheritdoc/>
@@ -258,7 +265,12 @@ public class StockReservationService : IStockReservationService
             return new StockReservationResponseDto
             {
                 Success = false,
-                Message = "Insufficient stock available for reservation",
+
+                // Not "insufficient stock" for a van nobody could check: nothing was found short, and
+                // the handset offers to edit the basket on that word.
+                Message = validationErrors.Any(error => error.ErrorCode == ReservationErrorCode.StockNotCounted)
+                    ? VanStockNotCountedRefusal.Summary
+                    : "Insufficient stock available for reservation",
                 Errors = validationErrors
             };
         }
@@ -1353,7 +1365,8 @@ public class StockReservationService : IStockReservationService
         // While SAP is down a van is checked against what it is carrying by this system's own count
         // instead: SAP cannot answer, and a van with no answer could not sell at all. See
         // LoadVanStockLocallyAsync.
-        var (localVans, uncountedVans) = SapHeldBack(out var holdBackReason)
+        var sapHeldBack = SapHeldBack(out var holdBackReason);
+        var (localVans, uncountedVans) = sapHeldBack
             ? await LoadVanStockLocallyAsync(
                 await VansAmongAsync(lines.Select(line => line.WarehouseCode), cancellationToken),
                 lines,
@@ -1419,26 +1432,35 @@ public class StockReservationService : IStockReservationService
         // requested batch number, and again in the aggregate pass below.
         var batchesByItemAndWarehouse = new Dictionary<string, List<AvailableBatchDto>>(StringComparer.Ordinal);
 
+        // A van with no figure is refused once, not once a line: the reason is the van's, and every
+        // caller joins these messages into the one string the handset shows.
+        var vansRefused = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var line in lines)
         {
             if (line.WarehouseCode is not null && uncountedVans.Contains(line.WarehouseCode))
             {
-                errors.Add(new StockReservationErrorDto
+                if (vansRefused.Add(line.WarehouseCode))
                 {
-                    ErrorCode = ReservationErrorCode.StockNotCounted,
-                    LineNumber = line.LineNum,
-                    ItemCode = line.ItemCode,
-                    WarehouseCode = line.WarehouseCode,
-                    RequestedQuantity = line.Quantity,
-                    AvailableQuantity = 0,
-                    // The handset shows this text and nothing else, behind "Error:", so it says what to do.
-                    // Worded clear of the handset's connection keywords, which would turn it into "your
-                    // order may or may not have been submitted".
-                    Message = $"SAP is down, and van {line.WarehouseCode} has not sent today's stock count, so this "
-                        + "sale cannot be checked. Open Start the day, or sync the handset, to send the count, "
-                        + "then try the sale again.",
-                    SuggestedAction = "Open Start the day, or sync the handset, then try the sale again"
-                });
+                    // The handset shows this text and nothing else, behind "Error:". It says which of the
+                    // two ways SAP gave no figure, and is worded clear of the handset's keywords. See
+                    // VanStockNotCountedRefusal.
+                    var (message, suggestedAction) = VanStockNotCountedRefusal.Describe(
+                        line.WarehouseCode, sapHeldBack, DateTime.UtcNow, _stockFetchTimeCat);
+
+                    errors.Add(new StockReservationErrorDto
+                    {
+                        ErrorCode = ReservationErrorCode.StockNotCounted,
+                        LineNumber = line.LineNum,
+                        ItemCode = line.ItemCode,
+                        WarehouseCode = line.WarehouseCode,
+                        RequestedQuantity = line.Quantity,
+                        AvailableQuantity = 0,
+                        Message = message,
+                        SuggestedAction = suggestedAction
+                    });
+                }
+
                 continue;
             }
 
@@ -1665,7 +1687,7 @@ public class StockReservationService : IStockReservationService
 
     /// <summary>
     /// The stock of each of <paramref name="vans"/> by this system's own count, and the vans that have
-    /// no count for the day.
+    /// no figure for the day.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -1673,11 +1695,16 @@ public class StockReservationService : IStockReservationService
     /// request (<paramref name="reason"/> says which).
     /// </para>
     /// <para>
-    /// A van's figure here is its opening count, plus loads, less the sales received today — the same
+    /// A van's figure here is its opening stock, plus loads, less the sales received today — the same
     /// arithmetic as the stock-position endpoint — without the online sales whose reservation is still
-    /// holding stock, because the caller subtracts live holds itself. A van that has not counted is
-    /// refused rather than let through unchecked (decided 2026-09-28): the count is what makes the
-    /// figure worth trusting. So is a shortfall, as a till refuses one.
+    /// holding stock, because the caller subtracts live holds itself. A van with no opening stock for
+    /// the day is refused rather than let through unchecked (decided 2026-09-28): the opening figure is
+    /// what makes the rest worth trusting. So is a shortfall, as a till refuses one.
+    /// </para>
+    /// <para>
+    /// The opening stock is the morning read from SAP and nothing else, so a van has none between
+    /// midnight and that read, nor on a day the read did not finish for it. It is not rebuilt from
+    /// the day before, and nothing the rep does supplies it; see <see cref="VanStockNotCountedRefusal"/>.
     /// </para>
     /// <para>
     /// Vans only. A shop's stock lives on the stock ledger and a depot's in SAP, and both keep the SAP
