@@ -35,6 +35,46 @@ otherwise be surprised.
   - Operators: a rep told "this morning's 07:00 stock read has not finished for van …" needs the stock
     fetch run for that van. Nothing retries a van's read during the day.
 
+- **Sending documents on WhatsApp needs no set-up, and automatic sending is on.** Operators should
+  know what changes on the deploy:
+  - With no session saved, the sender takes the gateway's ready session on its next pass and saves
+    it: the one named `customer-documents` (`CustomerDocuments:PreferredSessionName`) when several are
+    ready, otherwise the only ready one. **If only one number is paired, customer invoices go from
+    that number**, whatever it is called. `/whatsapp-deliveries` shows it, changed by *Chosen
+    automatically*, and it can be changed there. Several ready with none carrying the name are left to
+    a person.
+  - **Automatic sending is on unless it was saved off.** Numbers marked for automatic invoices start
+    receiving new invoices, inside the window and under the automatic cap. A switch someone saved off
+    stays off.
+  - `PUT /api/customer-document-deliveries/settings`: a blank `whatsAppSessionId` now means "choose
+    automatically"; it used to stop all sending. Stopping is `stopSending: true`, the *None — stop all
+    sending* row of the picker. `status` gains `sendingStopped`, `automaticSessionName` and
+    `severalSessionsReady`.
+  - A send is refused with `CustomerDocuments.SessionNotConfigured` only when the gateway has no
+    ready session or several unnamed ones, and with the new `CustomerDocuments.SendingStopped` while
+    sending is stopped.
+
+- **A sale filed as a 48 mm receipt is sent as a till slip, not an A4 invoice.** The file is
+  `Kefalos-Receipt-{number}.pdf` (`CustomerDocuments:ReceiptFileNameTemplate`), one narrow page laid
+  out as the van printer's fiscal receipt. This follows the partner's document type on Settings →
+  Fiscalisation, for till, vending and van sales only; every other invoice is the A4 PDF as before.
+  `preview` answers with whichever would be sent.
+
+- **`POST /api/vansales/sale/{vanOrder}/whatsapp` saves the number and can be called without one.**
+  - With no `phone` it sends to the number saved on the shop and marked for automatic invoices, and
+    answers `200` with `needs_number: true` when there is none. It used to answer `400`.
+  - A `phone` given with `consent` is now saved on the route customer, marked for automatic
+    invoices; it used to be kept on that send only. The answer gains `saved`, `needs_number` and
+    `recipients`.
+  - Typed numbers are capped per rep per day as before; sends to a saved number are not counted.
+  - Needs the van app release that asks after every sale. An older handset keeps working: it always
+    sends a number.
+
+- **A number typed in the invoice's Send dialog is kept by default.** *Save it on the customer* and
+  *Send the customer's future invoices to it automatically* are ticked when the dialog opens. With
+  `saveAsContact` on a selling account's invoice the API now sends to the number without saving it,
+  where it used to refuse with `CustomerDocuments.SellingAccountNotAllowed`.
+
 ### Added
 
 - **Invoices can be sent to customers on WhatsApp.** The new routes are under
@@ -43,8 +83,9 @@ otherwise be surprised.
   by default and Manager has neither. Operators should know four things:
   - The job `customer-document-delivery` is scheduled on every node, because
     `CustomerDocuments:Enabled` ships `true`.
-  - It sends nothing until an administrator chooses a session on `/whatsapp-deliveries`.
-  - Automatic sending ships off.
+  - It sends nothing until an administrator chooses a session on `/whatsapp-deliveries`. (No longer
+    so: see *Sending documents on WhatsApp needs no set-up* above.)
+  - Automatic sending ships off. (No longer so, as above.)
   - OpenWA on .9 refuses every invoice with `413` until it runs Ngonie69/OpenWA#2, which this
     repository's `OpenWA` pointer now includes. Update the submodule there and re-run
     `Install-OpenWAProduction.ps1` (see "Upgrading OpenWA" in `docs/operations/whatsapp-production.md`).
