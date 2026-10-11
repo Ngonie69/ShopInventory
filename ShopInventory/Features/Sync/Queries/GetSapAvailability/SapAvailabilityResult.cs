@@ -11,12 +11,18 @@ namespace ShopInventory.Features.Sync.Queries.GetSapAvailability;
 /// Sales recorded since the outage started that SAP does not have yet. Zero when there is no outage to
 /// report on.
 /// </param>
+/// <param name="Explanation">
+/// Why, as SL Health tells it, in words for staff: for example <c>planned maintenance until 03:00 (HANA
+/// backup)</c> or <c>SAP is being restarted</c>. Null when SL Health is not being read or has nothing to
+/// add, and always null once SAP is back.
+/// </param>
 public sealed record SapAvailabilityResult(
     bool IsDown,
     string? Cause,
     DateTime? SinceUtc,
     DateTime? EndedAtUtc,
-    int SalesAwaitingSap)
+    int SalesAwaitingSap,
+    string? Explanation = null)
 {
     public static readonly SapAvailabilityResult Available = new(false, null, null, null, 0);
 }

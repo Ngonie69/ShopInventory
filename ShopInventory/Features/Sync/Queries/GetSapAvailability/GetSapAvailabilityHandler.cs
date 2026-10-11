@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.SlHealth;
 
 namespace ShopInventory.Features.Sync.Queries.GetSapAvailability;
 
@@ -23,10 +24,16 @@ namespace ShopInventory.Features.Sync.Queries.GetSapAvailability;
 /// invoice (<c>ConsolidationId</c>). Not the consolidation status: an online van sale is marked
 /// Consolidated the moment it is written, before SAP has anything.
 /// </para>
+/// <para>
+/// While an outage is open the answer also says why, when SL Health knows (<see cref="SlHealthMonitor"/>).
+/// That comes from the copy of SL Health's last answer this node holds, so it costs nothing either, and
+/// it is what SL Health says now, not what it said when the outage was declared.
+/// </para>
 /// </remarks>
 public sealed class GetSapAvailabilityHandler(
     ApplicationDbContext db,
-    SapAvailability availability)
+    SapAvailability availability,
+    SlHealthMonitor slHealth)
     : IRequestHandler<GetSapAvailabilityQuery, ErrorOr<SapAvailabilityResult>>
 {
     /// <summary>How long after an outage ends the banner still says SAP is back and catching up.</summary>
@@ -41,7 +48,8 @@ public sealed class GetSapAvailabilityHandler(
         if (current is { InOutage: true, SinceUtc: { } since })
         {
             return new SapAvailabilityResult(
-                true, current.Cause, since, null, await SalesAwaitingSapAsync(since, cancellationToken));
+                true, current.Cause, since, null, await SalesAwaitingSapAsync(since, cancellationToken),
+                slHealth.ExplanationForStaff);
         }
 
         var endedAfter = DateTime.UtcNow - RecoveryNotice;

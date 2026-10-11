@@ -62,6 +62,12 @@ public sealed class SlHealthMonitor(
         }
     }
 
+    /// <summary>Why SAP is unavailable or what about it is failing, for the staff banner. See <see cref="SlHealthExplanation.ForStaff"/>.</summary>
+    public string? ExplanationForStaff => SlHealthExplanation.ForStaff(Current, Now);
+
+    /// <summary>The same for the outage row and the health check. See <see cref="SlHealthExplanation.ForRecord"/>.</summary>
+    public string? ExplanationForRecord => SlHealthExplanation.ForRecord(Current, Now);
+
     /// <summary>Asks SL Health once and keeps the answer. A failed ask keeps the last answer, which ages out.</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {

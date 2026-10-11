@@ -50,6 +50,15 @@ public class SapOutageEntity
     [MaxLength(1000)]
     public string? LastError { get; set; }
 
+    /// <summary>
+    /// What SL Health said about the Service Layer while the outage ran, in the latest words it had:
+    /// for example <c>planned maintenance until 03:00 (HANA backup)</c> or <c>SAP is being restarted</c>.
+    /// Null when SL Health was not being read or had nothing to add. <see cref="Cause"/> stays the probe's
+    /// own finding; this is the second opinion on why.
+    /// </summary>
+    [MaxLength(500)]
+    public string? Explanation { get; set; }
+
     /// <summary>Failed probes counted against this outage, including the ones that declared it.</summary>
     public int FailedProbes { get; set; }
 

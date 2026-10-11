@@ -156,6 +156,10 @@ internal sealed class SlHealthHarness : IDisposable
 /// <summary>SL Health's status answer, written the way SL Health writes it.</summary>
 internal static class SlHealthJson
 {
+    /// <summary>The answer as the reader holds it once read.</summary>
+    public static SlHealthStatus Parse(string json) =>
+        JsonSerializer.Deserialize<SlHealthStatus>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
     public static string Status(
         string level = "Healthy",
         string advice = "Proceed",

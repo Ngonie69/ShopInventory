@@ -19,6 +19,7 @@ public sealed class GetSapAvailabilityTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly SapAvailability _availability;
+    private readonly SlHealthHarness _slHealth = new(url: "", token: "");
     private int _nextSale;
 
     public GetSapAvailabilityTests()
@@ -35,6 +36,7 @@ public sealed class GetSapAvailabilityTests : IDisposable
 
     public void Dispose()
     {
+        _slHealth.Dispose();
         _context.Dispose();
         _connection.Dispose();
     }
@@ -95,7 +97,7 @@ public sealed class GetSapAvailabilityTests : IDisposable
 
     private async Task<SapAvailabilityResult> AskAsync()
     {
-        var result = await new GetSapAvailabilityHandler(_context, _availability)
+        var result = await new GetSapAvailabilityHandler(_context, _availability, _slHealth.Monitor)
             .Handle(new GetSapAvailabilityQuery(), default);
         Assert.False(result.IsError);
         return result.Value;

@@ -15,6 +15,10 @@ namespace ShopInventory.Tests;
 /// Pins when the cluster declares SAP down and when it declares it back, and what the posting passes
 /// see while it is down.
 /// </summary>
+/// <remarks>
+/// SL Health is switched off throughout, as it is by default. What changes when it is being read is in
+/// <see cref="SapAvailabilityWithSlHealthTests"/>.
+/// </remarks>
 public sealed class SapAvailabilityProbeTests : IDisposable
 {
     private static readonly DateTime Start = new(2026, 9, 28, 8, 0, 0, DateTimeKind.Utc);
@@ -26,6 +30,7 @@ public sealed class SapAvailabilityProbeTests : IDisposable
     private readonly SapAvailability _availability;
     private readonly SapConnectionSwitch _switch;
     private readonly SapCircuitBreakerState _circuit;
+    private readonly SlHealthHarness _slHealth = new(url: "", token: "");
     private Func<CancellationToken, Task> _ping = _ => Task.CompletedTask;
     private int _pings;
 
@@ -50,6 +55,7 @@ public sealed class SapAvailabilityProbeTests : IDisposable
 
     public void Dispose()
     {
+        _slHealth.Dispose();
         _context.Dispose();
         _services.Dispose();
         _connection.Dispose();
@@ -220,6 +226,7 @@ public sealed class SapAvailabilityProbeTests : IDisposable
             sap,
             _circuit,
             _availability,
+            _slHealth.Monitor,
             Options.Create(settings ?? new SapAvailabilitySettings()),
             _clock,
             NullLogger<SapAvailabilityProbe>.Instance);

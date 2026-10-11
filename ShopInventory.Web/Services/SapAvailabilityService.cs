@@ -50,4 +50,7 @@ public class SapAvailabilityResponse
     public DateTime? EndedAtUtc { get; set; }
 
     public int SalesAwaitingSap { get; set; }
+
+    /// <summary>Why SAP is unavailable, as SL Health tells it. Null when it has nothing to add.</summary>
+    public string? Explanation { get; set; }
 }

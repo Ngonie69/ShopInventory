@@ -4,6 +4,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Middleware;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.SlHealth;
 
 namespace ShopInventory.Services;
 
@@ -27,12 +28,18 @@ namespace ShopInventory.Services;
 /// A probe refused by this node's open circuit counts as a failure. The circuit only opens on failed
 /// requests, and it closes on the first success, so it cannot keep a recovered SAP looking down.
 /// </para>
+/// <para>
+/// SL Health watches the same Service Layer and is read beside the probe (<see cref="SlHealthMonitor"/>).
+/// What it says about why SAP is unavailable is written on the outage row. It never opens or ends an
+/// outage by itself.
+/// </para>
 /// </remarks>
 public sealed class SapAvailabilityProbe(
     ApplicationDbContext db,
     ISAPServiceLayerClient sap,
     SapCircuitBreakerState circuit,
     SapAvailability availability,
+    SlHealthMonitor slHealth,
     IOptions<SapAvailabilitySettings> settings,
     TimeProvider timeProvider,
     ILogger<SapAvailabilityProbe> logger)
@@ -56,6 +63,7 @@ public sealed class SapAvailabilityProbe(
                     DeclaredAtUtc = now,
                     Cause = SapOutageCauses.SwitchedOff,
                     FirstError = "The SAP connection was turned off in Settings.",
+                    Explanation = slHealth.ExplanationForRecord,
                     LastProbeAtUtc = now
                 };
                 db.SapOutages.Add(open);
@@ -64,6 +72,7 @@ public sealed class SapAvailabilityProbe(
             else
             {
                 open.LastProbeAtUtc = now;
+                open.Explanation = slHealth.ExplanationForRecord ?? open.Explanation;
             }
 
             await db.SaveChangesAsync(CancellationToken.None);
@@ -91,6 +100,8 @@ public sealed class SapAvailabilityProbe(
             {
                 open.FailedProbes++;
                 open.LastError = Truncate(error, 1000);
+                // The latest it had: a restart that turns out to be a planned window should read as one.
+                open.Explanation = slHealth.ExplanationForRecord ?? open.Explanation;
             }
         }
         else if (!answered && run.Failures >= Math.Max(1, options.FailuresToDeclare))
@@ -102,6 +113,7 @@ public sealed class SapAvailabilityProbe(
                 Cause = SapOutageCauses.Unreachable,
                 FirstError = Truncate(run.FirstError, 1000),
                 LastError = Truncate(error, 1000),
+                Explanation = slHealth.ExplanationForRecord,
                 FailedProbes = run.Failures,
                 LastProbeAtUtc = probedAt
             };

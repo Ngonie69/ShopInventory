@@ -46,6 +46,11 @@
     opacity: .85;
 }
 
+/* Why, when SL Health knows: read before what it means for the reader, so it is not dimmed. */
+.sapo-banner-text .sapo-banner-why {
+    opacity: 1;
+}
+
 /* .dark-theme sits on <html> and <body>, outside this component, so the descendant
    selector still reaches in; only the last element carries the scope attribute. */
 .dark-theme .sapo-banner-down {
