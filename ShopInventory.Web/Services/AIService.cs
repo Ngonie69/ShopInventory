@@ -117,13 +117,15 @@ Format your responses with clear sections when appropriate. Use bullet points fo
 
     public AIService(
         IOptions<AISettings> settings,
-        HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         IInvoiceService invoiceService,
         IMasterDataCacheService masterDataService,
         ILogger<AIService> logger)
     {
         _settings = settings.Value;
-        _httpClient = httpClient;
+        // Not the circuit's HttpClient: that one carries the API's key and the user's token to
+        // every host it is pointed at. See AIServiceRegistration.
+        _httpClient = httpClientFactory.CreateClient("AiProvider");
         _invoiceService = invoiceService;
         _masterDataService = masterDataService;
         _logger = logger;
