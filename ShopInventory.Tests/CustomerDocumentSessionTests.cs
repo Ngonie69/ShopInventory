@@ -263,6 +263,49 @@ public sealed class CustomerDocumentSessionTests : IDisposable
             CancellationToken.None);
     }
 
+    // ── The number it sends from ────────────────────────────────────────
+
+    [Theory]
+    [InlineData("+263771234567", "263771234567")]
+    [InlineData("+263771234567", " 263771234567 ")]
+    [InlineData("+263771234567", "263771234567@c.us")]
+    [InlineData("+263771234567", "263771234567:12@s.whatsapp.net")]
+    [InlineData("+263771234567", "+263 77 123 4567")]
+    public void The_sending_number_is_recognised_however_the_gateway_writes_it(string customer, string sending)
+    {
+        Assert.True(WhatsAppRecipients.IsSendingNumber(customer, sending));
+    }
+
+    [Theory]
+    [InlineData("+263771234567", "263771234568")]
+    [InlineData("+263771234567", "26377123456")]
+    [InlineData("+263771234567", "2637712345670")]
+    [InlineData("+263771234567", null)]
+    [InlineData("+263771234567", "")]
+    [InlineData("+263771234567", "not paired")]
+    [InlineData("", "263771234567")]
+    [InlineData(null, "263771234567")]
+    public void Any_other_number_or_a_gateway_that_names_none_is_not_the_sending_number(string? customer, string? sending)
+    {
+        Assert.False(WhatsAppRecipients.IsSendingNumber(customer, sending));
+    }
+
+    [Fact]
+    public void The_sending_number_is_the_chosen_sessions_own_not_another_sessions()
+    {
+        var sessions = new[]
+        {
+            new WhatsAppSessionDto { Id = "a", Name = "fiscal-alerts", Status = "ready", Phone = "263717000001" },
+            new WhatsAppSessionDto { Id = "b", Name = "customer-documents", Status = "ready", Phone = "263717000002" },
+            new WhatsAppSessionDto { Id = "c", Name = "spare", Status = "qr", Phone = " " }
+        };
+
+        Assert.Equal("263717000002", CustomerDocumentSession.SendingPhone(sessions, "B"));
+        Assert.Null(CustomerDocumentSession.SendingPhone(sessions, "c"));
+        Assert.Null(CustomerDocumentSession.SendingPhone(sessions, "gone"));
+        Assert.Null(CustomerDocumentSession.SendingPhone(sessions, null));
+    }
+
     private static WhatsAppSessionDto Session(string id, string name, string status) =>
         new() { Id = id, Name = name, Status = status };
 }

@@ -97,6 +97,17 @@ otherwise be surprised.
   - Needs the van app release that asks after every sale. An older handset keeps working: it always
     sends a number.
 
+- **The number invoices are sent from can no longer be given as a customer's.** Typed at the van
+  (`POST /api/vansales/sale/{vanOrder}/whatsapp`), in the invoice's Send dialog
+  (`POST /api/customer-document-deliveries/invoices/{docEntry}`) or when saving a number on a customer
+  (`POST /api/customer-whatsapp-contacts`), it is now a `400` `CustomerDocuments.SendingNumberGiven`
+  and nothing is queued or saved. It used to be accepted and saved on the shop, so that invoice and
+  every one after it went to the office's own number instead of the customer — and the one time it
+  happened the gateway answered `500`. It arrives the way the other refusals on these routes do (`ConsentRequired`,
+  `NumberOptedOut`), so no client needs changing; the handset shows the sentence as it is. A number
+  saved before this is not removed — its next send is listed on WhatsApp Deliveries as failed, with
+  the reason, and the number wants replacing on the customer.
+
 - **A number typed in the invoice's Send dialog is kept by default.** *Save it on the customer* and
   *Send the customer's future invoices to it automatically* are ticked when the dialog opens. With
   `saveAsContact` on a selling account's invoice the API now sends to the number without saving it,

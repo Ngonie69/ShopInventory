@@ -117,7 +117,7 @@ public sealed class RequestInvoiceWhatsAppHandler(
 
         if (!string.IsNullOrWhiteSpace(request.OneOffPhone))
         {
-            var oneOff = await ResolveOneOffAsync(invoice, shop, request, command.UserId, actorName, now, cancellationToken);
+            var oneOff = await ResolveOneOffAsync(invoice, shop, request, sending.SessionId, command.UserId, actorName, now, cancellationToken);
             if (oneOff.IsError)
                 return oneOff.Errors;
             recipients.Add(oneOff.Value);
@@ -221,6 +221,7 @@ public sealed class RequestInvoiceWhatsAppHandler(
         Invoice invoice,
         RouteCustomerInvoiceLink? shop,
         RequestInvoiceWhatsAppRequest request,
+        string? sessionId,
         Guid userId,
         string actorName,
         DateTime nowUtc,
@@ -233,6 +234,13 @@ public sealed class RequestInvoiceWhatsAppHandler(
 
         if (!request.ConsentAffirmed)
             return Errors.CustomerDocuments.ConsentRequired;
+
+        // The number these are sent from, typed where the customer's belongs: the customer would
+        // receive nothing, and kept on the customer it would take every invoice after this one.
+        var sendingPhone = await CustomerDocumentSession.SendingPhoneAsync(
+            openWaClient, openWaOptions.Value, sessionId, logger, cancellationToken);
+        if (WhatsAppRecipients.IsSendingNumber(phoneE164, sendingPhone))
+            return Errors.CustomerDocuments.SendingNumberGiven(WhatsAppRecipients.Mask(phoneE164));
 
         var name = Clean(request.OneOffName);
 

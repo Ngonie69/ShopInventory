@@ -135,9 +135,19 @@ public sealed class RequestVanSaleWhatsAppHandler(
         var actorName = await CustomerDocumentActor.ResolveNameAsync(context, user.Id, cancellationToken) ?? user.Username;
         var now = DateTime.UtcNow;
 
-        return givenE164 is null
-            ? await SendToSavedNumbersAsync(sale, vanOrder, user.Id, actorName, now, cancellationToken)
-            : await SendToGivenNumberAsync(sale, vanOrder, givenE164, user.Id, actorName, now, cancellationToken);
+        if (givenE164 is null)
+            return await SendToSavedNumbersAsync(sale, vanOrder, user.Id, actorName, now, cancellationToken);
+
+        // The office's own number typed in place of the customer's would be saved on the shop, and
+        // this invoice and every one after it sent there instead of to the customer. Said now, while
+        // the customer is still at the van to give their own. Asked only when a number is typed —
+        // once per shop — so the ask after every sale costs no gateway call.
+        var sendingPhone = await CustomerDocumentSession.SendingPhoneAsync(
+            openWaClient, openWaOptions.Value, sending.SessionId, logger, cancellationToken);
+        if (WhatsAppRecipients.IsSendingNumber(givenE164, sendingPhone))
+            return Errors.CustomerDocuments.SendingNumberGiven(WhatsAppRecipients.Mask(givenE164));
+
+        return await SendToGivenNumberAsync(sale, vanOrder, givenE164, user.Id, actorName, now, cancellationToken);
     }
 
     // ── The shop's saved numbers ────────────────────────────────────────

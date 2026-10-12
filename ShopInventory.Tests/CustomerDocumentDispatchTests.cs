@@ -304,6 +304,40 @@ public sealed class CustomerDocumentDispatchTests : IDisposable
     }
 
     [Fact]
+    public async Task A_document_addressed_to_the_number_it_is_sent_from_is_failed_without_calling_the_gateway()
+    {
+        await _kit.SetRuntimeAsync();
+        var delivery = await _kit.AddDeliveryAsync();
+        _gateway.SessionPhone = "263771234567";
+
+        var result = await PassAsync();
+
+        Assert.Empty(_gateway.Documents);
+        Assert.Empty(_gateway.NumberChecks);
+        Assert.Equal(0, _composer.Calls);
+        Assert.Equal(0, result.Sent);
+
+        var stored = await _kit.ReloadDeliveryAsync(delivery.Id);
+        Assert.Equal(CustomerDocumentDeliveryStatus.Failed, stored.Status);
+        Assert.Contains("the number documents are sent from", stored.StatusReason);
+        Assert.Null(stored.SendIssuedAtUtc);
+        Assert.NotNull(stored.ClosedAtUtc);
+    }
+
+    [Fact]
+    public async Task A_document_to_any_other_number_still_goes_when_the_gateway_names_its_own()
+    {
+        await _kit.SetRuntimeAsync();
+        var delivery = await _kit.AddDeliveryAsync();
+        _gateway.SessionPhone = "263717000000";
+
+        await PassAsync();
+
+        Assert.Single(_gateway.Documents);
+        Assert.Equal(CustomerDocumentDeliveryStatus.Sent, (await _kit.ReloadDeliveryAsync(delivery.Id)).Status);
+    }
+
+    [Fact]
     public async Task Automatic_sends_wait_for_the_switch_but_a_person_pressing_send_does_not()
     {
         await _kit.SetRuntimeAsync(autoSend: false);

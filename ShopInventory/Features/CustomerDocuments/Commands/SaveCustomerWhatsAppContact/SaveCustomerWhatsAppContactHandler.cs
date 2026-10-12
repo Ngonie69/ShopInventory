@@ -26,6 +26,12 @@ namespace ShopInventory.Features.CustomerDocuments.Commands.SaveCustomerWhatsApp
 /// their own card, so a number on one would be sent every invoice that till, van or vendor raises.
 /// </para>
 /// <para>
+/// The number documents are sent from is refused: saved on a customer it would be sent every invoice
+/// of theirs, and the customer none. Only the session already chosen is asked about — saving a
+/// number is not the moment to choose which one sends — and a gateway that cannot say its number
+/// refuses nothing; the delivery job stops such a send before it reaches the gateway.
+/// </para>
+/// <para>
 /// The cards are checked against SAP in one read, and every contact is written in one save, so a
 /// number copied across a shop's currency cards lands on all of them or none.
 /// </para>
@@ -35,6 +41,8 @@ public sealed class SaveCustomerWhatsAppContactHandler(
     ISAPServiceLayerClient sapClient,
     IOptions<SAPSettings> sapSettings,
     IOptions<CustomerDocumentDeliverySettings> options,
+    IOpenWAClient openWaClient,
+    IOptions<OpenWASettings> openWaOptions,
     IAuditService auditService,
     ILogger<SaveCustomerWhatsAppContactHandler> logger)
     : IRequestHandler<SaveCustomerWhatsAppContactCommand, ErrorOr<List<CustomerWhatsAppContactDto>>>
@@ -58,6 +66,12 @@ public sealed class SaveCustomerWhatsAppContactHandler(
 
         if (!WhatsAppRecipients.TryNormalise(request.Phone, settings.DefaultCountryCode, out var phoneE164))
             return Errors.CustomerDocuments.InvalidPhone(request.Phone);
+
+        var runtime = await CustomerDocumentDeliveryKeys.ReadAsync(context, cancellationToken);
+        var sendingPhone = await CustomerDocumentSession.SendingPhoneAsync(
+            openWaClient, openWaOptions.Value, runtime.WhatsAppSessionId, logger, cancellationToken);
+        if (WhatsAppRecipients.IsSendingNumber(phoneE164, sendingPhone))
+            return Errors.CustomerDocuments.SendingNumberGiven(WhatsAppRecipients.Mask(phoneE164));
 
         var actorName = await CustomerDocumentActor.ResolveNameAsync(context, command.UserId, cancellationToken);
         if (actorName is null)

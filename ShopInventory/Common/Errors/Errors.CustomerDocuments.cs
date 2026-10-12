@@ -31,6 +31,14 @@ public static partial class Errors
             Error.Validation("CustomerDocuments.InvalidPhone",
                 $"'{phone}' is not a phone number. Write it as 0771234567 or +263771234567.");
 
+        /// <summary>
+        /// The number given is the one documents are sent from, so it is not the customer's. Refused
+        /// before it is saved on a customer or sent to.
+        /// </summary>
+        public static Error SendingNumberGiven(string maskedPhone) =>
+            Error.Validation("CustomerDocuments.SendingNumberGiven",
+                $"{maskedPhone} is the number these invoices are sent from, not the customer's. Ask the customer for their own WhatsApp number.");
+
         public static readonly Error OwnerRequired =
             Error.Validation("CustomerDocuments.OwnerRequired",
                 "Say which customer the number belongs to: a customer code or a route customer, not both.");

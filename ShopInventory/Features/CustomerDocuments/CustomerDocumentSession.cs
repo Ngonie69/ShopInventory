@@ -150,6 +150,48 @@ internal static class CustomerDocumentSession
     }
 
     /// <summary>
+    /// The number the chosen session sends from, as the gateway gives it, or null when it cannot be
+    /// said: no session is chosen, this node has no gateway settings, the gateway did not answer, or
+    /// the session is not paired. Null is "not known", and nothing is refused on it — a number that
+    /// turns out to be the sending one is still stopped by the delivery job before the gateway is called.
+    /// </summary>
+    public static async Task<string?> SendingPhoneAsync(
+        IOpenWAClient openWaClient,
+        OpenWASettings openWaSettings,
+        string? sessionId,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || !WhatsAppGateway.IsConfigured(openWaSettings))
+            return null;
+
+        try
+        {
+            var sessions = await openWaClient.GetSessionsAsync(cancellationToken);
+            return SendingPhone(sessions, sessionId);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the WhatsApp sessions to learn which number customer documents are sent from");
+            return null;
+        }
+    }
+
+    /// <summary>The chosen session's own number among what the gateway lists, or null when it has none.</summary>
+    public static string? SendingPhone(IEnumerable<WhatsAppSessionDto> sessions, string? sessionId)
+    {
+        var phone = sessions
+            .FirstOrDefault(session => string.Equals(session.Id, sessionId, StringComparison.OrdinalIgnoreCase))
+            ?.Phone;
+
+        return string.IsNullOrWhiteSpace(phone) ? null : phone.Trim();
+    }
+
+    /// <summary>
     /// The session to send from among what the gateway lists, or why none can be chosen. Kept free of
     /// the database and the gateway so every case is a plain test.
     /// </summary>

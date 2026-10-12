@@ -100,7 +100,7 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
         await HousekeepAsync(now, cancellationToken);
         var reconciled = await ReconcileUncertainAsync(sessionId, now, cancellationToken);
 
-        var sessionStatus = await ReadSessionStatusAsync(sessionId, cancellationToken);
+        var (sessionStatus, sendingPhone) = await ReadSessionAsync(sessionId, cancellationToken);
         if (!string.Equals(sessionStatus, ReadySessionStatus, StringComparison.OrdinalIgnoreCase))
         {
             await alerts.RaiseAsync(
@@ -116,6 +116,7 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
         }
 
         var pass = await OpenPassAsync(runtime, now, cancellationToken);
+        pass.SendingPhone = sendingPhone;
 
         var candidates = await LoadCandidatesAsync(now, pass.AutoRemaining > 0, command.SapHeldBack, pass, cancellationToken);
         if (candidates.Count == 0)
@@ -337,14 +338,17 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
         return settled;
     }
 
-    /// <summary>The documents session's state, or null when the gateway could not be asked.</summary>
-    private async Task<string?> ReadSessionStatusAsync(string sessionId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The documents session's state and the number it sends from. The state is null when the gateway
+    /// could not be asked; the number is null whenever it cannot be said.
+    /// </summary>
+    private async Task<(string? Status, string? Phone)> ReadSessionAsync(string sessionId, CancellationToken cancellationToken)
     {
         try
         {
             var sessions = await openWaClient.GetSessionsAsync(cancellationToken);
             var session = sessions.FirstOrDefault(row => string.Equals(row.Id, sessionId, StringComparison.OrdinalIgnoreCase));
-            return session?.Status ?? "missing";
+            return (session?.Status ?? "missing", CustomerDocumentSession.SendingPhone(sessions, sessionId));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -353,7 +357,7 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Could not read the WhatsApp sessions before sending customer documents");
-            return null;
+            return (null, null);
         }
     }
 
@@ -495,6 +499,17 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
         var consentProblem = await FindConsentProblemAsync(row, contact, cancellationToken);
         if (consentProblem is not null)
             return await CloseAsync(row, pass, CustomerDocumentDeliveryStatus.Cancelled, consentProblem);
+
+        // The last place this can be caught: a number saved before it was refused where it is typed,
+        // or a session since paired to a number a customer already holds. The customer would receive
+        // nothing, and the gateway answered 500 to the one such send that was tried — which reads as
+        // a send that may have arrived. So it is failed here with the reason, and the gateway is
+        // never called.
+        if (WhatsAppRecipients.IsSendingNumber(row.RecipientE164, pass.SendingPhone))
+        {
+            return await CloseAsync(row, pass, CustomerDocumentDeliveryStatus.Failed,
+                "This is the number documents are sent from, not the customer's. Put the customer's own number on the customer and send it again.");
+        }
 
         var dayStart = DeliveryBudget.CatDayStartUtc(now);
         var toRecipientToday = await context.CustomerDocumentDeliveries
@@ -932,6 +947,7 @@ public sealed class DispatchCustomerDocumentDeliveriesHandler(
         public int AutoRemaining { get; set; }
         public int ChecksRemaining { get; set; }
         public DateTime? LastIssuedUtc { get; set; }
+        public string? SendingPhone { get; set; }
         public int Sent { get; set; }
         public int Deferred { get; set; }
         public int Closed { get; set; }
