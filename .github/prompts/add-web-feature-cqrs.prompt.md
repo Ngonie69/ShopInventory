@@ -26,7 +26,7 @@ Implement the requested feature in `ShopInventory.Web/` using the repository's v
 - `ShopInventory.Web` targets `net10.0`.
 - It is a Blazor Server app using `@rendermode InteractiveServer`.
 - Auth is handled by `CustomAuthStateProvider` with JWT stored in `Blazored.LocalStorage`.
-- API transport uses the scoped `HttpClient` configured from the named client `ShopInventoryApi`.
+- API transport uses the scoped `HttpClient` configured from the named client `ShopInventoryApi`. It attaches and renews the signed-in user's access token itself.
 - The project is still service-heavy today. New feature work must move toward vertical slices instead of adding more page logic or more business logic to `Services/`.
 
 ## Bootstrap MediatR in Web First

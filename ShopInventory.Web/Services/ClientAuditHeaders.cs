@@ -22,6 +22,8 @@ namespace ShopInventory.Web.Services;
 /// <see cref="IHttpClientFactory"/> resolves from its own handler scope — it would get an empty
 /// context, not the circuit's. Keeping one implementation here is what stops the call sites drifting
 /// apart, which is how the auth path came to be missed in the first place.
+/// <see cref="CircuitApiClient"/> is the way round that wall, for the access token: a handler built
+/// per circuit, outside the factory's pipeline.
 /// </para>
 /// </remarks>
 public static class ClientAuditHeaders

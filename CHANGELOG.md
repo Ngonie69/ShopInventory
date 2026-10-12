@@ -18,6 +18,20 @@ otherwise be surprised.
 
 ### Changed
 
+- **Every portal page now calls the API as the signed-in user for as long as it stays open.** The
+  access token is renewed as each request leaves, on the one client all pages share, so it no longer
+  depends on the page. Until now most pages kept sending the expired token an hour after they were
+  opened. Settings pages then answered "Your session has expired" to somebody still signed in, and
+  everything else was answered as the portal's API key. Operators may notice three things:
+  - An action a role is not allowed, which went through from a page left open for an hour, is refused.
+  - The audit trail names the person on those calls, not the key.
+  - A tab that stays open stays signed in. It used to be signed out the first time it was touched
+    after seven idle days; now it is renewed while it sits there, until the tab is closed.
+
+  Two kinds of call are not covered and still need `ApiTokenAuthentication`: one made on a client a
+  class builds for itself from `IHttpClientFactory`, and the retry of a refused upload, whose body
+  cannot be sent twice.
+
 - **Six portal pages left open for more than an hour now act as the signed-in user, not as the
   portal's API key.** Desktop Transactions, Desktop Sales, Local Stock, Live Transactions, Sync Status
   and the Exception Center, and the notification bell on every page, renew the access token as they

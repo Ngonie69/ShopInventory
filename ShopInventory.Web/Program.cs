@@ -249,12 +249,9 @@ try
     })
     .AddHttpMessageHandler(() => new PageReadCancellationHandler());
 
-    // Register a scoped HttpClient that uses the factory
-    builder.Services.AddScoped(sp =>
-    {
-        var factory = sp.GetRequiredService<IHttpClientFactory>();
-        return factory.CreateClient("ShopInventoryApi");
-    });
+    // The scoped HttpClient every circuit calls the API through: the factory's client above, with
+    // the circuit's own access token applied, and renewed, as each request leaves.
+    builder.Services.AddCircuitApiClient("ShopInventoryApi");
 
     // Add Authentication State Provider
     builder.Services.AddScoped<CustomAuthStateProvider>();
