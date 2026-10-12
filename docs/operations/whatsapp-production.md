@@ -188,6 +188,30 @@ the reason is in the newest `OpenWA\logs\*.log`. *Execution context was destroye
 losing a race with WhatsApp Web reloading itself. It is usually transient, and the gateway already
 retries it.
 
+**Stop fails with "OpenWA did not answer POST /api/sessions/…/stop within 30 seconds".** The gateway
+is older than Ngonie69/OpenWA#4. To stop a session it closes that session's Chrome, and the older
+gateway waits for Chrome to exit for as long as that takes, while the API gives up after 30 seconds
+(`OpenWA:TimeoutSeconds`). The stop was not cancelled: it carries on, and the session reads `ready`
+until Chrome has gone. From #4 on the gateway allows Chrome 15 seconds and then ends its process, so
+a stop always answers. On the older gateway:
+
+1. Wait a minute and look at the row again. `disconnected` means the stop went through.
+2. Still `ready` after a few minutes means Chrome never exited. Stop the gateway with
+   `.\scripts\Stop-OpenWA.ps1`, end any Chrome still holding the session's profile (the command
+   below, with the session's name), then start the `ShopInventory-OpenWA` task. A healthy Chrome
+   exits by itself within half a minute of the gateway stopping. A hung one does not, and while it
+   runs the session cannot start again.
+3. Either way, press **Start** when the session should be running. The stop marked it as stopped on
+   purpose before it did anything else, so no restart brings it back by itself.
+
+```powershell
+Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" |
+    Where-Object CommandLine -like '*session-fiscal-alerts*' |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+While it is stopped nothing is sent through it and nothing it receives reaches the inbox.
+
 ## Customer documents
 
 Invoices sent to customers on WhatsApp from a **dedicated number** paired as its own session: as the
