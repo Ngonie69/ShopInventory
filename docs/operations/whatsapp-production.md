@@ -212,6 +212,25 @@ Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" |
 
 While it is stopped nothing is sent through it and nothing it receives reaches the inbox.
 
+**Gateway Unreachable straight after a Stop, and every session with it.** The gateway is older than
+Ngonie69/OpenWA#5. Pressing **Stop** while a session read `initializing` could close its Chrome
+while WhatsApp Web was still downloading. whatsapp-web.js was reading that page with nothing waiting
+on the result, the read was rejected, and Node ends a process on a rejection nobody handles. The
+newest `OpenWA\logs\*.err.log` ends with
+`TargetCloseError: Protocol error (Network.getResponseBody): Target closed`. The boot task runs the
+gateway once and nothing restarts it during the day, so no session sends or receives until someone
+does:
+
+```powershell
+Start-ScheduledTask ShopInventory-OpenWA
+```
+
+Sessions that were running start again by themselves. The one that was being stopped stays stopped.
+From #5 on the gateway logs the rejection and carries on: look for
+`Unhandled promise rejection` with context `Process` in the same log. One of those lines after a
+Stop is this race and needs nothing done. Any other is a fault the gateway survived and is worth
+reading.
+
 ## Customer documents
 
 Invoices sent to customers on WhatsApp from a **dedicated number** paired as its own session: as the
