@@ -257,6 +257,10 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     {
         try
         {
+            // This goes out on the circuit's own client, usually while the refresh lock is held.
+            // CircuitApiTokenHandler asking for a token for it would wait on that lock for ever.
+            using var asIs = CircuitApiTokenHandler.SendAsIs();
+
             var request = new RefreshTokenRequest { RefreshToken = refreshToken };
             var response = await _httpClient.PostAsJsonWithClientAuditAsync(
                 "api/auth/refresh",

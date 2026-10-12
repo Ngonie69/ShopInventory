@@ -7,14 +7,18 @@ does. A class that sends on that client directly therefore works until the 60-mi
 runs out and then gets a 401 on every call, while the user is still signed in. The pages that show
 it are the ones that stay open and keep calling: a timer, a hub push, a long form.
 
-ApiTokenAuthentication is the fix (see its doc comment). This lists, for every class and component
-that sends to the API:
+CircuitApiTokenHandler is the general fix, on the circuit's client itself; ApiTokenAuthentication is
+the per-class one, still needed for a client a class makes for itself. This lists, for every class
+and component that sends to the API:
 
   * each send, and what stands in front of it:
       retry   inside ApiTokenAuthentication.SendAsync, or a wrapper built on it - a valid token is
               attached first, and a 401 renews the token and sends once more;
       apply   ApiTokenAuthentication.ApplyAsync / GetAccessTokenAsync runs first - an expired
               token is renewed, a token the API rejects early is not retried;
+      handler sent bare on the circuit's client, which renews for it: Program.cs registers that
+              client with AddCircuitApiClient, so CircuitApiTokenHandler attaches a valid token as
+              each request leaves and retries a 401 once, unless the body is a stream;
       none    sent on whatever the client already carries;
   * which client it sends on: the circuit's shared one, a typed client, or one it made from
     IHttpClientFactory (which carries no bearer at all unless the class attaches one);
@@ -195,7 +199,7 @@ def classify(unit, mem, pos, retry_names, wrapper_names, apply_names):
     return "none"
 
 
-def sends_of(unit, typed_units, endpoints=None):
+def sends_of(unit, typed_units, endpoints=None, circuit_handler=False):
     """Every send in the unit: member, line, method, client, renewal, expired-token effect."""
     retry_names, wrapper_names, apply_names = renewal_members(unit)
     out, skipped = [], []
@@ -215,6 +219,8 @@ def sends_of(unit, typed_units, endpoints=None):
                 continue
             site["client"] = client
             site["renewal"] = classify(unit, mem, m.start(), retry_names, wrapper_names, apply_names)
+            if site["renewal"] == "none" and client == CIRCUIT and circuit_handler:
+                site["renewal"] = "handler"
             site["expired"] = site_effect(site, mem, unit, endpoints) if endpoints else "?"
             site["_mem"] = mem
             out.append(site)
@@ -429,6 +435,13 @@ def run_controls(rows):
     for member, want in CONTROL_EXPECTED.items():
         if got.get(member) != want:
             failures.append(f"control snippet: {member} classified {got.get(member)}, expected {want}")
+    # With the handler on the circuit's client a bare send there is covered, and nowhere else.
+    sites, _ = sends_of(unit, set(), circuit_handler=True)
+    got = {s["member"]: (s["client"], s["renewal"]) for s in sites}
+    for member, want in (("Bare", (CIRCUIT, "handler")), ("AppliedTooLate", (CIRCUIT, "handler")),
+                         ("Wrapped", (CIRCUIT, "retry")), ("OwnClient", ("factory:ShopInventoryApiUser", "none"))):
+        if got.get(member) != want:
+            failures.append(f"control snippet with the handler: {member} classified {got.get(member)}, expected {want}")
     # The service the pattern was first written for must read as fully wrapped in the real tree.
     doc = next((r for r in rows if r["name"] == "CustomerDocumentService"), None)
     if doc is None or doc["counts"]["retry"] == 0 or doc["counts"]["none"] or doc["counts"]["apply"]:
@@ -444,9 +457,12 @@ def main():
 
     endpoints = Endpoints()
     typed_units = set()
+    circuit_handler = False
     for path in gaps.walk_web_files():
         if path.endswith(".cs"):
             masked, _ = gaps.lex_cs(gaps.read(path))
+            if os.path.basename(path) == "Program.cs" and re.search(r"\.\s*AddCircuitApiClient\s*\(", masked):
+                circuit_handler = True
             typed_units |= {m.group(1) for m in re.finditer(r"\bAddHttpClient\s*<\s*\w+\s*,\s*(\w+)\s*>", masked)}
 
     # 1. every send, by owning class or component
@@ -455,13 +471,13 @@ def main():
         unit = units[name]
         if name in NOT_CALLERS or unit.kind == "interface":
             continue
-        sites, skip = sends_of(unit, typed_units, endpoints)
+        sites, skip = sends_of(unit, typed_units, endpoints, circuit_handler)
         skipped += skip
         if not sites:
             continue
         for s in sites:
             member_sites[id(s.pop("_mem"))].append((name, s))
-        counts = {k: sum(1 for s in sites if s["renewal"] == k) for k in ("retry", "apply", "none")}
+        counts = {k: sum(1 for s in sites if s["renewal"] == k) for k in ("retry", "apply", "handler", "none")}
         files = sorted({s["file"] for s in sites})
         rows.append({
             "name": name,
@@ -519,6 +535,7 @@ def main():
         c = r["counts"]
         total = sum(c.values())
         r["status"] = ("retry" if c["retry"] == total else
+                       "handler" if c["retry"] + c["handler"] == total else
                        "none" if c["none"] == total else
                        "apply" if c["apply"] == total else "mixed")
         open_sends = [s for s in r["sites"] if exposed(s)]
@@ -540,7 +557,10 @@ def main():
 
     callers = len(rows)
     print(f"{callers} classes and components send to the API ({sum(sum(r['counts'].values()) for r in rows)} sends)")
-    for status, text in (("retry", "renew and retry on every send"), ("apply", "renew first, no retry"),
+    print("the circuit's client renews for whatever sends on it bare" if circuit_handler
+          else "the circuit's client does not renew: a bare send goes out on whatever it carries")
+    for status, text in (("retry", "renew and retry on every send"), ("handler", "left to the circuit client's handler"),
+                         ("apply", "renew first, no retry"),
                          ("mixed", "mixed"), ("none", "never renew")):
         print(f"  {sum(1 for r in rows if r['status'] == status):3d}  {text}")
     print(f"{sum(1 for r in rows if r['tier'])} have a send on the circuit's client, to an endpoint that asks who is calling, with nothing in front of it:")
@@ -571,7 +591,8 @@ def write_md(rows, tick_rows, skipped, failures):
     w("Generated by `scripts/inventory_api_token_renewal.py`. Do not edit; re-run it.")
     w("")
     w("`retry` renews an expired token and retries a 401 once. `apply` renews an expired token but hands a")
-    w("401 back. `none` sends on whatever the client already carries. An unrenewed send is exposed when it")
+    w("401 back. `handler` is sent bare on the circuit's client, whose own handler renews for it. `none`")
+    w("sends on whatever the client already carries. An unrenewed send is exposed when it")
     w("goes out on the circuit's client to an endpoint that asks who is calling: once the token has expired")
     w("the API either refuses it (`401`) or answers it as the Web's API key instead of the user (`key`).")
     w("Tier 1: a timer tick or hub push reaches an exposed send. Tier 2: a layout or a page with a form")
@@ -592,13 +613,13 @@ def write_md(rows, tick_rows, skipped, failures):
     w("")
     w("## Every class and component that sends to the API")
     w("")
-    w("| Tier | Name | Client | retry | apply | none | Exposed: 401 | Exposed: key | Exposed: ? | Pages | Tick / push hosts | Layouts | Form pages | File |")
-    w("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    w("| Tier | Name | Client | retry | apply | handler | none | Exposed: 401 | Exposed: key | Exposed: ? | Pages | Tick / push hosts | Layouts | Form pages | File |")
+    w("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in sorted(rows, key=lambda r: (r["tier"] or 9, r["name"])):
         c = r["counts"]
         hosts = sorted({f"{t['host']} ({t['kind']})" for t in r["ticks"] + r["pushes"]})
         e = r["expired"]
-        w(f"| {r['tier']} | {r['name']} | {', '.join(r['clients'])} | {c['retry']} | {c['apply']} | {c['none']} | "
+        w(f"| {r['tier']} | {r['name']} | {', '.join(r['clients'])} | {c['retry']} | {c['apply']} | {c['handler']} | {c['none']} | "
           f"{e['401']} | {e['key']} | {e['?']} | {len(r['pages'])} | {'; '.join(hosts) or '-'} | {', '.join(r['layouts']) or '-'} | {len(r['form_pages'])} | {r['files'][0]} |")
     w("")
     w("## Exposed sends a tick or push reaches")
@@ -608,6 +629,16 @@ def write_md(rows, tick_rows, skipped, failures):
             if t["unrenewed"]:
                 w(f"- **{r['name']}** from {t['host']} ({t['component']}, {t['kind']} at {t['where']}): " + ", ".join(t["unrenewed"]))
     w("")
+    own = [(r["name"], s) for r in sorted(rows, key=lambda r: r["name"]) for s in r["sites"]
+           if s["client"] != CIRCUIT and s["renewal"] == "none"]
+    if own:
+        w("## Sends on a client the class made itself, with no token work in front")
+        w("")
+        w("The circuit client's handler never sees these. One that carries the API key is answered as the key")
+        w("whoever is signed in; one that carries neither must attach a token some other way.")
+        w("")
+        L.extend(f"- **{name}** {s['file']}:{s['line']} `{s['method']}` on `{s['client']}` (expired: {s['expired']})" for name, s in own)
+        w("")
     if skipped:
         w("## Sends on a receiver that could not be resolved to an HttpClient")
         w("")

@@ -110,6 +110,10 @@ Web conventions:
 - Keep role-gated links in `NavMenu.razor` wrapped in `AuthorizeView`.
 - Use the existing `CustomAuthStateProvider` and `Blazored.LocalStorage` auth pattern.
 - API transport should use the existing scoped `HttpClient` or existing thin adapter services.
+  That client attaches the signed-in user's access token to each API request and renews it
+  (`CircuitApiTokenHandler`), so a class that only sends on it needs no token code. A client made
+  from `IHttpClientFactory` gets none of that: send on it through `ApiTokenAuthentication.SendAsync`,
+  or the call goes out as the portal's API key. `scripts/inventory_api_token_renewal.py` lists both.
 
 Dark mode is required for every touched page, component, dialog, and page-scoped style:
 

@@ -11,9 +11,23 @@ namespace ShopInventory.Web.Services;
 /// fresh as the last sign-in, so once it expires those calls are rejected with a 401 while the UI
 /// still shows the user signed in. Going through <see cref="CustomAuthStateProvider"/> renews an
 /// expired token from the refresh token first.
+///
+/// The circuit's shared client now does this by itself as each request leaves, through
+/// <see cref="CircuitApiTokenHandler"/>, so a class that only sends on that client needs nothing
+/// from here. This is still the way for a client a class makes for itself, which that handler never
+/// sees, and for a request whose body cannot be read twice: <see cref="SendAsync"/> builds the
+/// request again for the retry, which a handler cannot.
 /// </summary>
 internal static class ApiTokenAuthentication
 {
+    /// <summary>
+    /// Set on a request by <see cref="CircuitApiTokenHandler"/> once it has tried to renew the token
+    /// for a 401, so <see cref="SendAsync"/> does not ask the API to renew a second time for the same
+    /// refusal.
+    /// </summary>
+    internal static readonly HttpRequestOptionsKey<bool> RenewedAfterUnauthorized =
+        new("ShopInventory.Web.ApiToken.RenewedAfterUnauthorized");
+
     /// <summary>
     /// Attaches a valid access token to the client. Returns the token, or null when there is none
     /// to attach.
@@ -61,6 +75,14 @@ internal static class ApiTokenAuthentication
 
         if (response.StatusCode != HttpStatusCode.Unauthorized)
         {
+            return response;
+        }
+
+        if (response.RequestMessage?.Options.TryGetValue(RenewedAfterUnauthorized, out var alreadyRenewed) == true &&
+            alreadyRenewed)
+        {
+            // The client's own handler renewed for this refusal and sent it again, and this is the
+            // answer to that. Renewing once more would only spend a second refresh on the same 401.
             return response;
         }
 
