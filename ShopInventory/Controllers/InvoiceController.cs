@@ -134,7 +134,8 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
     /// Get invoice by SAP DocNum
     /// </summary>
     [HttpGet("by-docnum/{docNum:int}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,Manager,Driver,PodOperator,Operator,ApiUser")]
+    // Every role that uploads a POD on /pods is here: the upload form's first call is this lookup.
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager,Driver,PodOperator,Operator,SalesRep,ApiUser")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInvoiceByDocNum(

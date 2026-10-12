@@ -1044,7 +1044,7 @@ this controller reads them — granting one to a user changes nothing here.
 | POST | `/api/Invoice/validate` | Admin, Cashier | Validate an invoice before posting |
 | GET | `/api/Invoice/paged` | Admin, Cashier, StockController, Manager | List invoices, paginated |
 | GET | `/api/Invoice/{docEntry}` | Admin, Cashier, StockController, Manager | Get invoice by SAP DocEntry |
-| GET | `/api/Invoice/by-docnum/{docNum}` | Admin, Cashier, StockController, Manager, Driver, PodOperator, Operator, ApiUser | Get invoice by SAP DocNum |
+| GET | `/api/Invoice/by-docnum/{docNum}` | Admin, Cashier, StockController, Manager, Driver, PodOperator, Operator, SalesRep, ApiUser | Get invoice by SAP DocNum |
 | GET | `/api/Invoice/date-range` | Admin, Cashier, StockController, Manager | Get invoices by date range (`fromDate`, `toDate`, `page`, `pageSize`) |
 | GET | `/api/Invoice/open` | Admin, Cashier, StockController, Manager, PodOperator | Open invoices |
 | GET | `/api/Invoice/customer/{cardCode}` | Admin, Cashier, StockController, Manager, Driver, PodOperator | A customer's invoices |
