@@ -297,6 +297,39 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
         Assert.Empty(failures);
     }
 
+    /// <summary>
+    /// Uploading one POD on /pods is three calls: look the invoice up, check it for PODs already there,
+    /// send the file. The page shows its upload form to <c>UserRoles.PodWorkRoles</c>, so each of those
+    /// roles has to pass all three. The lookup's gate once left the sales rep out: the form opened, and
+    /// its first call was refused as "Invoice lookup authentication failed".
+    /// </summary>
+    [Fact]
+    public async Task Every_role_that_uploads_PODs_on_the_web_passes_each_call_the_upload_makes()
+    {
+        await using var services = BuildServices();
+        var uploadCalls = new[]
+        {
+            Action<InvoiceController>(nameof(InvoiceController.GetInvoiceByDocNum)),
+            Action<InvoiceController>(nameof(InvoiceController.ValidateBulkPods)),
+            Action<InvoiceController>(nameof(InvoiceController.UploadPod))
+        };
+
+        var refused = new List<string>();
+        foreach (var role in ShopInventory.Web.Data.UserRoles.PodWorkRoles.Split(','))
+        {
+            foreach (var action in uploadCalls)
+            {
+                var outcome = await EvaluateAsync(services, action, WebApiKey, UserToken(role));
+                if (!outcome.Result.Succeeded)
+                {
+                    refused.Add($"{role}: {action.Name}");
+                }
+            }
+        }
+
+        Assert.Empty(refused);
+    }
+
     private sealed record Outcome(PolicyAuthorizationResult Result, ClaimsPrincipal User);
 
     private static async Task<Outcome> EvaluateAsync(ServiceProvider services, MethodInfo action, string? apiKey, string? bearerToken) =>
