@@ -231,6 +231,21 @@ From #5 on the gateway logs the rejection and carries on: look for
 Stop is this race and needs nothing done. Any other is a fault the gateway survived and is worth
 reading.
 
+**Start fails after a Stop, and the log says "The browser is already running".** The gateway is
+older than Ngonie69/OpenWA#6. A start takes about a second to bring Chrome up, and a **Stop** or a
+delete that arrived in that second closed nothing, because there was no Chrome to close yet. The
+stop answered, the row read `disconnected`, and Chrome came up anyway with nothing holding it. It
+keeps the session's profile locked, so every later **Start** answers "Internal server error" and the
+newest `OpenWA\logs\*.log` has `The browser is already running for …\session-<name>`. The
+five-minute restart of a stuck session could leave a Chrome behind the same way. On the older
+gateway, end that Chrome with the command above (with the session's name), then press **Start**.
+
+From #6 on a stop waits for Chrome to come up and closes it, so it can take a few seconds longer.
+The start it overtook answers "Session '…' was stopped, deleted or restarted before it finished
+starting". That message is the stop working and needs nothing done: press **Start** again when the
+session should be running. A second **Start** pressed while the first is still getting going
+answers "Session is already started".
+
 ## Customer documents
 
 Invoices sent to customers on WhatsApp from a **dedicated number** paired as its own session: as the
