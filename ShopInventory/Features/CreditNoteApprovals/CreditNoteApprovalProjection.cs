@@ -168,7 +168,7 @@ internal static class CreditNoteApprovalProjection
         Quantity = line.Quantity,
         UnitPrice = line.UnitPrice,
         LineTotal = line.LineTotal,
-        VatSum = line.VatSum,
+        VatSum = line.Vat(),
         WarehouseCode = line.WarehouseCode,
         TaxCode = line.TaxCode,
         BaseType = line.BaseType,

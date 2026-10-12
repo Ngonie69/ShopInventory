@@ -51,6 +51,13 @@ public sealed class CreditNoteProjectionSyncService(
     private const string DisplayName = "Credit Notes";
     private const int MaxErrorLength = 1000;
     private const int CommentsMaxLength = 254;
+
+    /// <summary>
+    /// Which reading of a memo line the stored rows hold. 1: the line's VAT is read off its gross
+    /// total. Rows stored before that carry no VAT at all, so a checkpoint behind this is reconciled
+    /// on its next sweep rather than at the next change of day.
+    /// </summary>
+    private const int LineRevision = 1;
     private readonly CreditNoteSyncSettings _settings = options.Value;
 
     public async Task SyncAsync(CancellationToken cancellationToken = default)
@@ -86,7 +93,8 @@ public sealed class CreditNoteProjectionSyncService(
 
             var reconciled = false;
             if (!checkpoint.LastReconciledAtUtc.HasValue ||
-                checkpoint.LastReconciledAtUtc.Value.Date < now.Date)
+                checkpoint.LastReconciledAtUtc.Value.Date < now.Date ||
+                checkpoint.LineRevision < LineRevision)
             {
                 var reconciliationFrom = now.Date.AddDays(-Math.Max(1, _settings.ReconciliationWindowDays));
                 var recentCreditNotes = await sapClient.GetCreditNotesByDateRangeAsync(
@@ -96,7 +104,7 @@ public sealed class CreditNoteProjectionSyncService(
                 await UpsertCoreAsync(recentCreditNotes, polledUpdateTimes: null, cancellationToken);
                 reconciled = true;
 
-                checkpoint = checkpoint with { LastReconciledAtUtc = now };
+                checkpoint = checkpoint with { LastReconciledAtUtc = now, LineRevision = LineRevision };
                 await SaveCheckpointAsync(checkpointRow, checkpoint, cancellationToken);
             }
 
@@ -579,7 +587,9 @@ public sealed class CreditNoteProjectionSyncService(
             target.BaseLine = source.BaseLine;
             target.BaseType = source.BaseType;
             target.LineTotal = source.LineTotal;
-            target.VatSum = source.VatSum;
+            // To the cent, as the column holds it: an unrounded figure would differ from its own
+            // stored row on every read and the document would be rewritten each time.
+            target.VatSum = Math.Round(source.Vat(), 2, MidpointRounding.AwayFromZero);
             target.CreditReason = source.CreditReason?.Trim();
         }
 
@@ -627,5 +637,6 @@ public sealed class CreditNoteProjectionSyncService(
         bool BackfillCompleted = false,
         DateTime? BackfillCompletedAtUtc = null,
         DateTime? LastUpdateWatermarkDate = null,
-        DateTime? LastReconciledAtUtc = null);
+        DateTime? LastReconciledAtUtc = null,
+        int LineRevision = 0);
 }

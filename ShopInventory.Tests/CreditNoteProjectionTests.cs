@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Caching;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
@@ -412,6 +413,78 @@ public sealed class CreditNoteProjectionTests : IDisposable
         Assert.Empty(_commands.Writes());
     }
 
+    [Fact]
+    public async Task A_memo_line_is_stored_with_the_vat_its_gross_total_holds()
+    {
+        // A line as the Service Layer sends it: a net, a gross, and no VatSum. Memo 60678 against van
+        // invoice 2402231 on 2026-10-12 — one Vhuka Vhuka at 0.75 net, 0.87 with its VAT.
+        var memo = JsonSerializer.Deserialize<SAPCreditNote>(
+            """
+            {
+              "DocEntry": 60001, "DocNum": 60678, "DocDate": "2026-10-12", "UpdateDate": "2026-10-12",
+              "CardCode": "C001", "DocCurrency": "USD", "DocTotal": 0.87, "VatSum": 0.12,
+              "DocumentStatus": "bost_Open", "Cancelled": "tNO",
+              "DocumentLines": [
+                { "LineNum": 0, "ItemCode": "VHU002", "Quantity": 1, "LineTotal": 0.75, "GrossTotal": 0.87,
+                  "BaseType": 13, "BaseEntry": 2402231, "BaseLine": 0 }
+              ]
+            }
+            """)!;
+
+        await CreateService().UpsertAsync([memo]);
+        _context.ChangeTracker.Clear();
+
+        var line = await _context.SapCreditNoteLineSnapshots.SingleAsync();
+        Assert.Equal(0.75m, line.LineTotal);
+        Assert.Equal(0.12m, line.VatSum);
+
+        // What the van handset is told: the whole invoice, tax included, and so fully credited.
+        var credit = (await SaleCredits.ForInvoicesAsync(_context, [2402231], CancellationToken.None))[2402231];
+        Assert.Equal(0.87m, credit.Amount);
+        Assert.True(credit.Covers(0.87m));
+        Assert.Equal(0.87m, Assert.Single(credit.Lines).Amount);
+    }
+
+    [Fact]
+    public void A_memo_line_with_no_gross_total_keeps_the_vat_it_was_given()
+    {
+        // The SQL reads over RIN1 fill VatSum and send no gross total.
+        Assert.Equal(7.50m, new SAPCreditNoteLine { LineTotal = 50m, VatSum = 7.50m }.Vat());
+        Assert.Equal(0m, new SAPCreditNoteLine { LineTotal = 50m, GrossTotal = 50m, VatSum = 7.50m }.Vat());
+    }
+
+    [Fact]
+    public async Task Rows_stored_before_line_vat_was_read_are_reconciled_on_the_next_sweep_and_once()
+    {
+        // What production holds: the memo stored net only, and a checkpoint already reconciled today,
+        // so nothing would have read the document again before the day changed.
+        var sap = new FakeCreditNoteSap();
+        sap.Put(SapMemo(7001, net: 0.75m, gross: 0m), "09:00:00");
+        SeedSweepCheckpoint();
+        var service = CreateSweepService(sap);
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+        Assert.Equal(0m, (await _context.SapCreditNoteLineSnapshots.SingleAsync()).VatSum);
+        _context.ChangeTracker.Clear();
+
+        // The same document, unmoved as far as the poll can tell, read the way it is read now.
+        sap.Put(SapMemo(7001, net: 0.75m, gross: 0.87m), "09:00:00");
+        WriteSweepCheckpoint(lineRevision: null);
+        sap.Fetched.Clear();
+        sap.AnswersReconciliation = true;
+
+        await service.SyncAsync();
+        _context.ChangeTracker.Clear();
+
+        Assert.Empty(sap.Fetched);
+        Assert.Equal(1, sap.Reconciliations);
+        Assert.Equal(0.12m, (await _context.SapCreditNoteLineSnapshots.SingleAsync()).VatSum);
+        _context.ChangeTracker.Clear();
+
+        await service.SyncAsync();
+        Assert.Equal(1, sap.Reconciliations);
+    }
+
     /// <summary>Records the sync state and checkpoint that let the projection answer reads.</summary>
     private void MarkProjectionReadyForReads()
     {
@@ -483,23 +556,45 @@ public sealed class CreditNoteProjectionTests : IDisposable
     /// A checkpoint past its backfill and already reconciled today, so a sweep runs only its
     /// incremental poll.
     /// </summary>
-    private void SeedSweepCheckpoint()
+    private void SeedSweepCheckpoint() => WriteSweepCheckpoint(lineRevision: 1);
+
+    /// <summary>
+    /// Writes that checkpoint as a given build left it. Null is one from before the line revision was
+    /// kept, which is every checkpoint in production on the day the revision shipped.
+    /// </summary>
+    private void WriteSweepCheckpoint(int? lineRevision)
     {
         var now = DateTime.UtcNow;
-        _context.SystemConfigs.Add(new SystemConfigEntity
+        var row = _context.SystemConfigs
+            .AsTracking()
+            .SingleOrDefault(config => config.Key == "CreditNoteSync.Checkpoint");
+        if (row is null)
         {
-            Key = "CreditNoteSync.Checkpoint",
-            ValueType = "json",
-            Category = "Synchronization",
-            IsEditable = false,
-            UpdatedAt = now,
-            Value = JsonSerializer.Serialize(new
+            row = new SystemConfigEntity
+            {
+                Key = "CreditNoteSync.Checkpoint",
+                ValueType = "json",
+                Category = "Synchronization",
+                IsEditable = false
+            };
+            _context.SystemConfigs.Add(row);
+        }
+
+        row.UpdatedAt = now;
+        row.Value = lineRevision is int revision
+            ? JsonSerializer.Serialize(new
+            {
+                BackfillCompleted = true,
+                LastUpdateWatermarkDate = now.Date,
+                LastReconciledAtUtc = now,
+                LineRevision = revision
+            })
+            : JsonSerializer.Serialize(new
             {
                 BackfillCompleted = true,
                 LastUpdateWatermarkDate = now.Date,
                 LastReconciledAtUtc = now
-            })
-        });
+            });
         _context.SaveChanges();
         _context.ChangeTracker.Clear();
     }
@@ -531,9 +626,21 @@ public sealed class CreditNoteProjectionTests : IDisposable
             ]
         };
 
+    /// <summary>One memo line against invoice 101, with the gross total SAP sends beside its net.</summary>
+    private static SAPCreditNote SapMemo(int docEntry, decimal net, decimal gross)
+    {
+        var memo = SapDocument(docEntry, total: 0.87m);
+        memo.DocumentLines =
+        [
+            new SAPCreditNoteLine { LineNum = 0, BaseType = 13, BaseEntry = 101, LineTotal = net, GrossTotal = gross }
+        ];
+        return memo;
+    }
+
     /// <summary>
     /// SAP as the sweep sees it: a version poll over every document it holds, and whole documents
-    /// fetched by DocEntry. Records each fetch, and fails the test on any other call.
+    /// fetched by DocEntry. Records each fetch, and fails the test on any other call — the daily
+    /// reconciliation's read included, unless the test says it is expected.
     /// </summary>
     private sealed class FakeCreditNoteSap
     {
@@ -542,6 +649,10 @@ public sealed class CreditNoteProjectionTests : IDisposable
         public List<List<int>> Fetched { get; } = [];
 
         public int Polls { get; set; }
+
+        public bool AnswersReconciliation { get; set; }
+
+        public int Reconciliations { get; private set; }
 
         public void Put(SAPCreditNote document, string? updateTime) =>
             _documents[document.DocEntry] = (document, updateTime);
@@ -552,6 +663,8 @@ public sealed class CreditNoteProjectionTests : IDisposable
                 nameof(ISAPServiceLayerClient.GetCreditNoteVersionsUpdatedSinceAsync) => Poll(),
                 nameof(ISAPServiceLayerClient.GetCreditNotesByDocEntriesAsync) =>
                     Fetch(((IEnumerable<int>)args![0]!).ToList()),
+                nameof(ISAPServiceLayerClient.GetCreditNotesByDateRangeAsync) when AnswersReconciliation =>
+                    Reconcile(),
                 _ => throw new InvalidOperationException($"The sweep was not expected to call {method.Name}.")
             });
 
@@ -569,6 +682,12 @@ public sealed class CreditNoteProjectionTests : IDisposable
                     DocTotal = entry.Document.DocTotal
                 })
                 .ToList());
+        }
+
+        private Task<List<SAPCreditNote>> Reconcile()
+        {
+            Reconciliations++;
+            return Task.FromResult(_documents.Values.Select(entry => entry.Document).ToList());
         }
 
         private Task<List<SAPCreditNote>> Fetch(List<int> docEntries)

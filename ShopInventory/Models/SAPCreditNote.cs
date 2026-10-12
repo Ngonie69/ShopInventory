@@ -126,8 +126,27 @@ public class SAPCreditNoteLine
     [JsonPropertyName("LineTotal")]
     public decimal LineTotal { get; set; }
 
+    /// <summary>
+    /// Not the line's VAT on anything read from the Service Layer. Read <see cref="Vat"/>.
+    /// </summary>
+    /// <remarks>
+    /// <c>VatSum</c> is a header property; a document line read from the Service Layer comes back
+    /// without one, so this stays 0. Kept because the SQL reads over <c>RIN1</c> do fill it.
+    /// </remarks>
     [JsonPropertyName("VatSum")]
     public decimal VatSum { get; set; }
+
+    /// <summary>
+    /// The VAT on this line: what <see cref="GrossTotal"/> holds beyond <see cref="LineTotal"/>.
+    /// </summary>
+    /// <remarks>
+    /// The projection stored <see cref="VatSum"/> for this, which is 0 from the Service Layer, so every
+    /// reader that added a memo line's VAT to its net was adding nothing. On 2026-10-12 memo 60678 gave
+    /// back the whole of a 0.87 van invoice and the handset was told 0.75 — "0.87 sold, 0.75 credited
+    /// back" on its dashboard — and a POD report could not see such an invoice as fully credited.
+    /// A line with no gross total falls back to <see cref="VatSum"/>, which is what a SQL read fills.
+    /// </remarks>
+    public decimal Vat() => GrossTotal != 0m ? GrossTotal - LineTotal : VatSum;
 
     [JsonPropertyName("WarehouseCode")]
     public string? WarehouseCode { get; set; }
