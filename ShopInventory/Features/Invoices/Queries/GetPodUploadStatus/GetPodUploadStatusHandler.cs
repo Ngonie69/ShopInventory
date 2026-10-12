@@ -1124,7 +1124,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             {
                 var creditAmount = linkedInvoiceCount == 1
                     ? Math.Abs(creditNote.DocTotal)
-                    : invoiceGroup.Sum(line => Math.Abs(line.LineTotal + line.VatSum));
+                    : invoiceGroup.Sum(line => Math.Abs(line.LineTotal + line.Vat()));
 
                 var reasons = invoiceGroup
                     .Select(line => line.CreditReason?.Trim())
