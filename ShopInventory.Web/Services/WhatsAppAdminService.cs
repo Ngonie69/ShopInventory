@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using Blazored.LocalStorage;
 using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Services;
@@ -18,15 +19,23 @@ public interface IWhatsAppAdminService
     Task<WhatsAppMessageDispatchModel> ReplyAsync(string sessionId, string chatId, string quotedMessageId, string text, CancellationToken cancellationToken = default);
 }
 
+/// <remarks>
+/// Every call goes through <see cref="SendAuthenticatedAsync"/>. The console refreshes itself
+/// every fifteen seconds and is left open for hours, so it outlives the access token it was opened
+/// with: sent bare, each call after that is a 401, the session list reads as empty and the
+/// operator is told to sign in again while the rest of the app still works.
+/// </remarks>
 public sealed class WhatsAppAdminService(
     HttpClient httpClient,
-    ILogger<WhatsAppAdminService> logger) : IWhatsAppAdminService
+    ILogger<WhatsAppAdminService> logger,
+    ILocalStorageService localStorage,
+    CustomAuthStateProvider authStateProvider) : IWhatsAppAdminService
 {
     public async Task<WhatsAppHealthModel> GetHealthAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await httpClient.GetAsync("api/whatsapp/health", cancellationToken);
+            var response = await SendAuthenticatedAsync(() => httpClient.GetAsync("api/whatsapp/health", cancellationToken));
             if (response.IsSuccessStatusCode)
             {
                 var payload = await response.Content.ReadFromJsonAsync<WhatsAppHealthModel>(cancellationToken);
@@ -52,7 +61,7 @@ public sealed class WhatsAppAdminService(
             requestUri += $"&search={Uri.EscapeDataString(search.Trim())}";
         }
 
-        var response = await httpClient.GetAsync(requestUri, cancellationToken);
+        var response = await SendAuthenticatedAsync(() => httpClient.GetAsync(requestUri, cancellationToken));
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -70,7 +79,7 @@ public sealed class WhatsAppAdminService(
 
     public async Task<List<WhatsAppSessionModel>> GetSessionsAsync(CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.GetAsync("api/whatsapp/sessions", cancellationToken);
+        var response = await SendAuthenticatedAsync(() => httpClient.GetAsync("api/whatsapp/sessions", cancellationToken));
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -105,7 +114,7 @@ public sealed class WhatsAppAdminService(
 
     public async Task<WhatsAppQrCodeModel?> TryGetSessionQrCodeAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.GetAsync($"api/whatsapp/sessions/{Uri.EscapeDataString(sessionId)}/qr", cancellationToken);
+        var response = await SendAuthenticatedAsync(() => httpClient.GetAsync($"api/whatsapp/sessions/{Uri.EscapeDataString(sessionId)}/qr", cancellationToken));
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -122,7 +131,7 @@ public sealed class WhatsAppAdminService(
         // session, and a gateway that will not answer must not take the session list down with it.
         try
         {
-            var response = await httpClient.GetAsync($"api/whatsapp/sessions/{Uri.EscapeDataString(sessionId)}/webhook", cancellationToken);
+            var response = await SendAuthenticatedAsync(() => httpClient.GetAsync($"api/whatsapp/sessions/{Uri.EscapeDataString(sessionId)}/webhook", cancellationToken));
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -199,9 +208,9 @@ public sealed class WhatsAppAdminService(
 
     private async Task<T> SendForJsonAsync<T>(string requestUri, object? payload, CancellationToken cancellationToken)
     {
-        using var response = payload is null
-            ? await httpClient.PostAsync(requestUri, content: null, cancellationToken)
-            : await httpClient.PostAsJsonAsync(requestUri, payload, cancellationToken);
+        using var response = await SendAuthenticatedAsync(() => payload is null
+            ? httpClient.PostAsync(requestUri, content: null, cancellationToken)
+            : httpClient.PostAsJsonAsync(requestUri, payload, cancellationToken));
 
         if (!response.IsSuccessStatusCode)
         {
@@ -213,6 +222,9 @@ public sealed class WhatsAppAdminService(
         return await response.Content.ReadFromJsonAsync<T>(cancellationToken)
             ?? throw new HttpRequestException("The API returned an empty WhatsApp response payload.");
     }
+
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> send)
+        => ApiTokenAuthentication.SendAsync(httpClient, authStateProvider, localStorage, send, logger);
 
     /// <summary>
     /// Turns an API problem-details body into something an operator can act on.

@@ -193,7 +193,16 @@
                         <div class="wac-note is-info">@actionInfoMessage</div>
                     }
 
-                    @if (sessions.Count == 0)
+                    @if (sessionsLoadFailed)
+                    {
+                        @* An unread list is not an empty one. Said as "no sessions exist yet" it
+                           invited a second session for a number that was already paired. *@
+                        <div class="wac-note">
+                            The session list could not be read, so the sessions that exist are not shown
+                            here. Press Retry before creating a new one.
+                        </div>
+                    }
+                    else if (sessions.Count == 0)
                     {
                         <div class="wac-note">
                             No OpenWA sessions exist yet. Use New to create one, then Create + start to jump
@@ -615,6 +624,7 @@
     private bool isQrLoading;
     private bool isSessionActionRunning;
     private bool isCreatingSession;
+    private bool sessionsLoadFailed;
     private bool autoRefreshEnabled = true;
 
     private bool showCreateForm;
@@ -1053,6 +1063,7 @@
         {
             Logger.LogWarning(ex, "Failed to start WhatsApp session {SessionId}", session.Id);
             actionErrorMessage = ex.Message;
+            await ReloadAfterFailedSessionActionAsync();
         }
         finally
         {
@@ -1083,12 +1094,24 @@
         {
             Logger.LogWarning(ex, "Failed to stop WhatsApp session {SessionId}", session.Id);
             actionErrorMessage = ex.Message;
+            await ReloadAfterFailedSessionActionAsync();
         }
         finally
         {
             isSessionActionRunning = false;
             actioningSessionId = null;
         }
+    }
+
+    /// <summary>
+    /// A start or stop that failed here may still have gone through at OpenWA: a stop that ran out
+    /// of time carries on closing the session's browser after this console has given up on it.
+    /// Left unread, the row kept the status from before the press, so a stopped session went on
+    /// reading as ready beside the error.
+    /// </summary>
+    private async Task ReloadAfterFailedSessionActionAsync()
+    {
+        await LoadAsync();
     }
 
     private async Task RefreshSelectedSessionQrAsync()
@@ -1324,11 +1347,13 @@
             try
             {
                 sessions = await WhatsAppService.GetSessionsAsync();
+                sessionsLoadFailed = false;
             }
             catch (Exception ex)
             {
                 Logger.LogWarning(ex, "Failed to load WhatsApp sessions");
                 sessions = [];
+                sessionsLoadFailed = true;
                 loadWarningMessage = ex.Message;
             }
 
