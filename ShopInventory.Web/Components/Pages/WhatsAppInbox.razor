@@ -1063,6 +1063,7 @@
         {
             Logger.LogWarning(ex, "Failed to start WhatsApp session {SessionId}", session.Id);
             actionErrorMessage = ex.Message;
+            await ReloadAfterFailedSessionActionAsync();
         }
         finally
         {
@@ -1093,12 +1094,24 @@
         {
             Logger.LogWarning(ex, "Failed to stop WhatsApp session {SessionId}", session.Id);
             actionErrorMessage = ex.Message;
+            await ReloadAfterFailedSessionActionAsync();
         }
         finally
         {
             isSessionActionRunning = false;
             actioningSessionId = null;
         }
+    }
+
+    /// <summary>
+    /// A start or stop that failed here may still have gone through at OpenWA: a stop that ran out
+    /// of time carries on closing the session's browser after this console has given up on it.
+    /// Left unread, the row kept the status from before the press, so a stopped session went on
+    /// reading as ready beside the error.
+    /// </summary>
+    private async Task ReloadAfterFailedSessionActionAsync()
+    {
+        await LoadAsync();
     }
 
     private async Task RefreshSelectedSessionQrAsync()
