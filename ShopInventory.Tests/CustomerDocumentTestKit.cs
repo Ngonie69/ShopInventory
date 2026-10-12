@@ -214,6 +214,12 @@ internal sealed class FakeOpenWAClient : IOpenWAClient
     public List<WhatsAppOutboundMessageDto> Log { get; } = [];
     public Exception? SessionsFailure { get; set; }
 
+    /// <summary>The documents session's own number, as the gateway gives it; null for one that is not paired.</summary>
+    public string? SessionPhone { get; set; }
+
+    /// <summary>How many times the gateway was asked what sessions it has.</summary>
+    public int SessionReads { get; private set; }
+
     /// <summary>What the gateway lists; null for the one documents session in <see cref="SessionStatus"/>.</summary>
     public List<WhatsAppSessionDto>? Sessions { get; set; }
 
@@ -233,13 +239,16 @@ internal sealed class FakeOpenWAClient : IOpenWAClient
     public Task<WhatsAppMessageHistoryDto> GetMessagesAsync(string sessionId, string chatId, int limit, CancellationToken cancellationToken = default) =>
         Task.FromResult(new WhatsAppMessageHistoryDto { Messages = Log.Where(message => message.ChatId == chatId).ToList(), Total = Log.Count });
 
-    public Task<List<WhatsAppSessionDto>> GetSessionsAsync(CancellationToken cancellationToken = default) =>
-        SessionsFailure is not null
+    public Task<List<WhatsAppSessionDto>> GetSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        SessionReads++;
+        return SessionsFailure is not null
             ? Task.FromException<List<WhatsAppSessionDto>>(SessionsFailure)
             : Task.FromResult(Sessions ?? new List<WhatsAppSessionDto>
             {
-                new() { Id = CustomerDocumentTestKit.SessionId, Name = "customer-documents", Status = SessionStatus }
+                new() { Id = CustomerDocumentTestKit.SessionId, Name = "customer-documents", Status = SessionStatus, Phone = SessionPhone }
             });
+    }
 
     public Task<WhatsAppHealthDto?> GetHealthAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<WhatsAppSessionDto> CreateSessionAsync(WhatsAppCreateSessionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

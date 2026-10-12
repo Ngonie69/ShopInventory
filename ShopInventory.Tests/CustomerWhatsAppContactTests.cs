@@ -21,6 +21,7 @@ public sealed class CustomerWhatsAppContactTests : IDisposable
 {
     private readonly CustomerDocumentTestKit _kit = new();
     private readonly RecordingAuditService _audit = new();
+    private readonly FakeOpenWAClient _gateway = new();
 
     public void Dispose() => _kit.Dispose();
 
@@ -52,6 +53,51 @@ public sealed class CustomerWhatsAppContactTests : IDisposable
         var result = await SaveAsync(Request(phone: "call me"));
 
         Assert.Equal("CustomerDocuments.InvalidPhone", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task The_number_documents_are_sent_from_cannot_be_saved_on_a_customer()
+    {
+        await _kit.SetRuntimeAsync();
+        _gateway.SessionPhone = "263771234567";
+
+        var result = await SaveAsync(Request(phone: "0771234567"));
+
+        Assert.Equal("CustomerDocuments.SendingNumberGiven", result.FirstError.Code);
+        await using var context = _kit.NewContext();
+        Assert.Empty(context.CustomerWhatsAppContacts);
+    }
+
+    [Fact]
+    public async Task Another_number_is_saved_when_the_gateway_names_its_own()
+    {
+        await _kit.SetRuntimeAsync();
+        _gateway.SessionPhone = "263717000000";
+
+        var result = await SaveAsync(Request(phone: "0771234567"));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+    }
+
+    [Fact]
+    public async Task A_gateway_that_cannot_say_its_number_does_not_stop_a_number_being_saved()
+    {
+        await _kit.SetRuntimeAsync();
+        _gateway.SessionPhone = "263771234567";
+        _gateway.SessionsFailure = new HttpRequestException("connection refused");
+
+        var result = await SaveAsync(Request(phone: "0771234567"));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+    }
+
+    [Fact]
+    public async Task With_no_session_chosen_saving_a_number_asks_the_gateway_nothing()
+    {
+        var result = await SaveAsync(Request(phone: "0771234567"));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(0, _gateway.SessionReads);
     }
 
     [Fact]
@@ -288,6 +334,8 @@ public sealed class CustomerWhatsAppContactTests : IDisposable
             sap,
             Options.Create(new SAPSettings { Enabled = true }),
             Options.Create(settings ?? CustomerDocumentTestKit.Settings()),
+            _gateway,
+            Options.Create(CustomerDocumentTestKit.Gateway()),
             _audit,
             NullLogger<SaveCustomerWhatsAppContactHandler>.Instance);
 

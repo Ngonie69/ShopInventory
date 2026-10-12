@@ -214,6 +214,82 @@ public sealed class VanSaleWhatsAppTests : IDisposable
         Assert.Empty(await DeliveriesAsync());
     }
 
+    // ── The number invoices are sent from is not a customer's ───────────
+
+    [Theory]
+    [InlineData("0771234567")]
+    [InlineData("+263 77 123 4567")]
+    public async Task The_number_invoices_are_sent_from_is_refused_and_not_saved_on_the_shop(string typed)
+    {
+        await _kit.SetRuntimeAsync();
+        await AddSaleAsync();
+        _gateway.SessionPhone = "263771234567";
+
+        var result = await RequestAsync(CustomerDocumentTestKit.Cashier, typed);
+
+        Assert.Equal("CustomerDocuments.SendingNumberGiven", result.FirstError.Code);
+        Assert.Equal(ErrorType.Validation, result.FirstError.Type);
+        Assert.Contains("4567", result.FirstError.Description);
+        Assert.DoesNotContain("771234567", result.FirstError.Description);
+        Assert.Empty(await DeliveriesAsync());
+        Assert.Empty(await ContactsAsync());
+        Assert.Equal(0, _trigger.Triggered);
+    }
+
+    [Fact]
+    public async Task Asking_again_with_the_sending_number_is_refused_even_after_it_was_once_queued()
+    {
+        await _kit.SetRuntimeAsync();
+        await AddSaleAsync();
+        await RequestAsync(CustomerDocumentTestKit.Cashier);
+        _gateway.SessionPhone = "263771234567";
+
+        var again = await RequestAsync(CustomerDocumentTestKit.Cashier);
+
+        Assert.Equal("CustomerDocuments.SendingNumberGiven", again.FirstError.Code);
+        Assert.Single(await DeliveriesAsync());
+    }
+
+    [Fact]
+    public async Task Another_number_is_queued_when_the_gateway_names_its_own()
+    {
+        await _kit.SetRuntimeAsync();
+        await AddSaleAsync();
+        _gateway.SessionPhone = "263717000000";
+
+        var result = await RequestAsync(CustomerDocumentTestKit.Cashier);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Single(await DeliveriesAsync());
+    }
+
+    [Fact]
+    public async Task A_gateway_that_cannot_say_its_number_does_not_refuse_the_rep()
+    {
+        await _kit.SetRuntimeAsync();
+        await AddSaleAsync();
+        _gateway.SessionPhone = "263771234567";
+        _gateway.SessionsFailure = new HttpRequestException("connection refused");
+
+        var result = await RequestAsync(CustomerDocumentTestKit.Cashier);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Single(await DeliveriesAsync());
+    }
+
+    [Fact]
+    public async Task The_ask_with_no_number_does_not_call_the_gateway_for_its_number()
+    {
+        await _kit.SetRuntimeAsync();
+        await AddSaleAsync();
+
+        var result = await RequestAsync(CustomerDocumentTestKit.Cashier, phone: null, consent: false);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.True(result.Value.NeedsNumber);
+        Assert.Equal(0, _gateway.SessionReads);
+    }
+
     // ── The number is kept, and asked for once ──────────────────────────
 
     [Fact]

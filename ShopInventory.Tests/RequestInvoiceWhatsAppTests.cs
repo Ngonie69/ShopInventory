@@ -170,6 +170,20 @@ public sealed class RequestInvoiceWhatsAppTests : IDisposable
     }
 
     [Fact]
+    public async Task The_number_documents_are_sent_from_is_refused_as_a_one_off()
+    {
+        await _kit.SetRuntimeAsync();
+        _gateway.SessionPhone = "263779876543";
+
+        var result = await RequestAsync(new RequestInvoiceWhatsAppRequest { OneOffPhone = "0779876543", ConsentAffirmed = true });
+
+        Assert.Equal("CustomerDocuments.SendingNumberGiven", result.FirstError.Code);
+        Assert.Equal(0, _trigger.Triggered);
+        await using var context = _kit.NewContext();
+        Assert.Empty(context.CustomerDocumentDeliveries);
+    }
+
+    [Fact]
     public async Task One_off_numbers_are_capped_per_person_per_day()
     {
         await _kit.SetRuntimeAsync();

@@ -4324,7 +4324,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
 | GET | `/api/vansales/sale/{vanOrder}` | `invoices.view` | Whether the sale posted under that `van_order` landed, for a handset whose `POST order` lost its reply: sale number, receipt, and SAP numbers once the queue has posted it. Read off the sale row, so a sale signed and not yet in SAP is answered — invoice history, which reads SAP, has nothing. **Always `200`**: not found, and another van's sale, are both `found: false`, because the handset reads a `404` as a server without this route. Returned **bare**, not enveloped |
-| POST | `/api/vansales/sale/{vanOrder}/whatsapp` | `invoices.create` | Send that sale's invoice to the shop's WhatsApp. With an empty body (`{}`) it goes to the number saved on the shop (the route customer) that is marked for automatic invoices; `200` with `needs_number: true` and nothing queued when it has none. With `{"phone": "0771234567", "consent": true}` it goes to the number the customer gave, which is then **saved on the shop** and marked for automatic invoices, the rep recorded as having taken the consent, so the next sale needs no question (`saved: true`; a number the office set to only-when-asked is left as set, and a shop already holding `MaxContactsPerOwner` numbers is sent to without saving). Queued, not sent: it goes once the office has posted the sale to SAP and its fiscal receipt is confirmed, with the shop named as the buyer instead of the van. `202` when queued; `200` with `already_requested: true` when this invoice was already sent to that number by any route (a handset, the office, or the scan), so a retry is safe. `recipients` lists every number, masked. The rep's own sales, or sales on a card in their scope; any other is a `404`, the same as no sale. Numbers a rep types are capped per CAT day (`CustomerDocuments:MaxVanSaleSendsPerUserPerDay`, 80); sends to a saved number are not counted |
+| POST | `/api/vansales/sale/{vanOrder}/whatsapp` | `invoices.create` | Send that sale's invoice to the shop's WhatsApp. With an empty body (`{}`) it goes to the number saved on the shop (the route customer) that is marked for automatic invoices; `200` with `needs_number: true` and nothing queued when it has none. With `{"phone": "0771234567", "consent": true}` it goes to the number the customer gave, which is then **saved on the shop** and marked for automatic invoices, the rep recorded as having taken the consent, so the next sale needs no question (`saved: true`; a number the office set to only-when-asked is left as set, and a shop already holding `MaxContactsPerOwner` numbers is sent to without saving). Queued, not sent: it goes once the office has posted the sale to SAP and its fiscal receipt is confirmed, with the shop named as the buyer instead of the van. `202` when queued; `200` with `already_requested: true` when this invoice was already sent to that number by any route (a handset, the office, or the scan), so a retry is safe. `recipients` lists every number, masked. The rep's own sales, or sales on a card in their scope; any other is a `404`, the same as no sale. Numbers a rep types are capped per CAT day (`CustomerDocuments:MaxVanSaleSendsPerUserPerDay`, 80); sends to a saved number are not counted. A typed number that is the one invoices are sent from is a `400` `CustomerDocuments.SendingNumberGiven`, with nothing queued or saved |
 | GET | `/api/vansales/fiscal` | `invoices.view` | Fiscal device details for the handset |
 | GET | `/api/vansales/fiscal/lease` | `invoices.create` | Optional `pendingSales`. Returned **bare**, not enveloped |
 | POST | `/api/vansales/fiscal/day-close` | `invoices.create` | The close a handset signed for its own fiscal day. Held rather than forwarded — the day is packaged once its receipts have landed |
@@ -4679,7 +4679,7 @@ the row, starts the job, and answers `202`.
 |--------|----------|------------|-------------|
 | GET | `/api/customer-whatsapp-contacts` | `customers.whatsapp.manage` or `invoices.send_whatsapp` | A customer's numbers (`cardCode` or `routeCustomerId`) |
 | GET | `/api/customer-whatsapp-contacts/phone-check` | `customers.whatsapp.manage` or `invoices.send_whatsapp` | Normalise a typed number (`phone`) and say whether it is opted out or already saved. Asks nothing of WhatsApp |
-| POST | `/api/customer-whatsapp-contacts` | `customers.whatsapp.manage` | Save a number. Needs `consentConfirmed`; `alsoApplyToCardCodes` saves it on the same shop's other currency cards in one transaction |
+| POST | `/api/customer-whatsapp-contacts` | `customers.whatsapp.manage` | Save a number. Needs `consentConfirmed`; `alsoApplyToCardCodes` saves it on the same shop's other currency cards in one transaction. The number documents are sent from is refused: `400` `CustomerDocuments.SendingNumberGiven` |
 | PUT | `/api/customer-whatsapp-contacts/{id}` | `customers.whatsapp.manage` | Change the name, or whether new invoices go to it automatically |
 | POST | `/api/customer-whatsapp-contacts/{id}/opt-out` | `customers.whatsapp.manage` | Stop every document to that number, on every customer it is saved on |
 | POST | `/api/customer-whatsapp-contacts/{id}/check` | `customers.whatsapp.manage` | Ask WhatsApp whether the number has an account. Capped a day |
@@ -4694,7 +4694,7 @@ many buyers. A van's shops are route customers: their numbers are saved with `ro
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
 | GET | `/api/customer-document-deliveries` | `invoices.view` | One invoice's sends (`sapDocEntry`), numbers masked |
-| POST | `/api/customer-document-deliveries/invoices/{docEntry}` | `invoices.send_whatsapp` | Send an invoice to saved numbers (`contactIds`), a number typed for this send (`oneOffPhone` with `consentAffirmed`), or both. `202` |
+| POST | `/api/customer-document-deliveries/invoices/{docEntry}` | `invoices.send_whatsapp` | Send an invoice to saved numbers (`contactIds`), a number typed for this send (`oneOffPhone` with `consentAffirmed`), or both. `202`. A typed number that is the one documents are sent from is a `400` `CustomerDocuments.SendingNumberGiven` |
 | GET | `/api/customer-document-deliveries/invoices/{docEntry}/preview` | `invoices.send_whatsapp` | The PDF, file name and caption that would be sent, or why it cannot go yet |
 | POST | `/api/customer-document-deliveries/{id}/retry` | `invoices.send_whatsapp` | Send again as a new row. `confirmNotReceived` is required when the first may have arrived. `202` |
 | POST | `/api/customer-document-deliveries/{id}/cancel` | `invoices.send_whatsapp` | Withdraw a send that has not started |
@@ -4739,6 +4739,16 @@ takes the number once, and it is saved on the shop for every invoice after. Eith
 SAP numbers, then takes them and goes as that invoice, printed with the route customer as the buyer.
 A sale the handset never asks about — made offline, or raised at the office — is sent by the scan
 below, because the saved number is marked for automatic invoices.
+
+**The number documents are sent from is nobody's customer number.** Typed in the customer's place
+it sends their invoice to the office, and saved on the shop it takes every invoice after; the one
+such send that was tried was answered `500` by the gateway, which reads as a send that may have
+arrived. So the sending session's own number is refused wherever a number is typed — at the van, in
+the invoice's Send dialog, and when saving one on a customer — with
+`CustomerDocuments.SendingNumberGiven`, before anything is queued or saved. The gateway is asked for
+its number only then; when it cannot say, the number is accepted, and the delivery job fails such a
+row with the reason before calling the gateway. That also covers a number saved before this rule,
+and a session later paired to a number some customer already holds.
 
 A van invoice is billed to the van's own card, so every send of one, automatic or by hand, goes to
 the **shop**: the invoice's `U_Van_saleorder` is matched to the van sale row (or, for an online sale,
