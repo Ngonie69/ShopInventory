@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using Blazored.LocalStorage;
 using Microsoft.Extensions.Logging;
 using ShopInventory.Web.Models;
 
@@ -148,20 +149,28 @@ public class DesktopIntegrationService : IDesktopIntegrationService
 
     private async Task<T> CreditRequestAsync<T>(HttpMethod method, string url, object? body = null)
     {
-        using var request = new HttpRequestMessage(method, url);
-        if (body is not null) request.Content = JsonContent.Create(body);
-        using var response = await _httpClient.SendAsync(request);
+        // Built per attempt: a request message cannot be sent twice, and a rejected token is retried.
+        using var response = await SendAuthenticatedAsync(async () =>
+        {
+            using var request = new HttpRequestMessage(method, url);
+            if (body is not null) request.Content = JsonContent.Create(body);
+            return await _httpClient.SendAsync(request);
+        });
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(await ReadProblemDetailAsync(response, CancellationToken.None));
         return await response.Content.ReadFromJsonAsync<T>()
             ?? throw new InvalidOperationException("No credit-note result was returned. Reload the saved notes.");
     }
     private readonly HttpClient _httpClient;
+    private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly ILogger<DesktopIntegrationService> _logger;
 
-    public DesktopIntegrationService(HttpClient httpClient, ILogger<DesktopIntegrationService> logger)
+    public DesktopIntegrationService(HttpClient httpClient, ILogger<DesktopIntegrationService> logger, ILocalStorageService localStorage, CustomAuthStateProvider authStateProvider)
     {
         _httpClient = httpClient;
+        _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _logger = logger;
     }
 
@@ -204,7 +213,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.DeleteAsync($"api/DesktopIntegration/queue/{Uri.EscapeDataString(externalReference)}");
+            var response = await SendAuthenticatedAsync(() => _httpClient.DeleteAsync($"api/DesktopIntegration/queue/{Uri.EscapeDataString(externalReference)}"));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -218,7 +227,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.PostAsync($"api/DesktopIntegration/queue/{Uri.EscapeDataString(externalReference)}/retry", null);
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync($"api/DesktopIntegration/queue/{Uri.EscapeDataString(externalReference)}/retry", null));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -233,7 +242,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         try
         {
             var request = new { ReservationId = reservationId, Reason = reason ?? "Cancelled from web admin" };
-            var response = await _httpClient.PostAsJsonAsync("api/DesktopIntegration/reservations/cancel", request);
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/DesktopIntegration/reservations/cancel", request));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -269,7 +278,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.DeleteAsync($"api/DesktopIntegration/transfer-queue/{Uri.EscapeDataString(externalReference)}");
+            var response = await SendAuthenticatedAsync(() => _httpClient.DeleteAsync($"api/DesktopIntegration/transfer-queue/{Uri.EscapeDataString(externalReference)}"));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -283,7 +292,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.PostAsync($"api/DesktopIntegration/transfer-queue/{Uri.EscapeDataString(externalReference)}/retry", null);
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync($"api/DesktopIntegration/transfer-queue/{Uri.EscapeDataString(externalReference)}/retry", null));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -401,10 +410,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.PutAsJsonAsync(
+            var response = await SendAuthenticatedAsync(() => _httpClient.PutAsJsonAsync(
                 "api/DesktopIntegration/stock/monitored-warehouses",
                 new { Warehouses = warehouses },
-                cancellationToken);
+                cancellationToken));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -428,9 +437,9 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         try
         {
             var response = warehouses is null
-                ? await _httpClient.PostAsync("api/DesktopIntegration/stock/fetch-daily", null)
-                : await _httpClient.PostAsJsonAsync(
-                    "api/DesktopIntegration/stock/fetch-daily", new { Warehouses = warehouses });
+                ? await SendAuthenticatedAsync(() => _httpClient.PostAsync("api/DesktopIntegration/stock/fetch-daily", null))
+                : await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync(
+                    "api/DesktopIntegration/stock/fetch-daily", new { Warehouses = warehouses }));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -445,10 +454,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.PostAsync(
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync(
                 $"api/DesktopIntegration/stock/{Uri.EscapeDataString(warehouseCode)}/refresh",
                 null,
-                cancellationToken);
+                cancellationToken));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -474,10 +483,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         {
             // Sent as a bare date. A DateTime would carry the Web server's offset and could land on
             // the neighbouring day once the API reads it.
-            var response = await _httpClient.PostAsJsonAsync(
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync(
                 "api/DesktopIntegration/end-of-day/consolidate",
                 new { ConsolidationDate = consolidationDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) },
-                cancellationToken);
+                cancellationToken));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -507,10 +516,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.PostAsync(
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync(
                 $"api/DesktopIntegration/sales/{Uri.EscapeDataString(externalReference)}/post",
                 null,
-                cancellationToken);
+                cancellationToken));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -537,10 +546,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.PostAsync(
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync(
                 $"api/DesktopIntegration/sales/{Uri.EscapeDataString(externalReference)}/fiscalise",
                 null,
-                cancellationToken);
+                cancellationToken));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -569,10 +578,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync(
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync(
                 "api/DesktopIntegration/sales/post-batch",
                 new { ExternalReferenceIds = externalReferences },
-                cancellationToken);
+                cancellationToken));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -619,7 +628,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url, cancellationToken));
 
             if (notFoundIsEmpty
                 && response.StatusCode == HttpStatusCode.NotFound
@@ -682,6 +691,13 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     }
 
     #endregion
+
+    /// <summary>
+    /// As the signed-in user for as long as the session can be renewed: a valid access token is
+    /// attached first, and one the API rejects is renewed and the call sent once more.
+    /// </summary>
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(_httpClient, _authStateProvider, _localStorage, sendAsync, _logger);
 }
 
 #region DTOs

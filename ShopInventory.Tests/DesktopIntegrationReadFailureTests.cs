@@ -92,8 +92,7 @@ public sealed class DesktopIntegrationReadFailureTests
     }
 
     private static DesktopIntegrationService Service(HttpMessageHandler handler) =>
-        new(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") },
-            NullLogger<DesktopIntegrationService>.Instance);
+        SignedOutBrowser.DesktopIntegration(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") });
 
     private static HttpMessageHandler Answer(HttpStatusCode status, string body, string mediaType) =>
         new FixedHandler(status, body, mediaType);

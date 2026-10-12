@@ -18,6 +18,15 @@ otherwise be surprised.
 
 ### Changed
 
+- **Six portal pages left open for more than an hour now act as the signed-in user, not as the
+  portal's API key.** Desktop Transactions, Desktop Sales, Local Stock, Live Transactions, Sync Status
+  and the Exception Center, and the notification bell on every page, renew the access token as they
+  poll. They used to keep sending the expired one, and because those routes also accept the portal's
+  key the API answered for the key. Operators may notice two things: an action a role is not allowed
+  that "worked" from a page open for an hour is now refused, and the audit trail names the person
+  rather than the key. `scripts/inventory_api_token_renewal.py` lists what still sends without
+  renewing.
+
 - **The API can ask SL Health what state SAP is in. It is off until configured.** Set `SlHealth:Url`
   and the `SlHealth__Token` environment variable (the token SL Health lists for ShopInventory) on the
   API to turn it on. With either empty nothing is asked and nothing below applies. Once on:

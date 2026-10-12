@@ -79,7 +79,7 @@ public sealed class DesktopSalesLoadFailureTests
         listener.Stop();
 
         var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
-        var service = new DesktopIntegrationService(client, NullLogger<DesktopIntegrationService>.Instance);
+        var service = SignedOutBrowser.DesktopIntegration(client);
 
         var (_, error) = await service.ReadDesktopSalesAsync(Query);
 
@@ -116,7 +116,7 @@ public sealed class DesktopSalesLoadFailureTests
             client.Timeout = value;
         }
 
-        return new DesktopIntegrationService(client, NullLogger<DesktopIntegrationService>.Instance);
+        return SignedOutBrowser.DesktopIntegration(client);
     }
 
     private static HttpMessageHandler Answer(HttpStatusCode status, string body, string mediaType) =>
