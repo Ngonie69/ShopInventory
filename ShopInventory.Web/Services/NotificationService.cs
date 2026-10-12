@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 using System.Net.Http.Json;
+using Blazored.LocalStorage;
 
 namespace ShopInventory.Web.Services;
 
@@ -22,11 +23,15 @@ public interface INotificationClientService
 public class NotificationClientService : INotificationClientService
 {
     private readonly HttpClient _httpClient;
+    private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly ILogger<NotificationClientService> _logger;
 
-    public NotificationClientService(HttpClient httpClient, ILogger<NotificationClientService> logger)
+    public NotificationClientService(HttpClient httpClient, ILogger<NotificationClientService> logger, ILocalStorageService localStorage, CustomAuthStateProvider authStateProvider)
     {
         _httpClient = httpClient;
+        _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _logger = logger;
     }
 
@@ -37,7 +42,7 @@ public class NotificationClientService : INotificationClientService
             var url = $"api/notification?page={page}&pageSize={pageSize}&unreadOnly={unreadOnly}";
             if (!string.IsNullOrEmpty(category))
                 url += $"&category={Uri.EscapeDataString(category)}";
-            return await _httpClient.GetFromJsonAsync<NotificationListResponse>(url);
+            return await GetAuthenticatedJsonAsync<NotificationListResponse>(url);
         }
         catch (Exception ex)
         {
@@ -50,7 +55,7 @@ public class NotificationClientService : INotificationClientService
     {
         try
         {
-            var response = await _httpClient.GetFromJsonAsync<UnreadCountResponse>("api/notification/unread-count");
+            var response = await GetAuthenticatedJsonAsync<UnreadCountResponse>("api/notification/unread-count");
             return response?.UnreadCount ?? 0;
         }
         catch (Exception ex)
@@ -64,7 +69,7 @@ public class NotificationClientService : INotificationClientService
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("api/notification/mark-read", new { NotificationIds = notificationIds });
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/notification/mark-read", new { NotificationIds = notificationIds }));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -78,7 +83,7 @@ public class NotificationClientService : INotificationClientService
     {
         try
         {
-            var response = await _httpClient.DeleteAsync($"api/notification/{id}");
+            var response = await SendAuthenticatedAsync(() => _httpClient.DeleteAsync($"api/notification/{id}"));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -91,6 +96,22 @@ public class NotificationClientService : INotificationClientService
     private class UnreadCountResponse
     {
         public int UnreadCount { get; set; }
+    }
+
+    /// <summary>
+    /// As the signed-in user for as long as the session can be renewed: a valid access token is
+    /// attached first, and one the API rejects is renewed and the call sent once more.
+    /// </summary>
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(_httpClient, _authStateProvider, _localStorage, sendAsync, _logger);
+
+    /// <summary>The body deserialized, or the failure thrown, as <c>GetFromJsonAsync</c> has it.</summary>
+    private async Task<T?> GetAuthenticatedJsonAsync<T>(string url, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAuthenticatedAsync(
+            () => _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken));
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
     }
 }
 
@@ -117,6 +138,8 @@ public interface ISyncStatusClientService
 public class SyncStatusClientService : ISyncStatusClientService
 {
     private readonly HttpClient _httpClient;
+    private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILogger<SyncStatusClientService> _logger;
 
@@ -129,9 +152,13 @@ public class SyncStatusClientService : ISyncStatusClientService
     public SyncStatusClientService(
         HttpClient httpClient,
         IDbContextFactory<WebAppDbContext> dbContextFactory,
-        ILogger<SyncStatusClientService> logger)
+        ILogger<SyncStatusClientService> logger,
+        ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider)
     {
         _httpClient = httpClient;
+        _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _dbContextFactory = dbContextFactory;
         _logger = logger;
     }
@@ -140,7 +167,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            var dashboard = await _httpClient.GetFromJsonAsync<SyncDashboardModel>("api/sync/status");
+            var dashboard = await GetAuthenticatedJsonAsync<SyncDashboardModel>("api/sync/status");
             if (dashboard == null)
             {
                 return null;
@@ -160,7 +187,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<SapConnectionStatusModel>("api/sync/sap-connection");
+            return await GetAuthenticatedJsonAsync<SapConnectionStatusModel>("api/sync/sap-connection");
         }
         catch (Exception ex)
         {
@@ -173,7 +200,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            var response = await _httpClient.PostAsync("api/sync/test-connection", null);
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync("api/sync/test-connection", null));
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
@@ -192,7 +219,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<OfflineQueueStatusModel>("api/sync/queue/status");
+            return await GetAuthenticatedJsonAsync<OfflineQueueStatusModel>("api/sync/queue/status");
         }
         catch (Exception ex)
         {
@@ -305,7 +332,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<List<QueuedTransactionModel>>("api/sync/queue/items") ?? new();
+            return await GetAuthenticatedJsonAsync<List<QueuedTransactionModel>>("api/sync/queue/items") ?? new();
         }
         catch (Exception ex)
         {
@@ -318,7 +345,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<List<ConnectionLogModel>>($"api/sync/logs?count={count}") ?? new();
+            return await GetAuthenticatedJsonAsync<List<ConnectionLogModel>>($"api/sync/logs?count={count}") ?? new();
         }
         catch (Exception ex)
         {
@@ -331,7 +358,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            var response = await _httpClient.PostAsync($"api/sync/queue/{id}/retry", null);
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync($"api/sync/queue/{id}/retry", null));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -345,7 +372,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            var response = await _httpClient.PostAsync($"api/sync/queue/{id}/cancel", null);
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync($"api/sync/queue/{id}/cancel", null));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -359,7 +386,7 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            var response = await _httpClient.PostAsync("api/sync/queue/process", null);
+            var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync("api/sync/queue/process", null));
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<ProcessQueueResult>();
@@ -415,5 +442,21 @@ public class SyncStatusClientService : ISyncStatusClientService
             LastErrorAt = syncFailed ? syncInfo?.LastSyncedAt : null,
             Status = status
         };
+    }
+
+    /// <summary>
+    /// As the signed-in user for as long as the session can be renewed: a valid access token is
+    /// attached first, and one the API rejects is renewed and the call sent once more.
+    /// </summary>
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(_httpClient, _authStateProvider, _localStorage, sendAsync, _logger);
+
+    /// <summary>The body deserialized, or the failure thrown, as <c>GetFromJsonAsync</c> has it.</summary>
+    private async Task<T?> GetAuthenticatedJsonAsync<T>(string url, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAuthenticatedAsync(
+            () => _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken));
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
     }
 }

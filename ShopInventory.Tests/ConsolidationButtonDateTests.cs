@@ -75,8 +75,7 @@ public sealed class ConsolidationButtonDateTests
     }
 
     private static DesktopIntegrationService Service(StubHandler handler) =>
-        new(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") },
-            NullLogger<DesktopIntegrationService>.Instance);
+        SignedOutBrowser.DesktopIntegration(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") });
 
     private sealed class StubHandler(HttpStatusCode status, string body) : HttpMessageHandler
     {
