@@ -425,9 +425,8 @@ try
     // NavMenu: the shell rebuilds the nav when it crosses the md breakpoint.
     builder.Services.AddScoped<NavSectionState>();
 
-    // Add AI service
-    builder.Services.Configure<AISettings>(builder.Configuration.GetSection("AI"));
-    builder.Services.AddScoped<IAIService, AIService>();
+    // Add AI service, with its own HttpClient for the provider
+    builder.Services.AddAIService(builder.Configuration);
 
     // Add background service to preload cache on startup
     builder.Services.AddHostedService<CachePreloadService>();
