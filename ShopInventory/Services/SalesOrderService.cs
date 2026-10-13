@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
@@ -462,6 +463,8 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
+        var started = Stopwatch.GetTimestamp();
+
         var clientRequestId = string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim();
         if (!string.IsNullOrWhiteSpace(clientRequestId))
         {
@@ -477,6 +480,7 @@ public class SalesOrderService : ISalesOrderService
         }
 
         await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
+        var validated = Stopwatch.GetElapsedTime(started);
 
         // Refuse an over-limit order before anything is written. Posting is also gated, but a web
         // order that fails there is only left as a Draft with a sync error, which the rep never
@@ -653,11 +657,15 @@ public class SalesOrderService : ISalesOrderService
                 }
             }
 
+            // The two durations are what tell a slow order apart: the first is everything read before
+            // the order could be stored (for a web order that includes SAP), the second is all of it.
             _logger.LogInformation(
-                "Created sales order {OrderNumber} for customer {CardCode} with {LineCount} lines",
+                "Created sales order {OrderNumber} for customer {CardCode} with {LineCount} lines in {ElapsedMs:F0} ms ({ValidationMs:F0} ms validating the request)",
                 orderNumber,
                 request.CardCode,
-                persistedLineCount);
+                persistedLineCount,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                validated.TotalMilliseconds);
 
             if (request.Source == SalesOrderSource.Mobile)
             {
@@ -779,6 +787,7 @@ public class SalesOrderService : ISalesOrderService
         {
             if (queueEntry.PricesResolvedAt == null)
             {
+                await CompleteMobileOrderCaptureAsync(order, cancellationToken);
                 await ResolveMobileOrderPricesAsync(order, cancellationToken);
 
                 // A van order is not held on credit (see IsVanSalesOrderAsync), so a "held on credit"
@@ -2907,9 +2916,17 @@ public class SalesOrderService : ISalesOrderService
             && o.OrderNumber != null
             && o.OrderNumber != "";
 
+    /// <param name="lines">The lines to find a unit for; one that names its own is left alone.</param>
+    /// <param name="cancellationToken">Stops the local reads and the SAP read.</param>
+    /// <param name="mayAskSap">
+    /// Which items SAP may be asked about when nothing local knows their unit. Null asks about all of
+    /// them. Capturing a mobile order narrows it to the items whose quantity cannot be judged without
+    /// a unit, because whoever raised the order is standing at a customer waiting for this to return.
+    /// </param>
     private async Task<Dictionary<string, string>> ResolveSalesOrderLineUomLookupAsync(
         IEnumerable<(string? ItemCode, string? UoMCode)> lines,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, bool>? mayAskSap = null)
     {
         var normalizedLines = lines
             .Select(line => (
@@ -2928,6 +2945,7 @@ public class SalesOrderService : ISalesOrderService
                 && !lineUomLookup.ContainsKey(line.ItemCode!))
             .Select(line => line.ItemCode!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(itemCode => mayAskSap is null || mayAskSap(itemCode))
             .ToList();
 
         if (missingItemCodes.Count == 0)
@@ -2939,6 +2957,7 @@ public class SalesOrderService : ISalesOrderService
         // validation, and a Service Layer round-trip carries roughly a one-in-thirteen chance of
         // stalling several seconds regardless of how little it asks for — so on a multi-line order
         // the number of calls, not the size of any one of them, decided how long a save took.
+        // A mobile order does not pay even the one: see ValidateAndNormalizeSalesOrderRequestAsync.
         Dictionary<string, Item> sapItems;
         try
         {
@@ -2999,9 +3018,26 @@ public class SalesOrderService : ISalesOrderService
             request.Currency = request.Currency.Trim().ToUpperInvariant();
         }
 
+        // A mobile order is captured before SAP is asked anything. The rep is standing at a customer
+        // waiting on this call, the order is safe once it is in Postgres, and what SAP would add — a
+        // line's sales unit, the account's name — is not needed to store it:
+        // CompleteMobileOrderCaptureAsync fills both in from the post-save queue, seconds later and
+        // on nobody's time. On 2026-10-13 a one-line van order took 7.1 s on the handset, and the SAP
+        // read here was the only step of it that could wait on anything but this database.
+        //
+        // The one exception is a fractional quantity with no unit anything local knows. Whether 2.5
+        // is a valid quantity depends on the unit, and refusing it is this method's job, so that
+        // item's unit is still read now. A van handset sends whole numbers and never gets here.
+        var capturedBeforeSap = request.Source == SalesOrderSource.Mobile;
+        var itemsWhoseQuantityNeedsAUnit = request.Lines
+            .Where(line => UomQuantityValidation.HasFractionalQuantity(line.Quantity))
+            .Select(line => line.ItemCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var lineUomLookup = await ResolveSalesOrderLineUomLookupAsync(
             request.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
-            cancellationToken);
+            cancellationToken,
+            mayAskSap: capturedBeforeSap ? itemsWhoseQuantityNeedsAUnit.Contains : null);
 
         foreach (var (line, index) in request.Lines.Select((line, index) => (line, index)))
         {
@@ -3028,7 +3064,71 @@ public class SalesOrderService : ISalesOrderService
         if (validationErrors.Count > 0)
             throw new InvalidOperationException($"Sales order validation failed: {string.Join("; ", validationErrors)}");
 
-        request.CardName = await ResolveCardNameAsync(request.CardCode, request.CardName, cancellationToken);
+        if (!capturedBeforeSap)
+        {
+            request.CardName = await ResolveCardNameAsync(request.CardCode, request.CardName, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Fills in what a mobile order was captured without, because finding it out meant asking SAP: the
+    /// sales unit of a line that named none, and the account's name where the order carries only its
+    /// code.
+    /// </summary>
+    /// <remarks>
+    /// Runs from the post-save queue, ahead of pricing and the notification, so the name is there for
+    /// the notification and the units are there for whoever opens the order on the web. Best effort,
+    /// like the capture-time reads it replaces: an item SAP cannot answer for is left without a unit,
+    /// as it always was, and posting resolves its own (<see cref="EnsureOrderHasValidQuantitiesAsync"/>).
+    /// Only a cancellation leaves here as an exception.
+    /// </remarks>
+    private async Task CompleteMobileOrderCaptureAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    {
+        var changed = false;
+
+        if (order.Lines.Any(line => string.IsNullOrWhiteSpace(line.UoMCode)))
+        {
+            var lineUomLookup = await ResolveSalesOrderLineUomLookupAsync(
+                order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
+                cancellationToken);
+
+            foreach (var line in order.Lines.Where(line => string.IsNullOrWhiteSpace(line.UoMCode)))
+            {
+                var resolvedUomCode = UomQuantityValidation.ResolveLineUomCode(line.UoMCode, line.ItemCode, lineUomLookup);
+                if (!string.IsNullOrWhiteSpace(resolvedUomCode))
+                {
+                    line.UoMCode = resolvedUomCode;
+                    changed = true;
+                }
+            }
+        }
+
+        if (NeedsResolvedCardName(order.CardCode, order.CardName))
+        {
+            try
+            {
+                var cardName = await ResolveCardNameAsync(order.CardCode, order.CardName, cancellationToken);
+                if (!string.Equals(cardName, order.CardName, StringComparison.Ordinal))
+                {
+                    order.CardName = cardName;
+                    changed = true;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not read the account name for mobile sales order {OrderNumber} ({CardCode}); it keeps the name it was captured with",
+                    order.OrderNumber,
+                    order.CardCode);
+            }
+        }
+
+        if (changed)
+        {
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
+        }
     }
 
     /// <summary>
