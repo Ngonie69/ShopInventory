@@ -18,6 +18,17 @@ otherwise be surprised.
 
 ### Changed
 
+- **A credit memo against a van, shop or vending invoice is posted on the invoice's date.** Its SAP
+  posting date (`DocDate`) is the day SAP holds the invoice under, not the day the credit was raised,
+  so a return keyed later lands in the trading day of the sale it reverses. The document date
+  (`TaxDate`) and due date stay the day the credit was raised, and the ZIMRA credit receipt is dated
+  as before. This applies to credits from the Shop & Vending Sales, Vending and Van Sales pages, and
+  to the same invoices credited or cancelled from Invoices; every other credit note still posts
+  today. Memos already in SAP are not re-dated.
+  - If the invoice's posting period is locked in SAP, SAP refuses the memo. It shows as failed with
+    SAP's message on the credit notes page and posts on **Retry SAP** once the period is open; it is
+    not re-dated to today.
+
 - **Desktop Sales is now called Shop & Vending Sales in the portal.** The sidebar reads Shop & Vending
   Sales, Shop & Vending Analysis and Shop & Vending Review, and the page titles, headings, Settings
   labels, Excel workbooks, the review PDF and the review email follow. Downloads are named
