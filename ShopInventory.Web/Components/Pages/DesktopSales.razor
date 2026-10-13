@@ -36,8 +36,8 @@
    column exists and carries the verb the API actually offers. **Posting is not
    consolidating**, and the two must not be confused by anyone reading this
    page: consolidating is the end-of-day run that folds a day's legacy-desktop
-   sales into one invoice per customer, while posting sends the chosen till, van
-   and vending sales to SAP as one invoice each — the same thing the background
+   sales into one invoice per customer, while posting sends the chosen till and
+   vending sales to SAP as one invoice each — the same thing the background
    pass does every minute, asked for now. So the hero keeps both buttons, and
    only a sale the API says is postable gets a checkbox.
 
@@ -113,8 +113,9 @@
             </div>
             <h1>Desktop Sales</h1>
             <p>
-                Invoices raised in the desktop apps and fiscalized on the local device.
-                They stay here until the day is consolidated into the back office.
+                Invoices raised at the shop tills and vending counters and fiscalized on the local device.
+                They stay here until the day is consolidated into the back office. Van sales are listed
+                under Van Sales → Invoices.
             </p>
         </div>
 
@@ -737,9 +738,9 @@
                 <div class="ops-msg ops-fam-neutral">
                     <i class="ph ph-info" aria-hidden="true"></i>
                     <div class="ops-msg-body">
-                        Only desktop-app sales are consolidated. Till, vending and van sales post to SAP
+                        Only desktop-app sales are consolidated. Till and vending sales post to SAP
                         one invoice each: to push those through, select them in the list and use
-                        Post to SAP.
+                        Post to SAP. Van sales are posted from Van Sales → Invoices.
                     </div>
                 </div>
 
@@ -1455,15 +1456,14 @@
     /// here, so this names the ones it can and lets anything else through as the API spells it — a
     /// source added to a till before it is added here must still be reachable.
     ///
-    /// The online van source is absent on purpose, and so is its row: those are receipt carriers whose
-    /// invoice reached SAP through a reservation, they are not sales awaiting anything, and the API's
-    /// default scope already leaves them out of both the list and this facet.
+    /// The van sources are absent on purpose, and so are their rows: the API's default scope leaves both
+    /// out of the list and of this facet, because the vans are listed, posted and credited from
+    /// /van-sales/invoices.
     /// </remarks>
     private static string ChannelName(string? source) => source switch
     {
         "KefalosShopTill" => "Shop till",
         "KefalosVending" => "Vending",
-        "KefalosVanSales" => "Van sales",
         "DESKTOP_APP" => "Legacy desktop",
         DesktopSalesFilterValues.Blank => "Not recorded",
         _ => Blank(source)

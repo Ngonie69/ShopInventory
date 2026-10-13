@@ -29,7 +29,7 @@ public sealed record ManagementPartner(string CardCode, string CardName, List<st
 /// <remarks><list type="table">
 /// <item><term>Summary</term><description>The headline figures, now and in the previous period.</description></item>
 /// <item><term>ByDay</term><description>Each day of the period beside the matching day of the previous one.</description></item>
-/// <item><term>ByChannel</term><description>Shop till, vending, van sales.</description></item>
+/// <item><term>ByChannel</term><description>Shop till and vending; a van source only when it was asked for by name.</description></item>
 /// <item><term>ByDepot</term><description>Each shop or depot, keyed by the warehouse its stock leaves.</description></item>
 /// <item><term>ByPartner</term><description>Each business partner the sales were made as, keyed by CardCode. One warehouse can serve several partners, so this is not ByDepot renamed.</description></item>
 /// <item><term>ByVendor</term><description>Each vendor served. Sales to walk-in customers carry no vendor and are not here.</description></item>

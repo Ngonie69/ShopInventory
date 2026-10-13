@@ -708,7 +708,18 @@
                     }
                     else
                     {
-                        <span>Van sales include those made online, counted once from the receipt the handset signed.</span>
+                        @* Linked only for the roles the van reports admit; a cashier has none. *@
+                        <span>
+                            Shop tills and vending only.
+                            <AuthorizeView Roles="Admin,Manager" Context="vanBreakdownCtx">
+                                <Authorized>
+                                    Van sales have <a href="/van-sales/reports/sales-breakdown">their own breakdown</a>.
+                                </Authorized>
+                                <NotAuthorized>
+                                    Van sales are not counted here.
+                                </NotAuthorized>
+                            </AuthorizeView>
+                        </span>
                     }
                 </div>
 

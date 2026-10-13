@@ -101,8 +101,7 @@ public partial class ManagementSalesReport : IDisposable
     [
         new(string.Empty, "All channels") { IsUnset = true, RuleAfter = true },
         new("KefalosShopTill", "Shop till"),
-        new("KefalosVending", "Vending"),
-        new("KefalosVanSales", "Van sales")
+        new("KefalosVending", "Vending")
     ];
 
     [Inject] private IMediator Mediator { get; set; } = default!;
@@ -359,7 +358,7 @@ public partial class ManagementSalesReport : IDisposable
     private bool BreakdownCarriesMargin => breakdown != ByPayment;
 
     /// <summary>
-    /// The name a row is read by. A vending depot or van comes back as its warehouse with its business
+    /// The name a row is read by. A vending depot comes back as its warehouse with its business
     /// partner as the hint; the partner's name is what a manager knows it by, so it leads where the
     /// cache has it.
     /// </summary>
@@ -367,7 +366,7 @@ public partial class ManagementSalesReport : IDisposable
         breakdown == ByDepot ? DepotName(row.Label, row.Hint) : (row.Label, row.Hint);
 
     /// <summary>
-    /// A shop row arrives named; a vending depot or van arrives as its warehouse with its partner code as
+    /// A shop row arrives named; a vending depot arrives as its warehouse with its partner code as
     /// the hint (no "·"), and is named by that partner where the cache knows it.
     /// </summary>
     private (string Label, string? Hint) DepotName(string label, string? hint) =>

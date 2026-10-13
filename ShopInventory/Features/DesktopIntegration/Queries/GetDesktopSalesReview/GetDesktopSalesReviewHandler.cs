@@ -28,8 +28,10 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesRevie
 /// <see cref="DesktopSalesReviewFindings"/> from those figures alone.
 /// </para>
 /// <para>
-/// All of it is done once per line of business — shops, vending, vans — with the window confined to that
-/// business, so no figure, average or finding mixes a counter's trade with a vendor's settlements.
+/// All of it is done once per line of business — shops, then vending — with the window confined to that
+/// business, so no figure, average or finding mixes a counter's trade with a vendor's settlements. The
+/// vans are not reviewed here, by either of the routes their sales arrive by: they are reported under van
+/// sales.
 /// </para>
 /// </remarks>
 public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMediator mediator)
@@ -161,7 +163,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
             .ToListAsync(cancellationToken);
 
         var present = sources.Select(SaleBusinesses.Of).ToHashSet();
-        return SaleBusinesses.All.Where(present.Contains).ToList();
+        return SaleBusinesses.Counters.Where(present.Contains).ToList();
     }
 
     private static async Task<List<Cell>> CellsAsync(IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>

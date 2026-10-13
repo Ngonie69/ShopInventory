@@ -99,13 +99,17 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 .AsNoTracking()
                 .Where(s => s.DocDate >= windowFrom && s.DocDate <= windowTo);
 
-            // Every source by default, online van receipts included — unlike the list's default scope. This
-            // report reads nothing but DesktopSales: not the reservation, not the SAP invoice. The receipt row
-            // is therefore the only record of an online van sale it can see, and leaving it out drops those
-            // sales from the analysis altogether rather than saving them from being counted twice.
+            // The counters by default: tills and vending, and nothing off a van. The vans have their own
+            // analysis (GetVanSalesAnalysisHandler), which reads the reservations too and so sees the online
+            // sales this table holds only a receipt for. A van source is still read when it is asked for by
+            // name, or as a business.
             if (source is not null)
             {
                 scoped = scoped.Where(s => s.SourceSystem == source);
+            }
+            else if (!SaleBusinesses.IsKnown(request.Business))
+            {
+                scoped = scoped.AtCounters();
             }
             scoped = scoped.InBusiness(request.Business);
 

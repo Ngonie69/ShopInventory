@@ -152,13 +152,19 @@ public sealed class UnresolvedPostHoldTests : IDisposable
         var sales = (await ListThroughTheWebAsync(tillGraceMinutes: 15, vanGraceMinutes: 30))
             .Sales.ToDictionary(s => s.ExternalReferenceId);
 
+        // The counters' list leaves the vans out; a van's row is read by naming its source.
+        Assert.DoesNotContain("VAN-HELD", sales.Keys);
+        var vanSales = (await ListThroughTheWebAsync(
+                tillGraceMinutes: 15, vanGraceMinutes: 30, sourceSystem: SaleSourceSystems.VanSales))
+            .Sales.ToDictionary(s => s.ExternalReferenceId);
+
         // Round-tripped through JSON, so compare to the millisecond the wire keeps.
         AssertSameInstant(issuedAt.AddMinutes(15), sales["HELD"].PostHeldUntilUtc);
         Assert.Null(sales["EXPIRED"].PostHeldUntilUtc);
         Assert.Null(sales["REFUSED"].PostHeldUntilUtc);
 
         // The van route waits out its own window, not the till's.
-        AssertSameInstant(issuedAt.AddMinutes(30), sales["VAN-HELD"].PostHeldUntilUtc);
+        AssertSameInstant(issuedAt.AddMinutes(30), vanSales["VAN-HELD"].PostHeldUntilUtc);
     }
 
     [Fact]
@@ -366,7 +372,8 @@ public sealed class UnresolvedPostHoldTests : IDisposable
             Options.Create(new DesktopSalePostingSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
 
-    private async Task<DesktopSalesListResponse> ListThroughTheWebAsync(int tillGraceMinutes, int vanGraceMinutes)
+    private async Task<DesktopSalesListResponse> ListThroughTheWebAsync(
+        int tillGraceMinutes, int vanGraceMinutes, string? sourceSystem = null)
     {
         var caller = Guid.NewGuid();
         _context.Users.Add(new User
@@ -386,7 +393,7 @@ public sealed class UnresolvedPostHoldTests : IDisposable
                 Options.Create(new FiscalisationSettings()),
                 Options.Create(new DesktopSalePostingSettings { UnresolvedPostGraceMinutes = tillGraceMinutes }),
                 Options.Create(new VanSalesPostingSettings { UnresolvedPostGraceMinutes = vanGraceMinutes }))
-            .Handle(new GetDesktopSalesQuery(caller), CancellationToken.None);
+            .Handle(new GetDesktopSalesQuery(caller, SourceSystem: sourceSystem), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
 

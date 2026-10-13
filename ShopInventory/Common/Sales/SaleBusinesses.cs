@@ -28,6 +28,12 @@ public static class SaleBusinesses
     /// <summary>Every business, in the order a review presents them.</summary>
     public static readonly string[] All = [Shops, Vending, Vans];
 
+    /// <summary>
+    /// The businesses a counter report covers, in the order a review presents them. The vans are reported
+    /// under van sales, from <c>VanSalesFactReader</c>.
+    /// </summary>
+    public static readonly string[] Counters = [Shops, Vending];
+
     public static bool IsKnown(string? business) =>
         All.Contains(business?.Trim().ToLowerInvariant());
 
@@ -55,12 +61,27 @@ public static class SaleBusinesses
         business?.Trim().ToLowerInvariant() switch
         {
             Vending => sales.Where(s => s.SourceSystem == SaleSourceSystems.Vending),
-            // Online van receipts stay out: their SAP invoice is already counted, as in every default scope.
-            Vans => sales.Where(s => s.SourceSystem == SaleSourceSystems.VanSales),
+            // Both routes a van sale arrives by: this table holds each of them once, the offline upload as
+            // the sale and the online one as its receipt. Nothing in a counter report asks for this.
+            Vans => sales.Where(s => s.SourceSystem == SaleSourceSystems.VanSales
+                || s.SourceSystem == SaleSourceSystems.VanSalesOnline),
             Shops => sales.Where(s => s.SourceSystem == null
                 || (s.SourceSystem != SaleSourceSystems.Vending
                     && s.SourceSystem != SaleSourceSystems.VanSales
                     && s.SourceSystem != SaleSourceSystems.VanSalesOnline)),
             _ => sales
         };
+
+    /// <summary>
+    /// The sales rung up at a counter — shops and vending together — and nothing off a van, by either route.
+    /// </summary>
+    /// <remarks>
+    /// What a report about the counters reads when it is asked for no one business. The vans are not a third
+    /// kind of counter: half their sales are in <c>StockReservations</c> and never reach this table as a sale,
+    /// so they are read whole by <c>VanSalesFactReader</c> and reported under van sales instead.
+    /// </remarks>
+    public static IQueryable<DesktopSaleEntity> AtCounters(this IQueryable<DesktopSaleEntity> sales) =>
+        sales.Where(s => s.SourceSystem == null
+            || (s.SourceSystem != SaleSourceSystems.VanSales
+                && s.SourceSystem != SaleSourceSystems.VanSalesOnline));
 }

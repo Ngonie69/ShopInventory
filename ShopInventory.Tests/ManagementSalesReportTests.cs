@@ -221,12 +221,12 @@ public sealed class ManagementSalesReportTests : IDisposable
         failing.LastPostingError = "Quantity falls into negative inventory";
         Add(failing);
 
-        // Van sales are posted by the van workflow, so they are not "never posted" here.
+        // A van sale is not a counter's, so it is not in this report's health at all.
         Add(Sale(90m, From, SaleSourceSystems.VanSales, "VAN001", "VAN-BP"));
 
         var health = (await RunAsync()).Health;
 
-        Assert.Equal(4, health.SalesCount);
+        Assert.Equal(3, health.SalesCount);
         Assert.Equal(3, health.PostingSalesCount);
         Assert.Equal(1, health.Posted.SalesCount);
         Assert.Equal(1, health.PostingWaiting.SalesCount);
@@ -235,7 +235,13 @@ public sealed class ManagementSalesReportTests : IDisposable
         Assert.Equal(From, health.OldestUnpostedDate);
         Assert.Equal("Quantity falls into negative inventory", health.LatestPostingError);
         Assert.Equal(1, health.FiscalPending.SalesCount);
-        Assert.Equal(3, health.FiscalSucceeded.SalesCount);
+        Assert.Equal(2, health.FiscalSucceeded.SalesCount);
+
+        // Asked for by name it is read, and still not as "never posted": the van workflow posts it.
+        var vans = (await RunAsync(source: SaleSourceSystems.VanSales)).Health;
+
+        Assert.Equal(1, vans.SalesCount);
+        Assert.Equal(0, vans.PostingSalesCount);
     }
 
     // ---- Margin -----------------------------------------------------------------------------------
@@ -337,12 +343,30 @@ public sealed class ManagementSalesReportTests : IDisposable
     // ---- Scope ------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task An_online_van_receipt_is_not_counted_twice()
+    public async Task Van_sales_are_left_out_whichever_way_they_arrived()
     {
-        Add(Vend(100m, From));
+        Add(Vend(100m, From, lines: [("BREAD", 10, 80m)]));
+        Add(Sale(60m, From, SaleSourceSystems.VanSales, "VAN001", "VAN-BP", lines: [("BREAD", 6, 50m)]));
         Add(Sale(90m, From, SaleSourceSystems.VanSalesOnline, "VAN001", "VAN-BP"));
+        Add(Sale(40m, PreviousDay, SaleSourceSystems.VanSales, "VAN001", "VAN-BP"));
 
-        Assert.Equal(100m, Dollars(await RunAsync()).Summary.TotalAmount);
+        var report = await RunAsync();
+        var usd = Dollars(report);
+
+        Assert.Equal(100m, usd.Summary.TotalAmount);
+        Assert.Equal(0m, usd.Summary.PreviousTotalAmount);
+        Assert.Equal(["Vending"], usd.ByChannel.Select(row => row.Label));
+        Assert.Equal([DepotWarehouse], usd.ByDepot.Select(row => row.Key));
+        Assert.Equal([Depot], usd.ByPartner.Select(row => row.Key));
+        Assert.Equal(80m, usd.ByItem.Single(i => i.ItemCode == "BREAD").NetAmount);
+        Assert.Equal([Depot], report.Partners.Select(p => p.CardCode));
+        Assert.Equal(1, report.Health.SalesCount);
+
+        Assert.Equal(80m, (await AnalyseItemAsync("BREAD")).Currencies.Single().Summary.NetAmount);
+
+        // Either van source is still read when it is the one asked for.
+        Assert.Equal(60m, Dollars(await RunAsync(source: SaleSourceSystems.VanSales)).Summary.TotalAmount);
+        Assert.Equal(90m, Dollars(await RunAsync(source: SaleSourceSystems.VanSalesOnline)).Summary.TotalAmount);
     }
 
     [Fact]
@@ -359,13 +383,13 @@ public sealed class ManagementSalesReportTests : IDisposable
 
     // ---- Business partners ------------------------------------------------------------------------
 
-    private const string VanPartner = "VAN-BP";
+    private const string OtherPartner = "DEPOT2-BP";
 
-    /// <summary>A van that loads from the depot's warehouse but sells under its own partner.</summary>
-    private DesktopSaleEntity VanOffDepot(decimal total, DateTime day, int? docEntry = null, (string Code, int Quantity, decimal Net)[]? lines = null)
+    /// <summary>A second account that sells out of the depot's warehouse under its own partner.</summary>
+    private DesktopSaleEntity OtherPartnerOffDepot(decimal total, DateTime day, int? docEntry = null, (string Code, int Quantity, decimal Net)[]? lines = null)
     {
-        var sale = Sale(total, day, SaleSourceSystems.VanSales, DepotWarehouse, VanPartner, lines: lines);
-        sale.CardName = "Van Twelve";
+        var sale = Sale(total, day, SaleSourceSystems.Vending, DepotWarehouse, OtherPartner, lines: lines);
+        sale.CardName = "Depot Two";
         sale.SapDocEntry = docEntry;
         return sale;
     }
@@ -376,7 +400,7 @@ public sealed class ManagementSalesReportTests : IDisposable
         var depotSale = Vend(100m, From, docEntry: 601, lines: [("BREAD", 10, 80m)]);
         depotSale.CardName = "Depot One";
         Add(depotSale);
-        Add(VanOffDepot(50m, From, docEntry: 602, lines: [("BREAD", 5, 40m)]));
+        Add(OtherPartnerOffDepot(50m, From, docEntry: 602, lines: [("BREAD", 5, 40m)]));
 
         _costs.Lines.Add(new SaleInvoiceLineCost(601, "USD", "BREAD", DepotWarehouse, 10m, 80m, 20m));
         _costs.Lines.Add(new SaleInvoiceLineCost(602, "USD", "BREAD", DepotWarehouse, 5m, 40m, 4m));
@@ -392,15 +416,15 @@ public sealed class ManagementSalesReportTests : IDisposable
         Assert.Equal($"{Depot} · {DepotWarehouse}", partners[Depot].Hint);
         Assert.Equal(100m, partners[Depot].TotalAmount);
         Assert.Equal(20m, partners[Depot].GrossProfit);
-        Assert.Equal("Van Twelve", partners[VanPartner].Label);
-        Assert.Equal(50m, partners[VanPartner].TotalAmount);
-        Assert.Equal(4m, partners[VanPartner].GrossProfit);
+        Assert.Equal("Depot Two", partners[OtherPartner].Label);
+        Assert.Equal(50m, partners[OtherPartner].TotalAmount);
+        Assert.Equal(4m, partners[OtherPartner].GrossProfit);
 
         Assert.Equal(
-            [(Depot, 80m), (VanPartner, 40m)],
+            [(Depot, 80m), (OtherPartner, 40m)],
             usd.ItemPartnerMatrix.Where(c => c.ItemCode == "BREAD").OrderBy(c => c.CardCode).Select(c => (c.CardCode, c.NetAmount)));
 
-        Assert.Equal(["Depot One", "Van Twelve"], report.Partners.Select(p => p.CardName));
+        Assert.Equal(["Depot One", "Depot Two"], report.Partners.Select(p => p.CardName));
         Assert.All(report.Partners, p => Assert.Equal([DepotWarehouse], p.Warehouses));
     }
 
@@ -408,36 +432,36 @@ public sealed class ManagementSalesReportTests : IDisposable
     public async Task A_partner_narrows_every_figure_but_not_the_list_it_was_chosen_from()
     {
         Add(Vend(100m, From, lines: [("BREAD", 10, 80m)]));
-        Add(VanOffDepot(50m, From, lines: [("BREAD", 5, 40m)]));
-        Add(VanOffDepot(30m, PreviousDay));
+        Add(OtherPartnerOffDepot(50m, From, lines: [("BREAD", 5, 40m)]));
+        Add(OtherPartnerOffDepot(30m, PreviousDay));
 
-        var report = await RunAsync(cardCode: VanPartner);
+        var report = await RunAsync(cardCode: OtherPartner);
         var usd = Dollars(report);
 
-        Assert.Equal(VanPartner, report.CardCode);
+        Assert.Equal(OtherPartner, report.CardCode);
         Assert.Equal(50m, usd.Summary.TotalAmount);
         Assert.Equal(30m, usd.Summary.PreviousTotalAmount);
         Assert.Equal(1, report.Health.SalesCount);
-        Assert.Equal([VanPartner], usd.ByPartner.Select(row => row.Key));
+        Assert.Equal([OtherPartner], usd.ByPartner.Select(row => row.Key));
         Assert.Equal(40m, usd.ByItem.Single(i => i.ItemCode == "BREAD").NetAmount);
-        Assert.Equal([Depot, VanPartner], report.Partners.Select(p => p.CardCode).Order());
+        Assert.Equal([Depot, OtherPartner], report.Partners.Select(p => p.CardCode).Order());
 
-        var item = (await AnalyseItemAsync("BREAD", VanPartner)).Currencies.Single();
+        var item = (await AnalyseItemAsync("BREAD", OtherPartner)).Currencies.Single();
         Assert.Equal(40m, item.Summary.NetAmount);
-        Assert.Equal([VanPartner], item.ByPartner.Select(row => row.Key));
+        Assert.Equal([OtherPartner], item.ByPartner.Select(row => row.Key));
     }
 
     [Fact]
     public async Task The_item_drill_down_splits_a_shared_warehouse_by_partner()
     {
         Add(Vend(100m, From, lines: [("BREAD", 10, 80m)]));
-        Add(VanOffDepot(50m, From, lines: [("BREAD", 5, 40m)]));
+        Add(OtherPartnerOffDepot(50m, From, lines: [("BREAD", 5, 40m)]));
 
         var item = (await AnalyseItemAsync("BREAD")).Currencies.Single();
 
         Assert.Single(item.ByDepot);
         Assert.Equal(
-            [(VanPartner, "Van Twelve", 40m), (Depot, Depot, 80m)],
+            [(OtherPartner, "Depot Two", 40m), (Depot, Depot, 80m)],
             item.ByPartner.OrderBy(row => row.NetAmount).Select(row => (row.Key, row.Label, row.NetAmount)));
     }
 
@@ -812,7 +836,7 @@ public sealed class ManagementSalesReportTests : IDisposable
                 .ToList(),
         };
 
-    private async Task<ManagementSalesReport> RunAsync(string? warehouse = null, string? cardCode = null)
+    private async Task<ManagementSalesReport> RunAsync(string? warehouse = null, string? cardCode = null, string? source = null)
     {
         _context.ChangeTracker.Clear();
         var result = await new GetManagementSalesReportHandler(
@@ -820,7 +844,7 @@ public sealed class ManagementSalesReportTests : IDisposable
                 new RecordingAuditService(),
                 _costs,
                 NullLogger<GetManagementSalesReportHandler>.Instance)
-            .Handle(new GetManagementSalesReportQuery(_adminId, From, To, warehouse, CardCode: cardCode), CancellationToken.None);
+            .Handle(new GetManagementSalesReportQuery(_adminId, From, To, warehouse, source, cardCode), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;

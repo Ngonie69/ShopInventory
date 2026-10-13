@@ -145,8 +145,18 @@ public sealed class DesktopSalesFilterSurfaceTests : IDisposable
         Sell(source: SaleSourceSystems.VanSalesOnline);   // SALE-4 — the receipt carrier
         await _context.SaveChangesAsync();
 
-        // Naming none is the default scope: everything but the online van receipt carriers.
-        Assert.Equal(["SALE-1", "SALE-2", "SALE-3"], Refs(await ListAsync(q => q)));
+        // Naming none is the default scope: the counters, and nothing off a van by either route.
+        Assert.Equal(["SALE-1", "SALE-2"], Refs(await ListAsync(q => q)));
+
+        // The van chip is gone with the rows: a facet counts what the default scope can reach.
+        var facets = (await ListAsync(q => q with { IncludeFacets = true })).Facets!.SourceSystem;
+        Assert.Equal(
+            [SaleSourceSystems.ShopTill, SaleSourceSystems.Vending],
+            facets.Select(facet => facet.Value).Order());
+
+        Assert.Equal(
+            ["SALE-3"],
+            Refs(await ListAsync(q => q with { SourceSystems = [SaleSourceSystems.VanSales] })));
 
         Assert.Equal(
             ["SALE-1", "SALE-2"],

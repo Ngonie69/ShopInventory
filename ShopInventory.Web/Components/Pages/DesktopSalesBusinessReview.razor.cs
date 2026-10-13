@@ -10,7 +10,7 @@ using Review = ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesReview.
 namespace ShopInventory.Web.Components.Pages;
 
 /// <summary>
-/// The business review page: one line of business at a time — shops, vending, vans — its findings first,
+/// The business review page: one line of business at a time — shops, then vending — its findings first,
 /// then the figures behind them.
 /// </summary>
 /// <remarks>
@@ -263,7 +263,6 @@ public partial class DesktopSalesBusinessReview : IDisposable
     private string OutletsTitle => Business?.Business switch
     {
         "vending" => "Vending depots",
-        "vans" => "Vans",
         _ => "Shops and depots"
     };
 

@@ -1060,9 +1060,10 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// List desktop sales with optional filters.
     /// </summary>
     /// <remarks>
-    /// <paramref name="sourceSystem"/> omitted is the default scope, not every row: the signed-receipt
-    /// carriers written for online van sales are left out, because their money belongs to a sale already
-    /// listed as its own SAP invoice. Pass <c>KefalosVanSalesOnline</c> to list exactly those.
+    /// <paramref name="sourceSystem"/> omitted is the default scope, not every row: shop till and vending
+    /// sales. Van sales are left out, both the offline uploads and the signed-receipt carriers written for
+    /// online ones — they are listed under van sales. Pass <c>KefalosVanSales</c> or
+    /// <c>KefalosVanSalesOnline</c> to list exactly that source.
     ///
     /// <paramref name="warehouseCode"/> is a filter, not a choice of whose money to read. An account
     /// assigned to a shop is confined to that shop's warehouse and naming another is refused; only the
@@ -1247,7 +1248,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Role-gated like the report above and warehouse-scoped like the sales list: a caller confined to a
     /// shop is narrowed to it, and naming another shop's warehouse is refused. The period is inclusive
     /// business dates, at most a year, defaulting to today. <c>paymentMethod</c> confines every figure to one
-    /// tender, and each currency also states the same number of days just before.
+    /// tender, and each currency also states the same number of days just before. Van sales are left out
+    /// unless <c>sourceSystem</c> names one of their sources: they are analysed at
+    /// <c>api/van-sales/sales-analysis</c>.
     /// </remarks>
     [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
     [HttpGet("sales/analysis")]
