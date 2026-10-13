@@ -2224,7 +2224,7 @@ computed report for 2, so the same report asked for again within that window doe
 | GET | `/api/Report/purchase-orders` | Purchase orders over a date range |
 | GET | `/api/Report/merchandiser-purchase-orders` | Merchandiser-raised purchase orders |
 | GET | `/api/Report/profit-overview` | Profit overview |
-| GET | `/api/Report/item-volume-sales` | Net quantity, converted volume and net revenue per item and business partner |
+| GET | `/api/Report/item-volume-sales` | Net quantity, converted volume and net revenue per item and business partner. Each account, in `accountTotals` and in every period, carries `channel`: its trade channel from SAP's `OCRD.U_Channel` (`Shops`, `General Trade`, `Vending` …; `Shop` and `Shops` read as `Shops`; empty for none). `channelsRead` is false when SAP could not be asked for them — the figures stand, with every `channel` empty. `itemTotals` adds an item across every account whatever its channel; the channels sell different ranges, so break it down by `channel` rather than reading it as one ranking |
 
 **Common query parameters:** `fromDate`, `toDate`, `warehouseCode`, `top` (for top N)
 

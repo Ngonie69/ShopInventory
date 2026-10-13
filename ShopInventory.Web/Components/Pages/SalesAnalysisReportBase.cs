@@ -158,6 +158,15 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected bool includeCrates = true;
 
     /// <summary>
+    /// The trade channel whose items the volume lens shows; null for the first the window holds. The
+    /// channels sell different ranges, so an item's volume is never shown added across them.
+    /// </summary>
+    protected string? volumeChannel;
+
+    /// <summary>The loaded window after the crate filter and before the channel one: what the channels are read from.</summary>
+    private GetItemVolumeSalesReportResult? unsplitReport;
+
+    /// <summary>
     /// Whether the query is open for editing. Open before the first run — there is nothing else to
     /// look at — and closed after one, where the run itself is the answer and the query becomes a
     /// single line describing it.
@@ -340,7 +349,9 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
         lens = next;
         errorMessage = null;
-        InvalidateView();
+
+        // The item view is one channel's partners; the partner view is all of them. Same window, re-read.
+        ApplyCrateFilter();
 
         Navigation.NavigateTo(
             next == ReportLens.Volume ? "/reports/item-volume" : "/reports/customer-revenue",
@@ -424,6 +435,8 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         grouping = ItemVolumeSalesGrouping.Monthly;
         readZig = false;
         includeCrates = true;
+        volumeChannel = null;
+        unsplitReport = null;
         selectedAccounts = new List<string>();
         selectedItems = new List<string>();
         loadedReport = null;
@@ -573,9 +586,11 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         {
             // The result handed over is already crate-filtered, so the workbook agrees with the
             // screen — but a workbook outlives the page it came off, so the title has to say so.
+            // Nor is it every partner when the item view is on one channel: the title names it.
+            var title = SplitsByChannel ? $"{ReportName} · {ItemVolumeSalesChannels.Label(CurrentChannel)}" : ReportName;
             var bytes = ExportService.ExportItemVolumeSalesReportToExcel(
                 report,
-                includeCrates ? ReportName : $"{ReportName} (crates excluded)");
+                includeCrates ? title : $"{title} (crates excluded)");
             var base64 = Convert.ToBase64String(bytes);
             await JS.InvokeVoidAsync(
                 "downloadFile",
@@ -639,11 +654,61 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     /// </summary>
     private void ApplyCrateFilter()
     {
-        report = loadedReport is null || includeCrates
+        unsplitReport = loadedReport is null || includeCrates
             ? loadedReport
             : ItemVolumeSalesCrates.Exclude(loadedReport);
 
+        // Then the channel, on the item view only. One filtered result feeds the pivot, the chart and the
+        // workbook, so none of them can add a shop's volume to a wholesaler's.
+        report = unsplitReport is not null && SplitsByChannel
+            ? ItemVolumeSalesChannels.Only(unsplitReport, CurrentChannel)
+            : unsplitReport;
+
         InvalidateView();
+    }
+
+    // ── One channel at a time ────────────────────────────────────────────────
+
+    /// <summary>The channels the loaded window's partners sell through, in the order they are offered.</summary>
+    protected List<string> Channels => unsplitReport is null
+        ? new List<string>()
+        : ItemVolumeSalesChannels.ChannelsIn(unsplitReport);
+
+    /// <summary>
+    /// Whether the item view is showing one channel of several. Never on the partner view, whose rows are
+    /// partners and add nothing across channels.
+    /// </summary>
+    protected bool SplitsByChannel => IsVolume && Channels.Count > 1;
+
+    /// <summary>The channel on screen: the one picked while the window still holds it, else the first.</summary>
+    protected string CurrentChannel
+    {
+        get
+        {
+            var channels = Channels;
+            return channels.FirstOrDefault(channel => string.Equals(channel, volumeChannel, StringComparison.OrdinalIgnoreCase))
+                ?? channels.FirstOrDefault()
+                ?? string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// The window's partners could not be sorted into channels, and there is more than one of them: the
+    /// item rows then add partners that may not belong together, and the page says so.
+    /// </summary>
+    protected bool ChannelsUnknown =>
+        IsVolume && loadedReport is { ChannelsRead: false } && loadedReport.AccountTotals.Count(a => a.InvoiceCount > 0 || a.CreditNoteCount > 0) > 1;
+
+    /// <summary>Another channel's partners, from the window already loaded.</summary>
+    protected void PickChannel(string channel)
+    {
+        if (string.Equals(channel, CurrentChannel, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        volumeChannel = channel;
+        ApplyCrateFilter();
     }
 
     /// <summary>Crate codes that actually moved in the loaded window, whether or not they are counted.</summary>

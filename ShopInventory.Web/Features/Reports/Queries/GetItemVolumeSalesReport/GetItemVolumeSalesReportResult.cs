@@ -18,6 +18,13 @@ public sealed class GetItemVolumeSalesReportResult
     /// </summary>
     public List<string> ItemCodesWithoutFactor { get; set; } = new();
 
+    /// <summary>
+    /// Whether each account's <c>Channel</c> was read from SAP. False when that read failed, and on an
+    /// answer from an API that predates channels: the figures stand, but nothing says which channel an
+    /// account is in, so the items cannot be shown one channel at a time.
+    /// </summary>
+    public bool ChannelsRead { get; set; }
+
     public ItemVolumeSalesSummaryResult Summary { get; set; } = new();
 
     /// <summary>Per item across every selected account.</summary>
