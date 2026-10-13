@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,8 @@ public sealed class CreateVanSalesSalesOrderHandler(
         CreateVanSalesSalesOrderCommand command,
         CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
+
         if (!string.IsNullOrWhiteSpace(command.Request.Type) &&
             !string.Equals(command.Request.Type, "SO", StringComparison.OrdinalIgnoreCase))
         {
@@ -70,28 +73,43 @@ public sealed class CreateVanSalesSalesOrderHandler(
             command.DeviceInfo);
 
         // The last point at which the caller going away stops the order: only the user and its scope have
-        // been read, and nothing has been asked of SAP or stored, so there is nothing to finish.
+        // been read and nothing has been stored, so there is nothing to finish.
         cancellationToken.ThrowIfCancellationRequested();
 
-        return await CreateAsync(salesOrderRequest, command.UserId);
+        var scoped = Stopwatch.GetElapsedTime(started);
+        var result = await CreateAsync(salesOrderRequest, command.UserId);
+
+        // The server's half of the handset's own "Order timing" line, under the same van order, so the
+        // two can be laid side by side: what is left of the handset's "office" figure after this one is
+        // the network and the middleware in front of this handler, not the order.
+        logger.LogInformation(
+            "Van sales order {VanOrder} answered in {ElapsedMs:F0} ms ({ScopeMs:F0} ms reading the user and customer, the rest capturing the order); {Outcome}",
+            salesOrderRequest.ClientRequestId,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            scoped.TotalMilliseconds,
+            result.IsError ? "refused" : "captured");
+
+        return result;
     }
 
     /// <summary>
-    /// The order, from its first SAP read to its answer. Once started it runs to the end.
+    /// The order, from its first read to its answer. Once started it runs to the end.
     /// </summary>
     /// <remarks>
     /// <para><b>It takes no token, and that is the guard.</b> ASP.NET binds the request's token to
-    /// <c>HttpContext.RequestAborted</c>, and a van handset hangs up after 30 seconds. Before the order is
-    /// stored, <c>SalesOrderService.CreateAsync</c> asks SAP for the sales unit of every line, and on
-    /// 2026-10-07 van requests waiting on SAP outlived the handset. Cancelled there, the order was not
-    /// stored, and <see cref="CreateSalesOrderHandler"/> — which answers every exception as a failed order —
-    /// told nobody "The operation was canceled". The resend met the same read. Run to the end instead, the
-    /// order is captured once under its van order, and the handset's resend under the same reference is
-    /// handed that order by <c>ClientRequestId</c>.</para>
+    /// <c>HttpContext.RequestAborted</c>, and a van handset hangs up after 30 seconds. Until 2026-10-13
+    /// <c>SalesOrderService.CreateAsync</c> asked SAP for the sales unit of every line before it stored
+    /// the order, and on 2026-10-07 van requests waiting on SAP outlived the handset. Cancelled there, the
+    /// order was not stored, and <see cref="CreateSalesOrderHandler"/> — which answers every exception as
+    /// a failed order — told nobody "The operation was canceled". The resend met the same read. Run to the
+    /// end instead, the order is captured once under its van order, and the handset's resend under the
+    /// same reference is handed that order by <c>ClientRequestId</c>.</para>
     ///
-    /// <para>Nothing waits forever for want of a token. Every SAP read is bounded by the client's own
-    /// budget; the request's token only ever added a deadline the work did not need and the caller had
-    /// already stopped waiting for.</para>
+    /// <para>A mobile order no longer reads SAP before it is stored — the unit and the account's name are
+    /// filled in from the post-save queue — so what is left to outlive a handset is this database: a lock
+    /// wait, a slow commit, a pool with no connection free. The guard stays for those. A capture that is
+    /// half-way through its transaction when the caller goes away is the same loss as one waiting on SAP
+    /// was.</para>
     /// </remarks>
     private async Task<ErrorOr<VanSalesLegacyOrderDto>> CreateAsync(CreateSalesOrderRequest salesOrderRequest, Guid userId)
     {

@@ -1,7 +1,9 @@
+using System.Data.Common;
 using ErrorOr;
 using MediatR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
@@ -19,14 +21,18 @@ namespace ShopInventory.Tests;
 /// <summary>
 /// A van raises a sales order and waits for it. The handset gives up after 30 s, and ASP.NET then cancels
 /// the request token. Past the commit point the caller going away must not stop the work, so an order
-/// whose SAP item read outlives the handset is still captured, and the resend under the same van order is
+/// whose capture outlives the handset is still stored, and the resend under the same van order is
 /// answered with it.
 /// </summary>
 /// <remarks>
-/// The whole chain is real — the van handler, <see cref="CreateSalesOrderHandler"/> and
-/// <see cref="SalesOrderService"/> — down to the Service Layer, which is the one stub. That matters: the
-/// shared handler catches every exception, a cancellation included, and answers it as a failed order, so a
-/// stub higher up the chain would not show what the handset was actually sent.
+/// <para>The whole chain is real — the van handler, <see cref="CreateSalesOrderHandler"/> and
+/// <see cref="SalesOrderService"/>. That matters: the shared handler catches every exception, a
+/// cancellation included, and answers it as a failed order, so a stub higher up the chain would not show
+/// what the handset was actually sent.</para>
+///
+/// <para>The capture no longer reads SAP (see <see cref="VanSalesOrderReplySapCallsTests"/>), so the
+/// Service Layer here is one that fails the test if it is asked anything, and the handset hangs up while
+/// the capture is reading the database instead — the first thing it does past the commit point.</para>
 /// </remarks>
 public sealed class VanSalesOrderCreateHangUpTests : IDisposable
 {
@@ -37,10 +43,8 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
 
-    /// <summary>Runs as SAP is asked for the order's items, before it answers.</summary>
-    private Action? _sapItemReadStarted;
-
-    private int _sapItemReads;
+    /// <summary>Runs as the capture first reads the order table, before the database answers.</summary>
+    private Action? _captureStarted;
 
     public VanSalesOrderCreateHangUpTests()
     {
@@ -50,6 +54,7 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
         _context = new SqliteApplicationDbContext(
             new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseSqlite(_connection)
+                .AddInterceptors(new OrderTableReads(() => _captureStarted?.Invoke()))
                 .Options);
         _context.Database.EnsureCreated();
 
@@ -77,15 +82,16 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
 
     /// <summary>
     /// 2026-10-07: van requests stalled for over 30 s on SAP reads, the handsets gave up, and the server
-    /// answered "The operation was canceled" to nobody. A van sales order reads SAP for every line's unit of
-    /// measure before it is stored, so a slow read there cancelled the order and stored nothing, and the
-    /// resend met the same read.
+    /// answered "The operation was canceled" to nobody. A van sales order then read SAP for every line's
+    /// unit of measure before it was stored, so a slow read there cancelled the order and stored nothing,
+    /// and the resend met the same read. That read is gone from the capture; what is left to be slow is
+    /// the database, and the same rule holds for it.
     /// </summary>
     [Fact]
-    public async Task A_phone_that_hangs_up_while_SAP_is_read_does_not_stop_the_order()
+    public async Task A_phone_that_hangs_up_while_the_order_is_being_captured_does_not_stop_it()
     {
         using var hangUp = new CancellationTokenSource();
-        _sapItemReadStarted = hangUp.Cancel;
+        _captureStarted = hangUp.Cancel;
 
         var result = await Handler().Handle(Command(), hangUp.Token);
 
@@ -95,7 +101,7 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
         var order = await _context.SalesOrders.AsNoTracking().Include(o => o.Lines).SingleAsync();
         Assert.Equal(VanOrder, order.ClientRequestId);
         Assert.Equal(SalesOrderStatus.Pending, order.Status);
-        Assert.Equal("EA", Assert.Single(order.Lines).UoMCode);
+        Assert.Equal("CHE011", Assert.Single(order.Lines).ItemCode);
         Assert.Equal(result.Value.Id, order.Id);
 
         // Captured with its queue entry, so the post-save queue posts it to SAP as it would any van order.
@@ -105,7 +111,7 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
 
         // The handset never saw that answer, so it sends the order again under the same van order. It is
         // handed the order already captured, and nothing is captured twice.
-        _sapItemReadStarted = null;
+        _captureStarted = null;
         var resent = await Handler().Handle(Command(), CancellationToken.None);
 
         Assert.False(resent.IsError, resent.IsError ? resent.FirstError.Description : null);
@@ -113,12 +119,11 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
         Assert.Equal(result.Value.PurchaseOrders, resent.Value.PurchaseOrders);
         Assert.Equal(1, await _context.SalesOrders.CountAsync());
         Assert.Equal(1, await _context.MobileOrderPostProcessingQueue.CountAsync());
-        Assert.Equal(1, _sapItemReads);
     }
 
     /// <summary>
-    /// The other side of the commit point: a handset that is already gone before anything was read from SAP
-    /// captures nothing, so there is nothing to finish.
+    /// The other side of the commit point: a handset that is already gone before the capture started
+    /// stores nothing, so there is nothing to finish.
     /// </summary>
     [Fact]
     public async Task A_phone_that_hung_up_before_the_order_started_captures_nothing()
@@ -129,7 +134,6 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Handler().Handle(Command(), goneAlready.Token));
 
         Assert.Empty(await _context.SalesOrders.ToListAsync());
-        Assert.Equal(0, _sapItemReads);
     }
 
     private static CreateVanSalesSalesOrderCommand Command() => new(
@@ -153,12 +157,7 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
         new(
             new SalesOrderService(
                 _context,
-                StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
-                {
-                    nameof(ISAPServiceLayerClient.GetItemsByCodesAsync) =>
-                        ReadItemsAsync((CancellationToken)args![1]!),
-                    _ => throw new InvalidOperationException($"ISAPServiceLayerClient.{method.Name} was not expected.")
-                }),
+                StubProxy.Unused<ISAPServiceLayerClient>(),
                 NullLogger<SalesOrderService>.Instance,
                 new NoOpNotificationService(),
                 StubProxy.Unused<IBusinessPartnerService>(),
@@ -170,20 +169,27 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
             NullLogger<CreateSalesOrderHandler>.Instance);
 
     /// <summary>
-    /// The Service Layer's item read. It honours the token it is handed, as the real client does; a stub
-    /// that ignored it would let the hang-up test pass against the very code it was written to catch.
+    /// Calls back as a read of the order table is sent, and honours the token the read was given, as
+    /// Npgsql does. SQLite runs a command to the end whatever becomes of its token, so without this the
+    /// test would pass against the very code it was written to catch: a capture handed the request's
+    /// token.
     /// </summary>
-    private Task<Dictionary<string, Item>> ReadItemsAsync(CancellationToken cancellationToken)
+    private sealed class OrderTableReads(Action started) : DbCommandInterceptor
     {
-        _sapItemReads++;
-        _sapItemReadStarted?.Invoke();
-
-        return cancellationToken.IsCancellationRequested
-            ? Task.FromCanceled<Dictionary<string, Item>>(cancellationToken)
-            : Task.FromResult(new Dictionary<string, Item>(StringComparer.OrdinalIgnoreCase)
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("FROM \"SalesOrders\"", StringComparison.Ordinal))
             {
-                ["CHE011"] = new Item { ItemCode = "CHE011", SalesUnit = "EA" }
-            });
+                started();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return ValueTask.FromResult(result);
+        }
     }
 
     /// <summary>Hands <see cref="CreateSalesOrderCommand"/> to the real handler, with the token it was sent.</summary>
