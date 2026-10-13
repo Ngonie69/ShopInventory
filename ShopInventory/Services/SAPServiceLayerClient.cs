@@ -16756,6 +16756,16 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         // Determine if we should create based on invoice (with BaseEntry/BaseType)
         var isFromInvoice = request.OriginalInvoiceDocEntry.HasValue && request.OriginalInvoiceDocEntry > 0;
 
+        // Posted today unless the caller names a day — a van, shop or vending credit is booked on its
+        // invoice's day. Only the posting date moves: the document date is then stated as today, so it
+        // stays the day the credit was actually raised whatever SAP would default it to, and the due
+        // date never falls before the posting date, which SAP refuses.
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var postingDate = request.PostingDate ?? today;
+        var docDate = FormatSapDocumentDate(postingDate);
+        var docDueDate = FormatSapDocumentDate(postingDate > today ? postingDate : today);
+        var taxDate = request.PostingDate.HasValue ? FormatSapDocumentDate(today) : null;
+
         object creditNotePayload;
 
         if (isFromInvoice)
@@ -16764,8 +16774,9 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             creditNotePayload = new
             {
                 CardCode = request.CardCode,
-                DocDate = DateTime.Now.ToString("yyyy-MM-dd"),
-                DocDueDate = DateTime.Now.ToString("yyyy-MM-dd"),
+                DocDate = docDate,
+                DocDueDate = docDueDate,
+                TaxDate = taxDate,
                 Comments = request.Reason ?? request.Comments,
                 // The only thing in SAP that identifies this credit note as one particular request's.
                 NumAtCard = request.SapReference,
@@ -16826,8 +16837,9 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             creditNotePayload = new
             {
                 CardCode = request.CardCode,
-                DocDate = DateTime.Now.ToString("yyyy-MM-dd"),
-                DocDueDate = DateTime.Now.ToString("yyyy-MM-dd"),
+                DocDate = docDate,
+                DocDueDate = docDueDate,
+                TaxDate = taxDate,
                 Comments = request.Reason ?? request.Comments,
                 // The only thing in SAP that identifies this credit note as one particular request's.
                 NumAtCard = request.SapReference,

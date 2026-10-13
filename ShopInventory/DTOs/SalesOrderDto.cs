@@ -384,6 +384,17 @@ public class CreateCreditNoteRequest
     [System.Text.Json.Serialization.JsonIgnore]
     public string? FiscalReference { get; set; }
 
+    /// <summary>
+    /// The SAP posting date (<c>DocDate</c>) of the credit note. Null posts it on the day it is raised.
+    /// </summary>
+    /// <remarks>
+    /// Set for a credit against a van, shop or vending invoice, which is booked on the day that invoice
+    /// was — see <see cref="ShopInventory.Common.Sales.CreditMemoPostingDate"/>. Server-set and never
+    /// bound: a caller that could name it could back-date a credit into any open period.
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateOnly? PostingDate { get; set; }
+
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
     public List<CreateCreditNoteLineRequest> Lines { get; set; } = new();

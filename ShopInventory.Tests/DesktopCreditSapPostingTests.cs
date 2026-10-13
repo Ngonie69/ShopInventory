@@ -447,6 +447,50 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         Assert.NotEqual(true, creditNotes[1].IsFiscalized);
     }
 
+    // ── Posting date ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A shop, vending or van credit is booked on the day its invoice was, not the day it was raised.
+    /// </summary>
+    /// <remarks>
+    /// The invoice as SAP holds it is the authority, not the sale row: the two agree on an ordinary
+    /// day, and differ exactly when it matters — a sale that posted late, on another day's date.
+    /// </remarks>
+    [Theory]
+    [InlineData(SaleSourceSystems.ShopTill)]
+    [InlineData(SaleSourceSystems.Vending)]
+    [InlineData(SaleSourceSystems.VanSales)]
+    [InlineData(SaleSourceSystems.VanSalesOnline)]
+    public async Task The_memo_is_posted_on_the_day_sap_holds_the_invoice_under(string sourceSystem)
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
+        sale.SourceSystem = sourceSystem;
+        await _context.SaveChangesAsync();
+
+        GivenInvoiceBatches(4242, line0: [("B-OLD", 6m)], line1: [("B-A", 4m)]);
+        _sap.Invoices[4242].DocDate = "2026-09-10T00:00:00Z";
+        var note = await GivenCreditAsync(sale);
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Equal(new DateOnly(2026, 9, 10), Assert.Single(_sap.Created).PostingDate);
+    }
+
+    [Fact]
+    public async Task An_invoice_sap_answers_no_date_for_is_credited_on_the_day_the_sale_posted_under()
+    {
+        // The mirrored invoice carries no DocDate. The sale's own posting date is what its invoice
+        // was built with, and it is preferred over the trading day for the same reason it is there.
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 777347);
+        sale.PostingDate = new DateTime(2026, 9, 13, 0, 0, 0, DateTimeKind.Utc);
+        await _context.SaveChangesAsync();
+        var note = await GivenCreditAsync(sale);
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Equal(new DateOnly(2026, 9, 13), Assert.Single(_sap.Created).PostingDate);
+    }
+
     // ── Batches ──────────────────────────────────────────────────────────
 
     /// <summary>

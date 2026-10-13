@@ -126,6 +126,46 @@ public sealed class InvoiceCancellationTests
         Assert.False(plain.HeaderHasProperty("CreditNotes", "U_Van_saleorder"));
     }
 
+    /// <remarks>
+    /// A van, shop or vending credit is booked on its invoice's day. Only the posting date moves: the
+    /// document date is stated as the day the credit was raised rather than left to SAP's default, and
+    /// the due date stays today, which SAP accepts because it is not before the posting date.
+    /// </remarks>
+    [Theory]
+    [InlineData(4242)]
+    [InlineData(null)]
+    public async Task A_credit_given_a_posting_date_is_posted_on_it_and_any_other_is_posted_today(int? baseEntry)
+    {
+        var today = DateTime.Now.ToString("yyyy-MM-dd");
+
+        var backdated = new ReasonAwareServiceLayer();
+        await CreateClient(backdated).CreateCreditNoteAsync(new CreateCreditNoteRequest
+        {
+            CardCode = "C-1",
+            Reason = "Wrongly Invoiced",
+            OriginalInvoiceDocEntry = baseEntry,
+            PostingDate = new DateOnly(2026, 9, 10),
+            Lines = [new() { ItemCode = "ITEM-A", Quantity = 1, UnitPrice = 1m, OriginalInvoiceLineId = 0 }]
+        });
+
+        Assert.Equal("2026-09-10", backdated.HeaderText("CreditNotes", "DocDate"));
+        Assert.Equal(today, backdated.HeaderText("CreditNotes", "TaxDate"));
+        Assert.Equal(today, backdated.HeaderText("CreditNotes", "DocDueDate"));
+
+        var plain = new ReasonAwareServiceLayer();
+        await CreateClient(plain).CreateCreditNoteAsync(new CreateCreditNoteRequest
+        {
+            CardCode = "C-1",
+            Reason = "Crates back",
+            OriginalInvoiceDocEntry = baseEntry,
+            Lines = [new() { ItemCode = "ITEM-A", Quantity = 1, UnitPrice = 1m, OriginalInvoiceLineId = 0 }]
+        });
+
+        Assert.Equal(today, plain.HeaderText("CreditNotes", "DocDate"));
+        Assert.Equal(today, plain.HeaderText("CreditNotes", "DocDueDate"));
+        Assert.False(plain.HeaderHasProperty("CreditNotes", "TaxDate"));
+    }
+
     [Fact]
     public async Task Reasons_are_found_by_field_name_not_by_a_field_id()
     {
