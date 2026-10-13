@@ -70,7 +70,7 @@ public class FleetAuditTests : IDisposable
     };
 
     private GetFleetAuditHandler Handler() =>
-        new(_context, new CartrackReadService(_context, Options.Create(Settings())));
+        new(_context, Options.Create(new TaxSettings()), new CartrackReadService(_context, Options.Create(Settings())));
 
     private LinkVehicleBusinessPartnerHandler Linker() =>
         new(_context,

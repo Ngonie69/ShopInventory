@@ -1,12 +1,13 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using ShopInventory.Data;
-using ShopInventory.Services.Telematics;
+using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.Telematics;
 
 namespace ShopInventory.Tests;
 
@@ -79,7 +80,7 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
 
         var performance = await RunAsync();
 
-        var compliance = await new GetDepartureComplianceReportHandler(_context, Telematics()).Handle(
+        var compliance = await new GetDepartureComplianceReportHandler(_context, Options.Create(new TaxSettings()), Telematics()).Handle(
             new GetDepartureComplianceReportQuery(Day, Day),
             CancellationToken.None);
 
@@ -626,7 +627,7 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
     [Fact]
     public async Task A_backwards_period_is_refused()
     {
-        var handler = new GetVanSalesPerformanceReportHandler(_context);
+        var handler = new GetVanSalesPerformanceReportHandler(_context, Options.Create(new TaxSettings()));
 
         var result = await handler.Handle(
             new GetVanSalesPerformanceReportQuery(Day, Day.AddDays(-1)),
@@ -639,7 +640,7 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
     [Fact]
     public async Task A_period_wider_than_the_ceiling_is_refused()
     {
-        var handler = new GetVanSalesPerformanceReportHandler(_context);
+        var handler = new GetVanSalesPerformanceReportHandler(_context, Options.Create(new TaxSettings()));
 
         var result = await handler.Handle(
             new GetVanSalesPerformanceReportQuery(Day, Day.AddDays(401)),
@@ -656,7 +657,7 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
         DateTime? to = null,
         string? routeCode = null)
     {
-        var handler = new GetVanSalesPerformanceReportHandler(_context);
+        var handler = new GetVanSalesPerformanceReportHandler(_context, Options.Create(new TaxSettings()));
 
         var result = await handler.Handle(
             new GetVanSalesPerformanceReportQuery(from ?? Day, to ?? Day, null, routeCode),

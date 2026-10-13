@@ -137,11 +137,7 @@ public static class VanSalesMeasures
     public static int? SumKilometres(IEnumerable<VanRouteDayEntity> days)
     {
         var distances = days
-            .Select(day => day.StartingMileage is { } start
-                           && day.ClosingMileage is { } close
-                           && close >= start
-                ? close - start
-                : (int?)null)
+            .Select(day => day.KilometresTravelled)
             .Where(distance => distance.HasValue)
             .Select(distance => distance!.Value)
             .ToList();

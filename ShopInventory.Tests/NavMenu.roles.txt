@@ -130,6 +130,7 @@ Van Sales
     Van Credit Notes  /van-sales/credit-notes
 Van Reports
     Van Activity  /van-sales/activity
+    Daily Truck Report  /van-sales/reports/daily
     Sales Performance  /van-sales/reports/performance
     ADR Performance  /van-sales/reports/adr-performance
     Sales Breakdown  /van-sales/reports/sales-breakdown
@@ -335,6 +336,7 @@ Van Sales
     Customer App Access  /van-sales-customer-accounts
 Van Reports
     Van Activity  /van-sales/activity
+    Daily Truck Report  /van-sales/reports/daily
     Sales Performance  /van-sales/reports/performance
     ADR Performance  /van-sales/reports/adr-performance
     Sales Breakdown  /van-sales/reports/sales-breakdown

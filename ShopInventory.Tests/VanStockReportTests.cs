@@ -595,7 +595,11 @@ public sealed class VanStockReportTests : IDisposable
     // --- Helpers ---
 
     private GetVanStockReportHandler NewHandler() =>
-        new(_context, _sap, Options.Create(new DailyStockSettings { StockFetchTimeCAT = "07:00" }));
+        new(
+            _context,
+            Options.Create(new TaxSettings()),
+            _sap,
+            Options.Create(new DailyStockSettings { StockFetchTimeCAT = "07:00" }));
 
     private async Task<VanStockReportResult> RunAsync(int deadStockDays = 14)
     {

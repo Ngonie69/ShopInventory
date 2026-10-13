@@ -1,0 +1,338 @@
+@page "/van-sales/reports/daily"
+@* Admin and Manager, like the other van reports. The office's figures are entered here by an Admin. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Models
+
+<PageTitle>Daily Truck Report - Shop Inventory</PageTitle>
+
+@* The daily truck report.
+
+   Carried by the `vsk-` block at the foot of wwwroot/css/van-sales.css in both
+   schemes, on the shared `vs-` and `vsc-` chrome.
+
+   This is the office's VANSALES DAILY REPORT workbook, read out of the system.
+   The workbook had one typed row per truck per day and a monthly summary against
+   target. Three things this page decides:
+
+   - **The truck is the row.** Two reps share a truck, so a rep-day grid splits
+     one round in two. The compliance page asks how each rep did; this asks what
+     each truck did.
+
+   - **A truck that reported nothing still has a row.** Every working day so far
+     is listed for every live route. Leaving a silent day out would make a
+     missing report look like a short week.
+
+   - **Only three figures are typed.** Fuel issued, account sales and the area
+     worked are the office's to say, and are entered on the day's own row.
+     Everything else is counted from the handsets and the invoices. *@
+
+<div class="vs">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Daily truck report</h2>
+            <p class="vs-subtitle">
+                One row per truck: its period against target, and each of its days underneath.
+                Sales are US dollars with VAT, counted from the invoices. Fuel, account sales and
+                the area worked are entered here by the office.
+            </p>
+        </div>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="vs-notice">@error</div>
+    }
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsk-from">From</label>
+                <NocturneDateField Id="vsk-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsk-to">To</label>
+                <NocturneDateField Id="vsk-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Loading the trucks…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        @* The error above says why. An empty sheet here would read as a quiet month. *@
+    }
+    else if (report.Trucks.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No routes</div>
+            <div>There are no live selling routes to report on. Add them under Van Sales, Routes.</div>
+        </div>
+    }
+    else
+    {
+        var total = report.Total;
+
+        <div class="vsc-kpis">
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@Money(total.PeriodTarget)</div>
+                <div class="vsc-kpi-l">period target</div>
+                <div class="vsc-kpi-sub">@report.WorkingDays working day@(report.WorkingDays == 1 ? "" : "s"), @report.WorkingDaysElapsed so far</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@Money(total.Sales)</div>
+                <div class="vsc-kpi-l">sales to date</div>
+                <div class="vsc-kpi-sub">@Percent(total.TargetAchieved) of target</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark @Ink(BehindPace)"></div>
+                <div class="vsc-kpi-n @Ink(BehindPace)">@Money(total.BalanceToTarget)</div>
+                <div class="vsc-kpi-l">balance to target</div>
+                <div class="vsc-kpi-sub">@PaceNote</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@total.CustomersVisited.ToString("N0")</div>
+                <div class="vsc-kpi-l">shops checked into</div>
+                <div class="vsc-kpi-sub">@total.ProductiveCalls.ToString("N0") bought · PCR @Percent(total.ProductiveCallRate)</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@total.Kilometres.ToString("N0")</div>
+                <div class="vsc-kpi-l">kilometres</div>
+                <div class="vsc-kpi-sub">@(total.SalesPerKilometre is { } perKm ? $"${perKm:N2} a km" : "no odometer readings")</div>
+            </div>
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-n">@(total.FuelLitres > 0 ? total.FuelLitres.ToString("N0") : "—")</div>
+                <div class="vsc-kpi-l">litres issued</div>
+                <div class="vsc-kpi-sub">@(total.KilometresPerLitre is { } perLitre ? $"{perLitre:N2} km a litre" : "none entered yet")</div>
+            </div>
+        </div>
+
+        <div class="vsk-strip" role="list" aria-label="Truck-days to look at">
+            <span class="vsk-chip @ChipInk(report.Exceptions.NotReported)" role="listitem">
+                <b>@report.Exceptions.NotReported</b> not reported
+            </span>
+            <span class="vsk-chip @ChipInk(report.Exceptions.BelowTarget)" role="listitem">
+                <b>@report.Exceptions.BelowTarget</b> below target
+            </span>
+            <span class="vsk-chip @ChipInk(report.Exceptions.DistanceWithoutSales)" role="listitem">
+                <b>@report.Exceptions.DistanceWithoutSales</b> distance, no sales
+            </span>
+            <span class="vsk-chip @ChipInk(report.Exceptions.MileageNeedsReview)" role="listitem">
+                <b>@report.Exceptions.MileageNeedsReview</b> mileage to check
+            </span>
+            <span class="vsk-chip @ChipInk(report.Exceptions.ReturnedLate)" role="listitem">
+                <b>@report.Exceptions.ReturnedLate</b> closed a day late
+            </span>
+        </div>
+
+        @if (report.SalesOutsideRoutes > 0)
+        {
+            <p class="vsk-note">
+                @Money(report.SalesOutsideRoutes) was sold by logins that are on no route, and is in none of
+                the rows below. Assign each van login a route on its user account.
+            </p>
+        }
+
+        <div class="vsc-sheet">
+            <div class="vsk-track vsk-cols">
+                <span>Truck</span>
+                <span class="vs-right">Target</span>
+                <span class="vs-right">Sales</span>
+                <span class="vs-right">Balance</span>
+                <span class="vs-right">Achieved</span>
+                <span class="vs-right">Days</span>
+                <span class="vs-right">Visited</span>
+                <span class="vs-right">Bought</span>
+                <span class="vs-right">PCR</span>
+                <span class="vs-right">Km</span>
+                <span class="vs-right">Fuel</span>
+                <span class="vs-right">Account</span>
+                <span></span>
+            </div>
+
+            @foreach (var truck in report.Trucks)
+            {
+                var routeId = truck.RouteId!.Value;
+                var isOpen = openRoute == routeId;
+                var silent = truck.DaysReported == 0 && truck.WorkingDaysElapsed > 0;
+
+                <div @key="routeId">
+                    <button type="button" class="vsc-rowbtn" aria-expanded="@isOpen" @onclick="() => ToggleRoute(routeId)">
+                        <span class="vsk-track vsc-row @(silent ? "vsc-row-flagged" : "")">
+                            <span class="vsc-cell">
+                                <span class="vsc-name">
+                                    <span class="vsc-name-text">@truck.RouteName</span>
+                                    @if (silent)
+                                    {
+                                        <span class="vsc-flag vsc-flag-strong">nothing reported</span>
+                                    }
+                                </span>
+                                <span class="vsc-where">@truck.RouteCode@(truck.Territory is { Length: > 0 } territory ? $" · {territory}" : "")</span>
+                            </span>
+                            <span class="vs-right vsc-num">@Money(truck.PeriodTarget)</span>
+                            <span class="vs-right vsc-strong">@Money(truck.Sales)</span>
+                            <span class="vs-right vsc-num">@Money(truck.BalanceToTarget)</span>
+                            <span class="vs-right vsc-num">@Percent(truck.TargetAchieved)</span>
+                            <span class="vs-right vsc-num @Ink(truck.DaysReported < truck.WorkingDaysElapsed)">@truck.DaysReported / @truck.WorkingDaysElapsed</span>
+                            <span class="vs-right vsc-num">@truck.CustomersVisited.ToString("N0")</span>
+                            <span class="vs-right vsc-num">@truck.ProductiveCalls.ToString("N0")</span>
+                            <span class="vs-right vsc-num">@Percent(truck.ProductiveCallRate)</span>
+                            <span class="vs-right vsc-num">@(truck.Kilometres > 0 ? truck.Kilometres.ToString("N0") : "—")</span>
+                            <span class="vs-right vsc-num">
+                                @(truck.FuelLitres > 0 ? $"{truck.FuelLitres:N0} L" : "—")
+                                @if (truck.KilometresPerLitre is { } truckPerLitre)
+                                {
+                                    <span class="vsc-sub">@truckPerLitre.ToString("N2") km/L</span>
+                                }
+                            </span>
+                            <span class="vs-right vsc-num">@(truck.AccountSales > 0 ? Money(truck.AccountSales) : "—")</span>
+                            <span class="vsk-caret" aria-hidden="true">
+                                <i class="ph @(isOpen ? "ph-caret-up" : "ph-caret-down")"></i>
+                            </span>
+                        </span>
+                    </button>
+
+                    @if (isOpen)
+                    {
+                        <div class="vsc-detail">
+                            <div class="vsk-day-track vsk-day-cols">
+                                <span>Day</span>
+                                <span>Area</span>
+                                <span>Out — in</span>
+                                <span class="vs-right">Visited</span>
+                                <span class="vs-right">Bought</span>
+                                <span class="vs-right">PCR</span>
+                                <span class="vs-right">Sales</span>
+                                <span class="vs-right">Ecocash</span>
+                                <span class="vs-right">Account</span>
+                                <span class="vs-right">Km</span>
+                                <span class="vs-right">Fuel</span>
+                                <span></span>
+                            </div>
+
+                            @foreach (var day in DaysOf(routeId))
+                            {
+                                var isEditing = editing is { } target && target.RouteId == routeId && target.TradingDate == day.TradingDate;
+
+                                <div class="vsk-day-track vsk-day @(day.HasActivity ? "" : "vsk-day-quiet")" @key="day.TradingDate">
+                                    <span class="vsc-cell">
+                                        <span class="vsc-day">@day.TradingDate.ToString("ddd d MMM")</span>
+                                        @if (FlagFor(day) is { } flag)
+                                        {
+                                            <span class="vsc-sub @Ink(true)">@flag</span>
+                                        }
+                                    </span>
+                                    <span class="vsc-cell">
+                                        <span class="vsk-area">@(day.AreaName ?? "—")</span>
+                                        @if (day.AreaSource == "Plan")
+                                        {
+                                            <span class="vsc-sub">as planned</span>
+                                        }
+                                    </span>
+                                    <span class="vsc-num">@Times(day)</span>
+                                    <span class="vs-right vsc-num">@(day.CustomersVisited > 0 ? day.CustomersVisited.ToString("N0") : "—")</span>
+                                    <span class="vs-right vsc-num">@(day.ProductiveCalls > 0 ? day.ProductiveCalls.ToString("N0") : "—")</span>
+                                    <span class="vs-right vsc-num">@Percent(day.ProductiveCallRate)</span>
+                                    <span class="vs-right vsc-strong">@(day.SalesCount > 0 ? Money(day.Sales) : "—")</span>
+                                    <span class="vs-right vsc-num">@(day.Ecocash > 0 ? Money(day.Ecocash) : "—")</span>
+                                    <span class="vs-right vsc-num">@(day.AccountSales is { } account ? Money(account) : "—")</span>
+                                    <span class="vs-right vsc-num @Ink(day.MileageNeedsReview)" title="@OdometerTitle(day)">
+                                        @(day.Kilometres is { } km ? km.ToString("N0") : day.MileageNeedsReview ? "check" : "—")
+                                    </span>
+                                    <span class="vs-right vsc-num">@(day.FuelLitres is { } litres ? $"{litres:0.##} L" : "—")</span>
+                                    <span class="vs-right">
+                                        <AuthorizeView Roles="Admin">
+                                            <Authorized>
+                                                <button type="button" class="vs-btn vsk-edit" disabled="@isSaving"
+                                                        aria-label="@($"Enter fuel, account sales and area for {day.TradingDate:d MMM}")"
+                                                        @onclick="() => StartEntry(day)">
+                                                    @(day.HasOfficeEntry ? "Edit" : "Enter")
+                                                </button>
+                                            </Authorized>
+                                        </AuthorizeView>
+                                    </span>
+                                </div>
+
+                                @if (isEditing)
+                                {
+                                    <div class="vsk-form" @key="@($"form-{day.TradingDate:yyyyMMdd}")">
+                                        <div class="vsk-form-field vsk-form-wide">
+                                            <label class="vs-filter-label" for="vsk-area">Area worked</label>
+                                            <input id="vsk-area" class="vs-field" maxlength="200" @bind="entryArea"
+                                                   placeholder="@(day.AreaSource == "Office" ? "" : day.AreaName ?? "Where the truck went")" />
+                                        </div>
+                                        <div class="vsk-form-field">
+                                            <label class="vs-filter-label" for="vsk-fuel">Fuel issued, litres</label>
+                                            <input id="vsk-fuel" class="vs-field" type="number" min="0" step="0.01" @bind="entryFuel" placeholder="None" />
+                                        </div>
+                                        <div class="vsk-form-field">
+                                            <label class="vs-filter-label" for="vsk-account">Account sales, with VAT</label>
+                                            <input id="vsk-account" class="vs-field" type="number" min="0" step="0.01" @bind="entryAccount" placeholder="None" />
+                                        </div>
+                                        <div class="vsk-form-field vsk-form-wide">
+                                            <label class="vs-filter-label" for="vsk-notes">Note <span class="vs-meta">(optional)</span></label>
+                                            <input id="vsk-notes" class="vs-field" maxlength="500" @bind="entryNotes" />
+                                        </div>
+                                        <div class="vsk-form-actions">
+                                            <button type="button" class="vs-btn vs-btn-accent" @onclick="SaveEntryAsync" disabled="@isSaving">
+                                                @(isSaving ? "Saving…" : "Save")
+                                            </button>
+                                            <button type="button" class="vs-btn" @onclick="CancelEntry" disabled="@isSaving">Cancel</button>
+                                        </div>
+                                        @if (entryError is not null)
+                                        {
+                                            <div class="vs-notice vsk-form-error">@entryError</div>
+                                        }
+                                        <p class="vsk-form-note">
+                                            Account sales are the invoices keyed into SAP for account customers on this
+                                            round. They are not in the Sales column. Leave a box empty to clear it.
+                                        </p>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="vsk-track vsc-foot">
+                <span class="vsc-foot-label">All trucks</span>
+                <span class="vs-right vsc-num">@Money(total.PeriodTarget)</span>
+                <span class="vs-right vsc-strong">@Money(total.Sales)</span>
+                <span class="vs-right vsc-num">@Money(total.BalanceToTarget)</span>
+                <span class="vs-right vsc-num">@Percent(total.TargetAchieved)</span>
+                <span class="vs-right vsc-num">@total.DaysReported / @total.WorkingDaysElapsed</span>
+                <span class="vs-right vsc-num">@total.CustomersVisited.ToString("N0")</span>
+                <span class="vs-right vsc-num">@total.ProductiveCalls.ToString("N0")</span>
+                <span class="vs-right vsc-num">@Percent(total.ProductiveCallRate)</span>
+                <span class="vs-right vsc-num">@(total.Kilometres > 0 ? total.Kilometres.ToString("N0") : "—")</span>
+                <span class="vs-right vsc-num">@(total.FuelLitres > 0 ? $"{total.FuelLitres:N0} L" : "—")</span>
+                <span class="vs-right vsc-num">@(total.AccountSales > 0 ? Money(total.AccountSales) : "—")</span>
+                <span></span>
+            </div>
+        </div>
+
+        <p class="vsk-note">
+            A month's target is each route's daily target times its Monday-to-Friday days; set the daily
+            target on Van Sales, Routes. Visited is shops checked into on the handset and Bought is shops
+            invoiced, so a low PCR on a truck that sells well usually means calls were not checked into.
+        </p>
+    }
+</div>

@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
-using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateInvoiceDirect;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
@@ -527,7 +527,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.Single(await _context.DesktopSales.ToListAsync());
 
         var facts = await VanSalesFactReader.LoadSalesAsync(
-            _context, new VanSalesFactFilter(Day, Day), CancellationToken.None);
+            _context, new TaxSettings(), new VanSalesFactFilter(Day, Day), CancellationToken.None);
 
         var fact = Assert.Single(facts);
         Assert.Equal(VanSaleSource.OnlineInvoice, fact.Source);
