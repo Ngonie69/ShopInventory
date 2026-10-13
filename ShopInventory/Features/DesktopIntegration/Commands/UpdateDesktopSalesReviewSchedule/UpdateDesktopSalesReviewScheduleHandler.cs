@@ -21,11 +21,11 @@ public sealed class UpdateDesktopSalesReviewScheduleHandler(
         var recipients = Addresses(string.Join(',', request.Recipients));
 
         await StageAsync(db, WeeklyEnabled, "bool", request.WeeklyEnabled ? "true" : "false",
-            "Whether the desktop sales review is emailed every Monday at 07:00 CAT for the week just ended.", cancellationToken);
+            "Whether the shop and vending sales review is emailed every Monday at 07:00 CAT for the week just ended.", cancellationToken);
         await StageAsync(db, MonthlyEnabled, "bool", request.MonthlyEnabled ? "true" : "false",
-            "Whether the desktop sales review is emailed on the 1st at 07:00 CAT for the month just ended.", cancellationToken);
+            "Whether the shop and vending sales review is emailed on the 1st at 07:00 CAT for the month just ended.", cancellationToken);
         await StageAsync(db, Recipients, "string", string.Join(", ", recipients),
-            "Who receives the desktop sales review email, comma-separated.", cancellationToken);
+            "Who receives the shop and vending sales review email, comma-separated.", cancellationToken);
         await StageAsync(db, SendAsUserId, "string", request.CallerUserId.ToString(),
             "The admin the scheduled review is read as: whoever last saved the schedule.", cancellationToken);
 

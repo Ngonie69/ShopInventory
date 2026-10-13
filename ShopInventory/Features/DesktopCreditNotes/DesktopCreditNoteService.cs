@@ -22,7 +22,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     {
         var caller = await db.Users.AsNoTracking().Include(u => u.Shop).SingleOrDefaultAsync(u => u.Id == callerId, ct);
         var scope = DesktopSalesReadScopeResolver.Resolve(caller);
-        if (scope.IsError) throw new UnauthorizedAccessException("This account cannot access desktop sales.");
+        if (scope.IsError) throw new UnauthorizedAccessException("This account cannot access shop and vending sales.");
         var sale = await db.DesktopSales.AsNoTracking().SingleOrDefaultAsync(s => s.ExternalReferenceId == reference, ct)
             ?? throw new InvalidOperationException("The original sale was not found.");
         if (scope.Value.Narrow(sale.WarehouseCode).IsError)

@@ -846,7 +846,7 @@
             Lane.TransferReview => "No queued transfer has failed often enough to need a person.",
             Lane.Reservations => "Stock reservations taken by the desktop applications appear here until they are confirmed or expire.",
             Lane.Transfers => "Only transfers SAP could not take are parked here. Ones awaiting approval are on Inventory Transfers.",
-            _ => "Only invoices SAP could not take are parked here. Till sales that went through are on Desktop Sales."
+            _ => "Only invoices SAP could not take are parked here. Till sales that went through are on Shop & Vending Sales."
         };
 
     private sealed record EmptyStateLink(string Href, string Icon, string Label);
@@ -862,7 +862,7 @@
     private EmptyStateLink? EmptyLink => _lane switch
     {
         Lane.Invoices or Lane.Review =>
-            new EmptyStateLink("/desktop-sales", "ph-storefront", "Open Desktop Sales"),
+            new EmptyStateLink("/desktop-sales", "ph-storefront", "Open Shop & Vending Sales"),
         Lane.Transfers or Lane.TransferReview =>
             new EmptyStateLink("/inventory-transfers", "ph-arrows-left-right", "Open Inventory Transfers"),
         _ => null

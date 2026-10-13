@@ -517,7 +517,7 @@ public sealed class DesktopCreditNoteListService(
         var scope = DesktopSalesReadScopeResolver.Resolve(caller);
         if (scope.IsError)
         {
-            throw new UnauthorizedAccessException("This account cannot access desktop sales.");
+            throw new UnauthorizedAccessException("This account cannot access shop and vending sales.");
         }
 
         var narrowed = scope.Value.Narrow(warehouse);

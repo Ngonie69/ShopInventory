@@ -225,7 +225,7 @@ public sealed class DesktopSaleFiscaliser(
 
             await notificationService.CreateNotificationAsync(
                 ModuleNotificationFactory.CreateBroadcastNotification(
-                    $"Desktop Sale Not Fiscalized: {sale.ExternalReferenceId}",
+                    $"Sale Not Fiscalized: {sale.ExternalReferenceId}",
                     $"Sale {sale.ExternalReferenceId} for " +
                     $"{ModuleNotificationFactory.DescribeBusinessPartner(sale.CardCode, sale.CardName)} " +
                     $"totaling {ModuleNotificationFactory.DescribeMoney(sale.Currency, sale.TotalAmount)} " +

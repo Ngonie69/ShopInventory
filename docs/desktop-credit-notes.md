@@ -1,6 +1,6 @@
 # Desktop fiscal credit notes
 
-From **Desktop Sales**, open a fiscalised sale and choose **Credit notes**. The form reads the original
+From **Shop & Vending Sales**, open a fiscalised sale and choose **Credit notes**. The form reads the original
 receipt from the device that filed it, shows quantities remaining after saved credits, and accepts quantities, a reason and an
 optional note. The reason is picked from SAP's own return-reason list, because it becomes each memo
 line's return reason and SAP refuses a value the list does not define; free text is offered only when
