@@ -46,26 +46,8 @@ public sealed class GetVanDailyTruckReportHandler(
 
         var trucks = await VanTruckDays.LoadAsync(db, tax.Value, from, to, null, null, null, cancellationToken);
 
-        // Everyone who could be on a truck: a login with a van account, a route, or both.
-        var reps = await db.Users
-            .AsNoTracking()
-            .Where(user => user.RouteId != null || (user.AssignedBusinessPartnerCode != null && user.AssignedBusinessPartnerCode != ""))
-            .Select(user => new { user.Id, user.RouteId, user.AssignedBusinessPartnerCode })
-            .ToListAsync(cancellationToken);
-
-        var accounts = reps.ToDictionary(rep => rep.Id, rep => rep.AssignedBusinessPartnerCode);
-
-        // The route a truck runs when its day says nothing: the one most of its reps are assigned to.
-        var routeOfTruck = reps
-            .Where(rep => rep.RouteId.HasValue)
-            .GroupBy(rep => VanTruckDays.TruckOf(rep.Id, accounts))
-            .ToDictionary(
-                truck => truck.Key,
-                truck => truck
-                    .GroupBy(rep => rep.RouteId!.Value)
-                    .OrderByDescending(route => route.Count())
-                    .ThenBy(route => route.Key)
-                    .First().Key);
+        // Which truck each rep is on and which route each truck runs, as the plans read them.
+        var truckRoutes = await VanTruckRoutes.LoadAsync(db, cancellationToken);
 
         var rows = new Dictionary<(int RouteId, DateTime Day), DayAccumulator>();
         var salesOutsideRoutes = 0m;
@@ -86,7 +68,7 @@ public sealed class GetVanDailyTruckReportHandler(
             // The day's own record first: it is a snapshot of the route the truck was opened on,
             // and a truck moved to another route last week must not take its history with it.
             var routeId = truckDay.RouteDays.Select(day => day.RouteId).FirstOrDefault(id => id.HasValue)
-                          ?? (routeOfTruck.TryGetValue(key.Truck, out var assigned) ? assigned : (int?)null);
+                          ?? truckRoutes.RouteOf(key.Truck);
 
             if (routeId is not { } route)
             {
@@ -97,7 +79,7 @@ public sealed class GetVanDailyTruckReportHandler(
             RowFor(route, key.TradingDate).Add(truckDay);
         }
 
-        await AddNewCustomersAsync(from, to, accounts, routeOfTruck, trucks, RowFor, cancellationToken);
+        await AddNewCustomersAsync(from, to, truckRoutes, trucks, RowFor, cancellationToken);
 
         var entries = await db.VanTruckDayEntries
             .AsNoTracking()
@@ -198,8 +180,7 @@ public sealed class GetVanDailyTruckReportHandler(
     private async Task AddNewCustomersAsync(
         DateTime from,
         DateTime to,
-        Dictionary<Guid, string?> accounts,
-        Dictionary<string, int> routeOfTruck,
+        VanTruckRoutes truckRoutes,
         VanTruckDays trucks,
         Func<int, DateTime, DayAccumulator> rowFor,
         CancellationToken cancellationToken)
@@ -217,12 +198,12 @@ public sealed class GetVanDailyTruckReportHandler(
         foreach (var customer in created)
         {
             var day = VanSalesFacts.TradingDayOf(customer.CreatedAt);
-            var truck = VanTruckDays.TruckOf(customer.CreatedByUserId!.Value, accounts);
+            var truck = truckRoutes.TruckOf(customer.CreatedByUserId!.Value);
 
             var routeId = (trucks.All.TryGetValue(new VanTruckDayKey(truck, day), out var truckDay)
                               ? truckDay.RouteDays.Select(routeDay => routeDay.RouteId).FirstOrDefault(id => id.HasValue)
                               : null)
-                          ?? (routeOfTruck.TryGetValue(truck, out var assigned) ? assigned : (int?)null);
+                          ?? truckRoutes.RouteOf(truck);
 
             if (routeId is { } route)
             {
@@ -255,6 +236,7 @@ public sealed class GetVanDailyTruckReportHandler(
         var plannedArea = RouteDayPlan.AreaFor(stops, day.DayOfWeek);
 
         // What the office said wins, then what the day was opened with, then the plan for the weekday.
+        // The same order VanDayPlans.AreaOf reads them in, which is what decides the day's round.
         string? area = null;
         string? areaSource = null;
 
@@ -266,7 +248,7 @@ public sealed class GetVanDailyTruckReportHandler(
         {
             (area, areaSource) = (dayArea, "Day");
         }
-        else if (plannedArea is not null && workingDay)
+        else if (plannedArea is not null)
         {
             (area, areaSource) = (plannedArea, "Plan");
         }
@@ -300,6 +282,8 @@ public sealed class GetVanDailyTruckReportHandler(
             TimeIn: timeIn,
             ReturnedLate: timeIn is { } back && back.Date > day,
             PlannedCustomers: row.Planned,
+            PlannedCallsMade: row.PlannedCallsMade,
+            PlanBasis: row.PlanBasis,
             CustomersVisited: row.CustomersVisited,
             ProductiveCalls: row.ProductiveCalls,
             CallsMade: row.CallsMade,
@@ -333,7 +317,9 @@ public sealed class GetVanDailyTruckReportHandler(
         int workingDays,
         int workingDaysElapsed)
     {
-        var withPlan = days.Where(day => day.PlannedCustomers is > 0).ToList();
+        // The CCR over the days with a round, where any has one; the rest are counted, not added in.
+        var planned = days.Where(day => day.PlannedCustomers is > 0).ToList();
+        var withPlan = VanPlanBasis.DaysToMeasure(planned, day => day.PlanBasis);
         var withCheckIns = days.Where(day => day.CustomersVisited > 0).ToList();
 
         return new VanDailyTruckSummaryDto(
@@ -356,7 +342,9 @@ public sealed class GetVanDailyTruckReportHandler(
             ProductiveCalls: days.Sum(day => day.ProductiveCalls),
             NewCustomers: days.Sum(day => day.NewCustomers),
             PlannedCustomers: withPlan.Sum(day => day.PlannedCustomers!.Value),
-            CcrCustomersVisited: withPlan.Sum(day => day.CustomersVisited),
+            CcrCustomersVisited: withPlan.Sum(day => day.PlannedCallsMade),
+            PlanBasis: withPlan.Select(day => day.PlanBasis).FirstOrDefault(),
+            DaysOnWholeList: planned.Count(day => day.PlanBasis == VanPlanBasis.List),
             PcrProductiveCalls: withCheckIns.Sum(day => day.ProductiveCalls),
             PcrCallsMade: withCheckIns.Sum(day => day.CallsMade),
             Kilometres: days.Sum(day => day.Kilometres ?? 0),
@@ -403,6 +391,11 @@ public sealed class GetVanDailyTruckReportHandler(
 
         public int? Planned { get; private set; }
 
+        public int PlannedCallsMade { get; private set; }
+
+        /// <summary>The round where any truck on the route had one that day; the list only where none did.</summary>
+        public string? PlanBasis { get; private set; }
+
         public int NewCustomers { get; set; }
 
         public string? OfficeArea { get; set; }
@@ -424,6 +417,8 @@ public sealed class GetVanDailyTruckReportHandler(
             if (truckDay.Planned is { } planned)
             {
                 Planned = (Planned ?? 0) + planned;
+                PlannedCallsMade += truckDay.PlannedCallsMade;
+                PlanBasis = PlanBasis == VanPlanBasis.Round ? PlanBasis : truckDay.PlanBasis;
             }
         }
     }

@@ -108,7 +108,7 @@
                 <div class="vsc-kpi-mark"></div>
                 <div class="vsc-kpi-n">@total.CustomersVisited.ToString("N0")</div>
                 <div class="vsc-kpi-l">shops checked into</div>
-                <div class="vsc-kpi-sub">@total.ProductiveCalls.ToString("N0") bought · PCR @Percent(total.ProductiveCallRate)</div>
+                <div class="vsc-kpi-sub">CCR @Percent(total.CallComplianceRate) · @total.ProductiveCalls.ToString("N0") bought · PCR @Percent(total.ProductiveCallRate)</div>
             </div>
             <div class="vsc-kpi">
                 <div class="vsc-kpi-mark"></div>
@@ -159,6 +159,7 @@
                 <span class="vs-right">Achieved</span>
                 <span class="vs-right">Days</span>
                 <span class="vs-right">Visited</span>
+                <span class="vs-right">CCR</span>
                 <span class="vs-right">Bought</span>
                 <span class="vs-right">PCR</span>
                 <span class="vs-right">Km</span>
@@ -192,6 +193,17 @@
                             <span class="vs-right vsc-num">@Percent(truck.TargetAchieved)</span>
                             <span class="vs-right vsc-num @Ink(truck.DaysReported < truck.WorkingDaysElapsed)">@truck.DaysReported / @truck.WorkingDaysElapsed</span>
                             <span class="vs-right vsc-num">@truck.CustomersVisited.ToString("N0")</span>
+                            <span class="vs-right vsc-num @(truck.PlanIsWholeList ? "vsk-on-list" : "")" title="@CcrTitle(truck)">
+                                @Percent(truck.CallComplianceRate)
+                                @if (truck.PlanIsWholeList)
+                                {
+                                    <span class="vsc-sub">of list</span>
+                                }
+                                else if (truck.DaysOnWholeList > 0)
+                                {
+                                    <span class="vsc-sub">@truck.DaysOnWholeList no round</span>
+                                }
+                            </span>
                             <span class="vs-right vsc-num">@truck.ProductiveCalls.ToString("N0")</span>
                             <span class="vs-right vsc-num">@Percent(truck.ProductiveCallRate)</span>
                             <span class="vs-right vsc-num">@(truck.Kilometres > 0 ? truck.Kilometres.ToString("N0") : "—")</span>
@@ -217,6 +229,7 @@
                                 <span>Area</span>
                                 <span>Out — in</span>
                                 <span class="vs-right">Visited</span>
+                                <span class="vs-right">CCR</span>
                                 <span class="vs-right">Bought</span>
                                 <span class="vs-right">PCR</span>
                                 <span class="vs-right">Sales</span>
@@ -248,6 +261,13 @@
                                     </span>
                                     <span class="vsc-num">@Times(day)</span>
                                     <span class="vs-right vsc-num">@(day.CustomersVisited > 0 ? day.CustomersVisited.ToString("N0") : "—")</span>
+                                    <span class="vs-right vsc-num @(day.PlanIsWholeList ? "vsk-on-list" : "")" title="@CcrTitle(day)">
+                                        @Percent(day.CallComplianceRate)
+                                        @if (day.PlannedCustomers is > 0)
+                                        {
+                                            <span class="vsc-sub">@day.PlannedCallsMade/@day.PlannedCustomers@(day.PlanIsWholeList ? " list" : "")</span>
+                                        }
+                                    </span>
                                     <span class="vs-right vsc-num">@(day.ProductiveCalls > 0 ? day.ProductiveCalls.ToString("N0") : "—")</span>
                                     <span class="vs-right vsc-num">@Percent(day.ProductiveCallRate)</span>
                                     <span class="vs-right vsc-strong">@(day.SalesCount > 0 ? Money(day.Sales) : "—")</span>
@@ -320,6 +340,7 @@
                 <span class="vs-right vsc-num">@Percent(total.TargetAchieved)</span>
                 <span class="vs-right vsc-num">@total.DaysReported / @total.WorkingDaysElapsed</span>
                 <span class="vs-right vsc-num">@total.CustomersVisited.ToString("N0")</span>
+                <span class="vs-right vsc-num">@Percent(total.CallComplianceRate)</span>
                 <span class="vs-right vsc-num">@total.ProductiveCalls.ToString("N0")</span>
                 <span class="vs-right vsc-num">@Percent(total.ProductiveCallRate)</span>
                 <span class="vs-right vsc-num">@(total.Kilometres > 0 ? total.Kilometres.ToString("N0") : "—")</span>
@@ -333,6 +354,9 @@
             A month's target is each route's daily target times its Monday-to-Friday days; set the daily
             target on Van Sales, Routes. Visited is shops checked into on the handset and Bought is shops
             invoiced, so a low PCR on a truck that sells well usually means calls were not checked into.
+            CCR is the day's round: of the shops the truck is scheduled for or has called on before in that
+            area, how many it checked into. A day marked "list" has no round yet and is measured against
+            the truck's whole customer list, which reads low. Entering its area gives it one.
         </p>
     }
 </div>

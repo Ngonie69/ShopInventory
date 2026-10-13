@@ -371,6 +371,27 @@ public class DepartureComplianceClassifierTests
         Assert.True(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.CcrUnderTarget));
     }
 
+    /// <summary>
+    /// With no round known, the calls are measured against the truck's whole customer list. Every truck
+    /// is under the mark every day on that measure, so marking it says nothing about the round.
+    /// </summary>
+    [Fact]
+    public void A_call_rate_against_the_whole_list_is_shown_and_not_judged()
+    {
+        var day = Clean();
+        day.TruckPlannedCustomerCount = 286;
+        day.TruckCustomersVisited = 58;
+        day.PlanBasis = "List";
+
+        Assert.Equal(58d / 286, day.CallComplianceRate!.Value, 6);
+        Assert.False(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.CcrUnderTarget));
+
+        // The same figures against the day's round are a truck that missed four calls in five.
+        day.PlanBasis = "Round";
+
+        Assert.True(DepartureComplianceClassifier.GapsOf(day).HasFlag(Gaps.CcrUnderTarget));
+    }
+
     [Fact]
     public void A_productive_rate_under_seventy_five_percent_is_under_target()
     {

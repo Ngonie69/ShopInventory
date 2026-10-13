@@ -196,7 +196,8 @@ public sealed class GetDepartureComplianceReportHandler(
             // there, and a sale alone must not make a day look fully productive.
             TruckKey: trucks.KeyOf(repDay).Truck,
             TruckPlannedCustomerCount: truck?.Planned ?? 0,
-            TruckCustomersVisited: truck?.CheckedInto.Count ?? 0,
+            TruckCustomersVisited: truck?.PlannedCallsMade ?? 0,
+            PlanBasis: truck?.PlanBasis,
             TruckProductiveCalls: truck?.ProductiveCalls ?? 0,
             PcrCalls: truck is { HasCheckIns: true } ? truck.CallsMade : 0,
 
@@ -243,10 +244,14 @@ public sealed class GetDepartureComplianceReportHandler(
             .Select(group => group.First())
             .ToList();
 
+        // The CCR over the truck-days with a round, where any has one. See VanPlanBasis.DaysToMeasure.
+        var planDays = VanPlanBasis.DaysToMeasure(
+            truckDays.Where(row => row.TruckPlannedCustomerCount > 0), row => row.PlanBasis);
+
         return new DepartureComplianceSummary(
             DayCount: rows.Count,
-            PlannedCustomerCount: truckDays.Sum(row => row.TruckPlannedCustomerCount),
-            CustomersVisited: truckDays.Sum(row => row.TruckCustomersVisited),
+            PlannedCustomerCount: planDays.Sum(row => row.TruckPlannedCustomerCount),
+            CustomersVisited: planDays.Sum(row => row.TruckCustomersVisited),
             ProductiveCalls: rows.Sum(row => row.ProductiveCalls),
             // Only the truck-days the PCR could measure, on both sides, or a day of sales with no
             // check-ins would add buyers on top with no calls beneath them.

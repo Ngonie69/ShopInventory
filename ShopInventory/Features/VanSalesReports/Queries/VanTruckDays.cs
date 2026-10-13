@@ -49,10 +49,39 @@ public sealed class VanTruckDays
         public List<VanRouteDayEntity> RouteDays { get; } = [];
 
         /// <summary>
-        /// The truck's plan: the largest any rep on it snapshotted at Start Day, so a plan both reps
-        /// recorded counts once. Null when no rep on the truck opened the day.
+        /// The truck's whole customer list as counted at Start Day: the largest any rep on it
+        /// snapshotted, so a count both reps recorded is taken once. Null when no rep opened the day.
         /// </summary>
-        public int? Planned { get; set; }
+        public int? RosterAtStart { get; set; }
+
+        /// <summary>
+        /// The day's round: the shops the truck was due at in the area it worked. Null when that is
+        /// not known. See <see cref="VanDayPlans"/>.
+        /// </summary>
+        public VanDayPlans.DayPlan? Round { get; set; }
+
+        /// <summary>
+        /// How many shops the truck's calls are measured against: the day's round where it is known,
+        /// otherwise the whole list. <see cref="PlanBasis"/> says which. Null when there is neither.
+        /// </summary>
+        public int? Planned => Round?.Shops.Count ?? RosterAtStart;
+
+        /// <summary><see cref="VanPlanBasis.Round"/> or <see cref="VanPlanBasis.List"/>; null with no plan at all.</summary>
+        public string? PlanBasis =>
+            Round is not null ? VanPlanBasis.Round : RosterAtStart.HasValue ? VanPlanBasis.List : null;
+
+        /// <summary>
+        /// The calls that count towards the plan: check-ins at shops on the round. Against the whole
+        /// list every check-in counts, because which shops the list held was never recorded.
+        /// </summary>
+        /// <remarks>
+        /// A shop outside the round that was checked into is a call, and is in <see cref="CheckedInto"/>
+        /// and in the PCR. It is not a planned call completed, so it does not lift the CCR past what
+        /// the round allows.
+        /// </remarks>
+        public int PlannedCallsMade => Round is { } round
+            ? CheckedInto.Count(shop => VanDayPlans.Shop(shop) is { } code && round.Shops.Contains(code))
+            : CheckedInto.Count;
 
         public bool HasCheckIns => CheckedInto.Count > 0;
 
@@ -82,7 +111,8 @@ public sealed class VanTruckDays
         IEnumerable<VanSaleFact> sales,
         IReadOnlyDictionary<VanSalesDayKey, HashSet<string>> visits,
         IEnumerable<VanRouteDayEntity> routeDays,
-        IReadOnlyDictionary<Guid, string?> accounts)
+        IReadOnlyDictionary<Guid, string?> accounts,
+        VanDayPlans? plans = null)
     {
         var ledger = new VanTruckDays(userId => TruckOf(userId, accounts));
 
@@ -99,13 +129,14 @@ public sealed class VanTruckDays
         foreach (var day in routeDays)
         {
             var truckDay = ledger.Day(new VanSalesDayKey(day.UserId, day.TradingDate.Date));
-            truckDay.Planned = Math.Max(truckDay.Planned ?? 0, day.PlannedCustomerCount);
+            truckDay.RosterAtStart = Math.Max(truckDay.RosterAtStart ?? 0, day.PlannedCustomerCount);
             truckDay.RouteDays.Add(day);
         }
 
-        foreach (var day in ledger._days.Values)
+        foreach (var (key, day) in ledger._days)
         {
             day.RouteDays.Sort((a, b) => a.DepartedAt.CompareTo(b.DepartedAt));
+            day.Round = plans?.PlanFor(key.Truck, key.TradingDate);
         }
 
         return ledger;
@@ -149,7 +180,11 @@ public sealed class VanTruckDays
                 .Select(user => new { user.Id, user.AssignedBusinessPartnerCode })
                 .ToDictionaryAsync(user => user.Id, user => user.AssignedBusinessPartnerCode, cancellationToken);
 
-        return Build(sales, visits, routeDays, accounts);
+        // The rounds are read for the same period, with the thirteen weeks before it that say what
+        // each round holds.
+        var plans = await VanDayPlans.LoadAsync(db, from, to, cancellationToken);
+
+        return Build(sales, visits, routeDays, accounts, plans);
     }
 
     /// <summary>Every van check-in in the period, as distinct shops per rep per trading day.</summary>
@@ -244,10 +279,12 @@ public sealed class VanTruckDays
         return withCalls.Count == 0 ? null : withCalls.Sum(day => day.CheckedInto.Count);
     }
 
-    /// <summary>The truck's plan, summed over the truck-days touched. Null when no rep opened any of them.</summary>
+    /// <summary>The truck's plan, summed over the truck-days touched. Null when none of them has one.</summary>
     public int? SumPlanned(IEnumerable<VanSalesDayKey> repDays)
     {
-        var opened = TruckDaysOf(repDays).Where(day => day.Planned.HasValue).ToList();
+        var opened = VanPlanBasis.DaysToMeasure(
+            TruckDaysOf(repDays).Where(day => day.Planned.HasValue), day => day.PlanBasis);
+
         return opened.Count == 0 ? null : opened.Sum(day => day.Planned!.Value);
     }
 
@@ -257,11 +294,13 @@ public sealed class VanTruckDays
     /// </summary>
     public (int Planned, int Calls)? MeasureAgainstPlan(IEnumerable<VanSalesDayKey> repDays)
     {
-        var planned = TruckDaysOf(repDays).Where(day => day.Planned is > 0).ToList();
+        // Over the days with a round where any has one; see VanPlanBasis.DaysToMeasure.
+        var planned = VanPlanBasis.DaysToMeasure(
+            TruckDaysOf(repDays).Where(day => day.Planned is > 0), day => day.PlanBasis);
 
         return planned.Count == 0
             ? null
-            : (planned.Sum(day => day.Planned!.Value), planned.Sum(day => day.CheckedInto.Count));
+            : (planned.Sum(day => day.Planned!.Value), planned.Sum(day => day.PlannedCallsMade));
     }
 
     /// <summary>

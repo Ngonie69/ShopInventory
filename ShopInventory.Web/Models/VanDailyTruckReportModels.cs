@@ -60,9 +60,22 @@ public class VanDailyTruckDay
     /// <summary>Closed on a later date than it was traded, so <see cref="TimeIn"/> is when End Day was tapped.</summary>
     public bool ReturnedLate { get; set; }
 
-    /// <summary>The truck's whole customer list at Start Day. Null with no Start Day.</summary>
+    /// <summary>How many shops the day's calls are measured against. Null with no plan. See <see cref="PlanBasis"/>.</summary>
     public int? PlannedCustomers { get; set; }
 
+    /// <summary>Check-ins that count towards the plan: those at shops on the round, or every one against the whole list.</summary>
+    public int PlannedCallsMade { get; set; }
+
+    /// <summary>
+    /// <c>Round</c>: the shops the truck is scheduled for on the weekday or has called on before in the
+    /// same area. <c>List</c>: no round could be named, so the plan is the whole customer list at Start
+    /// Day and the rate reads low. Null with no plan.
+    /// </summary>
+    public string? PlanBasis { get; set; }
+
+    public bool PlanIsWholeList => string.Equals(PlanBasis, "List", StringComparison.Ordinal);
+
+    /// <summary>Distinct shops either rep checked into, on the round or not.</summary>
     public int CustomersVisited { get; set; }
     public int ProductiveCalls { get; set; }
     public int CallsMade { get; set; }
@@ -92,7 +105,7 @@ public class VanDailyTruckDay
     public string? Notes { get; set; }
 
     public double? CallComplianceRate =>
-        PlannedCustomers is > 0 ? (double)CustomersVisited / PlannedCustomers.Value : null;
+        PlannedCustomers is > 0 ? (double)PlannedCallsMade / PlannedCustomers.Value : null;
 
     public double? ProductiveCallRate =>
         CustomersVisited > 0 && CallsMade > 0 ? (double)ProductiveCalls / CallsMade : null;
@@ -139,6 +152,18 @@ public class VanDailyTruckSummary
     public int NewCustomers { get; set; }
     public int PlannedCustomers { get; set; }
     public int CcrCustomersVisited { get; set; }
+
+    /// <summary><c>Round</c> or <c>List</c>, saying which the period's CCR is over. Null with no plan.</summary>
+    public string? PlanBasis { get; set; }
+
+    public bool PlanIsWholeList => string.Equals(PlanBasis, "List", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Days that had a list and no round. Where the period has round days these are left out of its
+    /// CCR, and this is how many.
+    /// </summary>
+    public int DaysOnWholeList { get; set; }
+
     public int PcrProductiveCalls { get; set; }
     public int PcrCallsMade { get; set; }
     public int Kilometres { get; set; }

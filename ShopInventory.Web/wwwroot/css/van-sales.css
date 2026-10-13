@@ -4209,18 +4209,19 @@
 .vs .vsk-track {
     display: grid;
     grid-template-columns:
-        minmax(150px, 1.3fr)   /* truck */
-        84px                   /* target */
-        84px                   /* sales */
-        84px                   /* balance */
-        66px                   /* achieved */
-        48px                   /* days reported */
-        58px                   /* visited */
-        58px                   /* bought */
-        46px                   /* pcr */
-        56px                   /* km */
-        72px                   /* fuel */
-        76px                   /* account */
+        minmax(140px, 1.3fr)   /* truck */
+        76px                   /* target */
+        76px                   /* sales */
+        76px                   /* balance */
+        58px                   /* achieved */
+        44px                   /* days reported */
+        52px                   /* visited */
+        66px                   /* ccr, with the days that had no round under it */
+        52px                   /* bought */
+        42px                   /* pcr */
+        50px                   /* km */
+        66px                   /* fuel */
+        70px                   /* account */
         18px;                  /* caret */
     align-items: center;
     gap: 10px;
@@ -4257,18 +4258,19 @@
 .vs .vsk-day-track {
     display: grid;
     grid-template-columns:
-        104px                  /* day */
-        minmax(130px, 1.4fr)   /* area */
-        104px                  /* out — in */
-        54px                   /* visited */
-        54px                   /* bought */
-        44px                   /* pcr */
-        80px                   /* sales */
-        70px                   /* ecocash */
-        72px                   /* account */
-        54px                   /* km */
-        62px                   /* fuel */
-        62px;                  /* enter */
+        100px                  /* day */
+        minmax(120px, 1.4fr)   /* area */
+        100px                  /* out — in */
+        50px                   /* visited */
+        62px                   /* ccr */
+        50px                   /* bought */
+        42px                   /* pcr */
+        76px                   /* sales */
+        60px                   /* ecocash */
+        68px                   /* account */
+        50px                   /* km */
+        58px                   /* fuel */
+        60px;                  /* enter */
     align-items: center;
     gap: 10px;
     padding: 7px 16px;
@@ -4300,6 +4302,11 @@
     white-space: nowrap;
     font-size: 0.84rem;
     color: var(--vs-ink-2);
+}
+
+/* A rate against the whole list, not the day's round. Muted: it is shown and not judged. */
+.vs .vsk-on-list {
+    color: var(--vs-mute-3);
 }
 
 .vs .vsk-edit {

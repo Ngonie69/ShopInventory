@@ -299,6 +299,7 @@ public sealed class DepartureComplianceMetricsTests
             TruckKey: "VAN010",
             TruckPlannedCustomerCount: planned,
             TruckCustomersVisited: visited,
+            PlanBasis: "List",
             TruckProductiveCalls: productive,
             PcrCalls: visited,
             RtiOut: rtiOut,

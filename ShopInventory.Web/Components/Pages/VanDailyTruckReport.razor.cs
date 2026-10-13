@@ -194,6 +194,41 @@ public partial class VanDailyTruckReport
         return $"Odometer {day.StartingMileage?.ToString("N0") ?? "?"} to {day.ClosingMileage?.ToString("N0") ?? "?"} {unit}";
     }
 
+    /// <summary>What a day's CCR was measured against, said in full on hover.</summary>
+    private static string? CcrTitle(VanDailyTruckDay day)
+    {
+        if (day.PlannedCustomers is not > 0)
+        {
+            return null;
+        }
+
+        return day.PlanIsWholeList
+            ? $"No round is known for this day, so this is every check-in against the truck's whole list of "
+              + $"{day.PlannedCustomers:N0} shops. Enter the area worked and it is measured against that area's round."
+            : $"{day.PlannedCallsMade:N0} of the {day.PlannedCustomers:N0} shops on this day's round were checked into. "
+              + "The round is the shops scheduled for the weekday or called on before in this area.";
+    }
+
+    private static string? CcrTitle(VanDailyTruckSummary truck)
+    {
+        if (truck.PlannedCustomers <= 0)
+        {
+            return null;
+        }
+
+        if (truck.PlanIsWholeList)
+        {
+            return $"No day in the period has a round, so this is {truck.CcrCustomersVisited:N0} check-ins against "
+                   + $"the whole customer list, {truck.PlannedCustomers:N0} shop-days. Enter the area worked on each "
+                   + "day and it is measured against those rounds.";
+        }
+
+        return $"{truck.CcrCustomersVisited:N0} planned calls made of {truck.PlannedCustomers:N0} on the rounds worked."
+               + (truck.DaysOnWholeList > 0
+                   ? $" {truck.DaysOnWholeList} of its days had no round and are left out."
+                   : string.Empty);
+    }
+
     private static string Money(decimal? amount) => amount is { } value ? $"${value:N0}" : "—";
 
     private static string Percent(double? rate) => rate is { } value ? $"{value:P0}" : "—";

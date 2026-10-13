@@ -309,7 +309,8 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     KilometresTravelled: trucks.SumKilometres(dayKeys),
                     TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
                     PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
-                    PcrCalls: pcr?.Calls);
+                    PcrCalls: pcr?.Calls,
+                    CallsAgainstPlan: trucks.MeasureAgainstPlan(dayKeys)?.Calls);
             })
             .ToList();
 

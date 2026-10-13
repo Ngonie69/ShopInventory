@@ -318,12 +318,14 @@
 
                             <span class="vsc-cell">
                                 <span class="vsc-rate">
-                                    <span class="vsc-rate-value @RateInk(day.CallComplianceRate, CcrTarget)">
+                                    @* Against the whole list the rate is shown and not judged: see the classifier. *@
+                                    <span class="vsc-rate-value @(day.PlanIsWholeList ? "vs-metric-none" : RateInk(day.CallComplianceRate, CcrTarget))"
+                                          title="@CcrTitle(day)">
                                         @FormatRate(day.CallComplianceRate)
                                     </span>
                                     <span class="vsc-rate-note">
-                                        @(day.PlannedCustomerCount > 0
-                                            ? $"{day.TruckCustomersVisited}/{day.TruckPlannedCustomerCount}"
+                                        @(day.TruckPlannedCustomerCount > 0
+                                            ? $"{day.TruckCustomersVisited}/{day.TruckPlannedCustomerCount}{(day.PlanIsWholeList ? " of list" : "")}"
                                             : "no plan")
                                     </span>
                                 </span>
@@ -782,6 +784,11 @@
 
         var truckDays = new HashSet<(string, DateTime)>();
 
+        // The CCR is over the truck-days with a round, where any has one, and only otherwise over the
+        // ones measured against the whole list. Never both: a list is five times a round, and one day
+        // on it would decide the period. The API's own rule, kept identical here.
+        var anyRound = rows.Any(row => row.Day.TruckPlannedCustomerCount > 0 && !row.Day.PlanIsWholeList);
+
         foreach (var row in rows)
         {
             var day = row.Day;
@@ -792,8 +799,11 @@
             // truck-day is added once. The PCR counts only truck-days with check-ins, on both sides.
             if (truckDays.Add((day.TruckKey, day.TradingDate)))
             {
-                totals.Planned += day.TruckPlannedCustomerCount;
-                totals.Visited += day.TruckCustomersVisited;
+                if (!anyRound || !day.PlanIsWholeList)
+                {
+                    totals.Planned += day.TruckPlannedCustomerCount;
+                    totals.Visited += day.TruckCustomersVisited;
+                }
 
                 if (day.PcrCalls > 0)
                 {
@@ -1045,6 +1055,22 @@
 
     private static string RateInk(double? rate, double target) =>
         rate is null ? "vs-metric-none" : Ink(rate.Value < target);
+
+    /// <summary>What the CCR on a row was measured against, said in full on hover.</summary>
+    private static string? CcrTitle(DepartureComplianceDay day)
+    {
+        if (day.TruckPlannedCustomerCount <= 0)
+        {
+            return null;
+        }
+
+        return day.PlanIsWholeList
+            ? $"No round is known for this day, so this is every check-in against the truck's whole list of "
+              + $"{day.TruckPlannedCustomerCount:N0} shops. It is not judged against the pass mark. Name the day's "
+              + "area on the Daily Truck Report and it is measured against that area's round."
+            : $"{day.TruckCustomersVisited:N0} of the {day.TruckPlannedCustomerCount:N0} shops on this day's round were "
+              + "checked into. The round is the shops scheduled for the weekday or called on before in this area.";
+    }
 
     private static string KilometreInk(DepartureComplianceDay day) =>
         day.KilometresTravelled is not null

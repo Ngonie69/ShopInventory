@@ -109,7 +109,9 @@ public static class DepartureComplianceClassifier
             gaps |= Gaps.OverDeclaration;
         }
 
-        if (day.CallComplianceRate is { } ccr && ccr < CcrTarget)
+        // Against the whole list every truck is under the mark every day, which says nothing about the
+        // round. The CCR is judged only where the day's round is what it was measured against.
+        if (!day.PlanIsWholeList && day.CallComplianceRate is { } ccr && ccr < CcrTarget)
         {
             gaps |= Gaps.CcrUnderTarget;
         }
