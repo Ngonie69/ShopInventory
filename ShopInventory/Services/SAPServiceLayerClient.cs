@@ -10776,14 +10776,55 @@ ORDER BY T0."DocEntry", T1."LineNum"
         foreach (var chunk in distinctCodes.Chunk(BusinessPartnerCodeBatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            results.AddRange(await GetBusinessPartnerChunkAsync(chunk, cancellationToken));
+            results.AddRange(await GetBusinessPartnerChunkAsync(chunk, BusinessPartnerSelectFields, cancellationToken));
         }
 
         return results;
     }
 
+    /// <summary>The code and the channel, and nothing else: this read is asked only which channel each is in.</summary>
+    private const string BusinessPartnerChannelOnlySelectFields = "$select=CardCode,U_Channel";
+
+    public async Task<IReadOnlyDictionary<string, string?>> GetBusinessPartnerChannelsAsync(
+        IReadOnlyCollection<string> cardCodes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cardCodes);
+
+        var channels = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        var distinctCodes = cardCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctCodes.Count == 0)
+            return channels;
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        // One after another, as the read above: the point is not to crowd the shared SAP gate.
+        foreach (var chunk in distinctCodes.Chunk(BusinessPartnerCodeBatchSize))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            foreach (var partner in await GetBusinessPartnerChunkAsync(
+                         chunk, BusinessPartnerChannelOnlySelectFields, cancellationToken))
+            {
+                if (!string.IsNullOrWhiteSpace(partner.CardCode))
+                {
+                    channels[partner.CardCode.Trim()] = string.IsNullOrWhiteSpace(partner.Channel) ? null : partner.Channel.Trim();
+                }
+            }
+        }
+
+        return channels;
+    }
+
     private async Task<List<BusinessPartnerDto>> GetBusinessPartnerChunkAsync(
         IReadOnlyList<string> cardCodes,
+        string selectFields,
         CancellationToken cancellationToken)
     {
         var currentSession = _sessionId;
@@ -10795,7 +10836,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
         // Encoded whole, so a card code carrying an '&' cannot close the filter and append
         // parameters of its own.
         var filter = $"$filter={Uri.EscapeDataString($"({codeFilter})")}&$orderby=CardCode&$top={cardCodes.Count}";
-        var url = $"BusinessPartners?{BusinessPartnerSelectFields}&{filter}";
+        var url = $"BusinessPartners?{selectFields}&{filter}";
 
         HttpRequestMessage CreateRequest()
         {

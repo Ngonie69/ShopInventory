@@ -176,6 +176,18 @@ otherwise be surprised.
   `saveAsContact` on a selling account's invoice the API now sends to the number without saving it,
   where it used to refuse with `CustomerDocuments.SellingAccountNotAllowed`.
 
+- **The Item Volume report shows items one trade channel at a time.** A partner's channel is SAP's
+  `OCRD.U_Channel` (Shops, General Trade, Vending and so on). Where the partners picked sell through
+  more than one, the Item volume view shows one channel's items with a switch between them, and no
+  longer adds an item across channels. `Shop` and `Shops` are read as one channel, and partners with
+  no channel are a group of their own. A run of partners in a single channel looks as it did, and
+  Customer revenue is unchanged.
+  - `GET /api/Report/item-volume-sales` gains `channel` on each account and `channelsRead` on the
+    report. Each run makes one more short SAP read per twenty partners.
+  - If SAP cannot be asked for the channels the report still runs, `channelsRead` is false, and the
+    page says the items are every partner added together.
+  - The exported workbook is the channel on screen, and is titled with it.
+
 ### Added
 
 - **Invoices can be sent to customers on WhatsApp.** The new routes are under

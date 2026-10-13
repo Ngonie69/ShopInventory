@@ -526,6 +526,21 @@ public interface ISAPServiceLayerClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The trade channel — <c>OCRD.U_Channel</c> — of each of a known set of business partners, keyed by
+    /// card code without regard to case. A partner with nothing in the field maps to null; a code SAP does
+    /// not know is absent.
+    /// </summary>
+    /// <remarks>
+    /// Its own read for the reason <see cref="GetCustomersByChannelAsync"/> is: the shared business partner
+    /// <c>$select</c> must not name a UDF, and <c>BusinessPartnerDto.Channel</c> must stay empty on every
+    /// other path. Batched like <see cref="GetBusinessPartnersByCodesAsync"/>, one request per twenty codes
+    /// and one after another.
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, string?>> GetBusinessPartnerChannelsAsync(
+        IReadOnlyCollection<string> cardCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads one business partner's credit limit, balance and consolidating parent, live from SAP.
     /// Returns null when the card code does not exist.
     /// </summary>
