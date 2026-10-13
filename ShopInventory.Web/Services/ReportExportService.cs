@@ -44,6 +44,7 @@ public interface IReportExportService
     byte[] ExportVanAttendanceReportToExcel(VanVisitReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
 
     byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
+    byte[] ExportVanDailyTruckReportToExcel(VanDailyTruckReportResponse report);
     byte[] ExportAdrPerformanceToExcel(AdrPerformanceReportResponse report);
 
     byte[] ExportVanSalesCoverageToExcel(VanSalesCoverageReportResponse report);

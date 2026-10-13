@@ -131,9 +131,12 @@ public sealed record VanDailyTruckDayDto(
     /// <summary>A working day on which the truck left no trace at all: no Start Day, call or sale.</summary>
     public bool NotReported => IsComplete && IsWorkingDay && !HasActivity;
 
-    /// <summary>One odometer reading without the other, or a closing reading below the opening one.</summary>
+    /// <summary>
+    /// One odometer reading without the other once the day is over, or a closing reading below the
+    /// opening one. A truck still out today has no closing reading yet, and that is not a fault.
+    /// </summary>
     public bool MileageNeedsReview =>
-        StartingMileage.HasValue != ClosingMileage.HasValue
+        (IsComplete && StartingMileage.HasValue != ClosingMileage.HasValue)
         || (StartingMileage is { } start && ClosingMileage is { } close && close < start);
 
     /// <summary>The truck covered distance and sold nothing.</summary>

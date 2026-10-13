@@ -4040,7 +4040,9 @@ the same days so neither rate can pass 100%. The CCR is over the days that had a
 `daysOnWholeList` is how many days had only the list and were left out, and `planBasis` is `List`
 only when no day in the period had a round at all. A day row carries its own `callComplianceRate`,
 `productiveCallRate` and `averageOrderValue`, and the four checks as booleans: `belowTarget`,
-`notReported`, `mileageNeedsReview` and `distanceWithoutSales`.
+`notReported`, `mileageNeedsReview` and `distanceWithoutSales`. A day that is not over
+(`isComplete` false) is not picked out for its target, for not reporting, or for an odometer it
+has opened and not yet closed.
 
 `exceptions` counts the truck-days each check picked out: `belowTarget`, `notReported`,
 `mileageNeedsReview`, `distanceWithoutSales` and `returnedLate`. `salesOutsideRoutes` is van

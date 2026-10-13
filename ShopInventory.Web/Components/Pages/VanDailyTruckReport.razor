@@ -38,6 +38,11 @@
                 the area worked are entered here by the office.
             </p>
         </div>
+        <div class="vs-actions">
+            <button class="vs-btn" id="vsk-export" @onclick="ExportAsync" disabled="@(isLoading || isExporting || report is null)">
+                @(isExporting ? "Exporting…" : "Export")
+            </button>
+        </div>
     </div>
 
     @if (error is not null)

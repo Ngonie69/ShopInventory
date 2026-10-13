@@ -117,8 +117,9 @@ public class VanDailyTruckDay
 
     public bool NotReported => IsComplete && IsWorkingDay && !HasActivity;
 
+    /// <summary>A truck still out today has no closing reading yet, and that is not a fault.</summary>
     public bool MileageNeedsReview =>
-        StartingMileage.HasValue != ClosingMileage.HasValue
+        (IsComplete && StartingMileage.HasValue != ClosingMileage.HasValue)
         || (StartingMileage is { } start && ClosingMileage is { } close && close < start);
 
     public bool DistanceWithoutSales => Kilometres is > 0 && Sales == 0m;
