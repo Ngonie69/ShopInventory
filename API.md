@@ -3743,7 +3743,10 @@ and `pcrCalls` cover only truck-days with check-ins.
 
 The van sales performance and coverage reports measure their call rates the same way. Every row
 that shows a strike rate carries the `pcrProductiveCalls` / `pcrCalls` pair. Their `plannedCalls`,
-route-level `calls` and `kilometresTravelled` are counted once per truck-day. The performance
+route-level `calls` and `kilometresTravelled` are counted once per truck-day. `plannedCalls` is the
+days' rounds, as above. The performance report's routes carry `callsAgainstPlan` beside it, the
+check-ins that count towards those rounds, and their CCR is `callsAgainstPlan` over `plannedCalls`;
+the coverage report's pair is `plannedCalls` and `callsAgainstPlan` already. The performance
 report's routes table puts a rep who sold without tapping Start Day on the route their truck-mate
 opened. Only truck-days that nobody on the truck opened fall under "No departure record".
 
@@ -3756,6 +3759,29 @@ the cash its rep declared.
 `startingMileage` and `closingMileage` are as the rep read them, in `odometerUnit` (`Kilometres` or
 `Miles`, from the route). `kilometresTravelled` is always kilometres. `areaName` is the area the
 day was opened for: what the handset named, or the route's stops for the weekday.
+
+**The CCR is measured against the day's round, not the truck's whole customer list.** A truck's
+list is every shop it trades with across the week; West 1 held 286 and calls on about sixty a day, a
+different sixty each weekday, so against the list a perfect Thursday scored 21%. The round for a
+truck-day is the shops that are scheduled for that weekday (`RouteCustomerVisitDays`) or that the
+truck checked into or sold to on an earlier day in the same area, over the previous 13 weeks, less
+any shop since deactivated. A town truck's area is its stops for the weekday; an upcountry trip's
+is whatever the rep or the office named.
+
+- `planBasis` is `Round` when the row was measured that way. `truckPlannedCustomerCount` is then
+  the size of the round and `truckCustomersVisited` the check-ins at shops on it, so the rate
+  cannot pass 100%. A shop outside the round that was checked into is still a call and is still in
+  the PCR.
+- `planBasis` is `List` when no round can be named: the first day ever in an area, or an upcountry
+  day nobody has named. The figures are then the whole list at Start Day and every check-in, as
+  before. That rate reads low and is not a call completion rate; the portal shows it muted and does
+  not mark it under target.
+- A period's CCR, here and on the performance, coverage and truck reports, is over the truck-days
+  with a round where any has one, and only otherwise over the days on the list. The two are never
+  added together: one day on a list of three hundred would outweigh four rounds of sixty.
+
+`plannedCustomerCount` and `customersVisited` are the rep's own and are unchanged: the list as
+counted at Start Day, and every shop that rep checked into.
 
 **The cash variance is measured against `systemDeclarableTakings`, not `systemTotalSales`.** The
 declaration has three boxes — cash, ecocash, innbucks — and the handset offers no fourth, so two
@@ -3989,8 +4015,12 @@ rows with `hasActivity` false, not as a gap. Each row carries:
   it has an area only when the rep or the office names one.
 - `timeOut`, `timeIn` in CAT and `returnedLate`, which is true when the day was closed on a later
   date than it was traded. `timeIn` is then when End Day was tapped, not when the truck got back.
-- `plannedCustomers` (the truck's whole customer list at Start Day, not the day's area),
-  `customersVisited`, `productiveCalls`, `callsMade`, `newCustomers`.
+- `plannedCustomers`, `plannedCallsMade` and `planBasis`: what the day's calls are measured
+  against. `Round` is the day's round and the check-ins at shops on it; `List` is the whole
+  customer list at Start Day and every check-in, used only when no round can be named. See the
+  compliance report above for how a round is put together.
+- `customersVisited` (every shop checked into, on the round or not), `productiveCalls`,
+  `callsMade`, `newCustomers`.
 - `salesCount`, `sales`, `cash`, `ecocash`, `innbucks`, `otherTender`, `untendered`,
   `otherCurrencySales`, `declaredTotal`.
 - `accountSales`, `fuelLitres`, `notes`: the office's entry. `accountSales` is not part of `sales`.
@@ -4000,12 +4030,15 @@ rows with `hasActivity` false, not as a gap. Each row carries:
 `trucks` is one line per route and `total` the fleet: `dailySalesTarget`, `periodTarget` (daily
 target times `workingDays`), `targetToDate`, `sales`, `ecocash`, `accountSales`, `salesCount`,
 `daysReported`, `workingDaysElapsed`, `customersVisited`, `productiveCalls`, `newCustomers`,
-`plannedCustomers` with `ccrCustomersVisited`, `pcrProductiveCalls` with `pcrCallsMade`,
-`kilometres` and `fuelLitres`, and the figures worked from them: `balanceToTarget`,
+`plannedCustomers` with `ccrCustomersVisited`, `planBasis`, `daysOnWholeList`,
+`pcrProductiveCalls` with `pcrCallsMade`, `kilometres` and `fuelLitres`, and the figures worked
+from them: `balanceToTarget`,
 `targetAchieved`, `callComplianceRate`, `productiveCallRate`, `averageOrderValue`,
 `salesPerKilometre` and `kilometresPerLitre`. CCR is `ccrCustomersVisited` over
 `plannedCustomers`, PCR is `pcrProductiveCalls` over `pcrCallsMade`, and each pair is summed over
-the same days so neither rate can pass 100%. A day row carries its own `callComplianceRate`,
+the same days so neither rate can pass 100%. The CCR is over the days that had a round;
+`daysOnWholeList` is how many days had only the list and were left out, and `planBasis` is `List`
+only when no day in the period had a round at all. A day row carries its own `callComplianceRate`,
 `productiveCallRate` and `averageOrderValue`, and the four checks as booleans: `belowTarget`,
 `notReported`, `mileageNeedsReview` and `distanceWithoutSales`.
 

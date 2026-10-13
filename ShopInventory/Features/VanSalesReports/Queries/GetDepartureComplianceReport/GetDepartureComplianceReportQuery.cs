@@ -140,6 +140,7 @@ public sealed record DepartureComplianceDayDto(
     string TruckKey,
     int TruckPlannedCustomerCount,
     int TruckCustomersVisited,
+    string? PlanBasis,
     int TruckProductiveCalls,
     int PcrCalls,
 
@@ -181,6 +182,11 @@ public sealed record DepartureComplianceDayDto(
     /// looking at.
     /// </summary>
     /// <remarks>
+    /// Measured against the day's round where it is known: the shops the truck is scheduled for or has
+    /// called on before in the area it worked, and the check-ins at those shops. <see cref="PlanBasis"/>
+    /// is then <c>Round</c>. Where no round can be named it is <c>List</c>: the whole customer list at
+    /// Start Day and every check-in, which reads low and is not judged against the pass mark.
+    ///
     /// Taken from the truck, not the rep. Each truck carries two reps under one van account who take
     /// turns through the day, so both reps' rows show the truck's rate: its plan read once and the
     /// shops either rep checked into. The rep's own counts stay in <see cref="PlannedCustomerCount"/>

@@ -127,6 +127,20 @@ public class DepartureComplianceDay
     public int TruckProductiveCalls { get; set; }
 
     /// <summary>
+    /// What the truck's calls were measured against. <c>Round</c>: the shops it is scheduled for on the
+    /// weekday or has called on before in the area it worked, and <see cref="TruckCustomersVisited"/> is
+    /// the check-ins at those shops. <c>List</c>: no round could be named, so it is the whole customer
+    /// list at Start Day and every check-in. Null with no plan at all.
+    /// </summary>
+    public string? PlanBasis { get; set; }
+
+    /// <summary>
+    /// The CCR is against the whole list, which reads low and is not a call completion rate. It is
+    /// shown and not judged against the pass mark.
+    /// </summary>
+    public bool PlanIsWholeList => string.Equals(PlanBasis, "List", StringComparison.Ordinal);
+
+    /// <summary>
     /// The PCR's calls: shops either rep checked into plus shops that bought without a check-in. Zero
     /// on a truck-day with no check-ins at all, which leaves that day without a PCR.
     /// </summary>

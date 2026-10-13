@@ -59,8 +59,14 @@ public sealed record VanDailyTruckReportResult(
 /// <param name="TimeOut">Earliest departure either rep recorded, CAT.</param>
 /// <param name="TimeIn">Latest return either rep recorded, CAT. See <c>ReturnedLate</c>.</param>
 /// <param name="ReturnedLate">The day was closed on a later date than it was traded, so <c>TimeIn</c> is when End Day was tapped, not when the truck got back.</param>
-/// <param name="PlannedCustomers">The truck's customer list as counted at Start Day. The whole list, not the day's area.</param>
-/// <param name="CustomersVisited">Distinct shops either rep checked into.</param>
+/// <param name="PlannedCustomers">How many shops the day's calls are measured against. See <c>PlanBasis</c>.</param>
+/// <param name="PlannedCallsMade">Check-ins that count towards the plan: those at shops on the round, or every check-in against the whole list.</param>
+/// <param name="PlanBasis">
+/// <c>Round</c> when the plan is the day's round: the shops the truck is scheduled for on the weekday
+/// or has called on before in the same area. <c>List</c> when no round can be named and the plan is
+/// the truck's whole customer list at Start Day, which reads low. Null with no plan at all.
+/// </param>
+/// <param name="CustomersVisited">Distinct shops either rep checked into, on the round or not.</param>
 /// <param name="ProductiveCalls">Distinct shops that bought, plus one if any sale names no shop.</param>
 /// <param name="CallsMade">Shops checked into or sold to.</param>
 /// <param name="AccountSales">Sales on account, invoiced in SAP outside the van app and entered by the office. Not part of <c>Sales</c>.</param>
@@ -83,6 +89,8 @@ public sealed record VanDailyTruckDayDto(
     DateTime? TimeIn,
     bool ReturnedLate,
     int? PlannedCustomers,
+    int PlannedCallsMade,
+    string? PlanBasis,
     int CustomersVisited,
     int ProductiveCalls,
     int CallsMade,
@@ -105,9 +113,9 @@ public sealed record VanDailyTruckDayDto(
     decimal? DailySalesTarget,
     string? Notes)
 {
-    /// <summary>Shops checked into over the list. Null with no list to measure against.</summary>
+    /// <summary>Planned calls made over the plan. Null with no plan to measure against.</summary>
     public double? CallComplianceRate =>
-        PlannedCustomers is > 0 ? (double)CustomersVisited / PlannedCustomers.Value : null;
+        PlannedCustomers is > 0 ? (double)PlannedCallsMade / PlannedCustomers.Value : null;
 
     /// <summary>Shops that bought over calls made. Null on a day with no check-ins.</summary>
     public double? ProductiveCallRate =>
@@ -136,7 +144,16 @@ public sealed record VanDailyTruckDayDto(
 /// <param name="PeriodTarget">Daily target times the period's working days. Null with no target.</param>
 /// <param name="TargetToDate">Daily target times the working days so far.</param>
 /// <param name="DaysReported">Working days so far on which the truck left any trace.</param>
-/// <param name="PlannedCustomers">Summed over the days that have a list and a check-in to measure against it.</param>
+/// <param name="PlannedCustomers">
+/// Each day's round, summed over the days that have one. Only where no day in the period has a round
+/// is it the whole lists instead, and <c>PlanBasis</c> is then <c>List</c>.
+/// </param>
+/// <param name="CcrCustomersVisited">Planned calls made on those same days: the CCR's top half.</param>
+/// <param name="PlanBasis"><c>Round</c> or <c>List</c>, saying which the period's CCR is over. Null with no plan.</param>
+/// <param name="DaysOnWholeList">
+/// Days that had a list and no round. Where the period has round days these are left out of its CCR,
+/// and this is how many.
+/// </param>
 /// <param name="PcrProductiveCalls">Productive calls on the days that have check-ins: the PCR's top half.</param>
 public sealed record VanDailyTruckSummaryDto(
     int? RouteId,
@@ -157,6 +174,8 @@ public sealed record VanDailyTruckSummaryDto(
     int NewCustomers,
     int PlannedCustomers,
     int CcrCustomersVisited,
+    string? PlanBasis,
+    int DaysOnWholeList,
     int PcrProductiveCalls,
     int PcrCallsMade,
     int Kilometres,

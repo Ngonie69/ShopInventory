@@ -88,14 +88,20 @@ public sealed record VanSalesRouteResult(
     int? KilometresTravelled,
     List<VanSalesMoneyResult> TotalsByCurrency,
     int PcrProductiveCalls,
-    int? PcrCalls)
+    int? PcrCalls,
+    int? CallsAgainstPlan = null)
 {
     /// <summary>
-    /// Calls made over calls planned. Null when no departure record supplied a plan — nothing was
+    /// Planned calls made over calls planned. Null when no truck-day supplied a plan — nothing was
     /// planned, so nothing can have been missed, and 0% would read as total failure.
     /// </summary>
+    /// <remarks>
+    /// <c>CallsAgainstPlan</c>, not <c>Calls</c>: the plan is the day's round where that is known,
+    /// and a check-in at a shop outside the round is a call but not a planned one. Both halves come
+    /// from the same truck-days.
+    /// </remarks>
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     /// <summary>
     /// The calls that bought, over the calls made, both counted over the truck-days that have

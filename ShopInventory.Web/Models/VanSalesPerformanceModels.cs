@@ -96,6 +96,13 @@ public class VanSalesRouteRow
     public int TradingDayCount { get; set; }
     public int? PlannedCalls { get; set; }
     public int? Calls { get; set; }
+
+    /// <summary>
+    /// The calls that count towards <see cref="PlannedCalls"/>: check-ins at shops on the day's round,
+    /// over the same truck-days the plan is summed over. Nullable like the plan it belongs to.
+    /// </summary>
+    public int? CallsAgainstPlan { get; set; }
+
     public int ProductiveCalls { get; set; }
     public int PcrProductiveCalls { get; set; }
     public int? PcrCalls { get; set; }
@@ -104,7 +111,7 @@ public class VanSalesRouteRow
     public List<VanSalesMoney> TotalsByCurrency { get; set; } = [];
 
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && (CallsAgainstPlan ?? Calls) is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
         PcrCalls is > 0 ? (double)PcrProductiveCalls / PcrCalls.Value : null;
