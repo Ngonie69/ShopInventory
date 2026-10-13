@@ -111,7 +111,10 @@ public sealed class GetVanSalesCreditNotesHandler(
 
         var tillCredits = await db.DesktopCreditNotes
             .AsNoTracking()
-            .Where(c => c.Sale.SourceSystem == SaleSourceSystems.VanSales
+            // Both routes a van sale arrives by. This is the only list a van credit SAP has not taken
+            // appears in, so one against an online sale's receipt must be here as well.
+            .Where(c => (c.Sale.SourceSystem == SaleSourceSystems.VanSales
+                            || c.Sale.SourceSystem == SaleSourceSystems.VanSalesOnline)
                         && c.CreatedAtUtc >= windowStartUtc
                         && c.CreatedAtUtc < windowEndUtc
                         && c.Status != DesktopCreditStatuses.Rejected)
@@ -277,7 +280,11 @@ public sealed class GetVanSalesCreditNotesHandler(
                 FiscalVerificationCode: NonBlank(receipt?.VerificationCode),
                 FiscalQrCode: NonBlank(receipt?.QRCode),
                 FiscalDay: NonBlank(receipt?.FiscalDayNo),
-                FiscalDeviceSerial: NonBlank(receipt?.DeviceSerial)));
+                FiscalDeviceSerial: NonBlank(receipt?.DeviceSerial),
+                // What "Retry SAP" and "Mark raised" act on. The SAP status means nothing until ZIMRA has
+                // accepted the credit, so it is stated only then.
+                CreditId: credit.Id,
+                CreditSapStatus: fiscalised ? credit.SapStatus : null));
         }
 
         var searched = rows.Where(row => Matches(row, request.Search)).ToList();

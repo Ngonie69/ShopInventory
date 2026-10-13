@@ -8,7 +8,14 @@ using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopCreditNotes;
 
-/// <summary>What the list of every desktop credit is asked for. Dates are CAT calendar days.</summary>
+/// <summary>
+/// What the list of shop and vending credits is asked for. Dates are CAT calendar days.
+/// </summary>
+/// <remarks>
+/// <c>SourceSystem</c> names one source. Without it the list is the counters' credits — till, vending and
+/// the legacy desktop app — and leaves out credits against van sales, which are listed, retried and marked
+/// from van sales. Naming either van source still reads both, as one.
+/// </remarks>
 public sealed record DesktopCreditNoteListQuery(
     DateTime? FromDate = null,
     DateTime? ToDate = null,
@@ -80,8 +87,9 @@ public sealed record DesktopCreditNoteListResponse(
     List<string> Warehouses);
 
 /// <summary>
-/// Every credit raised against a desktop sale — till, vending and van — in one list, and the one
-/// action a list is for: sending a refused SAP memo again.
+/// Every credit raised against a shop or vending sale in one list, and the one action a list is for:
+/// sending a refused SAP memo again. A van sale's credits are found the same way under van sales, and
+/// are retried and marked through this service by their id.
 /// </summary>
 /// <remarks>
 /// Before this, a credit could only be found by opening its sale. <c>/credit-notes</c> reads SAP, so a
@@ -134,6 +142,14 @@ public sealed class DesktopCreditNoteListService(
                     || n.Sale.SourceSystem == SaleSourceSystems.VanSalesOnline),
                 var source => notes.Where(n => n.Sale.SourceSystem == source)
             };
+        }
+        else
+        {
+            // The same scope as SaleBusinesses.AtCounters gives the sales these credit: nothing off a van, by
+            // either route. Their credits are on Van Sales → Credit Notes, which reads the SAP memos too.
+            notes = notes.Where(n => n.Sale.SourceSystem == null
+                || (n.Sale.SourceSystem != SaleSourceSystems.VanSales
+                    && n.Sale.SourceSystem != SaleSourceSystems.VanSalesOnline));
         }
 
         if (!string.IsNullOrWhiteSpace(query.Status))
@@ -227,6 +243,10 @@ public sealed class DesktopCreditNoteListService(
         var warehouses = ownScope.WarehouseCode is { } own
             ? [own]
             : await db.DesktopCreditNotes.AsNoTracking()
+                // A van's warehouse is not offered: none of its credits are in this list to find.
+                .Where(n => n.Sale.SourceSystem == null
+                    || (n.Sale.SourceSystem != SaleSourceSystems.VanSales
+                        && n.Sale.SourceSystem != SaleSourceSystems.VanSalesOnline))
                 .Select(n => n.Sale.WarehouseCode)
                 .Distinct()
                 .OrderBy(code => code)

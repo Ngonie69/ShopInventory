@@ -158,9 +158,12 @@ Tests use SQLite and stubbed REVMax and platform responses. No live fiscal recei
 
 ## Finding and chasing credits: `/desktop-credit-notes`
 
-Every credit raised against a till, vending or van sale is listed on one page (Tills & Vending →
-Desktop Credit Notes), with its ZIMRA state and its SAP state side by side. `/credit-notes` reads SAP,
+Every credit raised against a till or vending sale is listed on one page (Tills & Vending →
+Shop & Vending Credits), with its ZIMRA state and its SAP state side by side. `/credit-notes` reads SAP,
 so a credit ZIMRA holds and SAP does not — the one somebody has to act on — never appears there.
+
+A van sale's credits are not on this page. They are on Van Sales → Credit Notes (`/van-sales/credit-notes`),
+whose drawer offers the same **Retry SAP** and **Mark raised**, on the same terms.
 
 - The figures count **Refused by SAP** and **Raise by hand** whatever the table is filtered to.
 - **Retry SAP** (Admin, Manager) sends a refused memo again at once and resets its attempt count, so

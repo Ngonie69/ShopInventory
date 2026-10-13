@@ -26,6 +26,10 @@ public partial class VanSalesCreditNotes : ComponentBase, IDisposable
     [Inject] private IReportExportService ExportService { get; set; } = null!;
     [Inject] private IJSRuntime JS { get; set; } = null!;
 
+    /// <summary>The two things a person does to a van credit SAP has not taken: send it again, or record
+    /// the memo raised by hand. The same service calls the shop and vending credit list makes.</summary>
+    [Inject] private IDesktopIntegrationService CreditService { get; set; } = null!;
+
     /// <summary>Opens the list already searched — the invoice drawer links here by credit note number.</summary>
     [SupplyParameterFromQuery(Name = "search")] public string? SearchQuery { get; set; }
 
@@ -267,9 +271,105 @@ public partial class VanSalesCreditNotes : ComponentBase, IDisposable
 
     // ── The drawer ──────────────────────────────────────────────────────
 
-    private void OpenNote(string key) => openKey = key;
+    /// <summary>A number typed against one credit must not carry over to the next.</summary>
+    private void OpenNote(string key)
+    {
+        if (openKey != key)
+        {
+            raiseDocNum = null;
+            raiseError = null;
+        }
 
-    private void CloseNote() => openKey = null;
+        openKey = key;
+    }
+
+    private void CloseNote()
+    {
+        openKey = null;
+        raiseDocNum = null;
+        raiseError = null;
+    }
+
+    // ── Retry SAP, mark raised ──────────────────────────────────────────
+    //
+    // The two levers the shop and vending credit list offers, here for a van sale's credit: through the
+    // same endpoints, on the same terms, with the API's own sentence as the answer. The drawer stays open
+    // and the list is re-read either way, so a memo that posted moves to Complete and one SAP refused again
+    // shows the reason it gave this time.
+
+    private bool isRetrying;
+    private bool isMarking;
+    private string? raiseDocNum;
+    private string? raiseError;
+
+    private async Task RetrySapAsync(VanSalesCreditNoteRowModel note)
+    {
+        if (note.CreditId is not { } creditId || isRetrying || isMarking)
+        {
+            return;
+        }
+
+        isRetrying = true;
+
+        try
+        {
+            var result = await CreditService.RetryCreditNoteSapAsync(creditId);
+
+            if (result.SapStatus == DesktopCreditSapStatuses.Posted)
+            {
+                Snackbar.Add($"{note.Number}: credit memo #{result.SapDocNum} raised in SAP.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(
+                    $"{note.Number}: SAP did not take it — {result.SapError ?? "no reason was given"}",
+                    Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"{note.Number}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isRetrying = false;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task MarkRaisedAsync(VanSalesCreditNoteRowModel note)
+    {
+        if (note.CreditId is not { } creditId || isMarking || isRetrying
+            || !int.TryParse(raiseDocNum?.Trim(), out var docNum))
+        {
+            return;
+        }
+
+        isMarking = true;
+        raiseError = null;
+
+        try
+        {
+            var result = await CreditService.MarkCreditNoteRaisedAsync(creditId, docNum);
+            Snackbar.Add(
+                $"{note.Number}: credit memo #{result.SapDocNum} recorded. SAP now holds the returned stock.",
+                Severity.Success);
+            raiseDocNum = null;
+        }
+        catch (Exception ex)
+        {
+            // Shown in the drawer, beside the number that was refused, so it can be corrected there.
+            raiseError = ex.Message;
+            return;
+        }
+        finally
+        {
+            isMarking = false;
+        }
+
+        await LoadAsync();
+    }
 
     private Task RowKeyAsync(KeyboardEventArgs e, string key)
     {

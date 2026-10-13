@@ -119,7 +119,7 @@ Finance
     G/L Accounts  /gl-accounts
 Tills & Vending
     Shop & Vending Sales  /desktop-sales
-    Desktop Credit Notes  /desktop-credit-notes
+    Shop & Vending Credits  /desktop-credit-notes
     Daily Incoming Payments  /reports/desktop-sales/payments
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
@@ -318,9 +318,9 @@ Finance
     G/L Accounts  /gl-accounts
 Tills & Vending
     Shop & Vending Sales  /desktop-sales
-    Desktop Credit Notes  /desktop-credit-notes
+    Shop & Vending Credits  /desktop-credit-notes
     Daily Incoming Payments  /reports/desktop-sales/payments
-    Desktop Transactions  /desktop-transactions
+    SAP Queue  /desktop-transactions
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
 Van Sales

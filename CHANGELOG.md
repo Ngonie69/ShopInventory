@@ -25,8 +25,22 @@ otherwise be surprised.
   `Shop & Vending Sales`. The notification for a failed receipt is titled `Sale Not Fiscalized: …`.
   Nothing an integration calls has moved: the page addresses (`/desktop-sales`,
   `/reports/desktop-sales`), every `/api/DesktopIntegration/…` route, the audit actions and the
-  remarks on SAP invoices are as they were. Desktop Credit Notes and Desktop Transactions keep their
-  names.
+  remarks on SAP invoices are as they were.
+
+- **Desktop Credit Notes is now Shop & Vending Credit Notes, and van credits have left it.** The
+  sidebar shortens it to Shop & Vending Credits. Only the name and what it lists change; the address
+  is still `/desktop-credit-notes`.
+  - `GET /api/DesktopIntegration/credit-notes` with no `sourceSystem` leaves out credits against van
+    sales, by either van source. Its counts, totals and warehouse list follow. Naming a van source
+    still reads them.
+  - Van credits are on Van Sales → Credit Notes, which now also lists a credit against an online van
+    sale that SAP has not taken. Its drawer has **Retry SAP** for a memo SAP refused and **Mark
+    raised** for one raised by hand (Admin, Manager), the two actions the old page offered.
+    `GET /api/van-sales/credit-notes` rows gain `creditId` and `creditSapStatus` for them.
+
+- **Desktop Transactions is now SAP Queue.** The page is the same queue of invoices, transfers and
+  stock reservations SAP has not taken, from the tills, vending and the van app; the address is still
+  `/desktop-transactions`.
 
 - **Shop & Vending Sales no longer shows van sales. They are under Van Sales only.** Both van sources are
   left out together, the offline uploads (`KefalosVanSales`) and the receipts of online sales
@@ -68,7 +82,7 @@ otherwise be surprised.
   show Shops or Vending, never both, and their Excel sheets carry a Channel column.
 
 - **Six portal pages left open for more than an hour now act as the signed-in user, not as the
-  portal's API key.** Desktop Transactions, Shop & Vending Sales, Local Stock, Live Transactions, Sync Status
+  portal's API key.** SAP Queue, Shop & Vending Sales, Local Stock, Live Transactions, Sync Status
   and the Exception Center, and the notification bell on every page, renew the access token as they
   poll. They used to keep sending the expired one, and because those routes also accept the portal's
   key the API answered for the key. Operators may notice two things: an action a role is not allowed
