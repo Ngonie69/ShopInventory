@@ -250,6 +250,154 @@ public sealed class SapInvoiceDocumentComposerTests : IDisposable
         Assert.Null(_pdf.Buyer);
     }
 
+    // ── A van sale the handset could not tie to a shop on its route ─────
+
+    [Fact]
+    public async Task A_van_sale_with_no_shop_prints_the_buyer_the_sale_recorded_not_the_vans_card()
+    {
+        await AddVanRepAsync("VAN009");
+        await AddUnattributedVanSaleAsync("gudomart  mufakose", sapDocEntry: 2400100);
+        await AddReceiptAsync(cardCode: "VAN009");
+        _pdf.Invoice = VanCard("VAN009", "Van Sales West 1");
+
+        var composition = await ComposeAsync(UnattributedRow("VAN009"));
+
+        Assert.Equal(DocumentCompositionKind.Ready, composition.Kind);
+        Assert.Equal(new InvoicePdfBuyer("gudomart mufakose", null, null, null, null), _pdf.Buyer);
+        Assert.Contains("Good day gudomart mufakose.", composition.Document!.Caption);
+        Assert.DoesNotContain("Van Sales West 1", composition.Document.Caption);
+    }
+
+    [Fact]
+    public async Task An_online_sale_with_only_its_reservation_prints_the_buyer_it_recorded()
+    {
+        await AddVanRepAsync("VAN009");
+        await using (var context = _kit.NewContext())
+        {
+            context.StockReservations.Add(new StockReservationEntity
+            {
+                ReservationId = "RES-44C98F",
+                ExternalReferenceId = UnattributedReference,
+                SourceSystem = "KefalosVanSales",
+                CardCode = "VAN009",
+                CardName = "gudomart mufakose",
+                Status = ReservationStatus.Confirmed,
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                SAPDocEntry = 2400100
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await AddReceiptAsync(cardCode: "VAN009");
+        _pdf.Invoice = VanCard("VAN009", "Van Sales West 1");
+
+        await ComposeAsync(UnattributedRow("VAN009"));
+
+        Assert.Equal("gudomart mufakose", _pdf.Buyer?.Name);
+    }
+
+    [Fact]
+    public async Task A_sale_whose_shop_was_since_removed_prints_the_shops_name_as_it_stood()
+    {
+        await AddVanRepAsync("VAN009");
+        await AddUnattributedVanSaleAsync("Memory Kamburika", sapDocEntry: 2400100, routeCustomerName: "Gudo Mart");
+        await AddReceiptAsync(cardCode: "VAN009");
+        _pdf.Invoice = VanCard("VAN009", "Van Sales West 1");
+
+        await ComposeAsync(UnattributedRow("VAN009"));
+
+        Assert.Equal("Gudo Mart", _pdf.Buyer?.Name);
+    }
+
+    [Fact]
+    public async Task A_sale_recorded_against_another_SAP_document_names_no_buyer()
+    {
+        await AddVanRepAsync("VAN009");
+        await AddUnattributedVanSaleAsync("gudomart mufakose", sapDocEntry: 2399999);
+        await AddReceiptAsync(cardCode: "VAN009");
+        _pdf.Invoice = VanCard("VAN009", "Van Sales West 1");
+
+        var composition = await ComposeAsync(UnattributedRow("VAN009"));
+
+        Assert.Null(_pdf.Buyer);
+        Assert.Contains("Van Sales West 1", composition.Document!.Caption);
+    }
+
+    [Fact]
+    public async Task An_account_customers_van_invoice_keeps_its_card_whatever_the_handset_called_it()
+    {
+        // No user or shop sells as SPA002: it is the customer, and its card is its name.
+        await AddUnattributedVanSaleAsync("Memory Kamburika", sapDocEntry: 2400100, cardCode: CustomerDocumentTestKit.CardCode);
+        await AddReceiptAsync();
+
+        await ComposeAsync(UnattributedRow(CustomerDocumentTestKit.CardCode));
+
+        Assert.Null(_pdf.Buyer);
+    }
+
+    [Fact]
+    public async Task A_sale_that_names_only_the_vans_own_code_names_no_buyer()
+    {
+        await AddVanRepAsync("VAN009");
+        await AddUnattributedVanSaleAsync("van009", sapDocEntry: 2400100);
+        await AddReceiptAsync(cardCode: "VAN009");
+        _pdf.Invoice = VanCard("VAN009", "Van Sales West 1");
+
+        await ComposeAsync(UnattributedRow("VAN009"));
+
+        Assert.Null(_pdf.Buyer);
+    }
+
+    private const string UnattributedReference = "VAN005-INV-20261013-44C98F";
+
+    private static Action<Invoice> VanCard(string cardCode, string cardName) => invoice =>
+    {
+        invoice.CardCode = cardCode;
+        invoice.CardName = cardName;
+    };
+
+    private static Action<CustomerDocumentDeliveryEntity> UnattributedRow(string cardCode) => row =>
+    {
+        row.CardCode = cardCode;
+        row.SaleReference = UnattributedReference;
+    };
+
+    private async Task AddVanRepAsync(string cardCode)
+    {
+        await using var context = _kit.NewContext();
+        context.Users.Add(new User
+        {
+            Id = Guid.NewGuid(),
+            Username = $"rep-{cardCode}",
+            PasswordHash = "x",
+            Role = "VanSalesRep",
+            AssignedBusinessPartnerCode = cardCode,
+            IsActive = true
+        });
+        await context.SaveChangesAsync();
+    }
+
+    private async Task AddUnattributedVanSaleAsync(
+        string cardName, int? sapDocEntry, string cardCode = "VAN009", string? routeCustomerName = null)
+    {
+        await using var context = _kit.NewContext();
+        context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = UnattributedReference,
+            SourceSystem = "KefalosVanSales",
+            CardCode = cardCode,
+            CardName = cardName,
+            RouteCustomerName = routeCustomerName,
+            DocDate = DateTime.UtcNow.Date,
+            TotalAmount = 125.50m,
+            Currency = "USD",
+            WarehouseCode = "VAN005",
+            SapDocEntry = sapDocEntry,
+            SapDocNum = sapDocEntry is null ? null : 780100
+        });
+        await context.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task A_van_sale_that_now_bills_another_card_is_held()
     {

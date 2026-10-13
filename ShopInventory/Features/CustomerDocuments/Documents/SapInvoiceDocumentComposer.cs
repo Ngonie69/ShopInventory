@@ -184,7 +184,12 @@ public sealed class SapInvoiceDocumentComposer(
         CancellationToken cancellationToken)
     {
         if (delivery.RouteCustomerId is not { } routeCustomerId)
-            return null;
+        {
+            // No shop on the route, but the sale still says who bought: the van's card is nobody's name.
+            var recorded = await VanSaleBuyerLookup.RecordedNameAsync(
+                dbContext, delivery.DesktopSaleId, delivery.SaleReference, delivery.CardCode, delivery.SapDocEntry, cancellationToken);
+            return recorded is null ? null : new InvoicePdfBuyer(recorded, null, null, null, null);
+        }
 
         var shop = await dbContext.RouteCustomers
             .AsNoTracking()
