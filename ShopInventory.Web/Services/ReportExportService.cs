@@ -9002,32 +9002,60 @@ public partial class ReportExportService : IReportExportService
 
     private static void WriteDesktopAnalysisItems(XLWorkbook workbook, DesktopAnalysisContext context)
     {
-        const int lastCol = 8;
+        // Ranked inside each line of business and never across them: shops, vending and vans sell different
+        // ranges, so one list of all of them compares nothing with anything.
+        const int lastCol = 9;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("Best Sellers");
         PodApplyDefaults(ws);
+
+        var groups = report.Currencies
+            .SelectMany(section => section.ItemGroups().Select(group => (Section: section, group.Business, group.Items)))
+            .ToList();
+
+        static string ChannelLabel(DesktopSalesBusinessItems business) =>
+            string.IsNullOrWhiteSpace(business.Label) ? "All" : business.Label;
 
         var row = PodTitleBar(ws, $"{context.Title} BEST SELLERS - {context.Period}", lastCol, context.GeneratedAt);
         row = DesktopAnalysisKpiStrip(ws, row, lastCol,
             ("Items Sold", DesktopAnalysisPerCurrency(report.Currencies, section => section.DistinctItems.ToString("N0")), PodNavy),
             ("Top Seller", DesktopAnalysisPerCurrency(report.Currencies,
-                section => section.TopItems.FirstOrDefault() is { } item
-                    ? string.IsNullOrWhiteSpace(item.ItemDescription) ? item.ItemCode : $"{item.ItemCode} · {item.ItemDescription}"
-                    : null), PodGreen),
+                section =>
+                {
+                    var leaders = section.ItemGroups()
+                        .Where(group => group.Items.Count > 0)
+                        .Select(group => (Channel: ChannelLabel(group.Business), Item: group.Items[0]))
+                        .Select(leader =>
+                        {
+                            var name = string.IsNullOrWhiteSpace(leader.Item.ItemDescription)
+                                ? leader.Item.ItemCode
+                                : $"{leader.Item.ItemCode} · {leader.Item.ItemDescription}";
+                            return (leader.Channel, Name: name);
+                        })
+                        .ToList();
+
+                    // Named by channel only where there is more than one to tell apart.
+                    return leaders.Count switch
+                    {
+                        0 => null,
+                        1 => leaders[0].Name,
+                        _ => string.Join("; ", leaders.Select(leader => $"{leader.Channel}: {leader.Name}"))
+                    };
+                }), PodGreen),
             ("Quantity Sold", (double)report.Currencies.Sum(section => section.QuantitySold), PodNavy),
             ("Value Before VAT", DesktopAnalysisPerCurrency(report.Currencies, section => section.NetAmount.ToString("N2")), PodNavy));
 
-        PodSectionTitle(ws, row, lastCol, $"Items ranked by value sold, before VAT · {context.Scope}");
+        PodSectionTitle(ws, row, lastCol, $"Items ranked by value sold within each channel, before VAT · {context.Scope}");
         var headerRow = row + 1;
         row = PodColumnHeaders(ws, headerRow, lastCol,
-            ["Currency", "Rank", "Item Code", "Description", "Quantity", "Sales", "Value Before VAT", "Share of Line Value"]);
+            ["Currency", "Channel", "Rank", "Item Code", "Description", "Quantity", "Sales", "Value Before VAT", "Share of Channel"]);
 
         var rowIndex = 0;
-        foreach (var section in report.Currencies)
+        foreach (var (section, business, groupItems) in groups)
         {
-            for (var lineIndex = 0; lineIndex < section.TopItems.Count; lineIndex++)
+            for (var lineIndex = 0; lineIndex < groupItems.Count; lineIndex++)
             {
-                var item = section.TopItems[lineIndex];
+                var item = groupItems[lineIndex];
                 var rank = lineIndex + 1;
                 var isStripe = rowIndex++ % 2 == 1;
                 PodDataRow(ws, row, lastCol, isStripe);
@@ -9039,8 +9067,9 @@ public partial class ReportExportService : IReportExportService
                 }
 
                 DesktopAnalysisCurrencyCell(ws.Cell(row, 1), section.Currency);
+                ws.Cell(row, 2).Value = ChannelLabel(business);
 
-                var rankCell = ws.Cell(row, 2);
+                var rankCell = ws.Cell(row, 3);
                 rankCell.Value = rank;
                 rankCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 if (rank <= 3)
@@ -9054,15 +9083,15 @@ public partial class ReportExportService : IReportExportService
                     rankCell.Style.Font.FontColor = PodTextMuted;
                 }
 
-                ws.Cell(row, 3).Value = item.ItemCode;
-                ws.Cell(row, 3).Style.Font.Bold = true;
-                ws.Cell(row, 4).Value = string.IsNullOrWhiteSpace(item.ItemDescription) ? "-" : item.ItemDescription;
-                ws.Cell(row, 5).Value = item.Quantity;
-                StylePodCurrencyCell(ws.Cell(row, 5));
-                ws.Cell(row, 5).Style.NumberFormat.Format = FormatQuantity;
-                DesktopAnalysisCountCell(ws.Cell(row, 6), item.SalesCount);
-                DesktopAnalysisTotalCell(ws.Cell(row, 7), item.NetAmount, isStripe);
-                DesktopAnalysisShareCell(ws.Cell(row, 8), item.ShareOfNetPercent);
+                ws.Cell(row, 4).Value = item.ItemCode;
+                ws.Cell(row, 4).Style.Font.Bold = true;
+                ws.Cell(row, 5).Value = string.IsNullOrWhiteSpace(item.ItemDescription) ? "-" : item.ItemDescription;
+                ws.Cell(row, 6).Value = item.Quantity;
+                StylePodCurrencyCell(ws.Cell(row, 6));
+                ws.Cell(row, 6).Style.NumberFormat.Format = FormatQuantity;
+                DesktopAnalysisCountCell(ws.Cell(row, 7), item.SalesCount);
+                DesktopAnalysisTotalCell(ws.Cell(row, 8), item.NetAmount, isStripe);
+                DesktopAnalysisShareCell(ws.Cell(row, 9), item.ShareOfNetPercent);
 
                 row++;
             }
@@ -9072,25 +9101,26 @@ public partial class ReportExportService : IReportExportService
             row = PodEmptyRow(ws, row, lastCol, "No lines were recorded on sales in this period.");
 
         var lastDataRow = row - 1;
-        for (var index = 0; index < report.Currencies.Count; index++)
+        for (var index = 0; index < groups.Count; index++)
         {
-            var section = report.Currencies[index];
-            DesktopAnalysisSummaryRow(ws, row, lastCol, section.Currency, "TOTAL", isFollowOn: index > 0);
+            var (section, business, groupItems) = groups[index];
+            DesktopAnalysisSummaryRow(ws, row, lastCol, section.Currency, ChannelLabel(business), isFollowOn: index > 0);
 
-            // Totals of the items listed, not of the currency: the list is the head of what sold, and a
+            // Totals of the items listed, not of the channel: the list is the head of what it sold, and a
             // sale holding two listed items is one sale, so the Sales column has no total at all.
-            ws.Cell(row, 3).Value = $"Top {section.TopItems.Count:N0} of {FormatPodCount(section.DistinctItems, "item", "items")}";
-            DesktopAnalysisSummaryNumber(ws.Cell(row, 5), section.TopItems.Sum(item => item.Quantity), FormatQuantity);
-            DesktopAnalysisSummaryNumber(ws.Cell(row, 7), section.TopItems.Sum(item => item.NetAmount), FormatMoney);
-            DesktopAnalysisSummaryNumber(ws.Cell(row, 8), section.TopItems.Sum(item => item.ShareOfNetPercent) / 100m, FormatPercent);
+            ws.Cell(row, 4).Value = $"Top {groupItems.Count:N0} of {FormatPodCount(business.DistinctItems, "item", "items")}";
+            DesktopAnalysisSummaryNumber(ws.Cell(row, 6), groupItems.Sum(item => item.Quantity), FormatQuantity);
+            DesktopAnalysisSummaryNumber(ws.Cell(row, 8), groupItems.Sum(item => item.NetAmount), FormatMoney);
+            DesktopAnalysisSummaryNumber(ws.Cell(row, 9), groupItems.Sum(item => item.ShareOfNetPercent) / 100m, FormatPercent);
             row++;
         }
 
         PodNoteRow(ws, row + 1, lastCol,
             "Values are before VAT. VAT is charged per line at each item's own rate and stored only against the sale, "
-                + "so an item's VAT-inclusive value is not stated. Shares are of the net value of every line sold in that currency.");
-        DesktopAnalysisFinish(ws, row + 3, lastCol, context, headerRow, 3, lastDataRow,
-            12, 8, 14, 40, 12, 10, 18, 16);
+                + "so an item's VAT-inclusive value is not stated. Each channel is ranked on its own: a share is of the net "
+                + "value of every line that channel sold in that currency, and channels are never added together.");
+        DesktopAnalysisFinish(ws, row + 3, lastCol, context, headerRow, 4, lastDataRow,
+            12, 14, 8, 14, 40, 12, 10, 18, 16);
     }
 
     // ─── Local Stock Export ──────────────────────────────────────

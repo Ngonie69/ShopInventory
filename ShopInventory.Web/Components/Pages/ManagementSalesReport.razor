@@ -1,5 +1,6 @@
 @page "/reports/management-sales"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.Reports
 @using ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport
 @attribute [Authorize(Roles = "Admin,Manager,Cashier")]
 @rendermode InteractiveServer
@@ -498,6 +499,22 @@
             <div class="ops-ds-card-head ops-msr-wrap">
                 <i class="ph ph-package" aria-hidden="true"></i>
                 <span class="ops-ds-card-label" id="msr-items-title">Products</span>
+                @* One line of business at a time: shops and vending sell different ranges, so their
+                   products are never listed, ranked or totalled together. *@
+                @{
+                    var productBusinesses = ProductBusinesses(sales);
+                }
+                @if (productBusinesses.Count > 1)
+                {
+                    <div class="ops-ds-seg" role="group" aria-label="Products of which line of business">
+                        @foreach (var business in productBusinesses)
+                        {
+                            <button type="button" class="ops-ds-seg-opt @(ProductBusiness(sales) == business ? "is-on" : "")"
+                                    aria-pressed="@(ProductBusiness(sales) == business)"
+                                    @onclick="() => SetProductBusiness(business)">@SaleBusinessLabels.Label(business)</button>
+                        }
+                    </div>
+                }
                 <div class="ops-ds-seg" role="group" aria-label="Show products as">
                     @foreach (var option in ItemViewOptions)
                     {
@@ -543,8 +560,9 @@
 
             @if (itemView == ItemViewGroups)
             {
-                var topGroup = sales.ByItemGroup.Count == 0 ? 0m : sales.ByItemGroup.Max(g => g.NetAmount);
-                @if (sales.ByItemGroup.Count == 0)
+                var productGroups = ProductGroups(sales);
+                var topGroup = productGroups.Count == 0 ? 0m : productGroups.Max(g => g.NetAmount);
+                @if (productGroups.Count == 0)
                 {
                     <p class="ops-dsa-none">No lines were recorded on these sales.</p>
                 }
@@ -565,7 +583,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var group in sales.ByItemGroup)
+                                @foreach (var group in productGroups)
                                 {
                                     var groupChange = Change(group.ChangePercent);
                                     <tr class="ops-msr-clickable @(group.NetAmount == 0 ? "ops-dsa-idle" : "")"
@@ -663,11 +681,12 @@
             {
                 var items = VisibleItems(sales);
                 var shownItems = showAllItems ? items : items.Take(ItemPageSize).ToList();
-                var topItem = sales.ByItem.Count == 0 ? 0m : sales.ByItem.Max(i => i.NetAmount);
+                var productItems = ProductItems(sales);
+                var topItem = productItems.Count == 0 ? 0m : productItems.Max(i => i.NetAmount);
 
                 @if (items.Count == 0)
                 {
-                    <p class="ops-dsa-none">@(sales.ByItem.Count == 0 ? "No lines were recorded on these sales." : "No item matches that search.")</p>
+                    <p class="ops-dsa-none">@(productItems.Count == 0 ? "No lines were recorded on these sales." : "No item matches that search.")</p>
                 }
                 else
                 {

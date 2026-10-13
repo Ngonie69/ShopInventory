@@ -1308,6 +1308,10 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// One item from the management sales report, taken apart by shop or depot, vendor, channel, operator
     /// and day, with its price and SAP margin. Same scope, period and channel filter as the report.
     /// </summary>
+    /// <remarks>
+    /// <c>business</c> — shops or vending, the <c>business</c> on the report's item row — confines it to that
+    /// line of business, so an item both sell is taken apart for the one whose row was opened.
+    /// </remarks>
     [Authorize(Roles = "Admin,Manager,Cashier")]
     [HttpGet("sales/management-report/item")]
     public async Task<IActionResult> GetManagementItemAnalysis(
@@ -1317,6 +1321,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] string? warehouseCode,
         [FromQuery] string? sourceSystem,
         [FromQuery] string? cardCode,
+        [FromQuery] string? business,
         CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -1324,7 +1329,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetManagementItemAnalysisQuery(userId.Value, itemCode, fromDate, toDate, warehouseCode, sourceSystem, cardCode),
+            new GetManagementItemAnalysisQuery(userId.Value, itemCode, fromDate, toDate, warehouseCode, sourceSystem, cardCode, business),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

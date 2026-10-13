@@ -5,14 +5,18 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport;
 
 // The web copies of the API's item drill-down records, property for property.
 
-/// <summary>One item from the management sales report, under the report's own period and filters.</summary>
+/// <summary>
+/// One item from the management sales report, under the report's own period and filters, in the line of
+/// business whose row was opened — an item shops and vending both sell is taken apart for one of them.
+/// </summary>
 public sealed record GetManagementItemAnalysisQuery(
     string ItemCode,
     DateTime? FromDate,
     DateTime? ToDate,
     string? WarehouseCode,
     string? SourceSystem,
-    string? CardCode = null
+    string? CardCode = null,
+    string? Business = null
 ) : IRequest<ErrorOr<ManagementItemAnalysisResult>>;
 
 public sealed class ManagementItemAnalysisResult

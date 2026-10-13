@@ -621,18 +621,45 @@
 
                 @* ── Best sellers ─────────────────────────────────────────────────── *@
                 <section class="ops-ds-card ops-sbd-items" aria-labelledby="dsa-items-title">
+                    @* One line of business at a time. Shops and vending sell different ranges, so they are
+                       never ranked in one list: a vendor's bulk line would sit above everything a counter
+                       sells. *@
                     @{
-                        var items = showAllItems ? sales.TopItems : sales.TopItems.Take(ItemsShown).ToList();
+                        var itemGroups = sales.ItemGroups();
+                        var itemGroup = itemGroups.FirstOrDefault(group => group.Business.Business == itemsBusiness);
+                        if (itemGroup.Business is null && itemGroups.Count > 0)
+                        {
+                            itemGroup = itemGroups[0];
+                        }
+
+                        var ranked = itemGroup.Items ?? [];
+                        var items = showAllItems ? ranked : ranked.Take(ItemsShown).ToList();
                     }
                     <div class="ops-ds-card-head">
                         <i class="ph ph-package" aria-hidden="true"></i>
                         <span class="ops-ds-card-label" id="dsa-items-title">Best sellers</span>
+                        @if (itemGroups.Count > 1)
+                        {
+                            <div class="ops-ds-seg" role="group" aria-label="Best sellers of which line of business">
+                                @foreach (var option in itemGroups)
+                                {
+                                    var business = option.Business.Business;
+                                    <button type="button" class="ops-ds-seg-opt @(itemGroup.Business == option.Business ? "is-on" : "")"
+                                            aria-pressed="@(itemGroup.Business == option.Business)"
+                                            @onclick="() => itemsBusiness = business">@option.Business.Label</button>
+                                }
+                            </div>
+                        }
+                        else if (!Vans && itemGroup.Business is { Label.Length: > 0 } only)
+                        {
+                            <span class="ops-sbd-hint">@only.Label only</span>
+                        }
                         <span class="ops-sbd-head-end ops-sbd-hint">
-                            @items.Count of @Plural(sales.DistinctItems, "item")
-                            @if (sales.TopItems.Count > ItemsShown)
+                            @items.Count of @Plural(itemGroup.Business?.DistinctItems ?? 0, "item")
+                            @if (ranked.Count > ItemsShown)
                             {
                                 <button type="button" class="ops-sbd-clear" @onclick="() => showAllItems = !showAllItems">
-                                    @(showAllItems ? $"Top {ItemsShown} only" : $"Show top {sales.TopItems.Count}")
+                                    @(showAllItems ? $"Top {ItemsShown} only" : $"Show top {ranked.Count}")
                                 </button>
                             }
                         </span>

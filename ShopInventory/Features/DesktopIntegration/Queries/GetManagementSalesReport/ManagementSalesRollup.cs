@@ -379,6 +379,12 @@ internal static class ManagementSalesRollup
 
     public enum Dimension { Total, Channel, Depot, Partner, CostCentre, Operator, Vendor, Item }
 
+    /// <summary>
+    /// What an item's margin is filed under: the item inside the line of business that sold it. Shops and
+    /// vending are costed apart, like everything else about their items.
+    /// </summary>
+    public static string ItemKey(string business, string itemCode) => $"{business}|{itemCode}";
+
     public sealed record MarginFigure(decimal Revenue, decimal GrossProfit)
     {
         public decimal? MarginPercent => Revenue == 0 ? null : Math.Round(GrossProfit / Revenue * 100m, 1, MidpointRounding.AwayFromZero);
@@ -416,7 +422,7 @@ internal static class ManagementSalesRollup
                 foreach (var line in docLines)
                 {
                     book.Add(sale.Currency, Dimension.Total, string.Empty, line);
-                    book.Add(sale.Currency, Dimension.Item, line.ItemCode, line);
+                    book.Add(sale.Currency, Dimension.Item, ItemKey(SaleBusinesses.Of(sale.SourceSystem), line.ItemCode), line);
                     book.Add(sale.Currency, Dimension.Depot, sale.WarehouseCode, line);
                     book.Add(sale.Currency, Dimension.Partner, sale.CardCode, line);
                     book.Add(sale.Currency, Dimension.Channel, sale.SourceSystem, line);
@@ -440,7 +446,10 @@ internal static class ManagementSalesRollup
                 foreach (var line in docLines)
                 {
                     book.Add(invoice.Currency, Dimension.Total, string.Empty, line);
-                    book.Add(invoice.Currency, Dimension.Item, line.ItemCode, line);
+
+                    // Only the legacy desktop route consolidates — vending and the vans post one invoice a
+                    // sale — so a consolidated invoice's items are the shops'.
+                    book.Add(invoice.Currency, Dimension.Item, ItemKey(SaleBusinesses.Shops, line.ItemCode), line);
                     book.Add(invoice.Currency, Dimension.Depot, invoice.WarehouseCode, line);
                     book.Add(invoice.Currency, Dimension.Partner, invoice.CardCode, line);
                 }

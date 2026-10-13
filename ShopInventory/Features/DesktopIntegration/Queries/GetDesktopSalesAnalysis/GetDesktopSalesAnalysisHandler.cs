@@ -22,7 +22,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAuditService auditService)
     : IRequestHandler<GetDesktopSalesAnalysisQuery, ErrorOr<DesktopSalesAnalysisResult>>
 {
-    /// <summary>How many items the best-sellers list carries per currency.</summary>
+    /// <summary>How many items the best-sellers list carries per currency for each line of business.</summary>
     public const int TopItemCount = 25;
 
     /// <summary>
@@ -193,20 +193,26 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             .Select(h => new HourCell(CurrencyKey(h.Currency), CatHour(h.Hour), h.SalesCount, h.TotalAmount))
             .ToList();
 
+        // By source as well as item, so an item is ranked inside the business that sold it: shops and
+        // vending sell different ranges, and one list of both ranks a vendor's bulk line above everything a
+        // counter sells. A sale has one source, so adding the sources of a business back together counts
+        // no sale twice.
         var items = (await sales
                 .SelectMany(s => s.Lines, (s, line) => new
                 {
                     s.Currency,
+                    s.SourceSystem,
                     line.SaleId,
                     line.ItemCode,
                     line.ItemDescription,
                     line.Quantity,
                     line.LineTotal,
                 })
-                .GroupBy(x => new { x.Currency, x.ItemCode })
+                .GroupBy(x => new { x.Currency, x.SourceSystem, x.ItemCode })
                 .Select(g => new
                 {
                     g.Key.Currency,
+                    g.Key.SourceSystem,
                     g.Key.ItemCode,
                     ItemDescription = g.Max(x => x.ItemDescription),
                     Quantity = g.Sum(x => x.Quantity),
@@ -214,8 +220,15 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     SalesCount = g.Select(x => x.SaleId).Distinct().Count(),
                 })
                 .ToListAsync(cancellationToken))
-            .Select(i => new ItemCell(
-                CurrencyKey(i.Currency), i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount))
+            .GroupBy(i => (Currency: CurrencyKey(i.Currency), Business: SaleBusinesses.Of(i.SourceSystem), i.ItemCode))
+            .Select(g => new ItemCell(
+                g.Key.Currency,
+                g.Key.Business,
+                g.Key.ItemCode,
+                g.Select(i => i.ItemDescription).Where(description => description is not null).Max(StringComparer.Ordinal),
+                g.Sum(i => i.Quantity),
+                g.Sum(i => i.NetAmount),
+                g.Sum(i => i.SalesCount)))
             .ToList();
 
         // The same number of days just before, under the same filters, so a period can say whether it was
@@ -309,14 +322,26 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             .Select(hour => new DesktopSalesHourRow(hour.Key, hour.Sum(h => h.SalesCount), hour.Sum(h => h.TotalAmount)))
             .ToList();
 
-        var lineValue = items.Sum(i => i.NetAmount);
+        // One business at a time, in the order a review presents them. Nothing below ranks or shares an
+        // item against another business's.
+        var itemsByBusiness = SaleBusinesses.All
+            .Select(business => (Business: business, Items: items.Where(i => i.Business == business).ToList()))
+            .Where(group => group.Items.Count > 0)
+            .ToList();
 
-        var topItems = items
-            .OrderByDescending(i => i.NetAmount)
-            .ThenBy(i => i.ItemCode, StringComparer.OrdinalIgnoreCase)
-            .Take(TopItemCount)
-            .Select(i => new DesktopSalesItemRow(
-                i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount, Share(i.NetAmount, lineValue)))
+        var topItems = itemsByBusiness
+            .SelectMany(group =>
+            {
+                var lineValue = group.Items.Sum(i => i.NetAmount);
+
+                return group.Items
+                    .OrderByDescending(i => i.NetAmount)
+                    .ThenBy(i => i.ItemCode, StringComparer.OrdinalIgnoreCase)
+                    .Take(TopItemCount)
+                    .Select(i => new DesktopSalesItemRow(
+                        i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount,
+                        Share(i.NetAmount, lineValue), group.Business));
+            })
             .ToList();
 
         var partnerNames = PartnerNames(cells);
@@ -330,7 +355,7 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             Average(total, salesCount),
             items.Sum(i => i.Quantity),
             byDay.Count,
-            items.Count,
+            items.Select(i => i.ItemCode).Distinct(StringComparer.Ordinal).Count(),
             byPaymentMethod,
             byDay,
             byHour,
@@ -340,7 +365,17 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             Breakdown(cells, c => c.CreatedBy, id => OperatorLabel(id, operators), total, paymentMethods),
             topItems,
             previous.SalesCount,
-            previous.TotalAmount);
+            previous.TotalAmount)
+        {
+            ItemsByBusiness = itemsByBusiness
+                .Select(group => new DesktopSalesBusinessItems(
+                    group.Business,
+                    SaleBusinesses.Label(group.Business),
+                    group.Items.Count,
+                    group.Items.Sum(i => i.Quantity),
+                    group.Items.Sum(i => i.NetAmount)))
+                .ToList()
+        };
     }
 
     private static List<DesktopSalesBreakdownRow> Breakdown(
@@ -541,6 +576,7 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
 
     private sealed record ItemCell(
         string Currency,
+        string Business,
         string ItemCode,
         string? ItemDescription,
         decimal Quantity,

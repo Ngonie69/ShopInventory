@@ -321,6 +321,40 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     }
 
     [Fact]
+    public async Task Each_line_of_business_ranks_its_own_items_and_never_anothers()
+    {
+        // Vending sells MILK too, in bulk, and a line the shops never carry. Ranked together the vendor's
+        // crate would sit above everything a counter sells.
+        _context.DesktopSales.AddRange(
+            Sale("V-1", TenderTypes.Cash, 600m, Day1, utcHour: 6, source: SaleSourceSystems.Vending,
+                warehouse: "KEFBYC", cardCode: "VEND-BP", lines: [("MILK", 100, 400m), ("LOLLY", 200, 100m)]),
+            Sale("V-2", TenderTypes.Cash, 120m, Day2, utcHour: 6, source: SaleSourceSystems.Vending,
+                warehouse: "KEFBYC", cardCode: "VEND-BP", lines: [("MILK", 25, 100m)]));
+        await _context.SaveChangesAsync();
+
+        var usd = Dollars((await AnalyseAsAdmin()).Value);
+
+        Assert.Equal(
+            new[] { (SaleBusinesses.Shops, "Shops", 3, 18m, 69.60m), (SaleBusinesses.Vending, "Vending", 2, 325m, 600m) },
+            usd.ItemsByBusiness.Select(b => (b.Business, b.Label, b.DistinctItems, b.QuantitySold, b.NetAmount)));
+
+        // The shops' list is what it was before vending sold anything.
+        var shops = usd.TopItems.Where(item => item.Business == SaleBusinesses.Shops).ToList();
+        Assert.Equal(new[] { "BREAD", "CHEESE", "MILK" }, shops.Select(item => item.ItemCode));
+        Assert.Equal(17.40m, shops.Single(item => item.ItemCode == "MILK").NetAmount);
+        Assert.Equal(25m, shops.Single(item => item.ItemCode == "MILK").ShareOfNetPercent);
+
+        // And vending's MILK is its own row, shared against vending's lines alone.
+        var vending = usd.TopItems.Where(item => item.Business == SaleBusinesses.Vending).ToList();
+        Assert.Equal(new[] { "MILK", "LOLLY" }, vending.Select(item => item.ItemCode));
+        Assert.Equal((125m, 500m, 2, 83.3m), (vending[0].Quantity, vending[0].NetAmount, vending[0].SalesCount, vending[0].ShareOfNetPercent));
+
+        // The headline still counts an item once however many businesses sold it.
+        Assert.Equal(4, usd.DistinctItems);
+        Assert.Equal(343m, usd.QuantitySold);
+    }
+
+    [Fact]
     public async Task A_van_source_is_still_read_when_it_is_named()
     {
         _context.DesktopSales.AddRange(
