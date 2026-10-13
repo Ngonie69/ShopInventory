@@ -812,13 +812,13 @@
                         <!-- Daily incoming payment for desktop sales -->
                         <div class="stg-row">
                             <div class="stg-row-info">
-                                <div class="stg-row-label"><span>Daily Incoming Payment for Desktop Sales</span></div>
+                                <div class="stg-row-label"><span>Daily Incoming Payment for Shop &amp; Vending Sales</span></div>
                                 <span class="stg-row-desc">
                                     On: each customer gets <strong>one incoming payment</strong> a day settling its till,
                                     vending and consolidated invoices. Partners mapped to the van run are paid at
                                     <strong>20:00</strong>; everyone else, shops and unmapped partners, at <strong>17:00</strong>.
                                     An unmapped partner's payment is <strong>held, not posted</strong>, until its G/L accounts are
-                                    set on <a href="/reports/desktop-sales/payments">Daily Incoming Payments</a>. Off: desktop sales post
+                                    set on <a href="/reports/desktop-sales/payments">Daily Incoming Payments</a>. Off: shop and vending sales post
                                     <strong>invoices only</strong> and they stay open in SAP. Takes effect on the next run, no restart needed.
                                 </span>
                                 @if (dailyPaymentSettings is null)
@@ -1632,7 +1632,7 @@
                         <div class="stg-section-head">
                             <span class="stg-section-icon"><i class="ph ph-lightbulb"></i></span>
                             <div class="stg-section-text">
-                                <h2>Desktop Sales Review</h2>
+                                <h2>Shop &amp; Vending Sales Review</h2>
                                 <p>The business review of till and vending takings — findings in the email, the full review attached as a PDF.</p>
                             </div>
                         </div>
@@ -4131,8 +4131,8 @@
             {
                 dailyPaymentSettings = result.Settings;
                 successMessage = enabled
-                    ? "Daily incoming payments are on. The next run at or after 17:00 pays each customer's open desktop invoices."
-                    : "Daily incoming payments are off. Desktop sales now post invoices only.";
+                    ? "Daily incoming payments are on. The next run at or after 17:00 pays each customer's open shop and vending invoices."
+                    : "Daily incoming payments are off. Shop and vending sales now post invoices only.";
             }
             else
             {
