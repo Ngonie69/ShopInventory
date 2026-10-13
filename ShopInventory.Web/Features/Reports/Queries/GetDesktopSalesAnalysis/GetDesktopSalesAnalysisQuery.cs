@@ -11,10 +11,11 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 /// The API decides whose shops the signed-in account may read, so the warehouse is a filter and a
 /// shop-confined account naming another shop is refused rather than rescoped. The payment method, when
 /// given, confines every figure to that tender, and the source system to one channel — "KefalosVending"
-/// for the depots.
+/// for the depots. With no source it reads the shop tills and vending together, and nothing off a van.
 ///
 /// <c>Vans</c> asks the van sales analysis instead, in the same shape: the warehouse is then a van, and the
-/// source system is ignored. It reads online van sales too, which never become desktop sales.
+/// source system is ignored. It is the only place van takings are analysed, and reads online van sales too,
+/// which never become desktop sales.
 ///
 /// <c>CardCode</c> confines every figure to the sales made as one business partner, inside whatever the
 /// account may read. The van analysis has no such filter, so it is not sent there.

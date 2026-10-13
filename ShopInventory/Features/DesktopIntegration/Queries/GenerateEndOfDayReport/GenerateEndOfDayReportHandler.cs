@@ -15,9 +15,8 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayRepo
 /// </summary>
 /// <remarks>
 /// Every figure on it is a sum over <c>DesktopSales</c>, so the set of rows it reads <i>is</i> the report.
-/// It reads the sales this server captured and still owes SAP a document for — the till sources and the
-/// offline van batch — and it deliberately excludes <see cref="SaleSourceSystems.VanSalesOnline"/>. See
-/// the filter below.
+/// It reads the counters' sales — shop tills, vending and the legacy desktop app — and deliberately
+/// leaves out both sources a van handset writes. See the filter below.
 /// </remarks>
 public sealed class GenerateEndOfDayReportHandler(
     ApplicationDbContext context,
@@ -72,11 +71,15 @@ public sealed class GenerateEndOfDayReportHandler(
         // Consolidated row for an invoice this report played no part in posting.
         //
         // The money is the sharper half. See SaleSourceSystems.VanSalesOnline for the general rule.
+        //
+        // A van's offline upload is a real sale, and is left out for a different reason: this is the
+        // counters' day, the one /desktop-sales heads its list with, and that list no longer carries the
+        // vans. Their day is read whole, online sales included, from the van sales pages.
         var allSales = await context.DesktopSales
             .AsNoTracking()
             .Include(s => s.Consolidation)
             .Where(s => s.DocDate == reportDate)
-            .Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
+            .AtCounters()
             .OrderBy(s => s.CardCode)
             .ThenBy(s => s.CreatedAt)
             .ToListAsync(cancellationToken);

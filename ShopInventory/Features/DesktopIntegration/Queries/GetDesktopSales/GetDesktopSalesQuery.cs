@@ -8,9 +8,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 /// </summary>
 /// <remarks>
 /// <c>SourceSystem</c> selects exactly one source, or null for the default scope. Null is not
-/// "everything": it excludes <c>SaleSourceSystems.VanSalesOnline</c>, whose rows are receipt carriers for
-/// sales already recorded as their confirmed reservation and their SAP invoice. Name that source to list
-/// them.
+/// "everything": it is the counters' sales, shop tills and vending, and leaves out both sources a van
+/// handset writes (<c>SaleSourceSystems.VanSaleSources</c>). The vans are listed under van sales. Name a
+/// van source to list its rows here.
 ///
 /// <c>CallerUserId</c> is required and positional rather than an optional trailing parameter, because
 /// it is what the handler resolves the warehouse scope from. Before it existed, <c>WarehouseCode</c>
@@ -35,8 +35,8 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 ///
 /// <para>
 /// <b>Naming a source turns the default scope off.</b> That is true of <c>SourceSystems</c> exactly as it
-/// was of <c>SourceSystem</c>: an empty list is the default scope, which excludes
-/// <c>SaleSourceSystems.VanSalesOnline</c>, and a non-empty one is taken literally.
+/// was of <c>SourceSystem</c>: an empty list is the default scope, which excludes the van sources, and a
+/// non-empty one is taken literally.
 /// </para>
 /// </remarks>
 public sealed record GetDesktopSalesQuery(

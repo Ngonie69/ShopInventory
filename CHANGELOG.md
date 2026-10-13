@@ -18,6 +18,45 @@ otherwise be surprised.
 
 ### Changed
 
+- **Desktop Sales no longer shows van sales. They are under Van Sales only.** Both van sources are
+  left out together, the offline uploads (`KefalosVanSales`) and the receipts of online sales
+  (`KefalosVanSalesOnline`). This changes five answers when no `sourceSystem` is named, and the
+  portal pages drawn from them:
+  - `GET /api/DesktopIntegration/sales/analysis` (Sales breakdown) reads shop tills and vending. It
+    used to add both van sources. Takings and every breakdown fall by those sales.
+  - `GET /api/DesktopIntegration/sales/management-report` and `…/management-report/item`
+    (Management sales report) used to count the vans' offline sales as a channel. The page's
+    channel filter no longer offers "Van sales".
+  - `GET /api/DesktopIntegration/sales/review` and `…/review/pdf` (Business review, and the emailed
+    review) have no "Van sales" section.
+  - `GET /api/DesktopIntegration/sales` (Desktop Sales list) used to list the vans' offline sales.
+    Its source facet no longer carries a van chip, and `unfilteredCount` no longer counts them.
+  - `GET /api/DesktopIntegration/end-of-day/report`, which heads that list and is emailed after the
+    18:00 consolidation, no longer counts the vans' offline sales. A day on which only vans sold now
+    answers 404, as a day with no sales does.
+
+  Naming `sourceSystem=KefalosVanSales` or `KefalosVanSalesOnline` still reads that source on the
+  first four. Operators: van takings are on Van Sales → Sales Breakdown, and a van sale is found,
+  posted to SAP, re-fiscalised and credited from Van Sales → Invoices.
+
+- **Products are analysed one line of business at a time.** Shops, vending and vans sell different
+  ranges, so no answer ranks, shares or totals an item of one against another's. A client that read
+  these lists as one ranking must now read them by `business`:
+  - `GET /api/DesktopIntegration/sales/analysis`: each `topItems` row gains `business` (`shops`,
+    `vending` or `vans`). The list is the 25 best sellers of each business, one business after
+    another, where it was the 25 best across all of them; `shareOfNetPercent` is of that business's
+    lines. New `itemsByBusiness` states each business's item count, quantity and line value.
+    `GET /api/van-sales/sales-analysis` answers the same shape with `vans`.
+  - `GET /api/DesktopIntegration/sales/management-report`: `byItem`, `byItemGroup`,
+    `itemDepotMatrix` and `itemPartnerMatrix` rows gain `business`. An item shops and vending both
+    sell is two rows, each with its own share, previous period, price and SAP margin. Totals of
+    `byItem` across businesses still add to the report's line value.
+  - `GET /api/DesktopIntegration/sales/management-report/item` takes `business`, and reads that
+    business's sales of the item alone.
+
+  On the portal, Best sellers on the Sales breakdown and Products on the Management sales report
+  show Shops or Vending, never both, and their Excel sheets carry a Channel column.
+
 - **Six portal pages left open for more than an hour now act as the signed-in user, not as the
   portal's API key.** Desktop Transactions, Desktop Sales, Local Stock, Live Transactions, Sync Status
   and the Exception Center, and the notification bell on every page, renew the access token as they

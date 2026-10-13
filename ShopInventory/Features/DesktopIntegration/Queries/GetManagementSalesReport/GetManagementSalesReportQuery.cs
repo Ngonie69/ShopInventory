@@ -11,9 +11,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesRe
 /// <param name="FromDate">First business day, inclusive. Defaults to today.</param>
 /// <param name="ToDate">Last business day, inclusive. Defaults to today.</param>
 /// <param name="WarehouseCode">One shop or depot's warehouse, or every one the caller may read.</param>
-/// <param name="SourceSystem">One channel — till, vending or van — or all of them.</param>
+/// <param name="SourceSystem">One channel, or null for the counters' — till and vending. Van sales are read only when one of their sources is named.</param>
 /// <param name="CardCode">One business partner the sales were made as, or all of them.</param>
-/// <param name="Business">One of <c>SaleBusinesses</c> — shops, vending or vans — or all of them.</param>
+/// <param name="Business">One of <c>SaleBusinesses</c>, or null for shops and vending together.</param>
 public sealed record GetManagementSalesReportQuery(
     Guid CallerUserId,
     DateTime? FromDate,

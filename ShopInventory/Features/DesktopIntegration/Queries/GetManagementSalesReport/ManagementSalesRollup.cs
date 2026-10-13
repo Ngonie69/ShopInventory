@@ -67,15 +67,22 @@ internal static class ManagementSalesRollup
     }
 
     /// <summary>
-    /// The sales in a date range under the window's scope. An online van sale is left out unless its
-    /// source is asked for by name, because its SAP invoice is already counted.
+    /// The sales in a date range under the window's scope: the counters', shop tills and vending. A van
+    /// sale, uploaded offline or receipted online, is left out unless its source or its business is asked
+    /// for by name — the vans are reported under van sales, from their own reader.
     /// </summary>
     public static IQueryable<DesktopSaleEntity> Sales(ApplicationDbContext db, Window window, DateTime start, DateTime end)
     {
         var sales = db.DesktopSales.AsNoTracking().Where(s => s.DocDate >= start && s.DocDate <= end);
-        sales = window.SourceSystem is null
-            ? sales.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
-            : sales.Where(s => s.SourceSystem == window.SourceSystem);
+        if (window.SourceSystem is not null)
+        {
+            sales = sales.Where(s => s.SourceSystem == window.SourceSystem);
+        }
+        else if (window.Business is null)
+        {
+            sales = sales.AtCounters();
+        }
+
         sales = sales.InBusiness(window.Business);
         if (window.WarehouseCode is not null)
         {
@@ -90,8 +97,8 @@ internal static class ManagementSalesRollup
     /// and partner filters say — the list the page chooses a partner from, so choosing one never empties it.
     /// </summary>
     /// <remarks>
-    /// A partner, not a warehouse, is who a sale was made as: one warehouse can serve several partners (a
-    /// depot's own account and the vans that load from it), so a warehouse filter mixes them together.
+    /// A partner, not a warehouse, is who a sale was made as: one warehouse can serve several partners, so
+    /// a warehouse filter mixes them together.
     /// </remarks>
     public static async Task<List<ManagementPartner>> PartnersAsync(
         ApplicationDbContext db, Window window, CancellationToken cancellationToken) =>
@@ -372,6 +379,12 @@ internal static class ManagementSalesRollup
 
     public enum Dimension { Total, Channel, Depot, Partner, CostCentre, Operator, Vendor, Item }
 
+    /// <summary>
+    /// What an item's margin is filed under: the item inside the line of business that sold it. Shops and
+    /// vending are costed apart, like everything else about their items.
+    /// </summary>
+    public static string ItemKey(string business, string itemCode) => $"{business}|{itemCode}";
+
     public sealed record MarginFigure(decimal Revenue, decimal GrossProfit)
     {
         public decimal? MarginPercent => Revenue == 0 ? null : Math.Round(GrossProfit / Revenue * 100m, 1, MidpointRounding.AwayFromZero);
@@ -409,7 +422,7 @@ internal static class ManagementSalesRollup
                 foreach (var line in docLines)
                 {
                     book.Add(sale.Currency, Dimension.Total, string.Empty, line);
-                    book.Add(sale.Currency, Dimension.Item, line.ItemCode, line);
+                    book.Add(sale.Currency, Dimension.Item, ItemKey(SaleBusinesses.Of(sale.SourceSystem), line.ItemCode), line);
                     book.Add(sale.Currency, Dimension.Depot, sale.WarehouseCode, line);
                     book.Add(sale.Currency, Dimension.Partner, sale.CardCode, line);
                     book.Add(sale.Currency, Dimension.Channel, sale.SourceSystem, line);
@@ -433,7 +446,10 @@ internal static class ManagementSalesRollup
                 foreach (var line in docLines)
                 {
                     book.Add(invoice.Currency, Dimension.Total, string.Empty, line);
-                    book.Add(invoice.Currency, Dimension.Item, line.ItemCode, line);
+
+                    // Only the legacy desktop route consolidates — vending and the vans post one invoice a
+                    // sale — so a consolidated invoice's items are the shops'.
+                    book.Add(invoice.Currency, Dimension.Item, ItemKey(SaleBusinesses.Shops, line.ItemCode), line);
                     book.Add(invoice.Currency, Dimension.Depot, invoice.WarehouseCode, line);
                     book.Add(invoice.Currency, Dimension.Partner, invoice.CardCode, line);
                 }

@@ -8,7 +8,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesRevie
 /// them, with the findings worth acting on written out.
 /// </summary>
 /// <remarks><list type="table">
-/// <item><term>Businesses</term><description>One section per line of business that sold in the period or the one before — shops, vending, vans, in that order. They sell different ranges in different ways, so they are reviewed apart and never added together.</description></item>
+/// <item><term>Businesses</term><description>One section per line of business that sold in the period or the one before — shops, then vending. Van sales are not reviewed here. They sell different ranges in different ways, so they are reviewed apart and never added together.</description></item>
 /// </list></remarks>
 public sealed record DesktopSalesReview(
     DateTime FromDate,
@@ -21,7 +21,7 @@ public sealed record DesktopSalesReview(
 
 /// <summary>Everything the review says about one line of business.</summary>
 /// <remarks><list type="table">
-/// <item><term>Business</term><description>Its key in <c>SaleBusinesses</c>: shops, vending or vans.</description></item>
+/// <item><term>Business</term><description>Its key in <c>SaleBusinesses</c>: shops or vending.</description></item>
 /// <item><term>Findings</term><description>What its figures say, most urgent first. Written by <see cref="DesktopSalesReviewFindings"/> from the figures below, never typed in.</description></item>
 /// <item><term>Currencies</term><description>One section per currency. Currencies are never added together.</description></item>
 /// <item><term>Health</term><description>Its fiscalisation and SAP posting for the period, from the management report.</description></item>

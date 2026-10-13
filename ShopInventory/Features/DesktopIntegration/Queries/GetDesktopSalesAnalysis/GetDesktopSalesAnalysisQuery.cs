@@ -15,17 +15,17 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// The dates are the sales' business dates (<c>DocDate</c>), both inclusive. Omitting both analyses today
 /// in CAT; omitting only the end runs to today.
 ///
-/// <c>SourceSystem</c> selects one source, or null for every source. Unlike the list, null includes
-/// <c>SaleSourceSystems.VanSalesOnline</c>: this report reads neither reservations nor SAP invoices, so an
-/// online van sale's receipt row is its only record here, and it is counted once. <c>Business</c> narrows
-/// by <c>SaleBusinesses</c>, whose own rules still leave those rows out.
+/// <c>SourceSystem</c> selects one source. Null reads the counters — every source but the two a van
+/// handset writes (<c>SaleSourceSystems.VanSaleSources</c>). Van takings are analysed by
+/// <c>GetVanSalesAnalysisQuery</c>, which reads the online sales this table holds only a receipt for.
+/// Naming a van source still reads it.
 ///
 /// <c>PaymentMethod</c> confines every figure to one tender, matched on its reporting name, so a till's
 /// own spelling ("ecocash") and the canonical one read the same sales. "Not recorded" selects the sales
 /// no tender was stored for.
 ///
 /// <c>Business</c> confines it to one of <c>SaleBusinesses</c> — shops, vending or vans — on top of the
-/// source scope; null reads them all.
+/// source scope; null reads shops and vending together. No counter report asks for the vans.
 ///
 /// <c>CardCode</c> confines every figure to the sales made as one business partner, matched exactly as the
 /// management report matches it. It narrows within the caller's scope and never widens it: a shop-confined

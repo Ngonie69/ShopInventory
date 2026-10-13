@@ -45,7 +45,43 @@ public sealed class DesktopSalesCurrencyAnalysis
 
     public List<DesktopSalesBreakdownRow> ByOperator { get; set; } = [];
 
+    /// <summary>
+    /// The best sellers of each line of business, one business after another. Never ranked together:
+    /// shops, vending and vans sell different ranges. Read them through <see cref="ItemGroups"/>.
+    /// </summary>
     public List<DesktopSalesItemRow> TopItems { get; set; } = [];
+
+    /// <summary>One row per line of business that sold anything, in the order <c>TopItems</c> lists them.</summary>
+    public List<DesktopSalesBusinessItems> ItemsByBusiness { get; set; } = [];
+
+    /// <summary>
+    /// The lines of business to draw best sellers for, each with its own items.
+    /// </summary>
+    /// <remarks>
+    /// An API that predates the split names no business on any row; its items are then one unnamed group,
+    /// so a page drawn against it still lists them rather than going blank.
+    /// </remarks>
+    public List<(DesktopSalesBusinessItems Business, List<DesktopSalesItemRow> Items)> ItemGroups()
+    {
+        if (ItemsByBusiness.Count == 0)
+        {
+            return TopItems.Count == 0
+                ? []
+                :
+                [
+                    (new DesktopSalesBusinessItems
+                    {
+                        DistinctItems = DistinctItems,
+                        QuantitySold = QuantitySold,
+                        NetAmount = NetAmount
+                    }, TopItems)
+                ];
+        }
+
+        return ItemsByBusiness
+            .Select(business => (business, TopItems.Where(item => item.Business == business.Business).ToList()))
+            .ToList();
+    }
 
     /// <summary>Sales in the same number of days just before, under the same filters.</summary>
     public int PreviousSalesCount { get; set; }

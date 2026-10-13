@@ -169,11 +169,20 @@ public sealed class GetManagementSalesReportHandler(
             c.VatAmount))
         .ToList();
 
+    /// <summary>
+    /// Each item's lines, inside the line of business that sold them.
+    /// </summary>
+    /// <remarks>
+    /// Grouped by source as well as item and folded into businesses here, so nothing downstream can rank a
+    /// vendor's bulk line against a counter's. A sale has one source, so adding a business's sources back
+    /// together counts no sale twice.
+    /// </remarks>
     private static async Task<List<ItemCell>> ItemsAsync(IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>
         (await sales
             .SelectMany(s => s.Lines, (s, line) => new
             {
                 s.Currency,
+                s.SourceSystem,
                 line.SaleId,
                 line.ItemCode,
                 line.ItemDescription,
@@ -181,10 +190,11 @@ public sealed class GetManagementSalesReportHandler(
                 line.UnitPrice,
                 line.LineTotal,
             })
-            .GroupBy(x => new { x.Currency, x.ItemCode })
+            .GroupBy(x => new { x.Currency, x.SourceSystem, x.ItemCode })
             .Select(g => new
             {
                 g.Key.Currency,
+                g.Key.SourceSystem,
                 g.Key.ItemCode,
                 ItemDescription = g.Max(x => x.ItemDescription),
                 Quantity = g.Sum(x => x.Quantity),
@@ -193,47 +203,53 @@ public sealed class GetManagementSalesReportHandler(
                 SalesCount = g.Select(x => x.SaleId).Distinct().Count(),
             })
             .ToListAsync(cancellationToken))
-        .Select(i => new ItemCell(
-            CurrencyKey(i.Currency),
-            i.ItemCode,
-            i.ItemDescription,
-            i.Quantity,
-            i.NetAmount,
+        .GroupBy(i => (Currency: CurrencyKey(i.Currency), Business: SaleBusinesses.Of(i.SourceSystem), i.ItemCode))
+        .Select(g => new ItemCell(
+            g.Key.Currency,
+            g.Key.Business,
+            g.Key.ItemCode,
+            g.Select(i => i.ItemDescription).Where(description => description is not null).Max(StringComparer.Ordinal),
+            g.Sum(i => i.Quantity),
+            g.Sum(i => i.NetAmount),
             // Rounding on a line can leave a cent the other way; a discount is never negative.
-            Math.Max(0m, Math.Round(i.ListAmount - i.NetAmount, 2, MidpointRounding.AwayFromZero)),
-            i.SalesCount))
+            Math.Max(0m, Math.Round(g.Sum(i => i.ListAmount) - g.Sum(i => i.NetAmount), 2, MidpointRounding.AwayFromZero)),
+            g.Sum(i => i.SalesCount)))
         .ToList();
 
     private static async Task<List<MatrixCell>> MatrixAsync(IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>
         (await sales
-            .SelectMany(s => s.Lines, (s, line) => new { s.Currency, s.WarehouseCode, line.ItemCode, line.Quantity, line.LineTotal })
-            .GroupBy(x => new { x.Currency, x.ItemCode, x.WarehouseCode })
+            .SelectMany(s => s.Lines, (s, line) => new { s.Currency, s.SourceSystem, s.WarehouseCode, line.ItemCode, line.Quantity, line.LineTotal })
+            .GroupBy(x => new { x.Currency, x.SourceSystem, x.ItemCode, x.WarehouseCode })
             .Select(g => new
             {
                 g.Key.Currency,
+                g.Key.SourceSystem,
                 g.Key.ItemCode,
                 g.Key.WarehouseCode,
                 Quantity = g.Sum(x => x.Quantity),
                 NetAmount = g.Sum(x => x.LineTotal),
             })
             .ToListAsync(cancellationToken))
-        .Select(m => new MatrixCell(CurrencyKey(m.Currency), m.ItemCode, m.WarehouseCode ?? string.Empty, m.Quantity, m.NetAmount))
+        .GroupBy(m => (Currency: CurrencyKey(m.Currency), Business: SaleBusinesses.Of(m.SourceSystem), m.ItemCode, Place: m.WarehouseCode ?? string.Empty))
+        .Select(g => new MatrixCell(g.Key.Currency, g.Key.Business, g.Key.ItemCode, g.Key.Place, g.Sum(m => m.Quantity), g.Sum(m => m.NetAmount)))
         .ToList();
 
     private static async Task<List<MatrixCell>> PartnerMatrixAsync(IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>
         (await sales
-            .SelectMany(s => s.Lines, (s, line) => new { s.Currency, s.CardCode, line.ItemCode, line.Quantity, line.LineTotal })
-            .GroupBy(x => new { x.Currency, x.ItemCode, x.CardCode })
+            .SelectMany(s => s.Lines, (s, line) => new { s.Currency, s.SourceSystem, s.CardCode, line.ItemCode, line.Quantity, line.LineTotal })
+            .GroupBy(x => new { x.Currency, x.SourceSystem, x.ItemCode, x.CardCode })
             .Select(g => new
             {
                 g.Key.Currency,
+                g.Key.SourceSystem,
                 g.Key.ItemCode,
                 g.Key.CardCode,
                 Quantity = g.Sum(x => x.Quantity),
                 NetAmount = g.Sum(x => x.LineTotal),
             })
             .ToListAsync(cancellationToken))
-        .Select(m => new MatrixCell(CurrencyKey(m.Currency), m.ItemCode, m.CardCode?.Trim() ?? string.Empty, m.Quantity, m.NetAmount))
+        .GroupBy(m => (Currency: CurrencyKey(m.Currency), Business: SaleBusinesses.Of(m.SourceSystem), m.ItemCode, Place: m.CardCode?.Trim() ?? string.Empty))
+        .Select(g => new MatrixCell(g.Key.Currency, g.Key.Business, g.Key.ItemCode, g.Key.Place, g.Sum(m => m.Quantity), g.Sum(m => m.NetAmount)))
         .ToList();
 
     /// <summary>
@@ -431,7 +447,17 @@ public sealed class GetManagementSalesReportHandler(
             .ThenBy(row => row.Label, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var byItem = Items(currency, currentItems, previousItems, margin, groups);
+        // One line of business at a time, in review order. Each compares an item with its own previous
+        // period, shares it against its own lines and costs it on its own invoices.
+        var byItem = SaleBusinesses.All
+            .SelectMany(business => Items(
+                currency,
+                business,
+                currentItems.Where(i => i.Business == business).ToList(),
+                previousItems.Where(i => i.Business == business).ToList(),
+                margin,
+                groups))
+            .ToList();
 
         return new ManagementCurrencySection(
             currency,
@@ -453,17 +479,21 @@ public sealed class GetManagementSalesReportHandler(
             matrix
                 .OrderBy(m => m.ItemCode, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => m.WarehouseCode, StringComparer.OrdinalIgnoreCase)
-                .Select(m => new ManagementItemDepotCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount))
+                .ThenBy(m => Array.IndexOf(SaleBusinesses.All, m.Business))
+                .Select(m => new ManagementItemDepotCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount, m.Business))
                 .ToList(),
             partnerMatrix
                 .OrderBy(m => m.ItemCode, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => m.WarehouseCode, StringComparer.OrdinalIgnoreCase)
-                .Select(m => new ManagementItemPartnerCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount))
+                .ThenBy(m => Array.IndexOf(SaleBusinesses.All, m.Business))
+                .Select(m => new ManagementItemPartnerCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount, m.Business))
                 .ToList());
     }
 
+    /// <summary>One line of business's items, set against the same business in the previous period.</summary>
     private static List<ManagementItemRow> Items(
         string currency,
+        string business,
         List<ItemCell> currentItems,
         List<ItemCell> previousItems,
         MarginBook margin,
@@ -480,7 +510,7 @@ public sealed class GetManagementSalesReportHandler(
             var net = now?.NetAmount ?? 0m;
             var price = PerUnit(net, quantity);
             var previousPrice = PerUnit(before?.NetAmount ?? 0m, before?.Quantity ?? 0m);
-            var itemMargin = now is null ? null : margin.For(currency, Dimension.Item, code);
+            var itemMargin = now is null ? null : margin.For(currency, Dimension.Item, ItemKey(business, code));
 
             return new ManagementItemRow(
                 code,
@@ -500,7 +530,8 @@ public sealed class GetManagementSalesReportHandler(
                 now is null || now.SalesCount == 0 ? 0m : Math.Round(quantity / now.SalesCount, 2, MidpointRounding.AwayFromZero),
                 now?.DiscountAmount ?? 0m,
                 itemMargin?.GrossProfit,
-                itemMargin?.MarginPercent);
+                itemMargin?.MarginPercent,
+                business);
         }
 
         return currentItems
@@ -513,34 +544,42 @@ public sealed class GetManagementSalesReportHandler(
             .ToList();
     }
 
-    /// <summary>The items rolled up by group. Margin is the sum of the items' SAP figures, which add.</summary>
-    private static List<ManagementItemGroupRow> ItemGroups(string currency, List<ManagementItemRow> items, MarginBook margin)
-    {
-        var lineValue = items.Sum(i => i.NetAmount);
-
-        return items
-            .GroupBy(item => item.ItemsGroupCode)
-            .Select(group =>
+    /// <summary>
+    /// Each business's items rolled up by group, one business after another. Margin is the sum of the
+    /// items' SAP figures, which add.
+    /// </summary>
+    private static List<ManagementItemGroupRow> ItemGroups(string currency, List<ManagementItemRow> items, MarginBook margin) =>
+        items
+            .GroupBy(item => item.Business)
+            .SelectMany(business =>
             {
-                var net = group.Sum(i => i.NetAmount);
-                var before = group.Sum(i => i.PreviousNetAmount);
-                var groupMargin = MarginFigure.Sum(group.Select(i => margin.For(currency, Dimension.Item, i.ItemCode)));
-                return new ManagementItemGroupRow(
-                    group.Key,
-                    group.Count(),
-                    group.Sum(i => i.Quantity),
-                    net,
-                    Share(net, lineValue),
-                    group.Sum(i => i.PreviousQuantity),
-                    before,
-                    Change(net, before),
-                    groupMargin?.GrossProfit,
-                    groupMargin?.MarginPercent);
+                var lineValue = business.Sum(i => i.NetAmount);
+
+                return business
+                    .GroupBy(item => item.ItemsGroupCode)
+                    .Select(group =>
+                    {
+                        var net = group.Sum(i => i.NetAmount);
+                        var before = group.Sum(i => i.PreviousNetAmount);
+                        var groupMargin = MarginFigure.Sum(
+                            group.Select(i => margin.For(currency, Dimension.Item, ItemKey(business.Key, i.ItemCode))));
+                        return new ManagementItemGroupRow(
+                            group.Key,
+                            group.Count(),
+                            group.Sum(i => i.Quantity),
+                            net,
+                            Share(net, lineValue),
+                            group.Sum(i => i.PreviousQuantity),
+                            before,
+                            Change(net, before),
+                            groupMargin?.GrossProfit,
+                            groupMargin?.MarginPercent,
+                            business.Key);
+                    })
+                    .OrderByDescending(row => row.NetAmount)
+                    .ThenByDescending(row => row.PreviousNetAmount);
             })
-            .OrderByDescending(row => row.NetAmount)
-            .ThenByDescending(row => row.PreviousNetAmount)
             .ToList();
-    }
 
     private static List<ManagementBreakdownRow> Breakdown(
         List<Cell> current,
@@ -606,10 +645,13 @@ public sealed class GetManagementSalesReportHandler(
         decimal VatAmount);
 
     private sealed record ItemCell(
-        string Currency, string ItemCode, string? ItemDescription, decimal Quantity, decimal NetAmount, decimal DiscountAmount, int SalesCount);
+        string Currency, string Business, string ItemCode, string? ItemDescription, decimal Quantity, decimal NetAmount, decimal DiscountAmount, int SalesCount);
 
-    /// <summary>An item at one place — a warehouse in the depot grid, a CardCode in the partner grid.</summary>
-    private sealed record MatrixCell(string Currency, string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount);
+    /// <summary>
+    /// An item at one place, in one line of business — a warehouse in the depot grid, a CardCode in the
+    /// partner grid.
+    /// </summary>
+    private sealed record MatrixCell(string Currency, string Business, string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount);
 
     private sealed record HealthCell(
         string Currency,

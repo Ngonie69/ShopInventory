@@ -820,6 +820,19 @@
     color: var(--ops-mute-3);
 }
 
+/* The way across to the vans' breakdown. Bootstrap's bare `a` would paint it its own blue. */
+.ops-sbd .ops-sbd-foot a {
+    color: var(--ops-accent-text);
+    text-decoration: none;
+}
+
+.ops-sbd .ops-sbd-foot a:hover,
+.ops-sbd .ops-sbd-foot a:focus-visible {
+    color: var(--ops-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
 .ops-sbd .ops-sbd-toast {
     position: fixed;
     right: var(--ops-s8);

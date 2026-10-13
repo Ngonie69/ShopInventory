@@ -48,7 +48,7 @@ public sealed class GetManagementItemAnalysisHandler(
         GetManagementItemAnalysisQuery request, CancellationToken cancellationToken)
     {
         var resolved = await WindowAsync(
-            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, request.CardCode, cancellationToken);
+            db, request.CallerUserId, request.FromDate, request.ToDate, request.WarehouseCode, request.SourceSystem, request.CardCode, cancellationToken, request.Business);
         if (resolved.IsError)
         {
             return resolved.Errors;

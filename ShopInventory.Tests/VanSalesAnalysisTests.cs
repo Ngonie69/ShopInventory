@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
@@ -128,6 +129,10 @@ public sealed class VanSalesAnalysisTests : IDisposable
         Assert.Equal(Van, one.WarehouseCode);
         Assert.Equal(100m, Usd(one).TotalAmount);
         Assert.Equal(2, Usd(one).TopItems.Single().SalesCount);
+
+        // The vans are one line of business, and every item row says so.
+        Assert.Equal(SaleBusinesses.Vans, Usd(one).TopItems.Single().Business);
+        Assert.Equal(SaleBusinesses.Vans, Usd(one).ItemsByBusiness.Single().Business);
     }
 
     /// <summary>

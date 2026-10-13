@@ -111,7 +111,7 @@ internal static class DesktopSalesReviewPdfRenderer
                 + $" · compared with {D(review.PreviousFromDate, "d MMM")} to {D(review.PreviousToDate, "d MMM")}",
                 fonts.Regular, 10)
             .SetFontColor(Muted));
-        document.Add(Text($"Generated {D(generatedAtCat, "d MMM yyyy, HH:mm")} CAT · online van receipts excluded (counted as their SAP invoices)", fonts.Regular, 8)
+        document.Add(Text($"Generated {D(generatedAtCat, "d MMM yyyy, HH:mm")} CAT · shop tills and vending only; van sales are reported under Van Sales", fonts.Regular, 8)
             .SetFontColor(Muted)
             .SetMarginBottom(10));
     }
@@ -448,7 +448,7 @@ internal static class DesktopSalesReviewPdfRenderer
         var notes = new[]
         {
             "Figures are the Desktop Sales Analysis and Management Sales pages for the same period and scope, so they agree with both.",
-            "Shops, vending and vans are reviewed apart and never added together; neither are currencies. Amounts include VAT unless marked before VAT.",
+            "Shops and vending are reviewed apart and never added together; neither are currencies. Amounts include VAT unless marked before VAT.",
             "Takings per trading day divide by the days a shop sold anything, so a shop that opened mid-period is compared fairly.",
             "Traffic and ticket split the change on the previous period: more or fewer sales at the old average, and the average moving at the new count.",
             "Short tendered counts sales whose recorded tender was below their total. Sales with no tender recorded count as neither short nor change.",

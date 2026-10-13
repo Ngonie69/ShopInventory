@@ -204,7 +204,8 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
                 item.Quantity,
                 item.NetAmount,
                 item.SalesCount,
-                Share(item.NetAmount, lineValue)))
+                Share(item.NetAmount, lineValue),
+                SaleBusinesses.Vans))
             .ToList();
 
         // A route customer's code is unique only within the van's account, so the account is part of the
@@ -260,7 +261,20 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
                 sale => sale.VanAccountCode?.Trim() ?? "",
                 group => (group.Key, group.Key.Length == 0 ? "Not recorded" : group.Key),
                 total,
-                paymentMethods)
+                paymentMethods),
+
+            // The vans are one line of business, and this analysis reads nothing else.
+            ItemsByBusiness = items.Count == 0
+                ? []
+                :
+                [
+                    new DesktopSalesBusinessItems(
+                        SaleBusinesses.Vans,
+                        SaleBusinesses.Label(SaleBusinesses.Vans),
+                        items.Count,
+                        items.Sum(item => item.Quantity),
+                        lineValue)
+                ]
         };
     }
 

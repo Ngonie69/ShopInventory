@@ -126,6 +126,12 @@ public partial class DesktopSalesReport : IDisposable
     /// <summary>The one day the page is confined to, picked from the trading pattern.</summary>
     private DateTime? day;
 
+    /// <summary>
+    /// The line of business whose best sellers are listed, by its key; null for the first that sold. Shops
+    /// and vending sell different ranges, so the list is never both at once.
+    /// </summary>
+    private string? itemsBusiness;
+
     private bool showAllItems;
     private bool isLoading;
     private bool isExporting;

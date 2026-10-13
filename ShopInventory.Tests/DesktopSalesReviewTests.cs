@@ -124,6 +124,24 @@ public sealed class DesktopSalesReviewTests : IDisposable
     }
 
     [Fact]
+    public async Task Van_sales_are_not_reviewed_by_either_route_they_arrive_by()
+    {
+        Add(Sale(10m, From, FactoryShop));
+        Add(Sale(500m, From, "VAN001", source: SaleSourceSystems.VanSales));
+        Add(Sale(900m, From, "VAN001", source: SaleSourceSystems.VanSalesOnline));
+        Add(Sale(300m, From.AddDays(-2), "VAN002", source: SaleSourceSystems.VanSales));
+
+        var review = await RunAsync();
+
+        // No section for the vans, and nothing of theirs inside the shops' one.
+        Assert.Equal([SaleBusinesses.Shops], review.Businesses.Select(b => b.Business));
+        var shops = Dollars(review);
+        Assert.Equal(10m, shops.Headline.TotalAmount);
+        Assert.Equal([FactoryShop], shops.ByShop.Select(s => s.WarehouseCode));
+        Assert.Equal(1, review.Businesses.Single().Health.SalesCount);
+    }
+
+    [Fact]
     public async Task A_shop_whose_first_sale_is_inside_the_period_is_marked_as_started()
     {
         SeedWeek();

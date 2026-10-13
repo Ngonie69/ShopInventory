@@ -113,21 +113,21 @@ public sealed class GetDesktopSalesHandler(
             return q;
         }
 
-        // The source scope, decided rather than inherited. This is a list of sales, and an online van
-        // sale's row is not one — it carries the receipt a handset signed for a sale that lives in SAP
-        // and in its confirmed StockReservation. Every money column on this DTO therefore describes a
-        // sale the caller is already looking at somewhere else, so the default answer excludes it and a
-        // caller that wants those rows asks for them by name.
+        // The source scope, decided rather than inherited. This is the counters' list: shop tills and
+        // vending. A van's rows are left out of the default answer by both routes they arrive by — the
+        // offline upload, which is a sale, and the online receipt carrier, which is not one — because the
+        // vans are listed, posted and credited from Van Sales → Invoices, which reads the reservations too
+        // and so shows every van sale rather than half of them.
         //
-        // Findable rather than hidden: the row is real, an operator chasing a fiscal reference has to be
-        // able to reach it, and the fiscalisation console is not a document list. The filter is plain
-        // equality so `?sourceSystem=KefalosVanSalesOnline` returns exactly them.
+        // Findable rather than hidden: the rows are real, and an operator chasing a fiscal reference has
+        // to be able to reach them. The filter is plain equality, so `?sourceSystem=KefalosVanSales` or
+        // `KefalosVanSalesOnline` returns exactly that source.
         static IQueryable<DesktopSaleEntity> WithSources(
             IQueryable<DesktopSaleEntity> q, IReadOnlyList<string> picked)
         {
             if (picked.Count == 0)
             {
-                return q.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline);
+                return q.AtCounters();
             }
 
             var (named, blank) = SplitBlank(picked);

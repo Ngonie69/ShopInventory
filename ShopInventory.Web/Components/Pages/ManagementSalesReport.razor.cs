@@ -101,8 +101,7 @@ public partial class ManagementSalesReport : IDisposable
     [
         new(string.Empty, "All channels") { IsUnset = true, RuleAfter = true },
         new("KefalosShopTill", "Shop till"),
-        new("KefalosVending", "Vending"),
-        new("KefalosVanSales", "Van sales")
+        new("KefalosVending", "Vending")
     ];
 
     [Inject] private IMediator Mediator { get; set; } = default!;
@@ -359,7 +358,7 @@ public partial class ManagementSalesReport : IDisposable
     private bool BreakdownCarriesMargin => breakdown != ByPayment;
 
     /// <summary>
-    /// The name a row is read by. A vending depot or van comes back as its warehouse with its business
+    /// The name a row is read by. A vending depot comes back as its warehouse with its business
     /// partner as the hint; the partner's name is what a manager knows it by, so it leads where the
     /// cache has it.
     /// </summary>
@@ -367,7 +366,7 @@ public partial class ManagementSalesReport : IDisposable
         breakdown == ByDepot ? DepotName(row.Label, row.Hint) : (row.Label, row.Hint);
 
     /// <summary>
-    /// A shop row arrives named; a vending depot or van arrives as its warehouse with its partner code as
+    /// A shop row arrives named; a vending depot arrives as its warehouse with its partner code as
     /// the hint (no "·"), and is named by that partner where the cache knows it.
     /// </summary>
     private (string Label, string? Hint) DepotName(string label, string? hint) =>
@@ -375,10 +374,56 @@ public partial class ManagementSalesReport : IDisposable
             ? (name, $"{hint} · {label}")
             : (label, hint);
 
+    // ── One line of business at a time ───────────────────────────────────
+    // Shops and vending sell different ranges. Every product row the API sends names the business it
+    // belongs to, with its share, change and margin measured inside that business; the page draws one
+    // business's rows and never both.
+
+    /// <summary>The line of business whose products are on screen, by its key; null for the first that sold.</summary>
+    private string? productBusiness;
+
+    /// <summary>The businesses with a product row in this currency, in the order the API lists them.</summary>
+    private static List<string> ProductBusinesses(ManagementCurrencySection sales) =>
+        sales.ByItem.Select(item => item.Business).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private string ProductBusiness(ManagementCurrencySection sales)
+    {
+        var businesses = ProductBusinesses(sales);
+        return businesses.FirstOrDefault(business => string.Equals(business, productBusiness, StringComparison.OrdinalIgnoreCase))
+            ?? businesses.FirstOrDefault()
+            ?? string.Empty;
+    }
+
+    private bool InProductBusiness(ManagementCurrencySection sales, string business) =>
+        string.Equals(business, ProductBusiness(sales), StringComparison.OrdinalIgnoreCase);
+
+    private List<ManagementItemRow> ProductItems(ManagementCurrencySection sales) =>
+        sales.ByItem.Where(item => InProductBusiness(sales, item.Business)).ToList();
+
+    private List<ManagementItemGroupRow> ProductGroups(ManagementCurrencySection sales) =>
+        sales.ByItemGroup.Where(group => InProductBusiness(sales, group.Business)).ToList();
+
+    /// <summary>
+    /// Another line of business: its groups, its search results and its open item are not the last one's.
+    /// </summary>
+    private void SetProductBusiness(string business)
+    {
+        if (string.Equals(business, productBusiness, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        productBusiness = business;
+        ClearGroupFilter();
+        showAllItems = false;
+        showAllMatrix = false;
+        CloseItem();
+    }
+
     private List<ManagementItemRow> VisibleItems(ManagementCurrencySection sales)
     {
         var term = itemQuery.Trim();
-        var rows = sales.ByItem.Where(item => (!groupFilterSet || item.ItemsGroupCode == itemGroupFilter) && (term.Length == 0
+        var rows = ProductItems(sales).Where(item => (!groupFilterSet || item.ItemsGroupCode == itemGroupFilter) && (term.Length == 0
             || item.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase)
             || (item.ItemDescription?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)));
 
@@ -491,9 +536,12 @@ public partial class ManagementSalesReport : IDisposable
     }
 
     /// <summary>The grid's columns: every business partner the items sold as, busiest first, named as the breakdown names them.</summary>
-    private static List<(string CardCode, string Label)> MatrixColumns(ManagementCurrencySection sales)
+    private List<(string CardCode, string Label)> MatrixColumns(ManagementCurrencySection sales)
     {
-        var sold = sales.ItemPartnerMatrix.Select(cell => cell.CardCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var sold = sales.ItemPartnerMatrix
+            .Where(cell => InProductBusiness(sales, cell.Business))
+            .Select(cell => cell.CardCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         return sales.ByPartner
             .Where(row => sold.Contains(row.Key))
             .Select(row => (row.Key, row.Label))
@@ -509,7 +557,8 @@ public partial class ManagementSalesReport : IDisposable
     private decimal MatrixValue(ManagementCurrencySection sales, string itemCode, string partner)
     {
         var cell = sales.ItemPartnerMatrix.FirstOrDefault(c =>
-            string.Equals(c.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)
+            InProductBusiness(sales, c.Business)
+            && string.Equals(c.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)
             && string.Equals(c.CardCode, partner, StringComparison.OrdinalIgnoreCase));
         return cell is null ? 0m : matrixMeasure == MeasureQuantity ? cell.Quantity : cell.NetAmount;
     }
@@ -548,7 +597,9 @@ public partial class ManagementSalesReport : IDisposable
                     result?.ToDate ?? toDate,
                     null,
                     string.IsNullOrWhiteSpace(channel) ? null : channel,
-                    string.IsNullOrWhiteSpace(cardCode) ? null : cardCode),
+                    string.IsNullOrWhiteSpace(cardCode) ? null : cardCode,
+                    // The business whose row was opened: the same item in the other one is another row.
+                    Current is { } section && ProductBusiness(section) is { Length: > 0 } business ? business : null),
                 cancellationToken);
 
             if (cancellationToken.IsCancellationRequested || isDisposed)
