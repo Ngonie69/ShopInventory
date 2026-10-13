@@ -260,6 +260,36 @@ public sealed class VanDailyTruckReportTests : IDisposable
         Assert.Equal(1, report.Exceptions.DistanceWithoutSales);
     }
 
+    [Fact]
+    public async Task A_day_left_with_one_odometer_reading_is_picked_out()
+    {
+        AddDay(Rep, Thursday, start: 1000, close: null);
+        await _context.SaveChangesAsync();
+
+        var report = await ReportAsync();
+
+        Assert.True(Day(report, _west1, Thursday).MileageNeedsReview);
+        Assert.Equal(1, report.Exceptions.MileageNeedsReview);
+    }
+
+    /// <summary>A truck out today has read its odometer once. It has not closed, and that is not a fault.</summary>
+    [Fact]
+    public async Task A_truck_still_out_today_is_not_asked_for_its_closing_reading()
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+        AddDay(Rep, today, start: 1000, close: null);
+        await _context.SaveChangesAsync();
+
+        var result = await Handler().Handle(new GetVanDailyTruckReportQuery(today, today), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var day = Day(result.Value, _west1, today);
+        Assert.False(day.IsComplete);
+        Assert.Equal(1000, day.StartingMileage);
+        Assert.False(day.MileageNeedsReview);
+        Assert.Equal(0, result.Value.Exceptions.MileageNeedsReview);
+    }
+
     /// <summary>The rows are routes. Takings by a login on no route are in none of them, and are stated.</summary>
     [Fact]
     public async Task Takings_by_a_login_on_no_route_are_stated_not_dropped()

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -7,6 +8,8 @@ namespace ShopInventory.Web.Components.Pages;
 public partial class VanDailyTruckReport
 {
     [Inject] private IVanSalesReportService VanSalesReportService { get; set; } = default!;
+    [Inject] private IReportExportService ExportService { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
 
     private VanDailyTruckReportResponse? report;
 
@@ -17,6 +20,7 @@ public partial class VanDailyTruckReport
     private string? error;
     private bool isLoading = true;
     private bool isSaving;
+    private bool isExporting;
 
     // The one day whose office entry is open, and what has been typed into it.
     private VanDailyTruckDay? editing;
@@ -62,6 +66,37 @@ public partial class VanDailyTruckReport
         {
             isLoading = false;
             StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Downloads the report on screen as a workbook: the period that was run, not whatever the date
+    /// boxes have been changed to since.
+    /// </summary>
+    private async Task ExportAsync()
+    {
+        if (report is null || isExporting)
+        {
+            return;
+        }
+
+        isExporting = true;
+        error = null;
+
+        try
+        {
+            var bytes = ExportService.ExportVanDailyTruckReportToExcel(report);
+            var fileName = $"VanDailyTruckReport_{report.FromDate:yyyyMMdd}-{report.ToDate:yyyyMMdd}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            error = $"The export could not be downloaded: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
         }
     }
 
