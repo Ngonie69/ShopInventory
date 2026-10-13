@@ -56,10 +56,14 @@ public sealed class DesktopCreditExternalCredits(ISAPServiceLayerClient sap, IRe
         if (sale.SapDocEntry is not > 0 && sale.ConsolidationStatus != DesktopSaleConsolidationStatus.Consolidated)
             return DesktopCreditExternalHistory.None;
 
+        // A memo against this sale's invoice is dated the day the invoice was posted under, which a till
+        // may have set earlier than the day it sold (PostingDate). The window opens on whichever is first.
+        var earliest = sale.PostingDate is { } posted && posted < sale.DocDate ? posted : sale.DocDate;
+
         List<Models.SAPCreditNote> memos;
         try
         {
-            memos = await sap.GetCreditNotesByCustomerAsync(sale.CardCode, sale.DocDate.Date.AddDays(-1),
+            memos = await sap.GetCreditNotesByCustomerAsync(sale.CardCode, earliest.Date.AddDays(-1),
                 DateTime.UtcNow.Date.AddDays(1), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

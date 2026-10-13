@@ -254,6 +254,11 @@ public sealed class DesktopCreditSapPoster(
             return;
         }
 
+        // Booked on the invoice's own day, as SAP holds it. A sale SAP answers no date for falls back
+        // to the day its invoice was built with — DesktopSaleInvoiceRequestBuilder's own choice.
+        request.PostingDate = CreditMemoPostingDate.OfInvoice(invoice)
+            ?? DateOnly.FromDateTime(sale.PostingDate ?? sale.DocDate);
+
         try
         {
             CreditMemoBatchSelection.Apply(request, invoice, await AlreadyCreditedAsync(note, sale));

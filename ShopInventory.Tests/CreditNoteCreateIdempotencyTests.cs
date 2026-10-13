@@ -295,6 +295,39 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
     }
 
     /// <summary>
+    /// A till, vending or van invoice credited from the Invoices page is booked on the invoice's day,
+    /// the same as one credited from its own channel's page. An ordinary invoice keeps today.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Only_a_van_shop_or_vending_invoice_is_credited_on_its_own_posting_date(bool cameFromATill)
+    {
+        _invoice.DocDate = "2026-09-28T00:00:00Z";
+
+        if (cameFromATill)
+        {
+            _context.DesktopSales.Add(new DesktopSaleEntity
+            {
+                ExternalReferenceId = "GRC-FAC-20260928-A1",
+                SourceSystem = ShopInventory.Common.Sales.SaleSourceSystems.ShopTill,
+                CardCode = _invoice.CardCode!,
+                DocDate = new DateTime(2026, 9, 28, 0, 0, 0, DateTimeKind.Utc),
+                TotalAmount = 240m,
+                Currency = "USD",
+                WarehouseCode = "KEFGRS",
+                SapDocEntry = _invoice.DocEntry
+            });
+            await _context.SaveChangesAsync();
+        }
+
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Equal(cameFromATill ? new DateOnly(2026, 9, 28) : null, _lastPosted?.PostingDate);
+    }
+
+    /// <summary>
     /// Invoice 772109 on 2026-09-11. Credit memo 55294 had credited every line in full, and SAP read
     /// each one RemainingOpenQuantity 0, bost_Close. The guard used to total the invoice's credit notes
     /// from a lookup that was a stub answering "none", so it would have cleared a second full credit.

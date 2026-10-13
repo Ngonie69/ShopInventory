@@ -67,7 +67,8 @@ left offers no quantities at all.
 
 "Elsewhere" is the SAP credit-note screen, the InvoiceFiscalisation tool and the vendor's SAP add-on,
 which all file a credit under its SAP credit memo's number. REVMax cannot list the credits that
-reference a receipt, so the API reads the customer's SAP credit memos dated from the sale onwards,
+reference a receipt, so the API reads the customer's SAP credit memos dated from the sale onwards
+(from its SAP posting date, when the till set one earlier than the day it sold),
 asks the device for each memo number, and counts a receipt only when it is a credit note on our device
 whose `creditDebitNote` names this receipt's device and global number.
 
@@ -116,6 +117,14 @@ The memo is based on the invoice line by line. It credits only the lines and qua
 names, and carries the credit's `DCN-` number in two places. `NumAtCard` lets a retry find a memo
 whose reply was lost rather than raising a second. `U_Van_saleorder` lets the fiscalisation platform
 link the credit it filed to this memo, so Credit Note Tracking shows the memo's DocNum.
+
+The memo is **posted on the invoice's date**: its `DocDate` is the day SAP holds the invoice under,
+so a return keyed a day or more later still lands in the trading day of the sale it reverses. Only
+the posting date moves — the document date (`TaxDate`) and the due date are the day the memo is
+raised, and the fiscal credit keeps the date the platform gave it. The same rule applies when one of
+these invoices is credited or cancelled from the Invoices page (`CreditMemoPostingDate`). A posting
+period locked in SAP refuses the memo; it stays failed, with SAP's message, until the period is open
+and someone presses **Retry SAP** — it is never re-dated to today.
 
 Basing a line on the invoice does **not** make SAP take its batches: a batch-managed line that names
 none is refused ("Cannot add row without complete selection of batch/serial numbers") and the whole

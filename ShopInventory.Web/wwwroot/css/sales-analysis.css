@@ -617,6 +617,18 @@
     box-shadow: inset 0 0 0 1px var(--sla-accent);
 }
 
+/* The channel switch rides in the notice that explains it, and wraps beneath it on a narrow page. */
+.sla-alert.sla-channels {
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.sla-alert.sla-channels .sla-seg {
+    flex: none;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
 .sla-query-foot {
     display: flex;
     flex-wrap: wrap;

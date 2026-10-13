@@ -8,6 +8,13 @@ public sealed class ItemVolumeSalesAccountResult
     public string CardCode { get; set; } = string.Empty;
     public string CardName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The trade channel the partner sells through — SAP's <c>OCRD.U_Channel</c>, as
+    /// <see cref="ItemVolumeSalesChannel"/> reads it. Empty for a partner with none, and for every partner
+    /// when the report could not read the channels at all (see <c>ChannelsRead</c>).
+    /// </summary>
+    public string Channel { get; set; } = string.Empty;
+
     public int InvoiceCount { get; set; }
     public int CreditNoteCount { get; set; }
 

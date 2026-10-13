@@ -88,6 +88,17 @@ public sealed class GetItemVolumeSalesReportHandler(
             var periods = BuildPeriodResults(fromDateUtc, toDateUtc, request.Grouping, accountNames, lines, factors, itemNames);
             var documentLines = BuildDocumentLineResults(request.Grouping, fromDateUtc, toDateUtc, lines, factors);
 
+            // After the documents rather than beside them: it is a few short reads, and a third walk through
+            // the SAP gate at the same moment buys nothing the report would notice.
+            var channels = await ReadChannelsAsync(accountCodes, timeoutCts.Token);
+
+            foreach (var account in accountTotals.Concat(periods.SelectMany(period => period.Accounts)))
+            {
+                account.Channel = channels is not null && channels.TryGetValue(account.CardCode, out var channel)
+                    ? ItemVolumeSalesChannel.Normalise(channel)
+                    : ItemVolumeSalesChannel.None;
+            }
+
             var itemCodesWithoutFactor = itemTotals
                 .Where(item => !item.HasVolumeFactor)
                 .Select(item => item.ItemCode)
@@ -117,6 +128,7 @@ public sealed class GetItemVolumeSalesReportHandler(
                     periods.Count,
                     itemTotals,
                     accountTotals),
+                ChannelsRead = channels is not null,
                 ItemTotals = itemTotals,
                 AccountTotals = accountTotals,
                 Periods = periods,
@@ -232,6 +244,35 @@ public sealed class GetItemVolumeSalesReportHandler(
                     IsZigCurrency(note.DocCurrency) ? -Math.Abs(line.LineTotal) : 0m)))
             .Where(line => line.DocumentDateUtc != DateTime.MinValue)
             .ToList();
+    }
+
+    /// <summary>
+    /// Each selected account's trade channel, or null when SAP could not be asked.
+    /// </summary>
+    /// <remarks>
+    /// The report is worth having without it: the invoices and credit notes are already read, and a channel
+    /// is a way of dividing them, not one of the figures. So a failure here is recorded and the report goes
+    /// out saying the channels were not read, rather than failing a window that took a minute to walk.
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<string, string?>?> ReadChannelsAsync(
+        IReadOnlyCollection<string> accountCodes, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await sapClient.GetBusinessPartnerChannelsAsync(accountCodes, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not read the trade channel of {AccountCount} account(s) for the item volume report; it goes out without channels",
+                accountCodes.Count);
+            return null;
+        }
     }
 
     private static List<ItemVolumeSalesItemResult> BuildItemResults(

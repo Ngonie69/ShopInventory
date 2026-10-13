@@ -355,6 +355,42 @@
 
             <div class="sla-result">
 
+                @* One trade channel at a time. Shops, general trade, vending and the rest sell different
+                   ranges, so an item's volume is never shown added across them: where the partners picked
+                   span more than one channel, this picks whose items the figures below are. It re-reads
+                   the window already loaded, as the crate switch does. *@
+                @if (SplitsByChannel)
+                {
+                    <div class="sla-alert is-info sla-channels">
+                        <i class="ph ph-tree-structure" aria-hidden="true"></i>
+                        <div class="sla-alert-body">
+                            <strong>Showing @ItemVolumeSalesChannels.Label(CurrentChannel) only.</strong>
+                            The partners you picked sell through @Channels.Count channels. Their items are
+                            shown one channel at a time and never added together.
+                        </div>
+                        <div class="sla-seg" role="group" aria-label="Trade channel">
+                            @foreach (var option in Channels)
+                            {
+                                var channel = option;
+                                var on = string.Equals(channel, CurrentChannel, StringComparison.OrdinalIgnoreCase);
+                                <button type="button" class="sla-seg-opt @(on ? "is-on" : "")" aria-pressed="@on"
+                                        @onclick="@(() => PickChannel(channel))">@ItemVolumeSalesChannels.Label(channel)</button>
+                            }
+                        </div>
+                    </div>
+                }
+                else if (ChannelsUnknown)
+                {
+                    <div class="sla-alert is-warn">
+                        <i class="ph ph-warning" aria-hidden="true"></i>
+                        <div class="sla-alert-body">
+                            <strong>The partners' channels could not be read from SAP.</strong>
+                            The items below add every partner you picked together, whichever channel each
+                            sells through. Run the report again to see them one channel at a time.
+                        </div>
+                    </div>
+                }
+
                 @if (IsVolume && report.ItemCodesWithoutFactor.Count > 0)
                 {
                     <div class="sla-alert is-warn">

@@ -10776,14 +10776,55 @@ ORDER BY T0."DocEntry", T1."LineNum"
         foreach (var chunk in distinctCodes.Chunk(BusinessPartnerCodeBatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            results.AddRange(await GetBusinessPartnerChunkAsync(chunk, cancellationToken));
+            results.AddRange(await GetBusinessPartnerChunkAsync(chunk, BusinessPartnerSelectFields, cancellationToken));
         }
 
         return results;
     }
 
+    /// <summary>The code and the channel, and nothing else: this read is asked only which channel each is in.</summary>
+    private const string BusinessPartnerChannelOnlySelectFields = "$select=CardCode,U_Channel";
+
+    public async Task<IReadOnlyDictionary<string, string?>> GetBusinessPartnerChannelsAsync(
+        IReadOnlyCollection<string> cardCodes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cardCodes);
+
+        var channels = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        var distinctCodes = cardCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctCodes.Count == 0)
+            return channels;
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        // One after another, as the read above: the point is not to crowd the shared SAP gate.
+        foreach (var chunk in distinctCodes.Chunk(BusinessPartnerCodeBatchSize))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            foreach (var partner in await GetBusinessPartnerChunkAsync(
+                         chunk, BusinessPartnerChannelOnlySelectFields, cancellationToken))
+            {
+                if (!string.IsNullOrWhiteSpace(partner.CardCode))
+                {
+                    channels[partner.CardCode.Trim()] = string.IsNullOrWhiteSpace(partner.Channel) ? null : partner.Channel.Trim();
+                }
+            }
+        }
+
+        return channels;
+    }
+
     private async Task<List<BusinessPartnerDto>> GetBusinessPartnerChunkAsync(
         IReadOnlyList<string> cardCodes,
+        string selectFields,
         CancellationToken cancellationToken)
     {
         var currentSession = _sessionId;
@@ -10795,7 +10836,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
         // Encoded whole, so a card code carrying an '&' cannot close the filter and append
         // parameters of its own.
         var filter = $"$filter={Uri.EscapeDataString($"({codeFilter})")}&$orderby=CardCode&$top={cardCodes.Count}";
-        var url = $"BusinessPartners?{BusinessPartnerSelectFields}&{filter}";
+        var url = $"BusinessPartners?{selectFields}&{filter}";
 
         HttpRequestMessage CreateRequest()
         {
@@ -16756,6 +16797,16 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         // Determine if we should create based on invoice (with BaseEntry/BaseType)
         var isFromInvoice = request.OriginalInvoiceDocEntry.HasValue && request.OriginalInvoiceDocEntry > 0;
 
+        // Posted today unless the caller names a day — a van, shop or vending credit is booked on its
+        // invoice's day. Only the posting date moves: the document date is then stated as today, so it
+        // stays the day the credit was actually raised whatever SAP would default it to, and the due
+        // date never falls before the posting date, which SAP refuses.
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var postingDate = request.PostingDate ?? today;
+        var docDate = FormatSapDocumentDate(postingDate);
+        var docDueDate = FormatSapDocumentDate(postingDate > today ? postingDate : today);
+        var taxDate = request.PostingDate.HasValue ? FormatSapDocumentDate(today) : null;
+
         object creditNotePayload;
 
         if (isFromInvoice)
@@ -16764,8 +16815,9 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             creditNotePayload = new
             {
                 CardCode = request.CardCode,
-                DocDate = DateTime.Now.ToString("yyyy-MM-dd"),
-                DocDueDate = DateTime.Now.ToString("yyyy-MM-dd"),
+                DocDate = docDate,
+                DocDueDate = docDueDate,
+                TaxDate = taxDate,
                 Comments = request.Reason ?? request.Comments,
                 // The only thing in SAP that identifies this credit note as one particular request's.
                 NumAtCard = request.SapReference,
@@ -16826,8 +16878,9 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             creditNotePayload = new
             {
                 CardCode = request.CardCode,
-                DocDate = DateTime.Now.ToString("yyyy-MM-dd"),
-                DocDueDate = DateTime.Now.ToString("yyyy-MM-dd"),
+                DocDate = docDate,
+                DocDueDate = docDueDate,
+                TaxDate = taxDate,
                 Comments = request.Reason ?? request.Comments,
                 // The only thing in SAP that identifies this credit note as one particular request's.
                 NumAtCard = request.SapReference,

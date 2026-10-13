@@ -240,6 +240,65 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
         Assert.Equal(90m, item.NetVolume);
     }
 
+    // ---- Trade channels ---------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Each_account_says_which_trade_channel_it_sells_through()
+    {
+        var asked = new List<IReadOnlyList<string>>();
+        var handler = CreateHandler(
+            invoices:
+            [
+                Invoice(1, 1001, "SHP001", "2026-07-03", ("FRM001", 10m, 50m)),
+                Invoice(2, 1002, "SHP002", "2026-07-04", ("FRM001", 5m, 25m)),
+                Invoice(3, 1003, "WHS001", "2026-07-05", ("FRM001", 500m, 2000m)),
+                Invoice(4, 1004, "CIS900", "2026-07-06", ("FRM001", 1m, 5m))
+            ],
+            creditNotes: [],
+            channels: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+            {
+                // SAP holds the shops under two spellings; they are one channel.
+                ["SHP001"] = "Shop",
+                ["SHP002"] = " Shops ",
+                ["WHS001"] = "General Trade",
+                ["CIS900"] = null
+            },
+            channelCallLog: asked);
+
+        var result = await handler.Handle(Query(accountCodes: ["SHP001", "SHP002", "WHS001", "CIS900"]), default);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.ChannelsRead);
+        Assert.Equal(["SHP001", "SHP002", "WHS001", "CIS900"], Assert.Single(asked));
+
+        var channels = result.Value.AccountTotals.ToDictionary(account => account.CardCode, account => account.Channel);
+        Assert.Equal("Shops", channels["SHP001"]);
+        Assert.Equal("Shops", channels["SHP002"]);
+        Assert.Equal("General Trade", channels["WHS001"]);
+        Assert.Equal("", channels["CIS900"]);
+
+        // The same on every period's accounts, which is what the pivot is built from.
+        Assert.All(
+            result.Value.Periods.SelectMany(period => period.Accounts),
+            account => Assert.Equal(channels[account.CardCode], account.Channel));
+    }
+
+    [Fact]
+    public async Task A_report_still_goes_out_when_the_channels_cannot_be_read()
+    {
+        var handler = CreateHandler(
+            invoices: [Invoice(1, 1001, "SHP001", "2026-07-03", ("FRM001", 10m, 50m))],
+            creditNotes: [],
+            channelsFail: true);
+
+        var result = await handler.Handle(Query(accountCodes: ["SHP001"]), default);
+
+        Assert.False(result.IsError);
+        Assert.False(result.Value.ChannelsRead);
+        Assert.Equal(10m, result.Value.Summary.NetQuantity);
+        Assert.All(result.Value.AccountTotals, account => Assert.Equal("", account.Channel));
+    }
+
     [Fact]
     public async Task Account_code_ranges_are_expanded_before_sap_is_asked()
     {
@@ -454,15 +513,29 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
     private GetItemVolumeSalesReportHandler CreateHandler(
         List<Invoice> invoices,
         List<SAPCreditNote> creditNotes,
-        List<IReadOnlyList<string>>? invoiceCallLog = null)
+        List<IReadOnlyList<string>>? invoiceCallLog = null,
+        Dictionary<string, string?>? channels = null,
+        bool channelsFail = false,
+        List<IReadOnlyList<string>>? channelCallLog = null)
     {
         var sap = StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetInvoicesByCustomersAsync) => LogAndReturn(args, invoices),
             nameof(ISAPServiceLayerClient.GetCreditNotesByCustomersAsync) => Task.FromResult(creditNotes),
+            nameof(ISAPServiceLayerClient.GetBusinessPartnerChannelsAsync) => Channels(args),
             _ => throw new InvalidOperationException(
-                $"ISAPServiceLayerClient.{method.Name} was not expected — the report reads invoices and credit notes only.")
+                $"ISAPServiceLayerClient.{method.Name} was not expected — the report reads invoices, credit notes and channels only.")
         });
+
+        object Channels(object?[]? args)
+        {
+            channelCallLog?.Add(((IEnumerable<string>)args![0]!).ToList());
+
+            return channelsFail
+                ? Task.FromException<IReadOnlyDictionary<string, string?>>(new HttpRequestException("No route to host"))
+                : Task.FromResult<IReadOnlyDictionary<string, string?>>(
+                    channels ?? new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
+        }
 
         return new GetItemVolumeSalesReportHandler(
             _context,
