@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Models;
@@ -485,7 +487,7 @@ public sealed class VanSalesCoverageReportTests : IDisposable
     [Fact]
     public async Task A_lapse_window_of_zero_days_is_refused()
     {
-        var handler = new GetVanSalesCoverageReportHandler(_context);
+        var handler = new GetVanSalesCoverageReportHandler(_context, Options.Create(new TaxSettings()));
 
         var result = await handler.Handle(
             new GetVanSalesCoverageReportQuery(From, To, LapseDays: 0),
@@ -773,7 +775,7 @@ public sealed class VanSalesCoverageReportTests : IDisposable
         int lapseDays = 90,
         string? route = null)
     {
-        var handler = new GetVanSalesCoverageReportHandler(_context);
+        var handler = new GetVanSalesCoverageReportHandler(_context, Options.Create(new TaxSettings()));
 
         var result = await handler.Handle(
             new GetVanSalesCoverageReportQuery(from ?? From, to ?? To, RouteCode: route, LapseDays: lapseDays),

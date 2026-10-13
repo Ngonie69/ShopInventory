@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
@@ -146,7 +148,7 @@ public sealed class AdrPerformanceReportTests : IDisposable
 
         var row = Assert.Single((await RunAsync()).Adrs, adr => adr.UserId == Adr);
 
-        var performance = await new GetVanSalesPerformanceReportHandler(_context).Handle(
+        var performance = await new GetVanSalesPerformanceReportHandler(_context, Options.Create(new TaxSettings())).Handle(
             new GetVanSalesPerformanceReportQuery(Day, Day, Adr),
             CancellationToken.None);
         var rep = Assert.Single(performance.Value.Reps);
@@ -205,7 +207,7 @@ public sealed class AdrPerformanceReportTests : IDisposable
     [Fact]
     public async Task A_period_that_ends_before_it_starts_is_refused()
     {
-        var result = await new GetAdrPerformanceReportHandler(_context).Handle(
+        var result = await new GetAdrPerformanceReportHandler(_context, Options.Create(new TaxSettings())).Handle(
             new GetAdrPerformanceReportQuery(Day, Day.AddDays(-1)),
             CancellationToken.None);
 
@@ -351,7 +353,7 @@ public sealed class AdrPerformanceReportTests : IDisposable
 
     private async Task<AdrPerformanceReportResult> RunAsync(Guid? userId = null)
     {
-        var result = await new GetAdrPerformanceReportHandler(_context).Handle(
+        var result = await new GetAdrPerformanceReportHandler(_context, Options.Create(new TaxSettings())).Handle(
             new GetAdrPerformanceReportQuery(Day, Day, userId),
             CancellationToken.None);
 

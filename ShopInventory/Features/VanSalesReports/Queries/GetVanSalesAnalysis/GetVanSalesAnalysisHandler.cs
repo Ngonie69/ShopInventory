@@ -1,6 +1,8 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 
@@ -26,7 +28,7 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 /// SAP invoice, so it adds nothing to <c>VatAmount</c> and its whole value to <c>NetAmount</c>.
 /// </para>
 /// </remarks>
-public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db)
+public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions<TaxSettings> tax)
     : IRequestHandler<GetVanSalesAnalysisQuery, ErrorOr<DesktopSalesAnalysisResult>>
 {
     public const string OnlineKey = "online";
@@ -76,19 +78,19 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db)
             && (paymentMethod is null || Tender(sale) == paymentMethod);
 
         var filter = new VanSalesFactFilter(from, to);
-        var sales = (await VanSalesFactReader.LoadSalesAsync(db, filter, cancellationToken))
+        var sales = (await VanSalesFactReader.LoadSalesAsync(db, tax.Value, filter, cancellationToken))
             .Where(InScope)
             .ToList();
 
         // A line belongs to the analysis when its sale does, so the van and tender filters mean the same
         // thing for the items as for the takings.
         var included = sales.Select(sale => (sale.Source, sale.ExternalReferenceId)).ToHashSet();
-        var lines = (await VanSalesFactReader.LoadSaleLinesAsync(db, filter, cancellationToken))
+        var lines = (await VanSalesFactReader.LoadSaleLinesAsync(db, tax.Value, filter, cancellationToken))
             .Where(line => included.Contains((line.Source, line.ExternalReferenceId)))
             .ToList();
 
         var previous = (await VanSalesFactReader.LoadSalesAsync(
-                db, new VanSalesFactFilter(previousFrom, previousTo), cancellationToken))
+                db, tax.Value, new VanSalesFactFilter(previousFrom, previousTo), cancellationToken))
             .Where(InScope)
             .GroupBy(sale => CurrencyKey(sale.Currency))
             .ToDictionary(
@@ -185,7 +187,7 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db)
                 ItemCode = item.Key,
                 ItemDescription = item.Select(line => line.ItemDescription).FirstOrDefault(d => !string.IsNullOrWhiteSpace(d)),
                 Quantity = item.Sum(line => line.Quantity),
-                NetAmount = item.Sum(line => line.LineTotal),
+                NetAmount = item.Sum(line => line.NetLineTotal),
                 SalesCount = item.Select(line => (line.Source, line.ExternalReferenceId)).Distinct().Count()
             })
             .ToList();

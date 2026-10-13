@@ -97,7 +97,7 @@ internal static class VanSalesInvoiceReader
                 r.SAPDocEntry,
                 r.SAPDocNum,
                 WarehouseCode = r.Lines.Select(l => l.WarehouseCode).FirstOrDefault(),
-                Lines = r.Lines.Select(l => new NetLine(l.ItemCode, l.LineTotal, l.TaxCode)).ToList()
+                Lines = r.Lines.Select(l => new VanSaleMoney.NetLine(l.ItemCode, l.LineTotal, l.TaxCode)).ToList()
             })
             .ToListAsync(cancellationToken);
 
@@ -255,9 +255,9 @@ internal static class VanSalesInvoiceReader
             var rep = VanSalesFacts.TryResolveRep(r.CreatedBy, out var repId) ? repId : (Guid?)null;
             var currency = string.IsNullOrWhiteSpace(r.Currency) ? "USD" : r.Currency;
 
-            var (amount, vatAmount, amountIncludesVat) = receipt is not null && signed
-                ? (receipt.TotalAmount, (decimal?)receipt.VatAmount, true)
-                : GrossUp(r.TotalValue, r.Lines, currency, vatGroups, tax);
+            var money = receipt is not null && signed
+                ? new VanSaleMoney.Amount(receipt.TotalAmount, receipt.VatAmount, true)
+                : VanSaleMoney.GrossUp(r.TotalValue, r.Lines, currency, vatGroups, tax);
 
             var row = new VanSalesInvoiceRow(
                 Reference: r.ExternalReferenceId,
@@ -271,9 +271,9 @@ internal static class VanSalesInvoiceReader
                 CustomerName: r.RouteCustomerName ?? r.CardName,
                 RouteCustomerId: r.RouteCustomerId,
                 PaymentMethod: r.PaymentMethod,
-                Amount: amount,
-                VatAmount: vatAmount,
-                AmountIncludesVat: amountIncludesVat,
+                Amount: money.Total,
+                VatAmount: money.Vat,
+                AmountIncludesVat: money.IncludesVat,
                 Currency: currency,
                 SapDocEntry: sapDocEntry,
                 SapDocNum: sapDocNum,
@@ -435,40 +435,8 @@ internal static class VanSalesInvoiceReader
             .ToList();
     }
 
-    /// <summary>
-    /// A sale with no receipt total: its reservation's net lines, each taxed at its own code's rate.
-    /// </summary>
-    /// <remarks>
-    /// The same lines and the same rounding <c>VanSaleFiscalFirstPoster</c> writes a receipt row from, so a
-    /// grossed-up sale and a receipted one come to the same figure for the same basket. Net is returned as it
-    /// is only for a reservation with no lines to tax, and is then counted as net-only.
-    /// </remarks>
-    private static (decimal Amount, decimal? Vat, bool IncludesVat) GrossUp(
-        decimal netTotal,
-        IReadOnlyCollection<NetLine> lines,
-        string currency,
-        IReadOnlyDictionary<string, string> vatGroups,
-        TaxSettings tax)
-    {
-        if (lines.Count == 0)
-        {
-            return (netTotal, null, false);
-        }
-
-        var taxed = lines
-            .Select(l => (
-                NetAmount: Math.Round(l.LineTotal, 2, MidpointRounding.AwayFromZero),
-                TaxCode: ItemVatGroups.TaxCodeFor(l.ItemCode, l.TaxCode, vatGroups, currency)))
-            .ToList();
-
-        var vat = tax.VatOnBasket(taxed);
-        return (taxed.Sum(l => l.NetAmount) + vat, vat, true);
-    }
-
     private static int? ParseDocEntry(string? value) =>
         int.TryParse(value, out var parsed) ? parsed : null;
-
-    private sealed record NetLine(string ItemCode, decimal LineTotal, string? TaxCode);
 
     private sealed record ReceiptRow(
         int Id,

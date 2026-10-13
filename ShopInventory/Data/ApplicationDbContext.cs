@@ -131,6 +131,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // One rep's trading day on a route: the departure compliance record
   public DbSet<VanRouteDayEntity> VanRouteDays { get; set; }
 
+  // What the office enters for a truck's day: fuel issued, account sales, the area worked
+  public DbSet<VanTruckDayEntryEntity> VanTruckDayEntries { get; set; }
+
   // The fleet as the telematics provider knows it, and what each tracker can measure
   public DbSet<TelematicsVehicleEntity> TelematicsVehicles { get; set; }
 
@@ -2000,10 +2003,36 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     });
 
     // The van's trading day — departure compliance
+    modelBuilder.Entity<VanTruckDayEntryEntity>(entity =>
+    {
+      entity.ToTable("VanTruckDayEntries", table =>
+      {
+        table.HasCheckConstraint("CK_VanTruckDayEntries_FuelLitres_NonNegative", "\"FuelLitres\" IS NULL OR \"FuelLitres\" >= 0");
+        table.HasCheckConstraint("CK_VanTruckDayEntries_AccountSales_NonNegative", "\"AccountSales\" IS NULL OR \"AccountSales\" >= 0");
+      });
+      entity.HasKey(e => e.Id);
+
+      // One entry per truck per day. The office corrects it in place; it never adds a second.
+      entity.HasIndex(e => new { e.RouteId, e.TradingDate }).IsUnique();
+      entity.HasIndex(e => e.TradingDate);
+
+      entity.Property(e => e.AreaName).HasMaxLength(200);
+      entity.Property(e => e.Notes).HasMaxLength(500);
+      entity.Property(e => e.UpdatedByName).HasMaxLength(100);
+
+      // Days that happened point at their route, so a route with entries is retired, not removed.
+      entity.HasOne(e => e.Route)
+            .WithMany()
+            .HasForeignKey(e => e.RouteId)
+            .OnDelete(DeleteBehavior.Restrict);
+    });
+
     modelBuilder.Entity<VanRouteDayEntity>(entity =>
     {
       entity.ToTable("VanRouteDays");
       entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.AreaName).HasMaxLength(200);
 
       entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
       entity.Property(e => e.RouteCode).HasMaxLength(30);

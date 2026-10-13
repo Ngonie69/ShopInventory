@@ -37,7 +37,7 @@ public class ReportExportWorkbookTests
         { "Receivables Aging", s => s.ExportReceivablesAgingToExcel(new ReceivablesAgingReport { ReportDate = To }) },
         { "Profit Overview", s => s.ExportProfitOverviewToExcel(new ProfitOverviewReport { FromDate = From, ToDate = To }) },
         { "Slow Moving", s => s.ExportSlowMovingProductsToExcel(new SlowMovingProductsReport { FromDate = From, ToDate = To }) },
-        { "Desktop Sales", s => s.ExportDesktopSalesToExcel([], null, From, To) },
+        { "Shop & Vending Sales", s => s.ExportDesktopSalesToExcel([], null, From, To) },
         { "Van Sales Invoices", s => s.ExportVanSalesInvoicesToExcel([], From, To) },
         { "Van Sales Credit Notes", s => s.ExportVanSalesCreditNotesToExcel([], From, To) },
         { "Local Stock", s => s.ExportLocalStockToExcel(new LocalStockResultDto { WarehouseCode = "01", SnapshotDate = To }) },
@@ -373,7 +373,7 @@ public class ReportExportWorkbookTests
         };
 
         using var workbook = Open(_service.ExportDesktopSalesToExcel(sales, null, From, To));
-        var sheet = workbook.Worksheet("Desktop Sales");
+        var sheet = workbook.Worksheet("Shop & Vending Sales");
 
         var header = sheet.CellsUsed().Single(c => c.GetString() == "SAP Posting Date");
         var backdated = sheet.CellsUsed().Single(c => c.GetString() == "R1").WorksheetRow();
@@ -444,7 +444,7 @@ public class ReportExportWorkbookTests
         };
 
         using var workbook = Open(_service.ExportDesktopSalesToExcel(sales, null, From, To));
-        var sheet = workbook.Worksheet("Desktop Sales");
+        var sheet = workbook.Worksheet("Shop & Vending Sales");
 
         var totals = sheet.CellsUsed()
             .Where(c => c.GetString().StartsWith("Total (", StringComparison.Ordinal))

@@ -152,6 +152,15 @@ public class DepartureComplianceDay
     public int? StartingMileage { get; set; }
     public int? ClosingMileage { get; set; }
 
+    /// <summary>
+    /// What the truck's odometer counts in, <c>Kilometres</c> or <c>Miles</c>. The two mileages above
+    /// are as the rep read them; this is what turns them into <see cref="KilometresTravelled"/>.
+    /// </summary>
+    public string OdometerUnit { get; set; } = VanOdometer.Kilometres;
+
+    /// <summary>The area the day was opened for: what the rep named, or the plan for the weekday.</summary>
+    public string? AreaName { get; set; }
+
     public bool HasDayRecord { get; set; }
     public bool IsClosed { get; set; }
     public string? Notes { get; set; }
@@ -168,10 +177,7 @@ public class DepartureComplianceDay
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;
 
-    public int? KilometresTravelled =>
-        StartingMileage is { } start && ClosingMileage is { } close && close >= start
-            ? close - start
-            : null;
+    public int? KilometresTravelled => VanOdometer.Distance(StartingMileage, ClosingMileage, OdometerUnit);
 
     public decimal? DeclaredTotal =>
         DeclaredCash is null && DeclaredEcocash is null && DeclaredInnbucks is null
@@ -259,6 +265,35 @@ public class DepartureComplianceSummary
         ProductiveCalls > 0 ? decimal.Round(TotalSales / ProductiveCalls, 2) : null;
 }
 
+/// <summary>
+/// Turns two odometer readings into kilometres. The API's <c>OdometerDistance</c>, kept identical on
+/// purpose: three trucks read miles, and a page that subtracted their readings as kilometres showed
+/// 62% of the distance they drove.
+/// </summary>
+public static class VanOdometer
+{
+    public const string Kilometres = "Kilometres";
+    public const string Miles = "Miles";
+
+    private const decimal KilometresPerMile = 1.609344m;
+
+    public static bool ReadsMiles(string? unit) =>
+        string.Equals(unit?.Trim(), Miles, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Kilometres between two readings; null when either is missing or the second is lower.</summary>
+    public static int? Distance(int? start, int? close, string? unit)
+    {
+        if (start is not { } from || close is not { } to || to < from)
+        {
+            return null;
+        }
+
+        return ReadsMiles(unit)
+            ? (int)Math.Round((to - from) * KilometresPerMile, MidpointRounding.AwayFromZero)
+            : to - from;
+    }
+}
+
 public class RouteDto
 {
     public int Id { get; set; }
@@ -283,6 +318,15 @@ public class RouteDto
 
     public bool IsActive { get; set; }
     public int AssignedUserCount { get; set; }
+
+    /// <summary>What the route's truck counts distance in: <c>Kilometres</c> or <c>Miles</c>.</summary>
+    public string OdometerUnit { get; set; } = VanOdometer.Kilometres;
+
+    /// <summary>
+    /// What the truck is expected to sell on a working day, VAT included. Null is a route held to no
+    /// target, and has to stay nullable: a zero would show every sale as over target.
+    /// </summary>
+    public decimal? DailySalesTarget { get; set; }
 
     public string DisplayLabel => string.IsNullOrWhiteSpace(Territory)
         ? Name

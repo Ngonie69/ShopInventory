@@ -4,7 +4,7 @@
 @attribute [Authorize(Roles = "Admin,Manager,Cashier")]
 @rendermode InteractiveServer
 
-<PageTitle>@(Vans ? "Van Sales Breakdown" : "Desktop Sales Analysis") - Shop Inventory</PageTitle>
+<PageTitle>@(Vans ? "Van Sales Breakdown" : "Shop & Vending Sales Analysis") - Shop Inventory</PageTitle>
 
 @* The till takings, broken down. An import of `Sales Breakdown.dc.html` from the "Nocturne Dark Ops
    Redesign" design project, built on the /desktop-sales vocabulary: the root keeps `ops-ds` for the
@@ -28,7 +28,7 @@
     <div class="ops-sbd-head">
         <div class="ops-sbd-head-row">
             <div class="ops-sbd-title">
-                <span class="ops-kicker">@(Vans ? "Van sales" : "Desktop sales") · Analysis</span>
+                <span class="ops-kicker">@(Vans ? "Van sales" : "Shop & vending sales") · Analysis</span>
                 <h1>Sales breakdown</h1>
             </div>
 

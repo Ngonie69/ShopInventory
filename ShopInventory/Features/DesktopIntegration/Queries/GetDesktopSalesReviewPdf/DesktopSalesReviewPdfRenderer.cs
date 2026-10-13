@@ -103,7 +103,7 @@ internal static class DesktopSalesReviewPdfRenderer
 
     private static void Header(Document document, Fonts fonts, DesktopSalesReview review, string title, DateTime generatedAtCat)
     {
-        document.Add(Text("DESKTOP SALES · BUSINESS REVIEW", fonts.Bold, 8).SetFontColor(Accent).SetCharacterSpacing(0.8f));
+        document.Add(Text("SHOP & VENDING SALES · BUSINESS REVIEW", fonts.Bold, 8).SetFontColor(Accent).SetCharacterSpacing(0.8f));
         document.Add(Text(title, fonts.Bold, 20).SetMarginTop(2));
         document.Add(Text(
                 $"{D(review.FromDate, "ddd d MMM yyyy")} to {D(review.ToDate, "ddd d MMM yyyy")} · "
@@ -447,7 +447,7 @@ internal static class DesktopSalesReviewPdfRenderer
         Heading(document, fonts, "How this review is worked out", null);
         var notes = new[]
         {
-            "Figures are the Desktop Sales Analysis and Management Sales pages for the same period and scope, so they agree with both.",
+            "Figures are the Shop & Vending Sales Analysis and Management Sales pages for the same period and scope, so they agree with both.",
             "Shops and vending are reviewed apart and never added together; neither are currencies. Amounts include VAT unless marked before VAT.",
             "Takings per trading day divide by the days a shop sold anything, so a shop that opened mid-period is compared fairly.",
             "Traffic and ticket split the change on the previous period: more or fewer sales at the old average, and the average moving at the new count.",

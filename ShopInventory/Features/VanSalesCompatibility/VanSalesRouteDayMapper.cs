@@ -33,6 +33,7 @@ public static class VanSalesRouteDayMapper
         RouteName = day.RouteName,
         Territory = day.Territory,
         TruckRegNo = day.TruckRegNo,
+        AreaName = day.AreaName,
         DepartedAt = FormatTimestamp(day.DepartedAt),
         StartingMileage = day.StartingMileage,
         PlannedCustomerCount = day.PlannedCustomerCount,

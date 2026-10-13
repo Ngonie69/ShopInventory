@@ -24,6 +24,7 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 /// </remarks>
 public sealed class GetVanStockReportHandler(
     ApplicationDbContext db,
+    IOptions<TaxSettings> tax,
     IVanStockSapDocuments sapDocuments,
     IOptions<DailyStockSettings> dailyStockSettings
 ) : IRequestHandler<GetVanStockReportQuery, ErrorOr<VanStockReportResult>>
@@ -91,7 +92,7 @@ public sealed class GetVanStockReportHandler(
         // to a warehouse by the line rather than the document — a line carries the warehouse it came
         // off, and a reservation header carries none at all.
         var lines = (await VanSalesFactReader.LoadSaleLinesAsync(
-                db, new VanSalesFactFilter(from, to), cancellationToken))
+                db, tax.Value, new VanSalesFactFilter(from, to), cancellationToken))
             .Where(line => line.WarehouseCode is not null && vans.Contains(line.WarehouseCode))
             .ToList();
 

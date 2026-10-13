@@ -1,6 +1,8 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.RouteCustomers.Queries;
 using ShopInventory.Models.Entities;
@@ -30,7 +32,8 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageRepo
 /// list is the only list there is.
 /// </remarks>
 public sealed class GetVanSalesCoverageReportHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    IOptions<TaxSettings> tax
 ) : IRequestHandler<GetVanSalesCoverageReportQuery, ErrorOr<VanSalesCoverageReportResult>>
 {
     /// <summary>Beyond this a fix is too vague to place a rep on a street, let alone at a door.</summary>
@@ -74,13 +77,13 @@ public sealed class GetVanSalesCoverageReportHandler(
         var priorTo = from.AddDays(-1);
 
         var sales = await VanSalesFactReader.LoadSalesAsync(
-            db, new VanSalesFactFilter(from, to, query.UserId), cancellationToken);
+            db, tax.Value, new VanSalesFactFilter(from, to, query.UserId), cancellationToken);
 
         var lines = await VanSalesFactReader.LoadSaleLinesAsync(
-            db, new VanSalesFactFilter(from, to, query.UserId), cancellationToken);
+            db, tax.Value, new VanSalesFactFilter(from, to, query.UserId), cancellationToken);
 
         var priorSales = await VanSalesFactReader.LoadSalesAsync(
-            db, new VanSalesFactFilter(priorFrom, priorTo, query.UserId), cancellationToken);
+            db, tax.Value, new VanSalesFactFilter(priorFrom, priorTo, query.UserId), cancellationToken);
 
         var days = await LoadRouteDaysAsync(query, from, to, cancellationToken);
         var calls = await LoadCallsAsync(query, from, to, cancellationToken);
@@ -128,7 +131,7 @@ public sealed class GetVanSalesCoverageReportHandler(
         // rep filter loads one rep's half, so under one the truck-days are read for the whole fleet.
         var fleetWide = !query.UserId.HasValue;
         var trucks = await VanTruckDays.LoadAsync(
-            db,
+            db, tax.Value,
             from,
             to,
             fleetWide ? fleetSales : null,

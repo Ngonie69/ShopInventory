@@ -64,6 +64,19 @@ public interface IVanSalesReportService
     /// <summary>Creates or updates a route. Returns the saved route, or the server's refusal.</summary>
     Task<(RouteDto? Route, string? Error)> SaveRouteAsync(RouteDto route);
 
+    /// <summary>
+    /// The daily truck report: a row per route per day and each route's period against its target.
+    /// Null when the report could not be read, which is not the same as an empty one.
+    /// </summary>
+    Task<VanDailyTruckReportResponse?> GetDailyTruckReportAsync(DateTime fromDate, DateTime toDate);
+
+    /// <summary>
+    /// Saves the office's figures for a truck's day. Returns the entry as it now stands, or the
+    /// server's refusal.
+    /// </summary>
+    Task<(VanTruckDayEntry? Entry, string? Error)> SaveTruckDayEntryAsync(
+        int routeId, DateTime tradingDate, VanTruckDayEntryInput entry);
+
     /// <summary>Deletes a route. Returns null on success, or the server's refusal.</summary>
     Task<string?> DeleteRouteAsync(int id);
 
@@ -101,7 +114,8 @@ public interface IVanSalesReportService
 /// <c>api/van-sales/replenishment-report</c>, <c>api/van-sales/stock-report</c> and
 /// <c>api/van-sales/routes</c>, <c>api/van-sales/route-stops</c>,
 /// <c>api/van-sales/route-stops/reorder</c>, <c>api/van-sales/telematics/vehicles</c>,
-/// <c>api/van-sales/fleet-audit</c> and <c>api/van-sales/fleet/{registration}/business-partner</c>
+/// <c>api/van-sales/fleet-audit</c>, <c>api/van-sales/fleet/{registration}/business-partner</c>,
+/// <c>api/van-sales/truck-report</c> and <c>api/van-sales/truck-days/{routeId}/{tradingDate}</c>
 /// — and the exception is logged rather than only returned as null, so a wrong URL leaves a trail.
 /// </remarks>
 public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReportService> logger)
@@ -391,7 +405,9 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
                 isActive = route.IsActive,
                 temperatureMinC = route.TemperatureMinC,
                 temperatureMaxC = route.TemperatureMaxC,
-                temperatureProbeChannel = route.TemperatureProbeChannel
+                temperatureProbeChannel = route.TemperatureProbeChannel,
+                odometerUnit = route.OdometerUnit,
+                dailySalesTarget = route.DailySalesTarget
             };
 
             var response = route.Id > 0
@@ -418,6 +434,58 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         {
             logger.LogError(ex, "Error saving route {Code}", route.Code);
             return (null, $"The route could not be saved: {ex.Message}");
+        }
+    }
+
+    public async Task<VanDailyTruckReportResponse?> GetDailyTruckReportAsync(DateTime fromDate, DateTime toDate)
+    {
+        try
+        {
+            // Dates only: these are CAT trading days, not instants.
+            return await httpClient.GetFromJsonAsync<VanDailyTruckReportResponse>(
+                $"api/van-sales/truck-report?fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the daily truck report");
+            return null;
+        }
+    }
+
+    public async Task<(VanTruckDayEntry? Entry, string? Error)> SaveTruckDayEntryAsync(
+        int routeId, DateTime tradingDate, VanTruckDayEntryInput entry)
+    {
+        try
+        {
+            var payload = new
+            {
+                areaName = entry.AreaName,
+                fuelLitres = entry.FuelLitres,
+                accountSales = entry.AccountSales,
+                notes = entry.Notes
+            };
+
+            var response = await httpClient.PutAsJsonAsync(
+                $"api/van-sales/truck-days/{routeId}/{tradingDate:yyyy-MM-dd}", payload);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return (await response.Content.ReadFromJsonAsync<VanTruckDayEntry>(), null);
+            }
+
+            // A refused figure is something a person can correct, so the server's own words are shown.
+            var problem = await ReadProblemDetailAsync(response);
+
+            logger.LogWarning(
+                "Saving the truck day entry for route {RouteId} on {TradingDate:yyyy-MM-dd} failed with {Status}: {Detail}",
+                routeId, tradingDate, (int)response.StatusCode, problem);
+
+            return (null, problem);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error saving the truck day entry for route {RouteId}", routeId);
+            return (null, $"The figures could not be saved: {ex.Message}");
         }
     }
 

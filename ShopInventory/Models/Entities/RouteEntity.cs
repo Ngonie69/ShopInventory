@@ -84,6 +84,24 @@ public class RouteEntity
     /// </remarks>
     public byte? TemperatureProbeChannel { get; set; }
 
+    /// <summary>
+    /// What the route's truck counts distance in. A rep types the reading as the dashboard shows it,
+    /// and each day snapshots this so the reading can be turned into kilometres.
+    /// </summary>
+    public OdometerUnit OdometerUnit { get; set; } = OdometerUnit.Kilometres;
+
+    /// <summary>
+    /// What the truck is expected to sell on a working day, VAT included, or null on a route that is
+    /// not held to a target.
+    /// </summary>
+    /// <remarks>
+    /// A month's target is this times the month's working days, Monday to Friday, which is how the
+    /// daily workbook this replaces set it (2,500 a day for a town truck, 3,000 upcountry, 22 days in
+    /// October 2026). One figure, not a history: changing it restates the months already reported.
+    /// </remarks>
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? DailySalesTarget { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     /// <summary>

@@ -316,6 +316,8 @@ public sealed class DepartureComplianceMetricsTests
             NewCustomers: 0,
             StartingMileage: startingMileage,
             ClosingMileage: closingMileage,
+            OdometerUnit: "Kilometres",
+            AreaName: null,
             HasDayRecord: true,
             IsClosed: true,
             Notes: null);

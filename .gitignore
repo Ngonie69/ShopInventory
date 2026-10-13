@@ -99,6 +99,9 @@ firebase-service-account.json
 API.docx
 Kefalos_Portal_User_Guide.docx
 
+# The van sales workbook's rows, written by scripts/VanDailyReport/export_sheet.py. Business figures.
+scripts/van-daily-report-sheet*.sql
+
 # Python bytecode from .claude/.agents skill scripts
 __pycache__/
 *.pyc

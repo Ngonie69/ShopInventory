@@ -295,6 +295,28 @@
                                                     <p class="vsr-panel-sub vsr-fleet-note">@fleetReason</p>
                                                 }
 
+                                                <h4 class="vsr-panel-title-2">Target and distance</h4>
+                                                <p class="vsr-panel-sub">
+                                                    What the truck is expected to sell on a working day, VAT included. A month's
+                                                    target is that figure times its Monday-to-Friday days. Every report shows
+                                                    kilometres, so say what this truck's odometer counts in and its readings
+                                                    are converted.
+                                                </p>
+                                                <div class="vsr-form">
+                                                    <div class="vsr-field">
+                                                        <label class="vs-filter-label" for="vsr-etarget">Daily sales target</label>
+                                                        <input id="vsr-etarget" class="vs-field" type="number" step="50" min="0"
+                                                               @bind="editing!.DailySalesTarget" placeholder="No target" />
+                                                    </div>
+                                                    <div class="vsr-field">
+                                                        <span class="vs-filter-label">Odometer reads</span>
+                                                        <NocturneSelect Class="nsel-block" TValue="string"
+                                                                        Options="OdometerOptions" @bind-Value="editing!.OdometerUnit"
+                                                                        Caption="What this truck's odometer counts in"
+                                                                        AriaLabel="What this truck's odometer counts in" />
+                                                    </div>
+                                                </div>
+
                                                 <h4 class="vsr-panel-title-2">Cold chain</h4>
                                                 <p class="vsr-panel-sub">
                                                     What the load on this round has to stay between. Leave both empty on a
@@ -662,6 +684,12 @@
     /// </summary>
     private const int FirstProbeThatReports = 0;
 
+    private static readonly NocturneSelectOption<string>[] OdometerOptions =
+    [
+        new(VanOdometer.Kilometres, "Kilometres"),
+        new(VanOdometer.Miles, "Miles")
+    ];
+
     private static readonly NocturneSelectOption<int>[] ProbeOptions =
     [
         new(FirstProbeThatReports, "First probe that reports") { RuleAfter = true, IsUnset = true },
@@ -1012,7 +1040,9 @@
             TemperatureMaxC = route.TemperatureMaxC,
             TemperatureProbeChannel = route.TemperatureProbeChannel,
             IsActive = route.IsActive,
-            AssignedUserCount = route.AssignedUserCount
+            AssignedUserCount = route.AssignedUserCount,
+            OdometerUnit = route.OdometerUnit,
+            DailySalesTarget = route.DailySalesTarget
         };
 
         probeChannel = route.TemperatureProbeChannel ?? FirstProbeThatReports;

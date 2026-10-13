@@ -22,6 +22,13 @@ public class VanSalesStartDayRequest
     [JsonPropertyName("truck_reg_no")]
     public string? TruckRegNo { get; set; }
 
+    /// <summary>
+    /// The area the round is working today, as the rep names it. Optional: without it the day takes
+    /// the route's planned stops for the weekday, where the plan names any.
+    /// </summary>
+    [JsonPropertyName("area_name")]
+    public string? AreaName { get; set; }
+
     /// <summary>Crates and pallets loaded out.</summary>
     [JsonPropertyName("rti_out")]
     public int? RtiOut { get; set; }
@@ -106,6 +113,10 @@ public class VanSalesRouteDayDto
 
     [JsonPropertyName("truck_reg_no")]
     public string? TruckRegNo { get; set; }
+
+    /// <summary>The area the day was opened for: what the rep named, or the plan for the weekday.</summary>
+    [JsonPropertyName("area_name")]
+    public string? AreaName { get; set; }
 
     /// <summary><c>yyyy-MM-ddTHH:mm:ss</c> in CAT — the same shape the handset sent.</summary>
     [JsonPropertyName("departed_at")]
