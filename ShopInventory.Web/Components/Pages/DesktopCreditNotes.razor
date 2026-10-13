@@ -7,7 +7,7 @@
 @inject IDesktopIntegrationService DesktopIntegrationService
 @rendermode InteractiveServer
 
-<PageTitle>Desktop Credit Notes - Shop Inventory</PageTitle>
+<PageTitle>Shop &amp; Vending Credit Notes - Shop Inventory</PageTitle>
 
 @* Laid out as /desktop-sales is: the same hero, summary cards, filter bar, list bar, table and
    drawer, so the credit list reads as the other half of that page rather than a page of its own.
@@ -22,10 +22,11 @@
                 <span class="ops-kicker">Tills &amp; Vending</span>
                 <span class="ops-ds-kicker-rule"></span>
             </div>
-            <h1>Desktop Credit Notes</h1>
+            <h1>Shop &amp; Vending Credit Notes</h1>
             <p>
-                Every credit raised against a till, vending or van sale, with where it stands at ZIMRA and in
-                SAP. The SAP credit memo follows once the sale has posted.
+                Every credit raised against a till or vending sale, with where it stands at ZIMRA and in
+                SAP. The SAP credit memo follows once the sale has posted. A van sale's credits are under
+                Van Sales → Credit Notes.
             </p>
         </div>
 
@@ -39,7 +40,7 @@
             <div class="ops-hero-actions">
                 <a class="ops-btn ops-btn-ghost" href="/desktop-sales">
                     <i class="ph ph-receipt" aria-hidden="true"></i>
-                    <span>Desktop sales</span>
+                    <span>Shop &amp; vending sales</span>
                 </a>
                 <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
                         @onclick="LoadAsync" disabled="@loading">
@@ -308,7 +309,7 @@
                 else
                 {
                     <h3>No credit notes yet</h3>
-                    <p>Credits are raised from a sale on Desktop Sales, Vending Sales or Van Sales Invoices.</p>
+                    <p>Credits are raised from a sale on Shop &amp; Vending Sales or Vending Sales.</p>
                 }
             </div>
         </div>
@@ -745,8 +746,7 @@
     private static readonly (string Value, string Label)[] SourceChoices =
     [
         ("KefalosShopTill", "Till"),
-        ("KefalosVending", "Vending"),
-        ("KefalosVanSales", "Van")
+        ("KefalosVending", "Vending")
     ];
 
     private enum ChipGroupKey { Sap, Fiscal, Source, Warehouse }

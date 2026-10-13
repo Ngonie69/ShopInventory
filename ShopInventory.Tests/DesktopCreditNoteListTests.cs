@@ -123,6 +123,31 @@ public sealed class DesktopCreditNoteListTests : IDisposable
     }
 
     [Fact]
+    public async Task Van_credits_are_left_out_of_the_shop_and_vending_list_by_either_route()
+    {
+        var offline = await GivenCreditAsync(
+            await GivenSaleAsync("VAN-1", "VAN01", SaleSourceSystems.VanSales), sapStatus: DesktopCreditSapStatuses.Failed);
+        await GivenCreditAsync(
+            await GivenSaleAsync("VAN-2", "VAN02", SaleSourceSystems.VanSalesOnline), amount: 500m);
+        var till = await GivenCreditAsync(await GivenSaleAsync("TILL-1", "KEFGRS", SaleSourceSystems.ShopTill));
+        var legacy = await GivenCreditAsync(await GivenSaleAsync("DESK-1", "KEFSHOP", SaleSourceSystems.LegacyDesktop));
+
+        var result = await Service().ListAsync(_admin, new DesktopCreditNoteListQuery(), default);
+
+        Assert.Equal(2, result.TotalCount);
+        Assert.Equal(new[] { legacy.Number, till.Number }.Order(), result.Items.Select(i => i.Number).Order());
+
+        // Not in the figures above the table either, nor among the warehouses to filter by.
+        Assert.False(result.SapStatusCounts.ContainsKey(DesktopCreditSapStatuses.Failed));
+        Assert.Equal(till.Amount + legacy.Amount, result.TotalsByCurrency["USD"]);
+        Assert.Equal(["KEFGRS", "KEFSHOP"], result.Warehouses.ToArray());
+
+        // A van credit is still found and acted on by its id: that is how Van Sales → Credit Notes retries it.
+        var retried = await Service().RetrySapAsync(_admin, offline.Id, default);
+        Assert.Equal(offline.Number, retried.Number);
+    }
+
+    [Fact]
     public async Task Both_van_source_systems_answer_the_van_filter()
     {
         await GivenCreditAsync(await GivenSaleAsync("VAN-1", "VAN01", SaleSourceSystems.VanSales));

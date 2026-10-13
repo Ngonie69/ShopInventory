@@ -102,7 +102,7 @@ public sealed class SendDesktopSalesReviewEmailHandler(
         if (request.Scheduled && sent.Count > 0)
         {
             await StageAsync(db, LastSent(request.Cadence), "date", to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                $"The last {request.Cadence} period end the desktop sales review was emailed for.", cancellationToken);
+                $"The last {request.Cadence} period end the shop and vending sales review was emailed for.", cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
         }
 

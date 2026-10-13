@@ -3,6 +3,7 @@
 @using ShopInventory.Web.Common
 @using ShopInventory.Web.Features.VanSalesDocuments
 @using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Manager,Cashier")]
 @rendermode InteractiveServer
 @inject PageLifetime PageLifetime
@@ -411,6 +412,55 @@
                     </div>
                 }
 
+                @* A credit SAP cannot take automatically is raised there by hand, and the app only learns the
+                   memo exists from this form. Until then the stock reconciliation keeps the returned units
+                   on the ledger. The same form, on the same terms, as the shop and vending credit list. *@
+                @if (note.CreditId is not null && note.CreditSapStatus == DesktopCreditSapStatuses.ManualInSap)
+                {
+                    <div class="vsd-msg vsd-fam-warn" role="status">
+                        <i class="ph ph-hand" aria-hidden="true"></i>
+                        <div class="vsd-msg-body">
+                            <strong>SAP cannot take this credit automatically.</strong>
+                            <div>Raise the credit memo by hand in SAP, then record its number here.</div>
+                        </div>
+                    </div>
+                    <AuthorizeView Roles="Admin,Manager" Context="raiseCtx">
+                        <Authorized>
+                            <div class="vsd-block">
+                                <label class="vsd-def-k" for="vcn-raise-docnum">Raised in SAP? Credit memo number</label>
+                                <div class="vsd-raise-row">
+                                    <div class="vsd-search">
+                                        <i class="ph ph-hash" aria-hidden="true"></i>
+                                        <input id="vcn-raise-docnum" type="text" inputmode="numeric" class="vsd-input"
+                                               placeholder="e.g. 91001" @bind="raiseDocNum" @bind:event="oninput" />
+                                    </div>
+                                    <button type="button" class="vsd-btn vsd-btn-primary"
+                                            disabled="@(isMarking || isRetrying || !int.TryParse(raiseDocNum?.Trim(), out _))"
+                                            @onclick="() => MarkRaisedAsync(note)">
+                                        @if (isMarking)
+                                        {
+                                            <span class="vsd-spin"></span>
+                                        }
+                                        else
+                                        {
+                                            <i class="ph ph-check" aria-hidden="true"></i>
+                                        }
+                                        <span>Mark raised</span>
+                                    </button>
+                                </div>
+                                <div class="vsd-raise-note">
+                                    SAP is checked first: the memo must exist, not be cancelled, and be for this
+                                    sale's account. Until it is marked, the returned units stay on the stock ledger.
+                                </div>
+                                @if (raiseError is not null)
+                                {
+                                    <div class="vsd-raise-note vsd-raise-error" role="alert">@raiseError</div>
+                                }
+                            </div>
+                        </Authorized>
+                    </AuthorizeView>
+                }
+
                 @if (!string.IsNullOrWhiteSpace(note.Reason))
                 {
                     <div class="vsd-reason">
@@ -583,6 +633,29 @@
 
             <div class="vsd-dfoot">
                 <button type="button" class="vsd-btn vsd-btn-ghost" @onclick="CloseNote">Close</button>
+                @* Sends a refused SAP memo again, now. Offered only where the API accepts it — a credit ZIMRA
+                   holds and SAP refused — and to the roles its route admits, since it raises a SAP document. *@
+                @if (note.CreditId is not null && note.CreditSapStatus == DesktopCreditSapStatuses.Failed)
+                {
+                    <AuthorizeView Roles="Admin,Manager" Context="retryCtx">
+                        <Authorized>
+                            <button type="button" class="vsd-btn vsd-btn-primary" @onclick="() => RetrySapAsync(note)"
+                                    disabled="@(isRetrying || isMarking || isLoading)"
+                                    title="Send the SAP credit memo again now">
+                                @if (isRetrying)
+                                {
+                                    <span class="vsd-spin"></span>
+                                    <span>Sending&hellip;</span>
+                                }
+                                else
+                                {
+                                    <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+                                    <span>Retry SAP</span>
+                                }
+                            </button>
+                        </Authorized>
+                    </AuthorizeView>
+                }
                 @if (note.CreditedInvoices.FirstOrDefault() is { } reversed)
                 {
                     <a class="vsd-btn vsd-btn-primary" href="@InvoiceLink(reversed)">

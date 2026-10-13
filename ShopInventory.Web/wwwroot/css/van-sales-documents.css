@@ -792,6 +792,31 @@
     cursor: pointer;
 }
 
+/* Recording a credit memo raised by hand: the number and its button on one line, the search field's own
+   input so it carries both themes, and a line beneath for what is checked and what was refused. */
+.vsd-raise-row {
+    display: flex;
+    align-items: center;
+    gap: var(--vsd-s3);
+    margin-top: var(--vsd-s2);
+}
+
+.vsd-raise-row .vsd-search {
+    flex: 1 1 160px;
+    min-width: 140px;
+}
+
+.vsd-raise-note {
+    margin-top: var(--vsd-s2);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--vsd-mute-3);
+}
+
+.vsd-raise-note.vsd-raise-error {
+    color: var(--vsd-fam-bad);
+}
+
 .vsd-seg {
     display: inline-flex;
     flex: none;

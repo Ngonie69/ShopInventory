@@ -8092,11 +8092,11 @@ public partial class ReportExportService : IReportExportService
 
     public byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null)
     {
-        using var workbook = NewWorkbook("Desktop Sales Report");
-        var ws = AddSheet(workbook, "Desktop Sales");
+        using var workbook = NewWorkbook("Shop & Vending Sales Report");
+        var ws = AddSheet(workbook, "Shop & Vending Sales");
         const int cols = 14;
 
-        var row = WriteReportHeader(ws, "Desktop Sales Report", cols, fromDate, toDate);
+        var row = WriteReportHeader(ws, "Shop & Vending Sales Report", cols, fromDate, toDate);
 
         // KPI cards
         if (report != null)
@@ -8156,7 +8156,7 @@ public partial class ReportExportService : IReportExportService
             row++;
         }
 
-        row = FinishTable(ws, headerRow, dataStart, row, cols, "No desktop sales fell in this period.");
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No shop or vending sales fell in this period.");
 
         // One totals row per currency. Desktop sales arrive in both USD and ZWG, so a
         // single sum down the Amount column would add two currencies together.
@@ -8360,7 +8360,7 @@ public partial class ReportExportService : IReportExportService
     public byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report)
     {
         var vans = report.SourceSystem == DesktopAnalysisVanSource;
-        using var workbook = NewWorkbook(vans ? "Van Sales Analysis" : "Desktop Sales Analysis");
+        using var workbook = NewWorkbook(vans ? "Van Sales Analysis" : "Shop & Vending Sales Analysis");
         var context = new DesktopAnalysisContext(
             report,
             report.FromDate.Date == report.ToDate.Date
@@ -8469,13 +8469,13 @@ public partial class ReportExportService : IReportExportService
         DateTime GeneratedAt,
         bool Vans = false)
     {
-        public string Title => Vans ? "VAN SALES" : "DESKTOP SALES";
+        public string Title => Vans ? "VAN SALES" : "SHOP & VENDING SALES";
 
-        public string NoSales => Vans ? "No van sales fell in this period." : "No desktop sales fell in this period.";
+        public string NoSales => Vans ? "No van sales fell in this period." : "No shop or vending sales fell in this period.";
 
         public string DataSource => Vans
             ? "the vans' uploaded sales and live invoices"
-            : "the shop tills' desktop sales records";
+            : "the shop till and vending sales records";
     }
 
     /// <remarks>

@@ -19,13 +19,13 @@ public sealed class GetDesktopSalesReviewPdfHandler(IMediator mediator)
             return review.Errors;
         }
 
-        var title = string.IsNullOrWhiteSpace(request.Title) ? "Desktop sales review" : request.Title.Trim();
+        var title = string.IsNullOrWhiteSpace(request.Title) ? "Shop & vending sales review" : request.Title.Trim();
         var content = DesktopSalesReviewPdfRenderer.Render(review.Value, title, AuditService.ToCAT(review.Value.GeneratedAtUtc));
         var scope = review.Value.WarehouseCode is { } warehouse ? $"_{warehouse}" : string.Empty;
 
         return new DesktopSalesReviewDocument(
             content,
-            $"Desktop_Sales_Review{scope}_{review.Value.FromDate:yyyyMMdd}_{review.Value.ToDate:yyyyMMdd}.pdf",
+            $"Shop_Vending_Sales_Review{scope}_{review.Value.FromDate:yyyyMMdd}_{review.Value.ToDate:yyyyMMdd}.pdf",
             review.Value);
     }
 }

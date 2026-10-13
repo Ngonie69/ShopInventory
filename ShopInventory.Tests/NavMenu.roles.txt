@@ -118,8 +118,8 @@ Finance
     Incoming Payments  /payments
     G/L Accounts  /gl-accounts
 Tills & Vending
-    Desktop Sales  /desktop-sales
-    Desktop Credit Notes  /desktop-credit-notes
+    Shop & Vending Sales  /desktop-sales
+    Shop & Vending Credits  /desktop-credit-notes
     Daily Incoming Payments  /reports/desktop-sales/payments
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
@@ -152,8 +152,8 @@ Field Team
 Reports
     Reports Hub  /reports
     Management Sales  /reports/management-sales
-    Desktop Sales Analysis  /reports/desktop-sales
-    Desktop Sales Review  /reports/desktop-sales/review
+    Shop & Vending Analysis  /reports/desktop-sales
+    Shop & Vending Review  /reports/desktop-sales/review
     Sales Order vs Invoice  /reports/order-fulfillment
 System
     Exception Center  /exception-center
@@ -204,8 +204,8 @@ Deliveries
 Reports
     Reports Hub  /reports
     Management Sales  /reports/management-sales
-    Desktop Sales Analysis  /reports/desktop-sales
-    Desktop Sales Review  /reports/desktop-sales/review
+    Shop & Vending Analysis  /reports/desktop-sales
+    Shop & Vending Review  /reports/desktop-sales/review
     Sales Order vs Invoice  /reports/order-fulfillment
 System
     Exception Center  /exception-center
@@ -318,10 +318,10 @@ Finance
     Create Payment  /payments/create
     G/L Accounts  /gl-accounts
 Tills & Vending
-    Desktop Sales  /desktop-sales
-    Desktop Credit Notes  /desktop-credit-notes
+    Shop & Vending Sales  /desktop-sales
+    Shop & Vending Credits  /desktop-credit-notes
     Daily Incoming Payments  /reports/desktop-sales/payments
-    Desktop Transactions  /desktop-transactions
+    SAP Queue  /desktop-transactions
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
 Van Sales
@@ -364,8 +364,8 @@ Lab
 Reports
     Reports Hub  /reports
     Management Sales  /reports/management-sales
-    Desktop Sales Analysis  /reports/desktop-sales
-    Desktop Sales Review  /reports/desktop-sales/review
+    Shop & Vending Analysis  /reports/desktop-sales
+    Shop & Vending Review  /reports/desktop-sales/review
     Sales Order vs Invoice  /reports/order-fulfillment
     Customer Revenue  /reports/customer-revenue
     Item Volume  /reports/item-volume

@@ -17,7 +17,7 @@
 @implements IDisposable
 @rendermode InteractiveServer
 
-<PageTitle>Desktop Sales - Shop Inventory</PageTitle>
+<PageTitle>Shop &amp; Vending Sales - Shop Inventory</PageTitle>
 
 @* Built from `Desktop Sales.dc.html` in the "Nocturne Dark Ops Redesign" design
    project. Styles live in wwwroot/css/operations.css (linked from App.razor),
@@ -111,7 +111,7 @@
                     @(HubService.IsConnected ? "Live" : "Offline")
                 </span>
             </div>
-            <h1>Desktop Sales</h1>
+            <h1>Shop &amp; Vending Sales</h1>
             <p>
                 Invoices raised at the shop tills and vending counters and fiscalized on the local device.
                 They stay here until the day is consolidated into the back office. Van sales are listed
@@ -521,7 +521,7 @@
     {
         <div class="ops-loading">
             <span class="ops-spin ops-spin-lg"></span>
-            <p>Loading desktop sales&hellip;</p>
+            <p>Loading shop and vending sales&hellip;</p>
         </div>
     }
     else if (sales.Count > 0)
@@ -1586,7 +1586,7 @@
     {
         await InvokeAsync(async () =>
         {
-            Snackbar.Add("New desktop sale received", Severity.Info);
+            Snackbar.Add("New sale received", Severity.Info);
             await LoadData();
             StateHasChanged();
         });
@@ -1659,7 +1659,7 @@
                 // The reason as the service found it — the status the API answered with, a timeout, a
                 // refused connection or the field the Web could not read. "Check that the API is running"
                 // used to stand in for all four, and was shown with the API up.
-                SayError($"Failed to load desktop sales. {loadError}");
+                SayError($"Failed to load shop and vending sales. {loadError}");
             }
 
             var (endOfDay, reportError) = await DesktopService.GetEndOfDayReportAsync(filterFromDate);
@@ -2641,7 +2641,7 @@
         {
             var bytes = ExportService.ExportDesktopSalesToExcel(sales, report, filterFromDate, filterToDate);
             var base64 = Convert.ToBase64String(bytes);
-            await JS.InvokeVoidAsync("downloadFile", $"Desktop_Sales_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
+            await JS.InvokeVoidAsync("downloadFile", $"Shop_Vending_Sales_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
         }
         catch (Exception ex)
         {
@@ -2730,7 +2730,7 @@
 
     private string emptyBody => filterCount > 0
         ? "Widen the period or drop a filter to see the rest of the day."
-        : "Invoices fiscalized on the desktop apps appear here within a few seconds of being issued.";
+        : "Sales fiscalized at the shop tills and vending counters appear here within a few seconds of being issued.";
 
     // ── Formatting ───────────────────────────────────────────────────────
 
