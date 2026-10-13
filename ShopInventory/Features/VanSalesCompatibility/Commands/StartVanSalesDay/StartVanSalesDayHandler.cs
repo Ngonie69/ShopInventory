@@ -7,6 +7,7 @@ using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
+using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -84,6 +85,8 @@ public sealed class StartVanSalesDayHandler(
         }
 
         var plannedCustomerCount = await CountPlannedCustomersAsync(user.Id, cancellationToken);
+        var areaName = RouteDayPlan.Clip(request.AreaName)
+                       ?? await PlannedAreaAsync(user.Route?.Id, tradingDate, cancellationToken);
 
         var day = new VanRouteDayEntity
         {
@@ -98,6 +101,8 @@ public sealed class StartVanSalesDayHandler(
 
             // What the rep confirmed on the handset, falling back to the route's registered vehicle.
             TruckRegNo = NullIfBlank(request.TruckRegNo) ?? user.Route?.TruckRegNo,
+            OdometerUnit = user.Route?.OdometerUnit ?? OdometerUnit.Kilometres,
+            AreaName = areaName,
 
             DepartedAt = departedAt,
             DepartedRecordedAt = recordedAt,
@@ -167,6 +172,21 @@ public sealed class StartVanSalesDayHandler(
         }
 
         return shops.Value.Count;
+    }
+
+    /// <summary>
+    /// Where the route's plan sends it on this weekday, for a day the rep did not name an area for.
+    /// Null on an upcountry trip and on a route with no stops; see <see cref="RouteDayPlan"/>.
+    /// </summary>
+    private async Task<string?> PlannedAreaAsync(int? routeId, DateTime tradingDate, CancellationToken cancellationToken)
+    {
+        if (routeId is not { } id)
+        {
+            return null;
+        }
+
+        var stops = await RouteDayPlan.LoadAsync(db, [id], cancellationToken);
+        return RouteDayPlan.AreaFor(stops[id], tradingDate.DayOfWeek);
     }
 
     private async Task LogAsync(VanRouteDayEntity day, string what)

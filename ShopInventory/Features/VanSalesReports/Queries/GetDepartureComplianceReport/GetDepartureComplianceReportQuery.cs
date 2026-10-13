@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using ErrorOr;
 using MediatR;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 
@@ -161,6 +162,8 @@ public sealed record DepartureComplianceDayDto(
 
     int? StartingMileage,
     int? ClosingMileage,
+    string OdometerUnit,
+    string? AreaName,
 
     bool HasDayRecord,
     bool IsClosed,
@@ -203,10 +206,8 @@ public sealed record DepartureComplianceDayDto(
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;
 
-    public int? KilometresTravelled =>
-        StartingMileage is { } start && ClosingMileage is { } close && close >= start
-            ? close - start
-            : null;
+    public int? KilometresTravelled => OdometerDistance.Kilometres(
+        StartingMileage, ClosingMileage, OdometerDistance.ParseUnit(OdometerUnit));
 
     public decimal? DeclaredTotal =>
         DeclaredCash is null && DeclaredEcocash is null && DeclaredInnbucks is null

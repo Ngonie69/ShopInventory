@@ -1,9 +1,11 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Common.Telematics;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
-using ShopInventory.Common.Telematics;
 using ShopInventory.Services;
 using ShopInventory.Services.Telematics;
 
@@ -30,6 +32,7 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceR
 /// </summary>
 public sealed class GetDepartureComplianceReportHandler(
     ApplicationDbContext db,
+    IOptions<TaxSettings> tax,
     ICartrackReadService telematics
 ) : IRequestHandler<GetDepartureComplianceReportQuery, ErrorOr<DepartureComplianceReportResult>>
 {
@@ -67,7 +70,7 @@ public sealed class GetDepartureComplianceReportHandler(
 
         // The rates are the truck's, and the other rep on a truck is outside any rep or route filter,
         // so the truck-days are always read for the whole fleet. See VanTruckDays.
-        var trucks = await VanTruckDays.LoadAsync(db, from, to, null, null, null, cancellationToken);
+        var trucks = await VanTruckDays.LoadAsync(db, tax.Value, from, to, null, null, null, cancellationToken);
 
         // Every key any of the three knows about. A rep who checked in but never opened a day still
         // gets a row — the missing departure record is itself the finding, and dropping the row would
@@ -216,6 +219,8 @@ public sealed class GetDepartureComplianceReportHandler(
 
             StartingMileage: day?.StartingMileage,
             ClosingMileage: day?.ClosingMileage,
+            OdometerUnit: (day?.OdometerUnit ?? OdometerUnit.Kilometres).ToString(),
+            AreaName: day?.AreaName,
 
             HasDayRecord: day is not null,
             IsClosed: day?.IsClosed ?? false,
@@ -444,7 +449,7 @@ public sealed class GetDepartureComplianceReportHandler(
         CancellationToken cancellationToken)
     {
         var sales = await VanSalesFactReader.LoadSalesAsync(
-            db,
+            db, tax.Value,
             new VanSalesFactFilter(from, to, query.UserId),
             cancellationToken);
 

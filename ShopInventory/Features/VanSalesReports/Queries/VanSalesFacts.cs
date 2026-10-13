@@ -88,6 +88,10 @@ public readonly record struct VanSalesOutletKey(string VanAccountCode, string Ou
 /// <c>RouteCustomerId</c> is the shop's row id where the record still exists, which is the exact
 /// identity. Null on sales whose customer record was never resolved; the code and name snapshots
 /// survive either way.
+///
+/// <c>TotalAmount</c> is what the customer paid, VAT included, on both routes. An offline sale is
+/// stored that way; an online one is stored before tax and is grossed up by <see cref="VanSaleMoney"/>
+/// as it is read. See <see cref="AmountIncludesVat"/> for the one case that cannot be.
 /// </summary>
 public sealed record VanSaleFact(
     Guid UserId,
@@ -120,10 +124,17 @@ public sealed record VanSaleFact(
     public DateTime? SoldAtCat { get; init; }
 
     /// <summary>
-    /// The VAT the fiscal receipt carried. Null on an online sale, whose VAT split lives only on the SAP
-    /// invoice — null meaning not recorded, not zero.
+    /// The VAT inside <c>TotalAmount</c>: the receipt's own figure where the sale has a signed receipt,
+    /// otherwise worked out from the lines. Null only where <see cref="AmountIncludesVat"/> is false,
+    /// and then it means not known, not zero.
     /// </summary>
     public decimal? VatAmount { get; init; }
+
+    /// <summary>
+    /// False for an online sale with neither a signed receipt nor any lines to tax, which is counted
+    /// at its net figure because there is nothing to gross it up from.
+    /// </summary>
+    public bool AmountIncludesVat { get; init; } = true;
 
     /// <summary>The wallet or card reference the handset recorded. Only the offline path carries one.</summary>
     public string? PaymentReference { get; init; }
@@ -143,6 +154,9 @@ public sealed record VanSaleFact(
 ///
 /// Never sum <see cref="Quantity"/> across items. Mixed units of measure make that total meaningless;
 /// count items, or convert through the volume factors first.
+///
+/// <c>UnitPrice</c> and <c>LineTotal</c> include VAT on both routes, so a line is the same kind of
+/// money as the sale it belongs to. <see cref="NetLineTotal"/> is the same line before tax.
 /// </summary>
 public sealed record VanSaleLineFact(
     Guid UserId,
@@ -167,6 +181,12 @@ public sealed record VanSaleLineFact(
     string? PaymentMethod)
 {
     public VanSalesDayKey Key => new(UserId, TradingDate);
+
+    /// <summary>
+    /// The line before tax: as stored on an online sale, and with the receipt's own rate taken out of
+    /// an offline one. Equal to <c>LineTotal</c> on an offline line that recorded no rate.
+    /// </summary>
+    public decimal NetLineTotal { get; init; }
 
     /// <summary>The shop this line's sale is attributable to, or null when none was recorded.</summary>
     public VanSalesOutletKey? Outlet => RouteCustomerCode is null

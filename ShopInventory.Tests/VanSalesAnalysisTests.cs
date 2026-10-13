@@ -5,7 +5,9 @@ using ClosedXML.Excel;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
@@ -78,6 +80,21 @@ public sealed class VanSalesAnalysisTests : IDisposable
     /// An online van sale's receipt row carries a sale already counted as its reservation. Adding it in
     /// would count the money twice.
     /// </summary>
+    [Fact]
+    public async Task An_online_sale_is_counted_with_its_VAT()
+    {
+        AddOnlineSale("ON-1", Utc(9, 0), total: 60m);
+        await _context.SaveChangesAsync();
+
+        var usd = Usd(await AnalyseAsync(tax: Options.Create(new TaxSettings())));
+
+        // Stored as SAP was given it, 60 before tax. Counted as the customer paid it.
+        Assert.Equal(69.30m, usd.TotalAmount);
+        Assert.Equal(9.30m, usd.VatAmount);
+        Assert.Equal(60m, usd.NetAmount);
+        Assert.Equal(60m, usd.TopItems.Single().NetAmount);
+    }
+
     [Fact]
     public async Task Online_receipt_rows_are_not_counted_a_second_time()
     {
@@ -284,15 +301,25 @@ public sealed class VanSalesAnalysisTests : IDisposable
     [Fact]
     public async Task A_period_that_ends_before_it_starts_is_refused()
     {
-        var result = await new GetVanSalesAnalysisHandler(_context).Handle(
+        var result = await new GetVanSalesAnalysisHandler(_context, NoVat).Handle(
             new GetVanSalesAnalysisQuery(Day, Day.AddDays(-1)), CancellationToken.None);
 
         Assert.True(result.IsError);
     }
 
-    private async Task<DesktopSalesAnalysisResult> AnalyseAsync(string? warehouse = null, string? paymentMethod = null)
+    /// <summary>
+    /// These tests are about which sales are counted and how they are cut, so the table they run under
+    /// charges no VAT and an online sale's stored figure is also what it came to. The VAT is
+    /// <see cref="An_online_sale_is_counted_with_its_VAT"/>'s subject, and that one uses the shipped rate.
+    /// </summary>
+    private static readonly IOptions<TaxSettings> NoVat = Options.Create(new TaxSettings { VatRate = 0m });
+
+    private async Task<DesktopSalesAnalysisResult> AnalyseAsync(
+        string? warehouse = null,
+        string? paymentMethod = null,
+        IOptions<TaxSettings>? tax = null)
     {
-        var result = await new GetVanSalesAnalysisHandler(_context).Handle(
+        var result = await new GetVanSalesAnalysisHandler(_context, tax ?? NoVat).Handle(
             new GetVanSalesAnalysisQuery(Day, Day, warehouse, paymentMethod), CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);

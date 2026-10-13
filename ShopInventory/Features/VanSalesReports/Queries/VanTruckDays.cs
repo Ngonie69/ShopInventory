@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -117,6 +118,7 @@ public sealed class VanTruckDays
     /// </summary>
     public static async Task<VanTruckDays> LoadAsync(
         ApplicationDbContext db,
+        TaxSettings tax,
         DateTime from,
         DateTime to,
         IReadOnlyCollection<VanSaleFact>? fleetSales,
@@ -125,7 +127,7 @@ public sealed class VanTruckDays
         CancellationToken cancellationToken)
     {
         var sales = fleetSales
-                    ?? await VanSalesFactReader.LoadSalesAsync(db, new VanSalesFactFilter(from, to), cancellationToken);
+                    ?? await VanSalesFactReader.LoadSalesAsync(db, tax, new VanSalesFactFilter(from, to), cancellationToken);
         var visits = fleetVisits ?? await LoadVisitsAsync(db, from, to, cancellationToken);
         var routeDays = fleetRouteDays
                         ?? await db.VanRouteDays
@@ -179,6 +181,9 @@ public sealed class VanTruckDays
         accounts.TryGetValue(userId, out var account) && !string.IsNullOrWhiteSpace(account)
             ? account.Trim().ToUpperInvariant()
             : $"rep:{userId:N}";
+
+    /// <summary>Every truck-day the period holds, for a report whose rows are the trucks themselves.</summary>
+    public IReadOnlyDictionary<VanTruckDayKey, TruckDay> All => _days;
 
     public VanTruckDayKey KeyOf(VanSalesDayKey repDay) => new(_truckOf(repDay.UserId), repDay.TradingDate);
 

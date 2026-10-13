@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Models.Entities;
@@ -64,8 +65,9 @@ public sealed class VanSalesFactReaderTests : IDisposable
 
         var facts = await LoadAsync();
 
+        // 40 as the offline customer paid it, and the online 60 with the 9.30 of VAT SAP put on it.
         Assert.Equal(2, facts.Count);
-        Assert.Equal(100m, facts.Sum(fact => fact.TotalAmount));
+        Assert.Equal(109.30m, facts.Sum(fact => fact.TotalAmount));
         Assert.Contains(facts, fact => fact.Source == VanSaleSource.OfflineBatch);
         Assert.Contains(facts, fact => fact.Source == VanSaleSource.OnlineInvoice);
     }
@@ -354,20 +356,101 @@ public sealed class VanSalesFactReaderTests : IDisposable
         Assert.Equal(new DateTime(2026, 8, 10, 22, 0, 0), toUtcExclusive);
     }
 
+    // --- The money ---
+
+    /// <summary>
+    /// A reservation is stored before tax and an offline sale as the customer paid it. Read as stored,
+    /// a week of online sales came to 13.4% less than the cash the reps declared for it.
+    /// </summary>
+    [Fact]
+    public async Task An_online_sale_is_grossed_up_line_by_line_at_each_lines_rate()
+    {
+        AddOnlineSale("ON-1", Utc(Day, 9, 0), "CORNER1", total: 100m, extraZeroRated: 40m);
+        await _context.SaveChangesAsync();
+
+        var fact = Assert.Single(await LoadAsync());
+
+        // 100 at 15.5% and 40 that is zero-rated: 15.50 of VAT, not 21.70.
+        Assert.Equal(155.50m, fact.TotalAmount);
+        Assert.Equal(15.50m, fact.VatAmount);
+        Assert.True(fact.AmountIncludesVat);
+    }
+
+    [Fact]
+    public async Task A_signed_receipt_speaks_for_the_sale_it_belongs_to()
+    {
+        AddOnlineSale("ON-1", Utc(Day, 9, 0), "CORNER1", total: 100m);
+        AddReceipt("ON-1", total: 115.49m, vat: 15.49m, DesktopSaleFiscalizationStatus.Success);
+        await _context.SaveChangesAsync();
+
+        var fact = Assert.Single(await LoadAsync());
+
+        // The figure filed with ZIMRA, not the 115.50 the lines would come to.
+        Assert.Equal(115.49m, fact.TotalAmount);
+        Assert.Equal(15.49m, fact.VatAmount);
+    }
+
+    [Fact]
+    public async Task A_receipt_that_was_never_signed_is_not_taken_at_its_word()
+    {
+        AddOnlineSale("ON-1", Utc(Day, 9, 0), "CORNER1", total: 100m);
+        AddReceipt("ON-1", total: 999m, vat: 0m, DesktopSaleFiscalizationStatus.Failed);
+        await _context.SaveChangesAsync();
+
+        var fact = Assert.Single(await LoadAsync());
+
+        Assert.Equal(115.50m, fact.TotalAmount);
+    }
+
+    [Fact]
+    public async Task A_reservation_with_no_lines_stays_net_and_says_so()
+    {
+        AddOnlineSale("ON-1", Utc(Day, 9, 0), "CORNER1", total: 100m, withLines: false);
+        await _context.SaveChangesAsync();
+
+        var fact = Assert.Single(await LoadAsync());
+
+        Assert.Equal(100m, fact.TotalAmount);
+        Assert.Null(fact.VatAmount);
+        Assert.False(fact.AmountIncludesVat);
+    }
+
+    [Fact]
+    public async Task An_online_line_is_the_same_kind_of_money_as_an_offline_one()
+    {
+        AddOfflineSale("OFF-1", Day, "TUCK01", total: 23.10m, taxPercent: 15.5m);
+        AddOnlineSale("ON-1", Utc(Day, 9, 0), "CORNER1", total: 20m);
+        await _context.SaveChangesAsync();
+
+        var lines = await LoadLinesAsync();
+        var offline = lines.Single(line => line.Source == VanSaleSource.OfflineBatch);
+        var online = lines.Single(line => line.Source == VanSaleSource.OnlineInvoice);
+
+        // Both lines are 20 before tax and 23.10 with it, whichever way round they were stored.
+        Assert.Equal(23.10m, offline.LineTotal);
+        Assert.Equal(20m, offline.NetLineTotal);
+        Assert.Equal(23.10m, online.LineTotal);
+        Assert.Equal(23.10m, online.UnitPrice);
+        Assert.Equal(20m, online.NetLineTotal);
+    }
+
     // --- Helpers ---
+
+    /// <summary>The shipped rate, with the one zero-rated code the item master uses.</summary>
+    private static readonly TaxSettings Tax = new() { RatesByTaxCode = { ["O0"] = 0m } };
 
     private Task<List<VanSaleFact>> LoadAsync(
         DateTime? from = null,
         DateTime? to = null,
         Guid? userId = null) =>
         VanSalesFactReader.LoadSalesAsync(
-            _context,
+            _context, Tax,
             new VanSalesFactFilter(from ?? Day, to ?? Day, userId),
             CancellationToken.None);
 
     private Task<List<VanSaleLineFact>> LoadLinesAsync(DateTime? from = null, DateTime? to = null) =>
         VanSalesFactReader.LoadSaleLinesAsync(
-            _context,
+            _context, Tax,
             new VanSalesFactFilter(from ?? Day, to ?? Day),
             CancellationToken.None);
 
@@ -385,7 +468,8 @@ public sealed class VanSalesFactReaderTests : IDisposable
         string? paymentMethod = "Cash",
         decimal soldQuantity = 1m,
         decimal discountPercent = 0m,
-        string uom = "EA")
+        string uom = "EA",
+        decimal? taxPercent = null)
     {
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
@@ -415,9 +499,30 @@ public sealed class VanSalesFactReaderTests : IDisposable
                     LineTotal = total,
                     WarehouseCode = VanWarehouse,
                     DiscountPercent = discountPercent,
-                    UoMCode = uom
+                    UoMCode = uom,
+                    TaxPercent = taxPercent
                 }
             ]
+        });
+    }
+
+    /// <summary>The receipt row the server writes for an online sale, beside the reservation that is the sale.</summary>
+    private void AddReceipt(string reference, decimal total, decimal vat, DesktopSaleFiscalizationStatus status)
+    {
+        _context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = reference,
+            SourceSystem = "KefalosVanSalesOnline",
+            CardCode = VanAccount,
+            CardName = "Van 010",
+            DocDate = Day,
+            TotalAmount = total,
+            VatAmount = vat,
+            Currency = "USD",
+            WarehouseCode = VanWarehouse,
+            FiscalizationStatus = status,
+            ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated,
+            CreatedBy = Rep.ToString()
         });
     }
 
@@ -432,8 +537,46 @@ public sealed class VanSalesFactReaderTests : IDisposable
         decimal soldQuantity = 1m,
         decimal? inventoryQuantity = null,
         decimal discountPercent = 0m,
-        string uom = "EA")
+        string uom = "EA",
+        decimal? extraZeroRated = null,
+        bool withLines = true)
     {
+        var lines = new List<StockReservationLineEntity>();
+
+        if (withLines)
+        {
+            lines.Add(new StockReservationLineEntity
+            {
+                LineNum = 0,
+                ItemCode = "CHE011",
+                ItemDescription = "Cheddar 1kg",
+                OriginalQuantity = soldQuantity,
+                ReservedQuantity = inventoryQuantity ?? soldQuantity,
+                UoMCode = uom,
+                WarehouseCode = VanWarehouse,
+                UnitPrice = total / soldQuantity,
+                LineTotal = total,
+                DiscountPercent = discountPercent
+            });
+        }
+
+        if (extraZeroRated is { } zeroRated)
+        {
+            lines.Add(new StockReservationLineEntity
+            {
+                LineNum = 1,
+                ItemCode = "MLK001",
+                ItemDescription = "Fresh milk 1l",
+                OriginalQuantity = 1m,
+                ReservedQuantity = 1m,
+                UoMCode = "EA",
+                WarehouseCode = VanWarehouse,
+                UnitPrice = zeroRated,
+                LineTotal = zeroRated,
+                TaxCode = "O0"
+            });
+        }
+
         _context.StockReservations.Add(new StockReservationEntity
         {
             ReservationId = Guid.NewGuid().ToString(),
@@ -444,29 +587,14 @@ public sealed class VanSalesFactReaderTests : IDisposable
             CardName = "Van 010",
             RouteCustomerCode = routeCustomerCode,
             RouteCustomerName = routeCustomerCode is null ? null : "Corner Store",
-            TotalValue = total,
+            TotalValue = total + (extraZeroRated ?? 0m),
             Currency = currency,
             Status = status,
             CreatedAt = createdAtUtc,
             ExpiresAt = createdAtUtc.AddHours(1),
             ConfirmedAt = status == ReservationStatus.Confirmed ? createdAtUtc : null,
             CreatedBy = createdBy ?? Rep.ToString(),
-            Lines =
-            [
-                new StockReservationLineEntity
-                {
-                    LineNum = 0,
-                    ItemCode = "CHE011",
-                    ItemDescription = "Cheddar 1kg",
-                    OriginalQuantity = soldQuantity,
-                    ReservedQuantity = inventoryQuantity ?? soldQuantity,
-                    UoMCode = uom,
-                    WarehouseCode = VanWarehouse,
-                    UnitPrice = total / soldQuantity,
-                    LineTotal = total,
-                    DiscountPercent = discountPercent
-                }
-            ]
+            Lines = lines
         });
     }
 }

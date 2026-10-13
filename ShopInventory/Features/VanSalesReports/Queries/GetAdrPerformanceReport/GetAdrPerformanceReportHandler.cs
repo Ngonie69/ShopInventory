@@ -1,6 +1,8 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.RouteCustomers.Queries;
 using ShopInventory.Models;
@@ -21,7 +23,8 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport
 /// van app started writing one.
 /// </remarks>
 public sealed class GetAdrPerformanceReportHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    IOptions<TaxSettings> tax
 ) : IRequestHandler<GetAdrPerformanceReportQuery, ErrorOr<AdrPerformanceReportResult>>
 {
     private static readonly string[] VanRepRoles = [ApplicationRoles.Adr, ApplicationRoles.Sales];
@@ -77,7 +80,7 @@ public sealed class GetAdrPerformanceReportHandler(
 
         // Every van's sales, not only the ADRs': the shares need the whole.
         var sales = await VanSalesFactReader.LoadSalesAsync(
-            db,
+            db, tax.Value,
             new VanSalesFactFilter(from, to),
             cancellationToken);
 

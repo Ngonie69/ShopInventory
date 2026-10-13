@@ -1,6 +1,8 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.RouteCustomers.Queries;
 using ShopInventory.Models.Entities;
@@ -23,7 +25,8 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceR
 /// anyway, so the joins are dictionary hits over data already in the process.
 /// </remarks>
 public sealed class GetVanSalesPerformanceReportHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    IOptions<TaxSettings> tax
 ) : IRequestHandler<GetVanSalesPerformanceReportQuery, ErrorOr<VanSalesPerformanceReportResult>>
 {
     public async Task<ErrorOr<VanSalesPerformanceReportResult>> Handle(
@@ -49,8 +52,8 @@ public sealed class GetVanSalesPerformanceReportHandler(
 
         var filter = new VanSalesFactFilter(from, to, query.UserId);
 
-        var sales = await VanSalesFactReader.LoadSalesAsync(db, filter, cancellationToken);
-        var lines = await VanSalesFactReader.LoadSaleLinesAsync(db, filter, cancellationToken);
+        var sales = await VanSalesFactReader.LoadSalesAsync(db, tax.Value, filter, cancellationToken);
+        var lines = await VanSalesFactReader.LoadSaleLinesAsync(db, tax.Value, filter, cancellationToken);
         var days = await LoadRouteDaysAsync(query, from, to, cancellationToken);
         var visits = await LoadVisitsAsync(query, from, to, cancellationToken);
         var newOutlets = await LoadNewOutletsAsync(from, to, cancellationToken);
@@ -59,7 +62,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
         // on a truck is half of every call rate, whatever this report was asked to show.
         var fleetWide = !query.UserId.HasValue;
         var trucks = await VanTruckDays.LoadAsync(
-            db,
+            db, tax.Value,
             from,
             to,
             fleetWide ? sales : null,
@@ -218,7 +221,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
         var priorFrom = priorTo.AddDays(-(length - 1));
 
         var priorLines = await VanSalesFactReader.LoadSaleLinesAsync(
-            db,
+            db, tax.Value,
             new VanSalesFactFilter(priorFrom, priorTo, query.UserId),
             cancellationToken);
 

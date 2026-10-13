@@ -3560,6 +3560,8 @@ handlers and are not recorded twice.
 | GET | `/api/van-sales/telematics/vehicles` | `users.edit` or `vansales.routes.manage` | The fleet telematics vehicles, for assigning one to a route |
 | GET | `/api/van-sales/fleet-audit` | `vansales.attendance.view` | The fleet over a period: a row per vehicle, each carrying its own days |
 | PUT | `/api/van-sales/fleet/{registration}/business-partner` | `users.edit` or `vansales.routes.manage` | Link a vehicle to the van sales account whose takings it carries |
+| GET | `/api/van-sales/truck-report` | `vansales.attendance.view` | The daily truck report: a row per route per day, and each route's period against its target |
+| PUT | `/api/van-sales/truck-days/{routeId}/{tradingDate}` | `users.edit` or `vansales.routes.manage` | The office's figures for a truck's day: fuel issued, account sales and the area worked |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 | GET | `/api/van-sales/invoices` | `invoices.view` | Invoices the van sales app created, with their ZIMRA and SAP state, newest first |
@@ -3664,6 +3666,8 @@ answer for July — rendering July as "the van never moved" reads as a finding.
       "newCustomers": 1,
       "startingMileage": 84210,
       "closingMileage": 84357,
+      "odometerUnit": "Kilometres",
+      "areaName": "Guruve, Mvurwi",
       "hasDayRecord": true,
       "isClosed": true,
       "notes": null,
@@ -3742,6 +3746,16 @@ that shows a strike rate carries the `pcrProductiveCalls` / `pcrCalls` pair. The
 route-level `calls` and `kilometresTravelled` are counted once per truck-day. The performance
 report's routes table puts a rep who sold without tapping Start Day on the route their truck-mate
 opened. Only truck-days that nobody on the truck opened fall under "No departure record".
+
+**Every system total includes VAT.** An online van sale is stored before tax, as SAP is given it,
+and an offline one as the customer paid it. Both are reported as paid: an online sale takes its
+signed receipt's total, or failing that is grossed up from its lines at each line's VAT rate. Until
+2026-10-13 the online half was reported as stored, so a van that sold only online read 13.4% under
+the cash its rep declared.
+
+`startingMileage` and `closingMileage` are as the rep read them, in `odometerUnit` (`Kilometres` or
+`Miles`, from the route). `kilometresTravelled` is always kilometres. `areaName` is the area the
+day was opened for: what the handset named, or the route's stops for the weekday.
 
 **The cash variance is measured against `systemDeclarableTakings`, not `systemTotalSales`.** The
 declaration has three boxes — cash, ecocash, innbucks — and the handset offers no fourth, so two
@@ -3901,7 +3915,14 @@ per van — including a van with no snapshot in the period — with `daysCounted
 | `includeInactive` | `false` | Bring back retired routes too; they still head historical days |
 
 **Response:** `List<RouteDto>` — `id`, `code`, `name`, `territory`, `truckRegNo`,
-`temperatureMinC`, `temperatureMaxC`, `temperatureProbeChannel`, `isActive`, `assignedUserCount`.
+`temperatureMinC`, `temperatureMaxC`, `temperatureProbeChannel`, `isActive`, `assignedUserCount`,
+`odometerUnit`, `dailySalesTarget`.
+
+`odometerUnit` is `Kilometres` or `Miles`: what the route's truck counts in. A rep types the
+odometer as the dashboard shows it, each trading day snapshots the route's unit, and every distance
+the reports show is kilometres. `dailySalesTarget` is what the truck is expected to sell on a
+working day, VAT included, or null on a route held to no target. A month's target is that figure
+times its Monday-to-Friday days.
 
 The three temperature fields are the round's cold chain. Both limits null — the ordinary case —
 means the route carries nothing chilled and is never judged on temperature.
@@ -3922,13 +3943,107 @@ temperature, so it can only be told, never discovered.
   "isActive": true,
   "temperatureMinC": -18.0,
   "temperatureMaxC": -12.0,
-  "temperatureProbeChannel": 1
+  "temperatureProbeChannel": 1,
+  "odometerUnit": "Kilometres",
+  "dailySalesTarget": 2500
 }
 ```
 
+`odometerUnit` may be left out: an existing route keeps its unit and a new one is created in
+kilometres. `dailySalesTarget` is taken as given, so leaving it out clears the target, and a
+target of zero is stored as none.
+
 **Response:** `RouteDto`. `409 Conflict` on a duplicate code; `PUT` also answers `404` for an
 unknown id. `400` when one temperature limit is set without the other, when the lower limit is
-above the upper, or when the probe channel is outside 1-4.
+above the upper, when the probe channel is outside 1-4, when `odometerUnit` is neither
+`Kilometres` nor `Miles`, or when `dailySalesTarget` is negative.
+
+##### GET `/api/van-sales/truck-report`
+
+The daily truck report. It replaces the workbook the office typed by hand: one row per truck per
+day, and a period summary against target.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | first of this month | Inclusive CAT trading day |
+| `toDate` | last of this month | Inclusive CAT trading day. The period may be at most 93 days |
+
+**Response:** `VanDailyTruckReportResult` — `fromDate`, `toDate`, `generatedAtUtc`, `workingDays`,
+`workingDaysElapsed`, `trucks`, `days`, `total`, `exceptions`, `salesOutsideRoutes`.
+
+The grain is the truck, which is the route. Two reps share a truck, so calls and takings are
+pooled across them. Money is US dollars and **includes VAT**: an online van sale is stored before
+tax and is grossed up as it is read, from its signed receipt where it has one and from its lines
+at each line's VAT rate where it has not. Takings in another currency are in
+`otherCurrencySales` and in none of the dollar figures.
+
+`days` holds a row for every Monday-to-Friday day so far for every live route, traded or not, and
+for any other day a truck traded on. A truck that reported nothing therefore shows as a run of
+rows with `hasActivity` false, not as a gap. Each row carries:
+
+- `routeId`, `routeCode`, `routeName`, `territory`, `tradingDate`, `isWorkingDay`, `isComplete`
+  (the day is over; today is not judged), `hasDayRecord`, `hasActivity`.
+- `areaName` and `areaSource`. The source is `Office` (entered on the truck-days endpoint), `Day`
+  (stamped at Start Day, from the handset's `area_name` or the route's stops for the weekday) or
+  `Plan` (no Start Day; the route's stops for the weekday). An upcountry trip keeps no weekday, so
+  it has an area only when the rep or the office names one.
+- `timeOut`, `timeIn` in CAT and `returnedLate`, which is true when the day was closed on a later
+  date than it was traded. `timeIn` is then when End Day was tapped, not when the truck got back.
+- `plannedCustomers` (the truck's whole customer list at Start Day, not the day's area),
+  `customersVisited`, `productiveCalls`, `callsMade`, `newCustomers`.
+- `salesCount`, `sales`, `cash`, `ecocash`, `innbucks`, `otherTender`, `untendered`,
+  `otherCurrencySales`, `declaredTotal`.
+- `accountSales`, `fuelLitres`, `notes`: the office's entry. `accountSales` is not part of `sales`.
+- `startingMileage`, `closingMileage` as read, `odometerUnit`, and `kilometres`.
+- `dailySalesTarget`: the route's target, null off a working day and on a route with none.
+
+`trucks` is one line per route and `total` the fleet: `dailySalesTarget`, `periodTarget` (daily
+target times `workingDays`), `targetToDate`, `sales`, `ecocash`, `accountSales`, `salesCount`,
+`daysReported`, `workingDaysElapsed`, `customersVisited`, `productiveCalls`, `newCustomers`,
+`plannedCustomers` with `ccrCustomersVisited`, `pcrProductiveCalls` with `pcrCallsMade`,
+`kilometres` and `fuelLitres`, and the figures worked from them: `balanceToTarget`,
+`targetAchieved`, `callComplianceRate`, `productiveCallRate`, `averageOrderValue`,
+`salesPerKilometre` and `kilometresPerLitre`. CCR is `ccrCustomersVisited` over
+`plannedCustomers`, PCR is `pcrProductiveCalls` over `pcrCallsMade`, and each pair is summed over
+the same days so neither rate can pass 100%. A day row carries its own `callComplianceRate`,
+`productiveCallRate` and `averageOrderValue`, and the four checks as booleans: `belowTarget`,
+`notReported`, `mileageNeedsReview` and `distanceWithoutSales`.
+
+`exceptions` counts the truck-days each check picked out: `belowTarget`, `notReported`,
+`mileageNeedsReview`, `distanceWithoutSales` and `returnedLate`. `salesOutsideRoutes` is van
+takings by a login assigned to no route. It is in no row, and is stated so the rows are not read
+as the whole.
+
+`400` when the period ends before it starts or is longer than 93 days.
+
+##### PUT `/api/van-sales/truck-days/{routeId}/{tradingDate}`
+
+What the office knows about a truck's day and nothing else records. `tradingDate` is
+`yyyy-MM-dd`.
+
+**Body:** `SaveVanTruckDayEntryRequest`.
+
+```json
+{
+  "areaName": "Glenorah",
+  "fuelLitres": 30,
+  "accountSales": 388.00,
+  "notes": null
+}
+```
+
+One entry per route per day, written over in place. Every field is taken as given, so a null
+clears it, and saving all four null removes the entry. `fuelLitres` is litres issued to the truck
+that day. `accountSales` is sales to account customers on the round, VAT included: those invoices
+are keyed into SAP and never pass through the van app, so nothing here can work them out.
+`areaName` overrides what the day was opened with.
+
+**Response:** `VanTruckDayEntryDto` — `routeId`, `tradingDate`, `hasEntry`, `areaName`,
+`fuelLitres`, `accountSales`, `notes`, `updatedByName`, `updatedAtUtc`. `hasEntry` is false when
+the save left nothing behind.
+
+`400` for a day that has not happened yet, fuel outside 0 to 2,000 litres, or negative account
+sales. `404` for a route that does not exist.
 
 ##### GET `/api/van-sales/telematics/vehicles`
 
