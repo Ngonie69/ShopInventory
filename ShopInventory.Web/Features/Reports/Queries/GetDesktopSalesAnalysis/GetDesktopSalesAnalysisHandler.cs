@@ -73,10 +73,10 @@ public sealed class GetDesktopSalesAnalysisHandler(
                 return Errors.Report.LoadDesktopSalesAnalysisFailed(response.StatusCode switch
                 {
                     HttpStatusCode.Unauthorized =>
-                        "Your session could not access the desktop sales analysis. Refresh and try again.",
+                        "Your session could not access the sales analysis. Refresh and try again.",
                     HttpStatusCode.Forbidden or HttpStatusCode.BadRequest when detail is not null => detail!,
                     HttpStatusCode.Forbidden => "This account is not permitted to read these sales.",
-                    _ => "Failed to load the desktop sales analysis."
+                    _ => "Failed to load the sales analysis."
                 });
             }
 
@@ -85,7 +85,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
 
             if (result is null)
             {
-                return Errors.Report.LoadDesktopSalesAnalysisFailed("Failed to load the desktop sales analysis.");
+                return Errors.Report.LoadDesktopSalesAnalysisFailed("Failed to load the sales analysis.");
             }
 
             await NameRowsAsync(result, cancellationToken);
@@ -102,7 +102,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Error loading the desktop sales analysis from {Url}", url);
-            return Errors.Report.LoadDesktopSalesAnalysisFailed("Failed to load the desktop sales analysis.");
+            return Errors.Report.LoadDesktopSalesAnalysisFailed("Failed to load the sales analysis.");
         }
     }
 

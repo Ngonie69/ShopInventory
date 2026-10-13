@@ -18,7 +18,31 @@ otherwise be surprised.
 
 ### Changed
 
-- **Desktop Sales no longer shows van sales. They are under Van Sales only.** Both van sources are
+- **Desktop Sales is now called Shop & Vending Sales in the portal.** The sidebar reads Shop & Vending
+  Sales, Shop & Vending Analysis and Shop & Vending Review, and the page titles, headings, Settings
+  labels, Excel workbooks, the review PDF and the review email follow. Downloads are named
+  `Shop_Vending_Sales_…` where they were `Desktop_Sales_…`, and the workbook's sheet is
+  `Shop & Vending Sales`. The notification for a failed receipt is titled `Sale Not Fiscalized: …`.
+  Nothing an integration calls has moved: the page addresses (`/desktop-sales`,
+  `/reports/desktop-sales`), every `/api/DesktopIntegration/…` route, the audit actions and the
+  remarks on SAP invoices are as they were.
+
+- **Desktop Credit Notes is now Shop & Vending Credit Notes, and van credits have left it.** The
+  sidebar shortens it to Shop & Vending Credits. Only the name and what it lists change; the address
+  is still `/desktop-credit-notes`.
+  - `GET /api/DesktopIntegration/credit-notes` with no `sourceSystem` leaves out credits against van
+    sales, by either van source. Its counts, totals and warehouse list follow. Naming a van source
+    still reads them.
+  - Van credits are on Van Sales → Credit Notes, which now also lists a credit against an online van
+    sale that SAP has not taken. Its drawer has **Retry SAP** for a memo SAP refused and **Mark
+    raised** for one raised by hand (Admin, Manager), the two actions the old page offered.
+    `GET /api/van-sales/credit-notes` rows gain `creditId` and `creditSapStatus` for them.
+
+- **Desktop Transactions is now SAP Queue.** The page is the same queue of invoices, transfers and
+  stock reservations SAP has not taken, from the tills, vending and the van app; the address is still
+  `/desktop-transactions`.
+
+- **Shop & Vending Sales no longer shows van sales. They are under Van Sales only.** Both van sources are
   left out together, the offline uploads (`KefalosVanSales`) and the receipts of online sales
   (`KefalosVanSalesOnline`). This changes five answers when no `sourceSystem` is named, and the
   portal pages drawn from them:
@@ -29,7 +53,7 @@ otherwise be surprised.
     channel filter no longer offers "Van sales".
   - `GET /api/DesktopIntegration/sales/review` and `…/review/pdf` (Business review, and the emailed
     review) have no "Van sales" section.
-  - `GET /api/DesktopIntegration/sales` (Desktop Sales list) used to list the vans' offline sales.
+  - `GET /api/DesktopIntegration/sales` (the sales list) used to list the vans' offline sales.
     Its source facet no longer carries a van chip, and `unfilteredCount` no longer counts them.
   - `GET /api/DesktopIntegration/end-of-day/report`, which heads that list and is emailed after the
     18:00 consolidation, no longer counts the vans' offline sales. A day on which only vans sold now
@@ -58,7 +82,7 @@ otherwise be surprised.
   show Shops or Vending, never both, and their Excel sheets carry a Channel column.
 
 - **Six portal pages left open for more than an hour now act as the signed-in user, not as the
-  portal's API key.** Desktop Transactions, Desktop Sales, Local Stock, Live Transactions, Sync Status
+  portal's API key.** SAP Queue, Shop & Vending Sales, Local Stock, Live Transactions, Sync Status
   and the Exception Center, and the notification bell on every page, renew the access token as they
   poll. They used to keep sending the expired one, and because those routes also accept the portal's
   key the API answered for the key. Operators may notice two things: an action a role is not allowed

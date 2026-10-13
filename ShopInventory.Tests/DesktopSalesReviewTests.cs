@@ -337,7 +337,7 @@ public sealed class DesktopSalesReviewTests : IDisposable
             .Handle(new GetDesktopSalesReviewPdfQuery(_adminId, From, To, Title: "Weekly review"), CancellationToken.None);
 
         var pdf = (await document).Value;
-        Assert.Equal("Desktop_Sales_Review_20260914_20260917.pdf", pdf.FileName);
+        Assert.Equal("Shop_Vending_Sales_Review_20260914_20260917.pdf", pdf.FileName);
 
         var text = PdfText(pdf.Content);
         Assert.Contains("Weekly review", text);

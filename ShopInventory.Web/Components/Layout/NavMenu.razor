@@ -403,9 +403,9 @@
                             <Authorized>
                                 <NavLink class="snav-link" href="/desktop-sales" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
-                                        <i class="ph ph-desktop" aria-hidden="true"></i>
+                                        <i class="ph ph-storefront" aria-hidden="true"></i>
                                     </span>
-                                    <span class="snav-text">Desktop Sales</span>
+                                    <span class="snav-text">Shop &amp; Vending Sales</span>
                                 </NavLink>
                                 @* Every credit raised against those sales, and the SAP memos still owed.
                                    Its own path rather than under /desktop-sales, which matches by prefix
@@ -414,14 +414,14 @@
                                     <span class="snav-icon">
                                         <i class="ph ph-receipt-x" aria-hidden="true"></i>
                                     </span>
-                                    <span class="snav-text">Desktop Credit Notes</span>
+                                    <span class="snav-text">Shop &amp; Vending Credits</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
                         @* The day's incoming payment per partner, the invoices it settles and the
-                           G/L accounts each partner posts to. Kept beside Desktop Sales because the
+                           G/L accounts each partner posts to. Kept beside Shop & Vending Sales because the
                            payments settle those sales; the API reads it for these three roles. A
-                           Cashier has no Desktop Sales link, so it is only indented beneath one. *@
+                           Cashier has no Shop & Vending Sales link, so it is only indented beneath one. *@
                         <AuthorizeView Roles="Admin,Manager,Cashier" Context="dailyPaymentsCtx">
                             <Authorized>
                                 <NavLink class="@(dailyPaymentsCtx.User.IsInRole("Admin") || dailyPaymentsCtx.User.IsInRole("Manager") ? "snav-link sub-link" : "snav-link")" href="/reports/desktop-sales/payments" Match="NavLinkMatch.All">
@@ -436,9 +436,9 @@
                             <Authorized>
                                 <NavLink class="snav-link" href="/desktop-transactions" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
-                                        <i class="ph ph-monitor" aria-hidden="true"></i>
+                                        <i class="ph ph-queue" aria-hidden="true"></i>
                                     </span>
-                                    <span class="snav-text">Desktop Transactions</span>
+                                    <span class="snav-text">SAP Queue</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
@@ -844,13 +844,13 @@
                                     <span class="snav-icon">
                                         <i class="ph ph-cash-register" aria-hidden="true"></i>
                                     </span>
-                                    <span class="snav-text">Desktop Sales Analysis</span>
+                                    <span class="snav-text">Shop &amp; Vending Analysis</span>
                                 </NavLink>
                                 <NavLink class="snav-link sub-link" href="/reports/desktop-sales/review" Match="NavLinkMatch.All">
                                     <span class="snav-icon">
                                         <i class="ph ph-lightbulb" aria-hidden="true"></i>
                                     </span>
-                                    <span class="snav-text">Desktop Sales Review</span>
+                                    <span class="snav-text">Shop &amp; Vending Review</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>

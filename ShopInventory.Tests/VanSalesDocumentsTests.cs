@@ -688,6 +688,79 @@ public sealed class VanSalesDocumentsTests : IDisposable
     }
 
     /// <summary>
+    /// Van Sales → Credit Notes is the only list a van credit SAP has not taken appears in, so each such row
+    /// carries what the two levers act on: the credit's id, and where its SAP memo stands.
+    /// </summary>
+    [Fact]
+    public async Task A_till_credit_SAP_refused_carries_what_Retry_SAP_and_Mark_raised_act_on()
+    {
+        var refused = TillCredit(AddOfflineSale("VAN-REFUSED", SaleSourceSystems.VanSales, docNum: 9901, docEntry: 901),
+            DesktopCreditStatuses.Fiscalised, DesktopCreditSapStatuses.Failed, sapError: "Batch selection is incomplete");
+        var byHand = TillCredit(AddOfflineSale("VAN-BYHAND", SaleSourceSystems.VanSales, docNum: 9902, docEntry: 902),
+            DesktopCreditStatuses.Fiscalised, DesktopCreditSapStatuses.ManualInSap);
+        var unsigned = TillCredit(AddOfflineSale("VAN-UNSIGNED", SaleSourceSystems.VanSales, docNum: 9903, docEntry: 903),
+            DesktopCreditStatuses.ReconciliationRequired, DesktopCreditSapStatuses.Deferred);
+        AddReservation("VAN-SAP", ReservationStatus.Confirmed, docEntry: 841, docNum: 9841);
+        AddCreditMemo(docEntry: 62, docNum: 3062, baseEntry: 841);
+        await _context.SaveChangesAsync();
+
+        var rows = (await ListCreditNotesAsync()).Rows.ToDictionary(row => row.Number);
+
+        Assert.Equal((refused.Id, DesktopCreditSapStatuses.Failed), (rows[refused.Number].CreditId, rows[refused.Number].CreditSapStatus));
+        Assert.Equal("Batch selection is incomplete", rows[refused.Number].Problem);
+        Assert.Equal((byHand.Id, DesktopCreditSapStatuses.ManualInSap), (rows[byHand.Number].CreditId, rows[byHand.Number].CreditSapStatus));
+
+        // ZIMRA has not accepted it, so it owes SAP nothing yet and neither lever applies.
+        Assert.Equal(unsigned.Id, rows[unsigned.Number].CreditId);
+        Assert.Null(rows[unsigned.Number].CreditSapStatus);
+
+        // A memo read from SAP is already there: nothing to send, nothing to record.
+        Assert.Null(rows["3062"].CreditId);
+        Assert.Null(rows["3062"].CreditSapStatus);
+    }
+
+    /// <summary>
+    /// A van sale arrives by two routes and its credits are one list. A credit against an online sale's
+    /// receipt that SAP has not taken has nowhere else to be found.
+    /// </summary>
+    [Fact]
+    public async Task A_till_credit_against_an_online_van_sale_is_listed_too()
+    {
+        var credit = TillCredit(AddOfflineSale("VAN-ONLINE-CR", SaleSourceSystems.VanSalesOnline, docNum: 9904, docEntry: 904),
+            DesktopCreditStatuses.Fiscalised, DesktopCreditSapStatuses.Failed, sapError: "Refused");
+        await _context.SaveChangesAsync();
+
+        var row = Assert.Single((await ListCreditNotesAsync()).Rows);
+
+        Assert.Equal(credit.Number, row.Number);
+        Assert.Equal("Till", row.Origin);
+        Assert.Equal(credit.Id, row.CreditId);
+        Assert.Equal("Online", Assert.Single(row.CreditedInvoices).Channel);
+    }
+
+    private DesktopCreditNoteEntity TillCredit(DesktopSaleEntity sale, string status, string sapStatus, string? sapError = null)
+    {
+        var credit = new DesktopCreditNoteEntity
+        {
+            Id = Guid.NewGuid(),
+            Sale = sale,
+            Number = $"CR-{sale.ExternalReferenceId}-1",
+            // Unique per credit, as the table requires.
+            RequestKey = Guid.NewGuid().ToString("N"),
+            OriginalFiscalNumber = sale.ExternalReferenceId,
+            Reason = "Damaged",
+            Currency = "USD",
+            Amount = 20m,
+            Status = status,
+            SapStatus = sapStatus,
+            SapError = sapError,
+            CreatedAtUtc = DuringDayUtc
+        };
+        _context.DesktopCreditNotes.Add(credit);
+        return credit;
+    }
+
+    /// <summary>
     /// The drawer shows the receipt as the invoice drawer does — QR, verification code, device, fiscal day —
     /// taken from the fiscal log's row for the memo's DocNum.
     /// </summary>

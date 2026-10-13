@@ -258,6 +258,17 @@ public class VanSalesCreditNoteRowModel
     public string? FiscalDeviceSerial { get; set; }
     public string State { get; set; } = string.Empty;
     public string? Problem { get; set; }
+
+    /// <summary>
+    /// On a credit raised at the till: its own id, which a refused SAP memo is sent again by. Null on a
+    /// memo read from SAP.
+    /// </summary>
+    public Guid? CreditId { get; set; }
+
+    /// <summary>
+    /// Where that credit's SAP memo stands (<c>DesktopCreditSapStatuses</c>), once ZIMRA has accepted it.
+    /// </summary>
+    public string? CreditSapStatus { get; set; }
 }
 
 public class VanSalesCreditedInvoiceModel

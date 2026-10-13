@@ -318,7 +318,7 @@ public partial class DesktopSalesReport : IDisposable
         {
             Logger.LogError(ex, "Failed to load the desktop sales analysis page");
             shown = null;
-            error = "Failed to load the desktop sales analysis.";
+            error = "Failed to load the sales analysis.";
         }
         finally
         {
@@ -484,7 +484,7 @@ public partial class DesktopSalesReport : IDisposable
             var bytes = ExportService.ExportDesktopSalesAnalysisToExcel(report);
             await JS.InvokeVoidAsync(
                 "downloadFile",
-                $"{(Vans ? "Van" : "Desktop")}_Sales_Analysis_{report.FromDate:yyyyMMdd}_{report.ToDate:yyyyMMdd}.xlsx",
+                $"{(Vans ? "Van" : "Shop_Vending")}_Sales_Analysis_{report.FromDate:yyyyMMdd}_{report.ToDate:yyyyMMdd}.xlsx",
                 Convert.ToBase64String(bytes));
 
             ShowToast("Workbook downloaded");

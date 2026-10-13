@@ -389,7 +389,11 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         var url = "api/DesktopIntegration/end-of-day/report";
         if (reportDate.HasValue)
             url += $"?reportDate={reportDate.Value:yyyy-MM-dd}";
-        return await ReadAsync<EndOfDayReportDto>(url);
+
+        // A day with no shop or vending sales has no report, and the API says so with a 404. That is an
+        // empty day rather than a failed read — the page already draws "No report yet" for a null — and it
+        // is an ordinary one now that a day on which only the vans sold is among them.
+        return await ReadAsync<EndOfDayReportDto>(url, notFoundIsEmpty: true);
     }
 
     public async Task<(LocalStockResultDto? Result, string? Error)> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null)
