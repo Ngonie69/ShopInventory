@@ -21,7 +21,7 @@ internal static class DesktopSalesReviewEmailBody
     {
         var html = new StringBuilder();
         html.Append("<div style=\"font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f1a22;max-width:680px;margin:0 auto;\">");
-        html.Append("<p style=\"font-size:11px;letter-spacing:1px;color:#1d5f8a;margin:0 0 4px;\"><b>DESKTOP SALES · BUSINESS REVIEW</b></p>");
+        html.Append("<p style=\"font-size:11px;letter-spacing:1px;color:#1d5f8a;margin:0 0 4px;\"><b>SHOP &amp; VENDING SALES · BUSINESS REVIEW</b></p>");
         html.Append($"<h1 style=\"font-size:24px;margin:0 0 4px;\">{E(title)}</h1>");
         html.Append($"<p style=\"font-size:14px;color:#44525c;margin:0 0 16px;\">{D(review.FromDate, "ddd d MMM yyyy")} to {D(review.ToDate, "ddd d MMM yyyy")} · "
             + $"{(review.WarehouseCode is null ? "all shops" : E(review.WarehouseCode))} · compared with {D(review.PreviousFromDate, "d MMM")} to {D(review.PreviousToDate, "d MMM")}</p>");
@@ -60,8 +60,8 @@ internal static class DesktopSalesReviewEmailBody
         }
 
         html.Append("<p style=\"font-size:13px;color:#44525c;margin:20px 0 4px;\">The full review — days, hours, shops, best sellers, prices and posting — is attached as a PDF, "
-            + "and can be opened for any period under Reports → Desktop Sales Review.</p>");
-        html.Append($"<p style=\"font-size:11px;color:#84919a;margin:0;\">Generated {D(generatedAtCat, "d MMM yyyy, HH:mm")} CAT. Online van receipts are excluded; those sales are counted as their SAP invoices.</p>");
+            + "and can be opened for any period under Reports → Shop &amp; Vending Review.</p>");
+        html.Append($"<p style=\"font-size:11px;color:#84919a;margin:0;\">Generated {D(generatedAtCat, "d MMM yyyy, HH:mm")} CAT. Shop tills and vending only; van sales are reported under Van Sales.</p>");
         html.Append("</div>");
 
         return html.ToString();

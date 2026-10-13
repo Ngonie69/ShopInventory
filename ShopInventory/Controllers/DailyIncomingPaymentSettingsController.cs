@@ -43,7 +43,7 @@ public class DailyIncomingPaymentSettingsController(
                 AuditActions.UpdateDailyIncomingPaymentSettings,
                 "DailyIncomingPayment",
                 null,
-                $"Daily incoming payments for desktop sales switched {(request.Enabled ? "on" : "off")} by {userName}",
+                $"Daily incoming payments for shop and vending sales switched {(request.Enabled ? "on" : "off")} by {userName}",
                 true);
         }
         catch

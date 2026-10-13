@@ -219,7 +219,7 @@ public partial class DesktopSalesBusinessReview : IDisposable
             var scope = review.WarehouseCode is { } code ? $"_{code}" : "";
             await JS.InvokeVoidAsync(
                 "downloadFile",
-                $"Desktop_Sales_Review{scope}_{review.FromDate:yyyyMMdd}_{review.ToDate:yyyyMMdd}.pdf",
+                $"Shop_Vending_Sales_Review{scope}_{review.FromDate:yyyyMMdd}_{review.ToDate:yyyyMMdd}.pdf",
                 Convert.ToBase64String(result.Value));
         }
         catch (Exception ex)

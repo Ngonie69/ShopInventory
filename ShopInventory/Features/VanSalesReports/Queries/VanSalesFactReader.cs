@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -9,7 +11,7 @@ namespace ShopInventory.Features.VanSalesReports.Queries;
 /// <summary>
 /// Reads van sales out of the two tables they land in and hands back one normalised stream.
 ///
-/// This is the single place the four recurring problems are solved, so no report has to solve them
+/// This is the single place the five recurring problems are solved, so no report has to solve them
 /// again and no two reports can answer them differently:
 ///
 /// 1. <b>The union.</b> An offline sale becomes a <c>DesktopSale</c>; an online one posts straight to
@@ -21,6 +23,9 @@ namespace ShopInventory.Features.VanSalesReports.Queries;
 /// 3. <b>The attribution.</b> The rep is a user id held as a string in <c>CreatedBy</c>.
 /// 4. <b>The shop.</b> The account on the document is the van's own, so the buyer is only ever in the
 ///    route customer columns — and is null on history captured before handsets started sending it.
+/// 5. <b>The money.</b> An offline sale is stored as the customer paid it; a reservation is stored
+///    before tax, as SAP is given it. Every amount handed back here includes VAT, by the rule in
+///    <see cref="VanSaleMoney"/>, so the two halves can be added and set beside cash.
 ///
 /// Static, taking the context as an argument, for the same reason
 /// <c>RouteCustomerSalesReporting</c> is: there is no state to hold and nothing to register.
@@ -34,6 +39,7 @@ public static class VanSalesFactReader
     /// </summary>
     public static async Task<List<VanSaleFact>> LoadSalesAsync(
         ApplicationDbContext db,
+        TaxSettings tax,
         VanSalesFactFilter filter,
         CancellationToken cancellationToken)
     {
@@ -89,9 +95,24 @@ public static class VanSalesFactReader
                 WarehouseCode = reservation.Lines
                     .OrderBy(line => line.LineNum)
                     .Select(line => line.WarehouseCode)
-                    .FirstOrDefault()
+                    .FirstOrDefault(),
+                Lines = reservation.Lines
+                    .Select(line => new VanSaleMoney.NetLine(line.ItemCode, line.LineTotal, line.TaxCode))
+                    .ToList()
             })
             .ToListAsync(cancellationToken);
+
+        var receipts = await LoadSignedReceiptTotalsAsync(
+            db, online.Select(reservation => reservation.ExternalReferenceId), cancellationToken);
+
+        // Only for the sales that will be grossed up: the ones with no signed receipt to read a total from.
+        var vatGroups = await ItemVatGroups.ResolveAsync(
+            db,
+            online
+                .Where(reservation => !receipts.ContainsKey(reservation.ExternalReferenceId))
+                .SelectMany(reservation => reservation.Lines.Select(line => line.ItemCode)),
+            NullLogger.Instance,
+            cancellationToken);
 
         var facts = new List<VanSaleFact>(offline.Count + online.Count);
 
@@ -131,6 +152,11 @@ public static class VanSalesFactReader
                 continue;
             }
 
+            var money = receipts.TryGetValue(reservation.ExternalReferenceId, out var receipt)
+                ? receipt
+                : VanSaleMoney.GrossUp(
+                    reservation.TotalValue, reservation.Lines, reservation.Currency, vatGroups, tax);
+
             facts.Add(new VanSaleFact(
                 UserId: userId,
                 TradingDate: VanSalesFacts.TradingDayOf(reservation.CreatedAt),
@@ -143,13 +169,15 @@ public static class VanSalesFactReader
                 // Null on every sale a handset made before the payment picker shipped. Left as null so
                 // it reports as unallocated; defaulting it to cash would hide a declaration variance.
                 PaymentMethod: reservation.PaymentMethod,
-                TotalAmount: reservation.TotalValue,
+                TotalAmount: money.Total,
                 Currency: reservation.Currency,
                 // A reservation carries its warehouse on the line, not the header; a van sells from one
                 // warehouse, so the first line's is the van's.
                 WarehouseCode: reservation.WarehouseCode)
             {
-                SoldAtCat = AuditService.ToCAT(reservation.CreatedAt)
+                SoldAtCat = AuditService.ToCAT(reservation.CreatedAt),
+                VatAmount = money.Vat,
+                AmountIncludesVat = money.IncludesVat
             });
         }
 
@@ -165,6 +193,7 @@ public static class VanSalesFactReader
     /// </summary>
     public static async Task<List<VanSaleLineFact>> LoadSaleLinesAsync(
         ApplicationDbContext db,
+        TaxSettings tax,
         VanSalesFactFilter filter,
         CancellationToken cancellationToken)
     {
@@ -198,7 +227,8 @@ public static class VanSalesFactReader
                         line.UnitPrice,
                         line.LineTotal,
                         line.DiscountPercent,
-                        line.WarehouseCode
+                        line.WarehouseCode,
+                        line.TaxPercent
                     })
                     .ToList()
             })
@@ -234,11 +264,18 @@ public static class VanSalesFactReader
                         line.UnitPrice,
                         line.LineTotal,
                         line.DiscountPercent,
-                        line.WarehouseCode
+                        line.WarehouseCode,
+                        line.TaxCode
                     })
                     .ToList()
             })
             .ToListAsync(cancellationToken);
+
+        var vatGroups = await ItemVatGroups.ResolveAsync(
+            db,
+            online.SelectMany(reservation => reservation.Lines.Select(line => line.ItemCode)),
+            NullLogger.Instance,
+            cancellationToken);
 
         var facts = new List<VanSaleLineFact>();
 
@@ -273,7 +310,14 @@ public static class VanSalesFactReader
                     DiscountPercent: line.DiscountPercent,
                     WarehouseCode: line.WarehouseCode,
                     Currency: sale.Currency,
-                    PaymentMethod: sale.PaymentMethod));
+                    PaymentMethod: sale.PaymentMethod)
+                {
+                    // The receipt's own rate where the handset sent one. A line without it is left as it
+                    // is: there is nothing on the row to take out.
+                    NetLineTotal = line.TaxPercent is > 0m
+                        ? Math.Round(line.LineTotal / (1 + line.TaxPercent.Value / 100m), 2, MidpointRounding.AwayFromZero)
+                        : line.LineTotal
+                });
             }
         }
 
@@ -288,6 +332,11 @@ public static class VanSalesFactReader
 
             foreach (var line in reservation.Lines)
             {
+                // Stored before tax, as SAP is given it. Handed back with VAT so a line here is the same
+                // kind of money as an offline one, which is stored as the receipt was signed.
+                decimal WithVat(decimal net) => VanSaleMoney.GrossLine(
+                    net, line.ItemCode, line.TaxCode, reservation.Currency, vatGroups, tax);
+
                 facts.Add(new VanSaleLineFact(
                     UserId: userId,
                     TradingDate: tradingDate,
@@ -306,12 +355,15 @@ public static class VanSalesFactReader
                     Quantity: line.OriginalQuantity,
                     InventoryQuantity: line.ReservedQuantity,
                     UoMCode: line.UoMCode,
-                    UnitPrice: line.UnitPrice,
-                    LineTotal: line.LineTotal,
+                    UnitPrice: WithVat(line.UnitPrice),
+                    LineTotal: WithVat(line.LineTotal),
                     DiscountPercent: line.DiscountPercent,
                     WarehouseCode: line.WarehouseCode,
                     Currency: reservation.Currency,
-                    PaymentMethod: reservation.PaymentMethod));
+                    PaymentMethod: reservation.PaymentMethod)
+                {
+                    NetLineTotal = line.LineTotal
+                });
             }
         }
 
@@ -320,6 +372,41 @@ public static class VanSalesFactReader
             .ThenBy(fact => fact.ExternalReferenceId, StringComparer.OrdinalIgnoreCase)
             .ThenBy(fact => fact.LineNum)
             .ToList();
+    }
+
+    /// <summary>
+    /// The total and VAT of each signed receipt among these van orders, keyed by van order.
+    /// </summary>
+    /// <remarks>
+    /// An online sale's receipt lives on a <c>DesktopSales</c> row under
+    /// <see cref="SaleSourceSystems.VanSalesOnline"/>. Only a signed one is taken: an unsigned row's
+    /// total is what the server meant to file, and the lines say the same thing.
+    /// </remarks>
+    private static async Task<Dictionary<string, VanSaleMoney.Amount>> LoadSignedReceiptTotalsAsync(
+        ApplicationDbContext db,
+        IEnumerable<string> references,
+        CancellationToken cancellationToken)
+    {
+        var wanted = references.Distinct().ToList();
+
+        if (wanted.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = await db.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSalesOnline
+                           && sale.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success
+                           && wanted.Contains(sale.ExternalReferenceId))
+            .Select(sale => new { sale.ExternalReferenceId, sale.TotalAmount, sale.VatAmount })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(row => row.ExternalReferenceId)
+            .ToDictionary(
+                group => group.Key,
+                group => new VanSaleMoney.Amount(group.First().TotalAmount, group.First().VatAmount, true));
     }
 
     /// <summary>

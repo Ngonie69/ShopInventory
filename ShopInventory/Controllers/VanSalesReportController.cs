@@ -8,12 +8,14 @@ using ShopInventory.Features.VanSalesReports.Commands.DeleteRouteStop;
 using ShopInventory.Features.VanSalesReports.Commands.ReorderRouteStops;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRouteStop;
+using ShopInventory.Features.VanSalesReports.Commands.SaveVanTruckDayEntry;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRouteStops;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
 using ShopInventory.Features.VanSalesReports.Commands.LinkVehicleBusinessPartner;
 using ShopInventory.Features.VanSalesReports.Queries.GetFleetAudit;
 using ShopInventory.Features.VanSalesReports.Queries.GetTelematicsVehicles;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanDailyTruckReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
@@ -625,6 +627,79 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The daily truck report: a row per route per day, and each route's period against its target.
+    /// </summary>
+    /// <remarks>
+    /// What the office's daily workbook held, read from the handsets, the invoices and the office's
+    /// own entries. Sales are US dollars and include VAT. A live route has a row for every working
+    /// day so far, traded or not, so a truck that reported nothing shows as that rather than as a gap.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to the first of this month.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to the last of this month.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("truck-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanDailyTruckReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetDailyTruckReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+
+        var result = await mediator.Send(
+            new GetVanDailyTruckReportQuery(
+                fromDate ?? monthStart,
+                toDate ?? monthStart.AddMonths(1).AddDays(-1)),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Records what the office knows about a truck's day: fuel issued, account sales and the area worked.
+    /// </summary>
+    /// <remarks>
+    /// One entry per route per trading day, written over in place. Every field is taken as given, so a
+    /// blank clears it, and saving all of them blank removes the entry. Gated like the route writes:
+    /// these are the office's figures and the people who keep the routes keep them.
+    /// </remarks>
+    /// <param name="routeId">The route whose truck the day belongs to.</param>
+    /// <param name="tradingDate">The CAT trading day, <c>yyyy-MM-dd</c>. Not in the future.</param>
+    /// <param name="request">The figures.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpPut("truck-days/{routeId:int}/{tradingDate:datetime}")]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
+    [ProducesResponseType(typeof(VanTruckDayEntryDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SaveTruckDayEntry(
+        int routeId,
+        DateTime tradingDate,
+        [FromBody] SaveVanTruckDayEntryRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new SaveVanTruckDayEntryCommand(
+                routeId,
+                tradingDate,
+                request.AreaName,
+                request.FuelLitres,
+                request.AccountSales,
+                request.Notes,
+                UserClaimReader.GetUserId(User)),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
     private async Task<IActionResult> SaveStopAsync(
         int? id,
         SaveRouteStopRequest request,
@@ -664,7 +739,9 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 request.TemperatureMaxC,
                 request.TemperatureProbeChannel,
                 request.IsActive,
-                UserClaimReader.GetUserId(User)),
+                UserClaimReader.GetUserId(User),
+                request.OdometerUnit,
+                request.DailySalesTarget),
             cancellationToken);
 
         return result.Match(
@@ -713,6 +790,15 @@ public record LinkVehicleBusinessPartnerRequest(
     string? BusinessPartnerCode,
     string? BusinessPartnerName);
 
+/// <summary>
+/// The office's figures for a truck's day, as the portal submits them. A null clears that figure.
+/// </summary>
+public record SaveVanTruckDayEntryRequest(
+    string? AreaName = null,
+    decimal? FuelLitres = null,
+    decimal? AccountSales = null,
+    string? Notes = null);
+
 /// <summary>A route as the portal submits it. There is no delete: a route names historical days.</summary>
 public record SaveRouteRequest(
     string Code,
@@ -722,4 +808,6 @@ public record SaveRouteRequest(
     bool IsActive = true,
     decimal? TemperatureMinC = null,
     decimal? TemperatureMaxC = null,
-    byte? TemperatureProbeChannel = null);
+    byte? TemperatureProbeChannel = null,
+    string? OdometerUnit = null,
+    decimal? DailySalesTarget = null);

@@ -57,6 +57,30 @@ public sealed class SaveRouteHandler(
                 "The tracker reports four temperature probes, so the channel has to be 1, 2, 3 or 4.");
         }
 
+        OdometerUnit? odometerUnit = null;
+
+        if (!string.IsNullOrWhiteSpace(command.OdometerUnit))
+        {
+            if (!Enum.TryParse<OdometerUnit>(command.OdometerUnit.Trim(), ignoreCase: true, out var parsed)
+                || !Enum.IsDefined(parsed))
+            {
+                return Error.Validation(
+                    "Routes.OdometerUnitUnknown",
+                    "An odometer reads in Kilometres or in Miles.");
+            }
+
+            odometerUnit = parsed;
+        }
+
+        if (command.DailySalesTarget is < 0)
+        {
+            return Error.Validation("Routes.DailySalesTargetNegative", "A daily sales target cannot be negative.");
+        }
+
+        // Nothing a day is none: a route with no target is left out of target reporting, where a
+        // route with a target of zero would show every sale as over it.
+        var dailySalesTarget = command.DailySalesTarget is > 0 ? command.DailySalesTarget : null;
+
         var clash = await db.Routes
             .AsNoTracking()
             .AnyAsync(
@@ -106,6 +130,8 @@ public sealed class SaveRouteHandler(
             existing.TemperatureMinC = command.TemperatureMinC;
             existing.TemperatureMaxC = command.TemperatureMaxC;
             existing.TemperatureProbeChannel = command.TemperatureProbeChannel;
+            existing.OdometerUnit = odometerUnit ?? existing.OdometerUnit;
+            existing.DailySalesTarget = dailySalesTarget;
             existing.IsActive = command.IsActive;
             existing.UpdatedAt = DateTime.UtcNow;
 
@@ -122,6 +148,8 @@ public sealed class SaveRouteHandler(
                 TemperatureMinC = command.TemperatureMinC,
                 TemperatureMaxC = command.TemperatureMaxC,
                 TemperatureProbeChannel = command.TemperatureProbeChannel,
+                OdometerUnit = odometerUnit ?? OdometerUnit.Kilometres,
+                DailySalesTarget = dailySalesTarget,
                 IsActive = command.IsActive,
                 CreatedByUserId = command.ActingUserId
             };
@@ -162,7 +190,9 @@ public sealed class SaveRouteHandler(
             route.TemperatureMaxC,
             route.TemperatureProbeChannel,
             route.IsActive,
-            assignedCount);
+            assignedCount,
+            route.OdometerUnit.ToString(),
+            route.DailySalesTarget);
     }
 
     private static string? NullIfBlank(string? value)

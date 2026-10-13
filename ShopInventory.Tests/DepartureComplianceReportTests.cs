@@ -1,11 +1,12 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using ShopInventory.Data;
-using ShopInventory.Services.Telematics;
+using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services.Telematics;
 
 namespace ShopInventory.Tests;
 
@@ -470,7 +471,7 @@ public sealed class DepartureComplianceReportTests : IDisposable
 
     private async Task<DepartureComplianceReportResult> RunAsync()
     {
-        var handler = new GetDepartureComplianceReportHandler(_context, Telematics());
+        var handler = new GetDepartureComplianceReportHandler(_context, Options.Create(new TaxSettings()), Telematics());
 
         var result = await handler.Handle(
             new GetDepartureComplianceReportQuery(Day, Day),

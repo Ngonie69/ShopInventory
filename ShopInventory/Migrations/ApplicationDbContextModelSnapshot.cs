@@ -5737,6 +5737,9 @@ namespace ShopInventory.Migrations
                     b.Property<Guid?>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("DailySalesTarget")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -5747,6 +5750,9 @@ namespace ShopInventory.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<int>("OdometerUnit")
+                        .HasColumnType("integer");
 
                     b.Property<string>("SeedKey")
                         .HasMaxLength(60)
@@ -7312,6 +7318,10 @@ namespace ShopInventory.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AreaName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<int?>("ClosingMileage")
                         .HasColumnType("integer");
 
@@ -7350,6 +7360,9 @@ namespace ShopInventory.Migrations
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("OdometerUnit")
+                        .HasColumnType("integer");
 
                     b.Property<int>("PlannedCustomerCount")
                         .HasColumnType("integer");
@@ -7816,6 +7829,62 @@ namespace ShopInventory.Migrations
                     b.HasIndex("VanSalesOrderId");
 
                     b.ToTable("VanSalesOrderLines", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VanTruckDayEntryEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("AccountSales")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("AreaName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("FuelLitres")
+                        .HasColumnType("decimal(9,2)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("RouteId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("TradingDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TradingDate");
+
+                    b.HasIndex("RouteId", "TradingDate")
+                        .IsUnique();
+
+                    b.ToTable("VanTruckDayEntries", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VanTruckDayEntries_AccountSales_NonNegative", "\"AccountSales\" IS NULL OR \"AccountSales\" >= 0");
+
+                            t.HasCheckConstraint("CK_VanTruckDayEntries_FuelLitres_NonNegative", "\"FuelLitres\" IS NULL OR \"FuelLitres\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.VehicleDayRollupEntity", b =>
@@ -9745,6 +9814,17 @@ namespace ShopInventory.Migrations
                         .IsRequired();
 
                     b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VanTruckDayEntryEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.RouteEntity", "Route")
+                        .WithMany()
+                        .HasForeignKey("RouteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Route");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Notification", b =>

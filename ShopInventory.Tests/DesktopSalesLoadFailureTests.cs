@@ -100,6 +100,37 @@ public sealed class DesktopSalesLoadFailureTests
     }
 
     [Fact]
+    public async Task A_day_with_no_sales_has_no_end_of_day_report_and_that_is_not_a_failure()
+    {
+        // What the API answers for a day nothing was rung up on, and for one on which only the vans sold.
+        var service = Service(Answer(HttpStatusCode.NotFound,
+            """{"type":"about:blank","title":"Not Found","status":404,"detail":"No sales data found for 2026-10-11"}""",
+            "application/problem+json"));
+
+        var (report, error) = await service.GetEndOfDayReportAsync(new DateTime(2026, 10, 11));
+
+        Assert.Null(report);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task An_end_of_day_report_that_fails_to_load_still_says_why()
+    {
+        // A 404 that is not the API's own — a proxy with no such route — is a fault, and so is a 500.
+        var missingRoute = Service(Answer(HttpStatusCode.NotFound, "<html><body>Not Found</body></html>", "text/html"));
+        Assert.Equal(
+            "The API answered 404 Not Found, with no explanation.",
+            (await missingRoute.GetEndOfDayReportAsync()).Error);
+
+        var broken = Service(Answer(HttpStatusCode.InternalServerError,
+            """{"type":"about:blank","title":"Internal Server Error","status":500,"detail":"timeout reading sales"}""",
+            "application/problem+json"));
+        Assert.Equal(
+            "The API answered 500 Internal Server Error: Timeout reading sales.",
+            (await broken.GetEndOfDayReportAsync()).Error);
+    }
+
+    [Fact]
     public async Task The_null_returning_read_still_returns_null_on_failure()
     {
         // The vending page counts off this form and treats null as "no count"; it has nowhere to show a reason.

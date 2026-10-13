@@ -12,6 +12,11 @@ namespace ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
 /// The code is the stable identifier a report groups on, so it is required on create and may be
 /// changed afterwards only while it remains unique — a route already named on stored trading days
 /// keeps its snapshot of the old code either way, which is what makes a rename safe at all.
+/// <para>
+/// <c>OdometerUnit</c> is <c>Kilometres</c> or <c>Miles</c>; null leaves an existing route's unit as
+/// it is and creates a new one in kilometres. <c>DailySalesTarget</c> is taken as given, so null
+/// clears it: a route with none is not held to a target.
+/// </para>
 /// </remarks>
 public sealed record SaveRouteCommand(
     int? Id,
@@ -23,5 +28,7 @@ public sealed record SaveRouteCommand(
     decimal? TemperatureMaxC,
     byte? TemperatureProbeChannel,
     bool IsActive,
-    Guid? ActingUserId
+    Guid? ActingUserId,
+    string? OdometerUnit = null,
+    decimal? DailySalesTarget = null
 ) : IRequest<ErrorOr<RouteDto>>;

@@ -77,8 +77,11 @@ public sealed record VanSalesCreditNoteCounts(
     int NeedsAttention);
 
 /// <remarks>
-/// <para><c>Origin</c>: <c>SAP</c> for a credit memo, <c>Till</c> for a credit raised against an offline van
-/// sale that SAP has not taken yet.</para>
+/// <para><c>Origin</c>: <c>SAP</c> for a credit memo, <c>Till</c> for a credit raised against a van sale that
+/// SAP has not taken yet.</para>
+/// <para><c>CreditId</c>, <c>CreditSapStatus</c>: on a <c>Till</c> row, the credit's own id and — once ZIMRA has
+/// accepted it — where its SAP memo stands (<c>DesktopCreditSapStatuses</c>). They are what a refused memo is
+/// sent again by, and what a memo raised by hand is recorded against. Null on a <c>SAP</c> row.</para>
 /// <para><c>Number</c>: The number the customer's copy carries: SAP's DocNum, or the till credit's own.</para>
 /// <para><c>State</c>: One of <see cref="VanSalesDocumentStates"/>.</para>
 /// <para><c>FiscalVerificationCode</c>, <c>FiscalQrCode</c>, <c>FiscalDay</c>, <c>FiscalDeviceSerial</c>: the
@@ -107,7 +110,9 @@ public sealed record VanSalesCreditNoteRow(
     string? FiscalVerificationCode = null,
     string? FiscalQrCode = null,
     string? FiscalDay = null,
-    string? FiscalDeviceSerial = null);
+    string? FiscalDeviceSerial = null,
+    Guid? CreditId = null,
+    string? CreditSapStatus = null);
 
 /// <summary>The van invoice a credit note reverses.</summary>
 /// <remarks>

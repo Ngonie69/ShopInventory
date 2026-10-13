@@ -7,7 +7,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @rendermode InteractiveServer
-<PageTitle>Desktop Transactions - Shop Inventory</PageTitle>
+<PageTitle>SAP Queue - Shop Inventory</PageTitle>
 @* Built from `Desktop Transactions.dc.html`. Styles live in
    wwwroot/css/operations.css (linked from App.razor), shared with the other
    four operational pages — `ops` is the scope, `ops-dt` this page's own half.
@@ -34,10 +34,10 @@
 
     <div class="ops-hero">
         <div class="ops-hero-text">
-            <div class="ops-kicker">Desktop sync</div>
-            <h1>Desktop Transactions</h1>
+            <div class="ops-kicker">Waiting on SAP</div>
+            <h1>SAP Queue</h1>
             <p>
-                Invoices, transfers and reservations submitted from the desktop applications,
+                Invoices, transfers and stock reservations sent in by the tills, vending and the van app,
                 and what SAP has done with each one.
             </p>
         </div>
@@ -164,7 +164,7 @@
                 {
                     <div class="ops-loading">
                         <span class="ops-spin ops-spin-lg"></span>
-                        <p>Reading the desktop queues…</p>
+                        <p>Reading the queues…</p>
                     </div>
                 }
                 else if (VisibleRows.Count == 0 && LaneUnread)
@@ -844,9 +844,9 @@
         {
             Lane.Review => "No queued invoice has failed often enough to need a person.",
             Lane.TransferReview => "No queued transfer has failed often enough to need a person.",
-            Lane.Reservations => "Stock reservations taken by the desktop applications appear here until they are confirmed or expire.",
+            Lane.Reservations => "Stock reservations taken by the tills and the van app appear here until they are confirmed or expire.",
             Lane.Transfers => "Only transfers SAP could not take are parked here. Ones awaiting approval are on Inventory Transfers.",
-            _ => "Only invoices SAP could not take are parked here. Till sales that went through are on Desktop Sales."
+            _ => "Only invoices SAP could not take are parked here. Till sales that went through are on Shop & Vending Sales."
         };
 
     private sealed record EmptyStateLink(string Href, string Icon, string Label);
@@ -862,7 +862,7 @@
     private EmptyStateLink? EmptyLink => _lane switch
     {
         Lane.Invoices or Lane.Review =>
-            new EmptyStateLink("/desktop-sales", "ph-storefront", "Open Desktop Sales"),
+            new EmptyStateLink("/desktop-sales", "ph-storefront", "Open Shop & Vending Sales"),
         Lane.Transfers or Lane.TransferReview =>
             new EmptyStateLink("/inventory-transfers", "ph-arrows-left-right", "Open Inventory Transfers"),
         _ => null

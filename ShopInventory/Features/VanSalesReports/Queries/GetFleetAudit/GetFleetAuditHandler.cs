@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Telematics;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
@@ -29,6 +31,7 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetFleetAudit;
 /// </remarks>
 public sealed class GetFleetAuditHandler(
     ApplicationDbContext db,
+    IOptions<TaxSettings> tax,
     ICartrackReadService telematics
 ) : IRequestHandler<GetFleetAuditQuery, ErrorOr<FleetAuditResult>>
 {
@@ -94,7 +97,8 @@ public sealed class GetFleetAuditHandler(
                 day.Username,
                 Rep = day.User == null ? null : day.User.FirstName + " " + day.User.LastName,
                 day.StartingMileage,
-                day.ClosingMileage
+                day.ClosingMileage,
+                day.OdometerUnit
             })
             .ToListAsync(cancellationToken);
 
@@ -105,9 +109,7 @@ public sealed class GetFleetAuditHandler(
                 day.TradingDate,
                 day.RouteName,
                 Rep = string.IsNullOrWhiteSpace(day.Rep?.Trim()) ? day.Username : day.Rep!.Trim(),
-                Km = day.StartingMileage is { } start && day.ClosingMileage is { } close && close >= start
-                    ? close - start
-                    : (int?)null
+                Km = OdometerDistance.Kilometres(day.StartingMileage, day.ClosingMileage, day.OdometerUnit)
             })
             .Where(day => day.Key is not null)
             .GroupBy(day => (day.Key!, day.TradingDate))
@@ -128,7 +130,7 @@ public sealed class GetFleetAuditHandler(
         var salesByAccountDay = linkedAccounts.Count == 0
             ? []
             : (await VanSalesFactReader.LoadSalesAsync(
-                    db, new VanSalesFactFilter(from, to), cancellationToken))
+                    db, tax.Value, new VanSalesFactFilter(from, to), cancellationToken))
                 .Where(fact => linkedAccounts.Contains(fact.VanAccountCode))
                 .GroupBy(fact => (Account: fact.VanAccountCode.Trim(), fact.TradingDate))
                 .ToDictionary(
