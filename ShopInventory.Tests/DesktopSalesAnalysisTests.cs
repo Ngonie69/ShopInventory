@@ -293,22 +293,83 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     }
 
     [Fact]
-    public async Task Online_van_sales_are_counted_once_from_their_receipt()
+    public async Task Van_sales_are_left_out_of_the_counters_analysis()
     {
-        // The receipt row is the only record of an online van sale this report reads, so leaving it out
-        // would drop the sale from the analysis rather than save it from being counted twice.
-        _context.DesktopSales.Add(
-            Sale("VAN-ONLINE", TenderTypes.Cash, 999m, Day1, utcHour: 12, source: SaleSourceSystems.VanSalesOnline));
+        // Both routes a van sale arrives by, in the period and in the days it is compared with. The vans
+        // have their own analysis; here they would be rung up as if a counter had taken them.
+        _context.DesktopSales.AddRange(
+            Sale("VAN-OFFLINE", TenderTypes.Cash, 500m, Day1, utcHour: 12, source: SaleSourceSystems.VanSales,
+                warehouse: "VAN001", cardCode: "VAN-BP", lines: [("MILK", 100, 435m)]),
+            Sale("VAN-ONLINE", TenderTypes.Cash, 999m, Day2, utcHour: 12, source: SaleSourceSystems.VanSalesOnline,
+                warehouse: "VAN001", cardCode: "VAN-BP"),
+            Sale("VAN-BEFORE", TenderTypes.Cash, 300m, new DateTime(2026, 8, 31), utcHour: 12,
+                source: SaleSourceSystems.VanSales, warehouse: "VAN001", cardCode: "VAN-BP"));
         await _context.SaveChangesAsync();
 
         var usd = Dollars((await AnalyseAsAdmin()).Value);
 
-        Assert.Equal(140m + 999m, usd.TotalAmount);
-        Assert.Equal(8 + 1, usd.SalesCount);
-        var online = Assert.Single(usd.BySource, row => row.Key == SaleSourceSystems.VanSalesOnline);
-        Assert.Equal(1, online.SalesCount);
+        Assert.Equal(140m, usd.TotalAmount);
+        Assert.Equal(8, usd.SalesCount);
+        Assert.Equal(77m, usd.PreviousTotalAmount); // F-OUT alone
+        Assert.DoesNotContain(usd.BySource, row => SaleSourceSystems.IsVanSale(row.Key));
+        Assert.DoesNotContain(usd.ByWarehouse, row => row.Key == "VAN001");
+        Assert.DoesNotContain(usd.ByBusinessPartner, row => row.Key == "VAN-BP");
+        Assert.Equal(4m, usd.TopItems.Single(item => item.ItemCode == "MILK").Quantity);
+
+        // Named as a warehouse, a van still has nothing to show at the counters.
+        Assert.Empty((await Analyse(_adminId, Day1, Day2, warehouseCode: "VAN001")).Value.Currencies);
+    }
+
+    [Fact]
+    public async Task Each_line_of_business_ranks_its_own_items_and_never_anothers()
+    {
+        // Vending sells MILK too, in bulk, and a line the shops never carry. Ranked together the vendor's
+        // crate would sit above everything a counter sells.
+        _context.DesktopSales.AddRange(
+            Sale("V-1", TenderTypes.Cash, 600m, Day1, utcHour: 6, source: SaleSourceSystems.Vending,
+                warehouse: "KEFBYC", cardCode: "VEND-BP", lines: [("MILK", 100, 400m), ("LOLLY", 200, 100m)]),
+            Sale("V-2", TenderTypes.Cash, 120m, Day2, utcHour: 6, source: SaleSourceSystems.Vending,
+                warehouse: "KEFBYC", cardCode: "VEND-BP", lines: [("MILK", 25, 100m)]));
+        await _context.SaveChangesAsync();
+
+        var usd = Dollars((await AnalyseAsAdmin()).Value);
+
+        Assert.Equal(
+            new[] { (SaleBusinesses.Shops, "Shops", 3, 18m, 69.60m), (SaleBusinesses.Vending, "Vending", 2, 325m, 600m) },
+            usd.ItemsByBusiness.Select(b => (b.Business, b.Label, b.DistinctItems, b.QuantitySold, b.NetAmount)));
+
+        // The shops' list is what it was before vending sold anything.
+        var shops = usd.TopItems.Where(item => item.Business == SaleBusinesses.Shops).ToList();
+        Assert.Equal(new[] { "BREAD", "CHEESE", "MILK" }, shops.Select(item => item.ItemCode));
+        Assert.Equal(17.40m, shops.Single(item => item.ItemCode == "MILK").NetAmount);
+        Assert.Equal(25m, shops.Single(item => item.ItemCode == "MILK").ShareOfNetPercent);
+
+        // And vending's MILK is its own row, shared against vending's lines alone.
+        var vending = usd.TopItems.Where(item => item.Business == SaleBusinesses.Vending).ToList();
+        Assert.Equal(new[] { "MILK", "LOLLY" }, vending.Select(item => item.ItemCode));
+        Assert.Equal((125m, 500m, 2, 83.3m), (vending[0].Quantity, vending[0].NetAmount, vending[0].SalesCount, vending[0].ShareOfNetPercent));
+
+        // The headline still counts an item once however many businesses sold it.
+        Assert.Equal(4, usd.DistinctItems);
+        Assert.Equal(343m, usd.QuantitySold);
+    }
+
+    [Fact]
+    public async Task A_van_source_is_still_read_when_it_is_named()
+    {
+        _context.DesktopSales.AddRange(
+            Sale("VAN-OFFLINE", TenderTypes.Cash, 500m, Day1, utcHour: 12, source: SaleSourceSystems.VanSales),
+            Sale("VAN-ONLINE", TenderTypes.Cash, 999m, Day1, utcHour: 12, source: SaleSourceSystems.VanSalesOnline));
+        await _context.SaveChangesAsync();
+
+        var online = Dollars(await Analyse(_adminId, Day1, Day2, sourceSystem: SaleSourceSystems.VanSalesOnline));
+
         Assert.Equal(999m, online.TotalAmount);
-        Assert.Equal("Van sales (online)", online.Label);
+        Assert.Equal("Van sales (online)", Assert.Single(online.BySource).Label);
+
+        var offline = Dollars(await Analyse(_adminId, Day1, Day2, sourceSystem: SaleSourceSystems.VanSales));
+
+        Assert.Equal(500m, offline.TotalAmount);
     }
 
     [Fact]

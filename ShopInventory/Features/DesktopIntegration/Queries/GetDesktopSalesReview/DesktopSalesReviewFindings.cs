@@ -217,7 +217,7 @@ public static class DesktopSalesReviewFindings
     }
 
     /// <summary>
-    /// When the counters or vans are busiest, and when they are nearly empty. Not for vending: a
+    /// When the counters are busiest, and when they are nearly empty. Not for vending: a
     /// settlement's hour is when a vendor paid in, not when anything sold.
     /// </summary>
     private static void Hours(DesktopSalesReviewBusiness business, DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
@@ -227,7 +227,6 @@ public static class DesktopSalesReviewFindings
             return;
         }
 
-        var who = business.Business == SaleBusinesses.Vans ? "Vans" : "Counters";
         var counter = section.ByHour
             .Select(hour => (hour.Hour, Sales: hour.SalesCount, Takings: hour.TotalAmount))
             .Where(hour => hour.Sales > 0)
@@ -249,9 +248,9 @@ public static class DesktopSalesReviewFindings
         var edge = counter.Where(hour => hour.Hour < 8 || hour.Hour >= 16).Sum(hour => hour.Takings);
 
         findings.Add(new("peak-hours", DesktopSalesReviewSeverity.Note, DesktopSalesReviewTopic.Hours, section.Currency,
-            $"{who} are busiest from {Hour(best.Start)} to {Hour(best.Start + PeakWindowHours)}",
+            $"Counters are busiest from {Hour(best.Start)} to {Hour(best.Start + PeakWindowHours)}",
             $"{Pct(Math.Round(best.Sales * 100m / total, 0))} of their sales fall in those {PeakWindowHours} hours; {Hour(busiest.Hour)} is the busiest single hour ({busiest.Sales:N0} sales). "
-                + $"Before 08:00 and from 16:00 the {who.ToLowerInvariant()} take {Pct(takings == 0 ? 0 : Math.Round(edge * 100m / takings, 1))} of their takings. Staff for the peak; question the opening hours at the edges."));
+                + $"Before 08:00 and from 16:00 the counters take {Pct(takings == 0 ? 0 : Math.Round(edge * 100m / takings, 1))} of their takings. Staff for the peak; question the opening hours at the edges."));
     }
 
     private static void Payments(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)

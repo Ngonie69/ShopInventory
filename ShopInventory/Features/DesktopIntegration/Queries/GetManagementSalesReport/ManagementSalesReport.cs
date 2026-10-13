@@ -29,15 +29,15 @@ public sealed record ManagementPartner(string CardCode, string CardName, List<st
 /// <remarks><list type="table">
 /// <item><term>Summary</term><description>The headline figures, now and in the previous period.</description></item>
 /// <item><term>ByDay</term><description>Each day of the period beside the matching day of the previous one.</description></item>
-/// <item><term>ByChannel</term><description>Shop till, vending, van sales.</description></item>
+/// <item><term>ByChannel</term><description>Shop till and vending; a van source only when it was asked for by name.</description></item>
 /// <item><term>ByDepot</term><description>Each shop or depot, keyed by the warehouse its stock leaves.</description></item>
 /// <item><term>ByPartner</term><description>Each business partner the sales were made as, keyed by CardCode. One warehouse can serve several partners, so this is not ByDepot renamed.</description></item>
 /// <item><term>ByVendor</term><description>Each vendor served. Sales to walk-in customers carry no vendor and are not here.</description></item>
 /// <item><term>LapsedVendors</term><description>Vendors who bought in the previous period and not at all in this one.</description></item>
-/// <item><term>ByItem</term><description>Every item sold, not a top slice — the tail is where a range decision is made.</description></item>
-/// <item><term>ByItemGroup</term><description>The items rolled up by SAP item group. Items the product master does not know are one "ungrouped" row.</description></item>
-/// <item><term>ItemDepotMatrix</term><description>What each item sold at each shop or depot this period, one cell per pair that traded.</description></item>
-/// <item><term>ItemPartnerMatrix</term><description>What each item sold as each business partner this period, one cell per pair that traded.</description></item>
+/// <item><term>ByItem</term><description>Every item sold, not a top slice — the tail is where a range decision is made. One line of business after another and never ranked together: shops and vending sell different ranges, so an item both sold is two rows, each naming its <c>Business</c> and compared, shared and costed within it alone.</description></item>
+/// <item><term>ByItemGroup</term><description>Each business's items rolled up by SAP item group, on the same terms. Items the product master does not know are one "ungrouped" row per business.</description></item>
+/// <item><term>ItemDepotMatrix</term><description>What each item sold at each shop or depot this period, one cell per business, item and place that traded.</description></item>
+/// <item><term>ItemPartnerMatrix</term><description>What each item sold as each business partner this period, one cell per business, item and partner that traded.</description></item>
 /// </list></remarks>
 public sealed record ManagementCurrencySection(
     string Currency,
@@ -71,13 +71,14 @@ public sealed record ManagementItemGroupRow(
     decimal PreviousNetAmount,
     decimal? ChangePercent,
     decimal? GrossProfit,
-    decimal? MarginPercent);
+    decimal? MarginPercent,
+    string Business);
 
-/// <summary>One item at one shop or depot, this period.</summary>
-public sealed record ManagementItemDepotCell(string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount);
+/// <summary>One item at one shop or depot, this period, in one line of business.</summary>
+public sealed record ManagementItemDepotCell(string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount, string Business);
 
-/// <summary>One item sold as one business partner, this period.</summary>
-public sealed record ManagementItemPartnerCell(string ItemCode, string CardCode, decimal Quantity, decimal NetAmount);
+/// <summary>One item sold as one business partner, this period, in one line of business.</summary>
+public sealed record ManagementItemPartnerCell(string ItemCode, string CardCode, decimal Quantity, decimal NetAmount, string Business);
 
 /// <summary>Headline figures for the period and the one before it.</summary>
 /// <remarks><list type="table">
@@ -154,6 +155,7 @@ public sealed record ManagementLapsedVendorRow(
 /// <item><term>AverageUnitPrice</term><description>What one unit actually sold for, after discount and before VAT: value over quantity.</description></item>
 /// <item><term>UnitsPerSale</term><description>Quantity over the sales that carried the item — how much a customer takes at once.</description></item>
 /// <item><term>DiscountAmount</term><description>List value less what was charged, before VAT: what the discounts on this item gave away.</description></item>
+/// <item><term>Business</term><description>The line of business that sold it, by its key in <c>SaleBusinesses</c>. Every figure on the row is that business's alone, and <c>ShareOfNetPercent</c> is of its lines.</description></item>
 /// </list></remarks>
 public sealed record ManagementItemRow(
     string ItemCode,
@@ -173,7 +175,8 @@ public sealed record ManagementItemRow(
     decimal UnitsPerSale,
     decimal DiscountAmount,
     decimal? GrossProfit,
-    decimal? MarginPercent);
+    decimal? MarginPercent,
+    string Business);
 
 /// <summary>A count of sales and what they are worth, per currency.</summary>
 public sealed record ManagementHealthBucket(int SalesCount, List<ManagementCurrencyAmount> Value);

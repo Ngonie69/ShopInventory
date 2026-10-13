@@ -5,7 +5,8 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesRe
 
 /// <summary>
 /// One item's analysis for the management sales report's drill-down: the same period, scope and channel
-/// as the report, measured on that item's lines only.
+/// as the report, measured on that item's lines only. <c>Business</c> confines it to the line of business
+/// whose row was opened, so an item shops and vending both sell is taken apart for one of them.
 /// </summary>
 public sealed record GetManagementItemAnalysisQuery(
     Guid CallerUserId,
@@ -14,7 +15,8 @@ public sealed record GetManagementItemAnalysisQuery(
     DateTime? ToDate,
     string? WarehouseCode = null,
     string? SourceSystem = null,
-    string? CardCode = null
+    string? CardCode = null,
+    string? Business = null
 ) : IRequest<ErrorOr<ManagementItemAnalysis>>;
 
 public sealed record ManagementItemAnalysis(

@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using ShopInventory.Web.Features.Reports;
 using ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport;
 
 namespace ShopInventory.Web.Services;
@@ -59,9 +60,13 @@ public partial class ReportExportService
                 new("Last Sale", row => row.LastSaleDate, FormatDate),
             ]);
 
-        WriteManagementTable(workbook, "Products", "Sales by Product", scope, report,
+        // Every product sheet leads with the channel. Shops and vending sell different ranges, so each row
+        // is one channel's: its share, change and margin are measured inside that channel, and a filter on
+        // the column reads one channel alone.
+        WriteManagementTable(workbook, "Products", "Sales by Product, within each Channel", scope, report,
             section => section.ByItem,
             [
+                new("Channel", row => SaleBusinessLabels.Label(row.Business)),
                 new("Item Code", row => row.ItemCode),
                 new("Description", row => row.ItemDescription),
                 new("Item Group", row => ItemGroupName(row.ItemsGroupCode, itemGroupNames)),
@@ -82,9 +87,10 @@ public partial class ReportExportService
                 new("Margin", row => row.MarginPercent / 100m, FormatPercent),
             ]);
 
-        WriteManagementTable(workbook, "Item Groups", "Sales by Item Group", scope, report,
+        WriteManagementTable(workbook, "Item Groups", "Sales by Item Group, within each Channel", scope, report,
             section => section.ByItemGroup,
             [
+                new("Channel", row => SaleBusinessLabels.Label(row.Business)),
                 new("Item Group", row => ItemGroupName(row.ItemsGroupCode, itemGroupNames)),
                 new("Group Code", row => row.ItemsGroupCode),
                 new("Items", row => row.ItemCount, FormatCount),
@@ -104,6 +110,7 @@ public partial class ReportExportService
         WriteManagementTable(workbook, "Item x Partner", "Item Sales by Business Partner", scope, report,
             section => section.ItemPartnerMatrix,
             [
+                new("Channel", cell => SaleBusinessLabels.Label(cell.Business)),
                 new("Item Code", cell => cell.ItemCode),
                 new("Partner Code", cell => cell.CardCode),
                 new("Business Partner", cell => partnerNames.GetValueOrDefault(cell.CardCode)),
@@ -114,6 +121,7 @@ public partial class ReportExportService
         WriteManagementTable(workbook, "Item x Warehouse", "Item Sales by Warehouse", scope, report,
             section => section.ItemDepotMatrix,
             [
+                new("Channel", cell => SaleBusinessLabels.Label(cell.Business)),
                 new("Item Code", cell => cell.ItemCode),
                 new("Warehouse", cell => cell.WarehouseCode),
                 new("Quantity", cell => cell.Quantity, FormatQuantity),

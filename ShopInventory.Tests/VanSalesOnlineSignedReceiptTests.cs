@@ -993,15 +993,30 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     /// The end-of-day report is a cash reconciliation, and every figure on it is a sum over
     /// <c>DesktopSales</c> — so the set of rows it reads is the report. It filtered on no source at all,
     /// which meant a source added later was absorbed silently: the online receipt carrier is a sale
-    /// already counted as its confirmed reservation and already posted as its own SAP invoice.
+    /// already counted as its confirmed reservation and already posted as its own SAP invoice. It is the
+    /// counters' day, so a van's offline upload is left out of it as well.
     /// </summary>
     [Fact]
-    public async Task The_end_of_day_report_leaves_the_online_receipt_carriers_out()
+    public async Task The_end_of_day_report_leaves_van_sales_out_by_either_route()
     {
         await SellAsync(Stamped("VAN006-INV-20260810-AAA111", globalNo: 501, counter: 4));
-
-        // Real work on the same day, so the assertion is "it counted that one and not this one".
         AddOfflineVanSale("VAN006-INV-20260810-OFF001", globalNo: 502);
+
+        // Real work on the same day, so the assertion is "it counted that one and not these".
+        _context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "TILL-20260810-0001",
+            SourceSystem = SaleSourceSystems.ShopTill,
+            CardCode = "KEFSHOP-BP",
+            DocDate = Day,
+            TotalAmount = 100m,
+            VatAmount = 13.42m,
+            AmountPaid = 100m,
+            Currency = "USD",
+            PaymentMethod = "Cash",
+            WarehouseCode = "KEFSHOP",
+            CreatedBy = VanUser.ToString(),
+        });
         await _context.SaveChangesAsync();
 
         var result = await new GenerateEndOfDayReportHandler(_context, new RecordingAuditService()).Handle(
@@ -1015,20 +1030,34 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.Equal(13.42m, report.TotalVatAmount);
         Assert.Equal(100m, report.TotalAmountPaid);
 
-        // And it is absent from the breakdown too, not merely netted out of the headline.
-        Assert.DoesNotContain(
-            report.BusinessPartnerSummaries.SelectMany(bp => bp.IndividualSales),
-            sale => sale.ExternalReferenceId == "VAN006-INV-20260810-AAA111");
+        // And they are absent from the breakdown too, not merely netted out of the headline.
+        Assert.Equal(
+            ["TILL-20260810-0001"],
+            report.BusinessPartnerSummaries.SelectMany(bp => bp.IndividualSales).Select(sale => sale.ExternalReferenceId));
+    }
+
+    /// <summary>A day on which only the vans sold has no counters' report at all.</summary>
+    [Fact]
+    public async Task A_day_of_van_sales_alone_has_no_end_of_day_report()
+    {
+        await SellAsync(Stamped("VAN006-INV-20260810-AAA111", globalNo: 501, counter: 4));
+        AddOfflineVanSale("VAN006-INV-20260810-OFF001", globalNo: 502);
+        await _context.SaveChangesAsync();
+
+        var result = await new GenerateEndOfDayReportHandler(_context, new RecordingAuditService()).Handle(
+            new GenerateEndOfDayReportQuery(Day), CancellationToken.None);
+
+        Assert.True(result.IsError);
     }
 
     /// <summary>
     /// The sales list defaults to the same scope, and says so by answering a caller that names the source.
-    /// Excluded by default because every money column on the row describes a sale the caller is already
-    /// looking at elsewhere; findable by name because an operator chasing a fiscal reference must be able
-    /// to reach it.
+    /// Excluded by default because the vans are listed under van sales, where the online ones are whole
+    /// sales rather than receipt carriers; findable by name because an operator chasing a fiscal reference
+    /// must be able to reach either.
     /// </summary>
     [Fact]
-    public async Task The_sales_list_excludes_the_online_carriers_by_default_and_returns_them_by_name()
+    public async Task The_sales_list_excludes_van_sales_by_default_and_returns_them_by_name()
     {
         await SellAsync(Stamped("VAN006-INV-20260810-AAA111", globalNo: 501, counter: 4));
         AddOfflineVanSale("VAN006-INV-20260810-OFF001", globalNo: 502);
@@ -1038,8 +1067,13 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
 
         var byDefault = await handler.Handle(new GetDesktopSalesQuery(SalesReader), CancellationToken.None);
         Assert.False(byDefault.IsError);
-        Assert.Equal(1, byDefault.Value.TotalCount);
-        Assert.Equal("VAN006-INV-20260810-OFF001", Assert.Single(byDefault.Value.Sales).ExternalReferenceId);
+        Assert.Equal(0, byDefault.Value.TotalCount);
+        Assert.Empty(byDefault.Value.Sales);
+
+        var offline = await handler.Handle(
+            new GetDesktopSalesQuery(SalesReader, SourceSystem: SaleSourceSystems.VanSales), CancellationToken.None);
+        Assert.False(offline.IsError);
+        Assert.Equal("VAN006-INV-20260810-OFF001", Assert.Single(offline.Value.Sales).ExternalReferenceId);
 
         var named = await handler.Handle(
             new GetDesktopSalesQuery(SalesReader, SourceSystem: SaleSourceSystems.VanSalesOnline), CancellationToken.None);

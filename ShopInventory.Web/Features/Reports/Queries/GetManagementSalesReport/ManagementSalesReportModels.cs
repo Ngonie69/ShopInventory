@@ -131,6 +131,12 @@ public sealed class ManagementItemRow
     public decimal DiscountAmount { get; set; }
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
+
+    /// <summary>
+    /// The line of business that sold it: "shops" or "vending". An item both sold is two rows, each
+    /// compared, shared and costed within its own business.
+    /// </summary>
+    public string Business { get; set; } = string.Empty;
 }
 
 public sealed class ManagementItemGroupRow
@@ -145,6 +151,9 @@ public sealed class ManagementItemGroupRow
     public decimal? ChangePercent { get; set; }
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
+
+    /// <summary>The line of business whose items these are.</summary>
+    public string Business { get; set; } = string.Empty;
 }
 
 public sealed class ManagementItemDepotCell
@@ -153,6 +162,9 @@ public sealed class ManagementItemDepotCell
     public string WarehouseCode { get; set; } = string.Empty;
     public decimal Quantity { get; set; }
     public decimal NetAmount { get; set; }
+
+    /// <summary>The line of business that sold it there.</summary>
+    public string Business { get; set; } = string.Empty;
 }
 
 public sealed class ManagementItemPartnerCell
@@ -161,6 +173,9 @@ public sealed class ManagementItemPartnerCell
     public string CardCode { get; set; } = string.Empty;
     public decimal Quantity { get; set; }
     public decimal NetAmount { get; set; }
+
+    /// <summary>The line of business that sold it as that partner.</summary>
+    public string Business { get; set; } = string.Empty;
 }
 
 public sealed class ManagementHealthBucket

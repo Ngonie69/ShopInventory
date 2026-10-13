@@ -23,6 +23,7 @@ public sealed class GetManagementItemAnalysisHandler(
                 ("warehouseCode", request.WarehouseCode),
                 ("sourceSystem", request.SourceSystem),
                 ("cardCode", request.CardCode),
+                ("business", request.Business),
             ],
             cancellationToken);
 }

@@ -198,6 +198,59 @@ public sealed class DesktopSalesAnalysisExportTests
 
     // ---- Harness ----------------------------------------------------------------------------------
 
+    [Fact]
+    public void Best_sellers_are_ranked_inside_each_channel_and_never_across_them()
+    {
+        var report = Report();
+        var usd = report.Currencies.Single();
+        usd.ItemsByBusiness =
+        [
+            new() { Business = "shops", Label = "Shops", DistinctItems = 12, QuantitySold = 20, NetAmount = 267.27m },
+            new() { Business = "vending", Label = "Vending", DistinctItems = 2, QuantitySold = 300, NetAmount = 600m },
+        ];
+        usd.TopItems =
+        [
+            new() { Business = "shops", ItemCode = "MILK-1L", ItemDescription = "Full cream milk 1L", Quantity = 20, NetAmount = 90m, SalesCount = 4, ShareOfNetPercent = 33.7m },
+            new() { Business = "vending", ItemCode = "MILK-1L", ItemDescription = "Full cream milk 1L", Quantity = 125, NetAmount = 500m, SalesCount = 2, ShareOfNetPercent = 83.3m },
+            new() { Business = "vending", ItemCode = "LOLLY", ItemDescription = "Ice lolly", Quantity = 200, NetAmount = 100m, SalesCount = 1, ShareOfNetPercent = 16.7m },
+        ];
+
+        using var workbook = Export(report);
+        var sheet = workbook.Worksheet("Best Sellers");
+        var header = RowWhere(sheet, column: 2, "Channel");
+
+        Assert.Equal("Rank", sheet.Cell(header, 3).GetString());
+        Assert.Equal("Share of Channel", sheet.Cell(header, 9).GetString());
+
+        // The same item twice, once per channel, each first or second in its own list.
+        Assert.Equal(
+            new[] { ("Shops", 1, "MILK-1L", 90m), ("Vending", 1, "MILK-1L", 500m), ("Vending", 2, "LOLLY", 100m) },
+            Enumerable.Range(header + 1, 3).Select(row => (
+                sheet.Cell(row, 2).GetString(),
+                sheet.Cell(row, 3).GetValue<int>(),
+                sheet.Cell(row, 4).GetString(),
+                sheet.Cell(row, 8).GetValue<decimal>())));
+
+        // One totals row per channel, each over its own items.
+        Assert.Equal("Top 1 of 12 items", sheet.Cell(header + 4, 4).GetString());
+        Assert.Equal("Vending", sheet.Cell(header + 5, 2).GetString());
+        Assert.Equal("Top 2 of 2 items", sheet.Cell(header + 5, 4).GetString());
+        Assert.Equal(600m, sheet.Cell(header + 5, 8).GetValue<decimal>());
+    }
+
+    [Fact]
+    public void An_analysis_that_names_no_channel_still_lists_its_best_sellers()
+    {
+        // What an API that predates the split answers: items with no business on them.
+        using var workbook = Export(Report());
+        var sheet = workbook.Worksheet("Best Sellers");
+        var header = RowWhere(sheet, column: 2, "Channel");
+
+        Assert.Equal("All", sheet.Cell(header + 1, 2).GetString());
+        Assert.Equal("MILK-1L", sheet.Cell(header + 1, 4).GetString());
+        Assert.Equal(90m, sheet.Cell(header + 1, 8).GetValue<decimal>());
+    }
+
     private static XLWorkbook Export(DesktopSalesAnalysisResult report) =>
         new(new MemoryStream(new ReportExportService().ExportDesktopSalesAnalysisToExcel(report)));
 
