@@ -1079,6 +1079,13 @@ public class CreditNoteService : ICreditNoteService
             Lines = enrichedLines
         };
 
+        // A van, shop or vending invoice is credited on the day it was posted, whichever page raises
+        // the credit. Anything else keeps today.
+        if (await CreditMemoPostingDate.IsVanShopOrVendingInvoiceAsync(_context, sapInvoice.DocEntry, cancellationToken))
+        {
+            request.PostingDate = CreditMemoPostingDate.OfInvoice(sapInvoice);
+        }
+
         return await CreateAsync(request, userId, cancellationToken);
     }
 

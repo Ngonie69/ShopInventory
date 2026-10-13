@@ -103,6 +103,36 @@ public sealed class DesktopCreditExternalCreditsTests
         Assert.Contains("could not be read", refusal.Message);
     }
 
+    /// <summary>
+    /// A memo against a sale's invoice is dated the day that invoice was posted under. A sale posted on
+    /// an earlier day than it sold has its memos there, before the trading day the window used to open on.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "2026-09-10")]
+    [InlineData("2026-09-05", "2026-09-04")]
+    [InlineData("2026-09-14", "2026-09-10")]
+    public async Task The_memos_are_read_from_the_day_before_the_earlier_of_the_sale_and_its_posting_date(
+        string? postingDate, string expectedFrom)
+    {
+        DateTime? readFrom = null;
+        var sap = StubProxy.For<ISAPServiceLayerClient>((_, args) =>
+        {
+            readFrom = (DateTime)args![1]!;
+            return Task.FromResult(new List<SAPCreditNote>());
+        });
+        var credits = new DesktopCreditExternalCredits(sap, StubProxy.Unused<IRevmaxClient>(),
+            NullLogger<DesktopCreditExternalCredits>.Instance);
+
+        var sale = Sale();
+        sale.PostingDate = postingDate is null
+            ? null
+            : DateTime.SpecifyKind(DateTime.Parse(postingDate, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
+
+        await credits.FindAsync(sale, Device, Receipt, default);
+
+        Assert.Equal(DateTime.Parse(expectedFrom, System.Globalization.CultureInfo.InvariantCulture), readFrom);
+    }
+
     private const string NotFound = """{"Code":"0","Message":"Invoice not Found","Data":""}""";
 
     private static string Credit(int number, long globalNo, decimal total, int refDevice, int refGlobal,
