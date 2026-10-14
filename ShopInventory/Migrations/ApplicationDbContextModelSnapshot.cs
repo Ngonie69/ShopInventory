@@ -7272,6 +7272,32 @@ namespace ShopInventory.Migrations
                     b.ToTable("TimesheetEntries", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.UserPasswordHistoryEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("ReplacedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ReplacedAt");
+
+                    b.ToTable("UserPasswordHistory", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.UserPermissionEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -8838,6 +8864,12 @@ namespace ShopInventory.Migrations
                     b.Property<DateTime?>("LockoutEnd")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("PasswordChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -9693,6 +9725,17 @@ namespace ShopInventory.Migrations
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.TimesheetEntryEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.UserPasswordHistoryEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "User")
                         .WithMany()

@@ -26,7 +26,8 @@ public sealed class ChangeVanSalesPasswordHandler(
                 new AdminChangePasswordRequest
                 {
                     NewPassword = command.Request.Password.Trim()
-                }),
+                },
+                ChosenByOwner: true),
             cancellationToken);
 
         if (result.IsError)

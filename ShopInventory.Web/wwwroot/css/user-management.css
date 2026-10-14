@@ -983,6 +983,12 @@
     --um-fam-rgb: var(--um-fam-info-rgb);
 }
 
+/* Owes a password change: something to act on, not something wrong. */
+.um-badge-pwd {
+    --um-fam: var(--um-fam-warn);
+    --um-fam-rgb: var(--um-fam-warn-rgb);
+}
+
 /* ── The row's overflow menu ───────────────────────────────────────────── */
 
 .um-action-more {

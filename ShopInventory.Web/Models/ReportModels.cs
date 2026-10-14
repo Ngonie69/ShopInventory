@@ -489,6 +489,12 @@ public class UserModel
     public bool IsLockedOut { get; set; }
     public bool IsLocked => IsLockedOut;
     public bool TwoFactorEnabled { get; set; }
+
+    /// <summary>Whether the holder has to choose a new password at their next sign-in.</summary>
+    public bool MustChangePassword { get; set; }
+
+    /// <summary>When the password in use was set; the three-month renewal counts from here.</summary>
+    public DateTime? PasswordChangedAt { get; set; }
     public List<string>? Permissions { get; set; }
     public List<string> AssignedWarehouseCodes { get; set; } = new();
     public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();

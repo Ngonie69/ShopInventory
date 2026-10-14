@@ -6,9 +6,9 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
+using ShopInventory.Features.Password;
 using ShopInventory.Models;
 using ShopInventory.Services;
-using BC = BCrypt.Net.BCrypt;
 
 namespace ShopInventory.Features.Users.Commands.CreateUser;
 
@@ -16,6 +16,7 @@ public sealed class CreateUserHandler(
     ApplicationDbContext context,
     IAuditService auditService,
     INotificationService notificationService,
+    UserPasswords passwords,
     ILogger<CreateUserHandler> logger
 ) : IRequestHandler<CreateUserCommand, ErrorOr<UserCreatedResponseDto>>
 {
@@ -77,7 +78,7 @@ public sealed class CreateUserHandler(
         {
             Id = Guid.NewGuid(),
             Username = request.Username,
-            PasswordHash = BC.HashPassword(request.Password),
+            PasswordHash = string.Empty,
             Email = request.Email,
             Role = request.Role.Trim(),
             FirstName = request.FirstName,
@@ -85,6 +86,14 @@ public sealed class CreateUserHandler(
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
+
+        var brokenRules = passwords.CheckForNewAccount(user, request.Password);
+        if (brokenRules.Count > 0)
+        {
+            return Errors.Password.PolicyNotMet(brokenRules);
+        }
+
+        passwords.SetOnNewAccount(user, request.Password);
 
         if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);

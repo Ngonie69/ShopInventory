@@ -214,5 +214,6 @@ public sealed class RefreshTokenRotationGraceTests : IDisposable
             Options.Create(new SecuritySettings()),
             _log,
             StubProxy.Unused<ITwoFactorPendingStore>(),
-            StubProxy.Unused<ITwoFactorService>());
+            StubProxy.Unused<ITwoFactorService>(),
+            TestPasswords.For(_context));
 }

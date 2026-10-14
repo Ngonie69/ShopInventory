@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Password;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -10,6 +11,7 @@ namespace ShopInventory.Features.Auth.Commands.Register;
 public sealed class RegisterHandler(
     IAuthService authService,
     IAuditService auditService,
+    UserPasswords passwords,
     ILogger<RegisterHandler> logger
 ) : IRequestHandler<RegisterCommand, ErrorOr<UserInfo>>
 {
@@ -31,6 +33,20 @@ public sealed class RegisterHandler(
         if (ApplicationRoles.UsesLegacyRouteCustomerScope(command.Role))
         {
             return Errors.Auth.InvalidRole(command.Role);
+        }
+
+        var brokenRules = passwords.CheckForNewAccount(
+            new User
+            {
+                Username = command.Username,
+                Email = command.Email,
+                Role = command.Role.Trim(),
+                PasswordHash = string.Empty
+            },
+            command.Password);
+        if (brokenRules.Count > 0)
+        {
+            return Errors.Password.PolicyNotMet(brokenRules);
         }
 
         var user = await authService.RegisterUserAsync(

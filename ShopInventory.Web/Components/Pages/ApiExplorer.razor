@@ -1167,6 +1167,7 @@ Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/Auth/me", "Get the current authenticated user"),
 new("GET", "/api/Auth/passkeys", "Get passkeys"),
+new("POST", "/api/Auth/change-password", "Change own password"),
 new("POST", "/api/Auth/login", "Login with username and password"),
 new("POST", "/api/Auth/login/two-factor", "Complete login with a 2FA code"),
 new("POST", "/api/Auth/logout", "Logout and revoke tokens"),
@@ -1352,6 +1353,7 @@ new("PUT", "/api/User/{id}", "Update user"),
 new("POST", "/api/User/{id}/activate", "Activate user"),
 new("POST", "/api/User/{id}/change-password", "Change a user's password"),
 new("POST", "/api/User/{id}/deactivate", "Deactivate user"),
+new("POST", "/api/User/{id}/require-password-change", "Require password change"),
 new("POST", "/api/User/{id}/unlock", "Unlock a locked account")
 }
 },

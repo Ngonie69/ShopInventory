@@ -5,6 +5,7 @@ using ShopInventory.Common.Extensions;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Password;
 using ShopInventory.Models;
 using System.Net;
 using System.Net.Sockets;
@@ -98,6 +99,7 @@ public class AuthService : IAuthService
 
     private readonly ITwoFactorPendingStore _pendingStore;
     private readonly ITwoFactorService _twoFactorService;
+    private readonly UserPasswords _passwords;
 
     public AuthService(
         ApplicationDbContext dbContext,
@@ -105,7 +107,8 @@ public class AuthService : IAuthService
         IOptions<SecuritySettings> securitySettings,
         ILogger<AuthService> logger,
         ITwoFactorPendingStore pendingStore,
-        ITwoFactorService twoFactorService)
+        ITwoFactorService twoFactorService,
+        UserPasswords passwords)
     {
         _dbContext = dbContext;
         _jwtSettings = jwtSettings.Value;
@@ -113,6 +116,7 @@ public class AuthService : IAuthService
         _logger = logger;
         _pendingStore = pendingStore;
         _twoFactorService = twoFactorService;
+        _passwords = passwords;
 
         // Build dictionary once at construction for fast API key validation.
         // Production config can merge appsettings + web.config arrays, so do not let a
@@ -300,13 +304,13 @@ public class AuthService : IAuthService
         _logger.LogInformation("Tokens refreshed for user {Username} from IP: {IpAddress}",
             user.Username, ipAddress);
 
-        return new AuthLoginResponse
+        return WithPasswordStanding(new AuthLoginResponse
         {
             AccessToken = newAccessToken,
             RefreshToken = newRefreshTokenValue,
             ExpiresAt = expiresAt,
             User = await UserInfoMapper.FromUserAsync(user, _dbContext)
-        };
+        }, user);
     }
 
     public async Task RevokeTokenAsync(string refreshToken, string? ipAddress = null)
@@ -349,11 +353,14 @@ public class AuthService : IAuthService
             Id = Guid.NewGuid(),
             Username = username,
             Email = email,
-            PasswordHash = HashPassword(password),
+            PasswordHash = string.Empty,
             Role = role,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
+
+        // RegisterHandler has already put the password through the policy; this stamps it.
+        _passwords.SetOnNewAccount(user, password);
 
         _dbContext.Users.Add(user);
         await _dbContext.SaveChangesAsync();
@@ -623,6 +630,15 @@ public class AuthService : IAuthService
             claims.Add(new Claim("warehouse", wh));
         }
 
+        // Carried on the token so that holding an account to the password screens costs no
+        // database read per request. It is stale for at most one access-token lifetime, and only
+        // in the safe direction: changing the password revokes the refresh tokens, so the next
+        // token is issued by a fresh sign-in and no longer has it.
+        if (_passwords.StandingOf(user) is { ChangeRequired: true, Reason: { } reason })
+        {
+            claims.Add(new Claim(PasswordStanding.ClaimType, reason));
+        }
+
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
             audience: _jwtSettings.Audience,
@@ -656,13 +672,31 @@ public class AuthService : IAuthService
         _dbContext.RefreshTokens.Add(refreshToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return new AuthLoginResponse
+        return WithPasswordStanding(new AuthLoginResponse
         {
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
             ExpiresAt = expiresAt,
             User = await UserInfoMapper.FromUserAsync(user, _dbContext)
-        };
+        }, user);
+    }
+
+    /// <summary>
+    /// Tells the client where the account stands on password renewal, on every reply that hands
+    /// out tokens — sign-in by any method, and refresh, so a session that stays open for weeks
+    /// still learns that its renewal has come due.
+    /// </summary>
+    private AuthLoginResponse WithPasswordStanding(AuthLoginResponse response, User user)
+    {
+        var standing = _passwords.StandingOf(user);
+
+        response.PasswordChangeRequired = standing.ChangeRequired;
+        response.PasswordChangeReason = standing.Reason;
+        response.PasswordExpiresAt = standing.ExpiresAtUtc;
+        response.PasswordExpiresInDays = standing.ExpiresInDays;
+        response.PasswordExpiringSoon = _passwords.IsExpiringSoon(standing);
+
+        return response;
     }
 
     /// <summary>

@@ -36,6 +36,25 @@ public class User
     public required string PasswordHash { get; set; }
 
     /// <summary>
+    /// When the current password was set, which is what the three-month renewal counts from.
+    /// </summary>
+    /// <remarks>
+    /// Null only on a row written by something that predates the column; those are aged from
+    /// <see cref="CreatedAt"/>. Every account that existed when the policy came in was stamped with
+    /// that moment by the migration, so nobody's first renewal fell due on day one.
+    /// </remarks>
+    public DateTime? PasswordChangedAt { get; set; }
+
+    /// <summary>
+    /// Whether the owner has to choose a new password before doing anything else.
+    /// </summary>
+    /// <remarks>
+    /// Set when somebody other than the owner chose the password, and by an administrator who
+    /// suspects it is known to someone it should not be. Cleared only by the owner changing it.
+    /// </remarks>
+    public bool MustChangePassword { get; set; }
+
+    /// <summary>
     /// User role (Admin, User, ApiUser)
     /// </summary>
     [Required]

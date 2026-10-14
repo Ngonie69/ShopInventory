@@ -1,3 +1,4 @@
+using ShopInventory.Web.Common.Security;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Data;
 using Microsoft.EntityFrameworkCore;
@@ -544,7 +545,7 @@ public class CustomerAuthService : ICustomerAuthService
             }
 
             // Validate new password strength
-            var (isValid, validationMessage) = ValidatePasswordStrength(request.NewPassword);
+            var (isValid, validationMessage) = ValidatePasswordStrength(request.NewPassword, OwnerOf(user));
             if (!isValid)
             {
                 return (false, validationMessage);
@@ -698,7 +699,7 @@ public class CustomerAuthService : ICustomerAuthService
             }
 
             // Validate new password
-            var (isValid, validationMessage) = ValidatePasswordStrength(newPassword);
+            var (isValid, validationMessage) = ValidatePasswordStrength(newPassword, OwnerOf(user));
             if (!isValid)
             {
                 return (false, validationMessage);
@@ -888,7 +889,7 @@ public class CustomerAuthService : ICustomerAuthService
             }
 
             // Validate password
-            var (isValid, _) = ValidatePasswordStrength(password);
+            var (isValid, _) = ValidatePasswordStrength(password, new PasswordOwner { Email = email, Other = [cardCode, customerInfo.CardName] });
             if (!isValid)
             {
                 return false;
@@ -1022,7 +1023,21 @@ public class CustomerAuthService : ICustomerAuthService
         }
     }
 
-    private static (bool IsValid, string Message) ValidatePasswordStrength(string password)
+    private static PasswordOwner OwnerOf(CustomerPortalUser user) => new()
+    {
+        Email = user.Email,
+        Other = [user.CardCode, user.CardName]
+    };
+
+    /// <summary>
+    /// The portal's own character rules, then the company password policy.
+    /// </summary>
+    /// <remarks>
+    /// The character mix and the crude "contains the word password" check were here already and
+    /// are kept. The policy adds what they miss: the full list of common passwords with their usual
+    /// disguises, and the customer's own account code, name and email address.
+    /// </remarks>
+    private static (bool IsValid, string Message) ValidatePasswordStrength(string password, PasswordOwner? owner = null)
     {
         if (string.IsNullOrEmpty(password))
             return (false, "Password is required");
@@ -1045,6 +1060,10 @@ public class CustomerAuthService : ICustomerAuthService
         // Check for common patterns
         if (Regex.IsMatch(password.ToLower(), @"(password|123456|qwerty|abc123)"))
             return (false, "Password is too common");
+
+        var brokenRules = PasswordPolicy.Check(password, owner);
+        if (brokenRules.Count > 0)
+            return (false, brokenRules[0]);
 
         return (true, "Password meets requirements");
     }

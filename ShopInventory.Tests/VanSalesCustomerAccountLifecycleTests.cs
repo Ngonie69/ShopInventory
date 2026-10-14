@@ -191,7 +191,7 @@ public sealed class VanSalesCustomerAccountLifecycleTests : IDisposable
         int routeCustomerId,
         string phone,
         string? displayName = "Owner",
-        string? password = "shop-password")
+        string? password = "lantern-and-river")
     {
         var handler = new OnboardVanSalesCustomerAccountHandler(
             _context,

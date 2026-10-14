@@ -11,6 +11,9 @@ RUN dotnet restore "ShopInventory.Web/ShopInventory.Web.csproj"
 
 # Copy source code and build
 COPY ["ShopInventory.Web/", "ShopInventory.Web/"]
+# The password policy is one source file shared with the API (see the linked Compile items in the
+# project file), so the build needs it from the API's folder.
+COPY ["ShopInventory/Common/Security/PasswordPolicy.cs", "ShopInventory/Common/Security/CommonPasswords.cs", "ShopInventory/Common/Security/"]
 WORKDIR "/src/ShopInventory.Web"
 RUN dotnet build "ShopInventory.Web.csproj" -c Release -o /app/build
 
