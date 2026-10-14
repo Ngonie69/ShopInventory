@@ -110,13 +110,13 @@
         <div class="vend-window-dates">
             <div class="vend-field">
                 <label for="vend-from">From</label>
-                <NocturneDateField Id="vend-from" Date="fromDate" Disabled="@isLoading"
+                <NocturneDateField Id="vend-from" Date="fromDate"
                                    DateChanged="@(value => OnDateChangedAsync(value, isFrom: true))"
                                    AriaLabel="Window starts" />
             </div>
             <div class="vend-field">
                 <label for="vend-to">To</label>
-                <NocturneDateField Id="vend-to" Date="toDate" Disabled="@isLoading"
+                <NocturneDateField Id="vend-to" Date="toDate"
                                    DateChanged="@(value => OnDateChangedAsync(value, isFrom: false))"
                                    AriaLabel="Window ends" />
             </div>
@@ -125,7 +125,7 @@
             @foreach (var range in QuickRanges)
             {
                 <button type="button" class="shop-seg-btn @(activeRangeDays == range.Days ? "is-on" : null)"
-                        @onclick="() => ApplyRangeAsync(range.Days)" disabled="@isLoading">
+                        @onclick="() => ApplyRangeAsync(range.Days)">
                     @range.Label
                 </button>
             }
@@ -459,6 +459,7 @@
     [Parameter] public EventCallback<RouteCustomerModel> OnToggle { get; set; }
 
     private int loadedFor;
+    private int salesRead;
     private bool isLoading = true;
     private bool isExporting;
     private bool menuOpen;
@@ -498,9 +499,20 @@
 
     private Task ReloadAsync() => LoadAsync();
 
+    /// <summary>
+    /// Reads the window's sales. A second call while one is out takes over from it: the window can be
+    /// changed again without waiting, and the read that was overtaken puts nothing on the page — it
+    /// would otherwise land after the newer one and leave an older window's figures under the dates.
+    /// </summary>
     private async Task LoadAsync()
     {
         today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var reading = ++salesRead;
+        var requestedFor = Vendor.Id;
+        var (from, to) = (fromDate, toDate);
+        bool IsCurrent() => reading == salesRead && requestedFor == Vendor.Id;
+
         isLoading = true;
         loadError = null;
         detail = null;
@@ -511,11 +523,10 @@
         mixTotal = 0;
         moreDays = 0;
 
-        var requestedFor = Vendor.Id;
         try
         {
-            var read = await RouteCustomerService.GetRouteCustomerSalesAsync(requestedFor, fromDate, toDate);
-            if (requestedFor != Vendor.Id)
+            var read = await RouteCustomerService.GetRouteCustomerSalesAsync(requestedFor, from, to);
+            if (!IsCurrent())
             {
                 return;
             }
@@ -537,14 +548,14 @@
         }
         catch (InvalidOperationException ex)
         {
-            if (requestedFor == Vendor.Id)
+            if (IsCurrent())
             {
                 loadError = $"This vendor's sales could not be loaded: {ex.Message}";
             }
         }
         finally
         {
-            if (requestedFor == Vendor.Id)
+            if (IsCurrent())
             {
                 isLoading = false;
             }
@@ -553,14 +564,8 @@
 
     private async Task OnDateChangedAsync(DateTime? value, bool isFrom)
     {
-        if (isFrom)
-        {
-            fromDate = value;
-        }
-        else
-        {
-            toDate = value;
-        }
+        (fromDate, toDate) = VendorListFilters.InOrder(
+            isFrom ? value : fromDate, isFrom ? toDate : value, fromChanged: isFrom);
 
         activeRangeDays = null;
         await LoadAsync();
