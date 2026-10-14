@@ -42,7 +42,14 @@ public sealed record SaleCredit(decimal Amount, IReadOnlyList<string> Numbers)
 /// </param>
 /// <param name="Amount">What was given back, tax included.</param>
 /// <param name="Net">What was given back before tax, where the credit records it.</param>
-public sealed record CreditedLine(int? InvoiceLine, string? ItemCode, decimal? Quantity, decimal Amount, decimal? Net);
+public sealed record CreditedLine(int? InvoiceLine, string? ItemCode, decimal? Quantity, decimal Amount, decimal? Net)
+{
+    /// <summary>
+    /// The sale line the credit gave back, by its id, where the credit can be tied to one. Filled by
+    /// <see cref="SaleCredits.ForSalesAsync"/>; read through <see cref="SaleCredits.BySaleLine"/>.
+    /// </summary>
+    public int? SaleLineId { get; init; }
+}
 
 /// <summary>What has been credited against one invoice line, over all of its credits.</summary>
 public sealed record InvoiceLineCredit(decimal Quantity, decimal Amount);
@@ -107,21 +114,7 @@ public static class SaleCredits
             ? []
             : await DesktopCreditNoteNumber.ForSalesAsync(db, tillCredits.Select(c => c.SaleId), ct);
 
-        var saleIds = tillCredits.Select(credit => credit.SaleId).Distinct().ToList();
-        var saleLines = saleIds.Count == 0
-            ? Array.Empty<DesktopSaleLineEntity>().ToLookup(line => line.SaleId)
-            : (await db.DesktopSaleLines
-                    .AsNoTracking()
-                    .Where(line => saleIds.Contains(line.SaleId))
-                    .Select(line => new DesktopSaleLineEntity
-                    {
-                        Id = line.Id,
-                        SaleId = line.SaleId,
-                        LineNum = line.LineNum,
-                        ItemCode = line.ItemCode
-                    })
-                    .ToListAsync(ct))
-                .ToLookup(line => line.SaleId);
+        var saleLines = await ReadSaleLinesAsync(db, tillCredits.Select(credit => credit.SaleId), ct);
 
         foreach (var credit in tillCredits)
         {
@@ -143,11 +136,22 @@ public static class SaleCredits
         return Summarise(parts);
     }
 
-    /// <summary>The credits against each till or van sale, by sale id. Sales with none are absent.</summary>
+    /// <summary>
+    /// The credits against each till or van sale, by sale id, with the sale lines they gave back. Sales
+    /// with none are absent.
+    /// </summary>
     /// <remarks>
+    /// <para>
     /// A sale's own till credits, plus any SAP memo against the sale's own invoice when it posted
     /// one-to-one — which is how an invoice cancelled in SAP reaches the sale. A consolidated sale's invoice
     /// is shared with the rest of its day, so a memo against it cannot be put on any one sale and is not.
+    /// </para>
+    /// <para>
+    /// Each credited line names its sale line (<see cref="CreditedLine.SaleLineId"/>). A till credit knows
+    /// which receipt line it gave back and how many. Once SAP has taken it the memo is what is counted, so
+    /// the money and the number are SAP's — but the lines stay the till credit's, because the memo
+    /// projection stores no quantity and the credit that raised the memo does.
+    /// </para>
     /// </remarks>
     public static async Task<Dictionary<int, SaleCredit>> ForSalesAsync(
         ApplicationDbContext db,
@@ -163,7 +167,7 @@ public static class SaleCredits
         var tillCredits = await db.DesktopCreditNotes
             .AsNoTracking()
             .Where(credit => saleIds.Contains(credit.SaleId) && credit.Status == DesktopCreditStatuses.Fiscalised)
-            .Select(credit => new { credit.Id, credit.SaleId, credit.Amount, credit.SapDocEntry })
+            .Select(credit => new { credit.Id, credit.SaleId, credit.Amount, credit.SapDocEntry, credit.PlanJson })
             .ToListAsync(ct);
 
         var tillNumbers = tillCredits.Count == 0
@@ -176,13 +180,31 @@ public static class SaleCredits
             .Where(invoice => invoice.Count() == 1)
             .ToDictionary(invoice => invoice.Key, invoice => invoice.Single().SaleId);
 
+        var memos = await ReadMemosAsync(db, saleByInvoice.Keys.ToList(), ct);
+
+        var saleLines = await ReadSaleLinesAsync(
+            db,
+            tillCredits.Select(credit => credit.SaleId).Concat(memos.Select(memo => saleByInvoice[memo.Invoice])),
+            ct);
+
         var parts = new List<CreditPart>();
         var memosBySale = new Dictionary<int, HashSet<int>>();
 
-        foreach (var memo in await ReadMemosAsync(db, saleByInvoice.Keys.ToList(), ct))
+        foreach (var memo in memos)
         {
             var saleId = saleByInvoice[memo.Invoice];
-            parts.Add(memo with { Invoice = saleId });
+            var lines = saleLines[saleId].ToList();
+
+            // The till credit this memo was raised from, when there is one: it knows the quantities.
+            var raisedFrom = tillCredits.FirstOrDefault(
+                credit => credit.SaleId == saleId && credit.SapDocEntry == memo.MemoDocEntry);
+            var fromTill = raisedFrom is null ? [] : TillCreditLines(raisedFrom.PlanJson, lines, perSaleInvoice: true);
+
+            parts.Add(memo with
+            {
+                Invoice = saleId,
+                Lines = fromTill.Count > 0 ? fromTill : MemoLinesOnSale(memo.Lines, lines)
+            });
 
             if (!memosBySale.TryGetValue(saleId, out var counted))
                 memosBySale[saleId] = counted = [];
@@ -196,10 +218,44 @@ public static class SaleCredits
                 && counted.Contains(memo))
                 continue;
 
-            parts.Add(new CreditPart(credit.SaleId, null, credit.Amount, tillNumbers.GetValueOrDefault(credit.Id, ""), []));
+            parts.Add(new CreditPart(
+                credit.SaleId,
+                null,
+                credit.Amount,
+                tillNumbers.GetValueOrDefault(credit.Id, ""),
+                TillCreditLines(credit.PlanJson, saleLines[credit.SaleId].ToList(), perSaleInvoice: false)));
         }
 
         return Summarise(parts);
+    }
+
+    /// <summary>
+    /// What has been credited against each line of a sale, by the sale line's id. Lines nothing was
+    /// credited against are absent.
+    /// </summary>
+    /// <param name="credit">The sale's credits, as <see cref="ForSalesAsync"/> answers them.</param>
+    /// <remarks>
+    /// By id and not by <c>LineNum</c>, which a sale can repeat — see <see cref="DesktopSaleLineOrder"/>.
+    /// A credited line that could not be tied to a sale line is left out: the sale's credited total
+    /// still counts it, only no line can show it.
+    /// </remarks>
+    public static Dictionary<int, InvoiceLineCredit> BySaleLine(SaleCredit? credit)
+    {
+        var result = new Dictionary<int, InvoiceLineCredit>();
+
+        foreach (var credited in credit?.Lines ?? [])
+        {
+            if (credited.SaleLineId is not { } lineId)
+                continue;
+
+            var quantity = credited.Quantity ?? 0m;
+
+            result[lineId] = result.TryGetValue(lineId, out var soFar)
+                ? new InvoiceLineCredit(soFar.Quantity + quantity, soFar.Amount + credited.Amount)
+                : new InvoiceLineCredit(quantity, credited.Amount);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -314,9 +370,95 @@ public static class SaleCredits
                     saleLine?.ItemCode,
                     quantity.Quantity,
                     Math.Round(quantity.Quantity * (source?.UnitPrice ?? 0m), 2, MidpointRounding.AwayFromZero),
-                    null);
+                    null)
+                {
+                    SaleLineId = saleLine?.Id
+                };
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// A memo's lines against a sale that posted as its own invoice, each on the sale line it reverses
+    /// and with its quantity worked out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A memo's <c>BaseLine</c> is the position of the line on the SAP invoice, which is the sale's lines
+    /// in <see cref="DesktopSaleLineOrder.Invoice"/> order. A memo line that names no base line, or one
+    /// whose item is not the item at that position, is put on the first sale line carrying its item.
+    /// </para>
+    /// <para>
+    /// The memo projection stores no quantity, so it is the memo line's money over the sale line's price
+    /// per unit — on the same tax basis. A till sale's line totals are before tax and a van's offline
+    /// lines include it, and the sale says which: its lines add up to its total, or to its total less VAT.
+    /// </para>
+    /// </remarks>
+    private static List<CreditedLine> MemoLinesOnSale(
+        IReadOnlyList<CreditedLine> memoLines, List<DesktopSaleLineEntity> saleLines)
+    {
+        if (saleLines.Count == 0)
+            return memoLines.ToList();
+
+        var invoiceOrder = DesktopSaleLineOrder.Invoice(saleLines);
+        var sale = saleLines[0].Sale;
+        var linesTotal = saleLines.Sum(line => line.LineTotal);
+        var linesIncludeTax = Math.Abs(linesTotal - sale.TotalAmount)
+                              < Math.Abs(linesTotal - (sale.TotalAmount - sale.VatAmount));
+
+        return memoLines
+            .Select(credited =>
+            {
+                var target = credited.InvoiceLine is { } position && position >= 0 && position < invoiceOrder.Count
+                    ? invoiceOrder[position]
+                    : null;
+
+                if (!string.IsNullOrWhiteSpace(credited.ItemCode)
+                    && (target is null
+                        || !string.Equals(target.ItemCode, credited.ItemCode, StringComparison.OrdinalIgnoreCase)))
+                {
+                    target = invoiceOrder.FirstOrDefault(line =>
+                        string.Equals(line.ItemCode, credited.ItemCode, StringComparison.OrdinalIgnoreCase)) ?? target;
+                }
+
+                if (target is null)
+                    return credited;
+
+                var money = linesIncludeTax ? credited.Amount : credited.Net ?? credited.Amount;
+                var quantity = target.Quantity != 0m && target.LineTotal != 0m
+                    ? Math.Round(money / (target.LineTotal / target.Quantity), 3, MidpointRounding.AwayFromZero)
+                    : 0m;
+
+                return credited with { SaleLineId = target.Id, Quantity = credited.Quantity ?? quantity };
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// The lines of the given sales, by sale id, with as much of each as placing a credit on it needs.
+    /// </summary>
+    private static async Task<ILookup<int, DesktopSaleLineEntity>> ReadSaleLinesAsync(
+        ApplicationDbContext db, IEnumerable<int> saleIds, CancellationToken ct)
+    {
+        var ids = saleIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return Array.Empty<DesktopSaleLineEntity>().ToLookup(line => line.SaleId);
+
+        return (await db.DesktopSaleLines
+                .AsNoTracking()
+                .Where(line => ids.Contains(line.SaleId))
+                .Select(line => new DesktopSaleLineEntity
+                {
+                    Id = line.Id,
+                    SaleId = line.SaleId,
+                    LineNum = line.LineNum,
+                    ItemCode = line.ItemCode,
+                    Quantity = line.Quantity,
+                    LineTotal = line.LineTotal,
+                    Sale = new DesktopSaleEntity { TotalAmount = line.Sale.TotalAmount, VatAmount = line.Sale.VatAmount }
+                })
+                .ToListAsync(ct))
+            .ToLookup(line => line.SaleId);
     }
 
     /// <summary>Each live SAP memo against the given invoices, one part per memo and invoice.</summary>

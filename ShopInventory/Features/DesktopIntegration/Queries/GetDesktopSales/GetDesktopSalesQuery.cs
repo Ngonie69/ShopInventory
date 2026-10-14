@@ -302,4 +302,28 @@ public sealed record DesktopSaleLineItemDto(
     string WarehouseCode,
     string? TaxCode,
     decimal DiscountPercent
-);
+)
+{
+    /// <summary>
+    /// The line's own id, which is how a credit finds it: <see cref="LineNum"/> can repeat within a sale.
+    /// Not sent — no client needs it, and a second number on a line invites keying on the wrong one.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int LineId { get; init; }
+
+    /// <summary>
+    /// How many of <see cref="Quantity"/> have been credited back; 0 when none have.
+    /// </summary>
+    /// <remarks>
+    /// Carried on every line so the till can take a returned line out of what an item sold, and not only
+    /// out of the day's money. A credit keyed in SAP by hand carries no quantity, so there it is worked
+    /// out from the money — see <see cref="Common.Sales.SaleCredits.ForSalesAsync"/>.
+    /// </remarks>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// What was credited back on this line, tax-inclusive like the sale's <c>CreditedAmount</c> — and so
+    /// not on the basis of <see cref="LineTotal"/>, which a till sale holds before tax.
+    /// </summary>
+    public decimal CreditedAmount { get; init; }
+}
