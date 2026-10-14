@@ -43,6 +43,21 @@ otherwise be surprised.
     merchandiser app's change-password screen has always posted to; it did not exist, so that screen
     could not change a password.
 
+- **A van or merchandiser order is answered before SAP is asked anything.** `POST
+  /api/vansales/sales-order` and the merchandiser's mobile order used to read each line's sales unit
+  from SAP, and the account's name when the order carried only its code, before storing the order;
+  the rep waited on that read. Both are now filled in by the post-save queue, normally within ten
+  seconds. Until then the order shows on Mobile Orders with no unit on those lines and, where the
+  handset sent no shop name, the card code where the name goes. A fractional quantity whose unit
+  nothing local knows is still checked against SAP before the order is stored, and refused as before
+  if the unit is not KG. Orders raised on the web are unchanged.
+  - `uom_code` on a van sales order line is now stored with the line. The order cart does not send
+    one today.
+  - Two log lines carry timings to read beside the handset's own: `Van sales order {VanOrder} answered
+    in N ms` and `Created sales order ... in N ms (M ms validating the request)`.
+    `scripts/Check-VanOrderResponseTime.ps1` (read-only, run on the API box) sets them and IIS's
+    request durations beside one order's timeline.
+
 - **A credit memo against a van, shop or vending invoice is posted on the invoice's date.** Its SAP
   posting date (`DocDate`) is the day SAP holds the invoice under, not the day the credit was raised,
   so a return keyed later lands in the trading day of the sale it reverses. The document date

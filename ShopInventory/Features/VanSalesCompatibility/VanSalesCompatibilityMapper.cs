@@ -470,6 +470,9 @@ public static partial class VanSalesCompatibilityMapper
                 ItemCode = item.Code.Trim(),
                 Quantity = item.Quantity,
                 UnitPrice = Convert.ToDecimal(item.Price, CultureInfo.InvariantCulture),
+                // The unit the handset sold the line in, when it says. Today's order cart sends none, and
+                // the post-save queue then reads it from SAP — after the rep has been answered.
+                UoMCode = string.IsNullOrWhiteSpace(item.UoMCode) ? null : item.UoMCode.Trim(),
                 WarehouseCode = warehouseCode,
                 CostCentreCode = costCentreCode,
                 BatchNumber = item.Batches.Count == 1 ? item.Batches[0].Batch.Trim() : null
