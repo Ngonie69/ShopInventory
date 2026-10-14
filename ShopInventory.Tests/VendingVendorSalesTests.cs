@@ -140,6 +140,130 @@ public sealed class VendingVendorSalesTests : IDisposable
         Assert.Equal(1, row.SaleCount);
     }
 
+    // ── The list's period and activity filters ─────────────────────────────
+
+    [Fact]
+    public void Each_period_is_whole_days_ending_where_its_name_says()
+    {
+        (DateTime, DateTime) Days(int fromMonth, int fromDay, int toMonth, int toDay) =>
+            (new DateTime(2026, fromMonth, fromDay), new DateTime(2026, toMonth, toDay));
+
+        Assert.Equal(Days(9, 14, 9, 14), VendorListFilters.Window(VendorListFilters.Period.Today, Today));
+        Assert.Equal(Days(9, 13, 9, 13), VendorListFilters.Window(VendorListFilters.Period.Yesterday, Today));
+        Assert.Equal(Days(9, 8, 9, 14), VendorListFilters.Window(VendorListFilters.Period.Week, Today));
+        Assert.Equal(Days(9, 1, 9, 14), VendorListFilters.Window(VendorListFilters.Period.Month, Today));
+        Assert.Equal(Days(8, 1, 8, 31), VendorListFilters.Window(VendorListFilters.Period.LastMonth, Today));
+        Assert.Equal(Days(6, 17, 9, 14), VendorListFilters.Window(VendorListFilters.Period.Quarter, Today));
+
+        // A time of day on "today" must not leak into the window, and January's last month is December.
+        Assert.Equal(Days(9, 14, 9, 14), VendorListFilters.Window(VendorListFilters.Period.Today, Today.AddHours(15)));
+        Assert.Equal(
+            (new DateTime(2025, 12, 1), new DateTime(2025, 12, 31)),
+            VendorListFilters.Window(VendorListFilters.Period.LastMonth, new DateTime(2026, 1, 9)));
+    }
+
+    [Fact]
+    public void A_typed_range_stays_in_order_by_moving_the_end_that_was_not_typed()
+    {
+        var early = new DateTime(2026, 8, 31);
+        var late = new DateTime(2026, 10, 20);
+
+        // The date just typed is the one that is kept, whichever end it is.
+        Assert.Equal((late, late), VendorListFilters.InOrder(late, early, fromChanged: true));
+        Assert.Equal((early, early), VendorListFilters.InOrder(late, early, fromChanged: false));
+
+        // In order already, a single day, or an emptied end: nothing to move.
+        Assert.Equal((early, late), VendorListFilters.InOrder(early, late, fromChanged: true));
+        Assert.Equal((early, early), VendorListFilters.InOrder(early, early, fromChanged: false));
+        Assert.Equal((null, early), VendorListFilters.InOrder(null, early, fromChanged: true));
+        Assert.Equal((late, null), VendorListFilters.InOrder(late, null, fromChanged: false));
+    }
+
+    [Fact]
+    public void A_figure_is_headed_by_the_period_it_was_read_over()
+    {
+        var august = new DateTime(2026, 8, 1);
+
+        Assert.Equal("Sales MTD", VendorListFilters.FigureLabel("Sales", VendorListFilters.Period.Month, Today));
+        Assert.Equal("Invoices today", VendorListFilters.FigureLabel("Invoices", VendorListFilters.Period.Today, Today));
+        Assert.Equal("Sales · Aug", VendorListFilters.FigureLabel("Sales", VendorListFilters.Period.LastMonth, august));
+        Assert.Equal("Sales · 90 days", VendorListFilters.FigureLabel("Sales", VendorListFilters.Period.Quarter, Today));
+        Assert.Equal("Sales · period", VendorListFilters.FigureLabel("Sales", VendorListFilters.Period.Custom, august));
+    }
+
+    [Fact]
+    public async Task The_period_moves_the_figures_and_the_activity_filter_with_them()
+    {
+        var trading = Vendor("VMP001", Depot);
+        var lapsed = Vendor("VMP002", Depot);
+        var unsold = Vendor("VMP003", Depot);
+        await _context.SaveChangesAsync();
+
+        Vend(trading, 40m, Today);
+        Vend(trading, 60m, new DateTime(2026, 8, 12));
+        Vend(lapsed, 25m, new DateTime(2026, 8, 3));
+        await _context.SaveChangesAsync();
+
+        async Task<Dictionary<string, RouteCustomerSalesRowModel>> ReadAsync(VendorListFilters.Period period)
+        {
+            var (from, to) = VendorListFilters.Window(period, Today);
+            return (await SummaryAsync(Depot, from, to)).Routes.Single().Customers.ToDictionary(row => row.Code);
+        }
+
+        string[] Kept(Dictionary<string, RouteCustomerSalesRowModel> rows, VendorListFilters.Activity activity) =>
+            rows.Values.Where(row => VendorListFilters.Matches(activity, row, Today)).Select(row => row.Code).Order().ToArray();
+
+        var month = await ReadAsync(VendorListFilters.Period.Month);
+        Assert.Equal("USD 40.00", VendorSalesDigest.MoneyLabel(month["VMP001"].TotalsByCurrency));
+        Assert.Equal(["VMP001"], Kept(month, VendorListFilters.Activity.Sold));
+        Assert.Equal(["VMP002", "VMP003"], Kept(month, VendorListFilters.Activity.Quiet));
+
+        // Last month is a different set of takings and a different set of sellers.
+        var lastMonth = await ReadAsync(VendorListFilters.Period.LastMonth);
+        Assert.Equal("USD 60.00", VendorSalesDigest.MoneyLabel(lastMonth["VMP001"].TotalsByCurrency));
+        Assert.Equal(["VMP001", "VMP002"], Kept(lastMonth, VendorListFilters.Activity.Sold));
+        Assert.Equal(["VMP003"], Kept(lastMonth, VendorListFilters.Activity.Quiet));
+
+        // Dormant and never sold are about the vendor, so the period being read does not move them:
+        // 3 Aug is 42 days before the 14th, and a vendor with no sale at all is not a lapsed one.
+        foreach (var rows in new[] { month, lastMonth, await ReadAsync(VendorListFilters.Period.Today) })
+        {
+            Assert.Equal(["VMP002"], Kept(rows, VendorListFilters.Activity.Dormant));
+            Assert.Equal(["VMP003"], Kept(rows, VendorListFilters.Activity.NeverSold));
+            Assert.Equal(3, Kept(rows, VendorListFilters.Activity.Any).Length);
+        }
+    }
+
+    [Fact]
+    public void A_vendor_the_summary_has_no_row_for_has_sold_nothing()
+    {
+        Assert.False(VendorListFilters.Matches(VendorListFilters.Activity.Sold, null, Today));
+        Assert.True(VendorListFilters.Matches(VendorListFilters.Activity.Quiet, null, Today));
+        Assert.True(VendorListFilters.Matches(VendorListFilters.Activity.NeverSold, null, Today));
+        Assert.False(VendorListFilters.Matches(VendorListFilters.Activity.Dormant, null, Today));
+
+        // The thirtieth day is still trading; dormant starts the day after, as it does on the vendor's page.
+        var edge = new RouteCustomerSalesRowModel { LastSaleAt = Today.AddDays(-VendorSalesDigest.DormantDays) };
+        Assert.False(VendorListFilters.Matches(VendorListFilters.Activity.Dormant, edge, Today));
+        edge.LastSaleAt = Today.AddDays(-VendorSalesDigest.DormantDays - 1);
+        Assert.True(VendorListFilters.Matches(VendorListFilters.Activity.Dormant, edge, Today));
+        Assert.Equal(
+            VendorSalesDigest.Standing.Dormant,
+            VendorSalesDigest.StandingOf(isActive: true, edge.LastSaleAt, Today));
+    }
+
+    [Fact]
+    public void A_cashier_reads_as_the_one_state_their_chip_shows()
+    {
+        Assert.Equal(VendorListFilters.CashierState.Ready, VendorListFilters.StateOf(new VendingAccountModel { IsActive = true }));
+        Assert.Equal(
+            VendorListFilters.CashierState.CannotSell,
+            VendorListFilters.StateOf(new VendingAccountModel { IsActive = true, SetupProblem = "No warehouse" }));
+        Assert.Equal(
+            VendorListFilters.CashierState.Inactive,
+            VendorListFilters.StateOf(new VendingAccountModel { IsActive = false, SetupProblem = "No warehouse" }));
+    }
+
     // ── The vendor page's arithmetic, over the API's real output ───────────
 
     [Fact]
