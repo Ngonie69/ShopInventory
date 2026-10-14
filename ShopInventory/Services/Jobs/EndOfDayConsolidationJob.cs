@@ -111,6 +111,14 @@ public class EndOfDayConsolidationService
         sb.AppendLine("<tr><td><strong>Total Amount</strong></td><td>{0:N2}</td></tr>".Replace("{0:N2}", report.TotalSalesAmount.ToString("N2")));
         sb.AppendLine("<tr><td><strong>Total VAT</strong></td><td>{0:N2}</td></tr>".Replace("{0:N2}", report.TotalVatAmount.ToString("N2")));
         sb.AppendLine("<tr><td><strong>Total Paid</strong></td><td>{0:N2}</td></tr>".Replace("{0:N2}", report.TotalAmountPaid.ToString("N2")));
+
+        // Stated only when something was credited: a day with no credits has nothing to correct.
+        if (report.TotalCreditedAmount > 0)
+        {
+            sb.AppendLine($"<tr><td><strong>Credited</strong></td><td>{report.TotalCreditedAmount:N2} on {report.CreditedSalesCount} sale(s)</td></tr>");
+            sb.AppendLine($"<tr><td><strong>Net of credits</strong></td><td>{report.TotalNetOfCredits:N2}</td></tr>");
+        }
+
         sb.AppendLine("<tr><td><strong>Posted Invoices</strong></td><td>{0}</td></tr>".Replace("{0}", report.PostedInvoiceCount.ToString()));
         sb.AppendLine("<tr><td><strong>Unposted Invoices</strong></td><td style='color: {1};'>{0}</td></tr>"
             .Replace("{0}", report.UnpostedInvoiceCount.ToString())
@@ -120,7 +128,7 @@ public class EndOfDayConsolidationService
         // BP Summaries
         sb.AppendLine("<h3>Business Partner Summary</h3>");
         sb.AppendLine("<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse;'>");
-        sb.AppendLine("<tr style='background: #f0f0f0;'><th>Customer</th><th>Sales</th><th>Amount</th><th>Paid</th><th>SAP Invoice</th><th>Payment</th></tr>");
+        sb.AppendLine("<tr style='background: #f0f0f0;'><th>Customer</th><th>Sales</th><th>Amount</th><th>Credited</th><th>Net of credits</th><th>Paid</th><th>SAP Invoice</th><th>Payment</th></tr>");
 
         foreach (var bp in report.BusinessPartnerSummaries)
         {
@@ -128,7 +136,7 @@ public class EndOfDayConsolidationService
             var paymentInfo = bp.IncomingPayment?.SapDocNum?.ToString() ?? "-";
 
             sb.AppendLine($"<tr><td>{bp.CardCode} — {bp.CardName}</td><td>{bp.SalesCount}</td>"
-                + $"<td>{bp.TotalAmount:N2}</td><td>{bp.TotalPaid:N2}</td>"
+                + $"<td>{bp.TotalAmount:N2}</td><td>{Credited(bp.CreditedAmount)}</td><td>{bp.NetOfCredits:N2}</td><td>{bp.TotalPaid:N2}</td>"
                 + $"<td>{invoiceInfo}</td><td>{paymentInfo}</td></tr>");
         }
         sb.AppendLine("</table>");
@@ -155,12 +163,14 @@ public class EndOfDayConsolidationService
         {
             sb.AppendLine($"<h4>{bp.CardCode} — {bp.CardName}</h4>");
             sb.AppendLine("<table border='1' cellpadding='6' cellspacing='0' style='border-collapse: collapse; font-size: 0.9em;'>");
-            sb.AppendLine("<tr style='background: #f8f8f8;'><th>Reference</th><th>Amount</th><th>VAT</th><th>Fiscal Receipt</th><th>Payment</th><th>Time</th></tr>");
+            sb.AppendLine("<tr style='background: #f8f8f8;'><th>Reference</th><th>Amount</th><th>VAT</th><th>Credited</th><th>Credit notes</th><th>Fiscal Receipt</th><th>Payment</th><th>Time</th></tr>");
 
             foreach (var sale in bp.IndividualSales)
             {
                 sb.AppendLine($"<tr><td>{sale.ExternalReferenceId}</td><td>{sale.Amount:N2}</td>"
-                    + $"<td>{sale.VatAmount:N2}</td><td>{sale.FiscalReceiptNumber ?? "-"}</td>"
+                    + $"<td>{sale.VatAmount:N2}</td><td>{Credited(sale.CreditedAmount)}</td>"
+                    + $"<td>{(sale.CreditNoteNumbers.Count == 0 ? "-" : string.Join(", ", sale.CreditNoteNumbers))}</td>"
+                    + $"<td>{sale.FiscalReceiptNumber ?? "-"}</td>"
                     + $"<td>{sale.PaymentMethod}: {sale.AmountPaid:N2}</td>"
                     + $"<td>{sale.CreatedAt.AddHours(2):HH:mm}</td></tr>");
             }
@@ -170,6 +180,9 @@ public class EndOfDayConsolidationService
         sb.AppendLine("</body></html>");
         return sb.ToString();
     }
+
+    /// <summary>A credited amount, or a dash where nothing was: a column of zeros hides the one that is not.</summary>
+    private static string Credited(decimal amount) => amount > 0 ? amount.ToString("N2") : "-";
 }
 
 /// <summary>

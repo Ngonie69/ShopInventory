@@ -64,6 +64,21 @@ public sealed class ManagementItemSummary
     public decimal? PriceChangePercent { get; set; }
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
+
+    /// <summary>Units of <see cref="Quantity"/> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// The part of <see cref="NetAmount"/> those units were sold for — before VAT, like it, and so not
+    /// the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }
 
 public sealed class ManagementItemDayRow
@@ -74,6 +89,21 @@ public sealed class ManagementItemDayRow
     public DateTime ComparedDate { get; set; }
     public decimal ComparedQuantity { get; set; }
     public decimal ComparedNetAmount { get; set; }
+
+    /// <summary>Units of <see cref="Quantity"/> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// The part of <see cref="NetAmount"/> those units were sold for — before VAT, like it, and so not
+    /// the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }
 
 public sealed class ManagementItemBreakdownRow
@@ -91,4 +121,19 @@ public sealed class ManagementItemBreakdownRow
     public decimal? ChangePercent { get; set; }
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
+
+    /// <summary>Units of <see cref="Quantity"/> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// The part of <see cref="NetAmount"/> those units were sold for — before VAT, like it, and so not
+    /// the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }

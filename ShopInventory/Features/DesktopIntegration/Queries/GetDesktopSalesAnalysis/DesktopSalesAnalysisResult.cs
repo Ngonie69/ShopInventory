@@ -19,6 +19,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// which each currency's <c>PreviousSalesCount</c> and <c>PreviousTotalAmount</c> were read over, under the
 /// same filters.</para>
 /// <para><c>CardCode</c>: The business partner every figure was confined to, or null for all of them.</para>
+/// <para><c>CreditsCounted</c>: Whether the credited figures were read. True on the counters' analysis.
+/// False on the van analysis, which shares this shape and does not look: there every credited figure
+/// is 0 and means "not read", not "nothing was credited".</para>
 /// </remarks>
 public sealed record DesktopSalesAnalysisResult(
     DateTime FromDate,
@@ -31,4 +34,7 @@ public sealed record DesktopSalesAnalysisResult(
     string? PaymentMethod,
     DateTime PreviousFromDate,
     DateTime PreviousToDate,
-    string? CardCode = null);
+    string? CardCode = null)
+{
+    public bool CreditsCounted { get; init; }
+}

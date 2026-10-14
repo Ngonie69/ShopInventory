@@ -91,7 +91,9 @@ internal static class DesktopSalesReviewEmailBody
         var tiles = new (string Label, string Value, string Detail)[]
         {
             ("Takings", Money(c, h.TotalAmount),
-                h.TotalChangePercent is { } change ? $"{(change >= 0 ? "+" : "-")}{Math.Abs(change).ToString("0.#", Invariant)}% on the previous period" : "no previous period"),
+                (h.TotalChangePercent is { } change ? $"{(change >= 0 ? "+" : "-")}{Math.Abs(change).ToString("0.#", Invariant)}% on the previous period" : "no previous period")
+                // What was rung up stays the headline; a credit is a correction to it, stated under it.
+                + (h.CreditedAmount > 0 ? $" · {Money(c, h.CreditedAmount)} credited back, net {Money(c, h.NetOfCredits)}" : string.Empty)),
             ("Sales", h.SalesCount.ToString("N0", Invariant), $"average {Money(c, h.AverageSale)}"),
             ("Before VAT", Money(c, h.NetAmount), $"VAT {Money(c, h.VatAmount)}"),
             ("Gross margin", h.MarginPercent is { } margin ? $"{margin.ToString("0.#", Invariant)}%" : "—",

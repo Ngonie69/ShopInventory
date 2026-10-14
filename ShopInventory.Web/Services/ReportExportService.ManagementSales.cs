@@ -10,6 +10,11 @@ namespace ShopInventory.Web.Services;
 /// from a list of columns, so a column added to one breakdown is one line, and the breakdowns cannot
 /// drift apart in how they state a change or a margin. Each row carries its currency; no total is ever
 /// taken across that column.
+/// <para>
+/// What was credited back closes every sheet that counts sales or items, in columns after all the others,
+/// so nothing that was already there has moved: Takings and Value are what was sold, and the credit
+/// columns are the correction to them.
+/// </para>
 /// </remarks>
 public partial class ReportExportService
 {
@@ -34,6 +39,8 @@ public partial class ReportExportService
                 new("Compared Day", day => day.ComparedDate, FormatDayDate),
                 new("Compared Sales", day => day.ComparedSalesCount, FormatCount),
                 new("Compared Takings", day => day.ComparedTotalAmount, FormatMoney),
+                new("Credited", day => day.CreditedAmount, FormatMoney),
+                new("Net of Credits", day => day.NetOfCredits, FormatMoney),
             ]);
 
         foreach (var (sheet, title, heading, rows) in new (string, string, string, Func<ManagementCurrencySection, List<ManagementBreakdownRow>>)[]
@@ -85,6 +92,8 @@ public partial class ReportExportService
                 new("Change", row => row.ChangePercent / 100m, FormatPercent),
                 new("Gross Profit", row => row.GrossProfit, FormatMoney),
                 new("Margin", row => row.MarginPercent / 100m, FormatPercent),
+                .. ItemCreditColumns<ManagementItemRow>(
+                    row => row.CreditedQuantity, row => row.QuantityAfterCredits, row => row.CreditedNetAmount, row => row.NetAmountAfterCredits),
             ]);
 
         WriteManagementTable(workbook, "Item Groups", "Sales by Item Group, within each Channel", scope, report,
@@ -102,6 +111,8 @@ public partial class ReportExportService
                 new("Change", row => row.ChangePercent / 100m, FormatPercent),
                 new("Gross Profit", row => row.GrossProfit, FormatMoney),
                 new("Margin", row => row.MarginPercent / 100m, FormatPercent),
+                .. ItemCreditColumns<ManagementItemGroupRow>(
+                    row => row.CreditedQuantity, row => row.QuantityAfterCredits, row => row.CreditedNetAmount, row => row.NetAmountAfterCredits),
             ]);
 
         // Long form rather than a pivot: one row per item and partner (or warehouse), so it filters and
@@ -116,6 +127,8 @@ public partial class ReportExportService
                 new("Business Partner", cell => partnerNames.GetValueOrDefault(cell.CardCode)),
                 new("Quantity", cell => cell.Quantity, FormatQuantity),
                 new("Value before VAT", cell => cell.NetAmount, FormatMoney),
+                .. ItemCreditColumns<ManagementItemPartnerCell>(
+                    cell => cell.CreditedQuantity, cell => cell.QuantityAfterCredits, cell => cell.CreditedNetAmount, cell => cell.NetAmountAfterCredits),
             ]);
 
         WriteManagementTable(workbook, "Item x Warehouse", "Item Sales by Warehouse", scope, report,
@@ -126,6 +139,8 @@ public partial class ReportExportService
                 new("Warehouse", cell => cell.WarehouseCode),
                 new("Quantity", cell => cell.Quantity, FormatQuantity),
                 new("Value before VAT", cell => cell.NetAmount, FormatMoney),
+                .. ItemCreditColumns<ManagementItemDepotCell>(
+                    cell => cell.CreditedQuantity, cell => cell.QuantityAfterCredits, cell => cell.CreditedNetAmount, cell => cell.NetAmountAfterCredits),
             ]);
 
         return WorkbookToBytes(workbook);
@@ -137,6 +152,22 @@ public partial class ReportExportService
         code is null ? "Not in the product master"
         : names is not null && names.TryGetValue(code.Value, out var name) ? name
         : $"Group {code}";
+
+    /// <summary>
+    /// The four columns that close an item sheet: the units credited back and what is left, then the
+    /// same in money — before VAT, at what those units were sold for, like the value beside them.
+    /// </summary>
+    private static List<ManagementColumn<T>> ItemCreditColumns<T>(
+        Func<T, decimal> creditedQuantity,
+        Func<T, decimal> quantityAfter,
+        Func<T, decimal> creditedValue,
+        Func<T, decimal> valueAfter) =>
+    [
+        new("Credited Qty", row => creditedQuantity(row), FormatQuantity),
+        new("Qty After Credits", row => quantityAfter(row), FormatQuantity),
+        new("Credited Value", row => creditedValue(row), FormatMoney),
+        new("Value After Credits", row => valueAfter(row), FormatMoney),
+    ];
 
     private static List<ManagementColumn<ManagementBreakdownRow>> BreakdownColumns(string heading) =>
     [
@@ -151,6 +182,8 @@ public partial class ReportExportService
         new("Change", row => row.ChangePercent / 100m, FormatPercent),
         new("Gross Profit", row => row.GrossProfit, FormatMoney),
         new("Margin", row => row.MarginPercent / 100m, FormatPercent),
+        new("Credited", row => row.CreditedAmount, FormatMoney),
+        new("Net of Credits", row => row.NetOfCredits, FormatMoney),
     ];
 
     private static string ManagementScope(ManagementSalesReportResult report)
@@ -169,6 +202,11 @@ public partial class ReportExportService
         {
             (section.Currency, "Takings", section.Summary.TotalAmount, section.Summary.PreviousTotalAmount, section.Summary.TotalChangePercent, FormatMoney),
             (section.Currency, "Takings before VAT", section.Summary.NetAmount, section.Summary.PreviousNetAmount, null, FormatMoney),
+            // This period only: the previous period's figures are what was sold, and so is the change.
+            (section.Currency, "Credited back", section.Summary.CreditedAmount, null, null, FormatMoney),
+            (section.Currency, "Takings net of credits", section.Summary.NetOfCredits, null, null, FormatMoney),
+            (section.Currency, "Sales credited back", section.Summary.CreditedSalesCount, null, null, FormatCount),
+            (section.Currency, "Sales credited in full", section.Summary.FullyCreditedSalesCount, null, null, FormatCount),
             (section.Currency, "Sales", section.Summary.SalesCount, section.Summary.PreviousSalesCount, section.Summary.SalesCountChangePercent, FormatCount),
             (section.Currency, "Average sale", section.Summary.AverageSale, section.Summary.PreviousAverageSale, section.Summary.AverageSaleChangePercent, FormatMoney),
             (section.Currency, "Vendors served", section.Summary.VendorsServed, section.Summary.PreviousVendorsServed, null, FormatCount),

@@ -31,4 +31,11 @@ public sealed class DesktopSalesAnalysisResult
 
     /// <summary>The business partner every figure was confined to, or null for all of them.</summary>
     public string? CardCode { get; set; }
+
+    /// <summary>
+    /// Whether the credited figures were read. True on the counters' analysis; false on the van
+    /// analysis, which shares this shape and does not look — there every credited figure is 0 and means
+    /// "not read", so a page must not draw it as "nothing was credited".
+    /// </summary>
+    public bool CreditsCounted { get; set; }
 }

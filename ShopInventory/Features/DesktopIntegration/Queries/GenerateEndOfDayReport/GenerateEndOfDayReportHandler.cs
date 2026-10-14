@@ -17,6 +17,11 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayRepo
 /// Every figure on it is a sum over <c>DesktopSales</c>, so the set of rows it reads <i>is</i> the report.
 /// It reads the counters' sales — shop tills, vending and the legacy desktop app — and deliberately
 /// leaves out both sources a van handset writes. See the filter below.
+/// <para>
+/// A sale the office has credited back is still a sale of the day: it stays in every count and total at
+/// what it was rung up for, and what was credited is stated beside it, with the net. A credit is taken
+/// off the day of the sale it reverses, whenever it was raised — see <see cref="CreditedSales"/>.
+/// </para>
 /// </remarks>
 public sealed class GenerateEndOfDayReportHandler(
     ApplicationDbContext context,
@@ -75,11 +80,13 @@ public sealed class GenerateEndOfDayReportHandler(
         // A van's offline upload is a real sale, and is left out for a different reason: this is the
         // counters' day, the one /desktop-sales heads its list with, and that list no longer carries the
         // vans. Their day is read whole, online sales included, from the van sales pages.
-        var allSales = await context.DesktopSales
+        var daySales = context.DesktopSales
             .AsNoTracking()
-            .Include(s => s.Consolidation)
             .Where(s => s.DocDate == reportDate)
-            .AtCounters()
+            .AtCounters();
+
+        var allSales = await daySales
+            .Include(s => s.Consolidation)
             .OrderBy(s => s.CardCode)
             .ThenBy(s => s.CreatedAt)
             .ToListAsync(cancellationToken);
@@ -92,6 +99,9 @@ public sealed class GenerateEndOfDayReportHandler(
             .Where(c => c.ConsolidationDate == reportDate)
             .ToDictionaryAsync(c => c.CardCode, cancellationToken);
 
+        var credits = (await CreditedSales.InAsync(context, daySales, cancellationToken))
+            .ToDictionary(credit => credit.SaleId);
+
         var report = new EndOfDayReportDto
         {
             ReportDate = reportDate,
@@ -99,7 +109,10 @@ public sealed class GenerateEndOfDayReportHandler(
             TotalSalesCount = allSales.Count,
             TotalSalesAmount = allSales.Sum(s => s.TotalAmount),
             TotalVatAmount = allSales.Sum(s => s.VatAmount),
-            TotalAmountPaid = allSales.Sum(s => s.AmountPaid)
+            TotalAmountPaid = allSales.Sum(s => s.AmountPaid),
+            TotalCreditedAmount = credits.Values.Sum(credit => credit.CreditedAmount),
+            CreditedSalesCount = credits.Count,
+            FullyCreditedSalesCount = credits.Values.Count(credit => credit.IsFullyCredited)
         };
 
         // Group by BP
@@ -119,6 +132,7 @@ public sealed class GenerateEndOfDayReportHandler(
                 TotalAmount = sales.Sum(s => s.TotalAmount),
                 TotalVat = sales.Sum(s => s.VatAmount),
                 TotalPaid = sales.Sum(s => s.AmountPaid),
+                CreditedAmount = sales.Sum(s => credits.GetValueOrDefault(s.Id)?.CreditedAmount ?? 0m),
                 IndividualSales = sales.Select(s => new IndividualSaleDto
                 {
                     SaleId = s.Id,
@@ -129,7 +143,9 @@ public sealed class GenerateEndOfDayReportHandler(
                     FiscalizationStatus = s.FiscalizationStatus.ToString(),
                     PaymentMethod = s.PaymentMethod,
                     AmountPaid = s.AmountPaid,
-                    CreatedAt = s.CreatedAt
+                    CreatedAt = s.CreatedAt,
+                    CreditedAmount = credits.GetValueOrDefault(s.Id)?.CreditedAmount ?? 0m,
+                    CreditNoteNumbers = credits.GetValueOrDefault(s.Id)?.CreditNoteNumbers.ToList() ?? []
                 }).ToList()
             };
 

@@ -7,7 +7,14 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesRe
 /// <item><term>Health</term><description>Posting and fiscalisation for every sale in the period, whatever its currency.</description></item>
 /// <item><term>Margin</term><description>Whether gross margin could be read from SAP, and why not when it could not.</description></item>
 /// <item><term>Partners</term><description>Every business partner that sold under the caller's scope in either period, ignoring the channel and partner filters — what the page's partner filter chooses from.</description></item>
-/// </list></remarks>
+/// </list>
+/// <para>
+/// <b>Credits.</b> Every sold figure — takings, quantities, shares, the comparison with the period before
+/// and SAP's margin — counts a sale at what it was rung up for, on the day it was sold, whether or not
+/// the office later credited it back. What was credited this period is stated beside each of them, with
+/// what is left, so a credited sale reads as a correction and not as a smaller sale. The previous
+/// period's figures carry no credited amount: the comparison is sold against sold.
+/// </para></remarks>
 public sealed record ManagementSalesReport(
     DateTime FromDate,
     DateTime ToDate,
@@ -72,13 +79,61 @@ public sealed record ManagementItemGroupRow(
     decimal? ChangePercent,
     decimal? GrossProfit,
     decimal? MarginPercent,
-    string Business);
+    string Business)
+{
+    /// <summary>Units of <c>Quantity</c> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// The part of <c>NetAmount</c> those units were sold for — before VAT, like <c>NetAmount</c>, and so
+    /// not the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: line value after credits, before VAT.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}
 
 /// <summary>One item at one shop or depot, this period, in one line of business.</summary>
-public sealed record ManagementItemDepotCell(string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount, string Business);
+public sealed record ManagementItemDepotCell(string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount, string Business)
+{
+    /// <summary>Units of <c>Quantity</c> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// The part of <c>NetAmount</c> those units were sold for — before VAT, like <c>NetAmount</c>, and so
+    /// not the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: line value after credits, before VAT.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}
 
 /// <summary>One item sold as one business partner, this period, in one line of business.</summary>
-public sealed record ManagementItemPartnerCell(string ItemCode, string CardCode, decimal Quantity, decimal NetAmount, string Business);
+public sealed record ManagementItemPartnerCell(string ItemCode, string CardCode, decimal Quantity, decimal NetAmount, string Business)
+{
+    /// <summary>Units of <c>Quantity</c> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// The part of <c>NetAmount</c> those units were sold for — before VAT, like <c>NetAmount</c>, and so
+    /// not the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: line value after credits, before VAT.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}
 
 /// <summary>Headline figures for the period and the one before it.</summary>
 /// <remarks><list type="table">
@@ -109,7 +164,26 @@ public sealed record ManagementSummary(
     decimal? GrossProfit,
     decimal? MarginPercent,
     decimal CostedNetAmount,
-    int CostedSalesCount);
+    int CostedSalesCount)
+{
+    /// <summary>
+    /// What has been credited back on the period's sales, tax-inclusive like <c>TotalAmount</c>. A credit
+    /// is counted against the day of the sale it reverses, whenever it was raised.
+    /// </summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>: what the period's sales stand at.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+
+    /// <summary>How many of the period's sales have had anything credited back.</summary>
+    public int CreditedSalesCount { get; init; }
+
+    /// <summary>How many of those were credited back in full.</summary>
+    public int FullyCreditedSalesCount { get; init; }
+
+    /// <summary>Units of <c>QuantitySold</c> credited back, where a credit could be tied to a line.</summary>
+    public decimal CreditedQuantity { get; init; }
+}
 
 /// <remarks><list type="table">
 /// <item><term>ComparedDate</term><description>The day of the previous period in the same position.</description></item>
@@ -120,7 +194,17 @@ public sealed record ManagementDayRow(
     decimal TotalAmount,
     DateTime ComparedDate,
     int ComparedSalesCount,
-    decimal ComparedTotalAmount);
+    decimal ComparedTotalAmount)
+{
+    /// <summary>
+    /// What has been credited back on these sales this period, tax-inclusive like <c>TotalAmount</c>,
+    /// which is not reduced by it.
+    /// </summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>: what these sales stand at.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+}
 
 /// <summary>One row of a breakdown, with its previous-period figures and margin.</summary>
 /// <remarks><list type="table">
@@ -140,7 +224,17 @@ public sealed record ManagementBreakdownRow(
     decimal PreviousTotalAmount,
     decimal? ChangePercent,
     decimal? GrossProfit,
-    decimal? MarginPercent);
+    decimal? MarginPercent)
+{
+    /// <summary>
+    /// What has been credited back on these sales this period, tax-inclusive like <c>TotalAmount</c>,
+    /// which is not reduced by it.
+    /// </summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>: what these sales stand at.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+}
 
 public sealed record ManagementLapsedVendorRow(
     string Key,
@@ -176,7 +270,23 @@ public sealed record ManagementItemRow(
     decimal DiscountAmount,
     decimal? GrossProfit,
     decimal? MarginPercent,
-    string Business);
+    string Business)
+{
+    /// <summary>Units of <c>Quantity</c> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// The part of <c>NetAmount</c> those units were sold for — before VAT, like <c>NetAmount</c>, and so
+    /// not the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: line value after credits, before VAT.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}
 
 /// <summary>A count of sales and what they are worth, per currency.</summary>
 public sealed record ManagementHealthBucket(int SalesCount, List<ManagementCurrencyAmount> Value);

@@ -18,4 +18,14 @@ public sealed record DesktopSalesBreakdownRow(
     decimal TotalAmount,
     decimal VatAmount,
     decimal ShareOfValuePercent,
-    List<DesktopSalesPaymentAmount> ByPaymentMethod);
+    List<DesktopSalesPaymentAmount> ByPaymentMethod)
+{
+    /// <summary>
+    /// What has been credited back on these sales, tax-inclusive like <c>TotalAmount</c>; 0 when nothing
+    /// has. <c>TotalAmount</c> is not reduced by it: it stays what was rung up.
+    /// </summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>: what these sales stand at.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+}

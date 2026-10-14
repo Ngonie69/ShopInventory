@@ -23,4 +23,14 @@ public sealed record DesktopSalesPaymentMethodRow(
     decimal AverageSale,
     decimal ShareOfValuePercent,
     decimal ShareOfCountPercent,
-    int WithoutReferenceCount);
+    int WithoutReferenceCount)
+{
+    /// <summary>
+    /// What has been credited back on these sales, tax-inclusive like <c>TotalAmount</c>; 0 when nothing
+    /// has. <c>TotalAmount</c> is not reduced by it: it stays what was rung up.
+    /// </summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>: what these sales stand at.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+}

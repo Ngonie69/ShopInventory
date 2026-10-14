@@ -196,6 +196,10 @@ public sealed class VanSalesAnalysisTests : IDisposable
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
 
+        // The van analysis shares the counters' shape and does not read credits, and says so: the page
+        // and the workbook draw no credited figure for it rather than a zero nobody checked.
+        Assert.False(result.Value.CreditsCounted);
+
         // A code the cache does not hold keeps the code as its name rather than losing the row.
         Assert.Equal(
             new[] { (VanAccount, "Van Sales East 1"), (OtherVanAccount, OtherVanAccount) },

@@ -578,7 +578,209 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
         Assert.True(validation.IsValid);
     }
 
+    // ---- What was credited back -------------------------------------------------------------------
+    //
+    // The analysis totalled each sale at what it was rung up for even after the office had credited it
+    // back. A credited sale is a correction, not a smaller sale: every sold figure stays as it was, and
+    // what was credited is stated beside it wherever the sale was counted.
+
+    /// <summary>
+    /// Two credits: 6.00 back on the 30.00 swipe sale of day one (two of its ten loaves), and the whole
+    /// 15.00 cash sale of day two (its milk and its three loaves).
+    /// </summary>
+    private async Task CreditTwoFarmSales()
+    {
+        await SaleCreditSeed.TillCreditAsync(_context, await SaleId("F-SWIPE-1"), 6m, lines: (ReceiptLine: 1, Quantity: 2m, UnitPrice: 3m));
+        await SaleCreditSeed.TillCreditAsync(_context, await SaleId("F-CASH-2"), 15m,
+            lines: [(ReceiptLine: 1, Quantity: 1m, UnitPrice: 5m), (ReceiptLine: 2, Quantity: 3m, UnitPrice: 3.33m)]);
+    }
+
+    [Fact]
+    public async Task What_was_sold_stands_and_what_was_credited_is_stated_beside_it()
+    {
+        await CreditTwoFarmSales();
+
+        var result = await AnalyseAsAdmin();
+        var usd = Dollars(result);
+
+        Assert.True(result.Value.CreditsCounted);
+
+        // Nothing sold is reduced: the count and the takings are what they were with no credits.
+        Assert.Equal(8, usd.SalesCount);
+        Assert.Equal(140m, usd.TotalAmount);
+
+        Assert.Equal(21m, usd.CreditedAmount);
+        Assert.Equal(119m, usd.NetOfCredits);
+        Assert.Equal(2, usd.CreditedSalesCount);
+        Assert.Equal(1, usd.FullyCreditedSalesCount);
+
+        // The other currency's sales were not credited, and no credit crosses into it.
+        var zwg = result.Value.Currencies.Single(c => c.Currency == "ZWG");
+        Assert.Equal(0m, zwg.CreditedAmount);
+        Assert.Equal(100m, zwg.NetOfCredits);
+    }
+
+    [Fact]
+    public async Task A_credit_comes_off_every_breakdown_its_sale_was_counted_in()
+    {
+        await CreditTwoFarmSales();
+
+        var usd = Dollars(await AnalyseAsAdmin());
+
+        // By tender: the swipe sale and the cash sale, each off its own.
+        Assert.Equal((75m, 15m, 60m), Money(Method(usd, TenderTypes.Cash)));
+        Assert.Equal((30m, 6m, 24m), Money(Method(usd, TenderTypes.Swipe)));
+        Assert.Equal((25m, 0m, 25m), Money(Method(usd, TenderTypes.Ecocash)));
+
+        // By day: the day of the sale, though both credits were raised weeks later.
+        Assert.Equal(
+            new[] { (Day1, 6m), (Day2, 15m) },
+            usd.ByDay.Select(day => (day.Date, day.CreditedAmount)));
+        Assert.All(usd.ByDay, day => Assert.Equal(day.TotalAmount - day.CreditedAmount, day.NetOfCredits));
+
+        // By hour, on the counter's clock: 10:15 and 09:15 UTC.
+        Assert.Equal(6m, usd.ByHour.Single(hour => hour.Hour == 12).CreditedAmount);
+        Assert.Equal(15m, usd.ByHour.Single(hour => hour.Hour == 11).CreditedAmount);
+
+        // By shop, partner, source and operator: all of it at the farm, none at Machipisa.
+        Assert.Equal(21m, usd.ByWarehouse.Single(row => row.Key == "KEFSHOP").CreditedAmount);
+        Assert.Equal(0m, usd.ByWarehouse.Single(row => row.Key == "CORMACH2").CreditedAmount);
+        Assert.Equal(21m, usd.ByBusinessPartner.Single(row => row.Key == FarmPartner).CreditedAmount);
+        Assert.Equal(21m, usd.BySource.Single(row => row.Key == SaleSourceSystems.ShopTill).CreditedAmount);
+        Assert.Equal(21m, usd.ByOperator.Single(row => row.Key == _cashierId.ToString()).CreditedAmount);
+
+        // Every breakdown accounts for the same credited total, so no credit was dropped or doubled.
+        foreach (var rows in new[] { usd.ByWarehouse, usd.ByBusinessPartner, usd.BySource, usd.ByOperator })
+        {
+            Assert.Equal(usd.CreditedAmount, rows.Sum(row => row.CreditedAmount));
+            Assert.All(rows, row => Assert.Equal(row.TotalAmount - row.CreditedAmount, row.NetOfCredits));
+        }
+
+        Assert.Equal(usd.CreditedAmount, usd.ByPaymentMethod.Sum(row => row.CreditedAmount));
+        Assert.Equal(usd.CreditedAmount, usd.ByHour.Sum(row => row.CreditedAmount));
+    }
+
+    [Fact]
+    public async Task An_item_states_what_was_credited_back_of_it_on_the_lines_own_basis()
+    {
+        await CreditTwoFarmSales();
+
+        var usd = Dollars(await AnalyseAsAdmin());
+
+        // Ranked on what sold, as before: a credit corrects an item, it does not reorder the list.
+        Assert.Equal(new[] { "BREAD", "CHEESE", "MILK" }, usd.TopItems.Select(i => i.ItemCode));
+
+        // Five loaves back: two of the ten at 2.61 before VAT, and all three of the three at 2.90 —
+        // valued as the lines were sold, not at the credit's tax-inclusive price.
+        var bread = usd.TopItems[0];
+        Assert.Equal((13m, 5m, 8m), (bread.Quantity, bread.CreditedQuantity, bread.QuantityAfterCredits));
+        Assert.Equal((34.80m, 13.92m, 20.88m), (bread.NetAmount, bread.CreditedNetAmount, bread.NetAmountAfterCredits));
+
+        var milk = usd.TopItems.Single(i => i.ItemCode == "MILK");
+        Assert.Equal((4m, 1m, 4.35m), (milk.Quantity, milk.CreditedQuantity, milk.CreditedNetAmount));
+
+        var cheese = usd.TopItems.Single(i => i.ItemCode == "CHEESE");
+        Assert.Equal((0m, 0m, 17.40m), (cheese.CreditedQuantity, cheese.CreditedNetAmount, cheese.NetAmountAfterCredits));
+
+        var shops = Assert.Single(usd.ItemsByBusiness);
+        Assert.Equal((6m, 18.27m, 51.33m), (shops.CreditedQuantity, shops.CreditedNetAmount, shops.NetAmountAfterCredits));
+        Assert.Equal(6m, usd.CreditedQuantity);
+    }
+
+    [Fact]
+    public async Task A_credit_is_taken_off_the_business_that_sold_the_item_and_never_anothers()
+    {
+        // Vending sells MILK too. A crate credited back to a vendor must not come off the shops' milk.
+        _context.DesktopSales.Add(
+            Sale("V-1", TenderTypes.Cash, 600m, Day1, utcHour: 6, source: SaleSourceSystems.Vending,
+                warehouse: "KEFBYC", cardCode: "VEND-BP", lines: [("MILK", 100, 400m)]));
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        await SaleCreditSeed.TillCreditAsync(_context, await SaleId("V-1"), 138m, lines: (ReceiptLine: 1, Quantity: 30m, UnitPrice: 4.60m));
+
+        var usd = Dollars(await AnalyseAsAdmin());
+
+        var shopsMilk = usd.TopItems.Single(i => i.Business == SaleBusinesses.Shops && i.ItemCode == "MILK");
+        var vendingMilk = usd.TopItems.Single(i => i.Business == SaleBusinesses.Vending && i.ItemCode == "MILK");
+
+        Assert.Equal(0m, shopsMilk.CreditedQuantity);
+        Assert.Equal((100m, 30m, 70m, 120m), (
+            vendingMilk.Quantity, vendingMilk.CreditedQuantity, vendingMilk.QuantityAfterCredits, vendingMilk.CreditedNetAmount));
+
+        Assert.Equal(
+            new[] { (SaleBusinesses.Shops, 0m), (SaleBusinesses.Vending, 30m) },
+            usd.ItemsByBusiness.Select(b => (b.Business, b.CreditedQuantity)));
+    }
+
+    [Fact]
+    public async Task A_credit_is_confined_by_the_same_filters_as_its_sale()
+    {
+        await CreditTwoFarmSales();
+
+        // One day: only that day's sale's credit, however many other days were credited.
+        Assert.Equal(6m, Dollars(await Analyse(_adminId, Day1, Day1)).CreditedAmount);
+        Assert.Equal(15m, Dollars(await Analyse(_adminId, Day2, Day2)).CreditedAmount);
+
+        // One tender, in whatever spelling the till stored it: F-CASH-2 was stored as "cash".
+        Assert.Equal(15m, Dollars(await Analyse(_adminId, Day1, Day2, paymentMethod: TenderTypes.Cash)).CreditedAmount);
+
+        // Another shop's analysis sees none of it.
+        Assert.Equal(0m, Dollars(await Analyse(_adminId, Day1, Day2, warehouseCode: "CORMACH2")).CreditedAmount);
+    }
+
+    [Fact]
+    public async Task A_credit_that_gave_nothing_back_changes_nothing()
+    {
+        await SaleCreditSeed.TillCreditAsync(
+            _context, await SaleId("F-SWIPE-1"), 6m, DesktopCreditStatuses.Rejected);
+
+        var usd = Dollars(await AnalyseAsAdmin());
+
+        Assert.Equal(0m, usd.CreditedAmount);
+        Assert.Equal(0, usd.CreditedSalesCount);
+        Assert.Equal(140m, usd.NetOfCredits);
+    }
+
+    /// <summary>
+    /// The page reads the analysis through classes written by hand. Sent as the API sends it and read
+    /// as the page reads it, every credited figure arrives under the name the page looks for.
+    /// </summary>
+    [Fact]
+    public async Task The_credited_figures_reach_the_page_through_its_own_copy_of_the_analysis()
+    {
+        await CreditTwoFarmSales();
+
+        var web = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var mirrored = System.Text.Json.JsonSerializer.Deserialize<ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis.DesktopSalesAnalysisResult>(
+            System.Text.Json.JsonSerializer.Serialize((await AnalyseAsAdmin()).Value, web), web)!;
+        var usd = mirrored.Currencies.Single(c => c.Currency == "USD");
+
+        Assert.True(mirrored.CreditsCounted);
+        Assert.Equal((21m, 119m, 2, 1, 6m), (
+            usd.CreditedAmount, usd.NetOfCredits, usd.CreditedSalesCount, usd.FullyCreditedSalesCount, usd.CreditedQuantity));
+        Assert.Equal((15m, 60m), (
+            usd.ByPaymentMethod.Single(row => row.PaymentMethod == TenderTypes.Cash).CreditedAmount,
+            usd.ByPaymentMethod.Single(row => row.PaymentMethod == TenderTypes.Cash).NetOfCredits));
+        Assert.Equal((6m, 94m), (usd.ByDay[0].CreditedAmount, usd.ByDay[0].NetOfCredits));
+        Assert.Equal((6m, 24m), (
+            usd.ByHour.Single(hour => hour.Hour == 12).CreditedAmount, usd.ByHour.Single(hour => hour.Hour == 12).NetOfCredits));
+        Assert.Equal((21m, 69m), (
+            usd.ByWarehouse.Single(row => row.Key == "KEFSHOP").CreditedAmount, usd.ByWarehouse.Single(row => row.Key == "KEFSHOP").NetOfCredits));
+
+        var bread = usd.TopItems.Single(item => item.ItemCode == "BREAD");
+        Assert.Equal((5m, 8m, 13.92m, 20.88m), (
+            bread.CreditedQuantity, bread.QuantityAfterCredits, bread.CreditedNetAmount, bread.NetAmountAfterCredits));
+        Assert.Equal((6m, 18.27m, 51.33m), (
+            usd.ItemsByBusiness[0].CreditedQuantity, usd.ItemsByBusiness[0].CreditedNetAmount, usd.ItemsByBusiness[0].NetAmountAfterCredits));
+    }
+
     // ---- Harness ----------------------------------------------------------------------------------
+
+    private Task<int> SaleId(string reference) =>
+        _context.DesktopSales.Where(s => s.ExternalReferenceId == reference).Select(s => s.Id).SingleAsync();
+
+    private static (decimal Sold, decimal Credited, decimal Net) Money(DesktopSalesPaymentMethodRow row) =>
+        (row.TotalAmount, row.CreditedAmount, row.NetOfCredits);
 
     private DesktopSaleEntity Sale(
         string externalReference,

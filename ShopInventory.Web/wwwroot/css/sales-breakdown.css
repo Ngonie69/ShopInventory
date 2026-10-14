@@ -718,6 +718,33 @@
     color: var(--ops-fam-warn);
 }
 
+/* What the office credited back, beside the figure it comes off. The warn hue:
+   nothing is wrong, but a total somebody is about to quote has something off it. */
+.ops-sbd .ops-sbd-credited {
+    color: var(--ops-fam-warn);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-method-sub .ops-sbd-credited {
+    margin-left: 6px;
+}
+
+/* Under the headline takings: what came off them, and what is left. */
+.ops-sbd .ops-sbd-kpi-credits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ops-s2) var(--ops-s6);
+    padding-top: var(--ops-s3);
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-kpi-credits b {
+    font-weight: 500;
+    color: var(--ops-ink-2);
+}
+
 /* ── Tables ────────────────────────────────────────────────────────────── */
 /* Inside a card the card is the gutter, so the first and last cells lose the
    page-edge padding operations.css gives a table sitting on the ground. */

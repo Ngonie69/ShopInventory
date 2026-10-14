@@ -8095,7 +8095,7 @@ public partial class ReportExportService : IReportExportService
     {
         using var workbook = NewWorkbook("Shop & Vending Sales Report");
         var ws = AddSheet(workbook, "Shop & Vending Sales");
-        const int cols = 14;
+        const int cols = 17;
 
         var row = WriteReportHeader(ws, "Shop & Vending Sales Report", cols, fromDate, toDate);
 
@@ -8106,6 +8106,15 @@ public partial class ReportExportService : IReportExportService
             WriteKpiCard(ws, row, 2, "Total Amount", report.TotalSalesAmount, FormatMoney);
             WriteKpiCard(ws, row, 3, "Total VAT", report.TotalVatAmount, FormatMoney);
             WriteKpiCard(ws, row, 4, "Posted", report.PostedInvoiceCount, FormatCount, SuccessGreen);
+
+            // Only when something was credited: Total Amount stays what was rung up, and these two
+            // say what came off it and what is left.
+            if (report.TotalCreditedAmount > 0)
+            {
+                WriteKpiCard(ws, row, 5, "Credited", report.TotalCreditedAmount, FormatMoney);
+                WriteKpiCard(ws, row, 6, "Net of Credits", report.TotalNetOfCredits, FormatMoney);
+            }
+
             row += 3;
         }
 
@@ -8116,7 +8125,10 @@ public partial class ReportExportService : IReportExportService
         // reconciled, and an EcoCash sale is matched to its money by the reference alone.
         // SAP Posting Date is blank unless the till chose a day other than the sale's, which only an
         // admin can allow; Date stays the day it was sold.
-        var headers = new[] { "Date", "Reference", "Customer", "Card Code", "Warehouse", "Currency", "Amount", "VAT", "Paid", "Payment Method", "Payment Reference", "Fiscal Status", "Consolidation", "SAP Posting Date" };
+        // Amount is what the sale was rung up for and stays that after a credit. Credited and Credit
+        // Notes are blank on a sale nothing was credited on; Net of Credits is on every row, so the
+        // column adds up to what the sales stand at.
+        var headers = new[] { "Date", "Reference", "Customer", "Card Code", "Warehouse", "Currency", "Amount", "VAT", "Credited", "Net of Credits", "Credit Notes", "Paid", "Payment Method", "Payment Reference", "Fiscal Status", "Consolidation", "SAP Posting Date" };
         for (int i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
@@ -8140,19 +8152,26 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 7).Value = sale.TotalAmount;
             ws.Cell(row, 8).Value = sale.VatAmount;
-            ws.Cell(row, 9).Value = sale.AmountPaid;
-            ws.Range(row, 7, row, 9).Style.NumberFormat.Format = FormatMoney;
-            ws.Cell(row, 10).Value = string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "Not recorded" : sale.PaymentMethod.Trim();
-            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 11).Value = sale.PaymentReference ?? "";
-            ws.Cell(row, 12).Value = sale.FiscalizationStatus;
-            ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 13).Value = sale.ConsolidationStatus;
+            if (sale.CreditedAmount > 0)
+            {
+                ws.Cell(row, 9).Value = sale.CreditedAmount;
+                ws.Cell(row, 11).Value = string.Join(", ", sale.CreditNoteNumbers);
+            }
+            ws.Cell(row, 10).Value = sale.NetOfCredits;
+            ws.Cell(row, 12).Value = sale.AmountPaid;
+            ws.Range(row, 7, row, 10).Style.NumberFormat.Format = FormatMoney;
+            ws.Cell(row, 12).Style.NumberFormat.Format = FormatMoney;
+            ws.Cell(row, 13).Value = string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "Not recorded" : sale.PaymentMethod.Trim();
             ws.Cell(row, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 14).Value = sale.PaymentReference ?? "";
+            ws.Cell(row, 15).Value = sale.FiscalizationStatus;
+            ws.Cell(row, 15).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 16).Value = sale.ConsolidationStatus;
+            ws.Cell(row, 16).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             if (sale.PostingDate is { } postingDate)
             {
-                ws.Cell(row, 14).Value = postingDate;
-                ws.Cell(row, 14).Style.NumberFormat.Format = FormatDate;
+                ws.Cell(row, 17).Value = postingDate;
+                ws.Cell(row, 17).Style.NumberFormat.Format = FormatDate;
             }
             row++;
         }
@@ -8172,8 +8191,11 @@ public partial class ReportExportService : IReportExportService
             {
                 sheet.Cell(totalRow, 7).Value = group.Sum(sale => sale.TotalAmount);
                 sheet.Cell(totalRow, 8).Value = group.Sum(sale => sale.VatAmount);
-                sheet.Cell(totalRow, 9).Value = group.Sum(sale => sale.AmountPaid);
-                sheet.Range(totalRow, 7, totalRow, 9).Style.NumberFormat.Format = FormatMoney;
+                sheet.Cell(totalRow, 9).Value = group.Sum(sale => sale.CreditedAmount);
+                sheet.Cell(totalRow, 10).Value = group.Sum(sale => sale.NetOfCredits);
+                sheet.Cell(totalRow, 12).Value = group.Sum(sale => sale.AmountPaid);
+                sheet.Range(totalRow, 7, totalRow, 10).Style.NumberFormat.Format = FormatMoney;
+                sheet.Cell(totalRow, 12).Style.NumberFormat.Format = FormatMoney;
             });
 
         WriteFooter(ws, row - 1, cols);
@@ -8385,7 +8407,7 @@ public partial class ReportExportService : IReportExportService
             "Day", 20, "Best Day", "Days Traded", "day", "days",
             section => section.ByDay.Select(day => new DesktopAnalysisMatrixRow(
                 day.Date.ToString("yyyy-MM-dd"), day.Date, day.Date.ToString("ddd dd MMM"),
-                day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod)),
+                day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod, day.CreditedAmount)),
             WithShare: false));
 
         // A van by the business partner it bills as, not the warehouse it sold from: the two need not match
@@ -8477,7 +8499,22 @@ public partial class ReportExportService : IReportExportService
         public string DataSource => Vans
             ? "the vans' uploaded sales and live invoices"
             : "the shop till and vending sales records";
+
+        /// <summary>
+        /// Whether the analysis read what was credited back. Where it did, every sheet ends with what
+        /// was credited and what is left; where it did not — the van analysis — no sheet mentions
+        /// credits, because a column of zeros would say nothing was credited when nobody looked.
+        /// </summary>
+        public bool Credits => Report.CreditsCounted;
     }
+
+    /// <summary>
+    /// What every sheet of a credit-counting analysis says about its Takings column: it is what was
+    /// rung up, and the two columns after it are the correction.
+    /// </summary>
+    private const string DesktopAnalysisCreditNote =
+        "Takings are what was rung up. A sale the office credited back stays in them at its full amount, on the day it "
+        + "was sold; Credited is what its credit notes gave back, VAT included, and Net of Credits is what is left.";
 
     /// <remarks>
     /// <c>CodeHeading</c>, when set, adds a column after the label carrying each row's key — for a sheet
@@ -8506,10 +8543,12 @@ public partial class ReportExportService : IReportExportService
         int SalesCount,
         decimal TotalAmount,
         decimal SharePercent,
-        List<DesktopSalesPaymentAmount> Parts);
+        List<DesktopSalesPaymentAmount> Parts,
+        decimal CreditedAmount = 0m);
 
     private static DesktopAnalysisMatrixRow DesktopAnalysisBreakdownRow(DesktopSalesBreakdownRow row) =>
-        new(row.Key, null, row.Label, row.SalesCount, row.TotalAmount, row.ShareOfValuePercent, row.ByPaymentMethod);
+        new(row.Key, null, row.Label, row.SalesCount, row.TotalAmount, row.ShareOfValuePercent, row.ByPaymentMethod,
+            row.CreditedAmount);
 
     private static string DesktopAnalysisTenderName(string method) => method == "Ecocash" ? "EcoCash" : method;
 
@@ -8686,7 +8725,9 @@ public partial class ReportExportService : IReportExportService
     /// </remarks>
     private static void WriteDesktopAnalysisPaymentMethods(XLWorkbook workbook, DesktopAnalysisContext context)
     {
-        const int lastCol = 8;
+        // The two credit columns close the sheet, after everything that was there, so nothing a reader
+        // already knows the place of has moved.
+        var lastCol = context.Credits ? 10 : 8;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("Payment Methods");
         PodApplyDefaults(ws);
@@ -8694,15 +8735,26 @@ public partial class ReportExportService : IReportExportService
         string[] headers =
         [
             "Currency", "Payment Method", "Sales", "Share of Sales", "Takings", "Share of Takings",
-            "Average Sale", "Without Reference"
+            "Average Sale", "Without Reference",
+            .. context.Credits ? new[] { "Credited", "Net of Credits" } : []
         ];
 
-        var row = PodTitleBar(ws, $"{context.Title} BY PAYMENT METHOD - {context.Period}", lastCol, context.GeneratedAt);
-        row = DesktopAnalysisKpiStrip(ws, row, lastCol,
+        var kpis = new List<(string Label, XLCellValue Value, XLColor? Color)>
+        {
             ("Sales", report.Currencies.Sum(section => section.SalesCount), PodNavy),
             ("Takings", DesktopAnalysisPerCurrency(report.Currencies, section => section.TotalAmount.ToString("N2")), PodNavy),
             ("Before VAT", DesktopAnalysisPerCurrency(report.Currencies, section => section.NetAmount.ToString("N2")), PodTextMuted),
-            ("VAT", DesktopAnalysisPerCurrency(report.Currencies, section => section.VatAmount.ToString("N2")), PodTextMuted));
+            ("VAT", DesktopAnalysisPerCurrency(report.Currencies, section => section.VatAmount.ToString("N2")), PodTextMuted)
+        };
+
+        if (context.Credits)
+        {
+            kpis.Add(("Credited", DesktopAnalysisPerCurrency(report.Currencies, section => section.CreditedAmount.ToString("N2")), PodTextMuted));
+            kpis.Add(("Net of Credits", DesktopAnalysisPerCurrency(report.Currencies, section => section.NetOfCredits.ToString("N2")), PodNavy));
+        }
+
+        var row = PodTitleBar(ws, $"{context.Title} BY PAYMENT METHOD - {context.Period}", lastCol, context.GeneratedAt);
+        row = DesktopAnalysisKpiStrip(ws, row, lastCol, [.. kpis]);
 
         if (report.Currencies.Count == 0)
         {
@@ -8740,6 +8792,12 @@ public partial class ReportExportService : IReportExportService
                     StylePodStatusCell(ws.Cell(row, 8), method.WithoutReferenceCount == 0, isStripe);
                 }
 
+                if (context.Credits)
+                {
+                    DesktopAnalysisMoneyCell(ws.Cell(row, 9), method.CreditedAmount);
+                    DesktopAnalysisTotalCell(ws.Cell(row, 10), method.NetOfCredits, isStripe);
+                }
+
                 row++;
             }
 
@@ -8763,11 +8821,23 @@ public partial class ReportExportService : IReportExportService
                 ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
 
+            if (context.Credits)
+            {
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 9), section.CreditedAmount, FormatMoneyDashZero);
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 10), section.NetOfCredits, FormatMoney);
+            }
+
+            row += 2;
+        }
+
+        if (context.Credits)
+        {
+            PodNoteRow(ws, row, lastCol, DesktopAnalysisCreditNote);
             row += 2;
         }
 
         DesktopAnalysisFinish(ws, row, lastCol, context, headerRow: 0, freezeCol: 0, lastDataRow: 0,
-            12, 22, 11, 13, 16, 14, 14, 15);
+            context.Credits ? [12, 22, 11, 13, 16, 14, 14, 15, 14, 16] : [12, 22, 11, 13, 16, 14, 14, 15]);
     }
 
     /// <remarks>
@@ -8794,9 +8864,14 @@ public partial class ReportExportService : IReportExportService
         if (sheet.WithShare)
             headers.Add("Share of Takings");
 
+        // Last, so the tender columns still add across to Takings with nothing between them.
+        if (context.Credits)
+            headers.AddRange(["Credited", "Net of Credits"]);
+
         var lastCol = headers.Count;
         var salesCol = sheet.CodeHeading is null ? 3 : 4;
         var takingsCol = salesCol + 1 + methods.Count;
+        var creditedCol = lastCol - 1;
         var sections = report.Currencies
             .Select(section => (Section: section, Rows: sheet.Rows(section).ToList()))
             .ToList();
@@ -8880,6 +8955,12 @@ public partial class ReportExportService : IReportExportService
                 if (sheet.WithShare)
                     DesktopAnalysisShareCell(ws.Cell(row, takingsCol + 1), line.SharePercent);
 
+                if (context.Credits)
+                {
+                    DesktopAnalysisMoneyCell(ws.Cell(row, creditedCol), line.CreditedAmount);
+                    DesktopAnalysisTotalCell(ws.Cell(row, creditedCol + 1), line.TotalAmount - line.CreditedAmount, isStripe);
+                }
+
                 row++;
             }
         }
@@ -8909,6 +8990,12 @@ public partial class ReportExportService : IReportExportService
             if (sheet.WithShare)
                 DesktopAnalysisSummaryNumber(ws.Cell(row, takingsCol + 1), 1, FormatPercent);
 
+            if (context.Credits)
+            {
+                DesktopAnalysisSummaryNumber(ws.Cell(row, creditedCol), section.CreditedAmount, FormatMoneyDashZero);
+                DesktopAnalysisSummaryNumber(ws.Cell(row, creditedCol + 1), section.NetOfCredits, FormatMoney);
+            }
+
             row++;
         }
 
@@ -8921,12 +9008,19 @@ public partial class ReportExportService : IReportExportService
         if (sheet.WithShare)
             widths.Add(15);
 
+        if (context.Credits)
+        {
+            widths.AddRange([14, 16]);
+            PodNoteRow(ws, row + 1, lastCol, DesktopAnalysisCreditNote);
+            row += 2;
+        }
+
         DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, labelCol, lastDataRow, [.. widths]);
     }
 
     private static void WriteDesktopAnalysisHours(XLWorkbook workbook, DesktopAnalysisContext context)
     {
-        const int lastCol = 6;
+        var lastCol = context.Credits ? 8 : 6;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("By Hour");
         PodApplyDefaults(ws);
@@ -8944,7 +9038,10 @@ public partial class ReportExportService : IReportExportService
         PodSectionTitle(ws, row, lastCol, $"Takings by the hour they were rung up, summed across the period · {context.Scope}");
         var headerRow = row + 1;
         row = PodColumnHeaders(ws, headerRow, lastCol,
-            ["Currency", "Hour (CAT)", "Sales", "Average Sale", "Takings", "Share of Takings"]);
+            [
+                "Currency", "Hour (CAT)", "Sales", "Average Sale", "Takings", "Share of Takings",
+                .. context.Credits ? new[] { "Credited", "Net of Credits" } : []
+            ]);
 
         var rowIndex = 0;
         foreach (var section in report.Currencies)
@@ -8975,6 +9072,12 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisShareCell(ws.Cell(row, 6),
                     section.TotalAmount != 0 ? Math.Round(hour.TotalAmount / section.TotalAmount * 100m, 1) : 0m);
 
+                if (context.Credits)
+                {
+                    DesktopAnalysisMoneyCell(ws.Cell(row, 7), hour.CreditedAmount);
+                    DesktopAnalysisTotalCell(ws.Cell(row, 8), hour.NetOfCredits, isStripe);
+                }
+
                 row++;
             }
         }
@@ -8994,18 +9097,33 @@ public partial class ReportExportService : IReportExportService
             DesktopAnalysisSummaryNumber(ws.Cell(row, 4), section.AverageSale, FormatMoney);
             DesktopAnalysisSummaryNumber(ws.Cell(row, 5), section.TotalAmount, FormatMoney);
             DesktopAnalysisSummaryNumber(ws.Cell(row, 6), 1, FormatPercent);
+
+            if (context.Credits)
+            {
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 7), section.CreditedAmount, FormatMoneyDashZero);
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 8), section.NetOfCredits, FormatMoney);
+            }
+
             row++;
         }
 
+        if (context.Credits)
+        {
+            PodNoteRow(ws, row + 1, lastCol, DesktopAnalysisCreditNote);
+            row += 2;
+        }
+
         DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, 2, lastDataRow,
-            12, 20, 12, 16, 18, 17);
+            context.Credits ? [12, 20, 12, 16, 18, 17, 14, 16] : [12, 20, 12, 16, 18, 17]);
     }
 
     private static void WriteDesktopAnalysisItems(XLWorkbook workbook, DesktopAnalysisContext context)
     {
         // Ranked inside each line of business and never across them: shops, vending and vans sell different
         // ranges, so one list of all of them compares nothing with anything.
-        const int lastCol = 9;
+        // Where credits were read, four more columns close the sheet: the units credited back and what
+        // is left, then the same in money. The rank and the share stay on what was sold.
+        var lastCol = context.Credits ? 13 : 9;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("Best Sellers");
         PodApplyDefaults(ws);
@@ -9049,7 +9167,10 @@ public partial class ReportExportService : IReportExportService
         PodSectionTitle(ws, row, lastCol, $"Items ranked by value sold within each channel, before VAT · {context.Scope}");
         var headerRow = row + 1;
         row = PodColumnHeaders(ws, headerRow, lastCol,
-            ["Currency", "Channel", "Rank", "Item Code", "Description", "Quantity", "Sales", "Value Before VAT", "Share of Channel"]);
+            [
+                "Currency", "Channel", "Rank", "Item Code", "Description", "Quantity", "Sales", "Value Before VAT", "Share of Channel",
+                .. context.Credits ? new[] { "Credited Qty", "Qty After Credits", "Credited Value", "Value After Credits" } : []
+            ]);
 
         var rowIndex = 0;
         foreach (var (section, business, groupItems) in groups)
@@ -9094,6 +9215,18 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisTotalCell(ws.Cell(row, 8), item.NetAmount, isStripe);
                 DesktopAnalysisShareCell(ws.Cell(row, 9), item.ShareOfNetPercent);
 
+                if (context.Credits)
+                {
+                    ws.Cell(row, 10).Value = item.CreditedQuantity;
+                    StylePodCurrencyCell(ws.Cell(row, 10), fontColor: item.CreditedQuantity == 0 ? PodTextMuted : null);
+                    ws.Cell(row, 10).Style.NumberFormat.Format = FormatQuantity;
+                    ws.Cell(row, 11).Value = item.QuantityAfterCredits;
+                    StylePodCurrencyCell(ws.Cell(row, 11));
+                    ws.Cell(row, 11).Style.NumberFormat.Format = FormatQuantity;
+                    DesktopAnalysisMoneyCell(ws.Cell(row, 12), item.CreditedNetAmount);
+                    DesktopAnalysisTotalCell(ws.Cell(row, 13), item.NetAmountAfterCredits, isStripe);
+                }
+
                 row++;
             }
         }
@@ -9113,15 +9246,28 @@ public partial class ReportExportService : IReportExportService
             DesktopAnalysisSummaryNumber(ws.Cell(row, 6), groupItems.Sum(item => item.Quantity), FormatQuantity);
             DesktopAnalysisSummaryNumber(ws.Cell(row, 8), groupItems.Sum(item => item.NetAmount), FormatMoney);
             DesktopAnalysisSummaryNumber(ws.Cell(row, 9), groupItems.Sum(item => item.ShareOfNetPercent) / 100m, FormatPercent);
+
+            if (context.Credits)
+            {
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 10), groupItems.Sum(item => item.CreditedQuantity), FormatQuantity);
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 11), groupItems.Sum(item => item.QuantityAfterCredits), FormatQuantity);
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 12), groupItems.Sum(item => item.CreditedNetAmount), FormatMoneyDashZero);
+                DesktopAnalysisSummaryNumber(ws.Cell(row, 13), groupItems.Sum(item => item.NetAmountAfterCredits), FormatMoney);
+            }
+
             row++;
         }
 
         PodNoteRow(ws, row + 1, lastCol,
             "Values are before VAT. VAT is charged per line at each item's own rate and stored only against the sale, "
                 + "so an item's VAT-inclusive value is not stated. Each channel is ranked on its own: a share is of the net "
-                + "value of every line that channel sold in that currency, and channels are never added together.");
+                + "value of every line that channel sold in that currency, and channels are never added together."
+                + (context.Credits
+                    ? " Quantity and value are what was sold, and the rank and share are of that; the credited columns "
+                      + "are what credit notes gave back of the item, valued before VAT at what those units were sold for."
+                    : ""));
         DesktopAnalysisFinish(ws, row + 3, lastCol, context, headerRow, 4, lastDataRow,
-            12, 14, 8, 14, 40, 12, 10, 18, 16);
+            context.Credits ? [12, 14, 8, 14, 40, 12, 10, 18, 16, 13, 16, 15, 18] : [12, 14, 8, 14, 40, 12, 10, 18, 16]);
     }
 
     // ─── Local Stock Export ──────────────────────────────────────

@@ -18,6 +18,26 @@ public class EndOfDayReportDto
     public decimal TotalSalesAmount { get; set; }
     public decimal TotalVatAmount { get; set; }
     public decimal TotalAmountPaid { get; set; }
+
+    /// <summary>
+    /// What has been credited back on the day's sales, tax-inclusive like <see cref="TotalSalesAmount"/>.
+    /// </summary>
+    /// <remarks>
+    /// Counted against the day of the sale, not the day the credit was raised, so a report for a past day
+    /// changes when one of its sales is credited. <see cref="TotalSalesAmount"/> does not: it stays what
+    /// was rung up.
+    /// </remarks>
+    public decimal TotalCreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalSalesAmount"/> less <see cref="TotalCreditedAmount"/>: what the day's sales stand at.</summary>
+    public decimal TotalNetOfCredits => TotalSalesAmount - TotalCreditedAmount;
+
+    /// <summary>How many of the day's sales have had anything credited back.</summary>
+    public int CreditedSalesCount { get; set; }
+
+    /// <summary>How many of those were credited back in full.</summary>
+    public int FullyCreditedSalesCount { get; set; }
+
     public int PostedInvoiceCount { get; set; }
     public int UnpostedInvoiceCount { get; set; }
     public List<BPSummaryDto> BusinessPartnerSummaries { get; set; } = new();
@@ -32,6 +52,13 @@ public class BPSummaryDto
     public decimal TotalAmount { get; set; }
     public decimal TotalVat { get; set; }
     public decimal TotalPaid { get; set; }
+
+    /// <summary>What has been credited back on this customer's sales of the day, tax-inclusive.</summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+
     public ConsolidatedInvoiceDto? ConsolidatedInvoice { get; set; }
     public ConsolidatedPaymentDto? IncomingPayment { get; set; }
     public List<IndividualSaleDto> IndividualSales { get; set; } = new();
@@ -64,6 +91,12 @@ public class IndividualSaleDto
     public string? PaymentMethod { get; set; }
     public decimal AmountPaid { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>How much of <see cref="Amount"/> has been credited back, tax-inclusive; 0 when none has.</summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary>The numbers of the credits behind <see cref="CreditedAmount"/>; empty when none.</summary>
+    public List<string> CreditNoteNumbers { get; set; } = new();
 }
 
 public class UnpostedSaleDto

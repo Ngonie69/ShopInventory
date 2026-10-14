@@ -230,6 +230,22 @@
                     <span>VAT <b>@Money(report.TotalVatAmount)</b></span>
                     <span>Takings <b>@Money(report.TotalSalesAmount)</b></span>
                 </div>
+
+                @* A second line, not three more figures on the first: Net + VAT = Takings is one
+                   sum and Takings less what was credited is another, and run together they read
+                   as five numbers that do not add up. Takings stays what was rung up — a credited
+                   sale is a correction to the day, not a smaller sale — and nothing is drawn on a
+                   day with no credits, which is nearly all of them. *@
+                @if (report.TotalCreditedAmount > 0)
+                {
+                    <div class="ops-ds-aside ops-ds-aside-credits">
+                        <span>
+                            Credited back <b>&minus; @Money(report.TotalCreditedAmount)</b>
+                            on @report.CreditedSalesCount @(report.CreditedSalesCount == 1 ? "sale" : "sales")@(report.FullyCreditedSalesCount > 0 ? $", {report.FullyCreditedSalesCount} in full" : "")
+                        </span>
+                        <span>Net of credits <b>@Money(report.TotalNetOfCredits)</b></span>
+                    </div>
+                }
             </div>
 
             @* The headline is what has *not* reached the back office yet, not
@@ -627,7 +643,22 @@
                                 </td>
                                 <td data-label="Warehouse">@sale.WarehouseCode</td>
                                 <td data-label="Fiscalized" class="ops-ds-when">@Stamp(sale.CreatedAt)</td>
-                                <td data-label="Total" class="ops-num">@Money(sale.TotalAmount, sale.Currency)</td>
+                                @* The total stays what the sale was rung up for, with what was credited
+                                   back under it: a credited sale shown at its net would read as a smaller
+                                   sale, and nobody could tell it from one that was simply small. *@
+                                <td data-label="Total" class="ops-num">
+                                    @Money(sale.TotalAmount, sale.Currency)
+                                    @if (sale.CreditedAmount > 0)
+                                    {
+                                        <div class="ops-sub ops-ds-credited" title="@CreditedTitle(sale)">
+                                            @(sale.IsFullyCredited ? "Fully credited" : $"Credited − {Money(sale.CreditedAmount, sale.Currency)}")
+                                        </div>
+                                        @if (!sale.IsFullyCredited)
+                                        {
+                                            <div class="ops-sub">Net of credits @Money(sale.NetOfCredits, sale.Currency)</div>
+                                        }
+                                    }
+                                </td>
                                 <td data-label="Paid" class="ops-num">@Money(sale.AmountPaid, sale.Currency)</td>
                                 @* How it was paid, with the wallet confirmation or slip number under
                                    it — the reference is what an EcoCash sale is reconciled by, so it
@@ -1007,7 +1038,13 @@
                                                 <div class="ops-sub">@line.ItemDescription</div>
                                             }
                                         </td>
-                                        <td class="ops-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                        <td class="ops-num">
+                                            @QuantityDisplay.Format(line.Quantity)
+                                            @if (line.CreditedQuantity > 0)
+                                            {
+                                                <div class="ops-sub ops-ds-credited">@QuantityDisplay.Format(line.CreditedQuantity) credited</div>
+                                            }
+                                        </td>
                                         <td class="ops-num">@line.UnitPrice.ToString("N2")</td>
                                         <td class="ops-num">@line.LineTotal.ToString("N2")</td>
                                     </tr>
@@ -2028,6 +2065,14 @@
     private List<DesktopCreditNoteResult> drawerCredits = [];
     private string? drawerCreditsError;
     private bool drawerCreditsBusy;
+
+    /// <summary>
+    /// What a credited row says on hover: the numbers a person would quote, which the row has no room for.
+    /// </summary>
+    private static string CreditedTitle(DesktopSaleDto sale) =>
+        sale.CreditNoteNumbers.Count == 0
+            ? "Credited back"
+            : $"Credit {(sale.CreditNoteNumbers.Count == 1 ? "note" : "notes")} {string.Join(", ", sale.CreditNoteNumbers)}";
 
     /// <summary>What ZIMRA holds against this sale — the only credits that gave anything back.</summary>
     private decimal CreditedAmount => drawerCredits

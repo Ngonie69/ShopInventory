@@ -250,6 +250,7 @@
             var single = columns.Count == 1;
             var alerts = Alerts(view, columns);
             var change = ChangePercent(sales);
+            var credits = view.Focus.CreditsCounted;
 
             <div class="ops-sbd-body @(isLoading ? "is-busy" : "")">
 
@@ -282,6 +283,20 @@
                         <div class="ops-sbd-kpi-sub">
                             @Plural(sales.SalesCount, "sale") over @Plural(sales.DaysTraded, "trading day") · @sales.QuantitySold.ToString("#,##0.##") units
                         </div>
+                        @* Takings stays what was rung up: a sale the office credited back is a correction
+                           to the period, not a smaller sale, so what came off is stated under it with what
+                           is left. Drawn only where the read looked (the van breakdown does not) and only
+                           when something was credited. *@
+                        @if (credits && sales.CreditedAmount > 0)
+                        {
+                            <div class="ops-sbd-kpi-credits">
+                                <span>
+                                    Credited back <b>&minus; @Money(sales.CreditedAmount)</b>
+                                    on @Plural(sales.CreditedSalesCount, "sale")@(sales.FullyCreditedSalesCount > 0 ? $", {sales.FullyCreditedSalesCount} in full" : "")
+                                </span>
+                                <span>Net of credits <b>@Money(sales.NetOfCredits)</b></span>
+                            </div>
+                        }
                     </div>
 
                     <div class="ops-sbd-figures">
@@ -505,6 +520,10 @@
                                         {
                                             <span class="ops-sbd-flag"><i class="ph ph-warning" aria-hidden="true"></i>@row.WithoutReferenceCount without a reference</span>
                                         }
+                                        @if (view.Payments.CreditsCounted && row.CreditedAmount > 0)
+                                        {
+                                            <span class="ops-sbd-credited">&minus; @Money(row.CreditedAmount) credited · net @Money(row.NetOfCredits)</span>
+                                        }
                                     </span>
                                     <span class="ops-sbd-method-share">@Pct(row.ShareOfValuePercent)</span>
                                 </button>
@@ -591,7 +610,14 @@
                                                     }
                                                 </td>
                                                 <td class="ops-num">@row.SalesCount.ToString("N0")</td>
-                                                <td class="ops-num">@Money(row.TotalAmount)</td>
+                                                <td class="ops-num">
+                                                    @Money(row.TotalAmount)
+                                                    @if (credits && row.CreditedAmount > 0)
+                                                    {
+                                                        <div class="ops-sub ops-sbd-credited">&minus; @Money(row.CreditedAmount) credited</div>
+                                                        <div class="ops-sub">Net of credits @Money(row.NetOfCredits)</div>
+                                                    }
+                                                </td>
                                                 <td>
                                                     <div class="ops-sbd-split">
                                                         <span class="ops-sbd-track">
@@ -695,9 +721,25 @@
                                                     <div class="ops-sub">@item.ItemDescription</div>
                                                 }
                                             </td>
-                                            <td class="ops-num">@item.Quantity.ToString("#,##0.##")</td>
+                                            @* Ranked and shared on what sold. What was credited back of the
+                                               item is under it, with what is left, on the line's own basis. *@
+                                            <td class="ops-num">
+                                                @item.Quantity.ToString("#,##0.##")
+                                                @if (credits && item.CreditedQuantity > 0)
+                                                {
+                                                    <div class="ops-sub ops-sbd-credited">&minus; @item.CreditedQuantity.ToString("#,##0.##") credited</div>
+                                                    <div class="ops-sub">net @item.QuantityAfterCredits.ToString("#,##0.##")</div>
+                                                }
+                                            </td>
                                             <td class="ops-num">@item.SalesCount.ToString("N0")</td>
-                                            <td class="ops-num">@item.NetAmount.ToString("N2", System.Globalization.CultureInfo.InvariantCulture)</td>
+                                            <td class="ops-num">
+                                                @item.NetAmount.ToString("N2", System.Globalization.CultureInfo.InvariantCulture)
+                                                @if (credits && item.CreditedQuantity > 0)
+                                                {
+                                                    <div class="ops-sub ops-sbd-credited">&minus; @item.CreditedNetAmount.ToString("N2", System.Globalization.CultureInfo.InvariantCulture) credited</div>
+                                                    <div class="ops-sub">net @item.NetAmountAfterCredits.ToString("N2", System.Globalization.CultureInfo.InvariantCulture)</div>
+                                                }
+                                            </td>
                                             <td>
                                                 <div class="ops-sbd-split">
                                                     <span class="ops-sbd-track">

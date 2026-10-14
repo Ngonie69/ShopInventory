@@ -43,6 +43,19 @@
     margin-right: 4px;
 }
 
+/* What the office credited back, under the figure it comes off. The warn
+   family's ink: nothing is wrong, but the figure above it has a correction. */
+.ops-msr .ops-msr-credited {
+    color: var(--ops-fam-warn);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A headline's second line: what was credited, and what is left. */
+.ops-msr .ops-figure-sub.ops-msr-credits {
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+}
+
 .ops-msr .ops-msr-margin {
     font-variant-numeric: tabular-nums;
 }

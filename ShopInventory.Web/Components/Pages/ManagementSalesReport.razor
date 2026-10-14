@@ -175,6 +175,16 @@
                     <span class="ops-msr-change @takingsChange.Family"><i class="ph @takingsChange.Icon" aria-hidden="true"></i>@takingsChange.Text</span>
                     from @Money(summary.PreviousTotalAmount)
                 </div>
+                @* Takings and the change stay what was sold; a credited sale is a correction, stated
+                   here with what is left rather than taken quietly off the headline. *@
+                @if (summary.CreditedAmount > 0)
+                {
+                    <div class="ops-figure-sub ops-msr-credits"
+                         title="@($"{Plural(summary.CreditedSalesCount, "sale")} credited back{(summary.FullyCreditedSalesCount > 0 ? $", {summary.FullyCreditedSalesCount} in full" : "")}")">
+                        <span class="ops-msr-credited">&minus; @Money(summary.CreditedAmount) credited</span>
+                        · net @Money(summary.NetOfCredits)
+                    </div>
+                }
             </div>
             <div class="ops-figure ops-fam-info">
                 <div class="ops-figure-head"><span class="ops-figure-rule"></span>Sales</div>
@@ -341,7 +351,13 @@
                             <tr class="@(day.SalesCount == 0 && day.ComparedSalesCount == 0 ? "ops-dsa-idle" : "")">
                                 <td class="ops-dsa-when">@day.Date.ToString("ddd dd MMM")</td>
                                 <td class="ops-num">@(day.SalesCount == 0 ? "—" : day.SalesCount.ToString("N0"))</td>
-                                <td class="ops-num ops-dsa-strong">@Amount(day.TotalAmount)</td>
+                                <td class="ops-num ops-dsa-strong">
+                                    @Amount(day.TotalAmount)
+                                    @if (day.CreditedAmount > 0)
+                                    {
+                                        <div class="ops-sub ops-msr-credited">&minus; @Amount(day.CreditedAmount) credited</div>
+                                    }
+                                </td>
                                 <td class="ops-dsa-when">@day.ComparedDate.ToString("ddd dd MMM")</td>
                                 <td class="ops-num">@Amount(day.ComparedTotalAmount)</td>
                                 <td class="ops-num">
@@ -421,7 +437,14 @@
                                         }
                                     </td>
                                     <td class="ops-num">@row.SalesCount.ToString("N0")</td>
-                                    <td class="ops-num ops-dsa-strong">@Amount(row.TotalAmount)</td>
+                                    <td class="ops-num ops-dsa-strong">
+                                        @Amount(row.TotalAmount)
+                                        @if (row.CreditedAmount > 0)
+                                        {
+                                            <div class="ops-sub ops-msr-credited">&minus; @Amount(row.CreditedAmount) credited</div>
+                                            <div class="ops-sub">net @Amount(row.NetOfCredits)</div>
+                                        }
+                                    </td>
                                     <td class="ops-num">
                                         @Pct(row.ShareOfValuePercent)
                                         <span class="ops-dsa-share">
@@ -598,9 +621,19 @@
                                             }
                                         </td>
                                         <td class="ops-num">@group.ItemCount.ToString("N0")</td>
-                                        <td class="ops-num">@Qty(group.Quantity)</td>
+                                        <td class="ops-num">
+                                            @Qty(group.Quantity)
+                                            @if (group.CreditedQuantity > 0)
+                                            {
+                                                <div class="ops-sub ops-msr-credited">&minus; @Qty(group.CreditedQuantity) credited</div>
+                                            }
+                                        </td>
                                         <td class="ops-num">
                                             @Amount(group.NetAmount)
+                                            @if (group.CreditedNetAmount > 0)
+                                            {
+                                                <div class="ops-sub ops-msr-credited">&minus; @Amount(group.CreditedNetAmount) · net @Amount(group.NetAmountAfterCredits)</div>
+                                            }
                                             <span class="ops-dsa-share" title="@($"{Pct(group.ShareOfNetPercent)} of line value")">
                                                 <span class="ops-ds-break-track">
                                                     <span class="ops-ds-break-fill" style="width:@Percent(group.NetAmount, topGroup)"></span>
@@ -729,6 +762,10 @@
                                             {
                                                 <div class="ops-sub"><span class="ops-msr-change @quantityChange.Family"><i class="ph @quantityChange.Icon" aria-hidden="true"></i>@quantityChange.Text</span></div>
                                             }
+                                            @if (item.CreditedQuantity > 0)
+                                            {
+                                                <div class="ops-sub ops-msr-credited" title="@($"{Qty(item.QuantityAfterCredits)} after credits")">&minus; @Qty(item.CreditedQuantity) credited</div>
+                                            }
                                         </td>
                                         <td class="ops-num">
                                             @UnitPrice(item.AverageUnitPrice)
@@ -741,6 +778,10 @@
                                         <td class="ops-num">@Amount(item.DiscountAmount)</td>
                                         <td class="ops-num">
                                             @Amount(item.NetAmount)
+                                            @if (item.CreditedNetAmount > 0)
+                                            {
+                                                <div class="ops-sub ops-msr-credited">&minus; @Amount(item.CreditedNetAmount) · net @Amount(item.NetAmountAfterCredits)</div>
+                                            }
                                             <span class="ops-dsa-share" title="@($"{Pct(item.ShareOfNetPercent)} of line value")">
                                                 <span class="ops-ds-break-track">
                                                     <span class="ops-ds-break-fill" style="width:@Percent(item.NetAmount, topItem)"></span>
@@ -832,11 +873,19 @@
                         <div class="ops-figure-head"><span class="ops-figure-rule"></span>Quantity</div>
                         <div class="ops-figure-num">@Qty(s.Quantity)</div>
                         <div class="ops-figure-sub"><span class="ops-msr-change @qtyChange.Family"><i class="ph @qtyChange.Icon" aria-hidden="true"></i>@qtyChange.Text</span> from @Qty(s.PreviousQuantity)</div>
+                        @if (s.CreditedQuantity > 0)
+                        {
+                            <div class="ops-figure-sub ops-msr-credits"><span class="ops-msr-credited">&minus; @Qty(s.CreditedQuantity) credited</span> · net @Qty(s.QuantityAfterCredits)</div>
+                        }
                     </div>
                     <div class="ops-figure ops-fam-info">
                         <div class="ops-figure-head"><span class="ops-figure-rule"></span>Value before VAT</div>
                         <div class="ops-figure-num">@item.Currency @s.NetAmount.ToString("N2")</div>
                         <div class="ops-figure-sub"><span class="ops-msr-change @netChange.Family"><i class="ph @netChange.Icon" aria-hidden="true"></i>@netChange.Text</span> from @s.PreviousNetAmount.ToString("N2")</div>
+                        @if (s.CreditedNetAmount > 0)
+                        {
+                            <div class="ops-figure-sub ops-msr-credits"><span class="ops-msr-credited">&minus; @s.CreditedNetAmount.ToString("N2") credited</span> · net @s.NetAmountAfterCredits.ToString("N2")</div>
+                        }
                     </div>
                     <div class="ops-figure ops-fam-neutral">
                         <div class="ops-figure-head"><span class="ops-figure-rule"></span>Average price</div>
@@ -910,10 +959,20 @@
                                                     <div class="ops-sub">@hint</div>
                                                 }
                                             </td>
-                                            <td class="ops-num">@Qty(row.Quantity)</td>
+                                            <td class="ops-num">
+                                                @Qty(row.Quantity)
+                                                @if (row.CreditedQuantity > 0)
+                                                {
+                                                    <div class="ops-sub ops-msr-credited">&minus; @Qty(row.CreditedQuantity) credited</div>
+                                                }
+                                            </td>
                                             <td class="ops-num">@UnitPrice(row.AverageUnitPrice)</td>
                                             <td class="ops-num">
                                                 @Amount(row.NetAmount)
+                                                @if (row.CreditedNetAmount > 0)
+                                                {
+                                                    <div class="ops-sub ops-msr-credited">&minus; @Amount(row.CreditedNetAmount) · net @Amount(row.NetAmountAfterCredits)</div>
+                                                }
                                                 <span class="ops-dsa-share" title="@($"{Pct(row.ShareOfNetPercent)} of the item's value")">
                                                     <span class="ops-ds-break-track">
                                                         <span class="ops-ds-break-fill" style="width:@Percent(row.NetAmount, topDrill)"></span>

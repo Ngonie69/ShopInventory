@@ -73,6 +73,24 @@ public sealed class ManagementSummary
 
     public decimal CostedNetAmount { get; set; }
     public int CostedSalesCount { get; set; }
+
+    /// <summary>
+    /// What has been credited back on the period's sales, tax-inclusive like <see cref="TotalAmount"/>,
+    /// which is not reduced by it. Counted against the day of the sale, whenever the credit was raised.
+    /// </summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
+
+    /// <summary>How many of the period's sales have had anything credited back.</summary>
+    public int CreditedSalesCount { get; set; }
+
+    /// <summary>How many of those were credited back in full.</summary>
+    public int FullyCreditedSalesCount { get; set; }
+
+    /// <summary>Units of <see cref="QuantitySold"/> credited back, where a credit names a line.</summary>
+    public decimal CreditedQuantity { get; set; }
 }
 
 public sealed class ManagementDayRow
@@ -83,6 +101,15 @@ public sealed class ManagementDayRow
     public DateTime ComparedDate { get; set; }
     public int ComparedSalesCount { get; set; }
     public decimal ComparedTotalAmount { get; set; }
+
+    /// <summary>
+    /// What has been credited back on these sales this period, tax-inclusive like
+    /// <see cref="TotalAmount"/>, which is not reduced by it.
+    /// </summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
 }
 
 public sealed class ManagementBreakdownRow
@@ -99,6 +126,15 @@ public sealed class ManagementBreakdownRow
     public decimal? ChangePercent { get; set; }
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
+
+    /// <summary>
+    /// What has been credited back on these sales this period, tax-inclusive like
+    /// <see cref="TotalAmount"/>, which is not reduced by it.
+    /// </summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
 }
 
 public sealed class ManagementLapsedVendorRow
@@ -137,6 +173,21 @@ public sealed class ManagementItemRow
     /// compared, shared and costed within its own business.
     /// </summary>
     public string Business { get; set; } = string.Empty;
+
+    /// <summary>Units of <see cref="Quantity"/> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// The part of <see cref="NetAmount"/> those units were sold for — before VAT, like it, and so not
+    /// the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }
 
 public sealed class ManagementItemGroupRow
@@ -154,6 +205,21 @@ public sealed class ManagementItemGroupRow
 
     /// <summary>The line of business whose items these are.</summary>
     public string Business { get; set; } = string.Empty;
+
+    /// <summary>Units of <see cref="Quantity"/> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// The part of <see cref="NetAmount"/> those units were sold for — before VAT, like it, and so not
+    /// the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }
 
 public sealed class ManagementItemDepotCell
@@ -165,6 +231,21 @@ public sealed class ManagementItemDepotCell
 
     /// <summary>The line of business that sold it there.</summary>
     public string Business { get; set; } = string.Empty;
+
+    /// <summary>Units of <see cref="Quantity"/> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// The part of <see cref="NetAmount"/> those units were sold for — before VAT, like it, and so not
+    /// the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }
 
 public sealed class ManagementItemPartnerCell
@@ -176,6 +257,21 @@ public sealed class ManagementItemPartnerCell
 
     /// <summary>The line of business that sold it as that partner.</summary>
     public string Business { get; set; } = string.Empty;
+
+    /// <summary>Units of <see cref="Quantity"/> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// The part of <see cref="NetAmount"/> those units were sold for — before VAT, like it, and so not
+    /// the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }
 
 public sealed class ManagementHealthBucket

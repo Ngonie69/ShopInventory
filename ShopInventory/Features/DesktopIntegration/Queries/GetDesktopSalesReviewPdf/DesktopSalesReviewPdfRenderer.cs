@@ -125,8 +125,8 @@ internal static class DesktopSalesReviewPdfRenderer
         }
 
         Heading(document, fonts, "By line of business", "Shops and vending are reviewed apart; currencies are never added together.");
-        var table = Grid([28f, 12f, 14f, 22f, 24f]);
-        Head(table, fonts, "Business", "Currency", "Sales", "Takings", "On the previous period");
+        var table = Grid([24f, 10f, 12f, 18f, 18f, 18f]);
+        Head(table, fonts, "Business", "Currency", "Sales", "Takings", "Net of credits", "On the previous period");
         foreach (var business in review.Businesses)
         {
             foreach (var section in business.Currencies)
@@ -136,6 +136,7 @@ internal static class DesktopSalesReviewPdfRenderer
                 Body(table, fonts, section.Currency);
                 Body(table, fonts, h.SalesCount.ToString("N0", Invariant), right: true);
                 Body(table, fonts, Money(section.Currency, h.TotalAmount), right: true);
+                Body(table, fonts, Money(section.Currency, h.NetOfCredits), right: true);
                 Body(table, fonts, h.TotalChangePercent is { } change ? $"{Signed(change)}%" : "no previous period", right: true);
             }
         }
@@ -197,6 +198,16 @@ internal static class DesktopSalesReviewPdfRenderer
         Tile(tiles, fonts, "Traffic vs ticket",
             h.TrafficEffect is { } traffic && h.TicketEffect is { } ticket ? $"{SignedMoney(traffic)} / {SignedMoney(ticket)}" : "—",
             "more sales / bigger sales");
+
+        // A third row only when something was credited: Takings above stays what was rung up.
+        if (h.CreditedAmount > 0)
+        {
+            Tile(tiles, fonts, "Credited back", Money(c, h.CreditedAmount),
+                $"{h.CreditedSalesCount:N0} sale(s){(h.FullyCreditedSalesCount > 0 ? $", {h.FullyCreditedSalesCount:N0} in full" : string.Empty)}");
+            Tile(tiles, fonts, "Net of credits", Money(c, h.NetOfCredits), "takings less what was credited");
+            tiles.AddCell(new Cell(1, 2).SetBorder(Border.NO_BORDER));
+        }
+
         document.Add(tiles);
 
         Days(document, fonts, section);
@@ -276,14 +287,15 @@ internal static class DesktopSalesReviewPdfRenderer
     private static void Payments(Document document, Fonts fonts, DesktopSalesReviewCurrency section)
     {
         Heading(document, fonts, "How it was paid", null);
-        var table = Grid([22f, 12f, 18f, 14f, 14f, 20f]);
-        Head(table, fonts, "Method", "Sales", "Takings", "Average", "Share", "No reference");
+        var table = Grid([20f, 10f, 16f, 14f, 12f, 12f, 16f]);
+        Head(table, fonts, "Method", "Sales", "Takings", "Credited", "Average", "Share", "No reference");
 
         foreach (var row in section.ByPaymentMethod)
         {
             Body(table, fonts, row.PaymentMethod);
             Body(table, fonts, row.SalesCount.ToString("N0", Invariant), right: true);
             Body(table, fonts, Number(row.TotalAmount), right: true, bold: true);
+            Body(table, fonts, row.CreditedAmount == 0 ? "—" : Number(row.CreditedAmount), right: true);
             Body(table, fonts, Number(row.AverageSale), right: true);
             Body(table, fonts, $"{row.ShareOfValuePercent:0.#}%", right: true);
             Body(table, fonts, row.WithoutReferenceCount == 0 ? "—" : row.WithoutReferenceCount.ToString(Invariant), right: true);
@@ -300,8 +312,8 @@ internal static class DesktopSalesReviewPdfRenderer
         }
 
         Heading(document, fonts, "Shops and depots", "Compare on takings per trading day: shops that started mid-period traded fewer days.");
-        var table = Grid([22f, 10f, 6f, 7f, 12f, 8f, 11f, 9f, 7f, 8f]);
-        Head(table, fonts, "Shop", "<Channel", "Days", "Sales", "Takings", "Share", "Per day", "Avg sale", "Card", "Margin");
+        var table = Grid([20f, 9f, 5f, 6f, 11f, 9f, 7f, 10f, 8f, 7f, 8f]);
+        Head(table, fonts, "Shop", "<Channel", "Days", "Sales", "Takings", "Credited", "Share", "Per day", "Avg sale", "Card", "Margin");
 
         foreach (var shop in section.ByShop)
         {
@@ -313,6 +325,7 @@ internal static class DesktopSalesReviewPdfRenderer
             Body(table, fonts, shop.DaysTraded.ToString(Invariant), right: true);
             Body(table, fonts, shop.SalesCount.ToString("N0", Invariant), right: true);
             Body(table, fonts, Number(shop.TotalAmount), right: true, bold: true);
+            Body(table, fonts, shop.CreditedAmount == 0 ? "—" : Number(shop.CreditedAmount), right: true);
             Body(table, fonts, $"{shop.ShareOfValuePercent:0.#}%", right: true);
             Body(table, fonts, Number(shop.PerTradingDay), right: true);
             Body(table, fonts, Number(shop.AverageSale), right: true);
@@ -334,8 +347,8 @@ internal static class DesktopSalesReviewPdfRenderer
         Heading(document, fonts, "Best sellers",
             $"The top {section.TopItems.Count} of {section.ItemCount:N0} items make {topShare:0.#}% of line value before VAT; the other {Math.Max(0, section.ItemCount - section.TopItems.Count):N0} share {Number(section.TailNetAmount)}.");
 
-        var table = Grid([5f, 33f, 9f, 7f, 8f, 9f, 12f, 7f, 5f, 5f]);
-        Head(table, fonts, "#", "<Item", "Qty", "Sales", "Per sale", "Unit price", "Before VAT", "Share", "Cum.", "<ABC");
+        var table = Grid([5f, 29f, 8f, 8f, 7f, 7f, 9f, 11f, 7f, 5f, 4f]);
+        Head(table, fonts, "#", "<Item", "Qty", "Credited", "Sales", "Per sale", "Unit price", "Before VAT", "Share", "Cum.", "<ABC");
 
         var rank = 0;
         foreach (var item in section.TopItems)
@@ -346,6 +359,7 @@ internal static class DesktopSalesReviewPdfRenderer
                 .Add(Text(Clean(item.ItemDescription ?? string.Empty), fonts.Regular, 7).SetFontColor(Muted));
             table.AddCell(Style(name));
             Body(table, fonts, item.Quantity.ToString("N0", Invariant), right: true);
+            Body(table, fonts, item.CreditedQuantity == 0 ? "—" : item.CreditedQuantity.ToString("#,##0.##", Invariant), right: true);
             Body(table, fonts, item.SalesCount.ToString("N0", Invariant), right: true);
             Body(table, fonts, item.UnitsPerSale.ToString("0.#", Invariant), right: true);
             Body(table, fonts, item.AverageUnitPrice.ToString("N2", Invariant), right: true);
@@ -395,8 +409,8 @@ internal static class DesktopSalesReviewPdfRenderer
         var labels = section.ByShop.ToDictionary(s => s.WarehouseCode, s => s.Label, StringComparer.OrdinalIgnoreCase);
         Heading(document, fonts, "Trade-size sales at a counter",
             $"Sales worth {GetDesktopSalesReviewHandler.LargeSaleFactor:0} or more times their shop's average.");
-        var table = Grid([12f, 30f, 14f, 16f, 10f, 10f, 8f]);
-        Head(table, fonts, "Day", "<Shop", "<Paid by", "<Customer", "Units", "Total", "× avg");
+        var table = Grid([11f, 24f, 12f, 14f, 8f, 10f, 14f, 7f]);
+        Head(table, fonts, "Day", "<Shop", "<Paid by", "<Customer", "Units", "Total", "Credited", "× avg");
 
         foreach (var sale in section.LargeSales)
         {
@@ -406,6 +420,9 @@ internal static class DesktopSalesReviewPdfRenderer
             Body(table, fonts, sale.CustomerCode ?? "walk-in");
             Body(table, fonts, sale.Quantity.ToString("N0", Invariant), right: true);
             Body(table, fonts, Number(sale.TotalAmount), right: true, bold: true);
+            Body(table, fonts, sale.CreditedAmount == 0
+                ? "—"
+                : $"{Number(sale.CreditedAmount)} · {string.Join(", ", sale.CreditNoteNumbers)}", right: true);
             Body(table, fonts, sale.TimesShopAverage.ToString("0.#", Invariant), right: true);
         }
 
