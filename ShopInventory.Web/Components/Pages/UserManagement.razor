@@ -195,6 +195,12 @@
                                     {
                                         <span class="um-badge um-badge-2fa"><i class="bi bi-shield-fill-check"></i> 2FA</span>
                                     }
+                                    @if (user.MustChangePassword)
+                                    {
+                                        <span class="um-badge um-badge-pwd" title="Has to choose a new password at the next sign-in">
+                                            <i class="bi bi-key-fill"></i> Password change due
+                                        </span>
+                                    }
                                 </div>
                                 <div class="um-user-login">
                                     <span class="um-login-label">Last login</span>
@@ -238,6 +244,13 @@
                                                         @onclick="@(() => { CloseActionMenu(); ShowResetPasswordModal(user); })">
                                                     <i class="bi bi-key-fill text-warning"></i> Reset Password
                                                 </button>
+                                                @if (!user.MustChangePassword)
+                                                {
+                                                    <button class="um-dropdown-item"
+                                                            @onclick="@(async () => { CloseActionMenu(); await RequirePasswordChange(user); })">
+                                                        <i class="bi bi-arrow-repeat text-warning"></i> Require Password Change
+                                                    </button>
+                                                }
                                                 @if (user.IsActive)
                                                 {
                                                     <button class="um-dropdown-item um-dropdown-danger"
@@ -890,6 +903,11 @@
                                                             <InputText type="password" class="um-input" @bind-Value="resetPasswordModel.NewPassword"
                                                                        placeholder="Min. 8 characters" />
                                                             <ValidationMessage For="@(() => resetPasswordModel.NewPassword)" />
+                                                            <small class="um-form-hint">
+                                                                At least 8 characters, not a common password, and nothing of their
+                                                                name or username. It works once: @resetPasswordUser.Username is signed
+                                                                out everywhere now and has to choose their own at the next sign-in.
+                                                            </small>
                                                         </div>
                                                         <div class="um-form-field" style="margin-top: 1rem;">
                                                             <label>Confirm Password <span class="required">*</span></label>
@@ -1490,6 +1508,7 @@ StringComparison.OrdinalIgnoreCase)))
                 IsActive = u.IsActive,
                 IsLocked = u.IsLocked,
                 TwoFactorEnabled = u.TwoFactorEnabled,
+                MustChangePassword = u.MustChangePassword,
                 LastLoginAt = u.LastLoginAt,
                 Permissions = u.Permissions,
                 AssignedWarehouseCodes = u.AssignedWarehouseCodes,
@@ -1778,6 +1797,28 @@ StringComparison.OrdinalIgnoreCase)))
         }
     }
 
+    /// <summary>
+    /// For a password that may be known to somebody it should not be: signs the account out
+    /// everywhere and holds it to choosing a new one. Nobody but its holder learns the new password.
+    /// </summary>
+    private async Task RequirePasswordChange(UserDisplayModel user)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Sign {user.Username} out everywhere and make them choose a new password at their next sign-in?"))
+            return;
+
+        try
+        {
+            await UserService.RequirePasswordChangeAsync(user.Id);
+            Snackbar.Add($"{user.Username} is signed out and must choose a new password", Severity.Success);
+            await LoadUsers();
+            await AuditService.LogAsync("RequirePasswordChange", "User", user.Username);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
     private async Task ResetTwoFactor(UserDisplayModel user)
     {
         if (!await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to reset 2FA for {user.Username}? They will need to set it up again."))
@@ -1837,8 +1878,9 @@ StringComparison.OrdinalIgnoreCase)))
         {
             var username = resetPasswordUser.Username;
             await UserService.ChangePasswordAsync(resetPasswordUser.Id, resetPasswordModel.NewPassword!);
-            Snackbar.Add($"Password reset for {username}", Severity.Success);
+            Snackbar.Add($"Password reset for {username}. They will be asked to choose their own at sign-in.", Severity.Success);
             CloseResetPasswordModal();
+            await LoadUsers();
             await AuditService.LogAsync("ResetPassword", "User", username);
         }
         catch (Exception ex)
@@ -2063,6 +2105,7 @@ StringComparison.OrdinalIgnoreCase)))
         public bool IsActive { get; set; }
         public bool IsLocked { get; set; }
         public bool TwoFactorEnabled { get; set; }
+        public bool MustChangePassword { get; set; }
         public DateTime? LastLoginAt { get; set; }
         public List<string>? Permissions { get; set; }
         public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();

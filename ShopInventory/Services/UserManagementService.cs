@@ -24,11 +24,6 @@ public interface IUserManagementService
     Task<UserDetailDto?> GetUserByIdAsync(Guid userId);
 
     /// <summary>
-    /// Create a new user
-    /// </summary>
-    Task<ServiceResult<UserDetailDto>> CreateUserAsync(CreateUserDetailRequest request);
-
-    /// <summary>
     /// Delete a user
     /// </summary>
     Task<ServiceResult> DeleteUserAsync(Guid userId);
@@ -139,137 +134,6 @@ public class UserManagementService : IUserManagementService
     {
         var user = await _context.Users.FindAsync(userId);
         return user == null ? null : MapToUserDetailDto(user);
-    }
-
-    public async Task<ServiceResult<UserDetailDto>> CreateUserAsync(CreateUserDetailRequest request)
-    {
-        // Check for existing username
-        if (await _context.Users.WhereUsernameMatches(request.Username).AnyAsync())
-        {
-            return ServiceResult<UserDetailDto>.Failure("Username already exists");
-        }
-
-        // Check for existing email
-        if (!string.IsNullOrWhiteSpace(request.Email) && await _context.Users.WhereEmailMatches(request.Email).AnyAsync())
-        {
-            return ServiceResult<UserDetailDto>.Failure("Email already exists");
-        }
-
-        // Validate role
-        if (!ApplicationRoles.IsAssignableRole(request.Role))
-        {
-            return ServiceResult<UserDetailDto>.Failure($"Invalid role. Valid roles: {ApplicationRoles.DescribeAssignableRoles()}");
-        }
-
-        // Validate warehouse assignment for StockController/DepotController roles
-        if (ApplicationRoles.RequiresWarehouseAssignments(request.Role) &&
-            (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
-        {
-            return ServiceResult<UserDetailDto>.Failure($"At least one assigned warehouse code is required for {request.Role} role");
-        }
-
-        // Validate customer assignment for Merchandiser role
-        if (ApplicationRoles.RequiresCustomerAssignments(request.Role) &&
-            (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
-        {
-            return ServiceResult<UserDetailDto>.Failure($"At least one assigned customer code is required for {request.Role} role");
-        }
-
-        // Validate section assignment for Driver role
-        if (ApplicationRoles.RequiresAssignedSection(request.Role) &&
-            string.IsNullOrWhiteSpace(request.AssignedSection))
-        {
-            return ServiceResult<UserDetailDto>.Failure($"An assigned section is required for {request.Role} role");
-        }
-
-        // Van sales assignments. The request carries all three, so they are validated and stored
-        // here as well rather than the role being refused — an ADR or Sales account without them
-        // has no route-customer scope and no depot to draw its stock from.
-        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role) &&
-            string.IsNullOrWhiteSpace(request.AssignedBusinessPartnerCode))
-        {
-            return ServiceResult<UserDetailDto>.Failure($"An assigned business partner code is required for {request.Role} role");
-        }
-
-        if (ApplicationRoles.RequiresAssignedCostCentreCode(request.Role) &&
-            string.IsNullOrWhiteSpace(request.AssignedCostCentreCode))
-        {
-            return ServiceResult<UserDetailDto>.Failure($"An assigned cost centre code is required for {request.Role} role");
-        }
-
-        if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role) &&
-            string.IsNullOrWhiteSpace(request.SupplyingWarehouseCode))
-        {
-            return ServiceResult<UserDetailDto>.Failure($"A supplying warehouse code is required for {request.Role} role");
-        }
-
-        // Determine permissions
-        List<string> permissions;
-        if (request.Permissions != null && request.Permissions.Count > 0)
-        {
-            // Validate permissions
-            var allPermissions = Permission.GetAllPermissions();
-            var invalidPermissions = request.Permissions.Except(allPermissions).ToList();
-            if (invalidPermissions.Count > 0)
-            {
-                return ServiceResult<UserDetailDto>.Failure($"Invalid permissions: {string.Join(", ", invalidPermissions)}");
-            }
-            permissions = request.Permissions;
-        }
-        else
-        {
-            // Use role defaults
-            permissions = Permission.GetDefaultPermissionsForRole(request.Role);
-        }
-
-        var user = new User
-        {
-            Id = Guid.NewGuid(),
-            Username = request.Username,
-            Email = request.Email,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Role = request.Role.Trim(),
-            IsActive = true,
-            EmailVerified = false,
-            TwoFactorEnabled = false,
-            Permissions = JsonSerializer.Serialize(permissions),
-            CreatedAt = DateTime.UtcNow
-        };
-
-        if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
-            user.SetWarehouseCodes(request.AssignedWarehouseCodes);
-
-        if (ApplicationRoles.SupportsCustomerAssignments(request.Role))
-            user.SetCustomerCodes(request.AssignedCustomerCodes);
-
-        if (ApplicationRoles.RequiresAssignedSection(request.Role))
-            user.AssignedSection = request.AssignedSection;
-
-        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role))
-        {
-            user.AssignedBusinessPartnerCode = request.AssignedBusinessPartnerCode?.Trim();
-            user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
-        }
-
-        if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role))
-        {
-            user.SupplyingWarehouseCode = request.SupplyingWarehouseCode?.Trim();
-
-            // Optional, so only a positive id is taken — an unset picker posts 0, which would be a
-            // foreign key to nothing.
-            user.RouteId = request.RouteId is > 0 ? request.RouteId : null;
-        }
-
-        _context.Users.Add(user);
-        await _context.SaveChangesAsync();
-        InvalidateEffectivePermissionsCache(user.Id);
-
-        _logger.LogInformation("User {Username} created by admin", user.Username);
-
-        var dto = MapToUserDetailDto(user);
-        return ServiceResult<UserDetailDto>.Success(dto, "User created successfully");
     }
 
     public async Task<ServiceResult> DeleteUserAsync(Guid userId)
@@ -564,7 +428,9 @@ public class UserManagementService : IUserManagementService
             FiscalDeviceId = user.FiscalDeviceId,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
-            LastLoginAt = user.LastLoginAt
+            LastLoginAt = user.LastLoginAt,
+            PasswordChangedAt = user.PasswordChangedAt ?? user.CreatedAt,
+            MustChangePassword = user.MustChangePassword
         };
     }
 

@@ -960,6 +960,13 @@
             ? Uri.UnescapeDataString(returnUrl)
             : landing;
 
+        // An account that owes a password change goes straight to where it is changed. The layout
+        // would send it there anyway; this saves loading a page first only to leave it.
+        if (await AuthStateProvider.GetPasswordStandingAsync() is { ChangeRequired: true })
+        {
+            targetUrl = "/" + ShopInventory.Web.Components.Layout.PasswordRenewalText.ChangePage;
+        }
+
         Logger.LogInformation("Navigating to: {Url}", targetUrl);
         NavigationManager.NavigateTo(targetUrl);
     }

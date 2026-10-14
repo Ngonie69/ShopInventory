@@ -31,6 +31,7 @@ public interface IUserManagementService
     Task UpdateUserAsync(Guid id, UserFormModel model);
     Task DeleteUserAsync(Guid id);
     Task ChangePasswordAsync(Guid id, string newPassword);
+    Task RequirePasswordChangeAsync(Guid id);
     Task UnlockUserAsync(Guid id);
     Task ActivateUserAsync(Guid id);
     Task DeactivateUserAsync(Guid id);
@@ -194,6 +195,17 @@ public class UserManagementService : IUserManagementService
         if (!response.IsSuccessStatusCode)
         {
             await ThrowApiExceptionAsync(response, "Failed to change password.");
+        }
+    }
+
+    public async Task RequirePasswordChangeAsync(Guid id)
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsync($"api/user/{id}/require-password-change", null);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowApiExceptionAsync(response, "Failed to require a password change.");
         }
     }
 

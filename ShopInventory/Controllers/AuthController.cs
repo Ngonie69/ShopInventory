@@ -17,6 +17,7 @@ using ShopInventory.Features.Auth.Commands.Register;
 using ShopInventory.Features.Auth.Commands.RecordMobileBiometricPreference;
 using ShopInventory.Features.Auth.Queries.GetCurrentUser;
 using ShopInventory.Features.Auth.Queries.GetPasskeys;
+using ShopInventory.Features.Password.Commands.ChangePassword;
 
 namespace ShopInventory.Controllers;
 
@@ -205,6 +206,26 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var result = await mediator.Send(new LogoutCommand(request.RefreshToken, ipAddress), cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Change own password; the route the merchandiser app posts to
+    /// </summary>
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangeOwnPassword([FromBody] OwnPasswordChangeRequest request, CancellationToken cancellationToken)
+    {
+        var userId = GetAuthenticatedUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new ChangePasswordCommand(
+            userId,
+            null,
+            request.CurrentPassword,
+            request.NewPassword,
+            request.NewPassword), cancellationToken);
+        return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
     }
 
     /// <summary>

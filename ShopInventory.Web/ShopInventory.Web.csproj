@@ -15,6 +15,18 @@
          heap is plenty. StockSheets runs the same way. -->
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- Switches the namespace in the two files linked below, so that a project referencing both
+         this assembly and the API's (the tests do) does not see the same type twice. -->
+    <DefineConstants>$(DefineConstants);SHOPINVENTORY_WEB</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The company password policy: one source file, compiled into the API and into here. Portal
+         customer accounts live in this project's database and never pass through the API, so a
+         copy kept by hand would be a second policy waiting to drift. -->
+    <Compile Include="..\ShopInventory\Common\Security\PasswordPolicy.cs" Link="Common\Security\PasswordPolicy.cs" />
+    <Compile Include="..\ShopInventory\Common\Security\CommonPasswords.cs" Link="Common\Security\CommonPasswords.cs" />
+  </ItemGroup>
   <ItemGroup>
     <!-- ApiErrorResponse is internal and holds the log sanitizers. A sanitizer nobody can test is
          the kind that quietly stops sanitizing. -->

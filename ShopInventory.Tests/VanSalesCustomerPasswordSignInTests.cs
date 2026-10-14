@@ -33,7 +33,7 @@ public sealed class VanSalesCustomerPasswordSignInTests : IDisposable
 {
     private const string TypedNumber = "0771234567";
     private const string StoredNumber = "+263771234567";
-    private const string Password = "shop-password";
+    private const string Password = "lantern-and-river";
     private const string WrongPassword = "not-the-password";
 
     private readonly SqliteConnection _connection;
@@ -329,6 +329,26 @@ public sealed class VanSalesCustomerPasswordSignInTests : IDisposable
 
         Assert.True(result.IsError);
         Assert.Equal(Errors.VanSalesCustomerAuth.PasswordRequired.Code, result.FirstError.Code);
+        Assert.Empty(await _context.VanSalesCustomerAccounts.ToListAsync());
+    }
+
+    [Theory]
+    // The number on the account, the way a shopkeeper would type it.
+    [InlineData("0771234567")]
+    [InlineData("pin771234567")]
+    // The shop's own name: the fixture's shop is "Shop <code>".
+    [InlineData("shop-password")]
+    // The first thing anybody tries.
+    [InlineData("Password123")]
+    [InlineData("12345678")]
+    public async Task A_shop_cannot_be_given_a_password_the_company_policy_refuses(string password)
+    {
+        await GivenRouteCustomerAsync();
+
+        var result = await OnboardAsync(password);
+
+        Assert.True(result.IsError);
+        Assert.Equal("Password.PolicyNotMet", result.FirstError.Code);
         Assert.Empty(await _context.VanSalesCustomerAccounts.ToListAsync());
     }
 

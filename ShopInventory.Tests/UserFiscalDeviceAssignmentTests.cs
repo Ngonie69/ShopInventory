@@ -210,6 +210,7 @@ public sealed class UserFiscalDeviceAssignmentTests : IDisposable
             _context,
             OfficeContext(),
             new NoOpAuditService(),
+            TestPasswords.For(_context),
             NullLogger<CreateUserHandler>.Instance);
 
         return handler.Handle(

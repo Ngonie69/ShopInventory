@@ -320,17 +320,14 @@ public class TwoFactorWebService : ITwoFactorWebService
                 return (true, "Password changed successfully");
             }
 
+            // The API answers with problem details, whose sentence is in "detail". This used to
+            // read a "message" member that is never sent, so a refused change — a wrong current
+            // password, a rule of the password policy — showed an empty error.
             var errorContent = await response.Content.ReadAsStringAsync();
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Failed to change password");
-            }
-            catch
-            {
-                return (false, "Failed to change password");
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "We couldn't change the password. Please try again."));
         }
         catch (Exception ex)
         {
@@ -579,4 +576,12 @@ public class CredentialsModel
     public string Username { get; set; } = string.Empty;
     public string? Email { get; set; }
     public string Message { get; set; } = string.Empty;
+
+    // Where the password stands against the three-month renewal. Mirrors UpdateCredentialsResponse.
+    public DateTime? PasswordChangedAt { get; set; }
+    public DateTime? PasswordExpiresAt { get; set; }
+    public int? PasswordExpiresInDays { get; set; }
+    public bool PasswordChangeRequired { get; set; }
+    public string? PasswordChangeReason { get; set; }
+    public bool PasswordExpiringSoon { get; set; }
 }

@@ -279,6 +279,7 @@ try
     builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
+    builder.Services.Configure<PasswordPolicySettings>(builder.Configuration.GetSection(PasswordPolicySettings.SectionName));
     builder.Services.Configure<VanSalesCustomerAuthSettings>(builder.Configuration.GetSection("VanSalesCustomerAuth"));
     builder.Services.Configure<TaxSettings>(builder.Configuration.GetSection(TaxSettings.SectionName));
     // Bound through AddOptions rather than Configure so the list can be validated at startup.
@@ -656,6 +657,7 @@ try
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
     builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+    builder.Services.AddScoped<ShopInventory.Features.Password.UserPasswords>();
     builder.Services.AddScoped<IUserActivityService, UserActivityService>();
 
     // Register statement service for PDF generation
@@ -1449,6 +1451,12 @@ try
     // identity is only on context.User once the authorization middleware has run them. Before
     // idempotency and output caching, so a refused request is not recorded or served from cache.
     app.UseMaintenance(MaintenanceStage.AfterAuthorization);
+
+    // An account that owes a password change is held to the endpoints that change it. After
+    // authorization for the same reason as the stage above, and before idempotency so that a
+    // refused request is not remembered as the answer to its key. Does nothing unless
+    // Security:PasswordPolicy:EnforceOnApiClients is on.
+    app.UsePasswordChangeGate();
 
     // Idempotency check after auth (needs user context for better key scoping)
     app.UseIdempotency();

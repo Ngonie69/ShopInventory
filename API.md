@@ -447,9 +447,34 @@ Login with username and password.
     "email": "admin@example.com",
     "assignedWarehouseCode": "WH01",
     "assignedWarehouseCodes": ["WH01", "WH02"]
-  }
+  },
+  "passwordChangeRequired": false,
+  "passwordChangeReason": null,
+  "passwordExpiresAt": "2026-06-30T22:00:00Z",
+  "passwordExpiresInDays": 90,
+  "passwordExpiringSoon": false
 }
 ```
+
+The five `password*` members report where the account stands against the password policy
+(`docs/password-policy.md`). They are on every reply that hands out tokens — this one, the
+two-factor and passkey completions, the biometric sign-in and `/api/Auth/refresh` — so a session
+kept open for weeks still learns that its renewal has come due.
+
+| Member | Meaning |
+|--------|---------|
+| `passwordChangeRequired` | The account has to choose a new password before doing anything else. The sign-in still succeeds and the tokens are real: take the user to your change-password screen. |
+| `passwordChangeReason` | `Expired` (older than three months) or `Required` (set by somebody else, or flagged by an administrator). `null` when nothing is owed. |
+| `passwordExpiresAt` | The renewal date, UTC: midnight in Harare at the end of the last good day. `null` for a service account, whose password does not age. |
+| `passwordExpiresInDays` | Whole days until then, rounded up; `0` once overdue. |
+| `passwordExpiringSoon` | Inside the reminder period (14 days by default). Show a reminder; do not hard-code the number. |
+
+While a change is owed the access token carries a `pwd_change` claim. With
+`Security:PasswordPolicy:EnforceOnApiClients` on, the API answers every request made with such a
+token with **403** `Password.ChangeRequired` — problem details whose sentence is in `detail`,
+`title` and `message` alike — except the routes that change a password
+(`/api/Password/*`, `/api/Auth/change-password`, `/api/vansales/auth/password`), `/api/Auth/me`,
+`/api/UserManagement/me` and `/api/Auth/logout`. The setting is off by default.
 
 - **Response (2FA required):**
 
@@ -519,6 +544,24 @@ Revoke the current refresh token.
   "refreshToken": "abc123..."
 }
 ```
+
+#### POST `/api/Auth/change-password`
+
+Change the caller's own password. The same change as `POST /api/Password/change`, without the
+confirmation field; it is the route the merchandiser app posts to.
+
+- **Auth:** Bearer
+- **Request Body:**
+
+```json
+{
+  "currentPassword": "string",
+  "newPassword": "string"
+}
+```
+
+- **Response (400):** `Password.ChangeFailed`, with the reason in `detail` — the current password
+  was wrong, or the new one breaks the password policy.
 
 #### GET `/api/Auth/me`
 
@@ -621,11 +664,20 @@ Change the current user's password.
 }
 ```
 
+A new password has to satisfy the password policy (`docs/password-policy.md`): at least 8
+characters, not a common password, nothing of the account's name, username, email address or phone
+number, and not one of the account's last five. This route and the reset link also ask for an
+upper-case letter, a lower-case letter, a digit and a symbol, as they always have. A refusal is a
+**400** with every broken rule in `detail`.
+
+A successful change revokes all of the account's refresh tokens, so every device signs in again,
+clears a pending `passwordChangeRequired`, and restarts the three months.
+
 #### Credentials
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/Password/credentials` | Bearer | The caller's sign-in credentials |
+| GET | `/api/Password/credentials` | Bearer | The caller's sign-in credentials, and where their password stands: `passwordChangedAt`, `passwordExpiresAt`, `passwordExpiresInDays`, `passwordExpiringSoon`, `passwordChangeRequired`, `passwordChangeReason` |
 | PUT | `/api/Password/credentials` | Bearer | Update them |
 
 ---
@@ -711,7 +763,8 @@ someone holding a stolen backup code must not be able to mint themselves ten mor
 | POST | `/api/User` | Create a user |
 | PUT | `/api/User/{id}` | Update user details |
 | DELETE | `/api/User/{id}` | Delete a user |
-| POST | `/api/User/{id}/change-password` | Admin-initiated password change |
+| POST | `/api/User/{id}/change-password` | Admin-initiated password change. Held to the password policy; signs the account out everywhere and leaves its holder owing a password of their own at the next sign-in |
+| POST | `/api/User/{id}/require-password-change` | For a password that may be known to the wrong person: signs the account out everywhere and makes its holder choose a new one at the next sign-in. Sets no password |
 | POST | `/api/User/{id}/unlock` | Unlock a locked-out account |
 | POST | `/api/User/{id}/deactivate` | Deactivate an account without deleting it |
 | POST | `/api/User/{id}/activate` | Reinstate one |

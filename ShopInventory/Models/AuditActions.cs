@@ -168,6 +168,7 @@ public static class AuditActions
     public const string UpdateUser = "UpdateUser";
     public const string DeleteUser = "DeleteUser";
     public const string ChangePassword = "ChangePassword";
+    public const string RequirePasswordChange = "RequirePasswordChange";
     public const string UnlockUser = "UnlockUser";
     public const string DeactivateUser = "DeactivateUser";
     public const string ActivateUser = "ActivateUser";
