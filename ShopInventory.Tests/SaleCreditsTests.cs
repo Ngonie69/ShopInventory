@@ -314,6 +314,105 @@ public sealed class SaleCreditsTests : IDisposable
         Assert.Equal(11.55m, invoice.Lines[1].CreditedAmount);
     }
 
+    // ---- Which lines of a sale were credited ------------------------------------------------------
+    //
+    // The till's sale list carried only the sale's credited total, so its sold-items report and its
+    // stock figures still counted a returned line as sold. A sale line is found by its id: LineNum
+    // can repeat within a sale.
+
+    [Fact]
+    public async Task The_till_sale_list_says_what_was_credited_on_each_line_of_a_sale()
+    {
+        var sale = await AddSale("TILL-1", sapDocEntry: null, consolidationId: null, (0, "MOZ-1KG", 10m), (1, "FET-500", 4m));
+        await AddTillCredit(sale, 23.10m, DesktopCreditStatuses.Fiscalised, sapDocEntry: null,
+            Plan((ReceiptLine: 2, Name: "FET-500", Quantity: 2m, UnitPrice: 11.55m)));
+        await AddSale("TILL-2", sapDocEntry: null, consolidationId: null, (0, "MOZ-1KG", 1m));
+
+        var rows = (await ReadSaleList()).ToDictionary(row => row.ExternalReferenceId);
+
+        var lines = rows["TILL-1"].Lines.ToDictionary(line => line.ItemCode);
+        Assert.Equal(0m, lines["MOZ-1KG"].CreditedQuantity);
+        Assert.Equal(0m, lines["MOZ-1KG"].CreditedAmount);
+        Assert.Equal(2m, lines["FET-500"].CreditedQuantity);
+        Assert.Equal(23.10m, lines["FET-500"].CreditedAmount);
+        Assert.Equal(0m, Assert.Single(rows["TILL-2"].Lines).CreditedQuantity);
+
+        // The till reads these by name, and the line's own id stays on this side of the wire.
+        var wire = System.Text.Json.JsonSerializer.Serialize(
+            lines["FET-500"], new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Contains("\"creditedQuantity\":2", wire);
+        Assert.Contains("\"creditedAmount\":23.10", wire);
+        Assert.DoesNotContain("lineId", wire);
+    }
+
+    [Fact]
+    public async Task Two_lines_numbered_alike_are_each_credited_as_themselves()
+    {
+        // INV1753's shape: a till numbering from zero was stored 1,1,2. The credit names receipt line 2,
+        // the second line taken, and must not land on the first because they share a LineNum.
+        var sale = await AddSale("TILL-1", sapDocEntry: null, consolidationId: null, (1, "MOZ-1KG", 10m), (1, "FET-500", 4m));
+        await AddTillCredit(sale, 11.55m, DesktopCreditStatuses.Fiscalised, sapDocEntry: null,
+            Plan((ReceiptLine: 2, Name: "FET-500", Quantity: 1m, UnitPrice: 11.55m)));
+
+        var lines = Assert.Single(await ReadSaleList()).Lines.ToDictionary(line => line.ItemCode);
+
+        Assert.Equal(0m, lines["MOZ-1KG"].CreditedQuantity);
+        Assert.Equal(1m, lines["FET-500"].CreditedQuantity);
+    }
+
+    [Fact]
+    public async Task A_till_credit_SAP_has_taken_keeps_its_own_quantities_under_the_memos_money()
+    {
+        // Once SAP has the memo, the memo is what is counted — but it stores no quantity, and the credit
+        // that raised it does. 2.5 kg at 4.62 is not a figure worth working back out of 11.55.
+        var sale = await AddSale("TILL-1", sapDocEntry: 2001, consolidationId: null, (0, "MOZ-1KG", 10m), (1, "FET-500", 4m));
+        await AddTillCredit(sale, 11.55m, DesktopCreditStatuses.Fiscalised, sapDocEntry: 900,
+            Plan((ReceiptLine: 2, Name: "FET-500", Quantity: 2.5m, UnitPrice: 4.62m)));
+        await AddMemo(docEntry: 900, docNum: 55294, (baseEntry: 2001, lineTotal: 10m, vat: 1.55m));
+
+        var credit = (await SaleCredits.ForSalesAsync(_context, [(sale.Id, 2001)], CancellationToken.None))[sale.Id];
+
+        Assert.Equal(11.55m, credit.Amount);
+        Assert.Equal(["55294"], credit.Numbers);
+        var line = Assert.Single(SaleCredits.BySaleLine(credit));
+        Assert.Equal(await LineId(sale, "FET-500"), line.Key);
+        Assert.Equal(new InvoiceLineCredit(2.5m, 11.55m), line.Value);
+    }
+
+    [Theory]
+    // A till sale: its lines are before tax, so the memo's net is what is set against a line's price.
+    [InlineData(161.70, 21.70, 20.00, 3.10)]
+    // A van's offline sale: its lines include tax, so the memo's gross is.
+    [InlineData(140.00, 18.79, 17.32, 2.68)]
+    public async Task A_memo_keyed_in_SAP_lands_on_the_sale_line_it_is_based_on_with_its_quantity_worked_out(
+        decimal saleTotal, decimal saleVat, decimal memoNet, decimal memoVat)
+    {
+        // Lines of 100.00 and 40.00. Line 1 sells four at 10.00, so 20.00 of it is two.
+        var sale = await AddSale("TILL-1", sapDocEntry: 2001, consolidationId: null, (0, "MOZ-1KG", 10m), (1, "FET-500", 4m));
+        await SetTotals(sale, saleTotal, saleVat);
+        await AddMemo(docEntry: 900, docNum: 55294, (baseEntry: 2001, lineTotal: memoNet, vat: memoVat));
+        await SetBaseLine(docEntry: 900, baseLine: 1);
+
+        var credit = (await SaleCredits.ForSalesAsync(_context, [(sale.Id, 2001)], CancellationToken.None))[sale.Id];
+
+        var line = Assert.Single(SaleCredits.BySaleLine(credit));
+        Assert.Equal(await LineId(sale, "FET-500"), line.Key);
+        Assert.Equal(2m, line.Value.Quantity);
+        Assert.Equal(memoNet + memoVat, line.Value.Amount);
+    }
+
+    [Fact]
+    public async Task A_credit_with_no_readable_plan_still_counts_its_money_and_marks_no_line()
+    {
+        var sale = await AddSale("TILL-1", sapDocEntry: null, consolidationId: null, (0, "MOZ-1KG", 10m));
+        await AddTillCredit(sale, 40m, DesktopCreditStatuses.Fiscalised, sapDocEntry: null, planJson: "not json");
+
+        var row = Assert.Single(await ReadSaleList());
+
+        Assert.Equal(40m, row.CreditedAmount);
+        Assert.Equal(0m, Assert.Single(row.Lines).CreditedQuantity);
+    }
+
     [Theory]
     [InlineData(100, 100, true)]
     [InlineData(100, 99.995, true)]
@@ -325,6 +424,48 @@ public sealed class SaleCreditsTests : IDisposable
     }
 
     // ---- Harness --------------------------------------------------------------------------------
+
+    /// <summary>The sale list as a cashier's till reads it.</summary>
+    private async Task<IReadOnlyList<DesktopSaleListItemDto>> ReadSaleList()
+    {
+        var console = Guid.NewGuid();
+        _context.Users.Add(new User
+        {
+            Id = console,
+            Username = $"console-{console:N}",
+            PasswordHash = "x",
+            Role = ApplicationRoles.Cashier,
+            IsActive = true,
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await new GetDesktopSalesHandler(
+                _context,
+                new RecordingAuditService(),
+                Options.Create(new FiscalisationSettings()),
+                Options.Create(new DesktopSalePostingSettings()),
+                Options.Create(new VanSalesPostingSettings()))
+            .Handle(new GetDesktopSalesQuery(console), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        return result.Value.Sales;
+    }
+
+    private Task<int> LineId(DesktopSaleEntity sale, string itemCode) =>
+        _context.DesktopSaleLines
+            .Where(line => line.SaleId == sale.Id && line.ItemCode == itemCode)
+            .Select(line => line.Id)
+            .SingleAsync();
+
+    private async Task SetTotals(DesktopSaleEntity sale, decimal total, decimal vat)
+    {
+        await _context.DesktopSales
+            .Where(row => row.Id == sale.Id)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(row => row.TotalAmount, total)
+                .SetProperty(row => row.VatAmount, vat));
+    }
 
     private async Task<DesktopSaleEntity> AddSale(
         string reference, int? sapDocEntry, int? consolidationId = null, params (int LineNum, string Item, decimal Quantity)[] lines)

@@ -308,7 +308,8 @@ public sealed class GetDesktopSalesHandler(
                     l.WarehouseCode,
                     l.TaxCode,
                     l.DiscountPercent
-                )).ToList())
+                )
+                { LineId = l.Id }).ToList())
             })
             .ToListAsync(cancellationToken);
 
@@ -324,7 +325,7 @@ public sealed class GetDesktopSalesHandler(
         var usesPlatform = fiscalisationSettings.Value.UsesPlatform;
 
         var sales = rows
-            .Select(row => row.Sale with
+            .Select(row => WithCreditedLines(row.Sale, creditBySale.GetValueOrDefault(row.Sale.Id)) with
             {
                 SaleNumber = DesktopSaleNumber.Format(row.Sale.Id),
                 CreatedByName = SaleOperatorNames.Label(row.Sale.CreatedBy, operators),
@@ -352,6 +353,28 @@ public sealed class GetDesktopSalesHandler(
             unfilteredCount,
             facets
         );
+    }
+
+    /// <summary>
+    /// Puts on each line of a sale what its credits gave back of it. A sale nothing was credited
+    /// against is handed back as it is, its lines reading zero.
+    /// </summary>
+    private static DesktopSaleListItemDto WithCreditedLines(DesktopSaleListItemDto sale, SaleCredit? credit)
+    {
+        var byLine = SaleCredits.BySaleLine(credit);
+        if (byLine.Count == 0)
+        {
+            return sale;
+        }
+
+        return sale with
+        {
+            Lines = sale.Lines
+                .Select(line => byLine.TryGetValue(line.LineId, out var credited)
+                    ? line with { CreditedQuantity = credited.Quantity, CreditedAmount = credited.Amount }
+                    : line)
+                .ToList()
+        };
     }
 
     /// <summary>

@@ -241,6 +241,23 @@ otherwise be surprised.
 
 ### Added
 
+- **The till can see which lines of a sale were credited, and which credit notes put stock back.**
+  Both are additions; nothing a client reads today has moved.
+  - `GET /api/DesktopIntegration/sales` gains `creditedQuantity` and `creditedAmount` on each line,
+    beside the `creditedAmount` and `creditNoteNumbers` the sale already carried. The line amount is
+    tax-inclusive like the sale's, and so not on the basis of a till sale's `lineTotal`. A line nothing
+    was credited against reads 0. A credit keyed in SAP by hand carries no quantity, so there it is
+    worked out from the memo's money and the line's price; a credit whose lines cannot be read still
+    counts in the sale's total and marks no line.
+  - `GET /api/DesktopIntegration/stock/{warehouseCode}/credit-returns` (`fromDate`, `toDate`: ledger
+    days, at most 92) lists the units credit notes put back on the stock ledger, one row per item of
+    each credit, with the credit number, the sale it reverses and the time. It reads the movement
+    journal, so a fiscalise-only credit — which returns nothing — is not listed.
+  - The KefalosTill build that reads these shows sold, credited and net on its Sales and stock page,
+    its daily report and their workbooks, and names a return as a credit note on Stock movements. A
+    till on an older build ignores both; a newer till against an older platform shows the sale-level
+    credit as it does today and says the returns are not listed.
+
 - **Invoices can be sent to customers on WhatsApp.** The new routes are under
   `/api/customer-whatsapp-contacts` and `/api/customer-document-deliveries` (see API.md §40a). There
   are two new permissions, `invoices.send_whatsapp` and `customers.whatsapp.manage`; Cashier has both
