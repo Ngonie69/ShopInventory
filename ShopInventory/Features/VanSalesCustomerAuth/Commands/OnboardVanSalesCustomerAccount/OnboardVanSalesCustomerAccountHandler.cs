@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Security;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
@@ -82,6 +83,23 @@ public sealed class OnboardVanSalesCustomerAccountHandler(
         if (existing is null && password is null)
         {
             return Errors.VanSalesCustomerAuth.PasswordRequired;
+        }
+
+        // The company policy, which asks the same of a shop's password as of anybody's: long
+        // enough, not a common one, and not the shop's own number or name — the two things written
+        // on the front of the building.
+        if (password is not null)
+        {
+            var brokenRules = PasswordPolicy.Check(password, new PasswordOwner
+            {
+                PhoneNumber = phone,
+                Other = [command.DisplayName, routeCustomer.Code, routeCustomer.Name]
+            });
+
+            if (brokenRules.Count > 0)
+            {
+                return Errors.Password.PolicyNotMet(brokenRules);
+            }
         }
 
         var account = existing;

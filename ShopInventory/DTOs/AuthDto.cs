@@ -57,6 +57,40 @@ public class AuthLoginResponse
     /// User information
     /// </summary>
     public UserInfo? User { get; set; }
+
+    /// <summary>
+    /// True when the account has to choose a new password before it does anything else.
+    /// </summary>
+    /// <remarks>
+    /// The tokens beside it are real and the sign-in succeeded. A client that understands this
+    /// takes the user straight to its change-password screen; one that does not carries on, and is
+    /// held to the password endpoints by the API itself when
+    /// <c>Security:PasswordPolicy:EnforceOnApiClients</c> is on.
+    /// </remarks>
+    public bool PasswordChangeRequired { get; set; }
+
+    /// <summary>
+    /// Why: <c>Expired</c> (older than the policy allows) or <c>Required</c> (set by somebody
+    /// else, or flagged by an administrator). Null when no change is owed.
+    /// </summary>
+    public string? PasswordChangeReason { get; set; }
+
+    /// <summary>
+    /// When the password has to be renewed, in UTC. Null for an account whose password does not age.
+    /// </summary>
+    public DateTime? PasswordExpiresAt { get; set; }
+
+    /// <summary>
+    /// Whole days until then, rounded up; 0 once it is overdue. Null with <see cref="PasswordExpiresAt"/>.
+    /// </summary>
+    public int? PasswordExpiresInDays { get; set; }
+
+    /// <summary>
+    /// True once the renewal date is close enough to start reminding the user. The server decides
+    /// what "close" is (<c>Security:PasswordPolicy:ExpiryWarningDays</c>), so no client keeps its
+    /// own copy of the number.
+    /// </summary>
+    public bool PasswordExpiringSoon { get; set; }
 }
 
 /// <summary>
@@ -112,6 +146,20 @@ public class RefreshTokenRequest
     /// The refresh token to exchange for new tokens
     /// </summary>
     public required string RefreshToken { get; set; }
+}
+
+/// <summary>
+/// A signed-in user changing their own password, as the merchandiser app sends it.
+/// </summary>
+/// <remarks>
+/// The same change as <c>POST /api/password/change</c> without the confirmation field: that app
+/// compares the two boxes itself and sends the password once.
+/// </remarks>
+public class OwnPasswordChangeRequest
+{
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    public string NewPassword { get; set; } = string.Empty;
 }
 
 /// <summary>

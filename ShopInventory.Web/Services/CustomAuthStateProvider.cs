@@ -26,6 +26,8 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     // In-memory cache for auth state during same session
     private string? _cachedToken;
     private UserInfo? _cachedUserInfo;
+    private PasswordStandingInfo? _cachedPasswordStanding;
+    private const string PasswordStandingKey = "passwordStanding";
     private DateTime? _cachedExpiresAt;
     private DateTime? _lastRefreshFailureAt;
 
@@ -413,6 +415,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         _cachedToken = loginResponse.AccessToken;
         _cachedUserInfo = loginResponse.User ?? _cachedUserInfo;
         _cachedExpiresAt = NormalizeUtc(loginResponse.ExpiresAt) ?? ReadExpiryFromToken(loginResponse.AccessToken);
+        _cachedPasswordStanding = PasswordStandingInfo.From(loginResponse);
         _logger.LogDebug("In-memory auth cache updated. ExpiresAt: {ExpiresAt}", loginResponse.ExpiresAt);
 
         try
@@ -422,6 +425,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             await _localStorage.SetItemAsync("refreshToken", loginResponse.RefreshToken);
             await _localStorage.SetItemAsync("tokenExpiresAt", loginResponse.ExpiresAt);
             await _localStorage.SetItemAsync("userInfo", loginResponse.User);
+            await _localStorage.SetItemAsync(PasswordStandingKey, _cachedPasswordStanding);
             _logger.LogInformation("Auth data stored to localStorage successfully");
         }
         catch (Exception ex)
@@ -431,6 +435,33 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
 
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", loginResponse.AccessToken);
         _logger.LogDebug("HttpClient Authorization header set");
+    }
+
+    /// <summary>
+    /// Whether this account owes a password change, as the API last said when it issued a token.
+    /// </summary>
+    /// <remarks>
+    /// Null when nothing is known: signed out, or a session that began before the API reported it.
+    /// Read from the browser when this circuit has not seen a sign-in of its own — a second tab, or
+    /// a reconnect — so it can only be called once the page is interactive.
+    /// </remarks>
+    public async Task<PasswordStandingInfo?> GetPasswordStandingAsync()
+    {
+        if (_cachedPasswordStanding is not null)
+        {
+            return _cachedPasswordStanding;
+        }
+
+        try
+        {
+            _cachedPasswordStanding = await _localStorage.GetItemAsync<PasswordStandingInfo>(PasswordStandingKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Could not read password standing from localStorage: {Message}", ex.Message);
+        }
+
+        return _cachedPasswordStanding;
     }
 
     public async Task UpdateUserProfileAsync(string username, string? email)
@@ -462,9 +493,11 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         _cachedToken = null;
         _cachedUserInfo = null;
         _cachedExpiresAt = null;
+        _cachedPasswordStanding = null;
 
         try
         {
+            await _localStorage.RemoveItemAsync(PasswordStandingKey);
             await _localStorage.RemoveItemAsync("authToken");
             await _localStorage.RemoveItemAsync("refreshToken");
             await _localStorage.RemoveItemAsync("tokenExpiresAt");

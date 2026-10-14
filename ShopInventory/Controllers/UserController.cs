@@ -9,6 +9,7 @@ using ShopInventory.Features.Users.Commands.CreateUser;
 using ShopInventory.Features.Users.Commands.UpdateUser;
 using ShopInventory.Features.Users.Commands.DeleteUser;
 using ShopInventory.Features.Users.Commands.AdminChangePassword;
+using ShopInventory.Features.Users.Commands.RequirePasswordChange;
 using ShopInventory.Features.Users.Commands.UnlockUser;
 using ShopInventory.Features.Users.Commands.DeactivateUser;
 using ShopInventory.Features.Users.Commands.ActivateUser;
@@ -84,6 +85,18 @@ public class UserController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new AdminChangePasswordCommand(id, request), cancellationToken);
         return result.Match(_ => Ok(new { Message = "Password changed successfully" }), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Make an account choose a new password at its next sign-in, and end its sessions now
+    /// </summary>
+    [HttpPost("{id}/require-password-change")]
+    public async Task<IActionResult> RequirePasswordChange(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new RequirePasswordChangeCommand(id), cancellationToken);
+        return result.Match(
+            _ => Ok(new { Message = "The account has been signed out and must choose a new password at its next sign-in" }),
+            errors => Problem(errors));
     }
 
     /// <summary>

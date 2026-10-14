@@ -18,6 +18,31 @@ otherwise be surprised.
 
 ### Changed
 
+- **Staff passwords are held to the company password policy, on every route that sets one.** A new
+  password must be at least 8 characters, must not be a common one (`Password123`, `Welcome2026`,
+  `12345678`, the company's own name), must not contain the account's name, username, email address
+  or phone number, and cannot be one of the account's last five. A refusal is a 400 with each broken
+  rule as a sentence in `detail`. This applies to creating an account, an administrator's reset,
+  self-service change, the emailed reset link and the van app's change-password screen; before, each
+  had rules of its own and three had none. The same three content rules now apply to portal customer
+  passwords and to the passwords operators set for shops on the ordering app. See
+  `docs/password-policy.md`.
+  - **Passwords are renewed every three months.** Every existing account is given the full three
+    months from the day this deploys. Sign-in and token-refresh replies carry
+    `passwordChangeRequired`, `passwordChangeReason`, `passwordExpiresAt`, `passwordExpiresInDays`
+    and `passwordExpiringSoon`. The portal reminds from 14 days out and, once a change is owed,
+    opens nothing but Security until the password is changed. The tills and handsets ignore the new
+    members and are unaffected until they read them or `Security:PasswordPolicy:EnforceOnApiClients`
+    is turned on; accounts with the `ApiUser` role never expire.
+  - **A password set by an administrator works once.** The account's holder is asked to choose
+    their own at the next portal sign-in, and an administrator's reset now signs the account out on
+    every device, which it did not before.
+  - **New:** `POST /api/User/{id}/require-password-change` (User Management › Require Password
+    Change) signs an account out everywhere and makes its holder choose a new password, for one
+    that may be known to the wrong person. `POST /api/Auth/change-password` is the route the
+    merchandiser app's change-password screen has always posted to; it did not exist, so that screen
+    could not change a password.
+
 - **A van or merchandiser order is answered before SAP is asked anything.** `POST
   /api/vansales/sales-order` and the merchandiser's mobile order used to read each line's sales unit
   from SAP, and the account's name when the order carried only its code, before storing the order;

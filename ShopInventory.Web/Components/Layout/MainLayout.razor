@@ -59,6 +59,9 @@
             <MaintenanceBanner />
             @* SAP down, or just back: sales carry on either way, and staff should know which. *@
             <SapOutageBanner />
+            @* A password that is due for renewal: says so, and while a change is owed sends every
+               page but Security back to Security. *@
+            <PasswordRenewalBanner />
             @Body
         </main>
     </MudMainContent>

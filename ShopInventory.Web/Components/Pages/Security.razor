@@ -1,4 +1,5 @@
 @page "/security"
+@using ShopInventory.Web.Common.Security
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Authorization
@@ -6,6 +7,7 @@
 @inject IAuditService AuditService
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
+@inject CustomAuthStateProvider AuthStateProvider
 @inject ILogger<Security> Logger
 @attribute [Authorize]
 @rendermode InteractiveServer
@@ -248,8 +250,8 @@
                                         </svg>
                                     </span>
                                     <div class="sec-method-text">
-                                        <div class="sec-method-name">Password <span class="sec-badge sec-fam-good">Set</span></div>
-                                        <div class="sec-method-desc">Required at every sign-in. Changing it signs this session out.</div>
+                                        <div class="sec-method-name">Password <span class="sec-badge @PasswordBadgeClass">@PasswordBadgeText</span></div>
+                                        <div class="sec-method-desc">Required at every sign-in. Changing it signs this session out.@PasswordRenewalNote</div>
                                     </div>
                                     <div class="sec-method-actions">
                                         <button type="button" class="sec-btn sec-btn-quiet" aria-expanded="@(openRow == "password" ? "true" : "false")"
@@ -294,6 +296,12 @@
                                                 </span>
                                                 <span class="sec-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"[^a-zA-Z0-9]") ? "sec-rule-pass" : "")">
                                                     <span class="sec-rule-mark" aria-hidden="true"></span>Symbol
+                                                </span>
+                                                <span class="sec-rule @(IsNotCommon ? "sec-rule-pass" : "")">
+                                                    <span class="sec-rule-mark" aria-hidden="true"></span>Not a common password
+                                                </span>
+                                                <span class="sec-rule @(IsNotPersonal ? "sec-rule-pass" : "")">
+                                                    <span class="sec-rule-mark" aria-hidden="true"></span>Not your name or username
                                                 </span>
                                                 <span class="sec-rule @(newPassword == confirmPassword && confirmPassword.Length > 0 ? "sec-rule-pass" : "")">
                                                     <span class="sec-rule-mark" aria-hidden="true"></span>Matches
@@ -846,6 +854,10 @@
 }
 
 @code {
+    /// <summary>Set by the renewal reminder's link, to open the password form on arrival.</summary>
+    [SupplyParameterFromQuery(Name = "renew")]
+    public string? Renew { get; set; }
+
     private bool isLoading = true;
 
     // Which sign-in method row has its form open under it: "password", "passkey" or none.
@@ -916,8 +928,48 @@
     private MyAuditActivity? myActivity;
     private UserActivityMeResponse? activitySummary;
 
+    // The two rules of the company policy that can be judged while typing. The API judges them
+    // again with the account's full name, and also refuses a password this account used recently —
+    // neither of which this page can know — so a pass here is necessary, not sufficient.
+    private bool IsNotCommon =>
+        newPassword.Length >= PasswordPolicy.MinimumLength && !PasswordPolicy.IsCommon(newPassword);
+
+    private bool IsNotPersonal =>
+        newPassword.Length > 0 &&
+        !PasswordPolicy.ContainsDetailOf(newPassword, new PasswordOwner { Username = originalCredUsername, Email = originalCredEmail });
+
+    // Where this password stands against the three-month renewal, from the API.
+    private CredentialsModel? passwordStanding;
+
+    private string PasswordBadgeClass =>
+        passwordStanding is { PasswordChangeRequired: true } or { PasswordExpiringSoon: true }
+            ? "sec-fam-warn"
+            : "sec-fam-good";
+
+    private string PasswordBadgeText => passwordStanding switch
+    {
+        { PasswordChangeRequired: true, PasswordChangeReason: PasswordStandingInfo.Expired } => "Expired",
+        { PasswordChangeRequired: true } => "Change required",
+        { PasswordExpiringSoon: true, PasswordExpiresInDays: <= 1 } => "Expires today",
+        { PasswordExpiringSoon: true, PasswordExpiresInDays: { } days } => $"Expires in {days} days",
+        _ => "Set"
+    };
+
+    // The last day the password is good for, in Harare time: the API's instant is the midnight
+    // that ends it.
+    private string PasswordRenewalNote => passwordStanding switch
+    {
+        { PasswordChangedAt: { } changed, PasswordExpiresAt: { } expires } =>
+            $" Last changed {IAuditService.ToCAT(changed):d MMM yyyy}; renew by {IAuditService.ToCAT(expires).AddDays(-1):d MMM yyyy}.",
+        { PasswordChangedAt: { } changed } =>
+            $" Last changed {IAuditService.ToCAT(changed):d MMM yyyy}.",
+        _ => string.Empty
+    };
+
     private bool IsPasswordValid =>
     !string.IsNullOrEmpty(currentPassword) &&
+    IsNotCommon &&
+    IsNotPersonal &&
     newPassword.Length >= 8 &&
     System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[A-Z]") &&
     System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[a-z]") &&
@@ -952,6 +1004,14 @@
                 credEmail = creds.Email ?? "";
                 originalCredUsername = credUsername;
                 originalCredEmail = credEmail;
+                passwordStanding = creds;
+            }
+
+            // Arriving because a change is owed, or by the reminder's link: the form is what the
+            // visit is for, so it is open already.
+            if (creds is { PasswordChangeRequired: true } || !string.IsNullOrEmpty(Renew))
+            {
+                openRow = "password";
             }
 
             await LoadRecentActivityAsync();
@@ -1348,6 +1408,12 @@ confirmPassword);
                 newPassword = "";
                 confirmPassword = "";
                 await AuditService.LogAsync("ChangePassword", "Security", "Password changed");
+
+                // The API has just revoked this session, and what the browser remembers about it is
+                // now wrong twice over: a token that will not refresh, and a note saying the password
+                // is due for renewal. Left in place, that note sends the browser straight back here
+                // from the sign-in page, asking for the change that has just been made.
+                await AuthStateProvider.ClearAuthData();
                 NavigationManager.NavigateTo("/login", forceLoad: true);
             }
             else

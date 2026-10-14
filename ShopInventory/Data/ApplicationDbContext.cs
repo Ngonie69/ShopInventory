@@ -59,6 +59,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<RefreshToken> RefreshTokens { get; set; }
   public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
   public DbSet<PasskeyCredential> PasskeyCredentials { get; set; }
+  public DbSet<UserPasswordHistoryEntity> UserPasswordHistory { get; set; }
 
   // Product tables
   public DbSet<ProductEntity> Products { get; set; }
@@ -664,6 +665,19 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.HasOne(prt => prt.User)
                 .WithMany(u => u.PasswordResetTokens)
                 .HasForeignKey(prt => prt.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // A staff account's replaced passwords, newest first by ReplacedAt
+    modelBuilder.Entity<UserPasswordHistoryEntity>(entity =>
+    {
+      entity.ToTable("UserPasswordHistory");
+
+      entity.HasIndex(history => new { history.UserId, history.ReplacedAt });
+
+      entity.HasOne(history => history.User)
+                .WithMany()
+                .HasForeignKey(history => history.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
     });
 

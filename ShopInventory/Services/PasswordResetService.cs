@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Password;
 using ShopInventory.Models;
 
 namespace ShopInventory.Services;
@@ -61,16 +62,19 @@ public class PasswordResetService : IPasswordResetService
     private readonly ApplicationDbContext _context;
     private readonly ILogger<PasswordResetService> _logger;
     private readonly IEmailQueueService? _emailService;
+    private readonly UserPasswords _passwords;
     private const int TokenExpirationHours = 24;
     private const int MaxResetAttemptsPerHour = 5;
 
     public PasswordResetService(
         ApplicationDbContext context,
         ILogger<PasswordResetService> logger,
+        UserPasswords passwords,
         IEmailQueueService? emailService = null)
     {
         _context = context;
         _logger = logger;
+        _passwords = passwords;
         _emailService = emailService;
     }
 
@@ -196,42 +200,24 @@ public class PasswordResetService : IPasswordResetService
             return ServiceResult.Failure("This reset link has expired");
         }
 
-        // Validate password strength
-        var validationResult = ValidatePasswordStrength(newPassword);
-        if (!validationResult.IsSuccess)
-        {
-            return validationResult;
-        }
-
-        // Update password
         var user = resetToken.User;
         if (user is null)
         {
             return ServiceResult.Failure("User not found");
         }
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
-        user.UpdatedAt = DateTime.UtcNow;
 
-        // Clear lockout if any
-        user.FailedLoginAttempts = 0;
-        user.LockoutEnd = null;
+        var validationResult = await ValidateNewPasswordAsync(user, newPassword);
+        if (!validationResult.IsSuccess)
+        {
+            return validationResult;
+        }
+
+        // Sets the password, remembers the old one, clears any lockout and ends every session.
+        await _passwords.ChangeAsync(user, newPassword, chosenByOwner: true, "Password reset", CancellationToken.None);
 
         // Mark token as used
         resetToken.IsUsed = true;
         resetToken.UsedAt = DateTime.UtcNow;
-
-        // Invalidate all refresh tokens
-        var refreshTokens = await _context.RefreshTokens
-            .Where(rt => rt.UserId == user.Id && !rt.IsRevoked)
-            .ToListAsync();
-
-        foreach (var rt in refreshTokens)
-        {
-            rt.IsRevoked = true;
-            rt.RevokedAt = DateTime.UtcNow;
-            rt.RevokedByIp = ipAddress;
-            rt.ReasonRevoked = "Password reset";
-        }
 
         await _context.SaveChangesAsync();
 
@@ -242,7 +228,7 @@ public class PasswordResetService : IPasswordResetService
 
     public async Task<ServiceResult> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
     {
-        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null)
         {
             return ServiceResult.Failure("User not found");
@@ -254,46 +240,16 @@ public class PasswordResetService : IPasswordResetService
             return ServiceResult.Failure("Current password is incorrect");
         }
 
-        // Validate new password strength
-        var validationResult = ValidatePasswordStrength(newPassword);
+        var validationResult = await ValidateNewPasswordAsync(user, newPassword);
         if (!validationResult.IsSuccess)
         {
             return validationResult;
         }
 
-        // Check that new password is different
-        if (BCrypt.Net.BCrypt.Verify(newPassword, user.PasswordHash))
-        {
-            return ServiceResult.Failure("New password must be different from the current password");
-        }
-
-        var newHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
-        var now = DateTime.UtcNow;
-
-        // Use ExecuteUpdateAsync — direct SQL UPDATE, bypasses EF change tracking
-        var rowsAffected = await _context.Users
-            .Where(u => u.Id == userId)
-            .ExecuteUpdateAsync(u => u
-                .SetProperty(x => x.PasswordHash, newHash)
-                .SetProperty(x => x.UpdatedAt, now)
-                .SetProperty(x => x.FailedLoginAttempts, 0)
-                .SetProperty(x => x.LockoutEnd, (DateTime?)null));
-
-        _logger.LogInformation("ChangePassword ExecuteUpdate for user {UserId}: {RowsAffected} rows affected", userId, rowsAffected);
-
-        if (rowsAffected == 0)
-        {
-            _logger.LogError("Password change wrote 0 rows for user {UserId}", userId);
-            return ServiceResult.Failure("Password change failed: no rows were modified. Please try again.");
-        }
-
-        // Revoke all active refresh tokens so the user must re-authenticate with the new password.
-        await _context.RefreshTokens
-            .Where(token => token.UserId == userId && !token.IsRevoked && token.ExpiresAt > DateTime.UtcNow)
-            .ExecuteUpdateAsync(token => token
-                .SetProperty(x => x.IsRevoked, true)
-                .SetProperty(x => x.RevokedAt, now)
-                .SetProperty(x => x.RevokedByIp, "password-change"));
+        // Sets the password, remembers the old one, clears the "must change" flag and revokes every
+        // refresh token, so each device has to sign in again with the new password.
+        await _passwords.ChangeAsync(user, newPassword, chosenByOwner: true, "Password changed", CancellationToken.None);
+        await _context.SaveChangesAsync();
 
         _logger.LogInformation("Password changed for user {UserId}", userId);
 
@@ -315,11 +271,19 @@ public class PasswordResetService : IPasswordResetService
         var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null) return null;
 
+        var standing = _passwords.StandingOf(user);
+
         return new UpdateCredentialsResponse
         {
             Username = user.Username,
             Email = user.Email,
-            Message = "OK"
+            Message = "OK",
+            PasswordChangedAt = standing.ChangedAtUtc,
+            PasswordExpiresAt = standing.ExpiresAtUtc,
+            PasswordExpiresInDays = standing.ExpiresInDays,
+            PasswordChangeRequired = standing.ChangeRequired,
+            PasswordChangeReason = standing.Reason,
+            PasswordExpiringSoon = _passwords.IsExpiringSoon(standing)
         };
     }
 
@@ -463,41 +427,51 @@ public class PasswordResetService : IPasswordResetService
         return Convert.ToBase64String(hash);
     }
 
-    private static ServiceResult ValidatePasswordStrength(string password)
+    /// <summary>
+    /// Everything a password chosen by its owner has to satisfy.
+    /// </summary>
+    /// <remarks>
+    /// The character mix was already asked for on these two routes and stays. The company policy
+    /// — length, nothing personal, nothing common, nothing this account used recently — is what
+    /// every route asks, and comes from <see cref="UserPasswords"/>. All of it is reported as one
+    /// message, because the callers of this service show <see cref="ServiceResult.Message"/> and
+    /// nothing else.
+    /// </remarks>
+    private async Task<ServiceResult> ValidateNewPasswordAsync(User user, string newPassword)
+    {
+        var broken = new List<string>(ValidateCharacterMix(newPassword ?? string.Empty));
+        broken.AddRange(await _passwords.CheckForChangeAsync(user, newPassword, CancellationToken.None));
+
+        return broken.Count == 0
+            ? ServiceResult.Success()
+            : ServiceResult.Failure(string.Join(" ", broken));
+    }
+
+    private static List<string> ValidateCharacterMix(string password)
     {
         var errors = new List<string>();
 
-        if (password.Length < 8)
-        {
-            errors.Add("Password must be at least 8 characters long");
-        }
-
         if (!password.Any(char.IsUpper))
         {
-            errors.Add("Password must contain at least one uppercase letter");
+            errors.Add("Password must contain at least one uppercase letter.");
         }
 
         if (!password.Any(char.IsLower))
         {
-            errors.Add("Password must contain at least one lowercase letter");
+            errors.Add("Password must contain at least one lowercase letter.");
         }
 
         if (!password.Any(char.IsDigit))
         {
-            errors.Add("Password must contain at least one number");
+            errors.Add("Password must contain at least one number.");
         }
 
         if (!password.Any(c => !char.IsLetterOrDigit(c)))
         {
-            errors.Add("Password must contain at least one special character");
+            errors.Add("Password must contain at least one special character.");
         }
 
-        if (errors.Count != 0)
-        {
-            return ServiceResult.Failure(errors);
-        }
-
-        return ServiceResult.Success();
+        return errors;
     }
 
     private static string GenerateResetEmailBody(string username, string token)

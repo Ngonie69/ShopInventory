@@ -138,6 +138,7 @@ public sealed class CartVendorUserFormTests : IDisposable
                 _context,
                 OfficeContext(),
                 new NoOpAuditService(),
+                TestPasswords.For(_context),
                 NullLogger<CreateUserHandler>.Instance)
             .Handle(
                 new CreateUserCommand(new CreateUserDetailRequest

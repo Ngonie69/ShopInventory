@@ -141,7 +141,9 @@ public sealed class GetUsersHandler(
             FiscalDeviceId = user.FiscalDeviceId,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
-            LastLoginAt = lastLoginAt
+            LastLoginAt = lastLoginAt,
+            PasswordChangedAt = user.PasswordChangedAt ?? user.CreatedAt,
+            MustChangePassword = user.MustChangePassword
         };
     }
 

@@ -229,6 +229,24 @@ public class UpdateCredentialsResponse
     public string Username { get; set; } = string.Empty;
     public string? Email { get; set; }
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>When the password in use was set.</summary>
+    public DateTime? PasswordChangedAt { get; set; }
+
+    /// <summary>When it has to be renewed, in UTC; null for an account whose password does not age.</summary>
+    public DateTime? PasswordExpiresAt { get; set; }
+
+    /// <summary>Whole days until then, rounded up; 0 once overdue.</summary>
+    public int? PasswordExpiresInDays { get; set; }
+
+    /// <summary>Whether a change is owed now.</summary>
+    public bool PasswordChangeRequired { get; set; }
+
+    /// <summary><c>Expired</c> or <c>Required</c> when a change is owed.</summary>
+    public string? PasswordChangeReason { get; set; }
+
+    /// <summary>Whether the renewal date is close enough to remind the user.</summary>
+    public bool PasswordExpiringSoon { get; set; }
 }
 
 #endregion
@@ -279,6 +297,12 @@ public class UserDetailDto
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>When the password in use was set; the three-month renewal counts from here.</summary>
+    public DateTime? PasswordChangedAt { get; set; }
+
+    /// <summary>Whether the holder has to choose a new password at their next sign-in.</summary>
+    public bool MustChangePassword { get; set; }
 }
 
 /// <summary>

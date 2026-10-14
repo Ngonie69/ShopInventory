@@ -573,6 +573,12 @@
     color: var(--shop-mute-3);
 }
 
+/* The depot list's period bar is the same bar with six ranges where the vendor
+   page has four, so they fold onto a second row rather than run off a phone. */
+.vend .vend-period-seg {
+    flex-wrap: wrap;
+}
+
 /* ── The four figures ────────────────────────────────────────────────────────
    The design leads each card with a short accent rule. It is not decoration: it
    is the one place on the card that changes colour, so it carries whether the

@@ -9,6 +9,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Common.Security;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Password;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -18,6 +19,7 @@ public sealed class CreateUserHandler(
     ApplicationDbContext context,
     IHttpContextAccessor httpContextAccessor,
     IAuditService auditService,
+    UserPasswords passwords,
     ILogger<CreateUserHandler> logger
 ) : IRequestHandler<CreateUserCommand, ErrorOr<UserDetailDto>>
 {
@@ -208,7 +210,7 @@ public sealed class CreateUserHandler(
             Id = Guid.NewGuid(),
             Username = request.Username,
             Email = request.Email,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            PasswordHash = string.Empty,
             FirstName = request.FirstName,
             LastName = request.LastName,
             Role = request.Role.Trim(),
@@ -218,6 +220,14 @@ public sealed class CreateUserHandler(
             Permissions = JsonSerializer.Serialize(permissions),
             CreatedAt = DateTime.UtcNow
         };
+
+        var brokenRules = passwords.CheckForNewAccount(user, request.Password);
+        if (brokenRules.Count > 0)
+        {
+            return Errors.Password.PolicyNotMet(brokenRules);
+        }
+
+        passwords.SetOnNewAccount(user, request.Password);
 
         if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
         {
@@ -321,7 +331,9 @@ public sealed class CreateUserHandler(
             FiscalDeviceId = user.FiscalDeviceId,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
-            LastLoginAt = user.LastLoginAt
+            LastLoginAt = user.LastLoginAt,
+            PasswordChangedAt = user.PasswordChangedAt ?? user.CreatedAt,
+            MustChangePassword = user.MustChangePassword
         };
     }
 }

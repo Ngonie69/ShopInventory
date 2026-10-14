@@ -333,6 +333,7 @@ public sealed class TillOperatorAccountTests : IDisposable
             _context,
             OfficeContext(),
             new NoOpAuditService(),
+            TestPasswords.For(_context),
             NullLogger<CreateUserHandler>.Instance);
 
         return handler.Handle(new CreateUserCommand(request), CancellationToken.None);

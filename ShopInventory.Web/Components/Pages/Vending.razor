@@ -29,11 +29,16 @@
    customer endpoints that have always held them. Removing a vendor is the API's soft
    delete: its sales stay on it, and the till refuses it from then on.
 
-   Sales figures are the route-customer reports', read once per depot for the month so far
+   Sales figures are the route-customer reports', read once per depot for the period the bar
+   above the cards names — the month so far until someone picks another
    (/api/route-customers/sales-summary). They load after the depots and vendors, so a slow or
    failed report leaves the page usable and says so, rather than holding the list back or
    showing a vendor who sold as one who did not. /vending/vendors/{id} is the same component
    showing VendingVendorDetail, so the dialogs below serve both views.
+
+   The period is not a row filter: it changes what the figures cover, not who is listed. The
+   filters under the cards narrow the rows, and the activity one reads the figures to do it
+   (VendorListFilters), so it waits for them and stands down when they fail.
 
    Those reads ask for RouteCustomerScope.Vending. A vendor and a van route's shop share one table
    and the endpoint answers about routes by default, because a vendor is not a route customer: it
@@ -158,6 +163,37 @@
             }
             else
             {
+                @* The period every sales figure below is read over, cards and table alike, which is why
+                   it sits above both. Never disabled while a read is out: someone setting both dates
+                   tabs from one to the other, and a field that went dead under them would swallow the
+                   second. LoadSalesAsync lets the later read win instead. *@
+                <div class="vend-window vend-period">
+                    <div class="vend-window-dates">
+                        <div class="vend-field">
+                            <label for="vend-period-from">Sales from</label>
+                            <NocturneDateField Id="vend-period-from" Date="periodFrom"
+                                               DateChanged="@(value => OnPeriodDateChangedAsync(value, isFrom: true))"
+                                               AriaLabel="Sales period starts" />
+                        </div>
+                        <div class="vend-field">
+                            <label for="vend-period-to">To</label>
+                            <NocturneDateField Id="vend-period-to" Date="periodTo"
+                                               DateChanged="@(value => OnPeriodDateChangedAsync(value, isFrom: false))"
+                                               AriaLabel="Sales period ends" />
+                        </div>
+                    </div>
+                    <div class="shop-seg vend-period-seg" role="group" aria-label="Sales period">
+                        @foreach (var preset in VendorListFilters.Presets)
+                        {
+                            <button type="button" class="shop-seg-btn @(period == preset.Period ? "is-on" : null)"
+                                    aria-pressed="@(period == preset.Period)"
+                                    @onclick="() => ApplyPeriodAsync(preset.Period)">
+                                @preset.Label
+                            </button>
+                        }
+                    </div>
+                </div>
+
                 @* The cards double as the depot filter: the question someone opening this page
                    most often has is "who is at this depot", and the card is where they are
                    already looking. *@
@@ -196,7 +232,7 @@
                                     {
                                         <span class="vend-fig-value is-accent">@DepotSalesLabel(depot.BusinessPartnerCode)</span>
                                     }
-                                    <span class="vend-fig-label">Sales MTD</span>
+                                    <span class="vend-fig-label">@SalesHeading</span>
                                 </span>
                             </span>
                             @if (depot.SetupProblem is not null)
@@ -244,12 +280,31 @@
 
                     @if (tab == Tab.Vendors)
                     {
+                        @* Off until the figures it filters on have arrived, and while they are missing:
+                           "no sales in period" over a failed read would list every vendor as quiet. *@
+                        <NocturneSelect Class="nsel-auto" TValue="VendorListFilters.Activity" Options="ActivityOptions"
+                                        @bind-Value="activity" Disabled="@(salesLoading || salesError is not null)"
+                                        Caption="@ActivityCaption" AriaLabel="Filter by sales activity"
+                                        Placeholder="Any activity" />
+
                         <div class="shop-seg" role="group" aria-label="Filter by status">
                             @foreach (var option in StatusOptions)
                             {
                                 <button type="button" class="shop-seg-btn @(status == option ? "is-on" : null)"
                                         aria-pressed="@(status == option)" @onclick="() => status = option">
                                     @option<span class="shop-seg-count">@CountFor(option)</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="shop-seg" role="group" aria-label="Filter by cashier status">
+                            @foreach (var option in CashierStateOptions)
+                            {
+                                <button type="button" class="shop-seg-btn @(cashierState == option.State ? "is-on" : null)"
+                                        aria-pressed="@(cashierState == option.State)" @onclick="() => cashierState = option.State">
+                                    @option.Label<span class="shop-seg-count">@CashierCountFor(option.State)</span>
                                 </button>
                             }
                         </div>
@@ -276,7 +331,7 @@
                                 else
                                 {
                                     <h3>No vendors match</h3>
-                                    <p>Clear the filter, or add a vendor to this depot.</p>
+                                    <p>@NoMatchHint</p>
                                     <button type="button" class="shop-btn shop-btn-ghost" @onclick="ClearFilters">Clear filters</button>
                                 }
                             </div>
@@ -292,8 +347,8 @@
                                         <th>Vendor</th>
                                         <th>Depot</th>
                                         <th>Phone</th>
-                                        <th class="vend-num">Sales MTD</th>
-                                        <th class="vend-num">Invoices MTD</th>
+                                        <th class="vend-num">@SalesHeading</th>
+                                        <th class="vend-num">@InvoicesHeading</th>
                                         <th>Last sale</th>
                                         <th>Status</th>
                                         <th><span class="visually-hidden">Actions</span></th>
@@ -718,8 +773,26 @@ else if (dialog is not DialogMode.None)
     private string query = string.Empty;
     private string? depotFilter;
 
-    // Month to date, from the route-customer sales summary: one read per depot, keyed back by vendor id.
-    private readonly DateTime today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+    private VendorListFilters.Activity activity = VendorListFilters.Activity.Any;
+
+    /// <summary>Null is every cashier.</summary>
+    private VendorListFilters.CashierState? cashierState;
+
+    private static readonly (VendorListFilters.CashierState? State, string Label)[] CashierStateOptions =
+    [
+        (null, "All"),
+        (VendorListFilters.CashierState.Ready, "Ready"),
+        (VendorListFilters.CashierState.CannotSell, "Cannot sell"),
+        (VendorListFilters.CashierState.Inactive, "Inactive")
+    ];
+
+    // The period's sales, from the route-customer sales summary: one read per depot, keyed back by vendor
+    // id. Month to date until the bar says otherwise.
+    private DateTime today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+    private VendorListFilters.Period period = VendorListFilters.Period.Month;
+    private DateTime? periodFrom;
+    private DateTime? periodTo;
+    private int salesRead;
     private Dictionary<int, RouteCustomerSalesRowModel> vendorSales = [];
     private Dictionary<string, List<RouteCustomerSalesTotalsModel>> depotSales = new(StringComparer.OrdinalIgnoreCase);
     private bool salesLoading;
@@ -727,6 +800,7 @@ else if (dialog is not DialogMode.None)
 
     protected override async Task OnInitializedAsync()
     {
+        (periodFrom, periodTo) = VendorListFilters.Window(period, today);
         await LoadAsync();
 
         try
@@ -743,11 +817,18 @@ else if (dialog is not DialogMode.None)
         {
         }
 
-        // The list is usable without the sales figures, so it goes on screen before they are asked for.
+        // The list is usable without the sales figures, so it goes on screen before they are asked for —
+        // already marked as waiting for them, or its first paint would say every vendor sold nothing.
+        salesLoading = overview is { Depots.Count: > 0 };
         StateHasChanged();
         await LoadSalesAsync();
     }
 
+    /// <summary>
+    /// Reads the period's figures. A second call while one is out takes over from it: the period can be
+    /// changed again without waiting, and the read that was overtaken puts nothing on the page — its
+    /// depots would otherwise land beside the newer read's, two periods in one table.
+    /// </summary>
     private async Task LoadSalesAsync()
     {
         if (overview is null || overview.Depots.Count == 0)
@@ -755,20 +836,30 @@ else if (dialog is not DialogMode.None)
             return;
         }
 
+        var reading = ++salesRead;
+        var (from, to) = (periodFrom, periodTo);
         salesLoading = true;
         salesError = null;
         try
         {
             var rows = new Dictionary<int, RouteCustomerSalesRowModel>();
             var totals = new Dictionary<string, List<RouteCustomerSalesTotalsModel>>(StringComparer.OrdinalIgnoreCase);
+            (DateTime From, DateTime To)? read = null;
 
             // One depot at a time rather than all at once: the reads share this circuit's HttpClient and
             // its token refresh, and there are only ever a handful of depots.
             foreach (var depot in overview.Depots)
             {
                 var summary = await RouteCustomerService.GetSalesSummaryAsync(
-                    depot.BusinessPartnerCode, VendorSalesDigest.MonthStart(today), today, includeInactive: true,
+                    depot.BusinessPartnerCode, from, to, includeInactive: true,
                     scope: RouteCustomerScope.Vending);
+
+                if (reading != salesRead)
+                {
+                    return;
+                }
+
+                read ??= (summary.From.Date, summary.To.Date);
 
                 foreach (var route in summary.Routes)
                 {
@@ -787,15 +878,48 @@ else if (dialog is not DialogMode.None)
 
             vendorSales = rows;
             depotSales = totals;
+
+            // The days the API read, which are not the ones asked for when a date was emptied: it closes
+            // an open end with a default of its own. The fields show what the figures cover.
+            if (read is { } window)
+            {
+                periodFrom = window.From;
+                periodTo = window.To;
+            }
         }
         catch (InvalidOperationException ex)
         {
-            salesError = $"Sales figures could not be loaded: {ex.Message}";
+            if (reading == salesRead)
+            {
+                salesError = $"Sales figures could not be loaded: {ex.Message}";
+            }
         }
         finally
         {
-            salesLoading = false;
+            if (reading == salesRead)
+            {
+                salesLoading = false;
+            }
         }
+    }
+
+    private async Task ApplyPeriodAsync(VendorListFilters.Period value)
+    {
+        // Read again rather than kept from when the page opened: a page left up overnight would
+        // otherwise offer yesterday as "Today".
+        today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+        period = value;
+        (periodFrom, periodTo) = VendorListFilters.Window(value, today);
+        await LoadSalesAsync();
+    }
+
+    private async Task OnPeriodDateChangedAsync(DateTime? value, bool isFrom)
+    {
+        (periodFrom, periodTo) = VendorListFilters.InOrder(
+            isFrom ? value : periodFrom, isFrom ? periodTo : value, fromChanged: isFrom);
+
+        period = VendorListFilters.Period.Custom;
+        await LoadSalesAsync();
     }
 
     private async Task LoadAsync()
@@ -849,9 +973,13 @@ else if (dialog is not DialogMode.None)
     private RouteCustomerSalesRowModel? SalesRowFor(RouteCustomerModel vendor) =>
         vendorSales.GetValueOrDefault(vendor.Id);
 
+    private string SalesHeading => VendorListFilters.FigureLabel("Sales", period, periodFrom ?? today);
+
+    private string InvoicesHeading => VendorListFilters.FigureLabel("Invoices", period, periodFrom ?? today);
+
     /// <summary>
     /// A figure from the summary. Blank while it loads and a dash once it has failed — never a zero, which
-    /// would say a vendor sold nothing. A vendor the summary has no row for sold nothing this month.
+    /// would say a vendor sold nothing. A vendor the summary has no row for sold nothing in the period.
     /// </summary>
     private MarkupString SalesCell(RouteCustomerSalesRowModel? row, Func<RouteCustomerSalesRowModel, string> figure)
     {
@@ -907,18 +1035,32 @@ else if (dialog is not DialogMode.None)
     private List<VendingAccountModel> AccountsInDepot =>
         overview?.Accounts.Where(account => InDepot(account.BusinessPartnerCode)).ToList() ?? [];
 
+    private bool InStatus(RouteCustomerModel vendor) => status switch
+    {
+        "Active" => vendor.IsActive,
+        "Removed" => !vendor.IsActive,
+        _ => true
+    };
+
+    /// <summary>
+    /// The activity filter as it applies right now. It reads the sales figures, so without them it keeps
+    /// everyone: a failed read must not empty the list, or fill it with vendors who "sold nothing".
+    /// </summary>
+    private VendorListFilters.Activity ActivityInForce =>
+        salesError is null ? activity : VendorListFilters.Activity.Any;
+
+    private bool InActivity(RouteCustomerModel vendor, VendorListFilters.Activity wanted) =>
+        VendorListFilters.Matches(wanted, SalesRowFor(vendor), today);
+
     private List<RouteCustomerModel> VisibleVendors
     {
         get
         {
             var term = query.Trim();
+            var wanted = ActivityInForce;
             return VendorsInDepot
-                .Where(vendor => status switch
-                {
-                    "Active" => vendor.IsActive,
-                    "Removed" => !vendor.IsActive,
-                    _ => true
-                })
+                .Where(InStatus)
+                .Where(vendor => InActivity(vendor, wanted))
                 .Where(vendor => term.Length == 0 ||
                     Has(vendor.Code, term) || Has(VendorName(vendor), term) ||
                     Has(vendor.Phone, term) || Has(vendor.VatNumber, term) ||
@@ -933,6 +1075,7 @@ else if (dialog is not DialogMode.None)
         {
             var term = query.Trim();
             return AccountsInDepot
+                .Where(account => cashierState is null || VendorListFilters.StateOf(account) == cashierState)
                 .Where(account => term.Length == 0 ||
                     Has(account.Username, term) || Has(account.FullName, term) ||
                     Has(account.WarehouseCode, term) || Has(account.CostCentreCode, term))
@@ -948,6 +1091,53 @@ else if (dialog is not DialogMode.None)
         "Active" => VendorsInDepot.Count(vendor => vendor.IsActive),
         "Removed" => VendorsInDepot.Count(vendor => !vendor.IsActive),
         _ => VendorsInDepot.Count
+    };
+
+    private int CashierCountFor(VendorListFilters.CashierState? state) =>
+        AccountsInDepot.Count(account => state is null || VendorListFilters.StateOf(account) == state);
+
+    /// <summary>
+    /// Each choice with how many of the depot's vendors, in the status showing, it would keep — so the
+    /// menu answers "how many are dormant" before anything is chosen. No counts without the figures.
+    /// </summary>
+    private List<NocturneSelectOption<VendorListFilters.Activity>> ActivityOptions
+    {
+        get
+        {
+            var counted = salesLoading || salesError is not null ? null : VendorsInDepot.Where(InStatus).ToList();
+            string? Count(VendorListFilters.Activity wanted) =>
+                counted?.Count(vendor => InActivity(vendor, wanted)).ToString("N0");
+
+            return
+            [
+                new(VendorListFilters.Activity.Any, "Any activity") { IsUnset = true, RuleAfter = true },
+                new(VendorListFilters.Activity.Sold, "Sales in period", "good") { Hint = Count(VendorListFilters.Activity.Sold) },
+                new(VendorListFilters.Activity.Quiet, "No sales in period", "warn")
+                {
+                    Hint = Count(VendorListFilters.Activity.Quiet),
+                    RuleAfter = true
+                },
+                new(VendorListFilters.Activity.Dormant, $"Dormant · over {VendorSalesDigest.DormantDays} days", "bad")
+                {
+                    Hint = Count(VendorListFilters.Activity.Dormant)
+                },
+                new(VendorListFilters.Activity.NeverSold, "Never sold to", "neutral")
+                {
+                    Hint = Count(VendorListFilters.Activity.NeverSold)
+                }
+            ];
+        }
+    }
+
+    private string ActivityCaption => periodFrom is { } from && periodTo is { } to
+        ? $"Activity · {VendorSalesDigest.WindowLabel(from, to)}"
+        : "Activity";
+
+    private string NoMatchHint => ActivityInForce switch
+    {
+        VendorListFilters.Activity.Sold => "Nobody here was sold to in this period. Widen the dates above, or clear the filters.",
+        VendorListFilters.Activity.Any => "Clear the filter, or add a vendor to this depot.",
+        _ => "Nobody here fits that activity. Clear the filters to see everyone."
     };
 
     private string ResultLabel => tab == Tab.Vendors
@@ -975,11 +1165,14 @@ else if (dialog is not DialogMode.None)
     private void ToggleDepot(string code) =>
         depotFilter = string.Equals(depotFilter, code, StringComparison.OrdinalIgnoreCase) ? null : code;
 
+    /// <summary>Puts every row back. The period stays: it decides the figures, not who is listed.</summary>
     private void ClearFilters()
     {
         query = string.Empty;
         status = "Active";
         depotFilter = null;
+        activity = VendorListFilters.Activity.Any;
+        cashierState = null;
     }
 
     // ── Dialog ─────────────────────────────────────────────────────────────
