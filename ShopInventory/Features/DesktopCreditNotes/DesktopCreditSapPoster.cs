@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -662,7 +663,7 @@ public sealed class DesktopCreditSapPoster(
             await stockLedger.ReleaseAsync(
                 returned,
                 $"credit note {note.Number}",
-                $"desktop-credit:{note.Number}",
+                DesktopCreditStockReturn.DocumentKey(note.Number),
                 CancellationToken.None);
 
             note.UnitsReturnedToLedger = true;

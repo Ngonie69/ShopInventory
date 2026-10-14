@@ -45,6 +45,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetTransfer;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferQueueStats;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferQueueStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequest;
+using ShopInventory.Features.DesktopIntegration.Queries.GetCreditReturns;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferAdjustments;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestItems;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestsByWarehouse;
@@ -939,6 +940,26 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     {
         var result = await mediator.Send(
             new GetTransferAdjustmentsQuery(warehouseCode, fromDate, toDate),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The units credit notes put back on a warehouse's stock ledger between two ledger days, one row
+    /// per item of each credit, with the credit, the sale it reverses and the time it was returned.
+    /// </summary>
+    /// <remarks>
+    /// The literal segment outranks <c>stock/{warehouseCode}/{itemCode}</c>, as <c>local</c> does.
+    /// </remarks>
+    [HttpGet("stock/{warehouseCode}/credit-returns")]
+    public async Task<IActionResult> GetCreditReturns(
+        string warehouseCode,
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new GetCreditReturnsQuery(warehouseCode, fromDate, toDate),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
