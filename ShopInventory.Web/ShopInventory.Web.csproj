@@ -28,26 +28,38 @@
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.2.0" />
     <PackageReference Include="MailKit" Version="4.18.1" />
     <PackageReference Include="MediatR" Version="14.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
     <PackageReference
       Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore"
-      Version="10.0.12"
+      Version="10.0.13"
     />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
     <PackageReference Include="MudBlazor" Version="9.11.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="Quartz" Version="3.22.4" />
     <PackageReference Include="Quartz.Extensions.Hosting" Version="3.22.4" />
     <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.22.4" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
-    <PackageReference Include="System.Drawing.Common" Version="10.0.12" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.13" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Pins a transitive dependency of MailKit: MimeKit 4.18.1 asks for
+      System.Security.Cryptography.Pkcs 10.0.0, and every 10.0.x up to 10.0.12 is flagged by two
+      denial-of-service advisories (GHSA-846f-f764-76mx high, GHSA-2fmv-rv2c-59x7 moderate), which
+      fails the Dependency Audit workflow. 10.0.13 is the patched build.
+
+      It is on the same train as the 10.0.x packages above and moves with them
+      (scripts/Set-AlignedPackageVersion.ps1). Remove once MailKit brings in a patched version itself.
+    -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
   <!-- The staff page stylesheets, bundled at build time. See the file. -->
   <Import Project="StaffStylesheets.targets" />
