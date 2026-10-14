@@ -18,6 +18,11 @@ otherwise be surprised.
 
 ### Changed
 
+- **The van sign-in reply says where the password stands.** `POST /api/vansales/auth/login` and
+  `/refresh` now carry `password_change_required`, `password_change_reason`, `password_expires_at`,
+  `password_expires_in_days` and `password_expiring_soon` — the five members `/api/Auth/login` has
+  carried since the password policy, in the handset's snake_case. Additions only; a handset that
+  does not read them is unaffected.
 - **The Shop & Vending sales reports say what was credited back.** The day card on /desktop-sales,
   the sales analysis, the management report and its item drill-down, and the business review totalled
   each sale at what it was rung up for even after the office had credited it, so a credited sale read

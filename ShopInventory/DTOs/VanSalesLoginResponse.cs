@@ -27,4 +27,25 @@ public class VanSalesLoginResponse
 
     [JsonPropertyName("expires_at")]
     public DateTime ExpiresAt { get; set; }
+
+    /// <summary>
+    /// Where the account stands on the password policy — the same five members as
+    /// <see cref="AuthLoginResponse"/>, named the handset's way. On the refresh reply too, so a van
+    /// that stays signed in for weeks still learns that its renewal has come due.
+    /// </summary>
+    [JsonPropertyName("password_change_required")]
+    public bool PasswordChangeRequired { get; set; }
+
+    /// <summary><c>Expired</c> or <c>Required</c>; null when no change is owed.</summary>
+    [JsonPropertyName("password_change_reason")]
+    public string? PasswordChangeReason { get; set; }
+
+    [JsonPropertyName("password_expires_at")]
+    public DateTime? PasswordExpiresAt { get; set; }
+
+    [JsonPropertyName("password_expires_in_days")]
+    public int? PasswordExpiresInDays { get; set; }
+
+    [JsonPropertyName("password_expiring_soon")]
+    public bool PasswordExpiringSoon { get; set; }
 }
