@@ -69,7 +69,12 @@ public static partial class VanSalesCompatibilityMapper
             ExpiresIn = expiresIn,
             Rate = LegacyVatRate,
             RefreshToken = authResponse.RefreshToken,
-            ExpiresAt = authResponse.ExpiresAt
+            ExpiresAt = authResponse.ExpiresAt,
+            PasswordChangeRequired = authResponse.PasswordChangeRequired,
+            PasswordChangeReason = authResponse.PasswordChangeReason,
+            PasswordExpiresAt = authResponse.PasswordExpiresAt,
+            PasswordExpiresInDays = authResponse.PasswordExpiresInDays,
+            PasswordExpiringSoon = authResponse.PasswordExpiringSoon
         };
     }
 

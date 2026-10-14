@@ -61,8 +61,10 @@ password was last changed and the last day it is good for.
 
 **Tills, the van app, the merchandiser app and the POD app.** Each sign-in reply carries
 `passwordChangeRequired`, `passwordChangeReason`, `passwordExpiresAt`, `passwordExpiresInDays` and
-`passwordExpiringSoon` (see API.md, `POST /api/Auth/login`). None of those apps reads them yet, so
-today they sign in and carry on.
+`passwordExpiringSoon` (see API.md, `POST /api/Auth/login`). The van app signs in through
+`/api/vansales/auth/login` and `/refresh`, whose replies carry the same five in the handset's
+snake_case: `password_change_required`, `password_change_reason`, `password_expires_at`,
+`password_expires_in_days` and `password_expiring_soon`.
 
 ### Enforcing it on the tills and handsets
 

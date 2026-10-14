@@ -4507,8 +4507,8 @@ of that dialect matter before you call anything here:
 
 | Method | Endpoint | Permission | Notes |
 |--------|----------|------------|-------|
-| POST | `/api/vansales/auth/login` | anonymous | Rate-limited under the `auth` policy |
-| POST | `/api/vansales/auth/refresh` | anonymous | Rate-limited under the `auth` policy |
+| POST | `/api/vansales/auth/login` | anonymous | Rate-limited under the `auth` policy. Carries the password standing as `password_change_required`, `password_change_reason`, `password_expires_at`, `password_expires_in_days` and `password_expiring_soon` — the same five as `POST /api/Auth/login`, in snake_case |
+| POST | `/api/vansales/auth/refresh` | anonymous | Rate-limited under the `auth` policy. Same reply, password standing included |
 | POST | `/api/vansales/auth/password` | — (authenticated) | Change own password |
 | GET | `/api/vansales/attendance` | `timesheets.view` | The caller's own calls |
 | GET | `/api/vansales/attendance/date` | `timesheets.view` | Query parameter is `value` |
