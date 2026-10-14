@@ -26,6 +26,11 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesRe
 /// and the report says how much that is. A SAP read that fails leaves the margin unavailable and the rest
 /// of the report intact. See <see cref="ManagementSalesRollup"/>, which the item drill-down shares.
 /// </para>
+/// <para>
+/// Credits are read by the sale, from <see cref="CreditedSales"/>, for this period only, and each is set
+/// beside the groups its sale was counted in. No sold figure is reduced by one, and the margin is still
+/// SAP's on the invoices as posted — a credit memo's cost reversal is not in it.
+/// </para>
 /// </remarks>
 public sealed class GetManagementSalesReportHandler(
     ApplicationDbContext db,
@@ -67,12 +72,15 @@ public sealed class GetManagementSalesReportHandler(
         }
 
         var window = resolved.Value;
-        var current = await CellsAsync(Sales(db, window, window.From, window.To), cancellationToken);
+        var credited = await CreditedSales.InAsync(db, Sales(db, window, window.From, window.To), cancellationToken);
+        var current = WithCredits(await CellsAsync(Sales(db, window, window.From, window.To), cancellationToken), credited);
         var previous = await CellsAsync(Sales(db, window, window.PreviousFrom, window.PreviousTo), cancellationToken);
-        var currentItems = await ItemsAsync(Sales(db, window, window.From, window.To), cancellationToken);
+        var currentItems = WithCredits(await ItemsAsync(Sales(db, window, window.From, window.To), cancellationToken), credited);
         var previousItems = await ItemsAsync(Sales(db, window, window.PreviousFrom, window.PreviousTo), cancellationToken);
-        var matrix = await MatrixAsync(Sales(db, window, window.From, window.To), cancellationToken);
-        var partnerMatrix = await PartnerMatrixAsync(Sales(db, window, window.From, window.To), cancellationToken);
+        var matrix = WithCredits(
+            await MatrixAsync(Sales(db, window, window.From, window.To), cancellationToken), credited, sale => sale.WarehouseCode ?? string.Empty);
+        var partnerMatrix = WithCredits(
+            await PartnerMatrixAsync(Sales(db, window, window.From, window.To), cancellationToken), credited, sale => sale.CardCode?.Trim() ?? string.Empty);
         var partners = await PartnersAsync(db, window, cancellationToken);
         var directory = PartnerDirectory(partners);
         var health = await HealthAsync(Sales(db, window, window.From, window.To), cancellationToken);
@@ -168,6 +176,77 @@ public sealed class GetManagementSalesReportHandler(
             c.TotalAmount,
             c.VatAmount))
         .ToList();
+
+    // ── Credits ────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The period's cells with each credited sale beside the cell it was counted in: a cell of no sales
+    /// and no takings, only what was credited. Every roll-up then states its credits by summing, because
+    /// a credit lands in exactly the groups its sale did.
+    /// </summary>
+    private static List<Cell> WithCredits(List<Cell> cells, List<CreditedSale> credited)
+    {
+        cells.AddRange(credited.Select(sale => new Cell(
+            CurrencyKey(sale.Currency),
+            sale.DocDate.Date,
+            sale.WarehouseCode ?? string.Empty,
+            sale.CardCode?.Trim() ?? string.Empty,
+            sale.SourceSystem ?? string.Empty,
+            sale.CreatedBy ?? string.Empty,
+            TenderTypes.ReportingName(sale.PaymentMethod),
+            sale.CostCentreCode?.Trim() ?? string.Empty,
+            sale.RouteCustomerId,
+            0,
+            0m,
+            0m)
+        {
+            CreditedAmount = sale.CreditedAmount,
+            CreditedSales = 1,
+            FullyCredited = sale.IsFullyCredited ? 1 : 0
+        }));
+
+        return cells;
+    }
+
+    /// <summary>Each item with what was credited back of it, inside the business that sold it.</summary>
+    private static List<ItemCell> WithCredits(List<ItemCell> items, List<CreditedSale> credited)
+    {
+        var back = credited
+            .SelectMany(sale => sale.Lines, (sale, line) => (
+                Key: (Currency: CurrencyKey(sale.Currency), Business: SaleBusinesses.Of(sale.SourceSystem), line.ItemCode),
+                line.Quantity,
+                line.Value))
+            .GroupBy(line => line.Key)
+            .ToDictionary(g => g.Key, g => (Quantity: g.Sum(line => line.Quantity), Value: g.Sum(line => line.Value)));
+
+        return items
+            .Select(item => back.TryGetValue((item.Currency, item.Business, item.ItemCode), out var given)
+                ? item with { CreditedQuantity = given.Quantity, CreditedNetAmount = given.Value }
+                : item)
+            .ToList();
+    }
+
+    /// <summary>
+    /// A grid's cells with what was credited back of each item at each place — the sale's warehouse in
+    /// the depot grid, its CardCode in the partner grid.
+    /// </summary>
+    private static List<MatrixCell> WithCredits(
+        List<MatrixCell> cells, List<CreditedSale> credited, Func<CreditedSale, string> place)
+    {
+        var back = credited
+            .SelectMany(sale => sale.Lines, (sale, line) => (
+                Key: (Currency: CurrencyKey(sale.Currency), Business: SaleBusinesses.Of(sale.SourceSystem), line.ItemCode, Place: place(sale)),
+                line.Quantity,
+                line.Value))
+            .GroupBy(line => line.Key)
+            .ToDictionary(g => g.Key, g => (Quantity: g.Sum(line => line.Quantity), Value: g.Sum(line => line.Value)));
+
+        return cells
+            .Select(cell => back.TryGetValue((cell.Currency, cell.Business, cell.ItemCode, cell.WarehouseCode), out var given)
+                ? cell with { CreditedQuantity = given.Quantity, CreditedNetAmount = given.Value }
+                : cell)
+            .ToList();
+    }
 
     /// <summary>
     /// Each item's lines, inside the line of business that sold them.
@@ -396,7 +475,13 @@ public sealed class GetManagementSalesReportHandler(
             summaryMargin?.GrossProfit,
             summaryMargin?.MarginPercent,
             summaryMargin?.Revenue ?? 0m,
-            margin.CostedSales(currency));
+            margin.CostedSales(currency))
+        {
+            CreditedAmount = current.Sum(c => c.CreditedAmount),
+            CreditedSalesCount = current.Sum(c => c.CreditedSales),
+            FullyCreditedSalesCount = current.Sum(c => c.FullyCredited),
+            CreditedQuantity = currentItems.Sum(i => i.CreditedQuantity)
+        };
 
         var byDay = Enumerable.Range(0, window.Days)
             .Select(offset =>
@@ -407,7 +492,10 @@ public sealed class GetManagementSalesReportHandler(
                 var then = previous.Where(c => c.DocDate == compared).ToList();
                 return new ManagementDayRow(
                     date, today.Sum(c => c.SalesCount), today.Sum(c => c.TotalAmount),
-                    compared, then.Sum(c => c.SalesCount), then.Sum(c => c.TotalAmount));
+                    compared, then.Sum(c => c.SalesCount), then.Sum(c => c.TotalAmount))
+                {
+                    CreditedAmount = today.Sum(c => c.CreditedAmount)
+                };
             })
             .ToList();
 
@@ -480,13 +568,21 @@ public sealed class GetManagementSalesReportHandler(
                 .OrderBy(m => m.ItemCode, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => m.WarehouseCode, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => Array.IndexOf(SaleBusinesses.All, m.Business))
-                .Select(m => new ManagementItemDepotCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount, m.Business))
+                .Select(m => new ManagementItemDepotCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount, m.Business)
+                {
+                    CreditedQuantity = m.CreditedQuantity,
+                    CreditedNetAmount = m.CreditedNetAmount
+                })
                 .ToList(),
             partnerMatrix
                 .OrderBy(m => m.ItemCode, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => m.WarehouseCode, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => Array.IndexOf(SaleBusinesses.All, m.Business))
-                .Select(m => new ManagementItemPartnerCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount, m.Business))
+                .Select(m => new ManagementItemPartnerCell(m.ItemCode, m.WarehouseCode, m.Quantity, m.NetAmount, m.Business)
+                {
+                    CreditedQuantity = m.CreditedQuantity,
+                    CreditedNetAmount = m.CreditedNetAmount
+                })
                 .ToList());
     }
 
@@ -531,7 +627,11 @@ public sealed class GetManagementSalesReportHandler(
                 now?.DiscountAmount ?? 0m,
                 itemMargin?.GrossProfit,
                 itemMargin?.MarginPercent,
-                business);
+                business)
+            {
+                CreditedQuantity = now?.CreditedQuantity ?? 0m,
+                CreditedNetAmount = now?.CreditedNetAmount ?? 0m
+            };
         }
 
         return currentItems
@@ -574,7 +674,11 @@ public sealed class GetManagementSalesReportHandler(
                             Change(net, before),
                             groupMargin?.GrossProfit,
                             groupMargin?.MarginPercent,
-                            business.Key);
+                            business.Key)
+                        {
+                            CreditedQuantity = group.Sum(i => i.CreditedQuantity),
+                            CreditedNetAmount = group.Sum(i => i.CreditedNetAmount)
+                        };
                     })
                     .OrderByDescending(row => row.NetAmount)
                     .ThenByDescending(row => row.PreviousNetAmount);
@@ -620,7 +724,10 @@ public sealed class GetManagementSalesReportHandler(
                     then.Total,
                     Change(rowTotal, then.Total),
                     rowMargin?.GrossProfit,
-                    rowMargin?.MarginPercent);
+                    rowMargin?.MarginPercent)
+                {
+                    CreditedAmount = cells.Sum(c => c.CreditedAmount)
+                };
             })
             .OrderByDescending(row => row.TotalAmount)
             .ThenByDescending(row => row.PreviousTotalAmount)
@@ -642,16 +749,34 @@ public sealed class GetManagementSalesReportHandler(
         int? RouteCustomerId,
         int SalesCount,
         decimal TotalAmount,
-        decimal VatAmount);
+        decimal VatAmount)
+    {
+        /// <summary>What was credited back, on a cell that stands for one credited sale and nothing else.</summary>
+        public decimal CreditedAmount { get; init; }
+
+        public int CreditedSales { get; init; }
+
+        public int FullyCredited { get; init; }
+    }
 
     private sealed record ItemCell(
-        string Currency, string Business, string ItemCode, string? ItemDescription, decimal Quantity, decimal NetAmount, decimal DiscountAmount, int SalesCount);
+        string Currency, string Business, string ItemCode, string? ItemDescription, decimal Quantity, decimal NetAmount, decimal DiscountAmount, int SalesCount)
+    {
+        public decimal CreditedQuantity { get; init; }
+
+        public decimal CreditedNetAmount { get; init; }
+    }
 
     /// <summary>
     /// An item at one place, in one line of business — a warehouse in the depot grid, a CardCode in the
     /// partner grid.
     /// </summary>
-    private sealed record MatrixCell(string Currency, string Business, string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount);
+    private sealed record MatrixCell(string Currency, string Business, string ItemCode, string WarehouseCode, decimal Quantity, decimal NetAmount)
+    {
+        public decimal CreditedQuantity { get; init; }
+
+        public decimal CreditedNetAmount { get; init; }
+    }
 
     private sealed record HealthCell(
         string Currency,

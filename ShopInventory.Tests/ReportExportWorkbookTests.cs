@@ -385,6 +385,67 @@ public class ReportExportWorkbookTests
     }
 
     /// <summary>
+    /// A credited sale keeps the amount it was rung up for and states what came off it, under which
+    /// credit numbers, and what is left; a sale nothing was credited on leaves the two credit columns
+    /// blank. The totals row nets the same way, so the workbook's Net of Credits column adds up.
+    /// </summary>
+    [Fact]
+    public void A_credited_sale_states_what_was_credited_and_the_net_beside_what_was_sold()
+    {
+        var sales = new List<DesktopSaleDto>
+        {
+            new() { ExternalReferenceId = "R1", CardCode = "C1", DocDate = From, Currency = "USD", TotalAmount = 100m, AmountPaid = 100m, CreditedAmount = 25m, CreditNoteNumbers = ["CN1753", "55294"] },
+            new() { ExternalReferenceId = "R2", CardCode = "C1", DocDate = From, Currency = "USD", TotalAmount = 50m, AmountPaid = 50m },
+        };
+
+        using var workbook = Open(_service.ExportDesktopSalesToExcel(sales, null, From, To));
+        var sheet = workbook.Worksheet("Shop & Vending Sales");
+
+        int Column(string header) => sheet.CellsUsed().Single(c => c.GetString() == header).Address.ColumnNumber;
+        var credited = sheet.CellsUsed().Single(c => c.GetString() == "R1").WorksheetRow();
+        var ordinary = sheet.CellsUsed().Single(c => c.GetString() == "R2").WorksheetRow();
+        var totals = sheet.CellsUsed().Single(c => c.GetString().StartsWith("Total (", StringComparison.Ordinal)).WorksheetRow();
+
+        Assert.Equal(100m, credited.Cell(Column("Amount")).GetValue<decimal>());
+        Assert.Equal(25m, credited.Cell(Column("Credited")).GetValue<decimal>());
+        Assert.Equal(75m, credited.Cell(Column("Net of Credits")).GetValue<decimal>());
+        Assert.Equal("CN1753, 55294", credited.Cell(Column("Credit Notes")).GetString());
+        Assert.Equal(100m, credited.Cell(Column("Paid")).GetValue<decimal>());
+
+        Assert.True(ordinary.Cell(Column("Credited")).IsEmpty());
+        Assert.True(ordinary.Cell(Column("Credit Notes")).IsEmpty());
+        Assert.Equal(50m, ordinary.Cell(Column("Net of Credits")).GetValue<decimal>());
+
+        Assert.Equal(150m, totals.Cell(Column("Amount")).GetValue<decimal>());
+        Assert.Equal(25m, totals.Cell(Column("Credited")).GetValue<decimal>());
+        Assert.Equal(125m, totals.Cell(Column("Net of Credits")).GetValue<decimal>());
+        Assert.Equal(150m, totals.Cell(Column("Paid")).GetValue<decimal>());
+    }
+
+    /// <summary>
+    /// The day's cards state what was credited and the net only on a day something was credited; on
+    /// any other day the four cards stand as they did.
+    /// </summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(25, true)]
+    public void The_days_cards_state_credits_only_when_there_were_any(decimal creditedOnDay, bool stated)
+    {
+        var report = new EndOfDayReportDto
+        {
+            ReportDate = From, TotalSalesCount = 2, TotalSalesAmount = 150m, TotalVatAmount = 20m,
+            TotalCreditedAmount = creditedOnDay, TotalNetOfCredits = 150m - creditedOnDay,
+        };
+
+        using var workbook = Open(_service.ExportDesktopSalesToExcel([], report, From, To));
+        var labels = workbook.Worksheet("Shop & Vending Sales").CellsUsed().Select(c => c.GetString()).ToList();
+
+        // The table has a "Credited" column either way; the card is the second cell so labelled.
+        Assert.Equal(stated ? 2 : 1, labels.Count(label => label == "Credited"));
+        Assert.Equal(stated ? 2 : 1, labels.Count(label => label == "Net of Credits"));
+    }
+
+    /// <summary>
     /// Van Sales Orders exports the invoice each order became, as the page resolved it from SAP, and the
     /// status the page shows beside it. The invoice is a number, and blank on an order not yet invoiced.
     /// </summary>

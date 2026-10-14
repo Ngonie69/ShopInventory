@@ -1093,6 +1093,26 @@ public class DesktopSaleDto
         (string.Equals(FiscalizationStatus, "Failed", StringComparison.OrdinalIgnoreCase) ||
          string.Equals(FiscalizationStatus, "Pending", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// How much of this sale has been credited back, tax-inclusive like <see cref="TotalAmount"/>; 0 when
+    /// nothing has.
+    /// </summary>
+    /// <remarks>
+    /// The API has sent this on every row since the till needed it; the mirror did not carry it, so the
+    /// list showed a credited sale at what it was rung up for. Only credits that gave something back are
+    /// in it — a till credit ZIMRA accepted, a SAP memo not cancelled.
+    /// </remarks>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary>The numbers of the credits behind <see cref="CreditedAmount"/>; empty when none.</summary>
+    public List<string> CreditNoteNumbers { get; set; } = new();
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>: what the sale stands at.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+
+    /// <summary>Whether the credits give back the whole sale, to the cent — the API's own rule.</summary>
+    public bool IsFullyCredited => CreditedAmount > 0m && CreditedAmount >= Math.Abs(TotalAmount) - 0.01m;
+
     public List<DesktopSaleLineDto> Lines { get; set; } = new();
 }
 
@@ -1212,6 +1232,15 @@ public class DesktopSaleLineDto
     public string WarehouseCode { get; set; } = string.Empty;
     public string? TaxCode { get; set; }
     public decimal DiscountPercent { get; set; }
+
+    /// <summary>How many of <see cref="Quantity"/> have been credited back; 0 when none have.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>
+    /// What was credited back on this line, tax-inclusive like the sale's credited total — and so not on
+    /// the basis of <see cref="LineTotal"/>, which a till sale holds before tax.
+    /// </summary>
+    public decimal CreditedAmount { get; set; }
 }
 
 // End of Day Report DTOs
@@ -1223,6 +1252,22 @@ public class EndOfDayReportDto
     public decimal TotalSalesAmount { get; set; }
     public decimal TotalVatAmount { get; set; }
     public decimal TotalAmountPaid { get; set; }
+
+    /// <summary>
+    /// What has been credited back on the day's sales, tax-inclusive like <see cref="TotalSalesAmount"/>.
+    /// Counted against the day of the sale, not the day the credit was raised.
+    /// </summary>
+    public decimal TotalCreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalSalesAmount"/> less <see cref="TotalCreditedAmount"/>, as the API states it.</summary>
+    public decimal TotalNetOfCredits { get; set; }
+
+    /// <summary>How many of the day's sales have had anything credited back.</summary>
+    public int CreditedSalesCount { get; set; }
+
+    /// <summary>How many of those were credited back in full.</summary>
+    public int FullyCreditedSalesCount { get; set; }
+
     public int PostedInvoiceCount { get; set; }
     public int UnpostedInvoiceCount { get; set; }
     public List<BPSummaryDto> BusinessPartnerSummaries { get; set; } = new();
@@ -1237,6 +1282,12 @@ public class BPSummaryDto
     public decimal TotalAmount { get; set; }
     public decimal TotalVat { get; set; }
     public decimal TotalPaid { get; set; }
+
+    /// <summary>What has been credited back on this customer's sales of the day, tax-inclusive.</summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
 }
 
 public class UnpostedSaleDto

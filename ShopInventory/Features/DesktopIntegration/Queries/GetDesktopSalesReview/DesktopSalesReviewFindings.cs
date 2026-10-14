@@ -51,6 +51,9 @@ public static class DesktopSalesReviewFindings
     /// <summary>A sale SAP has not had for this many days past its date is late.</summary>
     public const int PostingLateDays = 3;
 
+    /// <summary>Credits worth this share of the takings or more are worth a look, not only a note.</summary>
+    public const decimal CreditShareReviewPercent = 5m;
+
     /// <summary>The findings for one line of business, from its figures and the management report asked for it alone.</summary>
     public static List<DesktopSalesReviewFinding> Write(DesktopSalesReviewBusiness business, ManagementSalesReport management)
     {
@@ -64,6 +67,7 @@ public static class DesktopSalesReviewFindings
 
             Period(management, section, findings);
             Trend(section, findings);
+            Credits(section, findings);
             SpikeDays(section, findings);
             Concentration(section, findings);
             Hours(business, section, findings);
@@ -173,6 +177,29 @@ public static class DesktopSalesReviewFindings
             $"{Money(section.Currency, headline.TotalAmount)} against {Money(section.Currency, headline.PreviousTotalAmount)}. "
                 + $"The number of sales ({headline.PreviousSalesCount:N0} → {headline.SalesCount:N0}) accounts for {Signed(section.Currency, traffic)}; "
                 + $"the average sale ({Money(section.Currency, headline.PreviousAverageSale)} → {Money(section.Currency, headline.AverageSale)}) for {Signed(section.Currency, ticket)}."));
+    }
+
+    /// <summary>
+    /// What the office credited back on the period's sales. Every figure in the review is what was rung
+    /// up, so this says how much of it was corrected and what the sales stand at.
+    /// </summary>
+    private static void Credits(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
+    {
+        var headline = section.Headline;
+        if (headline.CreditedAmount <= 0m)
+        {
+            return;
+        }
+
+        var share = headline.TotalAmount == 0 ? 0m : headline.CreditedAmount / headline.TotalAmount * 100m;
+        findings.Add(new("credits", share >= CreditShareReviewPercent ? DesktopSalesReviewSeverity.Review : DesktopSalesReviewSeverity.Note,
+            DesktopSalesReviewTopic.Period, section.Currency,
+            $"{Money(section.Currency, headline.CreditedAmount)} credited back on {Count(headline.CreditedSalesCount, "sale")}",
+            $"The takings here are what was rung up. {Count(headline.CreditedSalesCount, "sale")}"
+                + (headline.FullyCreditedSalesCount > 0 ? $" ({headline.FullyCreditedSalesCount.ToString("N0", CultureInfo.InvariantCulture)} in full)" : string.Empty)
+                + $" were credited back for {Money(section.Currency, headline.CreditedAmount)}, VAT included — {Pct(share)} of takings — "
+                + $"so the period's sales stand at {Money(section.Currency, headline.NetOfCredits)}. "
+                + "A credit is counted on the day of the sale it reverses, whenever it was raised."));
     }
 
     /// <summary>A day far above the rest, and whether a shop starting that day explains it.</summary>
@@ -305,7 +332,8 @@ public static class DesktopSalesReviewFindings
 
     private static void LargeSales(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
     {
-        var unnamed = section.LargeSales.Where(sale => sale.CustomerCode is null).ToList();
+        // A sale credited back in full was reversed, not bought: it is listed, but nobody needs an account.
+        var unnamed = section.LargeSales.Where(sale => sale.CustomerCode is null && !sale.IsFullyCredited).ToList();
         if (unnamed.Count == 0)
         {
             return;

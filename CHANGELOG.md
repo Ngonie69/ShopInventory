@@ -18,6 +18,39 @@ otherwise be surprised.
 
 ### Changed
 
+- **The Shop & Vending sales reports say what was credited back.** The day card on /desktop-sales,
+  the sales analysis, the management report and its item drill-down, and the business review totalled
+  each sale at what it was rung up for even after the office had credited it, so a credited sale read
+  as takings. Each now shows what was sold, what was credited back and the net — on screen, in its
+  workbook, in the review's PDF and email, and in the nightly end-of-day email. Nothing sold is
+  reduced: takings, quantities, rankings, shares, the comparison with the period before and SAP's
+  margin are what was rung up, and the credited figures stand beside them so a credited sale reads as
+  a correction rather than a smaller sale. A credit counts on the day of the sale it reverses, not the
+  day it was raised, and only once it gave something back (a till credit ZIMRA accepted, a SAP memo
+  not cancelled) — the till's and the van handset's rule.
+  - **Response additions** (nothing removed or renamed). `end-of-day/report`: `totalCreditedAmount`,
+    `totalNetOfCredits`, `creditedSalesCount`, `fullyCreditedSalesCount`; `creditedAmount` and
+    `netOfCredits` on each business partner; `creditedAmount` and `creditNoteNumbers` on each sale.
+    `sales/analysis`: `creditsCounted` (false on `api/van-sales/sales-analysis`, which shares the
+    shape and does not read credits); `creditedAmount` and `netOfCredits` on each currency and on every
+    tender, day, hour and breakdown row, with `creditedSalesCount`, `fullyCreditedSalesCount` and
+    `creditedQuantity` on the currency; `creditedQuantity`, `creditedNetAmount`,
+    `quantityAfterCredits` and `netAmountAfterCredits` on each best seller, and the first two on each
+    business. `sales/management-report`: the same on the summary, each day, each breakdown row, each
+    item, item group and matrix cell; `sales/management-report/item`: the item figures on its summary,
+    days and rows. `sales/review`: the headline, shop, best-seller and large-sale rows, the large
+    sales with `creditNoteNumbers` and `isFullyCredited`, and a `credits` finding. `netAmount` still
+    means before VAT; the net of credits is `netOfCredits` (tax-inclusive, like `totalAmount`) or, for
+    an item, `netAmountAfterCredits` (before VAT, like its `netAmount`).
+  - An item's credited value is what the credited units were sold for on its own line, before VAT,
+    so it nets against the item's value; a sale's credited amount is VAT-inclusive and nets against
+    its total. A credit whose plan names no line still comes off the sale's money and off no item.
+  - The review no longer asks for a customer account behind a large walk-in sale that was credited
+    back in full: it was reversed, not bought.
+  - /desktop-sales rows now carry the credited amount the API already sent (the Web's copy of the
+    sale did not have it) and mark a credited sale under its total; the drawer marks credited lines.
+    The /vending list marks credited settlements the same way.
+
 - **Staff passwords are held to the company password policy, on every route that sets one.** A new
   password must be at least 8 characters, must not be a common one (`Password123`, `Welcome2026`,
   `12345678`, the company's own name), must not contain the account's name, username, email address

@@ -28,6 +28,11 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesRevie
 /// <see cref="DesktopSalesReviewFindings"/> from those figures alone.
 /// </para>
 /// <para>
+/// What was credited back comes with the two reports: every sold figure here is what was rung up, and
+/// the credited amount and what is left stand beside it. The review's own reads take credits only for
+/// the sales it lists one by one, the large ones.
+/// </para>
+/// <para>
 /// All of it is done once per line of business — shops, then vending — with the window confined to that
 /// business, so no figure, average or finding mixes a counter's trade with a vendor's settlements. The
 /// vans are not reviewed here, by either of the routes their sales arrive by: they are reported under van
@@ -121,6 +126,10 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         var hours = await ShopHoursAsync(sales, cancellationToken);
         var firstSales = await FirstSalesAsync(window, cancellationToken);
         List<LargeCandidate> largest = window.Business == SaleBusinesses.Vending ? [] : await LargestSalesAsync(sales, cancellationToken);
+        var credits = largest.Count == 0
+            ? new Dictionary<int, CreditedSale>()
+            : (await CreditedSales.InAsync(db, sales.Where(s => largest.Select(c => c.Id).Contains(s.Id)), cancellationToken))
+                .ToDictionary(sale => sale.SaleId);
 
         var currencies = InCurrencyOrder(
                 analysis.Value.Currencies.Select(section => Section(
@@ -129,6 +138,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
                     cells.Where(c => c.Currency == section.Currency).ToList(),
                     hours.Where(h => h.Currency == section.Currency).ToList(),
                     largest.Where(s => s.Currency == section.Currency).ToList(),
+                    credits,
                     walkInPartners,
                     firstSales,
                     window)),
@@ -292,6 +302,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
         List<Cell> cells,
         List<HourCell> hours,
         List<LargeCandidate> largest,
+        IReadOnlyDictionary<int, CreditedSale> credits,
         IReadOnlyDictionary<string, HashSet<string>> walkInPartners,
         IReadOnlyDictionary<string, DateTime> firstSales,
         Window window)
@@ -352,7 +363,12 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
             Percent(analysis.VatAmount, analysis.NetAmount, 2),
             summary?.GrossProfit,
             summary?.MarginPercent,
-            summary?.CostedNetAmount ?? 0m);
+            summary?.CostedNetAmount ?? 0m)
+        {
+            CreditedAmount = analysis.CreditedAmount,
+            CreditedSalesCount = analysis.CreditedSalesCount,
+            FullyCreditedSalesCount = analysis.FullyCreditedSalesCount
+        };
 
         return new DesktopSalesReviewCurrency(
             currency,
@@ -368,7 +384,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
             items.Count,
             lineValue - topItems.Sum(i => i.NetAmount),
             PriceSpreads(items, matrix, shops),
-            LargeSales(largest, shops, walkInPartners));
+            LargeSales(largest, shops, credits, walkInPartners));
     }
 
     private static DesktopSalesReviewShopRow Shop(
@@ -423,7 +439,10 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
             depot?.PreviousTotalAmount ?? 0m,
             depot?.ChangePercent,
             depot?.GrossProfit,
-            depot?.MarginPercent);
+            depot?.MarginPercent)
+        {
+            CreditedAmount = depot?.CreditedAmount ?? 0m
+        };
     }
 
     private static List<DesktopSalesReviewItemRow> TopItems(List<ManagementItemRow> items, decimal lineValue)
@@ -451,7 +470,11 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
                     i.DiscountAmount,
                     i.ChangePercent,
                     i.GrossProfit,
-                    i.MarginPercent);
+                    i.MarginPercent)
+                {
+                    CreditedQuantity = i.CreditedQuantity,
+                    CreditedNetAmount = i.CreditedNetAmount
+                };
             })
             .ToList();
     }
@@ -504,6 +527,7 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
     private static List<DesktopSalesReviewLargeSale> LargeSales(
         List<LargeCandidate> candidates,
         List<DesktopSalesReviewShopRow> shops,
+        IReadOnlyDictionary<int, CreditedSale> credits,
         IReadOnlyDictionary<string, HashSet<string>> walkInPartners)
     {
         var averages = shops.ToDictionary(s => s.WarehouseCode, s => s.AverageSale, StringComparer.OrdinalIgnoreCase);
@@ -523,7 +547,11 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
                     : null,
                 x.Sale.TotalAmount,
                 x.Sale.Quantity,
-                Math.Round(x.Sale.TotalAmount / x.Average, 1, MidpointRounding.AwayFromZero)))
+                Math.Round(x.Sale.TotalAmount / x.Average, 1, MidpointRounding.AwayFromZero))
+            {
+                CreditedAmount = credits.GetValueOrDefault(x.Sale.Id)?.CreditedAmount ?? 0m,
+                CreditNoteNumbers = credits.GetValueOrDefault(x.Sale.Id)?.CreditNoteNumbers ?? []
+            })
             .ToList();
     }
 

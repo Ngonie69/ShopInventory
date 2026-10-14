@@ -231,6 +231,17 @@
     color: var(--shop-mute-2);
 }
 
+/* A settlement the office credited back, under its amount. The warn hue: the
+   credit is the correction working, not a fault. */
+.vend .shop-table .vend-credited {
+    font-size: 11.5px;
+    color: var(--shop-fam-warn);
+}
+
+.vend .shop-table .vend-credited[title] {
+    cursor: help;
+}
+
 .vend .vend-nowrap {
     white-space: nowrap;
 }

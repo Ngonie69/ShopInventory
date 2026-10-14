@@ -251,6 +251,155 @@ public sealed class DesktopSalesAnalysisExportTests
         Assert.Equal(90m, sheet.Cell(header + 1, 8).GetValue<decimal>());
     }
 
+    // ---- What was credited back -------------------------------------------------------------------
+
+    /// <summary>
+    /// The fixture, as the counters' analysis answers it once two sales were credited: 12.50 back on a
+    /// cash sale, and the 8.00 sale no tender was recorded for credited in full.
+    /// </summary>
+    private static DesktopSalesAnalysisResult CreditedReport()
+    {
+        var report = Report();
+        report.CreditsCounted = true;
+
+        var usd = report.Currencies[0];
+        usd.CreditedAmount = 20.50m;
+        usd.NetOfCredits = 288.20m;
+        usd.CreditedSalesCount = 2;
+        usd.FullyCreditedSalesCount = 1;
+        usd.CreditedQuantity = 5m;
+
+        void Credit(dynamic row, decimal credited)
+        {
+            row.CreditedAmount = credited;
+            row.NetOfCredits = row.TotalAmount - credited;
+        }
+
+        Credit(usd.ByPaymentMethod[0], 12.50m);
+        Credit(usd.ByPaymentMethod[3], 8.00m);
+        foreach (var row in usd.ByPaymentMethod.Skip(1).Take(2))
+            Credit(row, 0m);
+        Credit(usd.ByDay[0], 20.50m);
+        Credit(usd.ByHour[0], 20.50m);
+        Credit(usd.ByWarehouse[0], 20.50m);
+        Credit(usd.ByBusinessPartner[0], 12.50m);
+        Credit(usd.ByBusinessPartner[1], 8.00m);
+
+        var milk = usd.TopItems[0];
+        milk.CreditedQuantity = 5m;
+        milk.QuantityAfterCredits = 15m;
+        milk.CreditedNetAmount = 22.50m;
+        milk.NetAmountAfterCredits = 67.50m;
+
+        return report;
+    }
+
+    [Fact]
+    public void Every_sheet_ends_with_what_was_credited_and_what_is_left()
+    {
+        using var workbook = Export(CreditedReport());
+
+        foreach (var sheetName in new[] { "Payment Methods", "By Day", "By Shop", "By Business Partner", "By Operator", "By Source", "By Hour" })
+        {
+            var sheet = workbook.Worksheet(sheetName);
+            var header = RowWhere(sheet, column: 1, "Currency");
+            var headings = sheet.Row(header).CellsUsed().Select(cell => cell.GetString()).ToList();
+
+            // Last, so no column a reader already knows the place of has moved.
+            Assert.Equal(new[] { "Credited", "Net of Credits" }, headings.TakeLast(2));
+        }
+    }
+
+    [Fact]
+    public void A_payment_method_states_what_was_credited_back_on_it_and_the_net()
+    {
+        using var workbook = Export(CreditedReport());
+        var sheet = workbook.Worksheet("Payment Methods");
+
+        var cash = RowWhere(sheet, column: 2, "Cash");
+        Assert.Equal(102.55m, sheet.Cell(cash, 5).GetValue<decimal>());
+        Assert.Equal(12.50m, sheet.Cell(cash, 9).GetValue<decimal>());
+        Assert.Equal(90.05m, sheet.Cell(cash, 10).GetValue<decimal>());
+
+        // A tender nothing was credited on reads zero and its net is its takings.
+        var swipe = RowWhere(sheet, column: 2, "Swipe");
+        Assert.Equal(0m, sheet.Cell(swipe, 9).GetValue<decimal>());
+        Assert.Equal(132.15m, sheet.Cell(swipe, 10).GetValue<decimal>());
+
+        var total = RowWhere(sheet, column: 2, "TOTAL");
+        Assert.Equal(308.70m, sheet.Cell(total, 5).GetValue<decimal>());
+        Assert.Equal(20.50m, sheet.Cell(total, 9).GetValue<decimal>());
+        Assert.Equal(288.20m, sheet.Cell(total, 10).GetValue<decimal>());
+
+        // And the headline strip states both, per currency, beside the takings they correct.
+        var creditedLabel = sheet.CellsUsed().First(cell => cell.GetString() == "Credited" && cell.Address.RowNumber < 6);
+        Assert.Equal("USD 20.50", sheet.Cell(creditedLabel.Address.RowNumber - 1, creditedLabel.Address.ColumnNumber).GetString());
+        var netLabel = sheet.CellsUsed().First(cell => cell.GetString() == "Net of Credits" && cell.Address.RowNumber < 6);
+        Assert.Equal("USD 288.20", sheet.Cell(netLabel.Address.RowNumber - 1, netLabel.Address.ColumnNumber).GetString());
+    }
+
+    [Fact]
+    public void Each_breakdown_row_and_its_total_net_the_same_way()
+    {
+        using var workbook = Export(CreditedReport());
+        var sheet = workbook.Worksheet("By Business Partner");
+
+        var header = RowWhere(sheet, column: 1, "Currency");
+        var takings = ColumnWhere(sheet, header, "Takings");
+        var credited = ColumnWhere(sheet, header, "Credited");
+        var net = ColumnWhere(sheet, header, "Net of Credits");
+
+        var farm = RowWhere(sheet, column: 2, "Farm Counter Sales");
+        Assert.Equal((300.70m, 12.50m, 288.20m), (
+            sheet.Cell(farm, takings).GetValue<decimal>(), sheet.Cell(farm, credited).GetValue<decimal>(), sheet.Cell(farm, net).GetValue<decimal>()));
+
+        // Credited in full: the sale is still in the takings, and its net is nothing.
+        var other = RowWhere(sheet, column: 2, "CIS009");
+        Assert.Equal((8.00m, 8.00m, 0m), (
+            sheet.Cell(other, takings).GetValue<decimal>(), sheet.Cell(other, credited).GetValue<decimal>(), sheet.Cell(other, net).GetValue<decimal>()));
+
+        var total = sheet.RowsUsed().First(row => row.Cell(2).GetString().StartsWith("TOTAL", StringComparison.Ordinal)).RowNumber();
+        Assert.Equal((308.70m, 20.50m, 288.20m), (
+            sheet.Cell(total, takings).GetValue<decimal>(), sheet.Cell(total, credited).GetValue<decimal>(), sheet.Cell(total, net).GetValue<decimal>()));
+
+        // The tender columns still add across to Takings: the credit columns sit after it, not among them.
+        Assert.True(credited > takings);
+    }
+
+    [Fact]
+    public void A_best_seller_states_the_units_and_value_credited_back_and_what_is_left()
+    {
+        using var workbook = Export(CreditedReport());
+        var sheet = workbook.Worksheet("Best Sellers");
+        var header = RowWhere(sheet, column: 2, "Channel");
+
+        Assert.Equal(
+            new[] { "Credited Qty", "Qty After Credits", "Credited Value", "Value After Credits" },
+            sheet.Row(header).CellsUsed().Select(cell => cell.GetString()).TakeLast(4));
+
+        // Quantity and value stay what was sold, in the columns they were always in.
+        Assert.Equal((20m, 90m), (sheet.Cell(header + 1, 6).GetValue<decimal>(), sheet.Cell(header + 1, 8).GetValue<decimal>()));
+        Assert.Equal((5m, 15m, 22.50m, 67.50m), (
+            sheet.Cell(header + 1, 10).GetValue<decimal>(), sheet.Cell(header + 1, 11).GetValue<decimal>(),
+            sheet.Cell(header + 1, 12).GetValue<decimal>(), sheet.Cell(header + 1, 13).GetValue<decimal>()));
+    }
+
+    /// <summary>
+    /// The van analysis shares the workbook and does not read credits. It says nothing about them — a
+    /// column of zeros would read as "nothing was credited" when nobody looked.
+    /// </summary>
+    [Fact]
+    public void An_analysis_that_did_not_read_credits_says_nothing_about_them()
+    {
+        var report = CreditedReport();
+        report.CreditsCounted = false;
+
+        using var workbook = Export(report);
+
+        Assert.All(workbook.Worksheets, sheet =>
+            Assert.DoesNotContain(sheet.CellsUsed(), cell => cell.GetString().Contains("Credit", StringComparison.OrdinalIgnoreCase)));
+    }
+
     private static XLWorkbook Export(DesktopSalesAnalysisResult report) =>
         new(new MemoryStream(new ReportExportService().ExportDesktopSalesAnalysisToExcel(report)));
 

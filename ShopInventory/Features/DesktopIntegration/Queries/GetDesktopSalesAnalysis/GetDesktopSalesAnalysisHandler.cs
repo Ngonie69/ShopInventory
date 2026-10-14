@@ -18,6 +18,11 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// thousands of rows, and none of the figures on this report needs a row — each is a sum over a group
 /// small enough to hold. The payment-method normalisation happens after grouping, on the few distinct
 /// values that come back, because legacy spellings cannot be folded in SQL without restating the rule.
+/// <para>
+/// Credits are the one thing read by the sale: <see cref="CreditedSales"/> reads the few sales of the
+/// period that were credited back, and each is taken off the same groups it was added to. Nothing that
+/// was sold is reduced — the credited figure stands beside it.
+/// </para>
 /// </remarks>
 public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAuditService auditService)
     : IRequestHandler<GetDesktopSalesAnalysisQuery, ErrorOr<DesktopSalesAnalysisResult>>
@@ -178,6 +183,30 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 c.WithoutReference))
             .ToList();
 
+        // The credited sales of the period, each as a cell of its own beside the cell it was sold in:
+        // no sale, no takings, only what was credited. Every roll-up below then nets itself, because a
+        // credit lands in exactly the groups its sale did.
+        var credited = await CreditedSales.InAsync(db, sales, cancellationToken);
+
+        cells.AddRange(credited.Select(sale => new Cell(
+            CurrencyKey(sale.Currency),
+            sale.DocDate.Date,
+            sale.WarehouseCode ?? string.Empty,
+            sale.SourceSystem ?? string.Empty,
+            sale.CreatedBy ?? string.Empty,
+            TenderTypes.ReportingName(sale.PaymentMethod),
+            sale.CardCode?.Trim() ?? string.Empty,
+            null,
+            0,
+            0m,
+            0m,
+            0)
+        {
+            CreditedAmount = sale.CreditedAmount,
+            CreditedSales = 1,
+            FullyCredited = sale.IsFullyCredited ? 1 : 0
+        }));
+
         // Grouped on the UTC hour in the database and moved to the counter's clock here, where the zone is
         // known by name rather than by an offset written into a query.
         var hours = (await sales
@@ -192,6 +221,9 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 .ToListAsync(cancellationToken))
             .Select(h => new HourCell(CurrencyKey(h.Currency), CatHour(h.Hour), h.SalesCount, h.TotalAmount))
             .ToList();
+
+        hours.AddRange(credited.Select(sale => new HourCell(
+            CurrencyKey(sale.Currency), CatHour(sale.CreatedAt.Hour), 0, 0m) { CreditedAmount = sale.CreditedAmount }));
 
         // By source as well as item, so an item is ranked inside the business that sold it: shops and
         // vending sell different ranges, and one list of both ranks a vendor's bulk line above everything a
@@ -229,6 +261,24 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 g.Sum(i => i.Quantity),
                 g.Sum(i => i.NetAmount),
                 g.Sum(i => i.SalesCount)))
+            .ToList();
+
+        // What was credited back of each item, inside the business that sold it. An item is only here
+        // because it sold, so a credited line always finds its row.
+        var creditedItems = credited
+            .SelectMany(sale => sale.Lines, (sale, line) => (
+                Currency: CurrencyKey(sale.Currency),
+                Business: SaleBusinesses.Of(sale.SourceSystem),
+                line.ItemCode,
+                line.Quantity,
+                line.Value))
+            .GroupBy(line => (line.Currency, line.Business, line.ItemCode))
+            .ToDictionary(g => g.Key, g => (Quantity: g.Sum(line => line.Quantity), Value: g.Sum(line => line.Value)));
+
+        items = items
+            .Select(item => creditedItems.TryGetValue((item.Currency, item.Business, item.ItemCode), out var back)
+                ? item with { CreditedQuantity = back.Quantity, CreditedNetAmount = back.Value }
+                : item)
             .ToList();
 
         // The same number of days just before, under the same filters, so a period can say whether it was
@@ -270,7 +320,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             paymentMethod,
             previousFrom,
             previousTo,
-            cardCode);
+            cardCode)
+        {
+            CreditsCounted = true
+        };
     }
 
     private static DesktopSalesCurrencyAnalysis Analyse(
@@ -301,7 +354,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     Average(value, count),
                     Share(value, total),
                     Share(count, salesCount),
-                    paidThisWay.Sum(c => c.WithoutReference));
+                    paidThisWay.Sum(c => c.WithoutReference))
+                {
+                    CreditedAmount = paidThisWay.Sum(c => c.CreditedAmount)
+                };
             })
             .ToList();
 
@@ -313,13 +369,19 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 day.Sum(c => c.SalesCount),
                 day.Sum(c => c.TotalAmount),
                 day.Sum(c => c.VatAmount),
-                Split(day, paymentMethods)))
+                Split(day, paymentMethods))
+            {
+                CreditedAmount = day.Sum(c => c.CreditedAmount)
+            })
             .ToList();
 
         var byHour = hours
             .GroupBy(h => h.Hour)
             .OrderBy(hour => hour.Key)
-            .Select(hour => new DesktopSalesHourRow(hour.Key, hour.Sum(h => h.SalesCount), hour.Sum(h => h.TotalAmount)))
+            .Select(hour => new DesktopSalesHourRow(hour.Key, hour.Sum(h => h.SalesCount), hour.Sum(h => h.TotalAmount))
+            {
+                CreditedAmount = hour.Sum(h => h.CreditedAmount)
+            })
             .ToList();
 
         // One business at a time, in the order a review presents them. Nothing below ranks or shares an
@@ -340,7 +402,11 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     .Take(TopItemCount)
                     .Select(i => new DesktopSalesItemRow(
                         i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount,
-                        Share(i.NetAmount, lineValue), group.Business));
+                        Share(i.NetAmount, lineValue), group.Business)
+                    {
+                        CreditedQuantity = i.CreditedQuantity,
+                        CreditedNetAmount = i.CreditedNetAmount
+                    });
             })
             .ToList();
 
@@ -373,8 +439,16 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     SaleBusinesses.Label(group.Business),
                     group.Items.Count,
                     group.Items.Sum(i => i.Quantity),
-                    group.Items.Sum(i => i.NetAmount)))
-                .ToList()
+                    group.Items.Sum(i => i.NetAmount))
+                {
+                    CreditedQuantity = group.Items.Sum(i => i.CreditedQuantity),
+                    CreditedNetAmount = group.Items.Sum(i => i.CreditedNetAmount)
+                })
+                .ToList(),
+            CreditedAmount = cells.Sum(c => c.CreditedAmount),
+            CreditedSalesCount = cells.Sum(c => c.CreditedSales),
+            FullyCreditedSalesCount = cells.Sum(c => c.FullyCredited),
+            CreditedQuantity = items.Sum(i => i.CreditedQuantity)
         };
     }
 
@@ -393,7 +467,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 group.Sum(c => c.TotalAmount),
                 group.Sum(c => c.VatAmount),
                 Share(group.Sum(c => c.TotalAmount), total),
-                Split(group, paymentMethods)))
+                Split(group, paymentMethods))
+            {
+                CreditedAmount = group.Sum(c => c.CreditedAmount)
+            })
             .OrderByDescending(row => row.TotalAmount)
             .ThenBy(row => row.Label, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -570,9 +647,20 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         int SalesCount,
         decimal TotalAmount,
         decimal VatAmount,
-        int WithoutReference);
+        int WithoutReference)
+    {
+        /// <summary>What was credited back, on a cell that stands for one credited sale and nothing else.</summary>
+        public decimal CreditedAmount { get; init; }
 
-    private sealed record HourCell(string Currency, int Hour, int SalesCount, decimal TotalAmount);
+        public int CreditedSales { get; init; }
+
+        public int FullyCredited { get; init; }
+    }
+
+    private sealed record HourCell(string Currency, int Hour, int SalesCount, decimal TotalAmount)
+    {
+        public decimal CreditedAmount { get; init; }
+    }
 
     private sealed record ItemCell(
         string Currency,
@@ -581,5 +669,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         string? ItemDescription,
         decimal Quantity,
         decimal NetAmount,
-        int SalesCount);
+        int SalesCount)
+    {
+        public decimal CreditedQuantity { get; init; }
+
+        public decimal CreditedNetAmount { get; init; }
+    }
 }

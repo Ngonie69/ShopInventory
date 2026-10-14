@@ -65,7 +65,23 @@ public sealed record ManagementItemSummary(
     decimal? NetChangePercent,
     decimal? PriceChangePercent,
     decimal? GrossProfit,
-    decimal? MarginPercent);
+    decimal? MarginPercent)
+{
+    /// <summary>Units of <c>Quantity</c> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// The part of <c>NetAmount</c> those units were sold for — before VAT, like <c>NetAmount</c>, and so
+    /// not the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: line value after credits, before VAT.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}
 
 public sealed record ManagementItemDayRow(
     DateTime Date,
@@ -73,7 +89,23 @@ public sealed record ManagementItemDayRow(
     decimal NetAmount,
     DateTime ComparedDate,
     decimal ComparedQuantity,
-    decimal ComparedNetAmount);
+    decimal ComparedNetAmount)
+{
+    /// <summary>Units of <c>Quantity</c> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// The part of <c>NetAmount</c> those units were sold for — before VAT, like <c>NetAmount</c>, and so
+    /// not the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: line value after credits, before VAT.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}
 
 public sealed record ManagementItemBreakdownRow(
     string Key,
@@ -88,4 +120,20 @@ public sealed record ManagementItemBreakdownRow(
     decimal PreviousNetAmount,
     decimal? ChangePercent,
     decimal? GrossProfit,
-    decimal? MarginPercent);
+    decimal? MarginPercent)
+{
+    /// <summary>Units of <c>Quantity</c> credited back this period; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>
+    /// The part of <c>NetAmount</c> those units were sold for — before VAT, like <c>NetAmount</c>, and so
+    /// not the tax-inclusive figure a sale's credited amount is.
+    /// </summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: line value after credits, before VAT.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}

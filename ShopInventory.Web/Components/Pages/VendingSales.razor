@@ -311,7 +311,17 @@
                                 @DepotName(sale.CardCode) <span class="vend-cell-mute">· @(sale.CreatedByName ?? "cashier not on file")</span>
                             </td>
                             <td class="vend-num vend-cell-mute">@sale.Lines.Count</td>
-                            <td class="vend-num vend-nowrap">@VendorSalesDigest.Money(sale.Currency, sale.TotalAmount)</td>
+                            @* What the settlement was rung up for, with what the office credited back of it
+                               under it — the same mark the Shop & Vending sale list carries. *@
+                            <td class="vend-num vend-nowrap">
+                                @VendorSalesDigest.Money(sale.Currency, sale.TotalAmount)
+                                @if (sale.CreditedAmount > 0)
+                                {
+                                    <div class="vend-credited" title="@(sale.CreditNoteNumbers.Count == 0 ? "Credited back" : $"Credit {string.Join(", ", sale.CreditNoteNumbers)}")">
+                                        @(sale.IsFullyCredited ? "Fully credited" : $"− {VendorSalesDigest.Money(sale.Currency, sale.CreditedAmount)} credited")
+                                    </div>
+                                }
+                            </td>
                             <td class="vend-cell-mute">@(string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "—" : sale.PaymentMethod)</td>
                             <td>
                                 <span class="shop-chip @VendorSalesDigest.StateChip(state)" title="@PostingTitle(sale)">@VendorSalesDigest.StateLabel(state)</span>
@@ -525,7 +535,12 @@
                 ? $"{(percent >= 0 ? "+" : "−")}{Math.Abs(percent).ToString("0.#", CultureInfo.InvariantCulture)}% on the {Plural((month.PreviousToDate.Date - month.PreviousFromDate.Date).Days + 1, "day")} before"
                 : since;
             var others = VendingSalesDigest.OtherCurrencies(month, Currency);
-            return others.Count == 0 ? change : $"{change} · {string.Join(", ", others)} aside";
+
+            // The month's takings are what was rung up; what the office credited back is said beside them.
+            var credited = MonthSection is { CreditedAmount: > 0 } section
+                ? $" · {VendorSalesDigest.Money(section.Currency, section.CreditedAmount)} credited back"
+                : string.Empty;
+            return (others.Count == 0 ? change : $"{change} · {string.Join(", ", others)} aside") + credited;
         }
     }
 

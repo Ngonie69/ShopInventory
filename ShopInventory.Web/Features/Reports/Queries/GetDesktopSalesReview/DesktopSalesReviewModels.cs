@@ -75,6 +75,21 @@ public sealed class DesktopSalesReviewHeadline
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
     public decimal CostedNetAmount { get; set; }
+
+    /// <summary>
+    /// What has been credited back on the period's sales, tax-inclusive like <see cref="TotalAmount"/>,
+    /// which stays what was rung up.
+    /// </summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
+
+    /// <summary>How many of the period's sales have had anything credited back.</summary>
+    public int CreditedSalesCount { get; set; }
+
+    /// <summary>How many of those were credited back in full.</summary>
+    public int FullyCreditedSalesCount { get; set; }
 }
 
 public sealed class DesktopSalesReviewHourRow
@@ -113,6 +128,12 @@ public sealed class DesktopSalesReviewShopRow
     public decimal? ChangeOnPreviousPercent { get; set; }
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
+
+    /// <summary>What has been credited back on the shop's sales of the period, tax-inclusive.</summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
 }
 
 public sealed class DesktopSalesReviewShopHourCell
@@ -147,6 +168,18 @@ public sealed class DesktopSalesReviewItemRow
     public decimal? ChangePercent { get; set; }
     public decimal? GrossProfit { get; set; }
     public decimal? MarginPercent { get; set; }
+
+    /// <summary>Units of <see cref="Quantity"/> credited back; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; set; }
+
+    /// <summary>The part of <see cref="NetAmount"/> those units were sold for, before VAT like it.</summary>
+    public decimal CreditedNetAmount { get; set; }
+
+    /// <summary><see cref="Quantity"/> less <see cref="CreditedQuantity"/>, as the API states it.</summary>
+    public decimal QuantityAfterCredits { get; set; }
+
+    /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
+    public decimal NetAmountAfterCredits { get; set; }
 }
 
 public sealed class DesktopSalesReviewPriceSpread
@@ -173,4 +206,16 @@ public sealed class DesktopSalesReviewLargeSale
     public decimal TotalAmount { get; set; }
     public decimal Quantity { get; set; }
     public decimal TimesShopAverage { get; set; }
+
+    /// <summary>How much of the sale has been credited back, tax-inclusive; 0 when none has.</summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary>The numbers of the credits behind <see cref="CreditedAmount"/>; empty when none.</summary>
+    public List<string> CreditNoteNumbers { get; set; } = [];
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
+
+    /// <summary>Whether the credits give the whole sale back, as the API decided it.</summary>
+    public bool IsFullyCredited { get; set; }
 }

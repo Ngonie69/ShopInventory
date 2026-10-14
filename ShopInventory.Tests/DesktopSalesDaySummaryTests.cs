@@ -164,7 +164,104 @@ public sealed class DesktopSalesDaySummaryTests : IDisposable
         Assert.Equal("CIS010", blank.Label);
     }
 
+    // --- What was credited back ---
+    //
+    // The report totalled each sale at what it was rung up for even after the office had credited it
+    // back, so the day card, the nightly email and the workbook all overstated the day.
+
+    /// <summary>
+    /// A credited sale stays in the day's count and takings at what it was rung up for; what was
+    /// credited and what is left are stated beside them, on the customer and on the sale itself.
+    /// </summary>
+    [Fact]
+    public async Task A_credited_sale_stays_in_the_takings_and_is_stated_as_a_correction()
+    {
+        AddSale("COR007", "TILL-20260910-0001", 100m, DesktopSaleConsolidationStatus.Consolidated, sapDocNum: 90001);
+        AddSale("COR007", "TILL-20260910-0002", 40m, DesktopSaleConsolidationStatus.Pending);
+        AddSale("SPA059", "TILL-20260910-0003", 30m, DesktopSaleConsolidationStatus.Pending);
+        await _context.SaveChangesAsync();
+
+        var partly = await SaleId("TILL-20260910-0001");
+        var whole = await SaleId("TILL-20260910-0002");
+        await SaleCreditSeed.TillCreditAsync(_context, partly, 25m);
+        await SaleCreditSeed.TillCreditAsync(_context, whole, 40m);
+
+        var report = await BuildReportAsync();
+
+        Assert.Equal(3, report.TotalSalesCount);
+        Assert.Equal(170m, report.TotalSalesAmount);
+        Assert.Equal(65m, report.TotalCreditedAmount);
+        Assert.Equal(105m, report.TotalNetOfCredits);
+        Assert.Equal(2, report.CreditedSalesCount);
+        Assert.Equal(1, report.FullyCreditedSalesCount);
+
+        var customer = report.BusinessPartnerSummaries.Single(bp => bp.CardCode == "COR007");
+        Assert.Equal(140m, customer.TotalAmount);
+        Assert.Equal(65m, customer.CreditedAmount);
+        Assert.Equal(75m, customer.NetOfCredits);
+
+        var sale = customer.IndividualSales.Single(s => s.SaleId == partly);
+        Assert.Equal(100m, sale.Amount);
+        Assert.Equal(25m, sale.CreditedAmount);
+        Assert.Equal([$"CN{partly}"], sale.CreditNoteNumbers);
+
+        var untouched = report.BusinessPartnerSummaries.Single(bp => bp.CardCode == "SPA059");
+        Assert.Equal(0m, untouched.CreditedAmount);
+        Assert.Equal(30m, untouched.NetOfCredits);
+        Assert.Empty(untouched.IndividualSales.Single().CreditNoteNumbers);
+    }
+
+    /// <summary>
+    /// A credit comes off the day of the sale it reverses, not the day it was raised: the report for the
+    /// sale's day changes, and no other day's does. The till and the van handset count it the same way.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_comes_off_the_day_of_its_sale_whenever_it_was_raised()
+    {
+        AddSale("COR007", "TILL-20260910-0001", 100m, DesktopSaleConsolidationStatus.Pending);
+        AddSale("COR007", "TILL-20260911-0001", 60m, DesktopSaleConsolidationStatus.Pending, day: Day.AddDays(1));
+        await _context.SaveChangesAsync();
+
+        // SaleCreditSeed raises its credits on 25 September, a fortnight after either sale.
+        await SaleCreditSeed.TillCreditAsync(_context, await SaleId("TILL-20260910-0001"), 25m);
+
+        Assert.Equal(25m, (await BuildReportAsync()).TotalCreditedAmount);
+
+        var nextDay = await new GenerateEndOfDayReportHandler(_context, new RecordingAuditService())
+            .Handle(new GenerateEndOfDayReportQuery(Day.AddDays(1)), CancellationToken.None);
+        Assert.Equal(0m, nextDay.Value.TotalCreditedAmount);
+        Assert.Equal(60m, nextDay.Value.TotalNetOfCredits);
+    }
+
+    /// <summary>
+    /// The page reads the report through a mirror written by hand. Sent as the API sends it and read as
+    /// the page reads it, every credited figure arrives — a name that drifted would leave the card
+    /// drawing a day with no credits.
+    /// </summary>
+    [Fact]
+    public async Task The_credited_figures_reach_the_page_through_its_own_copy_of_the_report()
+    {
+        AddSale("COR007", "TILL-20260910-0001", 100m, DesktopSaleConsolidationStatus.Pending);
+        await _context.SaveChangesAsync();
+        await SaleCreditSeed.TillCreditAsync(_context, await SaleId("TILL-20260910-0001"), 25m);
+
+        var web = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var mirrored = System.Text.Json.JsonSerializer.Deserialize<WebDtos.EndOfDayReportDto>(
+            System.Text.Json.JsonSerializer.Serialize(await BuildReportAsync(), web), web)!;
+
+        Assert.Equal(100m, mirrored.TotalSalesAmount);
+        Assert.Equal(25m, mirrored.TotalCreditedAmount);
+        Assert.Equal(75m, mirrored.TotalNetOfCredits);
+        Assert.Equal(1, mirrored.CreditedSalesCount);
+        Assert.Equal(0, mirrored.FullyCreditedSalesCount);
+        Assert.Equal(25m, mirrored.BusinessPartnerSummaries.Single().CreditedAmount);
+        Assert.Equal(75m, mirrored.BusinessPartnerSummaries.Single().NetOfCredits);
+    }
+
     // --- Harness ---
+
+    private Task<int> SaleId(string reference) =>
+        _context.DesktopSales.Where(s => s.ExternalReferenceId == reference).Select(s => s.Id).SingleAsync();
 
     private static int Lane(List<DesktopSalesDaySummary.Lane> lanes, string name) =>
         lanes.Single(l => l.Name == name).Count;
@@ -232,7 +329,8 @@ public sealed class DesktopSalesDaySummaryTests : IDisposable
         string reference,
         decimal total,
         DesktopSaleConsolidationStatus status,
-        int? sapDocNum = null)
+        int? sapDocNum = null,
+        DateTime? day = null)
     {
         var posted = status == DesktopSaleConsolidationStatus.Consolidated;
 
@@ -242,7 +340,7 @@ public sealed class DesktopSalesDaySummaryTests : IDisposable
             SourceSystem = SaleSourceSystems.ShopTill,
             CardCode = cardCode,
             CardName = cardCode,
-            DocDate = Day,
+            DocDate = day ?? Day,
             NumAtCard = reference,
             TotalAmount = total,
             VatAmount = Math.Round(total * 15.5m / 115.5m, 2),

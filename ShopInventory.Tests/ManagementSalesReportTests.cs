@@ -687,6 +687,180 @@ public sealed class ManagementSalesReportTests : IDisposable
         Assert.True(refused.IsError);
     }
 
+    // ---- What was credited back -------------------------------------------------------------------
+    //
+    // The report counted a sale at what it was rung up for even after the office had credited it back.
+    // Every sold figure still does — takings, quantities, shares, the change on the period before and
+    // SAP's margin — and what was credited this period is stated beside each, with what is left.
+
+    /// <summary>
+    /// A vendor's 115.00 sale of ten loaves on the first day, two of them credited back for 23.00; a
+    /// 50.00 sale of milk on the last day nobody credited; and 70.00 in the period before.
+    /// </summary>
+    private async Task<int> SellAndCreditTwoLoaves()
+    {
+        var bread = Vend(115m, From, vendor: _vendorA, lines: [("BREAD", 10, 100m)]);
+        Add(bread);
+        Add(Vend(50m, To, vendor: _vendorB, lines: [("MILK", 5, 40m)]));
+        Add(Vend(70m, PreviousDay, vendor: _vendorB));
+        await SaleCreditSeed.TillCreditAsync(_context, bread.Id, 23m, lines: (ReceiptLine: 1, Quantity: 2m, UnitPrice: 11.50m));
+        return bread.Id;
+    }
+
+    [Fact]
+    public async Task What_was_sold_stands_and_what_was_credited_is_stated_beside_it()
+    {
+        await SellAndCreditTwoLoaves();
+
+        var usd = Dollars(await RunAsync());
+        var summary = usd.Summary;
+
+        // Sold, and set against the period before as sold.
+        Assert.Equal((165m, 70m), (summary.TotalAmount, summary.PreviousTotalAmount));
+        Assert.Equal(135.7m, summary.TotalChangePercent);
+
+        Assert.Equal((23m, 142m, 1, 0, 2m), (
+            summary.CreditedAmount, summary.NetOfCredits, summary.CreditedSalesCount, summary.FullyCreditedSalesCount, summary.CreditedQuantity));
+
+        // On the day of the sale, though the credit was raised weeks later.
+        Assert.Equal(
+            new[] { (From, 23m), (From.AddDays(1), 0m), (To, 0m) },
+            usd.ByDay.Select(day => (day.Date, day.CreditedAmount)));
+
+        Assert.Equal((23m, 92m), Credit(usd.ByVendor.Single(row => row.Key == _vendorA.ToString())));
+        Assert.Equal((0m, 50m), Credit(usd.ByVendor.Single(row => row.Key == _vendorB.ToString())));
+        Assert.Equal((23m, 142m), Credit(usd.ByPartner.Single(row => row.Key == Depot)));
+        Assert.Equal((23m, 142m), Credit(usd.ByDepot.Single(row => row.Key == DepotWarehouse)));
+        Assert.Equal((23m, 142m), Credit(usd.ByChannel.Single(row => row.Key == SaleSourceSystems.Vending)));
+        Assert.Equal((23m, 142m), Credit(usd.ByPaymentMethod.Single(row => row.Key == TenderTypes.Cash)));
+        Assert.Equal((23m, 142m), Credit(usd.ByOperator.Single()));
+
+        // A vendor who bought only last period is lapsed, credits or not; nothing of this period is on it.
+        Assert.Empty(usd.LapsedVendors);
+    }
+
+    [Fact]
+    public async Task An_item_states_what_was_credited_back_of_it_in_every_place_it_sold()
+    {
+        await SellAndCreditTwoLoaves();
+
+        var usd = Dollars(await RunAsync());
+
+        // Two of the ten loaves, valued as the line sold them — 10.00 each before VAT, not the 11.50 the
+        // credit gave back.
+        var bread = usd.ByItem.Single(item => item.ItemCode == "BREAD");
+        Assert.Equal(SaleBusinesses.Vending, bread.Business);
+        Assert.Equal((10m, 2m, 8m), (bread.Quantity, bread.CreditedQuantity, bread.QuantityAfterCredits));
+        Assert.Equal((100m, 20m, 80m), (bread.NetAmount, bread.CreditedNetAmount, bread.NetAmountAfterCredits));
+
+        // Ranked and shared on what sold, as before.
+        Assert.Equal(new[] { "BREAD", "MILK" }, usd.ByItem.Select(item => item.ItemCode));
+        Assert.Equal(71.4m, bread.ShareOfNetPercent);
+
+        var milk = usd.ByItem.Single(item => item.ItemCode == "MILK");
+        Assert.Equal((0m, 0m, 40m), (milk.CreditedQuantity, milk.CreditedNetAmount, milk.NetAmountAfterCredits));
+
+        var group = Assert.Single(usd.ByItemGroup);
+        Assert.Equal((2m, 20m, 120m), (group.CreditedQuantity, group.CreditedNetAmount, group.NetAmountAfterCredits));
+
+        var atDepot = usd.ItemDepotMatrix.Single(cell => cell.ItemCode == "BREAD");
+        Assert.Equal((DepotWarehouse, 2m, 20m), (atDepot.WarehouseCode, atDepot.CreditedQuantity, atDepot.CreditedNetAmount));
+        var asPartner = usd.ItemPartnerMatrix.Single(cell => cell.ItemCode == "BREAD");
+        Assert.Equal((Depot, 2m, 20m), (asPartner.CardCode, asPartner.CreditedQuantity, asPartner.CreditedNetAmount));
+        Assert.Equal(0m, usd.ItemDepotMatrix.Single(cell => cell.ItemCode == "MILK").CreditedQuantity);
+    }
+
+    [Fact]
+    public async Task The_item_drill_down_states_the_same_credit_as_the_items_row()
+    {
+        await SellAndCreditTwoLoaves();
+
+        var row = Dollars(await RunAsync()).ByItem.Single(item => item.ItemCode == "BREAD");
+        var bread = (await AnalyseItemAsync("BREAD", business: SaleBusinesses.Vending)).Currencies.Single();
+
+        Assert.Equal((row.CreditedQuantity, row.CreditedNetAmount), (bread.Summary.CreditedQuantity, bread.Summary.CreditedNetAmount));
+        Assert.Equal((8m, 80m), (bread.Summary.QuantityAfterCredits, bread.Summary.NetAmountAfterCredits));
+        Assert.Equal(2m, bread.ByDay.Single(day => day.Date == From).CreditedQuantity);
+        Assert.Equal((2m, 20m), (bread.ByVendor.Single().CreditedQuantity, bread.ByVendor.Single().CreditedNetAmount));
+        Assert.Equal(2m, bread.ByDepot.Single().CreditedQuantity);
+        Assert.Equal(2m, bread.ByPartner.Single().CreditedQuantity);
+
+        // An item nothing was credited on reads zero, not another item's credit.
+        Assert.Equal(0m, (await AnalyseItemAsync("MILK")).Currencies.Single().Summary.CreditedQuantity);
+    }
+
+    [Fact]
+    public async Task A_credit_on_a_sale_of_the_period_before_is_not_this_periods()
+    {
+        var before = Vend(70m, PreviousDay, vendor: _vendorB, lines: [("BREAD", 7, 60m)]);
+        Add(before);
+        Add(Vend(115m, From, vendor: _vendorA, lines: [("BREAD", 10, 100m)]));
+        await SaleCreditSeed.TillCreditAsync(_context, before.Id, 70m, lines: (ReceiptLine: 1, Quantity: 7m, UnitPrice: 10m));
+
+        var usd = Dollars(await RunAsync());
+
+        Assert.Equal((0m, 115m), (usd.Summary.CreditedAmount, usd.Summary.NetOfCredits));
+        Assert.Equal(70m, usd.Summary.PreviousTotalAmount);
+        Assert.Equal(0m, usd.ByItem.Single().CreditedQuantity);
+    }
+
+    [Fact]
+    public async Task The_workbook_closes_each_sheet_with_what_was_credited()
+    {
+        await SellAndCreditTwoLoaves();
+
+        var web = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var read = System.Text.Json.JsonSerializer.Deserialize<ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementSalesReportResult>(
+            System.Text.Json.JsonSerializer.Serialize(await RunAsync(), web), web)!;
+
+        using var workbook = new ClosedXML.Excel.XLWorkbook(new MemoryStream(
+            new ShopInventory.Web.Services.ReportExportService().ExportManagementSalesReportToExcel(read)));
+
+        static ClosedXML.Excel.IXLRow Header(ClosedXML.Excel.IXLWorksheet sheet) =>
+            sheet.RowsUsed().First(row => row.Cell(1).GetString() == "Currency");
+
+        static List<string> Headings(ClosedXML.Excel.IXLWorksheet sheet) =>
+            Header(sheet).CellsUsed().Select(cell => cell.GetString()).ToList();
+
+        static decimal Value(ClosedXML.Excel.IXLWorksheet sheet, Func<ClosedXML.Excel.IXLRow, bool> which, string column)
+        {
+            var at = Header(sheet).CellsUsed().First(cell => cell.GetString() == column).Address.ColumnNumber;
+            return sheet.RowsUsed().First(which).Cell(at).GetValue<decimal>();
+        }
+
+        // Last on every sheet, so no column a reader already knows the place of has moved.
+        foreach (var name in new[] { "By Day", "By Partner", "By Vendor", "By Payment" })
+            Assert.Equal(new[] { "Credited", "Net of Credits" }, Headings(workbook.Worksheet(name)).TakeLast(2));
+        foreach (var name in new[] { "Products", "Item Groups", "Item x Partner", "Item x Warehouse" })
+            Assert.Equal(
+                new[] { "Credited Qty", "Qty After Credits", "Credited Value", "Value After Credits" },
+                Headings(workbook.Worksheet(name)).TakeLast(4));
+
+        var products = workbook.Worksheet("Products");
+        bool Bread(ClosedXML.Excel.IXLRow row) => row.Cell(3).GetString() == "BREAD";
+        Assert.Equal(100m, Value(products, Bread, "Value before VAT"));
+        Assert.Equal(2m, Value(products, Bread, "Credited Qty"));
+        Assert.Equal(8m, Value(products, Bread, "Qty After Credits"));
+        Assert.Equal(20m, Value(products, Bread, "Credited Value"));
+        Assert.Equal(80m, Value(products, Bread, "Value After Credits"));
+
+        var vendors = workbook.Worksheet("By Vendor");
+        Assert.Equal(115m, Value(vendors, row => row.Cell(2).GetString() == "Tendai Moyo", "Takings"));
+        Assert.Equal(23m, Value(vendors, row => row.Cell(2).GetString() == "Tendai Moyo", "Credited"));
+        Assert.Equal(92m, Value(vendors, row => row.Cell(2).GetString() == "Tendai Moyo", "Net of Credits"));
+
+        var summary = workbook.Worksheet("Summary");
+        decimal Measure(string measure) =>
+            summary.RowsUsed().First(row => row.Cell(2).GetString() == measure).Cell(3).GetValue<decimal>();
+        Assert.Equal(165m, Measure("Takings"));
+        Assert.Equal(23m, Measure("Credited back"));
+        Assert.Equal(142m, Measure("Takings net of credits"));
+        Assert.Equal(1m, Measure("Sales credited back"));
+        Assert.Equal(0m, Measure("Sales credited in full"));
+    }
+
+    private static (decimal Credited, decimal Net) Credit(ManagementBreakdownRow row) => (row.CreditedAmount, row.NetOfCredits);
+
     // ---- The web side -----------------------------------------------------------------------------
 
     /// <summary>

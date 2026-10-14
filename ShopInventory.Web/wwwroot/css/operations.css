@@ -3661,6 +3661,30 @@
     cursor: help;
 }
 
+/* A sale, or a line of one, that the office has credited back. The warn hue, not
+   bad: the credit is the correction working, and it is on the row so that a total
+   somebody is about to add up is seen to have something off it. */
+.ops-ds .ops-ds-credited,
+.ops-overlay .ops-ds-credited {
+    color: var(--ops-fam-warn);
+}
+
+.ops-ds .ops-ds-credited[title] {
+    cursor: help;
+}
+
+/* What was credited back on the day and what is left, under the day's three
+   amounts. Not ruled: it continues the same reckoning one line down. */
+.ops-ds .ops-ds-aside-credits {
+    gap: var(--ops-s8);
+    font-size: 12px;
+}
+
+.ops-ds .ops-ds-aside-credits b {
+    font-weight: 500;
+    color: var(--ops-ink-2);
+}
+
 /* ── The detail drawer's posting parts ─────────────────────────────────── */
 
 /* SAP's own words, verbatim and monospaced — it answers with codes and table

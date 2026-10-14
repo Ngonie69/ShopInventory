@@ -59,6 +59,31 @@ public sealed class GetManagementItemAnalysisHandler(
 
         var current = await CellsAsync(Sales(db, window, window.From, window.To), itemCode, cancellationToken);
         var previous = await CellsAsync(Sales(db, window, window.PreviousFrom, window.PreviousTo), itemCode, cancellationToken);
+
+        // What was credited back of this item, each credited sale beside the cell it was counted in —
+        // read exactly as the report reads it, so the drill-down's credited figure is the row's.
+        var credited = await CreditedSales.InAsync(
+            db, Sales(db, window, window.From, window.To).Where(s => s.Lines.Any(line => line.ItemCode == itemCode)), cancellationToken);
+
+        current.AddRange(credited
+            .Select(sale => (Sale: sale, Lines: sale.Lines.Where(line => line.ItemCode == itemCode).ToList()))
+            .Where(entry => entry.Lines.Count > 0)
+            .Select(entry => new Cell(
+                CurrencyKey(entry.Sale.Currency),
+                entry.Sale.DocDate.Date,
+                entry.Sale.WarehouseCode ?? string.Empty,
+                entry.Sale.CardCode?.Trim() ?? string.Empty,
+                entry.Sale.SourceSystem ?? string.Empty,
+                entry.Sale.CreatedBy ?? string.Empty,
+                entry.Sale.RouteCustomerId,
+                0,
+                0m,
+                0m,
+                0m)
+            {
+                CreditedQuantity = entry.Lines.Sum(line => line.Quantity),
+                CreditedNetAmount = entry.Lines.Sum(line => line.Value)
+            }));
         var (margin, marginStatus) = await MarginAsync(
             Sales(db, window, window.From, window.To), itemCode, window, costReader, logger, cancellationToken);
 
@@ -190,7 +215,11 @@ public sealed class GetManagementItemAnalysisHandler(
             Change(net, previousNet),
             price == 0 ? null : Change(price, previousPrice),
             total?.GrossProfit,
-            total?.MarginPercent);
+            total?.MarginPercent)
+        {
+            CreditedQuantity = current.Sum(c => c.CreditedQuantity),
+            CreditedNetAmount = current.Sum(c => c.CreditedNetAmount)
+        };
 
         var byDay = Enumerable.Range(0, window.Days)
             .Select(offset =>
@@ -201,7 +230,11 @@ public sealed class GetManagementItemAnalysisHandler(
                 var then = previous.Where(c => c.DocDate == compared).ToList();
                 return new ManagementItemDayRow(
                     date, today.Sum(c => c.Quantity), today.Sum(c => c.NetAmount),
-                    compared, then.Sum(c => c.Quantity), then.Sum(c => c.NetAmount));
+                    compared, then.Sum(c => c.Quantity), then.Sum(c => c.NetAmount))
+                {
+                    CreditedQuantity = today.Sum(c => c.CreditedQuantity),
+                    CreditedNetAmount = today.Sum(c => c.CreditedNetAmount)
+                };
             })
             .ToList();
 
@@ -274,7 +307,11 @@ public sealed class GetManagementItemAnalysisHandler(
                     then.Net,
                     Change(net, then.Net),
                     rowMargin?.GrossProfit,
-                    rowMargin?.MarginPercent);
+                    rowMargin?.MarginPercent)
+                {
+                    CreditedQuantity = cells.Sum(c => c.CreditedQuantity),
+                    CreditedNetAmount = cells.Sum(c => c.CreditedNetAmount)
+                };
             })
             .OrderByDescending(row => row.NetAmount)
             .ThenByDescending(row => row.PreviousNetAmount)
@@ -293,5 +330,10 @@ public sealed class GetManagementItemAnalysisHandler(
         int SalesCount,
         decimal Quantity,
         decimal NetAmount,
-        decimal DiscountAmount);
+        decimal DiscountAmount)
+    {
+        public decimal CreditedQuantity { get; init; }
+
+        public decimal CreditedNetAmount { get; init; }
+    }
 }

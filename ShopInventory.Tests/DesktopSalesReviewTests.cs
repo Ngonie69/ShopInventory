@@ -324,6 +324,118 @@ public sealed class DesktopSalesReviewTests : IDisposable
         Assert.Equal(DesktopSalesReviewSeverity.Action, first.Severity);
     }
 
+    // ---- What was credited back -------------------------------------------------------------------
+    //
+    // The review read every sale at what it was rung up for, credited back or not. It still does — every
+    // finding about trade is about what was sold — and states what was credited and what is left.
+
+    /// <summary>
+    /// The week, with two credits: two of the ten tubs on the factory's first-day sale (12.54), and a
+    /// 400.00 walk-in sale at Graniteside credited back in full the same day it was rung up.
+    /// </summary>
+    private async Task<int> SeedWeekWithCredits()
+    {
+        SeedWeek();
+
+        var tubs = Sale(62.70m, From, FactoryShop, lines: [("TUB5L", 10, 62.70m)]);
+        var mistake = Sale(400m, To, SmallShop);
+        Add(tubs);
+        Add(mistake);
+        await SaleCreditSeed.TillCreditAsync(_context, tubs.Id, 12.54m, lines: (ReceiptLine: 1, Quantity: 2m, UnitPrice: 6.27m));
+        await SaleCreditSeed.TillCreditAsync(_context, mistake.Id, 400m);
+        return mistake.Id;
+    }
+
+    [Fact]
+    public async Task The_review_states_what_was_credited_beside_what_was_sold()
+    {
+        await SeedWeekWithCredits();
+
+        var shops = Dollars(await RunAsync());
+        var headline = shops.Headline;
+
+        Assert.Equal(986.28m, headline.TotalAmount);
+        Assert.Equal((412.54m, 573.74m, 2, 1), (
+            headline.CreditedAmount, headline.NetOfCredits, headline.CreditedSalesCount, headline.FullyCreditedSalesCount));
+
+        Assert.Equal(12.54m, shops.ByShop.Single(s => s.WarehouseCode == FactoryShop).CreditedAmount);
+        Assert.Equal(400m, shops.ByShop.Single(s => s.WarehouseCode == SmallShop).CreditedAmount);
+        Assert.Equal(headline.CreditedAmount, shops.ByShop.Sum(s => s.CreditedAmount));
+
+        var tub = shops.TopItems.Single(i => i.ItemCode == "TUB5L");
+        Assert.Equal((2m, 12.54m), (tub.CreditedQuantity, tub.CreditedNetAmount));
+        Assert.Equal(tub.Quantity - 2m, tub.QuantityAfterCredits);
+
+        // The analysis' rows come through as they are, credits and all.
+        Assert.Equal(headline.CreditedAmount, shops.ByDay.Sum(d => d.CreditedAmount));
+
+        // Vending was not credited, and says nothing about it.
+        var vending = Dollars(await RunAsync(), SaleBusinesses.Vending);
+        Assert.Equal(0m, vending.Headline.CreditedAmount);
+        Assert.DoesNotContain(Findings(await RunAsync(), SaleBusinesses.Vending), f => f.Code == "credits");
+    }
+
+    [Fact]
+    public async Task A_credited_period_is_a_finding_and_a_reversed_sale_is_not_a_trade_sale()
+    {
+        var mistake = await SeedWeekWithCredits();
+
+        var review = await RunAsync();
+        var credits = Findings(review).Single(f => f.Code == "credits");
+
+        // 412.54 is over 5% of the shops' takings: worth a look, not only a note.
+        Assert.Equal(DesktopSalesReviewSeverity.Review, credits.Severity);
+        Assert.Contains("USD 412.54", credits.Title);
+        Assert.Contains("USD 573.74", credits.Detail);
+
+        // The 400.00 sale is still listed as the large sale it was rung up as, with its credit on it —
+        // but it was reversed, so nobody is asked to open an account for its buyer.
+        var listed = Dollars(review).LargeSales.Single(s => s.SaleId == mistake);
+        Assert.Equal((400m, 400m, 0m, true), (listed.TotalAmount, listed.CreditedAmount, listed.NetOfCredits, listed.IsFullyCredited));
+        Assert.Equal([$"CN{mistake}"], listed.CreditNoteNumbers);
+        Assert.DoesNotContain(Findings(review), f => f.Code == "large-sales");
+    }
+
+    [Fact]
+    public async Task The_pdf_and_the_email_state_the_credits()
+    {
+        var mistake = await SeedWeekWithCredits();
+        var review = await RunAsync();
+
+        var text = PdfText(DesktopSalesReviewPdfRenderer.Render(review, "Weekly review", new DateTime(2026, 9, 18, 7, 0, 0)));
+        Assert.Contains("NET OF CREDITS", text);
+        Assert.Contains("CREDITED BACK", text);
+        Assert.Contains("412.54", text);
+        Assert.Contains("573.74", text);
+        Assert.Contains($"CN{mistake}", text);
+
+        var email = ShopInventory.Features.DesktopIntegration.Commands.SendDesktopSalesReviewEmail.DesktopSalesReviewEmailBody
+            .Build(review, "Weekly review", new DateTime(2026, 9, 18, 7, 0, 0));
+        Assert.Contains("USD 412.54 credited back, net USD 573.74", email);
+    }
+
+    /// <summary>The page reads the review through classes written by hand; every credited figure arrives.</summary>
+    [Fact]
+    public async Task The_credited_figures_reach_the_page_through_its_own_copy_of_the_review()
+    {
+        var mistake = await SeedWeekWithCredits();
+
+        var web = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var read = System.Text.Json.JsonSerializer.Deserialize<ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesReview.DesktopSalesReview>(
+            System.Text.Json.JsonSerializer.Serialize(await RunAsync(), web), web)!;
+        var shops = read.Businesses.Single(b => b.Business == SaleBusinesses.Shops).Currencies.Single();
+
+        Assert.Equal((412.54m, 573.74m, 2, 1), (
+            shops.Headline.CreditedAmount, shops.Headline.NetOfCredits, shops.Headline.CreditedSalesCount, shops.Headline.FullyCreditedSalesCount));
+        Assert.Equal(400m, shops.ByShop.Single(s => s.WarehouseCode == SmallShop).CreditedAmount);
+        Assert.Equal((2m, 12.54m), (
+            shops.TopItems.Single(i => i.ItemCode == "TUB5L").CreditedQuantity, shops.TopItems.Single(i => i.ItemCode == "TUB5L").CreditedNetAmount));
+
+        var large = shops.LargeSales.Single(s => s.SaleId == mistake);
+        Assert.True(large.IsFullyCredited);
+        Assert.Equal([$"CN{mistake}"], large.CreditNoteNumbers);
+    }
+
     // ---- The document -----------------------------------------------------------------------------
 
     [Fact]

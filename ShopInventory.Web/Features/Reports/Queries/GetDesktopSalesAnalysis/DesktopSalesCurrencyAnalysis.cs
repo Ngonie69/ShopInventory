@@ -73,7 +73,10 @@ public sealed class DesktopSalesCurrencyAnalysis
                     {
                         DistinctItems = DistinctItems,
                         QuantitySold = QuantitySold,
-                        NetAmount = NetAmount
+                        NetAmount = NetAmount,
+                        CreditedQuantity = TopItems.Sum(item => item.CreditedQuantity),
+                        CreditedNetAmount = TopItems.Sum(item => item.CreditedNetAmount),
+                        NetAmountAfterCredits = NetAmount - TopItems.Sum(item => item.CreditedNetAmount)
                     }, TopItems)
                 ];
         }
@@ -88,4 +91,22 @@ public sealed class DesktopSalesCurrencyAnalysis
 
     /// <summary>What those came to; zero means none, which is not a change to state.</summary>
     public decimal PreviousTotalAmount { get; set; }
+
+    /// <summary>
+    /// What has been credited back on the period's sales, tax-inclusive like <see cref="TotalAmount"/>,
+    /// which it is not taken out of. Counted against the day of the sale, whenever the credit was raised.
+    /// </summary>
+    public decimal CreditedAmount { get; set; }
+
+    /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
+    public decimal NetOfCredits { get; set; }
+
+    /// <summary>How many of the sales have had anything credited back.</summary>
+    public int CreditedSalesCount { get; set; }
+
+    /// <summary>How many of those were credited back in full.</summary>
+    public int FullyCreditedSalesCount { get; set; }
+
+    /// <summary>Units of <see cref="QuantitySold"/> credited back, where a credit names a line.</summary>
+    public decimal CreditedQuantity { get; set; }
 }

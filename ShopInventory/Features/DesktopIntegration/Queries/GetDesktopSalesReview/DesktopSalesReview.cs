@@ -139,7 +139,23 @@ public sealed record DesktopSalesReviewHeadline(
     decimal EffectiveVatPercent,
     decimal? GrossProfit,
     decimal? MarginPercent,
-    decimal CostedNetAmount);
+    decimal CostedNetAmount)
+{
+    /// <summary>
+    /// What has been credited back on the period's sales, tax-inclusive like <c>TotalAmount</c>, which
+    /// stays what was rung up. Counted against the day of the sale, whenever the credit was raised.
+    /// </summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>: what the period's sales stand at.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+
+    /// <summary>How many of the period's sales have had anything credited back.</summary>
+    public int CreditedSalesCount { get; init; }
+
+    /// <summary>How many of those were credited back in full.</summary>
+    public int FullyCreditedSalesCount { get; init; }
+}
 
 /// <summary>One hour of the day, in CAT. For vending, when settlements were captured — a vendor paying in, not goods selling.</summary>
 public sealed record DesktopSalesReviewHourRow(
@@ -181,7 +197,14 @@ public sealed record DesktopSalesReviewShopRow(
     decimal PreviousTotalAmount,
     decimal? ChangeOnPreviousPercent,
     decimal? GrossProfit,
-    decimal? MarginPercent);
+    decimal? MarginPercent)
+{
+    /// <summary>What has been credited back on the shop's sales of the period, tax-inclusive.</summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+}
 
 public sealed record DesktopSalesReviewShopHourCell(string WarehouseCode, int Hour, int SalesCount, decimal TotalAmount);
 
@@ -207,7 +230,20 @@ public sealed record DesktopSalesReviewItemRow(
     decimal DiscountAmount,
     decimal? ChangePercent,
     decimal? GrossProfit,
-    decimal? MarginPercent);
+    decimal? MarginPercent)
+{
+    /// <summary>Units of <c>Quantity</c> credited back; 0 when none were.</summary>
+    public decimal CreditedQuantity { get; init; }
+
+    /// <summary>The part of <c>NetAmount</c> those units were sold for, before VAT like it.</summary>
+    public decimal CreditedNetAmount { get; init; }
+
+    /// <summary><c>Quantity</c> less <see cref="CreditedQuantity"/>.</summary>
+    public decimal QuantityAfterCredits => Quantity - CreditedQuantity;
+
+    /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>.</summary>
+    public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+}
 
 /// <summary>An item that sold for noticeably different prices at different shops.</summary>
 /// <remarks><list type="table">
@@ -239,4 +275,17 @@ public sealed record DesktopSalesReviewLargeSale(
     string? CustomerCode,
     decimal TotalAmount,
     decimal Quantity,
-    decimal TimesShopAverage);
+    decimal TimesShopAverage)
+{
+    /// <summary>How much of the sale has been credited back, tax-inclusive; 0 when none has.</summary>
+    public decimal CreditedAmount { get; init; }
+
+    /// <summary>The numbers of the credits behind <see cref="CreditedAmount"/>; empty when none.</summary>
+    public IReadOnlyList<string> CreditNoteNumbers { get; init; } = [];
+
+    /// <summary><c>TotalAmount</c> less <see cref="CreditedAmount"/>.</summary>
+    public decimal NetOfCredits => TotalAmount - CreditedAmount;
+
+    /// <summary>Whether the credits give the whole sale back: a correction, not a trade-size purchase.</summary>
+    public bool IsFullyCredited => new Common.Sales.SaleCredit(CreditedAmount, CreditNoteNumbers).Covers(TotalAmount);
+}

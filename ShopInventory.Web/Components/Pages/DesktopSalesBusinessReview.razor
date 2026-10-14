@@ -197,6 +197,18 @@
                                 <span> · more sales @Signed(traffic), bigger sales @Signed(ticket)</span>
                             }
                         </div>
+                        @* The takings are what was rung up; what the office credited back is a correction
+                           to them, stated here with what is left. *@
+                        @if (h.CreditedAmount > 0)
+                        {
+                            <div class="ops-sbd-kpi-credits">
+                                <span>
+                                    Credited back <b>&minus; @Money(h.CreditedAmount)</b>
+                                    on @Plural(h.CreditedSalesCount, "sale")@(h.FullyCreditedSalesCount > 0 ? $", {h.FullyCreditedSalesCount} in full" : "")
+                                </span>
+                                <span>Net of credits <b>@Money(h.NetOfCredits)</b></span>
+                            </div>
+                        }
                     </div>
 
                     <div class="ops-sbd-figures">
@@ -362,7 +374,13 @@
                                         </td>
                                         <td class="ops-num">@shop.DaysTraded</td>
                                         <td class="ops-num">@shop.SalesCount.ToString("N0")</td>
-                                        <td class="ops-num">@Num(shop.TotalAmount)<div class="ops-sub">@Pct(shop.ShareOfValuePercent)</div></td>
+                                        <td class="ops-num">
+                                            @Num(shop.TotalAmount)<div class="ops-sub">@Pct(shop.ShareOfValuePercent)</div>
+                                            @if (shop.CreditedAmount > 0)
+                                            {
+                                                <div class="ops-sub ops-sbd-credited">&minus; @Num(shop.CreditedAmount) credited</div>
+                                            }
+                                        </td>
                                         <td>
                                             <div class="ops-sbd-split">
                                                 <span class="ops-sbd-track"><span class="ops-sbd-track-fill is-accent" style="width:@Percent(shop.PerTradingDay, bestShop)"></span></span>
@@ -455,11 +473,23 @@
                                                     <div class="ops-sub">@item.ItemDescription</div>
                                                 }
                                             </td>
-                                            <td class="ops-num">@item.Quantity.ToString("#,##0.##")</td>
+                                            <td class="ops-num">
+                                                @item.Quantity.ToString("#,##0.##")
+                                                @if (item.CreditedQuantity > 0)
+                                                {
+                                                    <div class="ops-sub ops-sbd-credited">&minus; @item.CreditedQuantity.ToString("#,##0.##") credited</div>
+                                                }
+                                            </td>
                                             <td class="ops-num">@item.SalesCount.ToString("N0")</td>
                                             <td class="ops-num">@item.UnitsPerSale.ToString("0.#")</td>
                                             <td class="ops-num">@Num(item.AverageUnitPrice)</td>
-                                            <td class="ops-num">@Num(item.NetAmount)</td>
+                                            <td class="ops-num">
+                                                @Num(item.NetAmount)
+                                                @if (item.CreditedNetAmount > 0)
+                                                {
+                                                    <div class="ops-sub ops-sbd-credited">&minus; @Num(item.CreditedNetAmount) · net @Num(item.NetAmountAfterCredits)</div>
+                                                }
+                                            </td>
                                             <td>
                                                 <div class="ops-sbd-split">
                                                     <span class="ops-sbd-track"><span class="ops-sbd-track-fill is-accent" style="width:@Percent(item.NetAmount, topNet)"></span></span>
@@ -527,7 +557,15 @@
                                                     <td>@ShopLabel(sale.WarehouseCode)<div class="ops-sub">@TenderLabel(sale.PaymentMethod)</div></td>
                                                     <td>@(sale.CustomerCode ?? "walk-in")</td>
                                                     <td class="ops-num">@sale.Quantity.ToString("#,##0.##")</td>
-                                                    <td class="ops-num">@Num(sale.TotalAmount)</td>
+                                                    <td class="ops-num">
+                                                        @Num(sale.TotalAmount)
+                                                        @if (sale.CreditedAmount > 0)
+                                                        {
+                                                            <div class="ops-sub ops-sbd-credited" title="@string.Join(", ", sale.CreditNoteNumbers)">
+                                                                @(sale.IsFullyCredited ? "Fully credited" : $"− {Num(sale.CreditedAmount)} credited")
+                                                            </div>
+                                                        }
+                                                    </td>
                                                     <td class="ops-num">@sale.TimesShopAverage.ToString("0.#")</td>
                                                 </tr>
                                             }
