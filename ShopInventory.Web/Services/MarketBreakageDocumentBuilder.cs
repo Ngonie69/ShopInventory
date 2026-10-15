@@ -15,32 +15,62 @@ namespace ShopInventory.Web.Services;
 /// (<see cref="MobileOrderDocumentBuilder.DocumentStyles"/>), with only the slip's own pieces added,
 /// so the two printed documents read as one family. The rep's figures are shown as reported and the
 /// office's count beside them; a line nobody counted reads "Not counted", never zero.
+/// <para>
+/// A report the office has not yet confirmed or rejected prints as a draft: "DRAFT" is stamped across
+/// every sheet and named in the running header and footer, and the counts carry whatever the office has
+/// typed into the drawer so far, so the paper matches the screen.
+/// </para>
 /// </remarks>
 public static class MarketBreakageDocumentBuilder
 {
     private const string OrganisationName = "Kefalos Cheese (Pvt) Ltd";
     private const string SystemName = "Shop Inventory Management System";
     private const string FooterNote = "Internal — market breakage return";
+    private const string DraftFooterNote = "Draft — not yet confirmed or rejected";
+    private const string DraftWatermark = "DRAFT";
 
-    public static string Build(MarketBreakageDetailDto report, DateTime generatedAtCat)
+    /// <summary>A report still waiting on the office's decision prints as a draft.</summary>
+    public static bool IsDraft(string status) => MarketBreakageStatus.MayConfirm(status);
+
+    /// <param name="report">The report as the drawer holds it.</param>
+    /// <param name="generatedAtCat">When it is printed, in CAT.</param>
+    /// <param name="draftCounts">
+    /// For a draft only: the counts typed into the drawer and not yet submitted, by line id. A line
+    /// missing from it prints as not counted. Ignored once the report is decided, when the confirmed
+    /// quantities are the record.
+    /// </param>
+    public static string Build(
+        MarketBreakageDetailDto report,
+        DateTime generatedAtCat,
+        IReadOnlyDictionary<int, decimal>? draftCounts = null)
     {
         ArgumentNullException.ThrowIfNull(report);
 
+        var draft = IsDraft(report.Status);
+        decimal? CountOf(MarketBreakageLineDto line) =>
+            draft && draftCounts is not null
+                ? draftCounts.TryGetValue(line.Id, out var typed) ? typed : null
+                : line.ConfirmedQuantity;
+
         var transferred = report.Status == MarketBreakageStatus.Transferred;
-        var counted = report.Lines.Any(line => line.ConfirmedQuantity is not null);
+        var counted = report.Lines.Any(line => CountOf(line) is not null);
+        var allCounted = report.Lines.All(line => CountOf(line) is not null);
         var reportedTotal = report.Lines.Sum(line => line.ReportedQuantity);
-        var countedTotal = report.Lines.Sum(line => line.ConfirmedQuantity ?? 0m);
+        var countedTotal = report.Lines.Sum(line => CountOf(line) ?? 0m);
         var returns = string.IsNullOrWhiteSpace(report.ReturnsWarehouseCode) ? "Returns" : report.ReturnsWarehouseCode;
 
         var body = new StringBuilder();
         AppendTitleBlock(body, report, returns, generatedAtCat);
-        AppendStatBand(body, report.Lines.Count, reportedTotal, countedTotal, counted, transferred);
+        AppendStatBand(body, report.Lines.Count, reportedTotal, countedTotal, counted, allCounted, transferred);
         AppendSummary(body, report, returns);
         AppendRemarks(body, report);
-        AppendLines(body, report.Lines);
+        AppendLines(body, report.Lines, CountOf);
         AppendSignatures(body, report, returns);
 
-        var documentTitle = $"Breakage Report #{report.Id}";
+        var documentTitle = draft ? $"Breakage Report #{report.Id} — Draft" : $"Breakage Report #{report.Id}";
+        var watermark = draft
+            ? $"<div class=\"mod-watermark mbd-watermark-draft\" aria-hidden=\"true\"><span>{DraftWatermark}</span></div>"
+            : string.Empty;
 
         return $"""
             <!DOCTYPE html>
@@ -54,6 +84,7 @@ public static class MarketBreakageDocumentBuilder
             <style>{MobileOrderDocumentBuilder.DocumentStyles}{SlipStyles}</style>
             </head>
             <body>
+            {watermark}
             <table class="mod-frame" role="presentation">
               <thead><tr><th>
                 <div class="mod-hdr-space">
@@ -70,7 +101,7 @@ public static class MarketBreakageDocumentBuilder
               <tfoot><tr><td>
                 <div class="mod-ftr-space">
                   <div class="mod-runfoot">
-                    <span>{Html(FooterNote)}</span>
+                    <span>{Html(draft ? DraftFooterNote : FooterNote)}</span>
                     <span class="mod-gen">Printed {Html(FormatCatStamp(generatedAtCat))}</span>
                   </div>
                 </div>
@@ -108,12 +139,13 @@ public static class MarketBreakageDocumentBuilder
     }
 
     private static void AppendStatBand(
-        StringBuilder body, int lineCount, decimal reportedTotal, decimal countedTotal, bool counted, bool transferred)
+        StringBuilder body, int lineCount, decimal reportedTotal, decimal countedTotal, bool counted, bool allCounted, bool transferred)
     {
+        // As in the drawer, a part-counted draft has no difference yet: the uncounted lines are not zero.
         body.Append("<div class=\"mod-stats\">");
         AppendStat(body, "Products", lineCount.ToString("N0", CultureInfo.InvariantCulture));
         AppendStat(body, "Units reported", QuantityDisplay.Format(reportedTotal));
-        AppendStat(body, "Difference", counted ? DiffText(countedTotal - reportedTotal) : "—");
+        AppendStat(body, "Difference", allCounted ? DiffText(countedTotal - reportedTotal) : "—");
         AppendStat(body, transferred ? "Moved to returns" : "Units counted", counted ? QuantityDisplay.Format(countedTotal) : "—", accent: true);
         body.Append("</div>");
     }
@@ -161,7 +193,8 @@ public static class MarketBreakageDocumentBuilder
             AppendCallout(body, $"{report.DecidedByName ?? "The office"} wrote:", report.DecisionRemarks);
     }
 
-    private static void AppendLines(StringBuilder body, IReadOnlyCollection<MarketBreakageLineDto> lines)
+    private static void AppendLines(
+        StringBuilder body, IReadOnlyCollection<MarketBreakageLineDto> lines, Func<MarketBreakageLineDto, decimal?> countOf)
     {
         var tail = $"— {lines.Count:N0} {(lines.Count == 1 ? "product" : "products")}";
 
@@ -187,7 +220,7 @@ public static class MarketBreakageDocumentBuilder
             body.Append($"<td>{NotRecorded(line.ItemDescription, "—")}</td>");
             body.Append($"<td class=\"mod-dim\">{NotRecorded(line.Reason, "—")}</td>");
             body.Append($"<td class=\"mod-r\">{Html(QuantityDisplay.Format(line.ReportedQuantity))}</td>");
-            if (line.ConfirmedQuantity is decimal confirmed)
+            if (countOf(line) is decimal confirmed)
             {
                 var diff = confirmed - line.ReportedQuantity;
                 body.Append($"<td class=\"mod-r mod-linetotal\">{Html(QuantityDisplay.Format(confirmed))}</td>");
@@ -276,6 +309,16 @@ public static class MarketBreakageDocumentBuilder
         .mbd-w-qty { width: 78px; }
         .mbd-diff { color: var(--mod-accent); font-weight: 500; white-space: nowrap; }
         .mbd-nowrap { white-space: nowrap; }
+
+        /* A draft's stamp has to be read at a glance, so it is larger and darker than the
+           confidentiality mark it borrows its placement from. */
+        @media print {
+          .mbd-watermark-draft span {
+            font-size: 132px;
+            letter-spacing: 0.16em;
+            color: rgba(93, 82, 148, 0.14);
+          }
+        }
 
         .mbd-signs {
           display: grid;
