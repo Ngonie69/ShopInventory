@@ -55,6 +55,18 @@ public class DesktopSalePostingSettings
     public int LookbackDays { get; set; } = 3;
 
     /// <summary>
+    /// How long a till sale may go without reaching SAP before the admins are told it is stuck. A sale
+    /// whose posting budget is spent is reported straight away, whatever its age. 0 turns the stuck-sale
+    /// alerts off.
+    /// </summary>
+    public int StuckSaleAlertAfterHours { get; set; } = 4;
+
+    /// <summary>
+    /// How many days before a stuck sale's units go back on the shelf the admins are reminded.
+    /// </summary>
+    public int StockHoldReleaseWarningDays { get; set; } = 3;
+
+    /// <summary>
     /// How long after a post was issued the system waits before it will send that sale again,
     /// when SAP shows no invoice for it.
     /// </summary>

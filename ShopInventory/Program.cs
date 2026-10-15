@@ -657,6 +657,10 @@ try
     // fiscalised and printed them.
     builder.Services.AddScoped<DesktopSalePostingService>();
 
+    // Tells the admins when one of those sales is stuck before SAP while its units are held off the
+    // shelf, and before and when the hold ends.
+    builder.Services.AddScoped<DesktopSaleStockHoldAlerter>();
+
     // Settles those invoices, and the older desktop app's consolidated ones, with one incoming payment
     // per business partner per day.
     builder.Services.AddScoped<DailyIncomingPaymentService>();

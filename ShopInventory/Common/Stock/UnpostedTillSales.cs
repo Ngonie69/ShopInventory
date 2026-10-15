@@ -63,8 +63,8 @@ public static class UnpostedTillSales
     {
         // Bounded by when the sale was captured rather than by its DocDate, which is an accounting date
         // taken from the UTC day and so names the wrong ledger day for anything sold between midnight
-        // and the morning fetch. The ledger day runs from the fetch time in CAT, two hours ahead of UTC.
-        var dayStart = ledgerDay.Add(StockLedgerDay.ParseFetchTime(fetchTimeCat)).AddHours(-2);
+        // and the morning fetch.
+        var dayStart = LedgerDayStartUtc(ledgerDay, fetchTimeCat);
         var dayEnd = dayStart.AddDays(1);
         var earliest = dayStart.AddDays(-Math.Max(0, lookbackDays));
         var tillSources = SaleSourceSystems.PostedByDesktopSaleJob;
@@ -163,6 +163,31 @@ public static class UnpostedTillSales
 
         return outstanding;
     }
+
+    /// <summary>
+    /// When a till sale captured at <paramref name="createdAtUtc"/> stops being netted off the shelf by
+    /// <see cref="OutstandingAsync"/> if it is still not in SAP: the first ledger-day start at which it
+    /// falls outside <paramref name="lookbackDays"/>.
+    /// </summary>
+    /// <remarks>
+    /// From then on the units are back on sale while SAP still lacks the invoice, so the till and SAP
+    /// both show stock that has been sold. The release itself lands at the next reading of the shelf
+    /// from SAP — the morning fetch, or the hourly reconciliation in the warehouses it corrects.
+    /// </remarks>
+    public static DateTime HoldEndsAtUtc(DateTime createdAtUtc, string? fetchTimeCat, int lookbackDays)
+    {
+        // Counted while createdAt >= dayStart - lookback, so released at the first day start strictly
+        // after createdAt + lookback.
+        var lastHeldInstant = createdAtUtc.AddDays(Math.Max(0, lookbackDays));
+        var offset = StockLedgerDay.ParseFetchTime(fetchTimeCat).Add(TimeSpan.FromHours(-2));
+        var dayStart = LedgerDayStartUtc(lastHeldInstant.Add(-offset).Date, fetchTimeCat);
+
+        return dayStart > lastHeldInstant ? dayStart : dayStart.AddDays(1);
+    }
+
+    // The ledger day runs from the fetch time in CAT, two hours ahead of UTC.
+    private static DateTime LedgerDayStartUtc(DateTime ledgerDay, string? fetchTimeCat) =>
+        ledgerDay.Date.Add(StockLedgerDay.ParseFetchTime(fetchTimeCat)).AddHours(-2);
 
     /// <summary>
     /// Takes <paramref name="quantity"/> off the rows, soonest to expire first — the order a sale

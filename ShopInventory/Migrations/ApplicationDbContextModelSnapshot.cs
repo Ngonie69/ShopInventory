@@ -17,7 +17,7 @@ namespace ShopInventory.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -2209,6 +2209,12 @@ namespace ShopInventory.Migrations
                     b.Property<string>("SourceSystem")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<int>("StockHoldAlert")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("StockHoldAlertedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18,2)");
