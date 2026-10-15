@@ -107,6 +107,35 @@ public sealed class SapOutagePostingTests : IDisposable
         Assert.NotNull(saved.PostIssuedAtUtc);
     }
 
+    [Fact]
+    public async Task A_duplicate_check_that_meets_sap_s_database_down_spends_no_attempt()
+    {
+        // KEF-FAC-20260914-8DFB97306920: SAP's database was down behind a Service Layer that still
+        // answered, so the check whether SAP already held the invoice came back 500. Every pass spent
+        // an attempt on it — six in six minutes — and the sale stayed unposted for a month.
+        var sale = await GivenSaleAsync(daysAgo: 0);
+        var databaseDown = new SapReadFailedException(
+            System.Net.HttpStatusCode.InternalServerError,
+            "Failed to check invoice by U_Van_saleorder: InternalServerError - {\"error\":{\"code\":7,\"message\":"
+            + "{\"lang\":\"en-us\",\"value\":\"Failed to connect to kfldb port 40020 after 0 ms: Couldn't connect to server\"}}}");
+
+        for (var pass = 0; pass < 7; pass++)
+        {
+            await Service(lookup: _ => Task.FromException<Invoice?>(databaseDown)).PostPendingSalesAsync();
+            _context.ChangeTracker.Clear();
+        }
+
+        var saved = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
+        Assert.Equal(0, saved.PostingAttempts);
+        Assert.Equal(DesktopSaleConsolidationStatus.Pending, saved.ConsolidationStatus);
+        Assert.Contains("could not be asked", saved.LastPostingError);
+        Assert.Empty(_created);
+
+        // And once SAP is back, the eighth pass posts it.
+        var result = await Service().PostPendingSalesAsync();
+        Assert.Equal(1, result.Posted);
+    }
+
     private async Task<DesktopSaleEntity> GivenSaleAsync(int daysAgo)
     {
         var sale = new DesktopSaleEntity
@@ -141,8 +170,11 @@ public sealed class SapOutagePostingTests : IDisposable
         return sale;
     }
 
-    private DesktopSalePostingService Service(Func<CreateInvoiceRequest, Task<Invoice>>? createInvoice = null)
+    private DesktopSalePostingService Service(
+        Func<CreateInvoiceRequest, Task<Invoice>>? createInvoice = null,
+        Func<string, Task<Invoice?>>? lookup = null)
     {
+        lookup ??= _ => Task.FromResult<Invoice?>(null);
         var docNum = 5000;
         createInvoice ??= request =>
         {
@@ -153,7 +185,7 @@ public sealed class SapOutagePostingTests : IDisposable
 
         var sap = StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
-            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => (object)Task.FromResult<Invoice?>(null),
+            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => (object)lookup((string)args![0]!),
             nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => createInvoice((CreateInvoiceRequest)args![0]!),
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
         });

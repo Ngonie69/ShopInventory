@@ -27,6 +27,17 @@ public static class SapFailureClassifier
             return false;
         }
 
+        // A read SAP did not serve decides by its status, wherever it sits in the chain: the posting
+        // services wrap the duplicate check's failure in a sentence of their own. A 5xx is SAP or its
+        // database being unavailable and will pass; a 4xx is a query SAP will refuse every time.
+        for (var inner = exception; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is SapReadFailedException read)
+            {
+                return IsTransientStatusCode(read.StatusCode);
+            }
+        }
+
         return ContainsAvailabilitySignal(exception.GetBaseException().Message);
     }
 
@@ -42,6 +53,10 @@ public static class SapFailureClassifier
                normalized.Contains("timeout") ||
                normalized.Contains("timed out") ||
                normalized.Contains("connection") ||
+               // SAP's own words when its database is down: "Failed to connect to kfldb port 40020
+               // after 0 ms: Couldn't connect to server". For stored errors read back as text.
+               normalized.Contains("failed to connect") ||
+               normalized.Contains("connect to server") ||
                normalized.Contains("network") ||
                normalized.Contains("unavailable") ||
                normalized.Contains("service unavailable") ||
