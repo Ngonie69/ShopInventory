@@ -38,6 +38,8 @@ public static class SalesPerformanceBuilder
         VanSalesPerformanceReportResult vans,
         VanSalesPerformanceReportResult previousVans,
         int unconfirmedVanSales,
+        VanPartnerFacts vanPartners,
+        IReadOnlyDictionary<string, string>? sapPartnerNames,
         DateTime generatedAtUtc)
     {
         var shops = Counter(review, SaleBusinesses.Shops);
@@ -104,7 +106,102 @@ public static class SalesPerformanceBuilder
             totals,
             shops,
             vending,
-            van);
+            van,
+            CounterPartners(review).Concat(VanPartners(vanPartners))
+                .Select(partner => sapPartnerNames?.GetValueOrDefault(partner.CardCode) is { } sapName ? partner with { Name = sapName } : partner)
+                .ToList(),
+            sapPartnerNames is not null);
+    }
+
+    /// <summary>
+    /// Every business partner shops and vending sold as, from the management report each review section
+    /// read — so a line's partners add up to its scorecard row.
+    /// </summary>
+    private static IEnumerable<SalesPerformancePartner> CounterPartners(DesktopSalesReview review) =>
+        review.Businesses
+            .Where(business => SaleBusinesses.Counters.Contains(business.Business))
+            .SelectMany(business => business.Currencies.SelectMany(currency => currency.ByPartner
+                .OrderByDescending(row => row.TotalAmount)
+                .ThenByDescending(row => row.PreviousTotalAmount)
+                .ThenBy(row => row.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(row => new SalesPerformancePartner(
+                    business.Business,
+                    currency.Currency,
+                    row.Key,
+                    row.Label,
+                    row.Hint,
+                    row.SalesCount,
+                    row.PreviousSalesCount,
+                    row.TotalAmount,
+                    row.PreviousTotalAmount,
+                    row.ChangePercent,
+                    row.ShareOfValuePercent,
+                    row.CreditedAmount,
+                    row.MarginPercent))));
+
+    /// <summary>
+    /// Every van account, from the same facts the van report counts. A van invoices every sale to its own
+    /// account, so this is one row per van — with the reps who sold on it, since two share each truck.
+    /// </summary>
+    private static IEnumerable<SalesPerformancePartner> VanPartners(VanPartnerFacts facts)
+    {
+        var now = facts.Current
+            .GroupBy(fact => fact.VanAccountCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var before = facts.Previous
+            .GroupBy(fact => fact.VanAccountCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        var rows = now.Keys
+            .Concat(before.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(account =>
+            {
+                var current = VanSalesMeasures.MoneyByCurrency(now.GetValueOrDefault(account) ?? []);
+                var previous = VanSalesMeasures.MoneyByCurrency(before.GetValueOrDefault(account) ?? []);
+                var reps = (now.GetValueOrDefault(account) ?? [])
+                    .Select(fact => fact.UserId)
+                    .Distinct()
+                    .Select(id => facts.RepNames.GetValueOrDefault(id))
+                    .OfType<string>()
+                    .Order(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                return current.Select(m => m.Currency)
+                    .Concat(previous.Select(m => m.Currency))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Select(currency =>
+                    {
+                        var today = current.FirstOrDefault(m => string.Equals(m.Currency, currency, StringComparison.OrdinalIgnoreCase));
+                        var then = previous.FirstOrDefault(m => string.Equals(m.Currency, currency, StringComparison.OrdinalIgnoreCase));
+                        return (Account: account, Currency: currency, Today: today, Then: then, Reps: reps);
+                    });
+            })
+            .ToList();
+
+        var totals = rows
+            .GroupBy(row => row.Currency, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Sum(row => row.Today?.Gross ?? 0m), StringComparer.OrdinalIgnoreCase);
+
+        return rows
+            .Select(row => new SalesPerformancePartner(
+                SaleBusinesses.Vans,
+                row.Currency,
+                row.Account,
+                facts.AccountNames.GetValueOrDefault(row.Account) ?? row.Account,
+                row.Reps.Count == 0 ? null : string.Join(", ", row.Reps),
+                row.Today?.DocumentCount ?? 0,
+                row.Then?.DocumentCount ?? 0,
+                row.Today?.Gross ?? 0m,
+                row.Then?.Gross ?? 0m,
+                Change(row.Today?.Gross ?? 0m, row.Then?.Gross ?? 0m),
+                Share(row.Today?.Gross ?? 0m, totals[row.Currency]),
+                null,
+                null))
+            .OrderBy(row => row.Currency, StringComparer.Ordinal)
+            .ThenByDescending(row => row.Takings)
+            .ThenByDescending(row => row.PreviousTakings)
+            .ThenBy(row => row.CardCode, StringComparer.OrdinalIgnoreCase);
     }
 
     private static SalesPerformanceCounter? Counter(DesktopSalesReview review, string business)

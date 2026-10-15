@@ -54,6 +54,7 @@ internal static class SalesPerformanceEmailBody
         Counter(html, performance.Shops, SaleBusinesses.Shops);
         Counter(html, performance.Vending, SaleBusinesses.Vending);
         Vans(html, performance.Vans);
+        Partners(html, performance);
 
         html.Append($"<p style=\"font-size:13px;color:{Muted};margin:24px 0 4px;\">Takings include VAT throughout. Shop and vending credits are shown beside the takings, "
             + "not taken off them; van takings are before any credit notes. The Shop &amp; Vending review for the same period is attached as a PDF. "
@@ -318,6 +319,111 @@ internal static class SalesPerformanceEmailBody
         }
 
         Findings(html, vans.Findings);
+    }
+
+    // ── Business partners ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Every business partner on its own, a table per line of business closed by that line combined, then
+    /// the lines combined side by side. Every partner is listed — none is cut to a top slice.
+    /// </summary>
+    private static void Partners(StringBuilder html, SalesPerformance performance)
+    {
+        Section(html, "Business partners");
+        if (performance.Partners.Count == 0)
+        {
+            html.Append($"<p style=\"font-size:14px;color:{Muted};\">No business partner sold this period or the one before.</p>");
+            return;
+        }
+
+        html.Append($"<p style=\"font-size:13px;color:{Muted};margin:0 0 10px;\">Each SAP business partner the sales were made as. For shops and vending that is the shop's own account "
+            + "or the customer named on the sale; for vans it is the van's own account, which every van sale is invoiced to. Share is of the partner's own line of business."
+            + (performance.PartnerNamesFromSap ? " Names are SAP's." : " SAP could not be reached, so names are as recorded on the sales.")
+            + "</p>");
+
+        var groups = SaleBusinesses.All
+            .SelectMany(business => performance.Partners
+                .Where(partner => partner.Business == business)
+                .GroupBy(partner => partner.Currency, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(group => group.Sum(partner => partner.Takings))
+                .Select(group => (Business: business, Currency: group.Key, Partners: group.ToList())))
+            .ToList();
+
+        foreach (var (business, currency, partners) in groups)
+        {
+            var label = SaleBusinesses.Label(business);
+            html.Append($"<h3 style=\"font-size:15px;margin:16px 0 6px;\">{E(label)} · {E(currency)} <span style=\"font-weight:normal;color:{Faint};\">· {partners.Count} partner{(partners.Count == 1 ? "" : "s")}</span></h3>");
+            html.Append(TableOpen());
+            html.Append(HeaderRow("BUSINESS PARTNER", "SALES", "TAKINGS", "BEFORE", "CHANGE", "SHARE", "MARGIN"));
+            foreach (var partner in partners)
+            {
+                // The management report's hint already leads with the code; a van account's names its reps.
+                var detail = partner.Hint is { Length: > 0 } hint
+                    ? hint.Contains(partner.CardCode, StringComparison.OrdinalIgnoreCase) ? hint : $"{partner.CardCode} · {hint}"
+                    : partner.CardCode;
+                html.Append($"<tr style=\"border-top:1px solid {Rule};\">");
+                html.Append($"<td>{E(partner.Name)}<div style=\"font-size:11px;color:{Faint};\">{E(detail)}"
+                    + (partner.Credited is > 0 ? $" · {Number(partner.Credited.Value)} credited back" : string.Empty) + "</div></td>");
+                html.Append(Right(partner.Transactions.ToString("N0", Invariant)));
+                html.Append(Right(Number(partner.Takings)));
+                html.Append(Right(Number(partner.PreviousTakings), Faint));
+                html.Append(Right(partner.Takings == 0 && partner.PreviousTakings > 0 ? $"<span style=\"color:{Down};\">none</span>" : ChangeHtml(partner.ChangePercent)));
+                html.Append(Right(Percent(partner.SharePercent)));
+                html.Append(Right(partner.MarginPercent is { } margin ? Percent(margin) : "—"));
+                html.Append("</tr>");
+            }
+
+            var takings = partners.Sum(partner => partner.Takings);
+            var before = partners.Sum(partner => partner.PreviousTakings);
+            html.Append($"<tr style=\"border-top:2px solid {Ink};font-weight:bold;\">");
+            html.Append($"<td>{E(label)} combined</td>");
+            html.Append(Right(partners.Sum(partner => partner.Transactions).ToString("N0", Invariant)));
+            html.Append(Right(Number(takings)));
+            html.Append(Right(Number(before), Faint));
+            html.Append(Right(ChangeHtml(SalesPerformanceBuilder.Change(takings, before))));
+            html.Append(Right("100%"));
+            html.Append(Right(""));
+            html.Append("</tr></table>");
+        }
+
+        // The lines of business combined, side by side, with the partner that carried each.
+        html.Append("<h3 style=\"font-size:15px;margin:18px 0 6px;\">Combined per channel</h3>");
+        foreach (var currency in performance.Totals)
+        {
+            var rows = groups.Where(group => string.Equals(group.Currency, currency.Currency, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (rows.Count == 0)
+            {
+                continue;
+            }
+
+            html.Append(TableOpen());
+            html.Append(HeaderRow($"CHANNEL · {currency.Currency}", "PARTNERS", "SALES", "TAKINGS", "CHANGE", "SHARE", "LARGEST PARTNER"));
+            foreach (var (business, _, partners) in rows)
+            {
+                var takings = partners.Sum(partner => partner.Takings);
+                var biggest = partners.OrderByDescending(partner => partner.Takings).First();
+                var traded = partners.Count(partner => partner.Takings > 0);
+                html.Append($"<tr style=\"border-top:1px solid {Rule};\">");
+                html.Append($"<td><b>{E(SaleBusinesses.Label(business))}</b></td>");
+                html.Append(Right(traded == partners.Count ? traded.ToString(Invariant) : $"{traded} of {partners.Count}"));
+                html.Append(Right(partners.Sum(partner => partner.Transactions).ToString("N0", Invariant)));
+                html.Append(Right(Number(takings)));
+                html.Append(Right(ChangeHtml(SalesPerformanceBuilder.Change(takings, partners.Sum(partner => partner.PreviousTakings)))));
+                html.Append(Right(Percent(currency.Takings == 0 ? 0 : Math.Round(takings / currency.Takings * 100m, 1, MidpointRounding.AwayFromZero))));
+                html.Append(Right(biggest.Takings > 0 ? $"{E(biggest.Name)} <span style=\"color:{Faint};\">{Percent(biggest.SharePercent)}</span>" : "—"));
+                html.Append("</tr>");
+            }
+
+            html.Append($"<tr style=\"border-top:2px solid {Ink};font-weight:bold;\">");
+            html.Append("<td>All channels</td>");
+            html.Append(Right(rows.Sum(row => row.Partners.Count(partner => partner.Takings > 0)).ToString(Invariant)));
+            html.Append(Right(rows.Sum(row => row.Partners.Sum(partner => partner.Transactions)).ToString("N0", Invariant)));
+            html.Append(Right(Number(currency.Takings)));
+            html.Append(Right(ChangeHtml(currency.ChangePercent)));
+            html.Append(Right("100%"));
+            html.Append(Right(""));
+            html.Append("</tr></table>");
+        }
     }
 
     // ── Pieces ─────────────────────────────────────────────────────────────────────

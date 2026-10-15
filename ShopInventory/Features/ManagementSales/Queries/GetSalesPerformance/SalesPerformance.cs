@@ -10,6 +10,8 @@ namespace ShopInventory.Features.ManagementSales.Queries.GetSalesPerformance;
 /// <item><term>Shops</term><description>The shop tills, from the Shop &amp; Vending review. Null when no shop sold in the period or the one before.</description></item>
 /// <item><term>Vending</term><description>The vending settlements, from the same review. Null like <c>Shops</c>.</description></item>
 /// <item><term>Vans</term><description>The vans, from the van sales performance report — the reservations and the offline uploads together.</description></item>
+/// <item><term>Partners</term><description>Every SAP business partner in each line of business, named as SAP names it — CIS006 is "Factory Kefalos shop POS USD".</description></item>
+/// <item><term>PartnerNamesFromSap</term><description>False when SAP could not be asked, and each partner carries the name recorded on its sales instead.</description></item>
 /// </list></remarks>
 public sealed record SalesPerformance(
     DateTime FromDate,
@@ -21,7 +23,41 @@ public sealed record SalesPerformance(
     List<SalesPerformanceTotal> Totals,
     SalesPerformanceCounter? Shops,
     SalesPerformanceCounter? Vending,
-    SalesPerformanceVans Vans);
+    SalesPerformanceVans Vans,
+    List<SalesPerformancePartner> Partners,
+    bool PartnerNamesFromSap);
+
+/// <summary>
+/// One SAP business partner — the CardCode a sale was made as — in one line of business and currency,
+/// against the period before.
+/// </summary>
+/// <remarks>
+/// <para>
+/// For shops and vending that is the partner on the till or vending sale: a shop's own walk-in account
+/// or the customer it was sold to. For vans it is the van's own account (VAN010 and so on), because every
+/// van sale is invoiced to it; the shops a van sells to are route customers, not SAP partners.
+/// </para>
+/// <list type="table">
+/// <item><term>Hint</term><description>The warehouses a counter partner's sales left from, or the reps who sold on a van account.</description></item>
+/// <item><term>SharePercent</term><description>Its share of its own line of business's takings in the currency. Partners in one line add up to that line's scorecard row.</description></item>
+/// <item><term>Credited</term><description>Credited back on the period's sales; null for vans.</description></item>
+/// <item><term>MarginPercent</term><description>SAP's margin on what it costed; null for vans and where SAP has costed nothing.</description></item>
+/// </list>
+/// </remarks>
+public sealed record SalesPerformancePartner(
+    string Business,
+    string Currency,
+    string CardCode,
+    string Name,
+    string? Hint,
+    int Transactions,
+    int PreviousTransactions,
+    decimal Takings,
+    decimal PreviousTakings,
+    decimal? ChangePercent,
+    decimal SharePercent,
+    decimal? Credited,
+    decimal? MarginPercent);
 
 /// <summary>One line of business in one currency, against the period before.</summary>
 /// <remarks><list type="table">

@@ -45,6 +45,7 @@ public sealed class SalesPerformanceEmailTests : IDisposable
     private readonly ManualClock _clock = new();
     private readonly Guid _adminId = Guid.NewGuid();
     private int _reference;
+    private bool _sapDown;
 
     public SalesPerformanceEmailTests(ITestOutputHelper output)
     {
@@ -65,7 +66,7 @@ public sealed class SalesPerformanceEmailTests : IDisposable
         AddCounterSale(Tuesday, 25m);
         AddCounterSale(Wednesday, 25m);
         AddCounterSale(Wednesday, 25m);
-        AddCounterSale(Wednesday, 25m);
+        AddCounterSale(Wednesday, 25m, cardCode: "CUST001", cardName: "Bindura Hotel");
 
         // Vending: nothing on Tuesday, USD 40 on Wednesday.
         AddCounterSale(Wednesday, 40m, "KEFVEND", SaleSourceSystems.Vending);
@@ -152,6 +153,54 @@ public sealed class SalesPerformanceEmailTests : IDisposable
         Assert.Equal(DesktopSalesReviewSeverity.Action, vans.Findings[0].Severity);
     }
 
+    [Fact]
+    public async Task Every_business_partner_is_listed_and_each_channel_adds_up_to_its_scorecard_row()
+    {
+        var performance = await PerformanceAsync();
+
+        foreach (var row in performance.Scorecard)
+        {
+            var partners = performance.Partners.Where(p => p.Business == row.Business && p.Currency == row.Currency).ToList();
+            Assert.Equal(row.Takings, partners.Sum(p => p.Takings));
+            Assert.Equal(row.PreviousTakings, partners.Sum(p => p.PreviousTakings));
+            Assert.Equal(row.Transactions, partners.Sum(p => p.Transactions));
+        }
+
+        var shops = performance.Partners.Where(p => p.Business == SaleBusinesses.Shops).ToList();
+        Assert.Equal(["CIS006", "CUST001"], shops.Select(p => p.CardCode));
+        Assert.Equal("Factory Kefalos shop POS USD", shops[0].Name);   // SAP's name, not the till's
+        Assert.True(performance.PartnerNamesFromSap);
+        Assert.Equal(50m, shops[0].Takings);
+        Assert.Equal(25m, shops[1].Takings);
+
+        // A van bills every sale to its own account. Mazowe sold only the day before and is still listed.
+        var vans = performance.Partners.Where(p => p.Business == SaleBusinesses.Vans).ToList();
+        var guruve = Assert.Single(vans, p => p.CardCode == "VAN010");
+        Assert.Equal("VAN 010 GURUVE TRUCK", guruve.Name);
+        Assert.Equal("Tinashe Moyo", guruve.Hint);
+        Assert.Equal(60m, guruve.Takings);
+        Assert.Equal(100m, guruve.PreviousTakings);
+        Assert.Equal(100m, guruve.SharePercent);
+
+        var mazowe = Assert.Single(vans, p => p.CardCode == "VAN011");
+        Assert.Equal("Van 011 Mazowe", mazowe.Name);   // unknown to SAP: keeps the name on its sales
+        Assert.Equal(0m, mazowe.Takings);
+        Assert.Equal(30m, mazowe.PreviousTakings);
+        Assert.Null(mazowe.Credited);
+    }
+
+    [Fact]
+    public async Task Without_SAP_each_partner_keeps_the_name_on_its_sales_and_the_email_says_so()
+    {
+        _sapDown = true;
+
+        var performance = await PerformanceAsync();
+
+        Assert.False(performance.PartnerNamesFromSap);
+        Assert.Equal("KEFSHOP till", Assert.Single(performance.Partners, p => p.CardCode == "CIS006").Name);
+        Assert.Equal(175m, performance.Totals.Single().Takings);
+    }
+
     // ---- The schedule -----------------------------------------------------------------------------
 
     [Fact]
@@ -212,6 +261,14 @@ public sealed class SalesPerformanceEmailTests : IDisposable
         Assert.Contains("GURUVE route", message.Body);
         Assert.Contains("Tinashe Moyo", message.Body);
         Assert.Contains("Needs attention", message.Body);
+        Assert.Contains("Bindura Hotel", message.Body);
+        Assert.Contains("Factory Kefalos shop POS USD", message.Body);
+        Assert.Contains("CIS006", message.Body);
+        Assert.DoesNotContain("CUST001 · CUST001", message.Body);
+        Assert.Contains("Van 011 Mazowe", message.Body);
+        Assert.Contains("Shops combined", message.Body);
+        Assert.Contains("Van sales combined", message.Body);
+        Assert.Contains("Combined per channel", message.Body);
 
         // Shop names are data, and data is encoded.
         Assert.Contains("Kefalos Factory Shop &amp; Co", message.Body);
@@ -262,7 +319,7 @@ public sealed class SalesPerformanceEmailTests : IDisposable
 
     private async Task<SalesPerformance> PerformanceAsync()
     {
-        var result = await new GetSalesPerformanceHandler(_context, Mediator())
+        var result = await new GetSalesPerformanceHandler(_context, Mediator(), Options.Create(new TaxSettings()), Sap(), NullLogger<GetSalesPerformanceHandler>.Instance)
             .Handle(new GetSalesPerformanceQuery(_adminId, Wednesday, Wednesday), CancellationToken.None);
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;
@@ -283,13 +340,14 @@ public sealed class SalesPerformanceEmailTests : IDisposable
             AssignedBusinessPartnerCode = account
         });
 
-    private void AddCounterSale(DateTime day, decimal total, string warehouse = "KEFSHOP", string source = SaleSourceSystems.ShopTill)
+    private void AddCounterSale(DateTime day, decimal total, string warehouse = "KEFSHOP", string source = SaleSourceSystems.ShopTill, string? cardCode = null, string? cardName = null)
     {
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
             ExternalReferenceId = $"REF-{++_reference}",
             SourceSystem = source,
-            CardCode = $"{warehouse}-BP",
+            CardCode = cardCode ?? (warehouse == "KEFSHOP" ? "CIS006" : $"{warehouse}-BP"),
+            CardName = cardName ?? $"{warehouse} till",
             WarehouseCode = warehouse,
             DocDate = day,
             TotalAmount = total,
@@ -323,7 +381,7 @@ public sealed class SalesPerformanceEmailTests : IDisposable
             ExternalReferenceId = $"VAN-{++_reference}",
             SourceSystem = SaleSourceSystems.VanSales,
             CardCode = userId == Rep ? "VAN010" : "VAN011",
-            CardName = "Van",
+            CardName = userId == Rep ? "Van 010 Guruve" : "Van 011 Mazowe",
             RouteCustomerCode = routeCustomerCode,
             RouteCustomerName = $"Shop {routeCustomerCode}",
             DocDate = day,
@@ -385,7 +443,7 @@ public sealed class SalesPerformanceEmailTests : IDisposable
     {
         _context.ChangeTracker.Clear();
         return await new SendSalesPerformanceEmailHandler(
-                _context, Mediator(), _email, new RecordingAuditService(), NullLogger<SendSalesPerformanceEmailHandler>.Instance, _clock)
+                _context, Mediator(), _email, new RecordingAuditService(), NullLogger<SendSalesPerformanceEmailHandler>.Instance, Options.Create(new TaxSettings()), Sap(), _clock)
             .Handle(command, CancellationToken.None);
     }
 
@@ -412,6 +470,20 @@ public sealed class SalesPerformanceEmailTests : IDisposable
         });
         return mediator;
     }
+
+    /// <summary>SAP's partner master: the factory shop's POS account and one van, as SAP names them.</summary>
+    private ISAPServiceLayerClient Sap() =>
+        StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetBusinessPartnersByCodesAsync) => _sapDown
+                ? Task.FromException<List<DTOs.BusinessPartnerDto>>(new HttpRequestException("SAP is down"))
+                : Task.FromResult(new List<DTOs.BusinessPartnerDto>
+                {
+                    new() { CardCode = "CIS006", CardName = "Factory Kefalos shop POS USD" },
+                    new() { CardCode = "VAN010", CardName = "VAN 010 GURUVE TRUCK" },
+                }.Where(p => ((IReadOnlyCollection<string>)args![0]!).Contains(p.CardCode!)).ToList()),
+            _ => throw new InvalidOperationException($"ISAPServiceLayerClient.{method.Name} was not expected on this path.")
+        });
 
     private sealed class NoCost : ISaleInvoiceCostReader
     {

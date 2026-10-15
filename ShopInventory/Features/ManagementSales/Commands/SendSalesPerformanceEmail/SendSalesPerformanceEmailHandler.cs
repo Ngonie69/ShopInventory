@@ -1,6 +1,8 @@
 using System.Globalization;
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReviewPdf;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReviewSchedule;
@@ -34,6 +36,8 @@ public sealed class SendSalesPerformanceEmailHandler(
     IEmailService emailService,
     IAuditService auditService,
     ILogger<SendSalesPerformanceEmailHandler> logger,
+    IOptions<TaxSettings> tax,
+    ISAPServiceLayerClient sap,
     TimeProvider? clock = null)
     : IRequestHandler<SendSalesPerformanceEmailCommand, ErrorOr<SalesPerformanceEmailResult>>
 {
@@ -92,7 +96,7 @@ public sealed class SendSalesPerformanceEmailHandler(
             return document.Errors;
         }
 
-        var performance = await SalesPerformanceReader.ForReviewAsync(mediator, db, document.Value.Review, cancellationToken);
+        var performance = await SalesPerformanceReader.ForReviewAsync(mediator, db, tax.Value, sap, logger, document.Value.Review, cancellationToken);
         if (performance.IsError)
         {
             return performance.Errors;
