@@ -329,10 +329,21 @@ public class DocumentService : IDocumentService
     {
         try
         {
+            // The type names the generated file, so it must be one the server knows. See DocumentStoragePath.
+            var documentType = DocumentStoragePath.CanonicalDocumentType(request.DocumentType);
+            if (documentType is null)
+            {
+                return new GenerateDocumentResponseDto
+                {
+                    Success = false,
+                    Message = $"Unknown document type. Expected one of: {string.Join(", ", DocumentStoragePath.KnownDocumentTypes)}."
+                };
+            }
+
             // Get template
             var template = request.TemplateId.HasValue
                 ? await GetTemplateByIdAsync(request.TemplateId.Value, cancellationToken)
-                : await GetDefaultTemplateAsync(request.DocumentType, cancellationToken);
+                : await GetDefaultTemplateAsync(documentType, cancellationToken);
 
             if (template == null)
             {
@@ -344,7 +355,7 @@ public class DocumentService : IDocumentService
             }
 
             // Get document data
-            var documentData = await GetDocumentDataAsync(request.DocumentType, request.EntityId, cancellationToken);
+            var documentData = await GetDocumentDataAsync(documentType, request.EntityId, cancellationToken);
             if (documentData == null)
             {
                 return new GenerateDocumentResponseDto
@@ -359,8 +370,8 @@ public class DocumentService : IDocumentService
 
             // Convert to PDF (you would integrate a PDF library here like iTextSharp or DinkToPdf)
             var pdfBytes = await ConvertHtmlToPdfAsync(html);
-            var fileName = $"{request.DocumentType}_{request.EntityId}_{DateTime.UtcNow:yyyyMMddHHmmss}.pdf";
-            var filePath = Path.Combine(_uploadPath, "documents", fileName);
+            var fileName = $"{documentType}_{request.EntityId}_{DateTime.UtcNow:yyyyMMddHHmmss}.pdf";
+            var filePath = DocumentStoragePath.Within(_uploadPath, "documents", fileName);
 
             // Ensure directory exists
             Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
@@ -371,7 +382,7 @@ public class DocumentService : IDocumentService
             // Save to history
             if (request.SaveToHistory)
             {
-                await SaveDocumentHistoryAsync(request.DocumentType, request.EntityId, template.Id, filePath, "Generated", userId, cancellationToken);
+                await SaveDocumentHistoryAsync(documentType, request.EntityId, template.Id, filePath, "Generated", userId, cancellationToken);
             }
 
             return new GenerateDocumentResponseDto
@@ -555,12 +566,19 @@ public class DocumentService : IDocumentService
             }
         }
 
+        // The entity type becomes a folder name, so it may only be a plain identifier, and the
+        // folder must resolve inside the upload root. See DocumentStoragePath.
+        if (!DocumentStoragePath.IsSafeEntityType(request.EntityType))
+        {
+            throw new ArgumentException("The entity type must be a plain name of letters, digits, '-' or '_'.");
+        }
+
         var isCompressibleImage = CompressibleImageTypes.Contains(mimeType);
 
         // Compressed images are always saved as JPEG
-        var fileExtension = isCompressibleImage ? ".jpg" : Path.GetExtension(fileName);
+        var fileExtension = isCompressibleImage ? ".jpg" : DocumentStoragePath.SafeExtension(fileName);
         var storedFileName = $"{Guid.NewGuid()}{fileExtension}";
-        var attachmentPath = Path.Combine(_uploadPath, "attachments", request.EntityType, request.EntityId.ToString());
+        var attachmentPath = DocumentStoragePath.Within(_uploadPath, "attachments", request.EntityType, request.EntityId.ToString());
 
         // Ensure directory exists. The attachment root is a network location in production, so an
         // unreachable store fails here for every upload at once rather than for one bad file — which
