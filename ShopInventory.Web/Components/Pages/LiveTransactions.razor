@@ -284,7 +284,7 @@
                                             <span class="ltx-card-state ltx-num">
                                                 <span class="ltx-dot" aria-hidden="true"></span>@card.State
                                             </span>
-                                            @if (card.RetrySale is { } sale)
+                                            @if (canRetry && card.RetrySale is { } sale)
                                             {
                                                 <button type="button" class="ltx-btn ltx-btn-primary"
                                                         @onclick="() => RetryAsync(sale)"

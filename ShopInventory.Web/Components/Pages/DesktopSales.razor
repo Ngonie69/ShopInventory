@@ -133,6 +133,8 @@
                    in the selection bar above the table now, where the design puts it: the count is
                    the whole point of that button, and it is worth more directly above the rows it
                    names than four feet away at the top of the page. *@
+                @if (canWrite)
+                {
                 <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenConsolidate"
                         disabled="@(isConsolidating || isLoading)">
                     @if (isConsolidating)
@@ -146,6 +148,7 @@
                         <span>Consolidate day</span>
                     }
                 </button>
+                }
                 @* The same sales, summed: by payment method, day, hour, shop and item. *@
                 <a class="ops-btn ops-btn-ghost" href="/reports/desktop-sales">
                     <i class="ph ph-chart-pie-slice" aria-hidden="true"></i>
@@ -584,7 +587,7 @@
                                    row would open the drawer over the list being selected. *@
                                 <td class="ops-ds-pick" data-label="Select"
                                     @onclick:stopPropagation="true">
-                                    @if (sale.CanPostToSap)
+                                    @if (canWrite && sale.CanPostToSap)
                                     {
                                         <input type="checkbox" aria-label="@($"Select sale {sale.Number} for posting")"
                                                checked="@selected.Contains(sale.ExternalReferenceId)"
@@ -1224,7 +1227,7 @@
                         Credit notes
                     </button>
                 }
-                @if (selectedSale.CanRetryFiscalisation)
+                @if (canWrite && selectedSale.CanRetryFiscalisation)
                 {
                     @* Offered only where the API says a retry is allowed. The API asks the device for an
                        existing receipt before sending anything, so pressing it twice cannot sign twice. *@
@@ -1243,7 +1246,7 @@
                         }
                     </button>
                 }
-                @if (selectedSale.CanPostToSap)
+                @if (canWrite && selectedSale.CanPostToSap)
                 {
                     <button type="button" class="ops-btn ops-btn-primary"
                             @onclick="() => PostOne(selectedSale)"
@@ -1511,6 +1514,11 @@
     private EndOfDayReportDto? report;
 
     private bool isLoading;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    // Posting, fiscalising and consolidating are the cashier's; a manager reads this page.
+    private bool canWrite;
     private bool isConsolidating;
     private bool isExporting;
     private bool showConsolidate;
@@ -1609,6 +1617,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        canWrite = AuthenticationStateTask is not null &&
+                   UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.DesktopSaleWriteRoles);
         filterFromDate = DateTime.Today;
         filterToDate = DateTime.Today;
 

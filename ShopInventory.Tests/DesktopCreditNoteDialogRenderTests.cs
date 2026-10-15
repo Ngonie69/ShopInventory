@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -91,6 +93,22 @@ public sealed class DesktopCreditNoteDialogRenderTests
         Assert.DoesNotContain("ops-overlay", html);
     }
 
+    /// <summary>
+    /// A manager opens the dialog to read a sale's credits. The API refuses a manager every credit
+    /// write, so the form and both actions are not offered; the receipt still is.
+    /// </summary>
+    [Fact]
+    public async Task A_manager_reads_the_sale_without_being_offered_the_form()
+    {
+        var html = await RenderAsync(Form(saleInSap: true, sapDocNum: 48213), role: "Manager");
+
+        Assert.Contains(Reference, html);
+        Assert.Contains("invoice #48213", html);
+        Assert.DoesNotContain("Credit quantity for Cheddar 1kg", html);
+        Assert.DoesNotContain("Fiscalise only", html);
+        Assert.DoesNotContain("Fiscalise and post to SAP", html);
+    }
+
     [Fact]
     public async Task A_refusal_from_the_API_is_shown_rather_than_thrown()
     {
@@ -126,7 +144,8 @@ public sealed class DesktopCreditNoteDialogRenderTests
     private static async Task<string> RenderAsync(
         DesktopCreditForm? form,
         string? reference = Reference,
-        string? prepareError = null)
+        string? prepareError = null,
+        string role = "Cashier")
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -138,12 +157,24 @@ public sealed class DesktopCreditNoteDialogRenderTests
 
         return await renderer.Dispatcher.InvokeAsync(async () =>
         {
-            var output = await renderer.RenderComponentAsync<DesktopCreditNoteDialog>(
+            // The signed-in user, cascaded the way CascadingAuthenticationState does in the app: the
+            // dialog offers the form only to the roles the API lets raise a credit.
+            var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "Test"));
+            RenderFragment dialog = builder =>
+            {
+                builder.OpenComponent<DesktopCreditNoteDialog>(0);
+                builder.AddAttribute(1, nameof(DesktopCreditNoteDialog.Reference), reference);
+                builder.AddAttribute(2, nameof(DesktopCreditNoteDialog.Currency), "USD");
+                builder.AddAttribute(3, nameof(DesktopCreditNoteDialog.IsConsolidated), false);
+                builder.CloseComponent();
+            };
+
+            var output = await renderer.RenderComponentAsync<CascadingValue<Task<AuthenticationState>>>(
                 ParameterView.FromDictionary(new Dictionary<string, object?>
                 {
-                    [nameof(DesktopCreditNoteDialog.Reference)] = reference,
-                    [nameof(DesktopCreditNoteDialog.Currency)] = "USD",
-                    [nameof(DesktopCreditNoteDialog.IsConsolidated)] = false
+                    [nameof(CascadingValue<Task<AuthenticationState>>.Value)] = Task.FromResult(new AuthenticationState(user)),
+                    [nameof(CascadingValue<Task<AuthenticationState>>.IsFixed)] = true,
+                    [nameof(CascadingValue<Task<AuthenticationState>>.ChildContent)] = dialog
                 }));
 
             return output.ToHtmlString();

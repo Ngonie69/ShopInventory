@@ -30,6 +30,8 @@ using ShopInventory.Middleware;
 
 namespace ShopInventory.Controllers;
 
+// Assigning and removing merchandiser products is set-up: Admin only, as /merchandiser-products is.
+// Under "ApiAccess" alone any staff login could change which products every merchandiser may order.
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
@@ -79,6 +81,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     /// Assign products globally
     /// </summary>
     [HttpPost("products")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> AssignProductsGlobal([FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
@@ -90,6 +93,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     /// Assign products to one merchandiser
     /// </summary>
     [HttpPost("{userId:guid}/products")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> AssignProducts(Guid userId, [FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
@@ -101,6 +105,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     /// Unassign products from every merchandiser
     /// </summary>
     [HttpDelete("products")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> RemoveProductsGlobal([FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new RemoveProductsGlobalCommand(request), cancellationToken);
@@ -111,6 +116,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     /// Activate or retire globally
     /// </summary>
     [HttpPut("products/status")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateProductStatusGlobal([FromBody] UpdateMerchandiserProductStatusRequest request, CancellationToken cancellationToken)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
@@ -122,6 +128,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     /// Activate or retire for one merchandiser
     /// </summary>
     [HttpPut("{userId:guid}/products/status")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateProductStatus(Guid userId, [FromBody] UpdateMerchandiserProductStatusRequest request, CancellationToken cancellationToken)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
@@ -133,6 +140,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     /// Unassign from one merchandiser
     /// </summary>
     [HttpDelete("{userId:guid}/products")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> RemoveProducts(Guid userId, [FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new RemoveProductsCommand(userId, request), cancellationToken);

@@ -34,6 +34,8 @@ using ShopInventory.Common.Security;
 
 namespace ShopInventory.Controllers;
 
+// Every write carries a gate narrower than "ApiAccess": stock.transfer to raise a request, and the
+// transfer approvers (UserRoles.InventoryTransferRoles on /inventory-transfers) for the rest.
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 public class InventoryTransferController(IMediator mediator) : ApiControllerBase
@@ -268,6 +270,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Withdraws a transfer the caller submitted, before any decision has been recorded.
     /// </summary>
     [HttpPost("pending/{id:guid}/cancel")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> CancelPendingInventoryTransfer(Guid id, CancellationToken cancellationToken)
     {
@@ -351,6 +354,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Create a transfer request
     /// </summary>
     [HttpPost("request")]
+    [RequirePermission(Permission.TransferStock, Permission.TransferInventory)]
     [ProducesResponseType(typeof(TransferRequestCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateTransferRequest(
@@ -496,6 +500,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Withdraws a change the caller proposed, before any decision has been recorded.
     /// </summary>
     [HttpPost("request-edits/{id:guid}/cancel")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
     [ProducesResponseType(typeof(PendingTransferRequestEditDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> CancelPendingRequestEdit(Guid id, CancellationToken cancellationToken)
     {

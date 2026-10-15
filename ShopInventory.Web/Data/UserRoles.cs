@@ -143,6 +143,14 @@ public static class UserRoles
     /// and the template writes are Admin only.
     /// </summary>
     public const string SystemSetupRoles = "Admin,Cashier,StockController";
+
+    /// <summary>
+    /// Who may post, fiscalise, consolidate or credit a till, vending or van sale. The pages that list
+    /// those sales also admit the manager, who reads them and does none of it. Must match the API:
+    /// DesktopIntegrationController's post, fiscalise, post-batch and consolidate, and
+    /// DesktopCreditNotesController's writes.
+    /// </summary>
+    public const string DesktopSaleWriteRoles = "Admin,Cashier";
     public const string InvoicingRoles = "Admin,Cashier";
 
     /// <summary>
