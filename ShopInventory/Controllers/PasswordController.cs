@@ -75,10 +75,13 @@ public class PasswordController(IMediator mediator) : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
     {
+        // The account is the token's subject. The request's Username is ignored: answering for a
+        // named account let any token that passed [Authorize] change any staff password.
         var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
         var result = await mediator.Send(new ChangePasswordCommand(
-            userId,
-            request.Username,
+            userId.Value,
             request.CurrentPassword,
             request.NewPassword,
             request.NewPassword), cancellationToken);

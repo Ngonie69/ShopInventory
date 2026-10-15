@@ -390,6 +390,10 @@ try
     builder.Services.AddApiAuthorizationPolicies();
     builder.Services.AddServiceKeyAuthorizationPolicy();
 
+    // A bare [Authorize] means a member of staff: van sales customer tokens share the staff signing
+    // key and would otherwise satisfy it. See StaffDefaultPolicy.
+    builder.Services.AddStaffDefaultAuthorizationPolicy();
+
     // Configure Rate Limiting for DDoS protection.
     //
     // The limits are read per request from IRateLimitConfigStore rather than captured here, so that

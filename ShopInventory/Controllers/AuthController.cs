@@ -220,8 +220,7 @@ public class AuthController(IMediator mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(new ChangePasswordCommand(
-            userId,
-            null,
+            userId.Value,
             request.CurrentPassword,
             request.NewPassword,
             request.NewPassword), cancellationToken);
