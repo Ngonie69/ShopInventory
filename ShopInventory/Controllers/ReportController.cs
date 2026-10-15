@@ -3,6 +3,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.Middleware;
+using ShopInventory.Common.Security;
+using ShopInventory.Features.ManagementSales.Commands.SendSalesPerformanceEmail;
+using ShopInventory.Features.ManagementSales.Commands.UpdateSalesPerformanceEmailSchedule;
+using ShopInventory.Features.ManagementSales.Queries.GetSalesPerformance;
+using ShopInventory.Features.ManagementSales.Queries.GetSalesPerformanceEmailSchedule;
 using ShopInventory.Features.Reports.Queries.GetCreditNoteSummary;
 using ShopInventory.Features.Reports.Queries.GetItemVolumeSalesReport;
 using ShopInventory.Features.Reports.Queries.GetLowStockAlerts;
@@ -284,6 +289,86 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetProfitOverviewQuery(fromDate, toDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Shops, vending and vans over one period, each against the same number of days just before —
+    /// the figures the management sales performance email carries.
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpGet("sales-performance")]
+    public async Task<IActionResult> GetSalesPerformance(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new GetSalesPerformanceQuery(userId.Value, fromDate, toDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// When the management sales performance email goes out, to whom, and which admin it is read as.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpGet("sales-performance/schedule")]
+    public async Task<IActionResult> GetSalesPerformanceEmailSchedule(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetSalesPerformanceEmailScheduleQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Switches the daily, weekly and monthly management emails on or off and sets who receives them.
+    /// The admin saving becomes the account the scheduled email is read as.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpPut("sales-performance/schedule")]
+    public async Task<IActionResult> UpdateSalesPerformanceEmailSchedule(
+        [FromBody] UpdateSalesPerformanceEmailScheduleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new UpdateSalesPerformanceEmailScheduleCommand(
+                userId.Value, User.Identity?.Name, request.DailyEnabled, request.WeeklyEnabled, request.MonthlyEnabled, request.Recipients ?? []),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Emails the management sales performance now, read under the sender's own scope — yesterday, the
+    /// last complete week or month, or a custom period — to the people named, or to the schedule's list.
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpPost("sales-performance/email")]
+    public async Task<IActionResult> SendSalesPerformanceEmail(
+        [FromBody] SendSalesPerformanceEmailRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new SendSalesPerformanceEmailCommand(
+                request.Cadence?.Trim().ToLowerInvariant() ?? string.Empty,
+                Scheduled: false,
+                userId.Value,
+                User.Identity?.Name,
+                request.FromDate,
+                request.ToDate,
+                request.Recipients),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

@@ -22,6 +22,8 @@
 @inject MediatR.IMediator Mediator
 @using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesReview
 @using ShopInventory.Web.Features.Reports.Commands.DesktopSalesReviewEmail
+@using ShopInventory.Web.Features.Reports.Queries.GetSalesPerformanceEmailSchedule
+@using ShopInventory.Web.Features.Reports.Commands.SalesPerformanceEmail
 @using ShopInventory.Web.Features.PostingDatePolicy
 @using ShopInventory.Web.Features.PostingDatePolicy.Queries.GetPostingDatePolicy
 @using ShopInventory.Web.Features.PostingDatePolicy.Commands.UpdatePostingDatePolicy
@@ -1728,6 +1730,129 @@
                             </a>
                         </div>
                     </section>
+
+                    @* The management email: shops, vending and vans in one scorecard, then each in detail.
+                       Its own schedule and recipients, kept in the API like the review's. *@
+                    <section class="stg-card">
+                        <div class="stg-section-head">
+                            <span class="stg-section-icon"><i class="ph ph-chart-line-up"></i></span>
+                            <div class="stg-section-text">
+                                <h2>Management Sales Performance</h2>
+                                <p>Shops, vending and van sales side by side against the period before — routes, reps, shops and best sellers in the email, the shop &amp; vending review attached.</p>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(performanceMessage))
+                        {
+                            <div class="stg-alert @(performanceMessageSuccess ? "stg-alert-success" : "stg-alert-error")">
+                                <i class="ph @(performanceMessageSuccess ? "ph-check-circle" : "ph-warning-circle")"></i>
+                                <span>@performanceMessage</span>
+                                <button type="button" class="stg-alert-close" @onclick="() => performanceMessage = null"><i class="ph ph-x"></i></button>
+                            </div>
+                        }
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Daily</span></div>
+                                <span class="stg-row-desc">Every morning at <strong>07:30</strong>, for the day before.</span>
+                                @if (performanceSchedule?.LastDailyPeriodEnd is DateTime lastDay)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last sent for @lastDay.ToString("ddd dd MMM yyyy")</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                <label class="stg-switch">
+                                    <input type="checkbox" checked="@performanceDaily" disabled="@(performanceSchedule is null)"
+                                           @onchange="e => performanceDaily = e.Value is true" />
+                                    <span class="stg-switch-track"></span>
+                                    <span class="stg-switch-text">@(performanceDaily ? "On" : "Off")</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Weekly</span></div>
+                                <span class="stg-row-desc">Every <strong>Monday at 07:30</strong>, for the Monday-to-Sunday week just ended.</span>
+                                @if (performanceSchedule?.LastWeeklyPeriodEnd is DateTime lastPerformanceWeek)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last sent for the week ending @lastPerformanceWeek.ToString("dd MMM yyyy")</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                <label class="stg-switch">
+                                    <input type="checkbox" checked="@performanceWeekly" disabled="@(performanceSchedule is null)"
+                                           @onchange="e => performanceWeekly = e.Value is true" />
+                                    <span class="stg-switch-track"></span>
+                                    <span class="stg-switch-text">@(performanceWeekly ? "On" : "Off")</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Monthly</span></div>
+                                <span class="stg-row-desc">On the <strong>1st at 07:30</strong>, for the calendar month just ended.</span>
+                                @if (performanceSchedule?.LastMonthlyPeriodEnd is DateTime lastPerformanceMonth)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last sent for @lastPerformanceMonth.ToString("MMMM yyyy")</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                <label class="stg-switch">
+                                    <input type="checkbox" checked="@performanceMonthly" disabled="@(performanceSchedule is null)"
+                                           @onchange="e => performanceMonthly = e.Value is true" />
+                                    <span class="stg-switch-track"></span>
+                                    <span class="stg-switch-text">@(performanceMonthly ? "On" : "Off")</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><label for="stg-performance-recipients">Recipients</label></div>
+                                <span class="stg-row-desc">Email addresses, separated by commas. Each gets their own copy.</span>
+                                @if (performanceSchedule is null)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-warning"></i>Couldn't read the schedule from the API</span>
+                                }
+                                else if (performanceSchedule.SendAsUserName is string performanceOwner)
+                                {
+                                    <span class="stg-row-meta"><i class="ph ph-user"></i>Read as @performanceOwner, who saved it last. Saving makes it you.</span>
+                                }
+                            </div>
+                            <div class="stg-row-control">
+                                <input id="stg-performance-recipients" class="stg-input" placeholder="md@company.co.zw, finance@company.co.zw"
+                                       @bind="performanceRecipients" disabled="@(performanceSchedule is null)" />
+                            </div>
+                        </div>
+
+                        <div class="stg-sched-actions">
+                            <button type="button" class="stg-btn stg-btn-primary stg-btn-sm" @onclick="SavePerformanceScheduleAsync"
+                                    disabled="@(performanceSchedule is null || savingPerformance)">
+                                <i class="ph ph-floppy-disk"></i><span>Save schedule</span>
+                            </button>
+                            <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="() => SendPerformanceNowAsync(PerformanceCadenceDaily)"
+                                    disabled="@(sendingPerformance || string.IsNullOrWhiteSpace(performanceRecipients))">
+                                @if (sendingPerformance)
+                                {
+                                    <span class="stg-spin"></span><span>Sending…</span>
+                                }
+                                else
+                                {
+                                    <i class="ph ph-paper-plane-tilt"></i><span>Send yesterday now</span>
+                                }
+                            </button>
+                            <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="() => SendPerformanceNowAsync(ReviewCadenceWeekly)"
+                                    disabled="@(sendingPerformance || string.IsNullOrWhiteSpace(performanceRecipients))">
+                                <i class="ph ph-paper-plane-tilt"></i><span>Send last week now</span>
+                            </button>
+                            <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="() => SendPerformanceNowAsync(ReviewCadenceMonthly)"
+                                    disabled="@(sendingPerformance || string.IsNullOrWhiteSpace(performanceRecipients))">
+                                <i class="ph ph-paper-plane-tilt"></i><span>Send last month now</span>
+                            </button>
+                        </div>
+                    </section>
                 }
 
                 @* ── Data Sync ───────────────────────────────────────── *@
@@ -2735,6 +2860,7 @@
         await LoadMaintenanceSettings();
         await LoadMobileVersionPolicySettings();
         await LoadSalesReviewScheduleAsync();
+        await LoadPerformanceScheduleAsync();
         await LogAudit(AuditActions.ViewSettings);
     }
 
@@ -2834,6 +2960,107 @@
     }
 
     private static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
+    // ── Management sales performance email ───────────────────────────────
+
+    private const string PerformanceCadenceDaily = "daily";
+
+    private SalesPerformanceEmailSchedule? performanceSchedule;
+    private bool performanceDaily;
+    private bool performanceWeekly;
+    private bool performanceMonthly;
+    private string performanceRecipients = "";
+    private bool savingPerformance;
+    private bool sendingPerformance;
+    private string? performanceMessage;
+    private bool performanceMessageSuccess;
+
+    private List<string> PerformanceRecipientList =>
+        performanceRecipients.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private async Task LoadPerformanceScheduleAsync()
+    {
+        var result = await Mediator.Send(new GetSalesPerformanceEmailScheduleQuery());
+        if (result.IsError)
+        {
+            performanceSchedule = null;
+            return;
+        }
+
+        ApplyPerformanceSchedule(result.Value);
+    }
+
+    private void ApplyPerformanceSchedule(SalesPerformanceEmailSchedule schedule)
+    {
+        performanceSchedule = schedule;
+        performanceDaily = schedule.DailyEnabled;
+        performanceWeekly = schedule.WeeklyEnabled;
+        performanceMonthly = schedule.MonthlyEnabled;
+        performanceRecipients = string.Join(", ", schedule.Recipients);
+    }
+
+    private async Task SavePerformanceScheduleAsync()
+    {
+        savingPerformance = true;
+        performanceMessage = null;
+        try
+        {
+            var result = await Mediator.Send(new UpdateSalesPerformanceEmailScheduleCommand(
+                performanceDaily, performanceWeekly, performanceMonthly, PerformanceRecipientList));
+            if (result.IsError)
+            {
+                ShowPerformanceMessage(result.FirstError.Description, false);
+                return;
+            }
+
+            ApplyPerformanceSchedule(result.Value);
+            var when = new List<string>();
+            if (performanceDaily) when.Add("every morning");
+            if (performanceWeekly) when.Add("on Mondays");
+            if (performanceMonthly) when.Add("on the 1st");
+            ShowPerformanceMessage(
+                when.Count > 0
+                    ? $"Saved. The email goes to {Plural(result.Value.Recipients.Count, "recipient")} {string.Join(when.Count > 2 ? ", " : " and ", when)} at 07:30."
+                    : "Saved. The email is off; it can still be sent from here.",
+                true);
+        }
+        finally
+        {
+            savingPerformance = false;
+        }
+    }
+
+    private async Task SendPerformanceNowAsync(string cadence)
+    {
+        sendingPerformance = true;
+        performanceMessage = null;
+        try
+        {
+            var result = await Mediator.Send(new SendSalesPerformanceEmailCommand(cadence, null, null, PerformanceRecipientList));
+            if (result.IsError)
+            {
+                ShowPerformanceMessage(result.FirstError.Description, false);
+                return;
+            }
+
+            var sent = result.Value;
+            var period = sent.FromDate == sent.ToDate ? sent.ToDate.ToString("ddd dd MMM yyyy") : $"{sent.FromDate:dd MMM} – {sent.ToDate:dd MMM yyyy}";
+            ShowPerformanceMessage(
+                $"Sent the sales performance for {period} to {string.Join(", ", sent.SentTo)}"
+                    + (sent.Failed.Count == 0 ? "." : $". Not delivered to {string.Join(", ", sent.Failed)}."),
+                sent.Failed.Count == 0);
+        }
+        finally
+        {
+            sendingPerformance = false;
+        }
+    }
+
+    private void ShowPerformanceMessage(string message, bool success)
+    {
+        performanceMessage = message;
+        performanceMessageSuccess = success;
+    }
 
     private async Task LoadCurrentUser()
     {

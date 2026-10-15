@@ -384,7 +384,10 @@ public sealed class GetDesktopSalesReviewHandler(ApplicationDbContext db, IMedia
             items.Count,
             lineValue - topItems.Sum(i => i.NetAmount),
             PriceSpreads(items, matrix, shops),
-            LargeSales(largest, shops, credits, walkInPartners));
+            LargeSales(largest, shops, credits, walkInPartners))
+        {
+            ByPartner = management?.ByPartner ?? []
+        };
     }
 
     private static DesktopSalesReviewShopRow Shop(

@@ -916,7 +916,7 @@ BasePath = "/api/Report",
 Description = "Generate sales, inventory, and financial reports.",
 Icon = Icons.Material.Filled.Assessment,
 Color = Color.Primary,
-Methods = new[] { "GET" },
+Methods = new[] { "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/Report/credit-notes", "Get credit note summary"),
@@ -929,12 +929,16 @@ new("GET", "/api/Report/payment-summary", "Get payment summary"),
 new("GET", "/api/Report/profit-overview", "Get profit overview"),
 new("GET", "/api/Report/purchase-orders", "Get purchase order summary"),
 new("GET", "/api/Report/receivables-aging", "Get receivables aging"),
+new("GET", "/api/Report/sales-performance", "Get sales performance"),
+new("GET", "/api/Report/sales-performance/schedule", "Get sales performance email schedule"),
 new("GET", "/api/Report/sales-summary", "Get sales summary"),
 new("GET", "/api/Report/slow-moving-products", "Get slow moving products"),
 new("GET", "/api/Report/stock-movement", "Get stock movement"),
 new("GET", "/api/Report/stock-summary", "Get stock summary"),
 new("GET", "/api/Report/top-customers", "Get top customers"),
-new("GET", "/api/Report/top-products", "Get top selling products")
+new("GET", "/api/Report/top-products", "Get top selling products"),
+new("POST", "/api/Report/sales-performance/email", "Send sales performance email"),
+new("PUT", "/api/Report/sales-performance/schedule", "Update sales performance email schedule")
 }
 }
 }

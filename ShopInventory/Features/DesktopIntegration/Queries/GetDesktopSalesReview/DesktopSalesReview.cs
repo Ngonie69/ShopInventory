@@ -110,7 +110,14 @@ public sealed record DesktopSalesReviewCurrency(
     int ItemCount,
     decimal TailNetAmount,
     List<DesktopSalesReviewPriceSpread> PriceSpreads,
-    List<DesktopSalesReviewLargeSale> LargeSales);
+    List<DesktopSalesReviewLargeSale> LargeSales)
+{
+    /// <summary>
+    /// Each business partner the sales were made as, keyed by CardCode, from the management report —
+    /// every one that sold in the period or the one before, not a top slice.
+    /// </summary>
+    public List<ManagementBreakdownRow> ByPartner { get; init; } = [];
+}
 
 /// <summary>The headline figures, and how the change on the previous period splits.</summary>
 /// <remarks><list type="table">
