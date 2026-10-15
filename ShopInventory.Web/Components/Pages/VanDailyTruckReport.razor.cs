@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 using ShopInventory.Web.Models;
@@ -17,6 +18,9 @@ public partial class VanDailyTruckReport
     private DateTime? toDate;
 
     private int? openRoute;
+
+    /// <summary>The check the list is narrowed to; null shows every truck.</summary>
+    private DayCheck? filter;
     private string? error;
     private bool isLoading = true;
     private bool isSaving;
@@ -32,12 +36,35 @@ public partial class VanDailyTruckReport
 
     protected override async Task OnInitializedAsync()
     {
-        // The month so far: the period the workbook this replaces was kept for.
-        var today = IAuditService.ToCAT(DateTime.UtcNow).Date;
-        fromDate = new DateTime(today.Year, today.Month, 1);
-        toDate = today;
+        await RunMonthAsync(0);
+    }
+
+    /// <summary>
+    /// The whole of a month, this one (0) or the last (-1): the period the workbook this replaces was
+    /// kept for. The whole month and not the month so far, because the period's target is built on its
+    /// working days, and a target that ends today cannot say how far behind the month the trucks are.
+    /// The days still to come are not listed, so nothing is judged before it happens.
+    /// </summary>
+    private async Task RunMonthAsync(int monthsBack)
+    {
+        var first = FirstOfMonth(monthsBack);
+        fromDate = first;
+        toDate = first.AddMonths(1).AddDays(-1);
 
         await LoadAsync();
+    }
+
+    /// <summary>Whether the dates on screen are that whole month, so its button can say so.</summary>
+    private bool IsMonth(int monthsBack)
+    {
+        var first = FirstOfMonth(monthsBack);
+        return fromDate == first && toDate == first.AddMonths(1).AddDays(-1);
+    }
+
+    private static DateTime FirstOfMonth(int monthsBack)
+    {
+        var today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+        return new DateTime(today.Year, today.Month, 1).AddMonths(monthsBack);
     }
 
     private async Task LoadAsync()
@@ -102,6 +129,178 @@ public partial class VanDailyTruckReport
 
     private IEnumerable<VanDailyTruckDay> DaysOf(int routeId) =>
         (report?.Days ?? []).Where(day => day.RouteId == routeId).OrderBy(day => day.TradingDate);
+
+    // — The checks, and narrowing the list to one ————————————————————————————————————————————
+
+    /// <summary>The five checks the API counts in <see cref="VanDailyTruckExceptions"/>, in that order.</summary>
+    private enum DayCheck
+    {
+        NotReported,
+        BelowTarget,
+        DistanceWithoutSales,
+        MileageNeedsReview,
+        ReturnedLate
+    }
+
+    private static bool Fails(VanDailyTruckDay day, DayCheck check) => check switch
+    {
+        DayCheck.NotReported => day.NotReported,
+        DayCheck.BelowTarget => day.BelowTarget,
+        DayCheck.DistanceWithoutSales => day.DistanceWithoutSales,
+        DayCheck.MileageNeedsReview => day.MileageNeedsReview,
+        DayCheck.ReturnedLate => day.ReturnedLate,
+        _ => false
+    };
+
+    /// <summary>Each check with the API's count of the truck-days it picked out.</summary>
+    private IEnumerable<(DayCheck Check, int Count, string Label)> Checks()
+    {
+        var counts = report?.Exceptions ?? new VanDailyTruckExceptions();
+        yield return (DayCheck.NotReported, counts.NotReported, "not reported");
+        yield return (DayCheck.BelowTarget, counts.BelowTarget, "below target");
+        yield return (DayCheck.DistanceWithoutSales, counts.DistanceWithoutSales, "distance, no sales");
+        yield return (DayCheck.MileageNeedsReview, counts.MileageNeedsReview, "mileage to check");
+        yield return (DayCheck.ReturnedLate, counts.ReturnedLate, "closed a day late");
+    }
+
+    private void ToggleFilter(DayCheck? check)
+    {
+        filter = filter == check ? null : check;
+        CancelEntry();
+    }
+
+    /// <summary>The trucks with at least one day the chosen check picks out; every truck with none chosen.</summary>
+    private IEnumerable<VanDailyTruckSummary> TrucksShown() =>
+        filter is not { } check
+            ? report?.Trucks ?? []
+            : (report?.Trucks ?? []).Where(truck => DaysOf(truck.RouteId!.Value).Any(day => Fails(day, check)));
+
+    /// <summary>The chosen check picked this day out, so it is outlined wherever it is drawn.</summary>
+    private bool Marked(VanDailyTruckDay day) => filter is { } check && Fails(day, check);
+
+    // — The strip: one bar per day, against the day's target ———————————————————————————————
+
+    private const double StripHeight = 34;
+
+    /// <summary>
+    /// The strip's top is this many times the daily target, so a day well over it still reads as over
+    /// and the target line sits at the same height on every truck.
+    /// </summary>
+    private const double StripCeiling = 1.4;
+
+    /// <summary>Where the target line sits, from the strip's foot. Null on a truck with no target.</summary>
+    private static string? TargetLine(VanDailyTruckSummary truck) =>
+        truck.DailySalesTarget is > 0 ? Px(StripHeight / StripCeiling) : null;
+
+    private static string BarClass(VanDailyTruckDay day) =>
+        !day.IsComplete ? "vsk-bar-today"
+        : day.NotReported ? "vsk-bar-missing"
+        : day.DistanceWithoutSales ? "vsk-bar-nosale"
+        : !day.HasActivity ? "vsk-bar-quiet"
+        : day.DailySalesTarget is not > 0 ? "vsk-bar-plain"
+        : day.Sales >= day.DailySalesTarget ? "vsk-bar-met"
+        : "vsk-bar-below";
+
+    /// <summary>
+    /// A day's height: its sales against the strip's ceiling, or against the truck's best day where the
+    /// day has no target (a weekend, a route with none). A sale too small to see is still drawn.
+    /// </summary>
+    private string BarHeight(VanDailyTruckDay day)
+    {
+        if (day.NotReported)
+        {
+            return Px(StripHeight);
+        }
+
+        var scale = day.DailySalesTarget is > 0 and { } target
+            ? (double)target * StripCeiling
+            : (double)DaysOf(day.RouteId).Select(other => other.Sales).DefaultIfEmpty(0m).Max();
+
+        var height = scale > 0 ? Math.Min(StripHeight, (double)day.Sales / scale * StripHeight) : 0;
+
+        if (day.Sales > 0)
+        {
+            height = Math.Max(height, 3);
+        }
+
+        if (day.DistanceWithoutSales)
+        {
+            height = 4;
+        }
+        else if (!day.IsComplete)
+        {
+            height = Math.Max(height, 6);
+        }
+
+        return Px(height);
+    }
+
+    private static string BarTitle(VanDailyTruckDay day)
+    {
+        var date = day.TradingDate.ToString("ddd d MMM");
+
+        if (!day.IsComplete)
+        {
+            return day.HasActivity ? $"{date}: {Money(day.Sales)} so far today" : $"{date}: not out yet today";
+        }
+
+        if (day.NotReported)
+        {
+            return $"{date}: nothing reported";
+        }
+
+        return day.DailySalesTarget is > 0 and { } target
+            ? $"{date}: {Money(day.Sales)} against {Money(target)}"
+            : $"{date}: {Money(day.Sales)}";
+    }
+
+    private static string StripLabel(VanDailyTruckSummary truck) =>
+        $"{truck.RouteName}: {truck.DaysReported} of {truck.WorkingDaysElapsed} days reported";
+
+    // — Pace: sales against the target for the working days so far ———————————————————————————
+
+    /// <summary>How much of the period's target a bar fills, capped at the whole bar.</summary>
+    private static string Fill(VanDailyTruckSummary summary) =>
+        summary.PeriodTarget is > 0 and { } target
+            ? Share(Math.Min(1.0, (double)(summary.Sales / target)))
+            : "0%";
+
+    /// <summary>Where the target for the days so far falls along the period's.</summary>
+    private static string PaceMark(VanDailyTruckSummary summary) =>
+        summary is { PeriodTarget: > 0 and { } target, TargetToDate: { } paced }
+            ? Share(Math.Min(1.0, (double)(paced / target)))
+            : "0%";
+
+    private static bool Behind(VanDailyTruckSummary summary) =>
+        summary.TargetToDate is { } paced && summary.Sales < paced;
+
+    private static string? PaceText(VanDailyTruckSummary summary, string ahead, string behind)
+    {
+        if (summary.TargetToDate is not { } paced)
+        {
+            return null;
+        }
+
+        var gap = summary.Sales - paced;
+        return gap >= 0 ? $"{Money(gap)} {ahead}" : $"{Money(-gap)} {behind}";
+    }
+
+    /// <summary>The day the period has reached, said under the fleet's pace mark.</summary>
+    private string PaceDay =>
+        report is null ? string.Empty
+        : report.WorkingDaysElapsed >= report.WorkingDays ? $"all {report.WorkingDays} working days"
+        : $"today · day {report.WorkingDaysElapsed} of {report.WorkingDays}";
+
+    /// <summary>A day's sales against its target, signed, for under the figure.</summary>
+    private static string? Versus(VanDailyTruckDay day) =>
+        day.IsComplete && day.HasActivity && day.DailySalesTarget is > 0 and { } target
+            ? (day.Sales >= target ? "+" : "−") + Money(Math.Abs(day.Sales - target))
+            : null;
+
+    // Invariant, because these go into a style attribute and a decimal comma would void the rule.
+    private static string Px(double value) => value.ToString("0.#", CultureInfo.InvariantCulture) + "px";
+
+    private static string Share(double fraction) => (fraction * 100).ToString("0.#", CultureInfo.InvariantCulture) + "%";
 
     private void ToggleRoute(int routeId)
     {
@@ -173,26 +372,6 @@ public partial class VanDailyTruckReport
         finally
         {
             isSaving = false;
-        }
-    }
-
-    /// <summary>The fleet has sold less than its target for the working days so far.</summary>
-    private bool BehindPace =>
-        report?.Total is { TargetToDate: { } paced } total && total.Sales < paced;
-
-    private string PaceNote
-    {
-        get
-        {
-            if (report?.Total is not { TargetToDate: { } target } total)
-            {
-                return "no targets set";
-            }
-
-            var gap = total.Sales - target;
-            return gap >= 0
-                ? $"{Money(gap)} ahead of the days so far"
-                : $"{Money(-gap)} behind the days so far";
         }
     }
 
@@ -268,7 +447,8 @@ public partial class VanDailyTruckReport
 
     private static string Percent(double? rate) => rate is { } value ? $"{value:P0}" : "—";
 
-    private static string Ink(bool on) => on ? "vsc-flagged" : string.Empty;
+    private static string Ink(bool on) => on ? "vsk-marked" : string.Empty;
 
-    private static string ChipInk(int count) => count > 0 ? "vsk-chip-on" : string.Empty;
+    // Blazor writes a true bool attribute as an empty one and drops a false one, and ARIA reads neither.
+    private static string Aria(bool on) => on ? "true" : "false";
 }

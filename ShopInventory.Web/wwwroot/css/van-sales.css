@@ -4197,96 +4197,593 @@
 /* ==========================================================================
    The daily truck report (/van-sales/reports/daily) — `vsk-`.
 
-   On the compliance sheet's chrome: `vsc-sheet`, `vsc-rowbtn`, `vsc-row`,
-   `vsc-detail`, `vsc-foot` and the six `vsc-kpi` figures are reused as they
-   are. What is stated here is only what that sheet does not have: a track with
-   a target and a balance in it, the day table inside an open truck, the strip
-   of counts, and the office's entry form. Every colour is a `--vs-` token, so
-   both schemes are carried by the tokens and nothing here names one.
+   Drawn from the "Daily Truck Report" design canvas (2026-10-15). The page
+   reads top to bottom as: where the fleet stands against the month's target,
+   which truck-days need a look (each count a filter), then one row per truck
+   with every one of its days drawn as a bar against the daily target.
+
+   On the shared chrome: `vs-head`, `vs-btn`, `vs-field`, `vsc-sheet`,
+   `vsc-rowbtn`, `vsc-detail`, `vsc-sub`, `vsc-num`, `vsc-strong`, `vsc-caret`
+   and `vsc-foot-label` are reused as they are. What is stated here is what
+   those do not have. Every colour is a token, so both schemes are carried by
+   the tokens and nothing here names one.
+
+   One deliberate departure from the compliance sheet's single flag ink
+   (`--vs-flag`, see the `.vs` token block): here the accent already means "a
+   day that met its target", and `--vs-flag` is the accent family — in the
+   light scheme #5a4bb6 against the accent's #5f52c4, which is the same trap
+   `.vsc-bar-fill` records. So this page marks a finding in the warn family
+   instead, `--vsk-mark`, and still in that one colour only.
    ========================================================================== */
+
+.vs.vsk {
+    --vsk-mark: var(--vs-warn);
+    --vsk-mark-rgb: var(--vs-warn-rgb);
+    /* A day under target. Lighter than the accent in light and darker in dark, so the two
+       are told apart by lightness and not only by hue. */
+    --vsk-below: var(--noct-dot-off);
+    --vsk-strip-h: 34px;
+    --vsk-figure-font: "Space Grotesk", "Inter", sans-serif;
+}
+
+/* — Head ———————————————————————————————————————————————————————— */
+
+.vs .vsk-head {
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.vs .vsk-crumb {
+    margin-bottom: 4px;
+    font-size: 0.75rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsk-period {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.vs .vsk-seg {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--vs-field-bg);
+    box-shadow: inset 0 0 0 1px var(--vs-rule);
+}
+
+.vs .vsk-seg button {
+    height: 32px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--vs-mute-2);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.vs .vsk-seg button:hover:not(:disabled) {
+    color: var(--vs-ink);
+}
+
+.vs .vsk-seg button:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 1px;
+}
+
+.vs .vsk-seg .vsk-seg-on {
+    background: var(--vs-surface);
+    color: var(--vs-ink);
+    box-shadow: 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsk-dates {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vs .vsk-dates .ndf {
+    width: 150px;
+}
+
+.vs .vsk-dates-to {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+}
+
+/* — Where the fleet stands ————————————————————————————————————— */
+
+.vs .vsk-hero {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px 36px;
+    margin-bottom: 18px;
+    padding: 22px 24px;
+    border-radius: var(--vs-r-lg);
+    background: var(--vs-surface);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsk-pace {
+    flex: 999 1 480px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.vs .vsk-pace-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 20px;
+}
+
+.vs .vsk-pace-figure {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.vs .vsk-big {
+    font-family: var(--vsk-figure-font);
+    font-size: 2.4rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsk-of {
+    font-size: 0.9rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsk-of b,
+.vs .vsk-pace-facts b {
+    font-weight: 600;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsk-pace-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vs-good);
+}
+
+.vs .vsk-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* A bar of sales against the period's target, and a mark where the days so far put the target. */
+.vs .vsk-meter {
+    position: relative;
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--vs-rule);
+}
+
+.vs .vsk-meter-lg {
+    height: 10px;
+    margin-top: 4px;
+    border-radius: 5px;
+}
+
+.vs .vsk-meter-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: inherit;
+    background: var(--vs-accent);
+}
+
+.vs .vsk-meter-tick {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background: var(--vs-ink);
+}
+
+.vs .vsk-meter-lg .vsk-meter-tick {
+    top: -6px;
+    bottom: -6px;
+}
+
+.vs .vsk-meter-scale {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsk-meter-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vs .vsk-meter-key-tick {
+    width: 2px;
+    height: 12px;
+    border-radius: 1px;
+    background: var(--vs-ink);
+}
+
+.vs .vsk-pace-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: 0.78rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsk-figures {
+    flex: 1 1 340px;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 24px;
+    padding-left: 28px;
+    box-shadow: inset 1px 0 0 var(--vs-rule);
+}
+
+.vs .vsk-figure {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.vs .vsk-figure-l {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsk-figure-n {
+    font-family: var(--vsk-figure-font);
+    font-size: 1.4rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsk-figure-sub {
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+}
+
+/* — The checks: each count narrows the list ——————————————————— */
+
+.vs .vsk-checks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.vs .vsk-checks-label {
+    margin-right: 4px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--vs-ink-2);
+}
+
+.vs .vsk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--vs-field-edge);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--vs-mute);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.vs .vsk-chip b {
+    font-weight: 600;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsk-chip:hover:not(:disabled) {
+    border-color: var(--vs-field-edge-hi);
+    color: var(--vs-ink);
+}
+
+.vs .vsk-chip:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 2px;
+}
+
+/* A count above nothing: the number takes the mark, the chip does not. */
+.vs .vsk-chip-hot b {
+    color: var(--vsk-mark);
+}
+
+.vs .vsk-chip-zero,
+.vs .vsk-chip:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+.vs .vsk-chip-on {
+    border-color: var(--vs-accent);
+    background: rgba(var(--vs-accent-rgb), .14);
+    color: var(--vs-accent-text);
+}
+
+.vs .vsk-chip-on b {
+    color: var(--vs-accent-text);
+}
+
+.vs .vsk-aside {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: var(--vs-r-md);
+    background: rgba(var(--vsk-mark-rgb), .1);
+    color: var(--vs-ink-2);
+    font-size: 0.8rem;
+}
+
+.vs .vsk-aside i {
+    margin-top: 2px;
+    font-size: 1rem;
+    color: var(--vsk-mark);
+}
+
+/* — The trucks ————————————————————————————————————————————————— */
 
 /* Stated once. The head, every truck and the foot read it. */
 .vs .vsk-track {
     display: grid;
     grid-template-columns:
         minmax(140px, 1.3fr)   /* truck */
-        76px                   /* target */
-        76px                   /* sales */
-        76px                   /* balance */
-        58px                   /* achieved */
-        44px                   /* days reported */
-        52px                   /* visited */
-        66px                   /* ccr, with the days that had no round under it */
-        52px                   /* bought */
-        42px                   /* pcr */
-        50px                   /* km */
-        66px                   /* fuel */
-        70px                   /* account */
-        18px;                  /* caret */
+        minmax(180px, 280px)   /* its days */
+        minmax(170px, 1.4fr)   /* period to date */
+        80px                   /* balance */
+        60px                   /* ccr */
+        62px                   /* pcr */
+        68px                   /* km */
+        74px                   /* account */
+        14px;                  /* caret */
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     padding-left: 16px;
     padding-right: 16px;
-    /* Narrow enough to sit unscrolled beside the sidebar on a 1366px laptop. */
-    min-width: 1060px;
+    /* Narrow enough to sit unscrolled beside the sidebar on a 1366px laptop, where the sheet's
+       box is 994px wide; measured, not assumed — the 1060px this replaced scrolled there. */
+    min-width: 984px;
 }
 
 .vs .vsk-cols {
     padding-top: 10px;
     padding-bottom: 10px;
-    background: var(--vs-wash);
-    box-shadow: inset 0 -1px 0 var(--vs-rule);
+    background: var(--vs-bg);
+    box-shadow: inset 0 -1px 0 var(--vs-divider);
     border-radius: var(--vs-r-lg) var(--vs-r-lg) 0 0;
     font-size: 0.66rem;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: var(--vs-mute-3);
+    color: var(--vs-faint);
 }
 
-.vs .vsk-caret {
+.vs .vsk-row {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsc-rowbtn:hover .vsk-row,
+.vs .vsk-row-open {
+    background: var(--vs-hover);
+}
+
+.vs .vsk-name {
     display: block;
-    text-align: right;
-    color: var(--vs-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--vs-ink);
 }
 
-/* The detail is as wide as the track above it, so the two scroll as one. */
-.vs .vsc-detail:has(.vsk-day-track) {
-    min-width: 1060px;
-    padding: 6px 0 10px;
+.vs .vsk-flagline {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--vsk-mark);
+}
+
+.vs .vsk-none {
+    min-width: 984px;
+    padding: 28px 16px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--vs-mute-2);
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+/* — A truck's days, one bar each ——————————————————————————————
+   Heights come from the page (inline, invariant px): the bar's sales against
+   the strip's ceiling, which is 1.4 times the daily target, so the dashed
+   target line sits at the same height on every truck. Bars share the width,
+   so a 93-day period still fits the column. */
+
+.vs .vsk-strip {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: var(--vsk-strip-h);
+    min-width: 0;
+}
+
+.vs .vsk-strip-line {
+    position: absolute;
+    left: -3px;
+    right: -3px;
+    border-top: 1px dashed var(--vs-mute-3);
+    opacity: .7;
+    pointer-events: none;
+}
+
+.vs .vsk-bar {
+    position: relative;
+    display: block;
+    flex: 1 1 0;
+    min-width: 2px;
+    max-width: 18px;
+    border-radius: 2px 2px 1px 1px;
+}
+
+/* Stated without `.vsk-bar` so the key in the foot can wear them too. */
+.vs .vsk-bar-met {
+    background: var(--vs-accent);
+}
+
+/* A day with no target to be measured by: a weekend, a route with none. Drawn, not judged. */
+.vs .vsk-bar-plain {
+    background: var(--vs-mute-3);
+}
+
+.vs .vsk-bar-below {
+    background: var(--vsk-below);
+}
+
+/* Today is not over, so it is outlined rather than filled. */
+.vs .vsk-bar-today {
+    box-sizing: border-box;
+    border: 1.5px dashed var(--vs-accent);
+    background: transparent;
+}
+
+/* A working day with nothing on it. The slot stays, with the mark at its foot. */
+.vs .vsk-bar-missing {
+    background: transparent;
+}
+
+.vs .vsk-bar-missing::after {
+    content: "";
+    position: absolute;
+    left: 15%;
+    right: 15%;
+    bottom: 0;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--vsk-mark);
+}
+
+/* Kilometres on the clock and nothing sold. */
+.vs .vsk-bar-nosale {
+    background: var(--vsk-mark);
+}
+
+.vs .vsk-bar-quiet {
+    background: transparent;
+}
+
+.vs .vsk-bar-marked {
+    box-shadow: 0 0 0 2px var(--vs-surface), 0 0 0 3.5px var(--vsk-mark);
+}
+
+/* — Period to date ————————————————————————————————————————————— */
+
+.vs .vsk-mtd {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.vs .vsk-mtd-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.vs .vsk-of-sm {
+    font-size: 0.74rem;
+    font-weight: 400;
+    color: var(--vs-faint);
+}
+
+/* — An open truck: its days, and the office's entry ———————————— */
+
+.vs .vsc-detail.vsk-ledger {
+    min-width: 984px;
+    padding: 4px 0 12px;
 }
 
 .vs .vsk-day-track {
     display: grid;
     grid-template-columns:
-        100px                  /* day */
-        minmax(120px, 1.4fr)   /* area */
-        100px                  /* out — in */
-        50px                   /* visited */
+        86px                   /* day */
+        minmax(110px, 1.4fr)   /* area */
+        86px                   /* out — in */
+        46px                   /* visited */
         62px                   /* ccr */
-        50px                   /* bought */
+        46px                   /* bought */
         42px                   /* pcr */
-        76px                   /* sales */
-        60px                   /* ecocash */
-        68px                   /* account */
-        50px                   /* km */
-        58px                   /* fuel */
+        80px                   /* sales, and its gap to target */
+        58px                   /* ecocash */
+        64px                   /* account */
+        46px                   /* km */
+        52px                   /* fuel */
         60px;                  /* enter */
     align-items: center;
-    gap: 10px;
-    padding: 7px 16px;
+    gap: 9px;
+    padding: 8px 16px;
 }
 
 .vs .vsk-day-cols {
     font-size: 0.64rem;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: var(--vs-mute-3);
-    box-shadow: inset 0 -1px 0 var(--vs-rule);
+    color: var(--vs-faint);
+    box-shadow: inset 0 -1px 0 var(--vs-divider);
 }
 
 .vs .vsk-day + .vsk-day,
 .vs .vsk-form + .vsk-day {
-    box-shadow: inset 0 1px 0 var(--vs-divider);
+    box-shadow: inset 0 1px 0 var(--vs-rule);
 }
 
 /* A day the truck left no trace on. Dimmed, not hidden: a run of them is the finding. */
@@ -4295,13 +4792,47 @@
     color: var(--vs-mute-3);
 }
 
+.vs .vsk-day-marked {
+    background: rgba(var(--vsk-mark-rgb), .1);
+}
+
+/* The word under a date can be wider than the column ("distance, no sales"): it wraps rather than
+   running under the area beside it. */
+.vs .vsk-day > .vsc-cell:first-child .vsc-sub {
+    white-space: normal;
+}
+
+.vs .vsk-area-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .vs .vsk-area {
-    display: block;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.84rem;
     color: var(--vs-ink-2);
+}
+
+.vs .vsk-tag {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--vs-r-sm);
+    background: rgba(var(--vs-accent-rgb), .14);
+    color: var(--vs-accent-text);
+    font-size: 0.66rem;
+    font-weight: 500;
+}
+
+.vs .vsk-tag-quiet {
+    background: var(--vs-rule);
+    color: var(--vs-mute-2);
 }
 
 /* A rate against the whole list, not the day's round. Muted: it is shown and not judged. */
@@ -4315,63 +4846,16 @@
     font-size: 0.76rem;
 }
 
-/* — The counts ————————————————————————————————————————————————— */
-
-.vs .vsk-strip {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 16px;
-}
-
-.vs .vsk-chip {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-    padding: 5px 11px;
-    border-radius: 999px;
-    background: var(--vs-surface);
-    box-shadow: inset 0 0 0 1px var(--vs-divider);
-    font-size: 0.78rem;
-    color: var(--vs-mute-3);
-}
-
-.vs .vsk-chip b {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--vs-mute);
-}
-
-/* A count above nothing. The flag ink, as on the figures above it. */
-.vs .vsk-chip-on {
-    color: var(--vs-ink-2);
-    box-shadow: inset 0 0 0 1px rgba(var(--vs-flag-rgb), .45);
-}
-
-.vs .vsk-chip-on b {
-    color: var(--vs-flag);
-}
-
-.vs .vsk-note {
-    margin: 12px 2px 16px;
-    max-width: 78ch;
-    font-size: 0.8rem;
-    line-height: 1.5;
-    color: var(--vs-mute-3);
-}
-
-/* — The office's entry ————————————————————————————————————————— */
-
 .vs .vsk-form {
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(170px, 1fr) minmax(220px, 2fr) auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     align-items: end;
-    gap: 12px;
-    margin: 2px 16px 10px;
-    padding: 14px;
+    gap: 12px 14px;
+    margin: 4px 16px 12px;
+    padding: 16px;
     border-radius: var(--vs-r-md);
     background: var(--vs-surface);
-    box-shadow: inset 0 0 0 1px var(--vs-divider);
+    box-shadow: inset 0 0 0 1px var(--vs-accent);
 }
 
 .vs .vsk-form-field {
@@ -4382,8 +4866,17 @@
     width: 100%;
 }
 
+.vs .vsk-form-wide {
+    grid-column: span 2;
+}
+
+.vs .vsk-form-note-field {
+    grid-column: span 3;
+}
+
 .vs .vsk-form-actions {
     display: flex;
+    justify-content: flex-end;
     gap: 8px;
 }
 
@@ -4398,13 +4891,95 @@
     color: var(--vs-mute-3);
 }
 
+/* — Foot: the fleet, and the key to the bars ——————————————————— */
+
+.vs .vsk-foot {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    background: var(--vs-bg);
+    border-radius: 0 0 var(--vs-r-lg) var(--vs-r-lg);
+    box-shadow: inset 0 1px 0 var(--vs-divider);
+}
+
+.vs .vsk-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-size: 0.72rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsk-key > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.vs .vsk-key-swatch {
+    display: inline-block;
+    box-sizing: border-box;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+}
+
+.vs .vsk-key-missing {
+    height: 3px;
+    background: var(--vsk-mark);
+}
+
+.vs .vsk-notes {
+    max-width: 80ch;
+    margin-top: 16px;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsk-notes summary {
+    width: fit-content;
+    font-weight: 500;
+    color: var(--vs-mute-2);
+    cursor: pointer;
+}
+
+.vs .vsk-notes summary:hover {
+    color: var(--vs-ink);
+}
+
+.vs .vsk-notes p {
+    margin: 8px 0 0;
+}
+
+/* The mark, last so it beats the colour of whatever it sits on (`vsc-sub`, `vsc-num`, the pace
+   note): those are the same two classes deep, so order decides. */
+.vs .vsk-marked {
+    color: var(--vsk-mark);
+}
+
 @media (max-width: 1100px) {
+    .vs .vsk-figures {
+        padding-left: 0;
+        box-shadow: none;
+    }
+
     .vs .vsk-form {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .vs .vsk-form-wide,
+    .vs .vsk-form-note-field,
     .vs .vsk-form-actions {
         grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 560px) {
+    .vs .vsk-figures {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .vs .vsk-big {
+        font-size: 2rem;
     }
 }
