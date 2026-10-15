@@ -21,6 +21,10 @@ namespace ShopInventory.Tests;
 /// only. SAP lets each line carry its own warehouses, and TransferEventListener moves a shop's stock
 /// ledger by those line warehouses — so a document headed between two other warehouses could change
 /// the shop's stock and still never appear in the shop's list.
+///
+/// The first fix asked SAP for every transfer in the range and matched lines here, which on
+/// 2026-10-15 took 117 seconds for KEFSHOP's month and timed out the till. Now the header read does
+/// the bulk, a <c>$crossjoin</c> on the lines names the rest, and those are read by key.
 /// </remarks>
 [Collection("SapServiceLayerClient")]
 public class TransfersTouchingWarehouseTests
@@ -53,17 +57,35 @@ public class TransfersTouchingWarehouseTests
     }
 
     [Fact]
-    public async Task SAP_is_asked_by_date_alone_because_it_refuses_filters_on_lines()
+    public async Task SAP_is_never_asked_for_every_transfer_in_the_range()
     {
         var sap = new StockTransfers(Documents);
 
         await CreateClient(sap).GetInventoryTransfersTouchingWarehouseAsync(
             Shop, new DateTime(2026, 9, 12), new DateTime(2026, 9, 13));
 
-        var url = Uri.UnescapeDataString(Assert.Single(sap.Urls));
-        Assert.Contains("$filter=DocDate ge '2026-09-12' and DocDate le '2026-09-13'&", url, StringComparison.Ordinal);
-        Assert.DoesNotContain("Warehouse eq", url, StringComparison.Ordinal);
-        Assert.DoesNotContain("/any(", url, StringComparison.Ordinal);
+        var reads = sap.Urls.Select(Uri.UnescapeDataString).ToList();
+        Assert.Contains(reads, url => url.Contains(
+            "$filter=(ToWarehouse eq 'KEFSHOP' or FromWarehouse eq 'KEFSHOP') and DocDate ge '2026-09-12' and DocDate le '2026-09-13'&",
+            StringComparison.Ordinal));
+        Assert.Contains(reads, url => url.Contains("$crossjoin(StockTransfers,StockTransfers/StockTransferLines)", StringComparison.Ordinal)
+            && url.Contains("StockTransferLines/FromWarehouseCode eq 'KEFSHOP'", StringComparison.Ordinal));
+        Assert.DoesNotContain(reads, url => url.Contains("$filter=DocDate ge", StringComparison.Ordinal));
+        Assert.DoesNotContain(reads, url => url.Contains("/any(", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Only_the_documents_the_header_read_missed_are_read_by_key()
+    {
+        var sap = new StockTransfers(Documents);
+
+        await CreateClient(sap).GetInventoryTransfersTouchingWarehouseAsync(
+            Shop, new DateTime(2026, 9, 12), new DateTime(2026, 9, 13));
+
+        var byKey = Assert.Single(
+            sap.Urls.Select(Uri.UnescapeDataString),
+            url => url.Contains("$filter=DocEntry eq", StringComparison.Ordinal));
+        Assert.Contains("$filter=DocEntry eq 3 or DocEntry eq 4&", byKey, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -82,21 +104,35 @@ public class TransfersTouchingWarehouseTests
     }
 
     [Fact]
-    public async Task Every_page_is_read_before_matching()
+    public async Task Every_page_of_the_header_read_is_read()
     {
-        // 1,100 documents with the shop only on the last one's line.
         var many = Enumerable.Range(1, 1100)
-            .Select(entry => entry == 1100
-                ? Transfer(entry, "KEFHQ", "KEFGRS", Line("Z", from: Shop, to: "KEFGRS"))
-                : Transfer(entry, "KEFHQ", "KEFGRS", Line("Y", from: null, to: null)))
+            .Select(entry => Transfer(entry, "KEFHQ", Shop, Line("Y", from: null, to: null)))
             .ToArray();
         var sap = new StockTransfers(many);
 
         var transfers = await CreateClient(sap).GetInventoryTransfersTouchingWarehouseAsync(
             Shop, new DateTime(2026, 9, 1), new DateTime(2026, 9, 13));
 
-        Assert.Equal(1100, Assert.Single(transfers).DocEntry);
-        Assert.Equal(3, sap.Urls.Count);
+        Assert.Equal(1100, transfers.Count);
+        Assert.Equal(1100, transfers[0].DocEntry);
+    }
+
+    [Fact]
+    public async Task Every_page_of_the_line_read_is_read_and_its_documents_fetched()
+    {
+        // 250 documents headed elsewhere, each with two lines leaving the shop: 500 crossjoin rows.
+        var many = Enumerable.Range(1, 250)
+            .Select(entry => Transfer(entry, "KEFHQ", "KEFGRS",
+                Line("A", from: Shop, to: "KEFGRS"), Line("B", from: Shop, to: "KEFGRS")))
+            .ToArray();
+        var sap = new StockTransfers(many);
+
+        var transfers = await CreateClient(sap).GetInventoryTransfersTouchingWarehouseAsync(
+            Shop, new DateTime(2026, 9, 1), new DateTime(2026, 9, 13));
+
+        Assert.Equal(Enumerable.Range(1, 250).Reverse(), transfers.Select(t => t.DocEntry));
+        Assert.True(sap.Urls.Count(url => url.Contains("crossjoin", StringComparison.Ordinal)) > 1);
     }
 
     private static object Transfer(int docEntry, string from, string to, params object[] lines) => new
@@ -140,9 +176,18 @@ public class TransfersTouchingWarehouseTests
             StubProxy.Unused<ISapItemUomMappingStore>());
     }
 
-    /// <summary>Serves a fixed set of stock transfers, honouring $top and $skip as SL does.</summary>
+    /// <summary>
+    /// Serves a fixed set of stock transfers to the three reads the client makes — by header
+    /// warehouse, by line warehouse through <c>$crossjoin</c>, and by key — honouring $top and $skip
+    /// as SL does. Any other filter is answered with every document, as SAP would answer a date-only
+    /// filter over this set.
+    /// </summary>
     private sealed class StockTransfers(object[] documents) : HttpMessageHandler
     {
+        private readonly JsonElement[] _documents = documents
+            .Select(document => JsonSerializer.SerializeToElement(document))
+            .ToArray();
+
         public List<string> Urls { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(
@@ -158,17 +203,64 @@ public class TransfersTouchingWarehouseTests
 
             Urls.Add(target);
 
-            var top = IntParam(target, "$top") ?? 20;
-            var skip = IntParam(target, "$skip") ?? 0;
-            var page = documents.Skip(skip).Take(top);
+            var url = Uri.UnescapeDataString(target);
+            var top = IntParam(url, "$top") ?? 20;
+            var skip = IntParam(url, "$skip") ?? 0;
 
+            List<object> rows;
+            if (url.Contains("$crossjoin(", StringComparison.Ordinal))
+            {
+                var warehouse = Match(url, @"StockTransferLines/WarehouseCode eq '([^']+)'");
+                rows = _documents
+                    .SelectMany(document => document.GetProperty("StockTransferLines").EnumerateArray()
+                        .Where(line => Text(line, "WarehouseCode") == warehouse || Text(line, "FromWarehouseCode") == warehouse)
+                        .Select(_ => (object)new { StockTransfers = new { DocEntry = DocEntry(document) } }))
+                    .ToList();
+            }
+            else if (Match(url, @"\(ToWarehouse eq '([^']+)'") is { } header)
+            {
+                rows = DocumentsWhere(document => Text(document, "ToWarehouse") == header || Text(document, "FromWarehouse") == header);
+            }
+            else if (url.Contains("$filter=DocEntry eq", StringComparison.Ordinal))
+            {
+                var keys = System.Text.RegularExpressions.Regex.Matches(url, @"DocEntry eq (\d+)")
+                    .Select(match => int.Parse(match.Groups[1].Value))
+                    .ToHashSet();
+                rows = DocumentsWhere(document => keys.Contains(DocEntry(document)));
+            }
+            else
+            {
+                rows = DocumentsWhere(_ => true);
+            }
+
+            var page = rows.Skip(skip).Take(top);
             return Task.FromResult(Json(JsonSerializer.Serialize(new { value = page })));
+        }
+
+        // In DocEntry order, descending, as the client asks for its document reads.
+        private List<object> DocumentsWhere(Func<JsonElement, bool> predicate) => _documents
+            .Where(predicate)
+            .OrderByDescending(DocEntry)
+            .Cast<object>()
+            .ToList();
+
+        private static int DocEntry(JsonElement document) => document.GetProperty("DocEntry").GetInt32();
+
+        private static string? Text(JsonElement element, string property) =>
+            element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+
+        private static string? Match(string url, string pattern)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(url, pattern);
+            return match.Success ? match.Groups[1].Value : null;
         }
 
         private static int? IntParam(string url, string name)
         {
             var match = System.Text.RegularExpressions.Regex.Match(
-                Uri.UnescapeDataString(url), System.Text.RegularExpressions.Regex.Escape(name) + @"=(\d+)");
+                url, System.Text.RegularExpressions.Regex.Escape(name) + @"=(\d+)");
             return match.Success ? int.Parse(match.Groups[1].Value) : null;
         }
 
