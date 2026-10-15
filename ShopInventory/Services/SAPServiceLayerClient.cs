@@ -1153,13 +1153,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// one of whose lines moves stock into or out of <paramref name="warehouseCode"/>. SAP lets a line
     /// carry its own <c>FromWarehouseCode</c> and <c>WarehouseCode</c>, and TransferEventListener
     /// already reads lines that way when it adjusts a shop's stock ledger — so the ledger could move
-    /// for a document the shop's own transfer list did not show.
+    /// for a document the shop's own transfer list did not show. They are rare but real: KEFSHOP has
+    /// a few a year, such as 64557, headed KEFGRC to KEFGRS.
     /// </para>
     /// <para>
-    /// The filter cannot reach the lines: this Service Layer refuses lambda operators on document
-    /// collections (<c>DocumentLines/any(...)</c> answers 400, code 201, as recorded beside the credit
-    /// note lookup in this class). So SAP is asked by date alone — the same query the listener runs
-    /// on every poll over three days — and the documents are matched here, line by line.
+    /// This Service Layer refuses lambda operators on document collections
+    /// (<c>DocumentLines/any(...)</c> answers 400, code 201), so lines are reached with
+    /// <c>$crossjoin</c>, as the special prices are. The header read does almost all the work, the
+    /// crossjoin names the documents whose lines touch the shop, and any of those the header read
+    /// did not return is read by key. Every document is still matched here, line by line.
+    /// </para>
+    /// <para>
+    /// Asking SAP by date alone and matching here, as this did from 2026-09-13, read every transfer
+    /// the company posted: 3,544 documents and 117 seconds for KEFSHOP's month to 2026-10-15, against
+    /// 2.8 seconds for the same 90 documents read by header. The till gives a transfer list 45
+    /// seconds, so the Transfers tab failed on every month-long read.
     /// </para>
     /// </remarks>
     public async Task<List<InventoryTransfer>> GetInventoryTransfersTouchingWarehouseAsync(
@@ -1168,13 +1176,91 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         DateTime toDate,
         CancellationToken cancellationToken = default)
     {
-        var transfers = await ReadStockTransfersAsync(
-            $"DocDate ge '{fromDate:yyyy-MM-dd}' and DocDate le '{toDate:yyyy-MM-dd}'",
-            cancellationToken);
+        var transfers = await GetInventoryTransfersByDateRangeAsync(
+            warehouseCode, fromDate, toDate, cancellationToken);
+
+        var read = transfers.Select(transfer => transfer.DocEntry).ToHashSet();
+        var unread = (await GetStockTransferEntriesWithLineInWarehouseAsync(
+                warehouseCode, fromDate, toDate, cancellationToken))
+            .Where(docEntry => !read.Contains(docEntry))
+            .ToList();
+
+        foreach (var chunk in unread.Chunk(StockTransfersByKeyChunk))
+        {
+            transfers.AddRange(await ReadStockTransfersAsync(
+                string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}")),
+                cancellationToken));
+        }
+
+        if (unread.Count > 0)
+        {
+            _logger.LogInformation(
+                "Read {Count} stock transfers into or out of {Warehouse} by line only: {DocEntries}",
+                unread.Count,
+                warehouseCode,
+                string.Join(", ", unread));
+        }
 
         return transfers
             .Where(transfer => InventoryTransferWarehouses.Touches(transfer, warehouseCode))
+            .OrderByDescending(transfer => transfer.DocEntry)
             .ToList();
+    }
+
+    // Keeps a by-key read well inside the Service Layer's URL length.
+    private const int StockTransfersByKeyChunk = 20;
+
+    /// <summary>
+    /// The transfers dated in the range with a line whose own warehouses name
+    /// <paramref name="warehouseCode"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only <c>DocEntry</c> is selected. With header fields selected and filtered on, this Service
+    /// Layer answered a crossjoin in its column captions ("Internal Number", "Filter") rather than
+    /// property names, so the query is kept to the shape measured on 2026-10-15: a year of KEFSHOP's
+    /// lines, 3,445 rows naming 988 documents, in under five seconds.
+    /// </remarks>
+    private async Task<HashSet<int>> GetStockTransferEntriesWithLineInWarehouseAsync(
+        string warehouseCode,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var entries = new HashSet<int>();
+        await ReadSapRowPagesAsync(
+            _httpClient,
+            BuildStockTransferLineWarehouseCrossJoin(warehouseCode, fromDate, toDate),
+            row =>
+            {
+                if (row.TryGetProperty("StockTransfers", out var header) &&
+                    header.TryGetProperty("DocEntry", out var docEntry) &&
+                    docEntry.TryGetInt32(out var value))
+                {
+                    entries.Add(value);
+                }
+            },
+            $"stock transfer lines for {warehouseCode}",
+            cancellationToken);
+
+        return entries;
+    }
+
+    // One row per line that moves stock into or out of the warehouse, carrying its document's key.
+    internal static string BuildStockTransferLineWarehouseCrossJoin(string warehouseCode, DateTime fromDate, DateTime toDate)
+    {
+        const string lines = "StockTransfers/StockTransferLines";
+        var warehouse = SanitizeODataValue(warehouseCode);
+        var filter =
+            $"StockTransfers/DocEntry eq {lines}/DocEntry" +
+            $" and StockTransfers/DocDate ge '{fromDate:yyyy-MM-dd}' and StockTransfers/DocDate le '{toDate:yyyy-MM-dd}'" +
+            $" and ({lines}/WarehouseCode eq '{warehouse}' or {lines}/FromWarehouseCode eq '{warehouse}')";
+
+        return $"$crossjoin(StockTransfers,{lines})" +
+               $"?$expand={Uri.EscapeDataString("StockTransfers($select=DocEntry)")}" +
+               $"&$filter={Uri.EscapeDataString(filter)}" +
+               $"&$orderby={Uri.EscapeDataString("StockTransfers/DocEntry")}";
     }
 
     private const string StockMovementDocumentSelect =
@@ -7418,7 +7504,7 @@ ORDER BY T0.""ItemCode""";
             result[$"{specialPrice.CardCode}::{specialPrice.ItemCode}"] = specialPrice;
         }
 
-        var headerRowCount = await ReadSpecialPricePagesAsync(
+        var headerRowCount = await ReadSapRowPagesAsync(
             syncHttpClient,
             $"SpecialPrices?$filter={Uri.EscapeDataString(BuildCurrentSpecialPriceHeaderFilter(todayUtc))}&$orderby=CardCode,ItemCode",
             Evaluate,
@@ -7428,7 +7514,7 @@ ORDER BY T0.""ItemCode""";
         var periodKeys = new Dictionary<string, (string CardCode, string ItemCode)>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            await ReadSpecialPricePagesAsync(
+            await ReadSapRowPagesAsync(
                 syncHttpClient,
                 BuildCurrentSpecialPricePeriodCrossJoin(todayUtc),
                 row =>
@@ -7448,7 +7534,7 @@ ORDER BY T0.""ItemCode""";
             // return a set that may be short.
             _logger.LogWarning(ex, "Could not list the special price periods in force; reading every special price instead");
             periodKeys.Clear();
-            await ReadSpecialPricePagesAsync(
+            await ReadSapRowPagesAsync(
                 syncHttpClient,
                 "SpecialPrices?$orderby=CardCode,ItemCode",
                 item =>
@@ -7467,7 +7553,7 @@ ORDER BY T0.""ItemCode""";
 
         foreach (var keyFilter in BuildSpecialPriceKeyFilters(unreadPeriodKeys))
         {
-            await ReadSpecialPricePagesAsync(
+            await ReadSapRowPagesAsync(
                 syncHttpClient,
                 $"SpecialPrices?$filter={Uri.EscapeDataString(keyFilter)}&$orderby=CardCode,ItemCode",
                 Evaluate,
@@ -7567,7 +7653,7 @@ ORDER BY T0.""ItemCode""";
 
     // Pages a read to the end, resuming at the rows actually received: SAP can cut a page short and
     // still send a continuation link (see CustomerItemPricePagingTests). Returns the rows read.
-    private async Task<int> ReadSpecialPricePagesAsync(
+    private async Task<int> ReadSapRowPagesAsync(
         HttpClient httpClient,
         string query,
         Action<JsonElement> onRow,
