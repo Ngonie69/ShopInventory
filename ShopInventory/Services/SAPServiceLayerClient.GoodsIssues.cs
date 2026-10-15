@@ -397,6 +397,8 @@ public partial class SAPServiceLayerClient
                 sanitized);
         }
 
+        ThrowIfSapBackendUnreachable("create the goods issue", response.StatusCode, sapError);
+
         _logger.LogError(
             "Failed to create the goods issue out of {Warehouse}: {StatusCode} - {Error}",
             warehouse, response.StatusCode, sanitized);

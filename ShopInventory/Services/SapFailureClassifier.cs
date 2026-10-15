@@ -69,6 +69,31 @@ public static class SapFailureClassifier
     }
 
     /// <summary>
+    /// True when a Service Layer that answered with its own error envelope was saying it could not
+    /// reach its database, not refusing the request.
+    /// </summary>
+    /// <remarks>
+    /// Production's form is code 7 with libcurl's wording, <c>Failed to connect to kfldb port 40020
+    /// after 0 ms: Couldn't connect to server</c>; SLD's is code 312, <c>Fail to connect to SLD.</c>
+    /// Only a 5xx counts. A 4xx is SAP judging the request, and a business message is free to use the
+    /// word "connect" ("Failed to connect the payment to invoice 12") without being an outage.
+    /// </remarks>
+    public static bool IsSapBackendUnreachable(HttpStatusCode statusCode, string? sapMessage)
+    {
+        if ((int)statusCode < 500 || string.IsNullOrWhiteSpace(sapMessage))
+        {
+            return false;
+        }
+
+        var normalized = sapMessage.ToLowerInvariant();
+        return normalized.Contains("couldn't connect to server") ||
+               normalized.Contains("could not connect to server") ||
+               normalized.Contains("fail to connect to sld") ||
+               normalized.Contains("connection refused") ||
+               (normalized.Contains("failed to connect to") && normalized.Contains(" port "));
+    }
+
+    /// <summary>
     /// A rejection that says the stock is not there. Retrying cannot clear it — the document has
     /// to be re-cut or the warehouse reconciled — so the work belongs in front of a person rather
     /// than back on the queue.
