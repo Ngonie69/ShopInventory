@@ -236,6 +236,9 @@ public class AuthService : IAuthService
     public async Task LogoutAsync()
     {
         _logger.LogInformation("User logging out");
+        // Revoked on the API first: clearing the browser alone leaves the refresh token good for
+        // its full life to anyone who copied it.
+        await _authStateProvider.RevokeRefreshTokenAsync();
         await _authStateProvider.ClearAuthData();
         _authStateProvider.NotifyUserLogout();
         _logger.LogInformation("Logout complete");
