@@ -9,37 +9,62 @@
 @* The daily truck report.
 
    Carried by the `vsk-` block at the foot of wwwroot/css/van-sales.css in both
-   schemes, on the shared `vs-` and `vsc-` chrome.
+   schemes, on the shared `vs-` and `vsc-` chrome. Drawn from the "Daily Truck
+   Report" design canvas (2026-10-15).
 
    This is the office's VANSALES DAILY REPORT workbook, read out of the system.
    The workbook had one typed row per truck per day and a monthly summary against
-   target. Three things this page decides:
+   target. What this page decides:
+
+   - **The month's pace comes first.** The period is the whole month by default,
+     so its target is the month's, and the bar at the top says how far the fleet
+     is from where it should be by today. A target that ended today could not say
+     that.
 
    - **The truck is the row.** Two reps share a truck, so a rep-day grid splits
      one round in two. The compliance page asks how each rep did; this asks what
      each truck did.
 
-   - **A truck that reported nothing still has a row.** Every working day so far
-     is listed for every live route. Leaving a silent day out would make a
-     missing report look like a short week.
+   - **Every day is drawn on the truck's row.** One bar per day against the daily
+     target, so a truck that went quiet, or one that sells under target every
+     day, is seen without opening it. A day that reported nothing is still a
+     slot: leaving it out would make a missing report look like a short week.
+
+   - **The checks narrow the list.** Each count above the sheet is a button that
+     keeps only the trucks with a day it picked out, and outlines those days.
 
    - **Only three figures are typed.** Fuel issued, account sales and the area
      worked are the office's to say, and are entered on the day's own row.
      Everything else is counted from the handsets and the invoices. *@
 
-<div class="vs">
+<div class="vs vsk">
 
-    <div class="vs-head">
+    <div class="vs-head vsk-head">
         <div>
+            <div class="vsk-crumb">Van sales / Reports</div>
             <h2 class="vs-title">Daily truck report</h2>
             <p class="vs-subtitle">
-                One row per truck: its period against target, and each of its days underneath.
-                Sales are US dollars with VAT, counted from the invoices. Fuel, account sales and
-                the area worked are entered here by the office.
+                Each truck's month against its target, day by day. Sales are US dollars with VAT, counted
+                from the invoices. Fuel, account sales and the area worked are entered here by the office.
             </p>
         </div>
-        <div class="vs-actions">
-            <button class="vs-btn" id="vsk-export" @onclick="ExportAsync" disabled="@(isLoading || isExporting || report is null)">
+        <div class="vsk-period">
+            <div class="vsk-seg" role="group" aria-label="Period">
+                <button type="button" class="@(IsMonth(0) ? "vsk-seg-on" : "")" aria-pressed="@Aria(IsMonth(0))"
+                        disabled="@isLoading" @onclick="() => RunMonthAsync(0)">This month</button>
+                <button type="button" class="@(IsMonth(-1) ? "vsk-seg-on" : "")" aria-pressed="@Aria(IsMonth(-1))"
+                        disabled="@isLoading" @onclick="() => RunMonthAsync(-1)">Last month</button>
+            </div>
+            <div class="vsk-dates">
+                <NocturneDateField Id="vsk-from" @bind-Date="fromDate" AriaLabel="From date" />
+                <span class="vsk-dates-to" aria-hidden="true">to</span>
+                <NocturneDateField Id="vsk-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <button type="button" class="vs-btn vs-btn-accent" id="vsk-run" @onclick="LoadAsync" disabled="@isLoading">
+                @(isLoading ? "Loading…" : "Run")
+            </button>
+            <button type="button" class="vs-btn" id="vsk-export" @onclick="ExportAsync" disabled="@(isLoading || isExporting || report is null)">
+                <i class="ph ph-download-simple" aria-hidden="true"></i>
                 @(isExporting ? "Exporting…" : "Export")
             </button>
         </div>
@@ -49,24 +74,6 @@
     {
         <div class="vs-notice">@error</div>
     }
-
-    <div class="vs-filters">
-        <div class="row g-3">
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsk-from">From</label>
-                <NocturneDateField Id="vsk-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsk-to">To</label>
-                <NocturneDateField Id="vsk-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <div class="col-md-2 d-flex align-items-end">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-            </div>
-        </div>
-    </div>
 
     @if (isLoading)
     {
@@ -89,115 +96,191 @@
     else
     {
         var total = report.Total;
+        var daysLeft = report.WorkingDays - report.WorkingDaysElapsed;
+        var shown = TrucksShown().ToList();
 
-        <div class="vsc-kpis">
-            <div class="vsc-kpi">
-                <div class="vsc-kpi-mark"></div>
-                <div class="vsc-kpi-n">@Money(total.PeriodTarget)</div>
-                <div class="vsc-kpi-l">period target</div>
-                <div class="vsc-kpi-sub">@report.WorkingDays working day@(report.WorkingDays == 1 ? "" : "s"), @report.WorkingDaysElapsed so far</div>
-            </div>
-            <div class="vsc-kpi">
-                <div class="vsc-kpi-mark"></div>
-                <div class="vsc-kpi-n">@Money(total.Sales)</div>
-                <div class="vsc-kpi-l">sales to date</div>
-                <div class="vsc-kpi-sub">@Percent(total.TargetAchieved) of target</div>
-            </div>
-            <div class="vsc-kpi">
-                <div class="vsc-kpi-mark @Ink(BehindPace)"></div>
-                <div class="vsc-kpi-n @Ink(BehindPace)">@Money(total.BalanceToTarget)</div>
-                <div class="vsc-kpi-l">balance to target</div>
-                <div class="vsc-kpi-sub">@PaceNote</div>
-            </div>
-            <div class="vsc-kpi">
-                <div class="vsc-kpi-mark"></div>
-                <div class="vsc-kpi-n">@total.CustomersVisited.ToString("N0")</div>
-                <div class="vsc-kpi-l">shops checked into</div>
-                <div class="vsc-kpi-sub">CCR @Percent(total.CallComplianceRate) · @total.ProductiveCalls.ToString("N0") bought · PCR @Percent(total.ProductiveCallRate)</div>
-            </div>
-            <div class="vsc-kpi">
-                <div class="vsc-kpi-mark"></div>
-                <div class="vsc-kpi-n">@total.Kilometres.ToString("N0")</div>
-                <div class="vsc-kpi-l">kilometres</div>
-                <div class="vsc-kpi-sub">@(total.SalesPerKilometre is { } perKm ? $"${perKm:N2} a km" : "no odometer readings")</div>
-            </div>
-            <div class="vsc-kpi">
-                <div class="vsc-kpi-mark"></div>
-                <div class="vsc-kpi-n">@(total.FuelLitres > 0 ? total.FuelLitres.ToString("N0") : "—")</div>
-                <div class="vsc-kpi-l">litres issued</div>
-                <div class="vsc-kpi-sub">@(total.KilometresPerLitre is { } perLitre ? $"{perLitre:N2} km a litre" : "none entered yet")</div>
-            </div>
-        </div>
+        <section class="vsk-hero" aria-label="The period against its target">
+            <div class="vsk-pace">
+                <div class="vsk-pace-top">
+                    <div class="vsk-pace-figure">
+                        <span class="vsk-big">@Money(total.Sales)</span>
+                        @if (total.PeriodTarget is > 0)
+                        {
+                            <span class="vsk-of">sold of <b>@Money(total.PeriodTarget)</b> target</span>
+                        }
+                        else
+                        {
+                            <span class="vsk-of">sold · no targets set</span>
+                        }
+                    </div>
+                    @if (PaceText(total, "ahead of the days so far", "behind the days so far") is { } fleetPace)
+                    {
+                        <div class="vsk-pace-note @(Behind(total) ? "vsk-marked" : "")" id="vsk-pace">
+                            <span class="vsk-dot" aria-hidden="true"></span>@fleetPace
+                        </div>
+                    }
+                </div>
 
-        <div class="vsk-strip" role="list" aria-label="Truck-days to look at">
-            <span class="vsk-chip @ChipInk(report.Exceptions.NotReported)" role="listitem">
-                <b>@report.Exceptions.NotReported</b> not reported
-            </span>
-            <span class="vsk-chip @ChipInk(report.Exceptions.BelowTarget)" role="listitem">
-                <b>@report.Exceptions.BelowTarget</b> below target
-            </span>
-            <span class="vsk-chip @ChipInk(report.Exceptions.DistanceWithoutSales)" role="listitem">
-                <b>@report.Exceptions.DistanceWithoutSales</b> distance, no sales
-            </span>
-            <span class="vsk-chip @ChipInk(report.Exceptions.MileageNeedsReview)" role="listitem">
-                <b>@report.Exceptions.MileageNeedsReview</b> mileage to check
-            </span>
-            <span class="vsk-chip @ChipInk(report.Exceptions.ReturnedLate)" role="listitem">
-                <b>@report.Exceptions.ReturnedLate</b> closed a day late
-            </span>
+                @if (total.PeriodTarget is > 0)
+                {
+                    <div class="vsk-meter vsk-meter-lg" role="img"
+                         aria-label="@($"{Percent(total.TargetAchieved)} of the period's target sold; the mark is the target for the days so far")">
+                        <span class="vsk-meter-fill" style="width: @Fill(total)"></span>
+                        <span class="vsk-meter-tick" style="left: @PaceMark(total)"></span>
+                    </div>
+                    <div class="vsk-meter-scale">
+                        <span>@report.FromDate.ToString("d MMM")</span>
+                        <span class="vsk-meter-key"><span class="vsk-meter-key-tick" aria-hidden="true"></span>target by today</span>
+                        <span>@report.ToDate.ToString("d MMM")</span>
+                    </div>
+                }
+
+                <div class="vsk-pace-facts">
+                    @if (total.PeriodTarget is > 0)
+                    {
+                        <span><b>@Percent(total.TargetAchieved)</b> of the period's target</span>
+                        <span>
+                            <b>@Money(total.BalanceToTarget)</b> still to sell@(daysLeft > 0 ? $" in {daysLeft} working day{(daysLeft == 1 ? "" : "s")}" : "")
+                        </span>
+                    }
+                    <span><b>@total.DaysReported of @total.WorkingDaysElapsed</b> truck-days reported</span>
+                    <span>@PaceDay</span>
+                </div>
+            </div>
+
+            <div class="vsk-figures">
+                <div class="vsk-figure">
+                    <span class="vsk-figure-l">Shops checked into</span>
+                    <span class="vsk-figure-n">@total.CustomersVisited.ToString("N0")</span>
+                    <span class="vsk-figure-sub">CCR @Percent(total.CallComplianceRate) · @total.ProductiveCalls.ToString("N0") bought · PCR @Percent(total.ProductiveCallRate)</span>
+                </div>
+                <div class="vsk-figure">
+                    <span class="vsk-figure-l">Kilometres</span>
+                    <span class="vsk-figure-n">@(total.Kilometres > 0 ? total.Kilometres.ToString("N0") : "—")</span>
+                    <span class="vsk-figure-sub">@(total.SalesPerKilometre is { } perKm ? $"${perKm:N2} a km" : "no odometer readings")</span>
+                </div>
+                <div class="vsk-figure">
+                    <span class="vsk-figure-l">Fuel issued</span>
+                    <span class="vsk-figure-n">@(total.FuelLitres > 0 ? $"{total.FuelLitres:N0} L" : "—")</span>
+                    <span class="vsk-figure-sub">@(total.KilometresPerLitre is { } perLitre ? $"{perLitre:N2} km a litre" : "none entered yet")</span>
+                </div>
+                <div class="vsk-figure">
+                    <span class="vsk-figure-l">Account sales</span>
+                    <span class="vsk-figure-n">@(total.AccountSales > 0 ? Money(total.AccountSales) : "—")</span>
+                    <span class="vsk-figure-sub">keyed in SAP, not in sales</span>
+                </div>
+            </div>
+        </section>
+
+        <div class="vsk-checks" role="group" aria-label="Truck-days to look at">
+            <span class="vsk-checks-label">Truck-days to look at</span>
+            <button type="button" class="vsk-chip @(filter is null ? "vsk-chip-on" : "")" aria-pressed="@Aria(filter is null)"
+                    @onclick="() => ToggleFilter(null)">
+                <b>@report.Trucks.Count</b> all trucks
+            </button>
+            @foreach (var (check, count, label) in Checks())
+            {
+                var on = filter == check;
+
+                <button type="button" class="vsk-chip @(on ? "vsk-chip-on" : count > 0 ? "vsk-chip-hot" : "vsk-chip-zero")"
+                        aria-pressed="@Aria(on)" disabled="@(count == 0 && !on)" data-check="@check"
+                        @onclick="() => ToggleFilter(check)">
+                    <b>@count</b> @label
+                </button>
+            }
         </div>
 
         @if (report.SalesOutsideRoutes > 0)
         {
-            <p class="vsk-note">
-                @Money(report.SalesOutsideRoutes) was sold by logins that are on no route, and is in none of
-                the rows below. Assign each van login a route on its user account.
-            </p>
+            <div class="vsk-aside">
+                <i class="ph ph-info" aria-hidden="true"></i>
+                <span>
+                    <b>@Money(report.SalesOutsideRoutes)</b> was sold by logins that are on no route, and is in none
+                    of the rows below. Assign each van login a route on its user account.
+                </span>
+            </div>
         }
 
-        <div class="vsc-sheet">
+        <div class="vsc-sheet vsk-sheet">
             <div class="vsk-track vsk-cols">
                 <span>Truck</span>
-                <span class="vs-right">Target</span>
-                <span class="vs-right">Sales</span>
+                <span>Days against target</span>
+                <span>Period to date</span>
                 <span class="vs-right">Balance</span>
-                <span class="vs-right">Achieved</span>
-                <span class="vs-right">Days</span>
-                <span class="vs-right">Visited</span>
                 <span class="vs-right">CCR</span>
-                <span class="vs-right">Bought</span>
                 <span class="vs-right">PCR</span>
                 <span class="vs-right">Km</span>
-                <span class="vs-right">Fuel</span>
                 <span class="vs-right">Account</span>
                 <span></span>
             </div>
 
-            @foreach (var truck in report.Trucks)
+            @if (shown.Count == 0)
+            {
+                <div class="vsk-none">No truck has a day this check picks out.</div>
+            }
+
+            @foreach (var truck in shown)
             {
                 var routeId = truck.RouteId!.Value;
                 var isOpen = openRoute == routeId;
+                var days = DaysOf(routeId).ToList();
+                var missing = days.Count(day => day.NotReported);
                 var silent = truck.DaysReported == 0 && truck.WorkingDaysElapsed > 0;
 
-                <div @key="routeId">
-                    <button type="button" class="vsc-rowbtn" aria-expanded="@isOpen" @onclick="() => ToggleRoute(routeId)">
-                        <span class="vsk-track vsc-row @(silent ? "vsc-row-flagged" : "")">
+                <div class="vsk-truck" @key="routeId">
+                    <button type="button" class="vsc-rowbtn" aria-expanded="@Aria(isOpen)" @onclick="() => ToggleRoute(routeId)">
+                        <span class="vsk-track vsk-row @(isOpen ? "vsk-row-open" : "")">
                             <span class="vsc-cell">
-                                <span class="vsc-name">
-                                    <span class="vsc-name-text">@truck.RouteName</span>
-                                    @if (silent)
-                                    {
-                                        <span class="vsc-flag vsc-flag-strong">nothing reported</span>
-                                    }
-                                </span>
+                                <span class="vsk-name">@truck.RouteName</span>
                                 <span class="vsc-where">@truck.RouteCode@(truck.Territory is { Length: > 0 } territory ? $" · {territory}" : "")</span>
+                                @if (silent)
+                                {
+                                    <span class="vsk-flagline">nothing reported this period</span>
+                                }
+                                else if (missing > 0)
+                                {
+                                    <span class="vsk-flagline">@missing day@(missing == 1 ? "" : "s") not reported</span>
+                                }
                             </span>
-                            <span class="vs-right vsc-num">@Money(truck.PeriodTarget)</span>
-                            <span class="vs-right vsc-strong">@Money(truck.Sales)</span>
+
+                            <span class="vsk-strip" role="img" aria-label="@StripLabel(truck)">
+                                @if (TargetLine(truck) is { } line)
+                                {
+                                    <span class="vsk-strip-line" style="bottom: @line"></span>
+                                }
+                                @foreach (var day in days)
+                                {
+                                    <span class="vsk-bar @BarClass(day) @(Marked(day) ? "vsk-bar-marked" : "")"
+                                          style="height: @BarHeight(day)" title="@BarTitle(day)"></span>
+                                }
+                            </span>
+
+                            <span class="vsk-mtd">
+                                <span class="vsk-mtd-top">
+                                    <span class="vsc-strong">
+                                        @Money(truck.Sales)
+                                        @if (truck.PeriodTarget is > 0)
+                                        {
+                                            <span class="vsk-of-sm"> of @Money(truck.PeriodTarget)</span>
+                                        }
+                                    </span>
+                                    <span class="vsc-num">@Percent(truck.TargetAchieved)</span>
+                                </span>
+                                @if (truck.PeriodTarget is > 0)
+                                {
+                                    <span class="vsk-meter">
+                                        <span class="vsk-meter-fill" style="width: @Fill(truck)"></span>
+                                        <span class="vsk-meter-tick" style="left: @PaceMark(truck)"></span>
+                                    </span>
+                                    <span class="vsc-sub @Ink(Behind(truck))">@PaceText(truck, "ahead of pace", "behind pace")</span>
+                                }
+                                else
+                                {
+                                    <span class="vsc-sub">no target set on the route</span>
+                                }
+                            </span>
+
                             <span class="vs-right vsc-num">@Money(truck.BalanceToTarget)</span>
-                            <span class="vs-right vsc-num">@Percent(truck.TargetAchieved)</span>
-                            <span class="vs-right vsc-num @Ink(truck.DaysReported < truck.WorkingDaysElapsed)">@truck.DaysReported / @truck.WorkingDaysElapsed</span>
-                            <span class="vs-right vsc-num">@truck.CustomersVisited.ToString("N0")</span>
                             <span class="vs-right vsc-num @(truck.PlanIsWholeList ? "vsk-on-list" : "")" title="@CcrTitle(truck)">
                                 @Percent(truck.CallComplianceRate)
                                 @if (truck.PlanIsWholeList)
@@ -209,29 +292,30 @@
                                     <span class="vsc-sub">@truck.DaysOnWholeList no round</span>
                                 }
                             </span>
-                            <span class="vs-right vsc-num">@truck.ProductiveCalls.ToString("N0")</span>
-                            <span class="vs-right vsc-num">@Percent(truck.ProductiveCallRate)</span>
-                            <span class="vs-right vsc-num">@(truck.Kilometres > 0 ? truck.Kilometres.ToString("N0") : "—")</span>
                             <span class="vs-right vsc-num">
-                                @(truck.FuelLitres > 0 ? $"{truck.FuelLitres:N0} L" : "—")
-                                @if (truck.KilometresPerLitre is { } truckPerLitre)
-                                {
-                                    <span class="vsc-sub">@truckPerLitre.ToString("N2") km/L</span>
-                                }
+                                @Percent(truck.ProductiveCallRate)
+                                <span class="vsc-sub">@truck.ProductiveCalls.ToString("N0") of @truck.CustomersVisited.ToString("N0")</span>
+                            </span>
+                            <span class="vs-right vsc-num">
+                                @(truck.Kilometres > 0 ? truck.Kilometres.ToString("N0") : "—")
+                                <span class="vsc-sub">
+                                    @(truck.KilometresPerLitre is { } truckPerLitre ? $"{truckPerLitre:N2} km/L"
+                                      : truck.FuelLitres > 0 ? $"{truck.FuelLitres:N0} L" : "no fuel")
+                                </span>
                             </span>
                             <span class="vs-right vsc-num">@(truck.AccountSales > 0 ? Money(truck.AccountSales) : "—")</span>
-                            <span class="vsk-caret" aria-hidden="true">
-                                <i class="ph @(isOpen ? "ph-caret-up" : "ph-caret-down")"></i>
+                            <span class="vsc-caret @(isOpen ? "vsc-caret-on" : "")" aria-hidden="true">
+                                <i class="ph ph-caret-right"></i>
                             </span>
                         </span>
                     </button>
 
                     @if (isOpen)
                     {
-                        <div class="vsc-detail">
+                        <div class="vsc-detail vsk-ledger">
                             <div class="vsk-day-track vsk-day-cols">
                                 <span>Day</span>
-                                <span>Area</span>
+                                <span>Area worked</span>
                                 <span>Out — in</span>
                                 <span class="vs-right">Visited</span>
                                 <span class="vs-right">CCR</span>
@@ -245,23 +329,27 @@
                                 <span></span>
                             </div>
 
-                            @foreach (var day in DaysOf(routeId))
+                            @foreach (var day in days)
                             {
                                 var isEditing = editing is { } target && target.RouteId == routeId && target.TradingDate == day.TradingDate;
 
-                                <div class="vsk-day-track vsk-day @(day.HasActivity ? "" : "vsk-day-quiet")" @key="day.TradingDate">
+                                <div class="vsk-day-track vsk-day @(day.HasActivity ? "" : "vsk-day-quiet") @(Marked(day) ? "vsk-day-marked" : "")" @key="day.TradingDate">
                                     <span class="vsc-cell">
                                         <span class="vsc-day">@day.TradingDate.ToString("ddd d MMM")</span>
                                         @if (FlagFor(day) is { } flag)
                                         {
-                                            <span class="vsc-sub @Ink(true)">@flag</span>
+                                            <span class="vsc-sub @Ink(day.NotReported || day.DistanceWithoutSales || day.ReturnedLate)">@flag</span>
                                         }
                                     </span>
-                                    <span class="vsc-cell">
+                                    <span class="vsc-cell vsk-area-cell">
                                         <span class="vsk-area">@(day.AreaName ?? "—")</span>
-                                        @if (day.AreaSource == "Plan")
+                                        @if (day.AreaSource == "Office")
                                         {
-                                            <span class="vsc-sub">as planned</span>
+                                            <span class="vsk-tag">office</span>
+                                        }
+                                        else if (day.AreaSource == "Plan")
+                                        {
+                                            <span class="vsk-tag vsk-tag-quiet">planned</span>
                                         }
                                     </span>
                                     <span class="vsc-num">@Times(day)</span>
@@ -275,7 +363,13 @@
                                     </span>
                                     <span class="vs-right vsc-num">@(day.ProductiveCalls > 0 ? day.ProductiveCalls.ToString("N0") : "—")</span>
                                     <span class="vs-right vsc-num">@Percent(day.ProductiveCallRate)</span>
-                                    <span class="vs-right vsc-strong">@(day.SalesCount > 0 ? Money(day.Sales) : "—")</span>
+                                    <span class="vs-right vsc-strong">
+                                        @(day.SalesCount > 0 ? Money(day.Sales) : "—")
+                                        @if (Versus(day) is { } versus)
+                                        {
+                                            <span class="vsc-sub @Ink(day.BelowTarget)">@versus</span>
+                                        }
+                                    </span>
                                     <span class="vs-right vsc-num">@(day.Ecocash > 0 ? Money(day.Ecocash) : "—")</span>
                                     <span class="vs-right vsc-num">@(day.AccountSales is { } account ? Money(account) : "—")</span>
                                     <span class="vs-right vsc-num @Ink(day.MileageNeedsReview)" title="@OdometerTitle(day)">
@@ -285,7 +379,7 @@
                                     <span class="vs-right">
                                         <AuthorizeView Roles="Admin">
                                             <Authorized>
-                                                <button type="button" class="vs-btn vsk-edit" disabled="@isSaving"
+                                                <button type="button" class="vs-btn vsk-edit @(day.HasOfficeEntry ? "" : "vs-btn-accent")" disabled="@isSaving"
                                                         aria-label="@($"Enter fuel, account sales and area for {day.TradingDate:d MMM}")"
                                                         @onclick="() => StartEntry(day)">
                                                     @(day.HasOfficeEntry ? "Edit" : "Enter")
@@ -311,15 +405,15 @@
                                             <label class="vs-filter-label" for="vsk-account">Account sales, with VAT</label>
                                             <input id="vsk-account" class="vs-field" type="number" min="0" step="0.01" @bind="entryAccount" placeholder="None" />
                                         </div>
-                                        <div class="vsk-form-field vsk-form-wide">
+                                        <div class="vsk-form-field vsk-form-note-field">
                                             <label class="vs-filter-label" for="vsk-notes">Note <span class="vs-meta">(optional)</span></label>
                                             <input id="vsk-notes" class="vs-field" maxlength="500" @bind="entryNotes" />
                                         </div>
                                         <div class="vsk-form-actions">
-                                            <button type="button" class="vs-btn vs-btn-accent" @onclick="SaveEntryAsync" disabled="@isSaving">
-                                                @(isSaving ? "Saving…" : "Save")
-                                            </button>
                                             <button type="button" class="vs-btn" @onclick="CancelEntry" disabled="@isSaving">Cancel</button>
+                                            <button type="button" class="vs-btn vs-btn-accent" @onclick="SaveEntryAsync" disabled="@isSaving">
+                                                @(isSaving ? "Saving…" : "Save day")
+                                            </button>
                                         </div>
                                         @if (entryError is not null)
                                         {
@@ -337,31 +431,44 @@
                 </div>
             }
 
-            <div class="vsk-track vsc-foot">
+            <div class="vsk-track vsk-foot">
                 <span class="vsc-foot-label">All trucks</span>
-                <span class="vs-right vsc-num">@Money(total.PeriodTarget)</span>
-                <span class="vs-right vsc-strong">@Money(total.Sales)</span>
-                <span class="vs-right vsc-num">@Money(total.BalanceToTarget)</span>
-                <span class="vs-right vsc-num">@Percent(total.TargetAchieved)</span>
-                <span class="vs-right vsc-num">@total.DaysReported / @total.WorkingDaysElapsed</span>
-                <span class="vs-right vsc-num">@total.CustomersVisited.ToString("N0")</span>
-                <span class="vs-right vsc-num">@Percent(total.CallComplianceRate)</span>
-                <span class="vs-right vsc-num">@total.ProductiveCalls.ToString("N0")</span>
-                <span class="vs-right vsc-num">@Percent(total.ProductiveCallRate)</span>
-                <span class="vs-right vsc-num">@(total.Kilometres > 0 ? total.Kilometres.ToString("N0") : "—")</span>
-                <span class="vs-right vsc-num">@(total.FuelLitres > 0 ? $"{total.FuelLitres:N0} L" : "—")</span>
-                <span class="vs-right vsc-num">@(total.AccountSales > 0 ? Money(total.AccountSales) : "—")</span>
+                <span class="vsk-key" aria-label="Key to the day bars">
+                    <span><i class="vsk-key-swatch vsk-bar-met" aria-hidden="true"></i>met</span>
+                    <span><i class="vsk-key-swatch vsk-bar-below" aria-hidden="true"></i>below</span>
+                    <span><i class="vsk-key-swatch vsk-key-missing" aria-hidden="true"></i>nothing</span>
+                    <span><i class="vsk-key-swatch vsk-bar-today" aria-hidden="true"></i>today</span>
+                </span>
+                <span class="vsc-strong">
+                    @Money(total.Sales)
+                    @if (total.PeriodTarget is > 0)
+                    {
+                        <span class="vsk-of-sm"> of @Money(total.PeriodTarget)</span>
+                    }
+                </span>
+                <span class="vs-right vsc-strong">@Money(total.BalanceToTarget)</span>
+                <span class="vs-right vsc-strong">@Percent(total.CallComplianceRate)</span>
+                <span class="vs-right vsc-strong">@Percent(total.ProductiveCallRate)</span>
+                <span class="vs-right vsc-strong">@(total.Kilometres > 0 ? total.Kilometres.ToString("N0") : "—")</span>
+                <span class="vs-right vsc-strong">@(total.AccountSales > 0 ? Money(total.AccountSales) : "—")</span>
                 <span></span>
             </div>
         </div>
 
-        <p class="vsk-note">
-            A month's target is each route's daily target times its Monday-to-Friday days; set the daily
-            target on Van Sales, Routes. Visited is shops checked into on the handset and Bought is shops
-            invoiced, so a low PCR on a truck that sells well usually means calls were not checked into.
-            CCR is the day's round: of the shops the truck is scheduled for or has called on before in that
-            area, how many it checked into. A day marked "list" has no round yet and is measured against
-            the truck's whole customer list, which reads low. Entering its area gives it one.
-        </p>
+        <details class="vsk-notes">
+            <summary>How these figures are counted</summary>
+            <p>
+                A month's target is each route's daily target times its Monday-to-Friday days; set the daily
+                target on Van Sales, Routes. The dashed line across each truck's days is that daily target, and
+                the mark on each bar is where the truck should be by today.
+            </p>
+            <p>
+                Visited is shops checked into on the handset and Bought is shops invoiced, so a low PCR on a
+                truck that sells well usually means calls were not checked into. CCR is the day's round: of the
+                shops the truck is scheduled for or has called on before in that area, how many it checked into.
+                A day marked "list" has no round yet and is measured against the truck's whole customer list,
+                which reads low. Entering its area gives it one.
+            </p>
+        </details>
     }
 </div>
