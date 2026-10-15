@@ -151,19 +151,104 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The customer portal's pages call the API through the Web's key. A portal token signed with its
-    /// own secret fails the API's bearer scheme, so the request is the key's alone and is judged that way.
+    /// A token signed with a secret the API does not hold fails the bearer scheme. The key sent beside
+    /// it no longer answers in its place: the request is refused as unauthenticated, not run as the key.
     /// </summary>
+    /// <remarks>
+    /// This once passed as the key, on the reading that the customer portal sends its own-secret token
+    /// beside the Web's key. It does not: the portal keeps its token in "customerToken" and never puts
+    /// it on the API client, so its calls arrive as the key alone and are covered by
+    /// <see cref="A_key_calling_alone_keeps_its_roles"/>.
+    /// </remarks>
     [Fact]
-    public async Task A_key_beside_a_token_the_api_cannot_validate_is_judged_as_the_key()
+    public async Task A_key_beside_a_token_the_api_cannot_validate_is_refused_as_unauthenticated()
     {
         await using var services = BuildServices();
-        var portalToken = UserToken("Customer", PortalSigningKey);
+        var foreignToken = UserToken(ApplicationRoles.Admin, PortalSigningKey);
 
-        var outcome = await EvaluateAsync(services, CreateInvoice, WebApiKey, portalToken);
+        var outcome = await EvaluateAsync(services, CreateInvoice, WebApiKey, foreignToken);
 
-        Assert.Equal(1, outcome.User.Identities.Count(identity => identity.IsAuthenticated));
-        Assert.True(outcome.Result.Succeeded);
+        Assert.Equal(0, outcome.User.Identities.Count(identity => identity.IsAuthenticated));
+        Assert.True(outcome.Result.Challenged);
+        Assert.Equal(StatusCodes.Status401Unauthorized, outcome.StatusCode);
+    }
+
+    /// <summary>
+    /// Whatever the Web holds as a token goes out as the bearer beside its key. A bearer that is not a
+    /// JWT at all is refused as unauthenticated, on the named policies and on a role-gated action alike.
+    /// </summary>
+    [Fact]
+    public async Task A_key_beside_a_token_that_is_not_a_jwt_is_refused_as_unauthenticated()
+    {
+        await using var services = BuildServices();
+        var policies = new[]
+        {
+            await NamedPolicyAsync(services, "ApiAccess"),
+            await NamedPolicyAsync(services, "ApiAccessWithOperator"),
+            await EndpointPolicyAsync(services, CreateNotification)
+        };
+
+        foreach (var forged in new[] { "x", "not.a.jwt", "eyJhbGciOiJub25lIn0.eyJyb2xlIjoiQWRtaW4ifQ." })
+        {
+            foreach (var policy in policies)
+            {
+                var outcome = await EvaluateAsync(services, policy, WebApiKey, forged);
+
+                Assert.False(outcome.Result.Succeeded, forged);
+                Assert.True(outcome.Result.Challenged, forged);
+                Assert.Equal(StatusCodes.Status401Unauthorized, outcome.StatusCode);
+            }
+        }
+    }
+
+    /// <summary>
+    /// An expired token beside the key answers 401, and says the token expired, so the Web's
+    /// refresh-on-401 (ApiTokenAuthentication) renews it and retries as the user rather than the request
+    /// being run as the key.
+    /// </summary>
+    [Fact]
+    public async Task A_key_beside_an_expired_token_answers_401_so_the_caller_renews()
+    {
+        await using var services = BuildServices();
+        var expired = UserToken(ApplicationRoles.Admin, expires: DateTime.UtcNow.AddMinutes(-10));
+
+        var outcome = await EvaluateAsync(services, CreateInvoice, WebApiKey, expired);
+
+        Assert.True(outcome.Result.Challenged);
+        Assert.Equal(StatusCodes.Status401Unauthorized, outcome.StatusCode);
+        Assert.Contains("invalid_token", outcome.WwwAuthenticate);
+        Assert.Contains("expired", outcome.WwwAuthenticate);
+    }
+
+    /// <summary>
+    /// The negative control for the refusals above. A valid token beside the key still builds the merged
+    /// principal and is judged by the user, and a key with no Authorization header still answers as the key.
+    /// </summary>
+    [Fact]
+    public async Task A_valid_token_beside_the_key_and_the_key_alone_still_authenticate()
+    {
+        await using var services = BuildServices();
+
+        var withUser = await EvaluateAsync(services, CreateInvoice, WebApiKey, UserToken(ApplicationRoles.Cashier));
+        var keyAlone = await EvaluateAsync(services, CreateInvoice, WebApiKey, bearerToken: null);
+
+        Assert.Equal(2, withUser.User.Identities.Count(identity => identity.IsAuthenticated));
+        Assert.True(withUser.Result.Succeeded);
+        Assert.Equal(StatusCodes.Status200OK, withUser.StatusCode);
+        Assert.Equal(1, keyAlone.User.Identities.Count(identity => identity.IsAuthenticated));
+        Assert.True(keyAlone.Result.Succeeded);
+    }
+
+    /// <summary>A failed token with no key was a 401 already, and still is.</summary>
+    [Fact]
+    public async Task A_failed_token_without_a_key_answers_401_as_before()
+    {
+        await using var services = BuildServices();
+
+        var outcome = await EvaluateAsync(services, CreateInvoice, apiKey: null, "x");
+
+        Assert.True(outcome.Result.Challenged);
+        Assert.Equal(StatusCodes.Status401Unauthorized, outcome.StatusCode);
     }
 
     /// <summary>Handsets, tills and the customer app send no key, and answer as they always did.</summary>
@@ -354,7 +439,7 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
         Assert.False(adminAlone.Result.Succeeded, "an Admin user's token");
     }
 
-    private sealed record Outcome(PolicyAuthorizationResult Result, ClaimsPrincipal User);
+    private sealed record Outcome(PolicyAuthorizationResult Result, ClaimsPrincipal User, int StatusCode, string WwwAuthenticate);
 
     private static async Task<Outcome> EvaluateAsync(ServiceProvider services, MethodInfo action, string? apiKey, string? bearerToken) =>
         await EvaluateAsync(services, await EndpointPolicyAsync(services, action), apiKey, bearerToken);
@@ -389,7 +474,14 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
         var authentication = await evaluator.AuthenticateAsync(policy, httpContext);
         var result = await evaluator.AuthorizeAsync(policy, authentication, httpContext, resource: null);
 
-        return new Outcome(result, httpContext.User);
+        // What the middleware answers: challenge or forbid each of the policy's schemes, or go on.
+        await new AuthorizationMiddlewareResultHandler().HandleAsync(_ => Task.CompletedTask, httpContext, policy, result);
+
+        return new Outcome(
+            result,
+            httpContext.User,
+            httpContext.Response.StatusCode,
+            httpContext.Response.Headers.WWWAuthenticate.ToString());
     }
 
     /// <summary>The controller's and the action's authorize data combined, as MVC combines them.</summary>
@@ -460,11 +552,11 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
     }
 
     /// <summary>The claims <c>AuthService.GenerateAccessToken</c> issues, signed the same way.</summary>
-    private static string UserToken(string role, SymmetricSecurityKey? signingKey = null)
+    private static string UserToken(string role, SymmetricSecurityKey? signingKey = null, DateTime? expires = null)
     {
         var userId = Guid.NewGuid();
         IssuedRoles[userId] = role;
-        return Token(signingKey ?? SigningKey,
+        return Token(signingKey ?? SigningKey, expires,
             new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
             new Claim(ClaimTypes.Name, $"{role.ToLowerInvariant()}-test"),
             new Claim(ClaimTypes.Role, role),
@@ -474,17 +566,18 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
     }
 
     private static string VanSalesCustomerToken() =>
-        Token(SigningKey,
+        Token(SigningKey, expires: null,
             new Claim(ClaimTypes.Role, ApplicationRoles.VanSalesCustomer),
             new Claim(VanSalesCustomerClaims.AccountId, Guid.NewGuid().ToString()),
             new Claim(VanSalesCustomerClaims.CustomerCode, "SPA059"),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()));
 
-    private static string Token(SymmetricSecurityKey signingKey, params Claim[] claims) =>
+    private static string Token(SymmetricSecurityKey signingKey, DateTime? expires, params Claim[] claims) =>
         new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
             issuer: Issuer,
             audience: Audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(15),
+            notBefore: expires < DateTime.UtcNow ? expires.Value.AddMinutes(-15) : null,
+            expires: expires ?? DateTime.UtcNow.AddMinutes(15),
             signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256)));
 }

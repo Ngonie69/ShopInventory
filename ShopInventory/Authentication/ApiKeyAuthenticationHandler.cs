@@ -27,18 +27,26 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
         _logger = logger.CreateLogger<ApiKeyAuthenticationHandler>();
     }
 
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         // Check if API key header exists
         if (!Request.Headers.TryGetValue(ApiKeyHeaderName, out var apiKeyHeaderValues))
         {
-            return Task.FromResult(AuthenticateResult.NoResult());
+            return AuthenticateResult.NoResult();
         }
 
         var apiKey = apiKeyHeaderValues.FirstOrDefault();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            return Task.FromResult(AuthenticateResult.NoResult());
+            return AuthenticateResult.NoResult();
+        }
+
+        // A key never stands in for a user token that was sent and did not validate. The request is
+        // then the user's, not the key's, and a user whose token failed is unauthenticated: the caller
+        // gets the 401 that tells it to renew the token (the Web's ApiTokenAuthentication waits on it).
+        if (await BearerTokenFailedAsync())
+        {
+            return AuthenticateResult.Fail("A bearer token was sent and did not validate. The API key is not counted in its place.");
         }
 
         // Validate API key
@@ -47,7 +55,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
         {
             _logger.LogWarning("Invalid API key attempt from IP: {IpAddress}",
                 Context.Connection.RemoteIpAddress);
-            return Task.FromResult(AuthenticateResult.Fail("Invalid API key"));
+            return AuthenticateResult.Fail("Invalid API key");
         }
 
         // Create claims for API key authentication
@@ -73,7 +81,28 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
         // below are what an operator needs, and they stay where they are.
         _logger.LogDebug("API key authentication successful for: {KeyName}", keyConfig.Name);
 
-        return Task.FromResult(AuthenticateResult.Success(ticket));
+        return AuthenticateResult.Success(ticket);
+    }
+
+    /// <summary>
+    /// Whether the request carried a bearer token that the JWT bearer scheme refused: expired, signed
+    /// with another secret, or not a JWT at all. A request with no token answers false.
+    /// </summary>
+    /// <remarks>
+    /// Asks the bearer scheme itself rather than reading the Authorization header, so a hub's query-string
+    /// token counts as well (see HubAccessToken). The bearer handler is per request and caches its result,
+    /// so this does not validate the token a second time.
+    /// </remarks>
+    private async Task<bool> BearerTokenFailedAsync()
+    {
+        var schemes = Context.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
+        if (await schemes.GetSchemeAsync(AuthenticationSchemes.Jwt) is null)
+        {
+            return false;
+        }
+
+        var bearer = await Context.AuthenticateAsync(AuthenticationSchemes.Jwt);
+        return bearer.Failure is not null;
     }
 
 }

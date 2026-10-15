@@ -25,7 +25,16 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
 
     // In-memory cache for auth state during same session
     private string? _cachedToken;
+
+    // Who is signed in, as the API last described them: from a sign-in or refresh response, or from
+    // api/auth/me. Never read from the browser. Anyone at the keyboard can write localStorage, so a
+    // "userInfo" taken from it is whatever they typed, Admin included.
     private UserInfo? _cachedUserInfo;
+
+    // The api/auth/me answer for one token, shared by the callers that ask while it is in flight, so a
+    // circuit asks the API once rather than once per component.
+    private string? _verifyingToken;
+    private Task<UserInfo?>? _verifying;
     private PasswordStandingInfo? _cachedPasswordStanding;
     private const string PasswordStandingKey = "passwordStanding";
     private DateTime? _cachedExpiresAt;
@@ -34,6 +43,13 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     private enum RefreshOutcome
     {
         Succeeded,
+        Rejected,
+        Failed
+    }
+
+    private enum VerifyOutcome
+    {
+        Verified,
         Rejected,
         Failed
     }
@@ -123,10 +139,15 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             // circuit, so an expired token is sent to the API while the UI still looks signed in.
             _cachedExpiresAt = expiresAt;
 
-            var userInfo = _cachedUserInfo ?? await _localStorage.GetItemAsync<UserInfo>("userInfo");
-            _cachedUserInfo = userInfo;
+            // A refresh above has already brought the user back from the API. Otherwise the token is
+            // only something the browser holds, and the API is asked who it belongs to.
+            var userInfo = _cachedUserInfo ?? await VerifyUserOnceAsync(token);
+            if (userInfo is null)
+            {
+                return _anonymous;
+            }
 
-            _logger.LogInformation("Authenticated user from localStorage: {Username}", userInfo?.Username);
+            _logger.LogInformation("Authenticated user from the API: {Username}", userInfo.Username);
             return CreateAuthState(userInfo);
         }
         catch (Exception ex)
@@ -157,7 +178,6 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
                 {
                     _cachedToken = token;
                     _cachedExpiresAt = expiresAt;
-                    _cachedUserInfo ??= await _localStorage.GetItemAsync<UserInfo>("userInfo");
                     _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                     return token;
                 }
@@ -296,25 +316,165 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         }
     }
 
+    private Task<UserInfo?> VerifyUserOnceAsync(string token)
+    {
+        if (_verifying is null || !string.Equals(_verifyingToken, token, StringComparison.Ordinal))
+        {
+            _verifyingToken = token;
+            _verifying = VerifyUserAsync(token);
+        }
+
+        return _verifying;
+    }
+
+    /// <summary>
+    /// Asks the API who the token belongs to, and takes the user, role included, from its answer.
+    /// A token it refuses is renewed once from the refresh token; one that cannot be renewed signs
+    /// the browser out. Returns null when there is no user to show.
+    /// </summary>
+    private async Task<UserInfo?> VerifyUserAsync(string token)
+    {
+        var (outcome, user) = await RequestCurrentUserAsync(token);
+
+        if (outcome == VerifyOutcome.Rejected)
+        {
+            // Expired early, revoked, or never issued by the API at all. A refresh brings the user
+            // back with the new token; failing that, RefreshAccessTokenAsync has signed the browser out.
+            _logger.LogWarning("The API did not accept the stored access token, renewing it");
+            var renewed = await RefreshAccessTokenAsync(token);
+            if (string.IsNullOrWhiteSpace(renewed))
+            {
+                ForgetVerification();
+                return null;
+            }
+
+            if (_cachedUserInfo is not null)
+            {
+                return _cachedUserInfo;
+            }
+
+            (outcome, user) = await RequestCurrentUserAsync(renewed);
+        }
+
+        if (outcome != VerifyOutcome.Verified || user is null)
+        {
+            // A refusal of a freshly renewed token, or the API out of reach. Show no one, but keep the
+            // browser's session so the next page load can ask again.
+            _logger.LogWarning("Could not confirm the signed-in user with the API ({Outcome})", outcome);
+            ForgetVerification();
+            return null;
+        }
+
+        _cachedUserInfo = user;
+        return user;
+    }
+
+    private async Task<(VerifyOutcome Outcome, UserInfo? User)> RequestCurrentUserAsync(string token)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/auth/me")
+                .WithClientAudit(_clientAuditContext);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await _httpClient.SendAsync(request);
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return (VerifyOutcome.Rejected, null);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("api/auth/me answered {StatusCode}", (int)response.StatusCode);
+                return (VerifyOutcome.Failed, null);
+            }
+
+            var user = await response.Content.ReadFromJsonAsync<UserInfo>();
+            if (user is null || string.IsNullOrWhiteSpace(user.Username) || string.IsNullOrWhiteSpace(user.Role))
+            {
+                _logger.LogWarning("api/auth/me did not name a user and a role");
+                return (VerifyOutcome.Failed, null);
+            }
+
+            return (VerifyOutcome.Verified, user);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "api/auth/me request failed");
+            return (VerifyOutcome.Failed, null);
+        }
+    }
+
+    private void ForgetVerification()
+    {
+        _verifyingToken = null;
+        _verifying = null;
+    }
+
+    /// <summary>
+    /// Asks the API to revoke this browser's refresh token, so signing out ends the session on the
+    /// server too and not only in this browser. Best effort: a failure is logged and the caller
+    /// clears the browser either way.
+    /// </summary>
+    public async Task RevokeRefreshTokenAsync()
+    {
+        try
+        {
+            // The logout route needs a valid access token, and getting one may rotate the refresh
+            // token, so the refresh token is read after it.
+            var accessToken = await GetAccessTokenAsync();
+            var refreshToken = await _localStorage.GetItemAsync<string>("refreshToken");
+            if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(refreshToken))
+            {
+                _logger.LogDebug("No session to revoke on the API");
+                return;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/auth/logout")
+            {
+                Content = JsonContent.Create(new RefreshTokenRequest { RefreshToken = refreshToken })
+            }.WithClientAudit(_clientAuditContext);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            using var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("The API refused to revoke the refresh token at sign-out: {StatusCode}", (int)response.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not revoke the refresh token at sign-out");
+        }
+    }
+
     private async Task SignOutAsync()
     {
         await ClearAuthData();
         NotifyUserLogout();
     }
 
+    /// <summary>
+    /// When the token stops being usable: its own "exp" claim, which outranks anything the browser
+    /// stored beside it. The stored tokenExpiresAt is read only for a token that carries no readable
+    /// expiry, and with neither the expiry is unknown, which <see cref="IsUsable"/> treats as unusable.
+    /// </summary>
     private async Task<DateTime?> ResolveExpiryAsync(string token)
     {
-        DateTime? storedExpiry = null;
+        if (ReadExpiryFromToken(token) is { } tokenExpiry)
+        {
+            return tokenExpiry;
+        }
+
         try
         {
-            storedExpiry = await _localStorage.GetItemAsync<DateTime?>("tokenExpiresAt");
+            return NormalizeUtc(await _localStorage.GetItemAsync<DateTime?>("tokenExpiresAt"));
         }
         catch (Exception ex)
         {
             _logger.LogDebug("Could not read token expiry from localStorage: {Message}", ex.Message);
+            return null;
         }
-
-        return NormalizeUtc(storedExpiry) ?? ReadExpiryFromToken(token);
     }
 
     /// <summary>
@@ -365,8 +525,10 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         };
     }
 
+    // An unknown expiry is not a token that never expires. It is renewed (or the browser signed out)
+    // rather than sent as if it were good.
     private static bool IsUsable(DateTime? expiresAt)
-        => !expiresAt.HasValue || expiresAt.Value >= DateTime.UtcNow.AddMinutes(2);
+        => expiresAt.HasValue && expiresAt.Value >= DateTime.UtcNow.AddMinutes(2);
 
     private bool HasUsableCachedToken()
     {
@@ -468,7 +630,14 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     {
         _logger.LogInformation("Updating cached auth profile for user: {Username}", username);
 
-        _cachedUserInfo ??= await _localStorage.GetItemAsync<UserInfo>("userInfo") ?? new UserInfo();
+        // Only a user the API has already confirmed is edited. Reading one back from the browser here
+        // would bring its role along with it.
+        if (_cachedUserInfo is null)
+        {
+            _logger.LogWarning("No confirmed user to update the profile of");
+            return;
+        }
+
         _cachedUserInfo.Username = username;
         _cachedUserInfo.Email = email;
 
@@ -494,6 +663,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         _cachedUserInfo = null;
         _cachedExpiresAt = null;
         _cachedPasswordStanding = null;
+        ForgetVerification();
 
         try
         {
