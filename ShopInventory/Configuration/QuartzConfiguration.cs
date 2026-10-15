@@ -323,6 +323,12 @@ public static class QuartzConfiguration
                 AddCronJob<DesktopSalePostingJob>(
                     q, "desktop-sale-posting", BuildDailyCron(desktopSalePosting.SweepTimeCAT, "20:00"));
 
+                // Tells the admins when a till sale is stuck before SAP while its units are held off
+                // the shelf, and before and when that hold ends. Declared whenever posting is: the
+                // StuckSaleAlertAfterHours setting is the off switch, read on every pass.
+                AddIntervalJob<DesktopSaleStockHoldAlertJob>(
+                    q, DesktopSaleStockHoldAlertJob.JobName, TimeSpan.FromHours(1), startDelay: TimeSpan.FromMinutes(5));
+
                 if (desktopSalePosting.IntervalSeconds > 0)
                 {
                     // Second trigger on the same job key, for the reason spelled out above: the guard

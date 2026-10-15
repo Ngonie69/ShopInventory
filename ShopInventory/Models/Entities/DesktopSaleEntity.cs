@@ -21,6 +21,30 @@ public enum DesktopSaleConsolidationStatus
 }
 
 /// <summary>
+/// How far the admins have been told about a till sale that is not in SAP while its units are held off
+/// the shelf. Each stage is sent once, and only ever forwards.
+/// </summary>
+/// <remarks>
+/// A till sale that has not reached SAP keeps its units netted off the shop's stock for
+/// <c>DailyStock:UnpostedSaleLookbackDays</c>, then quietly stops: the units go back on sale while SAP
+/// still lacks the invoice. Sale 12 at KEFSHOP (14 Sep 2026) spent its posting budget in a SAP outage,
+/// was held for 30 days and was released on 15 Oct with nobody told at any point.
+/// </remarks>
+public enum DesktopSaleStockHoldAlert
+{
+    None = 0,
+
+    /// <summary>The sale is stuck before SAP and its units are being held.</summary>
+    Stuck = 1,
+
+    /// <summary>The hold ends within a few days.</summary>
+    ReleaseDue = 2,
+
+    /// <summary>The hold has ended; the units are back on sale and SAP still lacks the invoice.</summary>
+    Released = 3
+}
+
+/// <summary>
 /// Whether the ZIMRA receipt a handset signed for itself has been handed to the fiscalisation platform.
 ///
 /// Only a sale a van handset stamped for itself has one — by either route, offline batch or online direct
@@ -407,6 +431,14 @@ public class DesktopSaleEntity
 
     [MaxLength(2000)]
     public string? LastPostingError { get; set; }
+
+    /// <summary>
+    /// The furthest admin alert sent about this sale's units being held while it is not in SAP. See
+    /// <see cref="DesktopSaleStockHoldAlert"/>.
+    /// </summary>
+    public DesktopSaleStockHoldAlert StockHoldAlert { get; set; }
+
+    public DateTime? StockHoldAlertedAtUtc { get; set; }
 
     // --- The incoming payment that settles the invoice ---
     //
