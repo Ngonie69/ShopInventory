@@ -66,6 +66,71 @@ public sealed class SapGatewayFailureTests
         await Assert.ThrowsAsync<SapRequestRejectedException>(() => CreateClient(sap).CreateInvoiceAsync(Invoice()));
     }
 
+    /// <summary>
+    /// SAP's database down behind a Service Layer that still answers — production, 14 Sep 2026.
+    /// </summary>
+    /// <remarks>
+    /// Till sale KEF-FAC-20260914-8DFB97306920 met this body on its duplicate check and every minute's
+    /// pass spent an attempt on it: no word of it matched an availability signal ("connect" is not
+    /// "connection", "InternalServerError" is not "500"), so six attempts went in six minutes and the
+    /// sale was left fiscalised and unposted for a month, its 40 cones held off the shop's shelf.
+    /// </remarks>
+    private const string DatabaseDown =
+        "{\n   \"error\" : {\n      \"code\" : 7,\n      \"message\" : {\n         \"lang\" : \"en-us\",\n"
+        + "         \"value\" : \"Failed to connect to kfldb port 40020 after 0 ms: Couldn't connect to server\"\n"
+        + "      }\n   }\n}\n";
+
+    [Fact]
+    public async Task A_duplicate_check_sap_could_not_answer_for_its_database_is_transient()
+    {
+        var sap = new ScriptedServiceLayer { LookupStatus = HttpStatusCode.InternalServerError, LookupBody = DatabaseDown };
+
+        var read = await Assert.ThrowsAnyAsync<Exception>(
+            () => CreateClient(sap).GetInvoiceByVanSaleOrderAsync("KEF-FAC-20260914-8DFB97306920"));
+
+        // The wording the operator and the exception centre read is unchanged.
+        Assert.Equal($"Failed to check invoice by U_Van_saleorder: InternalServerError - {DatabaseDown}", read.Message);
+
+        // And the status travels with it, so the answer does not rest on the wording at all.
+        Assert.Equal(HttpStatusCode.InternalServerError, Assert.IsType<SapReadFailedException>(read).StatusCode);
+
+        // Wrapped exactly as DesktopSalePostingService.FindAlreadyPostedAsync wraps it.
+        var posting = new InvalidOperationException(
+            "Not posting till sale KEF-FAC-20260914-8DFB97306920: SAP could not be asked whether it "
+            + $"already holds this invoice. {read.Message}", read);
+
+        Assert.True(SapFailureClassifier.IsTransient(read));
+        Assert.True(SapFailureClassifier.IsTransient(posting));
+    }
+
+    [Fact]
+    public async Task A_read_sap_refuses_as_malformed_is_still_permanent()
+    {
+        // A 400 is a query SAP will never accept, however often it is asked.
+        var sap = new ScriptedServiceLayer { LookupStatus = HttpStatusCode.BadRequest, LookupBody = SapRefusal };
+
+        var read = await Assert.ThrowsAnyAsync<Exception>(
+            () => CreateClient(sap).GetInvoiceByVanSaleOrderAsync("KEF-FAC-20260914-8DFB97306920"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, Assert.IsType<SapReadFailedException>(read).StatusCode);
+        Assert.False(SapFailureClassifier.IsTransient(new InvalidOperationException("Not posting", read)));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError, true)]
+    [InlineData(HttpStatusCode.BadGateway, true)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, true)]
+    [InlineData(HttpStatusCode.BadRequest, false)]
+    [InlineData(HttpStatusCode.NotFound, false)]
+    public void A_failed_read_is_judged_by_its_status_not_its_words(HttpStatusCode status, bool transient)
+    {
+        // Wording chosen to say nothing either way, so only the status can decide.
+        var read = new SapReadFailedException(status, $"Failed to get items: {status} - {{}}");
+
+        Assert.Equal(transient, SapFailureClassifier.IsTransient(read));
+        Assert.Equal(transient, SapFailureClassifier.IsTransient(new InvalidOperationException("Not posting till sale X.", read)));
+    }
+
     [Fact]
     public async Task The_ping_passes_when_sap_serves_the_request()
     {
@@ -128,6 +193,8 @@ public sealed class SapGatewayFailureTests
         public string InvoiceBody { get; init; } = "{\"DocEntry\":501,\"DocNum\":601,\"DocumentLines\":[]}";
         public string InvoiceMediaType { get; init; } = "application/json";
         public HttpStatusCode PingStatus { get; init; } = HttpStatusCode.OK;
+        public HttpStatusCode LookupStatus { get; init; } = HttpStatusCode.OK;
+        public string LookupBody { get; init; } = "{\"value\":[]}";
         public int UnauthorizedPings { get; set; }
         public int Pings { get; private set; }
         public int Logins { get; private set; }
@@ -147,6 +214,11 @@ public sealed class SapGatewayFailureTests
             if (target.EndsWith("/Invoices", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
             {
                 return Task.FromResult(Respond(InvoiceStatus, InvoiceBody, InvoiceMediaType));
+            }
+
+            if (target.Contains("/Invoices?$filter=U_Van_saleorder", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(Respond(LookupStatus, LookupBody));
             }
 
             if (target.Contains("/Warehouses?$select=WarehouseCode&$top=1", StringComparison.Ordinal))
