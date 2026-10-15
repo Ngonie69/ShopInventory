@@ -390,6 +390,10 @@ try
     builder.Services.AddApiAuthorizationPolicies();
     builder.Services.AddServiceKeyAuthorizationPolicy();
 
+    // A bare [Authorize] means a member of staff: van sales customer tokens share the staff signing
+    // key and would otherwise satisfy it. See StaffDefaultPolicy.
+    builder.Services.AddStaffDefaultAuthorizationPolicy();
+
     // Configure Rate Limiting for DDoS protection.
     //
     // The limits are read per request from IRateLimitConfigStore rather than captured here, so that
@@ -410,105 +414,7 @@ try
     var securitySettings = builder.Configuration.GetSection("Security").Get<SecuritySettings>()
         ?? new SecuritySettings();
 
-    var apiKeyRateLimitPartitions = securitySettings.ApiKeys
-        .Where(key => key.IsActive && !string.IsNullOrWhiteSpace(key.Key))
-        .ToDictionary(key => key.Key, key => key, StringComparer.Ordinal);
-
-    builder.Services.AddRateLimiter(options =>
-    {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-        // Default fixed window policy, partitioned by API key, authenticated user, or IP.
-        options.AddPolicy("fixed", httpContext =>
-        {
-            var rateLimitSettings = GetLiveRateLimitSettings(httpContext);
-
-            if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
-                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext, rateLimitSettings));
-
-            return RateLimitPartition.GetFixedWindowLimiter(
-                GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
-                _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = rateLimitSettings.PermitLimit,
-                    Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds),
-                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                    QueueLimit = rateLimitSettings.QueueLimit
-                });
-        });
-
-        // Stricter rate limiting for authentication endpoints
-        options.AddPolicy("auth", httpContext =>
-        {
-            var rateLimitSettings = GetLiveRateLimitSettings(httpContext);
-
-            if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
-                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext, rateLimitSettings));
-
-            return RateLimitPartition.GetFixedWindowLimiter(
-                GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
-                _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = rateLimitSettings.AuthEndpointPermitLimit,
-                    Window = TimeSpan.FromSeconds(rateLimitSettings.AuthEndpointWindowSeconds),
-                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                    QueueLimit = 2
-                });
-        });
-
-        // Sliding window for API endpoints
-        options.AddPolicy("api", httpContext =>
-        {
-            var rateLimitSettings = GetLiveRateLimitSettings(httpContext);
-
-            if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
-                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext, rateLimitSettings));
-
-            var apiRateLimitValues = GetApiRateLimitValues(httpContext, rateLimitSettings);
-
-            return RateLimitPartition.GetSlidingWindowLimiter(
-                GetApiPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
-                _ => new SlidingWindowRateLimiterOptions
-                {
-                    PermitLimit = apiRateLimitValues.PermitLimit,
-                    Window = TimeSpan.FromSeconds(apiRateLimitValues.WindowSeconds),
-                    SegmentsPerWindow = 4,
-                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                    QueueLimit = apiRateLimitValues.QueueLimit
-                });
-        });
-
-        // Custom response for rate limit exceeded
-        options.OnRejected = async (context, cancellationToken) =>
-        {
-            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
-            var rateLimitSettings = GetLiveRateLimitSettings(context.HttpContext);
-            var apiRateLimitValues = GetApiRateLimitValues(context.HttpContext, rateLimitSettings);
-            logger.LogWarning("Rate limit exceeded for client: {ClientPartition}, IP: {IpAddress}, Path: {Path}",
-                GetApiPartitionKey(context.HttpContext, rateLimitSettings, apiKeyRateLimitPartitions),
-                context.HttpContext.Connection.RemoteIpAddress,
-                context.HttpContext.Request.Path);
-
-            context.HttpContext.Response.Headers["Retry-After"] = apiRateLimitValues.WindowSeconds.ToString();
-
-            var problemDetailsService = context.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
-            var problemDetails = new ProblemDetails
-            {
-                Status = StatusCodes.Status429TooManyRequests,
-                Title = "Too many requests.",
-                Type = ApiProblemDetails.GetType(StatusCodes.Status429TooManyRequests),
-                Detail = "Too many requests. Please try again later."
-            };
-            problemDetails.Extensions["retryAfter"] = apiRateLimitValues.WindowSeconds;
-
-            await ApiProblemDetails.WriteAsync(
-                problemDetailsService,
-                context.HttpContext,
-                null,
-                problemDetails,
-                cancellationToken);
-        };
-    });
+    builder.Services.AddApiRateLimiting(securitySettings);
 
     // SignalR for real-time notifications
     builder.Services.AddSignalR();
@@ -1469,8 +1375,9 @@ try
     // the slots reserved from background work.
     app.UseSapRequestPriority();
 
-    // Map controllers with default rate limiting
-    app.MapControllers().RequireRateLimiting("api");
+    // Map controllers with default rate limiting. Not RequireRateLimiting: that overrides every
+    // [EnableRateLimiting("auth")], so the auth limit never applied. See RequireDefaultRateLimiting.
+    app.MapControllers().RequireDefaultRateLimiting(ApiRateLimiting.ApiPolicy);
 
     // Map SignalR hub for real-time notifications
     app.MapHub<ShopInventory.Hubs.NotificationHub>("/hubs/notifications");
@@ -1510,109 +1417,6 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
-}
-
-static string GetClientPartitionKey(
-    HttpContext httpContext,
-    RateLimitSettings settings,
-    IReadOnlyDictionary<string, ApiKeyConfig> apiKeyRateLimitPartitions)
-{
-    if (httpContext.Request.Headers.TryGetValue("X-API-Key", out var apiKeyHeaderValues))
-    {
-        var apiKey = apiKeyHeaderValues.FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(apiKey)
-            && apiKeyRateLimitPartitions.TryGetValue(apiKey, out var keyConfig)
-            && keyConfig.ExpiresAt.HasValue
-            && keyConfig.ExpiresAt.Value >= DateTime.UtcNow)
-        {
-            var keyName = string.IsNullOrWhiteSpace(keyConfig.Name) ? "unnamed" : keyConfig.Name;
-            return $"{settings.Fingerprint()}|api-key:{keyName}";
-        }
-    }
-
-    if (httpContext.User.Identity?.IsAuthenticated == true)
-    {
-        var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? httpContext.User.FindFirstValue("sub")
-            ?? httpContext.User.Identity.Name;
-
-        if (!string.IsNullOrWhiteSpace(userId))
-            return $"{settings.Fingerprint()}|user:{userId}";
-    }
-
-    if (settings.EnableIpRateLimiting)
-        return GetIpPartitionKey(httpContext, settings);
-
-    return $"{settings.Fingerprint()}|anonymous";
-}
-
-static string GetApiPartitionKey(
-    HttpContext httpContext,
-    RateLimitSettings settings,
-    IReadOnlyDictionary<string, ApiKeyConfig> apiKeyRateLimitPartitions)
-{
-    var clientPartition = GetClientPartitionKey(httpContext, settings, apiKeyRateLimitPartitions);
-    return IsHighThroughputApiPath(httpContext.Request.Path)
-        ? $"{clientPartition}:bulk"
-        : clientPartition;
-}
-
-static (int PermitLimit, int WindowSeconds, int QueueLimit) GetApiRateLimitValues(
-    HttpContext httpContext,
-    RateLimitSettings settings)
-{
-    if (!IsHighThroughputApiPath(httpContext.Request.Path))
-        return (settings.PermitLimit, settings.WindowSeconds, settings.QueueLimit);
-
-    return (
-        PermitLimit: Math.Max(settings.PermitLimit * 50, 5000),
-        WindowSeconds: Math.Max(settings.WindowSeconds * 10, 600),
-        QueueLimit: Math.Max(settings.QueueLimit * 50, 200));
-}
-
-static string GetIpPartitionKey(HttpContext httpContext, RateLimitSettings settings)
-{
-    var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
-    var key = string.IsNullOrWhiteSpace(ipAddress) ? "ip:unknown" : $"ip:{ipAddress}";
-    return $"{settings.Fingerprint()}|{key}";
-}
-
-static bool IsHighThroughputApiPath(PathString path)
-{
-    var value = path.Value;
-    if (string.IsNullOrWhiteSpace(value))
-        return false;
-
-    return value.StartsWith("/api/notification", StringComparison.OrdinalIgnoreCase)
-        || (value.StartsWith("/api/invoice/", StringComparison.OrdinalIgnoreCase)
-            && value.EndsWith("/pod", StringComparison.OrdinalIgnoreCase));
-}
-
-// The limits in force right now, rather than the ones configured at startup, so a change made
-// through PUT /api/RateLimit/config takes effect without a restart. Reads a cached snapshot: no
-// database work happens here.
-static RateLimitSettings GetLiveRateLimitSettings(HttpContext httpContext) =>
-    httpContext.RequestServices.GetRequiredService<IRateLimitConfigStore>().Current;
-
-static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings settings)
-{
-    if (settings.ApiKeyWhitelist.Count > 0
-        && httpContext.Request.Headers.TryGetValue("X-API-Key", out var apiKeyHeaderValues))
-    {
-        var apiKey = apiKeyHeaderValues.FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(apiKey)
-            && settings.ApiKeyWhitelist.Contains(apiKey, StringComparer.Ordinal))
-        {
-            return true;
-        }
-    }
-
-    if (settings.IpWhitelist.Count == 0)
-        return false;
-
-    var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
-    return !string.IsNullOrWhiteSpace(ipAddress)
-        && settings.IpWhitelist.Contains(ipAddress, StringComparer.OrdinalIgnoreCase);
 }
 
 // Whether the HTTPS redirection middleware would have a port to redirect to: the same sources it

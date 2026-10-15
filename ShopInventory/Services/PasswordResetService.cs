@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Extensions;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Password;
@@ -34,11 +36,6 @@ public interface IPasswordResetService
     Task<ServiceResult> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
 
     /// <summary>
-    /// Get user ID by username
-    /// </summary>
-    Task<Guid?> GetUserIdByUsernameAsync(string username);
-
-    /// <summary>
     /// Update login credentials (username/email) for logged-in user
     /// </summary>
     Task<ServiceResult<UpdateCredentialsResponse>> UpdateCredentialsAsync(Guid userId, UpdateCredentialsRequest request);
@@ -63,18 +60,24 @@ public class PasswordResetService : IPasswordResetService
     private readonly ILogger<PasswordResetService> _logger;
     private readonly IEmailQueueService? _emailService;
     private readonly UserPasswords _passwords;
+    private readonly SecuritySettings _securitySettings;
     private const int TokenExpirationHours = 24;
     private const int MaxResetAttemptsPerHour = 5;
+
+    internal const string CurrentPasswordIncorrect = "Current password is incorrect";
+    internal const string AccountLockedOut = "Too many failed attempts. Try again later.";
 
     public PasswordResetService(
         ApplicationDbContext context,
         ILogger<PasswordResetService> logger,
         UserPasswords passwords,
+        IOptions<SecuritySettings> securitySettings,
         IEmailQueueService? emailService = null)
     {
         _context = context;
         _logger = logger;
         _passwords = passwords;
+        _securitySettings = securitySettings.Value;
         _emailService = emailService;
     }
 
@@ -228,16 +231,37 @@ public class PasswordResetService : IPasswordResetService
 
     public async Task<ServiceResult> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
     {
+        // A missing or deactivated account answers exactly as a wrong password does, and a locked one
+        // is refused before the password is looked at. This is a password check just as sign-in is,
+        // so it counts towards the same lockout, or it becomes the way round it.
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
-        if (user == null)
+        if (user == null || !user.IsActive)
         {
-            return ServiceResult.Failure("User not found");
+            _logger.LogWarning("Password change refused for missing or inactive user {UserId}", userId);
+            return ServiceResult.Failure(CurrentPasswordIncorrect);
+        }
+
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
+        {
+            _logger.LogWarning("Password change refused for locked-out user {UserId}", userId);
+            return ServiceResult.Failure(AccountLockedOut);
         }
 
         // Verify current password
         if (!BCrypt.Net.BCrypt.Verify(currentPassword, user.PasswordHash))
         {
-            return ServiceResult.Failure("Current password is incorrect");
+            user.FailedLoginAttempts++;
+            if (user.FailedLoginAttempts >= _securitySettings.MaxFailedLoginAttempts)
+            {
+                user.LockoutEnd = DateTime.UtcNow.AddMinutes(_securitySettings.LockoutDurationMinutes);
+                _logger.LogWarning(
+                    "User {UserId} locked out after {AttemptCount} failed attempts, the last a password change",
+                    userId,
+                    user.FailedLoginAttempts);
+            }
+
+            await _context.SaveChangesAsync();
+            return ServiceResult.Failure(CurrentPasswordIncorrect);
         }
 
         var validationResult = await ValidateNewPasswordAsync(user, newPassword);
@@ -254,16 +278,6 @@ public class PasswordResetService : IPasswordResetService
         _logger.LogInformation("Password changed for user {UserId}", userId);
 
         return ServiceResult.Success("Password changed successfully");
-    }
-
-    public async Task<Guid?> GetUserIdByUsernameAsync(string username)
-    {
-        var normalizedUsername = username.Trim();
-
-        var user = await _context.Users.AsNoTracking()
-            .WhereUsernameMatches(normalizedUsername)
-            .FirstOrDefaultAsync();
-        return user?.Id;
     }
 
     public async Task<UpdateCredentialsResponse?> GetCredentialsAsync(Guid userId)

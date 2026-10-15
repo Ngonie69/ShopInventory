@@ -16,19 +16,8 @@ public sealed class ChangePasswordHandler(
     {
         try
         {
-            var userId = command.UserId;
-
-            // If no user ID from JWT, try resolving by username (API key auth from web app)
-            if (userId == null && !string.IsNullOrWhiteSpace(command.Username))
-            {
-                userId = await passwordResetService.GetUserIdByUsernameAsync(command.Username);
-            }
-
-            if (userId == null)
-                return Errors.Password.Unauthenticated;
-
             var result = await passwordResetService.ChangePasswordAsync(
-                userId.Value, command.CurrentPassword, command.NewPassword);
+                command.UserId, command.CurrentPassword, command.NewPassword);
 
             if (!result.IsSuccess)
                 return Errors.Password.ChangeFailed(result.Message);

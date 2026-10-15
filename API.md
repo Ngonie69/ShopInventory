@@ -195,9 +195,14 @@ customers' app sign-ins, document templates, sync and the transfer listener are 
 |-------|-------|--------|
 | Global | 100 requests | 60 seconds |
 | Auth endpoints | 10 requests | 60 seconds |
-| Queue limit | 10 | — |
+| Queue limit | 10 (none on auth endpoints) | — |
 
 When rate-limited, the API returns **HTTP 429 Too Many Requests** with a `Retry-After` header.
+
+The auth limit (sign-in, two-factor, passkey sign-in, refresh, biometric sign-in, and the van sales
+and customer sign-in, code and refresh routes) is counted per client IP address, not per API key, so
+sign-ins the Web proxies count against the browser's own address. A request over it is refused at
+once, not queued.
 
 ---
 

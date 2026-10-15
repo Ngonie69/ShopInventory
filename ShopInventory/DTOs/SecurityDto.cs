@@ -171,7 +171,8 @@ public class PasswordResetCompleteRequest
 public class ChangePasswordRequest
 {
     /// <summary>
-    /// Username (required when called via API key auth)
+    /// Ignored. The account is always the signed-in caller's; kept so existing clients that still
+    /// send it are not refused.
     /// </summary>
     public string? Username { get; set; }
 

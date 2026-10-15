@@ -153,6 +153,42 @@ public sealed class StaffPasswordRoutesTests : IDisposable
         Assert.Equal("Current password is incorrect", result.Message);
     }
 
+    [Fact]
+    public async Task Wrong_current_passwords_count_towards_the_sign_in_lockout()
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var wrong = await ResetService().ChangePasswordAsync(_user.Id, $"guess-{attempt}", "Copper-kettle-552!");
+            Assert.Equal(PasswordResetService.CurrentPasswordIncorrect, wrong.Message);
+        }
+
+        var locked = Reloaded();
+        Assert.Equal(5, locked.FailedLoginAttempts);
+        Assert.True(locked.LockoutEnd > DateTime.UtcNow);
+
+        // Locked out, the right password no longer works here either.
+        var result = await ResetService().ChangePasswordAsync(_user.Id, Original, "Copper-kettle-552!");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PasswordResetService.AccountLockedOut, result.Message);
+        Assert.True(BCrypt.Net.BCrypt.Verify(Original, Reloaded().PasswordHash));
+    }
+
+    [Fact]
+    public async Task A_deactivated_account_cannot_change_its_password_and_is_answered_as_a_wrong_one()
+    {
+        _user.IsActive = false;
+        _context.SaveChanges();
+
+        var inactive = await ResetService().ChangePasswordAsync(_user.Id, Original, "Copper-kettle-552!");
+        var missing = await ResetService().ChangePasswordAsync(Guid.NewGuid(), Original, "Copper-kettle-552!");
+
+        Assert.False(inactive.IsSuccess);
+        Assert.Equal(PasswordResetService.CurrentPasswordIncorrect, inactive.Message);
+        Assert.Equal(PasswordResetService.CurrentPasswordIncorrect, missing.Message);
+        Assert.True(BCrypt.Net.BCrypt.Verify(Original, Reloaded().PasswordHash));
+    }
+
     [Theory]
     [InlineData("Wellington-2026!", PasswordPolicy.ContainsPersonalDetail)]
     [InlineData("P@ssw0rd!", PasswordPolicy.TooCommon)]
@@ -397,7 +433,10 @@ public sealed class StaffPasswordRoutesTests : IDisposable
             CancellationToken.None);
 
     private PasswordResetService ResetService() =>
-        new(_context, NullLogger<PasswordResetService>.Instance, Passwords());
+        new(_context,
+            NullLogger<PasswordResetService>.Instance,
+            Passwords(),
+            Options.Create(new SecuritySettings { MaxFailedLoginAttempts = 5, LockoutDurationMinutes = 15 }));
 
     private AuthService AuthService() =>
         new(_context,
