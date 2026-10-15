@@ -673,7 +673,7 @@
                    own rule allows, so a button shown here is one the API accepts. The API asks the device for an
                    existing receipt before signing and claims the sale before posting, so pressing either twice
                    cannot sign or invoice twice. *@
-                @if (detail?.CanRetryFiscalisation == true)
+                @if (canWrite && detail?.CanRetryFiscalisation == true)
                 {
                     <button type="button" class="vsd-btn vsd-btn-primary" @onclick="RetryFiscalisationAsync"
                             disabled="@(isRetryingFiscal || isPosting || isLoading)">
@@ -689,7 +689,7 @@
                         }
                     </button>
                 }
-                @if (detail?.CanPostToSap == true)
+                @if (canWrite && detail?.CanPostToSap == true)
                 {
                     <button type="button" class="vsd-btn vsd-btn-primary" @onclick="PostToSapAsync"
                             disabled="@(isPosting || isRetryingFiscal || isLoading)">

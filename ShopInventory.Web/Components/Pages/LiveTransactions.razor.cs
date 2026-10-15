@@ -1,6 +1,8 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
+using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.LiveTransactions.Queries.GetLiveTransactionFeed;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -112,8 +114,15 @@ public partial class LiveTransactions : IAsyncDisposable
 
     // ─── Lifecycle ────────────────────────────────────────────────────────
 
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    // Retrying a fiscalisation is the cashier's or the administrator's; a manager watches this page.
+    private bool canRetry;
+
     protected override async Task OnInitializedAsync()
     {
+        canRetry = AuthenticationStateTask is not null &&
+                   UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.DesktopSaleWriteRoles);
         _tradingDayCat = TodayCat();
         await RefreshAsync(initial: true);
 

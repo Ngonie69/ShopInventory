@@ -103,7 +103,18 @@ def expr_tokens(value_text, piece_lits, roles, arrays):
             lit = next(lit_iter, None)
             if lit is None:
                 return None
-            tokens.append(("s", gaps.lit_text(lit)))
+            # An interpolated literal keeps its holes as "{expr}": $"{ApplicationRoles.Admin},..." on
+            # VendingController resolved to the role "{ApplicationRoles.Admin}" until these were read.
+            text = ""
+            for kind, part in lit.parts:
+                hole = part.strip()
+                if kind == "t":
+                    text += part
+                elif re.fullmatch(r"(ApplicationRoles\.)?\w+", hole) and hole.split(".")[-1] in roles:
+                    text += roles[hole.split(".")[-1]]
+                else:
+                    return None
+            tokens.append(("s", text))
         elif token == "+":
             continue
         elif re.fullmatch(r"[A-Za-z_][\w.]*", token) and (token.startswith("ApplicationRoles.") or "." not in token):

@@ -12,6 +12,9 @@ namespace ShopInventory.Controllers;
 // DesktopSalesReadScope already confines a cart vendor to the one warehouse it sells out of — a code
 // naming another depot's sale is refused there, not here.
 [Authorize(Policy = "ApiAccess", Roles = "Admin,Cashier,Manager,ApiUser,CartVendor")]
+// A manager reads a sale's credits and raises none, so each write repeats the list without Manager: an
+// action's Roles gate ANDs with the class's. Retrying or marking a stalled credit stays with managers on
+// DesktopCreditNoteListController; that is chasing one, not raising one.
 public sealed class DesktopCreditNotesController(DesktopCreditNoteService service,
     ILogger<DesktopCreditNotesController> logger) : ControllerBase
 {
@@ -24,14 +27,17 @@ public sealed class DesktopCreditNotesController(DesktopCreditNoteService servic
         Run(id => service.PrepareAsync(id, reference, ct));
 
     [HttpPost]
+    [Authorize(Roles = "Admin,Cashier,ApiUser,CartVendor")]
     public Task<IActionResult> Create(string reference, CreateDesktopCreditRequest request, CancellationToken ct) =>
         Run(id => service.CreateAsync(id, reference, request, ct));
 
     [HttpPost("{id:guid}/reconcile")]
+    [Authorize(Roles = "Admin,Cashier,ApiUser,CartVendor")]
     public Task<IActionResult> Reconcile(string reference, Guid id, CancellationToken ct) =>
         Run(caller => service.ReconcileAsync(caller, reference, id, ct));
 
     [HttpPost("{id:guid}/continue")]
+    [Authorize(Roles = "Admin,Cashier,ApiUser,CartVendor")]
     public Task<IActionResult> Continue(string reference, Guid id, CancellationToken ct) =>
         Run(caller => service.ContinueAsync(caller, reference, id, ct));
 

@@ -1,7 +1,9 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 using ShopInventory.Features.IncomingPayments.Commands.CreateIncomingPayment;
 using ShopInventory.Features.IncomingPayments.Commands.UploadPaymentAttachment;
@@ -27,7 +29,12 @@ public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
     /// <summary>
     /// Creates a new incoming payment in SAP Business One
     /// </summary>
+    /// <remarks>
+    /// payments.create: a cashier on /payments/create. Under "ApiAccess" alone any staff login could
+    /// post a receipt against any customer's account in SAP.
+    /// </remarks>
     [HttpPost]
+    [RequirePermission(Permission.CreatePayments)]
     [ProducesResponseType(typeof(IncomingPaymentCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(IncomingPaymentCreatedResponseDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -77,6 +84,7 @@ public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
     /// Upload an attachment for an incoming payment
     /// </summary>
     [HttpPost("{docEntry:int}/attachment")]
+    [RequirePermission(Permission.CreatePayments)]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [MaxRequestBodySize(20 * 1024 * 1024)]

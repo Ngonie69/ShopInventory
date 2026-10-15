@@ -1,19 +1,28 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Email.Commands.ProcessEmailQueue;
 using ShopInventory.Features.Email.Commands.QueueEmail;
 using ShopInventory.Features.Email.Commands.SendEmail;
 using ShopInventory.Features.Email.Commands.SendTestEmail;
+using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
 
 /// <summary>
 /// Controller for email operations
 /// </summary>
+/// <remarks>
+/// settings.integrations, which only Admin and the API keys hold. Every action here sends mail from
+/// the company's own SMTP identity to whatever address the body names, and under "ApiAccess" alone a
+/// Lab or Driver login could do it. Nothing in the Web, the tills, the van app or the POD app calls
+/// these routes (checked 2026-10-15); the API's own mail goes through the email service directly.
+/// </remarks>
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
+[RequirePermission(Permission.ManageIntegrations)]
 public class EmailController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>

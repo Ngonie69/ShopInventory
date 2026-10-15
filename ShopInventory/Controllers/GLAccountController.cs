@@ -1,13 +1,17 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
 using ShopInventory.Features.GLAccounts.Queries.GetGLAccounts;
 using ShopInventory.Features.GLAccounts.Queries.GetGLAccountsByType;
 using ShopInventory.Features.GLAccounts.Queries.GetGLAccountByCode;
 using ShopInventory.Features.GLAccounts.Queries.GetGLAccountLedger;
+using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
 
+// The account list feeds every page's account pickers and stays on "ApiAccess"; a ledger is every
+// posting against an account, so it takes reports.view, which every role /gl-accounts admits holds.
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 public class GLAccountController(IMediator mediator) : ApiControllerBase
@@ -47,6 +51,7 @@ public class GLAccountController(IMediator mediator) : ApiControllerBase
     /// check of the total against what SAP's own chart of accounts reports.
     /// </summary>
     [HttpGet("{accountCode}/ledger")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetGLAccountLedger(
         string accountCode,
         [FromQuery] DateTime? fromDate = null,

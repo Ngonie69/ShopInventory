@@ -1,13 +1,22 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
 using ShopInventory.Features.Statements.Queries.GetCustomerStatement;
 using ShopInventory.Features.Statements.Queries.GenerateStatement;
+using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
 
+/// <remarks>
+/// reports.view: every customer's balance and ledger, on /customers (Admin, Cashier, StockController,
+/// Manager). Under "ApiAccess" alone any staff login could read any customer's statement. The customer
+/// portal and the statement email job call through the Web's key alone, a service call that
+/// RequirePermission admits.
+/// </remarks>
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
+[RequirePermission(Permission.ViewReports)]
 public class StatementController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>

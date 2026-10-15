@@ -10,8 +10,14 @@ using ShopInventory.Features.ExceptionCenter.Queries.GetExceptionCenter;
 
 namespace ShopInventory.Controllers;
 
+/// <remarks>
+/// The roles /exception-center admits (Admin, Cashier, StockController, Manager) and the API user
+/// key. The page shows every role it admits the retry, acknowledge and assign buttons, so each action
+/// takes the same list; under "ApiAccess" alone any staff login could re-post a failed SAP document.
+/// </remarks>
 [Route("api/exception-center")]
 [Authorize(Policy = "ApiAccess")]
+[Authorize(Roles = "Admin,ApiUser,Cashier,StockController,Manager")]
 public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>

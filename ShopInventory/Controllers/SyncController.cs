@@ -24,6 +24,8 @@ namespace ShopInventory.Controllers;
 /// <summary>
 /// Controller for sync status and offline queue
 /// </summary>
+// Retrying or cancelling a queued SAP document and testing the connection take the roles /sync-status
+// admits (UserRoles.SystemSetupRoles: Admin, Cashier, StockController) and the API user key.
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 public class SyncController(IMediator mediator) : ApiControllerBase
@@ -125,6 +127,7 @@ public class SyncController(IMediator mediator) : ApiControllerBase
     /// Test SAP connection
     /// </summary>
     [HttpPost("test-connection")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     public async Task<IActionResult> TestConnection(CancellationToken cancellationToken)
     {
@@ -136,6 +139,7 @@ public class SyncController(IMediator mediator) : ApiControllerBase
     /// Retry a failed transaction
     /// </summary>
     [HttpPost("queue/{id}/retry")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RetryTransaction(int id, CancellationToken cancellationToken)
@@ -148,6 +152,7 @@ public class SyncController(IMediator mediator) : ApiControllerBase
     /// Cancel a pending transaction
     /// </summary>
     [HttpPost("queue/{id}/cancel")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CancelTransaction(int id, CancellationToken cancellationToken)

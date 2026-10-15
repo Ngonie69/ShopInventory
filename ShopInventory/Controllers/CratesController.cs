@@ -83,7 +83,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     /// Check a batch for PODs already held
     /// </summary>
     [HttpPost("pods/validate-bulk")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
+    [Authorize(Roles = "Admin,Merchandiser,PodOperator,Operator,Driver")]
     [ProducesResponseType(typeof(BulkCratePodValidationResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ValidateBulkPods(
@@ -107,7 +107,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     /// Open the crate transaction for an invoice if it has none
     /// </summary>
     [HttpPost("transactions/ensure-invoice")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Merchandiser,Driver")]
     [ProducesResponseType(typeof(EnsureInvoiceCrateTransactionResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> EnsureInvoiceTransaction(
@@ -246,7 +246,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     /// Upload a crate POD
     /// </summary>
     [HttpPost("transactions/{crateTransactionId:int}/pods")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
+    [Authorize(Roles = "Admin,Merchandiser,PodOperator,Operator,Driver")]
     [MaxRequestBodySize(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UploadCratePod(
@@ -289,7 +289,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     /// Remove a POD
     /// </summary>
     [HttpDelete("pods/{cratePodSubmissionId:int}")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
+    [Authorize(Roles = "Admin,Merchandiser,Operator,Driver")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeletePod(
         int cratePodSubmissionId,
@@ -306,7 +306,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     /// Raise a GRV against a transaction
     /// </summary>
     [HttpPost("transactions/{crateTransactionId:int}/grvs")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser")]
+    [Authorize(Roles = "Admin,Merchandiser")]
     [MaxRequestBodySize(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CrateGrvDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> CreateGrv(

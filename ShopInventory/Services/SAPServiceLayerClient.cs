@@ -486,7 +486,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     operationDescription,
                     response.StatusCode,
                     errorContent);
-                throw new Exception($"Failed to {operationDescription}: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to {operationDescription}: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1058,7 +1058,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get inventory transfers: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1108,7 +1108,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get inventory transfers by date: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1153,13 +1153,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// one of whose lines moves stock into or out of <paramref name="warehouseCode"/>. SAP lets a line
     /// carry its own <c>FromWarehouseCode</c> and <c>WarehouseCode</c>, and TransferEventListener
     /// already reads lines that way when it adjusts a shop's stock ledger — so the ledger could move
-    /// for a document the shop's own transfer list did not show.
+    /// for a document the shop's own transfer list did not show. They are rare but real: KEFSHOP has
+    /// a few a year, such as 64557, headed KEFGRC to KEFGRS.
     /// </para>
     /// <para>
-    /// The filter cannot reach the lines: this Service Layer refuses lambda operators on document
-    /// collections (<c>DocumentLines/any(...)</c> answers 400, code 201, as recorded beside the credit
-    /// note lookup in this class). So SAP is asked by date alone — the same query the listener runs
-    /// on every poll over three days — and the documents are matched here, line by line.
+    /// This Service Layer refuses lambda operators on document collections
+    /// (<c>DocumentLines/any(...)</c> answers 400, code 201), so lines are reached with
+    /// <c>$crossjoin</c>, as the special prices are. The header read does almost all the work, the
+    /// crossjoin names the documents whose lines touch the shop, and any of those the header read
+    /// did not return is read by key. Every document is still matched here, line by line.
+    /// </para>
+    /// <para>
+    /// Asking SAP by date alone and matching here, as this did from 2026-09-13, read every transfer
+    /// the company posted: 3,544 documents and 117 seconds for KEFSHOP's month to 2026-10-15, against
+    /// 2.8 seconds for the same 90 documents read by header. The till gives a transfer list 45
+    /// seconds, so the Transfers tab failed on every month-long read.
     /// </para>
     /// </remarks>
     public async Task<List<InventoryTransfer>> GetInventoryTransfersTouchingWarehouseAsync(
@@ -1168,13 +1176,91 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         DateTime toDate,
         CancellationToken cancellationToken = default)
     {
-        var transfers = await ReadStockTransfersAsync(
-            $"DocDate ge '{fromDate:yyyy-MM-dd}' and DocDate le '{toDate:yyyy-MM-dd}'",
-            cancellationToken);
+        var transfers = await GetInventoryTransfersByDateRangeAsync(
+            warehouseCode, fromDate, toDate, cancellationToken);
+
+        var read = transfers.Select(transfer => transfer.DocEntry).ToHashSet();
+        var unread = (await GetStockTransferEntriesWithLineInWarehouseAsync(
+                warehouseCode, fromDate, toDate, cancellationToken))
+            .Where(docEntry => !read.Contains(docEntry))
+            .ToList();
+
+        foreach (var chunk in unread.Chunk(StockTransfersByKeyChunk))
+        {
+            transfers.AddRange(await ReadStockTransfersAsync(
+                string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}")),
+                cancellationToken));
+        }
+
+        if (unread.Count > 0)
+        {
+            _logger.LogInformation(
+                "Read {Count} stock transfers into or out of {Warehouse} by line only: {DocEntries}",
+                unread.Count,
+                warehouseCode,
+                string.Join(", ", unread));
+        }
 
         return transfers
             .Where(transfer => InventoryTransferWarehouses.Touches(transfer, warehouseCode))
+            .OrderByDescending(transfer => transfer.DocEntry)
             .ToList();
+    }
+
+    // Keeps a by-key read well inside the Service Layer's URL length.
+    private const int StockTransfersByKeyChunk = 20;
+
+    /// <summary>
+    /// The transfers dated in the range with a line whose own warehouses name
+    /// <paramref name="warehouseCode"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only <c>DocEntry</c> is selected. With header fields selected and filtered on, this Service
+    /// Layer answered a crossjoin in its column captions ("Internal Number", "Filter") rather than
+    /// property names, so the query is kept to the shape measured on 2026-10-15: a year of KEFSHOP's
+    /// lines, 3,445 rows naming 988 documents, in under five seconds.
+    /// </remarks>
+    private async Task<HashSet<int>> GetStockTransferEntriesWithLineInWarehouseAsync(
+        string warehouseCode,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var entries = new HashSet<int>();
+        await ReadSapRowPagesAsync(
+            _httpClient,
+            BuildStockTransferLineWarehouseCrossJoin(warehouseCode, fromDate, toDate),
+            row =>
+            {
+                if (row.TryGetProperty("StockTransfers", out var header) &&
+                    header.TryGetProperty("DocEntry", out var docEntry) &&
+                    docEntry.TryGetInt32(out var value))
+                {
+                    entries.Add(value);
+                }
+            },
+            $"stock transfer lines for {warehouseCode}",
+            cancellationToken);
+
+        return entries;
+    }
+
+    // One row per line that moves stock into or out of the warehouse, carrying its document's key.
+    internal static string BuildStockTransferLineWarehouseCrossJoin(string warehouseCode, DateTime fromDate, DateTime toDate)
+    {
+        const string lines = "StockTransfers/StockTransferLines";
+        var warehouse = SanitizeODataValue(warehouseCode);
+        var filter =
+            $"StockTransfers/DocEntry eq {lines}/DocEntry" +
+            $" and StockTransfers/DocDate ge '{fromDate:yyyy-MM-dd}' and StockTransfers/DocDate le '{toDate:yyyy-MM-dd}'" +
+            $" and ({lines}/WarehouseCode eq '{warehouse}' or {lines}/FromWarehouseCode eq '{warehouse}')";
+
+        return $"$crossjoin(StockTransfers,{lines})" +
+               $"?$expand={Uri.EscapeDataString("StockTransfers($select=DocEntry)")}" +
+               $"&$filter={Uri.EscapeDataString(filter)}" +
+               $"&$orderby={Uri.EscapeDataString("StockTransfers/DocEntry")}";
     }
 
     private const string StockMovementDocumentSelect =
@@ -1289,7 +1375,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get inventory transfers by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1386,7 +1472,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get inventory transfer {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get inventory transfer: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get inventory transfer: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2213,7 +2299,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             // Logging here as well made one recovered blip read as two errors.
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogDebug("Failed to get invoice {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get invoice: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get invoice: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2269,7 +2355,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             // the level its outcome deserves.
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogDebug("Failed to get invoice by DocNum {DocNum}: {StatusCode} - {Error}", docNum, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get invoice: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get invoice: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2322,7 +2408,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to bulk get invoices by DocNum: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to bulk get invoices: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to bulk get invoices: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2381,7 +2467,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to bulk get invoices by U_Van_saleorder: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to bulk get invoices by U_Van_saleorder: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to bulk get invoices by U_Van_saleorder: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2487,7 +2573,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to read {Operation}: {StatusCode} - {Error}", operation, response.StatusCode, errorContent);
-            throw new Exception($"Failed to read {operation}: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to read {operation}: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2560,7 +2646,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to bulk get invoices by DocEntry: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to bulk get invoices by DocEntry: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to bulk get invoices by DocEntry: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2655,7 +2741,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get invoices for customer {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get invoices: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2744,7 +2830,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get invoices for customer {CardCode} in date range: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get invoices: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2891,7 +2977,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                         operationDescription,
                         response.StatusCode,
                         errorContent);
-                    throw new Exception($"Failed to read {operationDescription}: {response.StatusCode} - {errorContent}");
+                    throw new SapReadFailedException(response.StatusCode, $"Failed to read {operationDescription}: {response.StatusCode} - {errorContent}");
                 }
 
                 var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -2995,7 +3081,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get invoices by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get invoices: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3079,7 +3165,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get invoice headers by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get invoices: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3139,7 +3225,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged invoices: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get invoices: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3218,7 +3304,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get paged invoices by offset: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get invoices: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3420,7 +3506,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to check invoice by U_Van_saleorder '{VanSaleOrder}': {StatusCode} - {Error}", vanSaleOrder, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check invoice by U_Van_saleorder: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to check invoice by U_Van_saleorder: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3473,7 +3559,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get items: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get items: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get items: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3642,7 +3728,7 @@ ORDER BY T0.""ItemCode""";
                     warehouseCode,
                     response.StatusCode,
                     errorContent);
-                throw new Exception($"Failed to get warehouse item codes: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get warehouse item codes: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3790,7 +3876,7 @@ ORDER BY T0.""ItemCode""";
                     "Failed to get van sales approved item codes: {StatusCode} - {Error}",
                     response.StatusCode,
                     errorContent);
-                throw new Exception($"Failed to get van sales approved item codes: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get van sales approved item codes: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3878,7 +3964,7 @@ ORDER BY T0.""ItemCode""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get items by codes: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get items by codes: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get items by codes: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3966,7 +4052,7 @@ ORDER BY T0.""ItemCode""";
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged item codes in warehouse {Warehouse}: {StatusCode} - {Error}",
                 warehouseCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged item codes: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged item codes: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -4061,7 +4147,7 @@ ORDER BY T0.""ItemCode""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get item {ItemCode}: {StatusCode} - {Error}", itemCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get item: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get item: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -4803,7 +4889,7 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
                     queryCode,
                     response.StatusCode,
                     content);
-                throw new Exception($"Failed to search batches: {response.StatusCode} - {content}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to search batches: {response.StatusCode} - {content}");
             }
 
             var pageResults = ParseBatchSearchResultsFromSqlResult(content);
@@ -5009,7 +5095,7 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
             {
                 _logger.LogError("Failed to get batch numbers in warehouse {Warehouse}: {StatusCode} - {Error}",
                     warehouseCode, response.StatusCode, content);
-                throw new Exception($"Failed to get batch numbers: {response.StatusCode} - {content}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get batch numbers: {response.StatusCode} - {content}");
             }
 
             var pageBatches = ParseBatchNumbersFromSqlResult(content, warehouseCode);
@@ -5650,7 +5736,7 @@ ORDER BY T0."DistNumber"
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError("Failed to execute SQL query: {StatusCode} - {Error}", response.StatusCode, responseContent);
-                throw new Exception($"Failed to execute SQL query: {response.StatusCode} - {responseContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to execute SQL query: {response.StatusCode} - {responseContent}");
             }
 
             var (pagePrices, nextLink) = ParsePricesAndNextLink(responseContent);
@@ -5740,7 +5826,7 @@ ORDER BY T0."DistNumber"
                 // The query may have gone or been redefined under us; make the next caller re-probe.
                 InvalidateSqlQueryVerification(queryCode);
                 _logger.LogError("Failed to execute stored SQL query '{QueryCode}': {StatusCode} - {Error}", queryCode, response.StatusCode, responseContent);
-                throw new Exception($"Failed to execute stored SQL query '{queryCode}': {response.StatusCode} - {responseContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to execute stored SQL query '{queryCode}': {response.StatusCode} - {responseContent}");
             }
 
             using var doc = JsonDocument.Parse(responseContent);
@@ -5995,7 +6081,7 @@ ORDER BY T0."DistNumber"
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get price lists: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get price lists: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get price lists: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -6087,7 +6173,7 @@ ORDER BY T0."DistNumber"
                     "Failed to get price list definitions from the OData fallback: {StatusCode} - {Error}",
                     response.StatusCode,
                     errorContent);
-                throw new Exception($"Failed to get price list definitions from OData: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get price list definitions from OData: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -7418,7 +7504,7 @@ ORDER BY T0.""ItemCode""";
             result[$"{specialPrice.CardCode}::{specialPrice.ItemCode}"] = specialPrice;
         }
 
-        var headerRowCount = await ReadSpecialPricePagesAsync(
+        var headerRowCount = await ReadSapRowPagesAsync(
             syncHttpClient,
             $"SpecialPrices?$filter={Uri.EscapeDataString(BuildCurrentSpecialPriceHeaderFilter(todayUtc))}&$orderby=CardCode,ItemCode",
             Evaluate,
@@ -7428,7 +7514,7 @@ ORDER BY T0.""ItemCode""";
         var periodKeys = new Dictionary<string, (string CardCode, string ItemCode)>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            await ReadSpecialPricePagesAsync(
+            await ReadSapRowPagesAsync(
                 syncHttpClient,
                 BuildCurrentSpecialPricePeriodCrossJoin(todayUtc),
                 row =>
@@ -7448,7 +7534,7 @@ ORDER BY T0.""ItemCode""";
             // return a set that may be short.
             _logger.LogWarning(ex, "Could not list the special price periods in force; reading every special price instead");
             periodKeys.Clear();
-            await ReadSpecialPricePagesAsync(
+            await ReadSapRowPagesAsync(
                 syncHttpClient,
                 "SpecialPrices?$orderby=CardCode,ItemCode",
                 item =>
@@ -7467,7 +7553,7 @@ ORDER BY T0.""ItemCode""";
 
         foreach (var keyFilter in BuildSpecialPriceKeyFilters(unreadPeriodKeys))
         {
-            await ReadSpecialPricePagesAsync(
+            await ReadSapRowPagesAsync(
                 syncHttpClient,
                 $"SpecialPrices?$filter={Uri.EscapeDataString(keyFilter)}&$orderby=CardCode,ItemCode",
                 Evaluate,
@@ -7567,7 +7653,7 @@ ORDER BY T0.""ItemCode""";
 
     // Pages a read to the end, resuming at the rows actually received: SAP can cut a page short and
     // still send a continuation link (see CustomerItemPricePagingTests). Returns the rows read.
-    private async Task<int> ReadSpecialPricePagesAsync(
+    private async Task<int> ReadSapRowPagesAsync(
         HttpClient httpClient,
         string query,
         Action<JsonElement> onRow,
@@ -8192,7 +8278,7 @@ ORDER BY T0.""ItemCode""";
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                     _logger.LogError("Failed to get paged incoming payments: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+                    throw new SapReadFailedException(response.StatusCode, $"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
                 }
 
                 var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -8262,7 +8348,7 @@ ORDER BY T0.""ItemCode""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get incoming payment {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get incoming payment: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get incoming payment: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -8299,7 +8385,7 @@ ORDER BY T0.""ItemCode""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get incoming payment by DocNum {DocNum}: {StatusCode} - {Error}", docNum, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get incoming payment: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get incoming payment: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -8348,7 +8434,7 @@ ORDER BY T0.""ItemCode""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get incoming payments for customer {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-                throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -8421,7 +8507,7 @@ ORDER BY T0.""ItemCode""";
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get incoming payments for customer {CardCode} between {FromDate} and {ToDate}: {StatusCode} - {Error}",
                     cardCode, fromDateStr, toDateStr, response.StatusCode, errorContent);
-                throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -8492,7 +8578,7 @@ ORDER BY T0.""ItemCode""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get incoming payments by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -8821,7 +8907,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
         {
             _logger.LogError("Failed to get stock via simple query: {StatusCode} - {Error}",
                 response.StatusCode, content);
-            throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get stock quantities: {response.StatusCode} - {content}");
         }
 
         return ParseStockQuantitiesFromSqlResult(content);
@@ -8951,7 +9037,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(cancellationToken);
-                throw new Exception($"Failed to list SAP SQL queries: {response.StatusCode} - {error}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to list SAP SQL queries: {response.StatusCode} - {error}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -9065,7 +9151,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
                 // The query may have gone or been redefined under us; make the next caller re-probe.
                 InvalidateSqlQueryVerification(queryCode);
                 _logger.LogError("Failed to execute SQL query {Code} ({Name}): {Status} - {Error}", queryCode, queryName, response.StatusCode, errContent);
-                throw new Exception($"Failed to execute SQL query: {response.StatusCode} - {errContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to execute SQL query: {response.StatusCode} - {errContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -9347,7 +9433,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
             // caller's Warning — one warehouse blip during the morning sweep read as both.
             _logger.LogDebug("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
                 warehouseCode, response.StatusCode, content);
-            throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get stock quantities: {response.StatusCode} - {content}");
         }
 
         return ParseStockQuantitiesFromSqlResult(content);
@@ -9409,7 +9495,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
                 InvalidateSqlQueryVerification(queryCode);
                 _logger.LogDebug("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
                     warehouseCode, response.StatusCode, content);
-                throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get stock quantities: {response.StatusCode} - {content}");
             }
 
             var pageStocks = ParseStockQuantitiesFromSqlResult(content);
@@ -9486,7 +9572,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
             InvalidateSqlQueryVerification(queryCode);
             _logger.LogDebug("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
                 warehouseCode, response.StatusCode, content);
-            throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get stock quantities: {response.StatusCode} - {content}");
         }
 
         return ParseStockQuantitiesFromSqlResult(content);
@@ -9963,7 +10049,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
             {
                 _logger.LogError("Failed to get sales quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
                     warehouseCode, response.StatusCode, content);
-                throw new Exception($"Failed to get sales quantities: {response.StatusCode} - {content}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get sales quantities: {response.StatusCode} - {content}");
             }
 
             var pageSales = ParseSalesQuantitiesFromSqlResult(content);
@@ -10062,7 +10148,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get invoices by warehouse and date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get invoices: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10175,7 +10261,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get warehouses: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get warehouses: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get warehouses: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10318,7 +10404,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get {EntitySet}: {StatusCode} - {Error}",
                     entitySet, response.StatusCode, errorContent);
-                throw new Exception($"Failed to get {entitySet}: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get {entitySet}: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10496,7 +10582,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
                 }
 
                 _logger.LogError("Failed to get business partners: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get business partners: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get business partners: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10688,7 +10774,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
             }
 
             _logger.LogError("Failed to search business partners: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to search business partners: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to search business partners: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10738,7 +10824,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
             }
 
             _logger.LogError("Failed to get business partner {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get business partner: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get business partner: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10885,7 +10971,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
                 "Failed to get business partners by code: {StatusCode} - {Error}",
                 response.StatusCode,
                 errorContent);
-            throw new Exception($"Failed to get business partners by code: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get business partners by code: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10972,7 +11058,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
                 cardCode,
                 response.StatusCode,
                 errorContent);
-            throw new Exception($"Failed to read the credit profile for business partner {cardCode}: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to read the credit profile for business partner {cardCode}: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -11069,7 +11155,7 @@ ORDER BY T0."DocEntry", T1."LineNum"
                     operationDescription,
                     response.StatusCode,
                     errorContent);
-                throw new Exception($"Failed to {operationDescription}: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to {operationDescription}: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13374,7 +13460,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get G/L accounts: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get G/L accounts: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get G/L accounts: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13436,7 +13522,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get G/L account {AccountCode}: {StatusCode} - {Error}", accountCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get G/L account: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get G/L account: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13554,7 +13640,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get cost centres: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get cost centres: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get cost centres: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13648,7 +13734,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get cost centre {CenterCode}: {StatusCode} - {Error}", centerCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get cost centre: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get cost centre: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13751,7 +13837,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase orders: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase orders: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase orders: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13792,7 +13878,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged purchase orders: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged purchase orders: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged purchase orders: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13835,7 +13921,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase order {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase order: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase order: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -13893,7 +13979,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get purchase orders by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get purchase orders by date range: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase orders by date range: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14021,7 +14107,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             response.Dispose();
             _logger.LogError("Failed to read {What} ({Url}): {StatusCode} - {Error}", what, url, response.StatusCode, errorContent);
-            throw new Exception($"Failed to read {what}: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to read {what}: {response.StatusCode} - {errorContent}");
         }
 
         return response;
@@ -14071,7 +14157,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged purchase requests: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged purchase requests: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged purchase requests: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14110,7 +14196,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase request: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase request: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14155,7 +14241,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get purchase requests by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get purchase requests by date range: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase requests by date range: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14217,7 +14303,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase requests count: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase requests count: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase requests count: {response.StatusCode} - {errorContent}");
         }
 
         var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14301,7 +14387,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged purchase quotations: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged purchase quotations: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged purchase quotations: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14340,7 +14426,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase quotation {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase quotation: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase quotation: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14398,7 +14484,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get purchase quotations by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get purchase quotations by date range: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase quotations by date range: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14462,7 +14548,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase quotations count: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase quotations count: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase quotations count: {response.StatusCode} - {errorContent}");
         }
 
         var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14546,7 +14632,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged goods receipt POs: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged goods receipt POs: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged goods receipt POs: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14585,7 +14671,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get goods receipt PO {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get goods receipt PO: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get goods receipt PO: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14643,7 +14729,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get goods receipt POs by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get goods receipt POs by date range: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get goods receipt POs by date range: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14707,7 +14793,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get goods receipt POs count: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get goods receipt POs count: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get goods receipt POs count: {response.StatusCode} - {errorContent}");
         }
 
         var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14791,7 +14877,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged purchase invoices: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged purchase invoices: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged purchase invoices: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14830,7 +14916,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase invoice {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase invoice: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase invoice: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14888,7 +14974,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get purchase invoices by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get purchase invoices by date range: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase invoices by date range: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14952,7 +15038,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get purchase invoices count: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get purchase invoices count: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get purchase invoices count: {response.StatusCode} - {errorContent}");
         }
 
         var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -14995,7 +15081,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get sales orders: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get sales orders: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get sales orders: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -15041,7 +15127,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged sales orders: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged sales orders: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged sales orders: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -15086,7 +15172,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get sales order {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get sales order: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get sales order: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -15120,7 +15206,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get sales orders for customer {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get sales orders for customer: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get sales orders for customer: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -15167,7 +15253,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get sales orders by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get sales orders by date range: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get sales orders by date range: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -15288,7 +15374,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get sales order headers: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get sales order headers: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get sales order headers: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -15871,7 +15957,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new Exception($"Failed to resolve item UoM via SQL query: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to resolve item UoM via SQL query: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -16189,7 +16275,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                     "Failed to resolve sales orders by U_OrderNumber: {StatusCode} - {Error}",
                     response.StatusCode,
                     errorContent);
-                throw new Exception($"Failed to resolve sales orders by U_OrderNumber: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to resolve sales orders by U_OrderNumber: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -16265,7 +16351,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to check sales order by U_OrderNumber '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check sales order by U_OrderNumber: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to check sales order by U_OrderNumber: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -16324,7 +16410,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get credit notes: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get credit notes: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get credit notes: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -16363,7 +16449,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get paged credit notes: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get paged credit notes: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get paged credit notes: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -16404,7 +16490,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get credit note {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get credit note: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get credit note: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -16439,7 +16525,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get credit note by DocNum {DocNum}: {StatusCode} - {Error}", docNum, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get credit note: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get credit note: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -16766,7 +16852,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             _logger.LogError(
                 "Failed to check credit note by NumAtCard '{Reference}': {StatusCode} - {Error}",
                 reference, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check credit note by reference: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to check credit note by reference: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -17289,7 +17375,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to fetch currencies from SAP: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to fetch currencies from SAP: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to fetch currencies from SAP: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -18048,7 +18134,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get quotations from SAP: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get quotations from SAP: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get quotations from SAP: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -18097,7 +18183,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get paged quotations from SAP: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get paged quotations from SAP: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get paged quotations from SAP: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -18154,7 +18240,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to get quotation {DocEntry} from SAP: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get quotation from SAP: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to get quotation from SAP: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -18189,7 +18275,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to check quotation by U_OrderNumber '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check quotation by U_OrderNumber: {response.StatusCode} - {errorContent}");
+            throw new SapReadFailedException(response.StatusCode, $"Failed to check quotation by U_OrderNumber: {response.StatusCode} - {errorContent}");
         }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -18394,7 +18480,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Failed to get quotations by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get quotations: {response.StatusCode} - {errorContent}");
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get quotations: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);

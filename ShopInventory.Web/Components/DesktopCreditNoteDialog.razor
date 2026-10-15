@@ -129,10 +129,13 @@
                                     @if (note.Status is "Submitting" or "ReconciliationRequired" or "Prepared")
                                     {
                                         <div class="ops-sub">@note.Message</div>
+                                        @if (mayRaise)
+                                        {
                                         <div>
                                             <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" disabled="@busy"
                                                     @onclick="() => Check(note)">@(note.Status == "Prepared" ? "Continue fiscalisation" : "Check fiscal status")</button>
                                         </div>
+                                        }
                                     }
                                 </div>
                             }
@@ -145,7 +148,7 @@
                     <div class="ops-sub" role="status"><span class="ops-spin"></span> Reading the original receipt&hellip;</div>
                 }
 
-                @if (form != null && !submitted)
+                @if (mayRaise && form != null && !submitted)
                 {
                     <div class="ops-dcn-grid">
                         <div class="ops-dcn-lines">
@@ -285,7 +288,7 @@
                     </div>
                     <button type="button" class="ops-btn ops-btn-ghost" disabled="@busy" @onclick="Close">Close</button>
                     <button type="button" class="ops-btn ops-btn-ghost" disabled="@busy" @onclick="Refresh">Refresh</button>
-                    @if (form != null && !submitted)
+                    @if (mayRaise && form != null && !submitted)
                     {
                         @* Fiscalise only is always offered; posting needs the sale's own invoice. On a
                            sale in SAP, Fiscalise only means SAP gets nothing — no memo, no stock back —
@@ -403,8 +406,19 @@
     /// <summary>
     /// Loads on first sight of a reference, and again whenever the host points at a different sale.
     /// </summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    /// <summary>
+    /// Whether this user may raise or continue a credit. A manager opens the dialog to read a sale's
+    /// credits and is not offered the form: the API refuses a manager every credit write.
+    /// </summary>
+    private bool mayRaise;
+
     protected override async Task OnParametersSetAsync()
     {
+        mayRaise = AuthenticationStateTask is not null &&
+                   UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.DesktopSaleWriteRoles);
+
         if (string.IsNullOrEmpty(Reference))
         {
             loadedFor = null;

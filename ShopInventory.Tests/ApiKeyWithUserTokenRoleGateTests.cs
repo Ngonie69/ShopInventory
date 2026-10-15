@@ -415,6 +415,30 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
         Assert.Empty(refused);
     }
 
+    /// <summary>
+    /// The integration callbacks take the key and nothing else. A staff login — the Web's key beside a
+    /// Lab user, a bearer alone, even a real Admin's token — is refused: those report facts the API
+    /// then trusts, and no person should be able to post one.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(DesktopIntegrationCallbacksController.SyncFiscalTransaction))]
+    [InlineData(nameof(DesktopIntegrationCallbacksController.TransferEventWebhook))]
+    public async Task An_integration_callback_answers_the_key_alone(string actionName)
+    {
+        await using var services = BuildServices();
+        var action = Action<DesktopIntegrationCallbacksController>(actionName);
+
+        var keyAlone = await EvaluateAsync(services, action, WebApiKey, bearerToken: null);
+        var keyBesideLab = await EvaluateAsync(services, action, WebApiKey, UserToken(ApplicationRoles.Lab));
+        var labAlone = await EvaluateAsync(services, action, apiKey: null, UserToken(ApplicationRoles.Lab));
+        var adminAlone = await EvaluateAsync(services, action, apiKey: null, UserToken(ApplicationRoles.Admin));
+
+        Assert.True(keyAlone.Result.Succeeded, "the integration's key");
+        Assert.False(keyBesideLab.Result.Succeeded, "the Web's key beside a Lab user");
+        Assert.False(labAlone.Result.Succeeded, "a Lab user's token");
+        Assert.False(adminAlone.Result.Succeeded, "an Admin user's token");
+    }
+
     private sealed record Outcome(PolicyAuthorizationResult Result, ClaimsPrincipal User, int StatusCode, string WwwAuthenticate);
 
     private static async Task<Outcome> EvaluateAsync(ServiceProvider services, MethodInfo action, string? apiKey, string? bearerToken) =>
@@ -521,6 +545,7 @@ public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
             .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(AuthenticationSchemes.ApiKey, _ => { });
 
         services.AddApiAuthorizationPolicies();
+        services.AddServiceKeyAuthorizationPolicy();
         services.AddPermissionAuthorization();
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });

@@ -415,6 +415,9 @@ public static class Permissions
                 ViewDashboard, ViewProducts,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers,
+                // /reports, /customers' statements and /gl-accounts' ledgers open to a stock controller
+                // on the Web (UserRoles.InsightsRoles, CatalogueRoles); the API's reads now ask for it.
+                ViewReports,
                 // /van-sales-customer-orders: loading the van from what shops ordered.
                 FulfilVanSalesCustomerOrders,
                 // A stock controller both sells off a van (the handset role table) and counts what

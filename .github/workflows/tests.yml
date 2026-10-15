@@ -81,6 +81,28 @@ jobs:
           ./scripts/Test-RouteCatalogues.ps1
           exit $LASTEXITCODE
 
+  # "ApiAccess" admits every staff role, Lab and Driver included, so a write gated on it alone can be
+  # made by anyone with a staff login. On 2026-10-15 that was 54 writes outside today's allowlist,
+  # among them posting SAP payments and invoices. This fails on any write that relies on ApiAccess
+  # alone and is not on the reviewed allowlist in scripts/check_api_write_gates.py, and on an
+  # allowlist entry that has stopped describing the code. It also checks scripts/inventory_role_gates.py, which
+  # fails on a role the API does not define or a policy registered twice.
+  #
+  # No .NET here on purpose: both scripts parse the controllers as text and need nothing built.
+  write-gates:
+    name: API write gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check every write has a gate narrower than ApiAccess
+        run: python3 scripts/check_api_write_gates.py
+
+      - name: Check every role gate resolves
+        run: python3 scripts/inventory_role_gates.py
+
   # The production runner publishes with an older .NET 10 SDK than developers and this CI use, and its
   # Razor parser rejects two constructs the newer one accepts. Nothing here compiles with that SDK, so
   # without this a page that builds green everywhere fails only at the production publish - which is

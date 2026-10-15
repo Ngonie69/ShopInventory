@@ -200,6 +200,8 @@ public static class AuditActions
     public const string UpdatePostingDatePolicy = "UpdatePostingDatePolicy";
     public const string UpdateMonitoredWarehouses = "UpdateMonitoredWarehouses";
     public const string SendDesktopSalesReview = "SendDesktopSalesReview";
+    public const string UpdateSalesPerformanceEmailSchedule = "UpdateSalesPerformanceEmailSchedule";
+    public const string SendSalesPerformanceEmail = "SendSalesPerformanceEmail";
 
     // Timesheet actions
     public const string CheckIn = "CheckIn";

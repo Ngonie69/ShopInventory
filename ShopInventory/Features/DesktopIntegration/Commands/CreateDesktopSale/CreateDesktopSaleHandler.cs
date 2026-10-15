@@ -740,8 +740,11 @@ public sealed class CreateDesktopSaleHandler(
             CreatedAt = sale.CreatedAt
         };
 
-        // Broadcast real-time event to connected Web clients
-        await hubContext.Clients.Group("all").SendAsync("DesktopSaleCreated", new
+        // Only the Web pages that refresh on a sale hear of it: /desktop-sales (Admin, Cashier, Manager),
+        // /live-transactions (Admin, Manager) and /local-stock (Admin, StockController, DepotController).
+        // The "all" group it used to go to holds every signed-in connection — tills, handsets, a Lab
+        // login — and handed each one every shop's customer, total and reference as it was rung up.
+        await hubContext.Clients.Groups(SaleCreatedAudience).SendAsync("DesktopSaleCreated", new
         {
             sale.Id,
             sale.ExternalReferenceId,
@@ -754,6 +757,12 @@ public sealed class CreateDesktopSaleHandler(
 
         return result;
     }
+
+    private static readonly IReadOnlyList<string> SaleCreatedAudience =
+        new[] { ApplicationRoles.Admin, ApplicationRoles.Manager, ApplicationRoles.Cashier,
+                ApplicationRoles.StockController, ApplicationRoles.DepotController }
+            .Select(role => $"role:{role}")
+            .ToArray();
 
     private static DesktopSaleResponseDto MapToResponse(DesktopSaleEntity sale)
     {

@@ -1,7 +1,13 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
 using ShopInventory.Middleware;
+using ShopInventory.Common.Security;
+using ShopInventory.Features.ManagementSales.Commands.SendSalesPerformanceEmail;
+using ShopInventory.Features.ManagementSales.Commands.UpdateSalesPerformanceEmailSchedule;
+using ShopInventory.Features.ManagementSales.Queries.GetSalesPerformance;
+using ShopInventory.Features.ManagementSales.Queries.GetSalesPerformanceEmailSchedule;
 using ShopInventory.Features.Reports.Queries.GetCreditNoteSummary;
 using ShopInventory.Features.Reports.Queries.GetItemVolumeSalesReport;
 using ShopInventory.Features.Reports.Queries.GetLowStockAlerts;
@@ -18,6 +24,7 @@ using ShopInventory.Features.Reports.Queries.GetStockMovement;
 using ShopInventory.Features.Reports.Queries.GetStockSummary;
 using ShopInventory.Features.Reports.Queries.GetTopCustomers;
 using ShopInventory.Features.Reports.Queries.GetTopProducts;
+using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
 
@@ -27,6 +34,9 @@ namespace ShopInventory.Controllers;
 // on an approval, and letting one hold the interactive reservation would queue that approval
 // behind it — the exact failure the reservation exists to prevent.
 [SapBackgroundWork]
+// Every report reads across the whole company, so each takes reports.view. The two a sales rep opens
+// (/reports/item-volume and /reports/order-fulfillment) also admit quotations.view, the one code a
+// sales rep holds that no low-privilege role does; a rep holds no reports.view.
 public class ReportController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>
@@ -38,6 +48,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// one day's figure says nothing, a fortnight of them says everything.
     /// </remarks>
     [HttpGet("negative-stock-trend")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetNegativeStockTrend(
         [FromQuery] int days = 30,
         CancellationToken cancellationToken = default)
@@ -50,6 +61,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Sales summary for a date range
     /// </summary>
     [HttpGet("sales-summary")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetSalesSummary(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -63,6 +75,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Top selling products
     /// </summary>
     [HttpGet("top-products")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetTopProducts(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -78,6 +91,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Products with no movement
     /// </summary>
     [HttpGet("slow-moving-products")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetSlowMovingProducts(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -92,6 +106,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Stock on hand and its value, optionally for one warehouse
     /// </summary>
     [HttpGet("stock-summary")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetStockSummary(
         [FromQuery] string? warehouseCode = null,
         CancellationToken cancellationToken = default)
@@ -104,6 +119,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Stock movement over a date range
     /// </summary>
     [HttpGet("stock-movement")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetStockMovement(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -118,6 +134,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Low stock alert items
     /// </summary>
     [HttpGet("low-stock-alerts")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetLowStockAlerts(
         [FromQuery] string? warehouseCode = null,
         [FromQuery] decimal? threshold = null,
@@ -131,6 +148,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Payments over a date range
     /// </summary>
     [HttpGet("payment-summary")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetPaymentSummary(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -145,6 +163,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// partners and items. Backs both the item volume report and the customer revenue report.
     /// </summary>
     [HttpGet("item-volume-sales")]
+    [RequirePermission(Permission.ViewReports, Permission.ViewQuotations)]
     public async Task<IActionResult> GetItemVolumeSales(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -169,6 +188,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Top customers
     /// </summary>
     [HttpGet("top-customers")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetTopCustomers(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -183,6 +203,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Order fulfilment
     /// </summary>
     [HttpGet("order-fulfillment")]
+    [RequirePermission(Permission.ViewReports, Permission.ViewQuotations)]
     public async Task<IActionResult> GetOrderFulfillment(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -197,6 +218,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Credit notes over a date range
     /// </summary>
     [HttpGet("credit-notes")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetCreditNoteSummary(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -210,6 +232,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Purchase orders over a date range
     /// </summary>
     [HttpGet("purchase-orders")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetPurchaseOrderSummary(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
@@ -248,6 +271,7 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Customer aging analysis
     /// </summary>
     [HttpGet("receivables-aging")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetReceivablesAging(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetReceivablesAgingQuery(), cancellationToken);
@@ -258,12 +282,93 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     /// Profit overview
     /// </summary>
     [HttpGet("profit-overview")]
+    [RequirePermission(Permission.ViewReports)]
     public async Task<IActionResult> GetProfitOverview(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetProfitOverviewQuery(fromDate, toDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Shops, vending and vans over one period, each against the same number of days just before —
+    /// the figures the management sales performance email carries.
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpGet("sales-performance")]
+    public async Task<IActionResult> GetSalesPerformance(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new GetSalesPerformanceQuery(userId.Value, fromDate, toDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// When the management sales performance email goes out, to whom, and which admin it is read as.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpGet("sales-performance/schedule")]
+    public async Task<IActionResult> GetSalesPerformanceEmailSchedule(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetSalesPerformanceEmailScheduleQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Switches the daily, weekly and monthly management emails on or off and sets who receives them.
+    /// The admin saving becomes the account the scheduled email is read as.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpPut("sales-performance/schedule")]
+    public async Task<IActionResult> UpdateSalesPerformanceEmailSchedule(
+        [FromBody] UpdateSalesPerformanceEmailScheduleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new UpdateSalesPerformanceEmailScheduleCommand(
+                userId.Value, User.Identity?.Name, request.DailyEnabled, request.WeeklyEnabled, request.MonthlyEnabled, request.Recipients ?? []),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Emails the management sales performance now, read under the sender's own scope — yesterday, the
+    /// last complete week or month, or a custom period — to the people named, or to the schedule's list.
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpPost("sales-performance/email")]
+    public async Task<IActionResult> SendSalesPerformanceEmail(
+        [FromBody] SendSalesPerformanceEmailRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new SendSalesPerformanceEmailCommand(
+                request.Cadence?.Trim().ToLowerInvariant() ?? string.Empty,
+                Scheduled: false,
+                userId.Value,
+                User.Identity?.Name,
+                request.FromDate,
+                request.ToDate,
+                request.Recipients),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

@@ -388,6 +388,7 @@ try
         AuthenticationSchemes.ApiKey, options => { });
 
     builder.Services.AddApiAuthorizationPolicies();
+    builder.Services.AddServiceKeyAuthorizationPolicy();
 
     // Configure Rate Limiting for DDoS protection.
     //
