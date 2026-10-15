@@ -10,6 +10,7 @@ namespace ShopInventory.Controllers;
 /// <summary>
 /// Maintains the litres-per-unit factor the item volume report converts quantities with.
 /// </summary>
+// Saving or deleting a conversion factor is set-up: Admin only, as /reports/volume-conversions is.
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 public class ItemVolumeConversionController(IMediator mediator) : ApiControllerBase
@@ -34,6 +35,7 @@ public class ItemVolumeConversionController(IMediator mediator) : ApiControllerB
     /// Create or replace a factor
     /// </summary>
     [HttpPut("{itemCode}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SaveConversion(
         string itemCode,
         [FromBody] SaveItemVolumeConversionRequest request,
@@ -56,6 +58,7 @@ public class ItemVolumeConversionController(IMediator mediator) : ApiControllerB
     /// Remove a factor
     /// </summary>
     [HttpDelete("{itemCode}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteConversion(string itemCode, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new DeleteItemVolumeConversionCommand(itemCode), cancellationToken);

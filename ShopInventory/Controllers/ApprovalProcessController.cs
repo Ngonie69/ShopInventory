@@ -11,6 +11,8 @@ using ShopInventory.Services;
 
 namespace ShopInventory.Controllers;
 
+// Deciding a transfer takes the transfer approvers, the roles /inventory-transfers admits — the same
+// list InventoryTransferController's pending decisions use. Stage set-up is Admin only.
 [Route("api/approval-process")]
 [Authorize(Policy = "ApiAccess")]
 public sealed class ApprovalProcessController(
@@ -81,6 +83,7 @@ public sealed class ApprovalProcessController(
     /// Decide a transfer request
     /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/decision")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
     public async Task<IActionResult> SubmitDecision(
         int docEntry,
         [FromBody] SubmitApprovalDecisionDto request,
@@ -111,6 +114,7 @@ public sealed class ApprovalProcessController(
     /// The final approval posts the transfer to SAP.
     /// </summary>
     [HttpPost("transfers/{pendingTransferId:guid}/decision")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
     public async Task<IActionResult> SubmitTransferDecision(
         Guid pendingTransferId,
         [FromBody] SubmitPendingTransferDecisionDto request,

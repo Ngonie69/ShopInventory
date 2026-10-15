@@ -406,7 +406,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
     /// Upload a crate POD
     /// </summary>
     [HttpPost("{docEntry:int}/crate-pod")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
+    [Authorize(Roles = "Admin,Merchandiser,PodOperator,Operator,Driver")]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [MaxRequestBodySize(20 * 1024 * 1024)]

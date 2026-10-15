@@ -153,6 +153,12 @@ Users are assigned one role: `Admin`, `Manager`, `User`, `Cashier`, `StockContro
 |--------|---------------|
 | `AdminOnly` | Admin |
 | `ApiAccess` | Admin, ApiUser, User, Cashier, StockController, DepotController, Manager, PodOperator |
+| `ServiceKeyOnly` | An Admin or ApiUser **API key with no user token**. Integration callbacks only: `POST /api/DesktopIntegration/fiscal-transactions` and `POST /api/DesktopIntegration/webhook/transfer-event` |
+
+`ApiAccess` admits every staff role, so no write may rely on it alone: each `POST`, `PUT`, `PATCH`
+and `DELETE` also carries a permission, a narrower role gate or `ServiceKeyOnly`.
+`scripts/check_api_write_gates.py` enforces this in CI; the few writes exempt from it (a user's own
+password, 2FA and devices, POSTs that only read) are listed in that script with the reason for each.
 
 ### Fine-Grained Permissions
 

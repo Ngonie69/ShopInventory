@@ -2,6 +2,7 @@ using System.Security.Claims;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Payments.Commands.CancelPayment;
 using ShopInventory.Features.Payments.Commands.InitiatePayment;
@@ -12,6 +13,7 @@ using ShopInventory.Features.Payments.Commands.RefundPayment;
 using ShopInventory.Features.Payments.Queries.CheckPaymentStatus;
 using ShopInventory.Features.Payments.Queries.GetProviders;
 using ShopInventory.Features.Payments.Queries.GetTransactions;
+using ShopInventory.Models;
 using Swashbuckle.AspNetCore.Annotations;
 
 namespace ShopInventory.Controllers;
@@ -19,6 +21,7 @@ namespace ShopInventory.Controllers;
 /// <summary>
 /// Handles payment processing through multiple Zimbabwean payment gateways (PayNow, Innbucks, Ecocash)
 /// </summary>
+// Starting or cancelling a gateway payment takes payments.create, the cashier's right to take money.
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 public class PaymentController(IMediator mediator) : ApiControllerBase
@@ -40,6 +43,7 @@ public class PaymentController(IMediator mediator) : ApiControllerBase
     /// Initiate a payment
     /// </summary>
     [HttpPost("initiate")]
+    [RequirePermission(Permission.CreatePayments)]
     [SwaggerOperation(Summary = "Initiate payment", Description = "Initiates a payment through the specified payment provider")]
     [SwaggerResponse(200, "Payment initiated successfully", typeof(InitiatePaymentResponse))]
     [SwaggerResponse(400, "Invalid request")]
@@ -84,6 +88,7 @@ public class PaymentController(IMediator mediator) : ApiControllerBase
     /// Cancel a pending payment
     /// </summary>
     [HttpPost("{id}/cancel")]
+    [RequirePermission(Permission.CreatePayments)]
     [SwaggerOperation(Summary = "Cancel payment", Description = "Cancels a pending payment transaction")]
     [SwaggerResponse(200, "Payment cancelled")]
     [SwaggerResponse(400, "Cannot cancel payment")]

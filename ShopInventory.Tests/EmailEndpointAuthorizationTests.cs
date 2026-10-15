@@ -1,6 +1,8 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
+using ShopInventory.Authentication;
 using ShopInventory.Controllers;
+using ShopInventory.Models;
 
 namespace ShopInventory.Tests;
 
@@ -49,7 +51,20 @@ public sealed class EmailEndpointAuthorizationTests
             .GetCustomAttributes<AuthorizeAttribute>(inherit: true)
             .ToArray();
 
-        Assert.Single(authorize);
-        Assert.Equal("ApiAccess", authorize[0].Policy);
+        Assert.Single(authorize, a => a is not RequirePermissionAttribute);
+        Assert.Equal("ApiAccess", authorize.Single(a => a is not RequirePermissionAttribute).Policy);
+    }
+
+    /// <summary>
+    /// Every action sends mail from the company's SMTP identity to an address in the body, so it takes
+    /// settings.integrations, which only Admin and the API keys hold — not "ApiAccess" alone, which any
+    /// staff login satisfies.
+    /// </summary>
+    [Fact]
+    public void Sending_takes_the_integrations_permission()
+    {
+        var permission = Assert.Single(typeof(EmailController).GetCustomAttributes<RequirePermissionAttribute>(inherit: true));
+
+        Assert.Equal([Permission.ManageIntegrations], permission.RequiredPermissions);
     }
 }

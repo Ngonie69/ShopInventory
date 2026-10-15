@@ -1,6 +1,8 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
+using ShopInventory.Models;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.CancelQueuedInvoice;
 using ShopInventory.Features.DesktopIntegration.Commands.CancelQueuedTransfer;
@@ -62,8 +64,6 @@ using ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseStock;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSaleToSap;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSalesToSap;
 using ShopInventory.Features.DesktopIntegration.Commands.RetryDesktopSaleFiscalisation;
-using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
-using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListenerCheck;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
@@ -97,6 +97,13 @@ using ShopInventory.Features.DesktopIntegration;
 
 namespace ShopInventory.Controllers;
 
+// "ApiAccess" admits every staff role, so every write here carries a narrower gate of its own:
+// invoices.create for reservations and invoices (none of the apps call them; tills post /sales),
+// edit/void for the invoice queue, Admin/ApiUser for the transfer queue (as for queuing a transfer),
+// stock.transfer for transfer requests, sync.manage for the price syncs (Settings → Data Sync is
+// Admin only), and the posting roles without Manager, who reads sales and raises none.
+// scripts/check_api_write_gates.py fails CI on a write that has none. The integration callbacks are
+// on DesktopIntegrationCallbacksController, under "ServiceKeyOnly".
 [ServiceFilter(typeof(DesktopIntegrationAuditFilter))]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
@@ -114,6 +121,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Create stock reservation (holds inventory)
     /// </summary>
     [HttpPost("reservations")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> CreateReservation(
         [FromBody] CreateStockReservationRequest request,
         CancellationToken cancellationToken)
@@ -172,6 +180,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Confirm and post to SAP
     /// </summary>
     [HttpPost("reservations/confirm")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> ConfirmReservation(
         [FromBody] ConfirmReservationRequest request,
         CancellationToken cancellationToken)
@@ -184,6 +193,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Cancel reservation
     /// </summary>
     [HttpPost("reservations/cancel")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> CancelReservation(
         [FromBody] CancelReservationRequest request,
         CancellationToken cancellationToken)
@@ -196,6 +206,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Extend a reservation before it expires
     /// </summary>
     [HttpPost("reservations/renew")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> RenewReservation(
         [FromBody] RenewReservationRequest request,
         CancellationToken cancellationToken)
@@ -267,6 +278,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Reserve and confirm in one call, on the request
     /// </summary>
     [HttpPost("invoices")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> CreateInvoiceDirect(
         [FromBody] CreateDesktopInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -294,6 +306,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Queue an invoice for async posting
     /// </summary>
     [HttpPost("invoices/queued")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> CreateQueuedInvoice(
         [FromBody] CreateDesktopInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -362,21 +375,10 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     /// <summary>
-    /// Sync a fiscal transaction back to the local projection
-    /// </summary>
-    [HttpPost("fiscal-transactions")]
-    public async Task<IActionResult> SyncFiscalTransaction(
-        [FromBody] SyncFiscalTransactionRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result = await mediator.Send(new SyncFiscalTransactionCommand(request, GetUserId(), GetUsername()), cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
-    /// <summary>
     /// Drop a queue entry
     /// </summary>
     [HttpDelete("queue/{externalReference}")]
+    [RequirePermission(Permission.VoidInvoices)]
     public async Task<IActionResult> CancelQueuedInvoice(
         string externalReference,
         CancellationToken cancellationToken)
@@ -390,6 +392,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Retry a failed queue entry
     /// </summary>
     [HttpPost("queue/{externalReference}/retry")]
+    [RequirePermission(Permission.EditInvoices)]
     public async Task<IActionResult> RetryQueuedInvoice(
         string externalReference,
         CancellationToken cancellationToken)
@@ -511,6 +514,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Convert a sales order to an invoice
     /// </summary>
     [HttpPost("sales-orders/convert-to-invoice")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> ConvertSalesOrderToInvoice(
         [FromBody] ConvertSalesOrderToInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -631,6 +635,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Raise a transfer request
     /// </summary>
     [HttpPost("transfer-requests")]
+    [RequirePermission(Permission.TransferStock)]
     public async Task<IActionResult> CreateTransferRequest(
         [FromBody] CreateDesktopTransferRequestDto request,
         CancellationToken cancellationToken)
@@ -796,6 +801,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Drop a queued transfer before it posts
     /// </summary>
     [HttpDelete("transfer-queue/{externalReference}")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CancelQueuedTransfer(
         string externalReference,
         CancellationToken cancellationToken)
@@ -809,6 +815,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Retry a queued transfer that failed to post
     /// </summary>
     [HttpPost("transfer-queue/{externalReference}/retry")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> RetryQueuedTransfer(
         string externalReference,
         CancellationToken cancellationToken)
@@ -859,6 +866,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Runs in background — returns 202 Accepted immediately.
     /// </summary>
     [HttpPost("stock/fetch-daily")]
+    [Authorize(Roles = "Admin,ApiUser,StockController,DepotController,WashBay")]
     [SapBackgroundWork]
     public IActionResult FetchDailyStock([FromBody] FetchDailyStockCommand? command)
     {
@@ -1022,9 +1030,11 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// opens the administrative routes that name a depot in the request. This one takes the depot off the
     /// account, the way <see cref="GetVendors"/> does, and refuses any account that is not a cart vendor
     /// on a recognised depot. The code follows the depot's VMB/VMP/VMM convention — issued when left
-    /// blank, refused when it does not fit — through the same handler the Vending page uses.
+    /// blank, refused when it does not fit — through the same handler the Vending page uses. The role
+    /// gate says the same thing before the handler does.
     /// </remarks>
     [HttpPost("vendors")]
+    [Authorize(Roles = "CartVendor")]
     public async Task<IActionResult> CreateVendor(
         [FromBody] CreateDesktopVendorRequest request,
         CancellationToken cancellationToken)
@@ -1048,8 +1058,13 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// The customer, warehouse and cost centre come from the signed-in account, not the body, so this
     /// needs a real user rather than the loose claim read the other actions use: an API key carries no
     /// user identity and cannot be attributed to a selling account.
+    ///
+    /// Gated on the roles that can hold a selling account rather than on invoices.create: the till signs
+    /// in ADR accounts as well as till operators and cart vendors, and ADR holds no invoices.create.
+    /// Under "ApiAccess" alone any staff login could ring up a sale.
     /// </remarks>
     [HttpPost("sales")]
+    [Authorize(Roles = "Admin,ApiUser,TillOperator,CartVendor,Cashier,ADR,Sales")]
     public async Task<IActionResult> CreateDesktopSale(
         [FromBody] CreateDesktopSaleRequest request,
         CancellationToken cancellationToken)
@@ -1159,7 +1174,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// send an <c>Idempotency-Key</c> gets that answer rather than the middleware's bare message.
     /// </para>
     /// </remarks>
-    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [Authorize(Roles = "Admin,Cashier,ApiUser")]
     [HttpPost("sales/{externalReference}/post")]
     public async Task<IActionResult> PostDesktopSaleToSap(
         string externalReference,
@@ -1183,7 +1198,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// receipt before anything is submitted, and the submission carries the sale's one invoice number, so
     /// a repeat adopts the receipt the first created rather than signing a second.
     /// </remarks>
-    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [Authorize(Roles = "Admin,Cashier,ApiUser")]
     [HttpPost("sales/{externalReference}/fiscalise")]
     public async Task<IActionResult> RetryDesktopSaleFiscalisation(
         string externalReference,
@@ -1207,7 +1222,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// its own SAP document, so there is nothing to roll back and an all-or-nothing status could only
     /// misdescribe what happened. A caller reads the outcomes.
     /// </remarks>
-    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [Authorize(Roles = "Admin,Cashier,ApiUser")]
     [HttpPost("sales/post-batch")]
     public async Task<IActionResult> PostDesktopSalesToSap(
         [FromBody] PostDesktopSalesRequest request,
@@ -1233,7 +1248,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// SAP. This one writes, which makes it the worse of the pair — the read at least changed nothing.
     /// The till never calls it; the only caller is the desktop sales console.
     /// </remarks>
-    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [Authorize(Roles = "Admin,Cashier,ApiUser")]
     [HttpPost("end-of-day/consolidate")]
     public async Task<IActionResult> ConsolidateDailySales(
         [FromBody] ConsolidateDailySalesCommand? command,
@@ -1517,25 +1532,12 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     /// <summary>
-    /// Webhook endpoint for TransferEventListener to notify about stock transfers.
-    /// Secured via X-API-Key header (same as all other endpoints on this controller).
-    /// </summary>
-    [HttpPost("webhook/transfer-event")]
-    public async Task<IActionResult> TransferEventWebhook(
-        [FromBody] ProcessTransferEventCommand command,
-        CancellationToken cancellationToken)
-    {
-        var result = await mediator.Send(command, cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
-    /// <summary>
     /// How TransferEventListener is doing: whether it is still reading SAP, what it has seen since it
     /// started, and which warehouses it watches.
     /// </summary>
     /// <remarks>
-    /// The counterpart to the webhook above. Until this route existed the relationship ran one way
-    /// only, so a listener that had stopped reading SAP was indistinguishable from an afternoon with
+    /// The counterpart to the webhook in DesktopIntegrationCallbacksController. Until this route existed
+    /// the relationship ran one way only, so a listener that had stopped reading SAP was indistinguishable from an afternoon with
     /// no transfers in it — while every transfer made in the meantime was missing from the day's
     /// snapshot.
     ///
@@ -1600,6 +1602,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Sync the price lists from SAP
     /// </summary>
     [HttpPost("prices/pricelists/sync")]
+    [RequirePermission(Permission.ManageSync)]
     [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken = default)
     {
@@ -1612,6 +1615,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Sync item prices from SAP
     /// </summary>
     [HttpPost("prices/sync")]
+    [RequirePermission(Permission.ManageSync)]
     [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken = default)
     {
@@ -1628,6 +1632,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// them, so they can be refreshed without walking every price list.
     /// </remarks>
     [HttpPost("prices/special-prices/sync")]
+    [RequirePermission(Permission.ManageSync)]
     [SapBackgroundWork]
     public async Task<IActionResult> SyncSpecialPrices(CancellationToken cancellationToken = default)
     {
@@ -1662,6 +1667,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Sync one price list's item prices from SAP
     /// </summary>
     [HttpPost("prices/pricelists/{priceListNum:int}/sync")]
+    [RequirePermission(Permission.ManageSync)]
     public async Task<IActionResult> SyncPricesByPriceList(
         int priceListNum,
         CancellationToken cancellationToken = default)

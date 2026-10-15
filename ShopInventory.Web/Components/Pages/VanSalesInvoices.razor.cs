@@ -1,6 +1,7 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using MudBlazor;
@@ -85,6 +86,11 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
     private int page = 1;
 
     private bool isLoading = true;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    // Posting and fiscalising are the cashier's; a manager reads this page.
+    private bool canWrite;
     private bool isExporting;
     private string? loadError;
     private DateTime? readAt;
@@ -314,6 +320,10 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
 
     private async Task OpenAsync(string reference)
     {
+        // Read here rather than at initialisation, which returns its load without awaiting: the post
+        // and fiscalise buttons only appear in this drawer.
+        canWrite = AuthenticationStateTask is not null &&
+                   UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.DesktopSaleWriteRoles);
         detailReference = reference;
         detail = null;
         detailError = null;

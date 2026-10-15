@@ -145,12 +145,13 @@ public abstract class CrateTrackingPageBase : ComponentBase
         var isSalesRep = user.IsInRole("SalesRep");
 
         canManageOpeningBalances = isAdmin;
-        canRaiseGrvs = isAdmin || isManager || isMerchandiser;
-        canChoosePodRole = isAdmin || isManager || isPodOperator || isOperator;
-        canSubmitPods = isAdmin || isManager || isMerchandiser || isPodOperator || isOperator || isDriver;
-        canDeleteCratePods = isAdmin || isManager || isMerchandiser || isOperator || isDriver;
-        canViewCrateTransactions = canSubmitPods || isPodOperator || isOperator || isSalesRep;
-        canViewCrateGrvs = canRaiseGrvs || isDriver || isSalesRep;
+        // A manager reads crates and records none of them: the API's crate writes leave Manager out.
+        canRaiseGrvs = isAdmin || isMerchandiser;
+        canChoosePodRole = isAdmin || isPodOperator || isOperator;
+        canSubmitPods = isAdmin || isMerchandiser || isPodOperator || isOperator || isDriver;
+        canDeleteCratePods = isAdmin || isMerchandiser || isOperator || isDriver;
+        canViewCrateTransactions = canSubmitPods || isManager || isPodOperator || isOperator || isSalesRep;
+        canViewCrateGrvs = canRaiseGrvs || isManager || isDriver || isSalesRep;
 
         selectedPodRole = isMerchandiser
             ? "Merchandiser"

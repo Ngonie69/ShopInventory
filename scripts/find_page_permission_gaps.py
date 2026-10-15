@@ -632,7 +632,10 @@ def _handle_member(src, masked, lits, hs, he, path, cname, ctrl_token, cls_route
             perms.append(_perm_attr(args, perm_consts, rel(path), line_of(src, p)))
     if not verbs:
         return
-    sig = re.search(r"\b(\w+)\s*(<[^()]*>)?\s*\(", re.sub(r"\[[^\]]*\]", lambda m: " " * len(m.group(0)), header))
+    # #region lines are not masked by the lexer, and "#region Quick Invoice (Reserve + Confirm)" would
+    # otherwise name the action "Invoice".
+    sig_text = re.sub(r"(?m)^[ \t]*#.*$", lambda m: " " * len(m.group(0)), header)
+    sig = re.search(r"\b(\w+)\s*(<[^()]*>)?\s*\(", re.sub(r"\[[^\]]*\]", lambda m: " " * len(m.group(0)), sig_text))
     action = sig.group(1) if sig else "?"
     line = line_of(src, hs + len(header) - len(header.lstrip()))
     for verb, tmpl in verbs:

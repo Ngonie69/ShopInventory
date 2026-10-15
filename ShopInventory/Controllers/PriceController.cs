@@ -1,6 +1,8 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
+using ShopInventory.Models;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Prices.Queries.GetCachedPrices;
 using ShopInventory.Features.Prices.Queries.GetAllPrices;
@@ -18,6 +20,8 @@ using ShopInventory.Middleware;
 
 namespace ShopInventory.Controllers;
 
+// The sync triggers take sync.manage (Admin and the API keys): they re-read SAP's whole catalogue and
+// are offered only on Settings → Data Sync, which is Admin only. Reads stay on "ApiAccess".
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 public class PriceController(IMediator mediator) : ApiControllerBase
@@ -94,6 +98,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     /// Sync the price lists
     /// </summary>
     [HttpPost("pricelists/sync")]
+    [RequirePermission(Permission.ManageSync)]
     [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken)
     {
@@ -106,6 +111,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     /// Force a price sync from SAP
     /// </summary>
     [HttpPost("sync")]
+    [RequirePermission(Permission.ManageSync)]
     [SapBackgroundWork]
     public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken)
     {
@@ -122,6 +128,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     /// them, so they can be refreshed without walking every price list.
     /// </remarks>
     [HttpPost("special-prices/sync")]
+    [RequirePermission(Permission.ManageSync)]
     [SapBackgroundWork]
     public async Task<IActionResult> SyncSpecialPrices(CancellationToken cancellationToken = default)
     {
@@ -155,6 +162,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     /// Sync one price list
     /// </summary>
     [HttpPost("pricelists/{priceListNum:int}/sync")]
+    [RequirePermission(Permission.ManageSync)]
     public async Task<IActionResult> SyncItemPricesForPriceList(int priceListNum, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new SyncItemPricesForPriceListCommand(priceListNum), cancellationToken);
