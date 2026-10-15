@@ -41,7 +41,7 @@ namespace ShopInventory.Tests;
 /// their result for the request; resolved from the root provider they would answer every later
 /// evaluation with the first one's user.
 /// </remarks>
-public sealed class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
+public sealed partial class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper output)
 {
     private const string WebApiKey = "web-app-test-key";
     private const string Issuer = "ShopInventory.Tests";

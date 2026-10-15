@@ -1159,6 +1159,9 @@ public class CustomerAuthService : ICustomerAuthService
     {
         try
         {
+            // The Web's own lookup, made while a customer signs in, refreshes, proves a token or
+            // registers - before any session exists on the circuit - and only read here, never shown.
+            using var asTheWebApp = WebApiCaller.AsTheWebApp();
             var partner = await _businessPartnerService.GetBusinessPartnerByCodeAsync(cardCode);
             if (partner == null)
                 return null;
