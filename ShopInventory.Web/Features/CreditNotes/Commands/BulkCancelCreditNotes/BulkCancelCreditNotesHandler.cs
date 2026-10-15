@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using Blazored.LocalStorage;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Web.Common.Errors;
@@ -9,6 +10,8 @@ namespace ShopInventory.Web.Features.CreditNotes.Commands.BulkCancelCreditNotes;
 
 public sealed class BulkCancelCreditNotesHandler(
     IHttpClientFactory httpClientFactory,
+    CustomAuthStateProvider authStateProvider,
+    ILocalStorageService localStorage,
     IAuditService auditService,
     ILogger<BulkCancelCreditNotesHandler> logger
 ) : IRequestHandler<BulkCancelCreditNotesCommand, ErrorOr<BulkCancelCreditNotesResult>>
@@ -23,7 +26,15 @@ public sealed class BulkCancelCreditNotesHandler(
             var docEntries = request.CreditNoteDocEntries.Distinct().ToList();
             var payload = new { CreditNoteDocEntries = docEntries, request.Reason };
 
-            var response = await client.PostAsJsonAsync("api/creditnote/bulk-cancel", payload, cancellationToken);
+            // The person pressing the button is the one acting: the API checks their permission and
+            // records them against the documents. The long-running client is only for its timeout;
+            // it carries the Web's key, and without the user's token the key would act for them.
+            using var response = await ApiTokenAuthentication.SendAsync(
+                client,
+                authStateProvider,
+                localStorage,
+                () => client.PostAsJsonAsync("api/creditnote/bulk-cancel", payload, cancellationToken),
+                logger);
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
