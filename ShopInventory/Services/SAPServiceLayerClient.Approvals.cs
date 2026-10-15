@@ -723,8 +723,9 @@ public partial class SAPServiceLayerClient
 
     /// <summary>
     /// Turns a non-success answer into <see cref="SapRequestRejectedException"/> carrying SAP's own
-    /// message. The body is logged sanitised; it never contains a password, but it does contain
-    /// whatever SAP chose to echo.
+    /// message, or <see cref="SapBackendUnreachableException"/> when that message is SAP saying it
+    /// could not reach its database. The body is logged sanitised; it never contains a password,
+    /// but it does contain whatever SAP chose to echo.
     /// </summary>
     private async Task EnsureSapSuccessAsync(HttpResponseMessage response, string operation, CancellationToken cancellationToken)
     {
@@ -734,7 +735,10 @@ public partial class SAPServiceLayerClient
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        var message = ExtractSAPErrorMessage(body) ?? (string.IsNullOrWhiteSpace(body) ? response.StatusCode.ToString() : body);
+        var sapError = ExtractSAPErrorMessage(body);
+        ThrowIfSapBackendUnreachable(operation, response.StatusCode, sapError);
+
+        var message = sapError ?? (string.IsNullOrWhiteSpace(body) ? response.StatusCode.ToString() : body);
 
         _logger.LogError(
             "Failed to {Operation}: {StatusCode} - {Error}",

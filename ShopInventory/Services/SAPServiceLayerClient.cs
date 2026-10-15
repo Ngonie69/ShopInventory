@@ -910,7 +910,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var sanitizedError = SensitiveDataSanitizer.SanitizeForLog(responseContent);
             _logger.LogError("SAP Login failed: {StatusCode} - {Error}", response.StatusCode, sanitizedError);
-            throw new Exception($"SAP Login failed: {response.StatusCode}");
+
+            // Typed by status like a read: a login creates nothing, so a 5xx — SAP's database or SLD
+            // out of reach — is worth asking again, and a 4xx, the credentials refused, is not. As a
+            // bare Exception its wording named neither, and a posting pass that had to log in again
+            // during an outage spent an attempt for it.
+            throw new SapReadFailedException(response.StatusCode, $"SAP Login failed: {response.StatusCode}");
         }
 
         var loginResponse = JsonSerializer.Deserialize<LoginResponse>(responseContent);
@@ -1611,6 +1616,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             // see SapFailureClassifier.DefinitelyNotCommitted. A bare Exception here is
             // indistinguishable from the deserialize failure below, which happens *after* SAP has
             // committed the document.
+            // Unless what SAP said is that its database was out of reach. That is the outage the
+            // gateway branch above handles, wearing SAP's envelope, and it leaves the invoice unknown.
+            ThrowIfSapBackendUnreachable("create the invoice", response.StatusCode, sapError);
+
             if (IsBusinessPartnerDataError(errorContent))
             {
                 throw new SapRequestRejectedException(
@@ -13174,6 +13183,9 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             // may have committed behind it.
             var sapAnswered = sapError is not null;
 
+            // An envelope that says SAP could not reach its database is not that refusal.
+            ThrowIfSapBackendUnreachable("create the incoming payment", response.StatusCode, sapError);
+
             if (IsBusinessPartnerDataError(responseContent))
             {
                 var businessPartnerMessage =
@@ -16960,6 +16972,10 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             // balancer in front of the six nodes — so those stay a bare Exception, meaning unknown.
             var sapAnswered = sapError is not null;
 
+            // Except an envelope that says SAP could not reach its database: the credit note's
+            // existence is as unknown as behind a gateway's 502.
+            ThrowIfSapBackendUnreachable("create the credit note", response.StatusCode, sapError);
+
             if (IsBusinessPartnerDataError(errorContent))
             {
                 var businessPartnerMessage =
@@ -18494,6 +18510,32 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             && (errorContent.Contains("No matching records found", StringComparison.OrdinalIgnoreCase)
                 || (!string.IsNullOrWhiteSpace(sapError)
                     && sapError.Contains("No matching records found", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// Throws <see cref="SapBackendUnreachableException"/> when SAP's error envelope says it could not
+    /// reach its database, so the caller's next line can treat whatever is left as SAP refusing.
+    /// </summary>
+    /// <remarks>
+    /// Called before every <see cref="SapRequestRejectedException"/> built from a response. SAP's own
+    /// envelope is the evidence it answered, but a 500 that says "Couldn't connect to server" is an
+    /// outage, not an answer: as a refusal it spent a posting attempt on every pass and released the
+    /// post marker of a document whose existence nobody had checked.
+    /// <c>scripts/Check-SapRejectionSites.py</c> fails when a rejection site skips this.
+    /// </remarks>
+    private void ThrowIfSapBackendUnreachable(string operation, HttpStatusCode statusCode, string? sapError)
+    {
+        if (!SapFailureClassifier.IsSapBackendUnreachable(statusCode, sapError))
+        {
+            return;
+        }
+
+        var sanitized = SensitiveDataSanitizer.SanitizeForLog(sapError!);
+        _logger.LogWarning(
+            "SAP could not reach its database to {Operation}: {StatusCode} - {SapError}",
+            operation, statusCode, sanitized);
+
+        throw new SapBackendUnreachableException(operation, statusCode, sanitized);
     }
 
     /// <summary>

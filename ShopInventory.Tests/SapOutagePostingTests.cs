@@ -136,6 +136,50 @@ public sealed class SapOutagePostingTests : IDisposable
         Assert.Equal(1, result.Posted);
     }
 
+    [Fact]
+    public async Task A_post_that_meets_sap_s_database_down_spends_no_attempt_and_is_looked_up_before_it_goes_again()
+    {
+        // The duplicate check above passes, and the outage meets the invoice post itself. SAP's
+        // envelope used to make that a refusal: an attempt spent, and the post marker taken off, so
+        // the next pass would have sent the sale again without asking whether SAP had kept it.
+        var sale = await GivenSaleAsync(daysAgo: 0);
+        var posts = 0;
+
+        await Service(createInvoice: _ =>
+            {
+                posts++;
+                return Task.FromException<Invoice>(new SapBackendUnreachableException(
+                    "create the invoice",
+                    System.Net.HttpStatusCode.InternalServerError,
+                    "Failed to connect to kfldb port 40020 after 0 ms: Couldn't connect to server"));
+            })
+            .PostPendingSalesAsync();
+        _context.ChangeTracker.Clear();
+
+        var saved = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
+        Assert.Equal(0, saved.PostingAttempts);
+        Assert.Equal(DesktopSaleConsolidationStatus.Pending, saved.ConsolidationStatus);
+        Assert.NotNull(saved.PostIssuedAtUtc);
+        Assert.Contains("could not reach its database", saved.LastPostingError);
+
+        // Inside the hold, the next pass leaves it alone rather than sending it again.
+        await Service().PostPendingSalesAsync();
+        _context.ChangeTracker.Clear();
+        Assert.Empty(_created);
+
+        // Past the hold, SAP turns out to have kept it after all: adopted, not posted a second time.
+        await _context.DesktopSales
+            .Where(s => s.Id == sale.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.PostIssuedAtUtc, DateTime.UtcNow.AddHours(-1)));
+        var result = await Service(lookup: _ => Task.FromResult<Invoice?>(new Invoice { DocEntry = 7001, DocNum = 8001 }))
+            .PostPendingSalesAsync();
+
+        Assert.Equal(1, result.Adopted);
+        Assert.Equal(1, posts);
+        Assert.Empty(_created);
+        Assert.Equal(7001, (await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id)).SapDocEntry);
+    }
+
     private async Task<DesktopSaleEntity> GivenSaleAsync(int daysAgo)
     {
         var sale = new DesktopSaleEntity

@@ -16,9 +16,10 @@ namespace ShopInventory.Services;
 /// <para>The message is unchanged from the bare exception it replaces. The exception centre and
 /// stored posting errors are matched on it.</para>
 ///
-/// <para>Reads only. A read commits nothing, so a 5xx can always be asked again. A write's 5xx may
-/// have created the document, which is <see cref="SapFailureClassifier.DefinitelyNotCommitted"/>'s
-/// question, not this one's.</para>
+/// <para>Reads only, and Login, a POST that commits nothing. Neither creates anything, so a 5xx can
+/// always be asked again. A write's 5xx may have created the document, which is
+/// <see cref="SapFailureClassifier.DefinitelyNotCommitted"/>'s question, not this one's; see
+/// <see cref="SapBackendUnreachableException"/>.</para>
 /// </remarks>
 public sealed class SapReadFailedException(HttpStatusCode statusCode, string message) : Exception(message)
 {

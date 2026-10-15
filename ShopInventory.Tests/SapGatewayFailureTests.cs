@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
+using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -36,7 +37,7 @@ public sealed class SapGatewayFailureTests
     [InlineData(HttpStatusCode.GatewayTimeout)]
     public async Task A_gateway_page_leaves_the_invoice_unknown_and_the_failure_transient(HttpStatusCode status)
     {
-        var sap = new ScriptedServiceLayer { InvoiceStatus = status, InvoiceBody = GatewayPage, InvoiceMediaType = "text/html" };
+        var sap = new ScriptedServiceLayer { PostStatus = status, PostBody = GatewayPage, PostMediaType = "text/html" };
 
         var failure = await Assert.ThrowsAsync<HttpRequestException>(() => CreateClient(sap).CreateInvoiceAsync(Invoice()));
 
@@ -48,7 +49,7 @@ public sealed class SapGatewayFailureTests
     [Fact]
     public async Task A_refusal_in_sap_s_own_words_is_still_a_refusal()
     {
-        var sap = new ScriptedServiceLayer { InvoiceStatus = HttpStatusCode.BadRequest, InvoiceBody = SapRefusal };
+        var sap = new ScriptedServiceLayer { PostStatus = HttpStatusCode.BadRequest, PostBody = SapRefusal };
 
         var failure = await Assert.ThrowsAsync<SapRequestRejectedException>(() => CreateClient(sap).CreateInvoiceAsync(Invoice()));
 
@@ -57,13 +58,79 @@ public sealed class SapGatewayFailureTests
         Assert.True(SapFailureClassifier.DefinitelyNotCommitted(failure));
     }
 
-    [Fact]
-    public async Task A_server_error_sap_itself_explains_is_a_refusal_too()
+    [Theory]
+    [InlineData(Document.Invoice)]
+    [InlineData(Document.CreditNote)]
+    [InlineData(Document.IncomingPayment)]
+    public async Task A_server_error_sap_itself_explains_is_a_refusal_too(Document document)
     {
-        // The envelope is the evidence SAP answered, whatever the status.
-        var sap = new ScriptedServiceLayer { InvoiceStatus = HttpStatusCode.InternalServerError, InvoiceBody = SapRefusal };
+        // The envelope is the evidence SAP answered, whatever the status. A business refusal SAP
+        // happens to send as a 500 is still no, and nothing was created.
+        var sap = new ScriptedServiceLayer { PostStatus = HttpStatusCode.InternalServerError, PostBody = SapRefusal };
 
-        await Assert.ThrowsAsync<SapRequestRejectedException>(() => CreateClient(sap).CreateInvoiceAsync(Invoice()));
+        var failure = await Assert.ThrowsAsync<SapRequestRejectedException>(() => PostAsync(CreateClient(sap), document));
+
+        Assert.False(SapFailureClassifier.IsTransient(failure));
+        Assert.True(SapFailureClassifier.DefinitelyNotCommitted(failure));
+    }
+
+    [Theory]
+    [InlineData(Document.Invoice)]
+    [InlineData(Document.CreditNote)]
+    [InlineData(Document.IncomingPayment)]
+    public async Task A_post_that_meets_sap_s_database_down_is_transient_and_leaves_the_document_unknown(Document document)
+    {
+        // The same outage as the duplicate check below, met by the post itself. It used to be read as
+        // SAP refusing the document: permanent, so every pass spent one of the sale's six attempts,
+        // and not committed, so the sale was free to be sent again without a lookup.
+        var sap = new ScriptedServiceLayer { PostStatus = HttpStatusCode.InternalServerError, PostBody = DatabaseDown };
+
+        var failure = await Assert.ThrowsAsync<SapBackendUnreachableException>(() => PostAsync(CreateClient(sap), document));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, failure.StatusCode);
+        Assert.Contains("Couldn't connect to server", failure.Message);
+        Assert.True(SapFailureClassifier.IsTransient(failure));
+
+        // Transient is not "not committed": a write's 5xx leaves the document's existence to a lookup.
+        Assert.False(SapFailureClassifier.DefinitelyNotCommitted(failure));
+    }
+
+    [Fact]
+    public async Task A_login_that_meets_sap_s_database_down_is_transient_and_sends_nothing()
+    {
+        // A posting pass whose session lapsed logs in again first. That 500 used to be a bare
+        // "SAP Login failed: InternalServerError", which no availability word matched.
+        var sap = new ScriptedServiceLayer { LoginStatus = HttpStatusCode.InternalServerError, LoginBody = DatabaseDown };
+
+        var failure = await Assert.ThrowsAsync<SapReadFailedException>(
+            async () => await (await LoggedOutClientAsync(sap)).CreateInvoiceAsync(Invoice()));
+
+        Assert.Equal("SAP Login failed: InternalServerError", failure.Message);
+        Assert.True(SapFailureClassifier.IsTransient(failure));
+        Assert.True(SapFailureClassifier.DefinitelyNotCommitted(failure));
+    }
+
+    [Fact]
+    public async Task A_login_sap_refuses_is_still_permanent()
+    {
+        var sap = new ScriptedServiceLayer { LoginStatus = HttpStatusCode.Unauthorized, LoginBody = SapRefusal };
+
+        var failure = await Assert.ThrowsAsync<SapReadFailedException>(
+            async () => await (await LoggedOutClientAsync(sap)).CreateInvoiceAsync(Invoice()));
+
+        Assert.False(SapFailureClassifier.IsTransient(failure));
+    }
+
+    [Fact]
+    public async Task A_refusal_that_mentions_connecting_is_still_a_refusal_below_500()
+    {
+        // The words alone never decide it: a 4xx is SAP judging the request, whatever it says.
+        var body = "{\"error\":{\"code\":-10,\"message\":{\"lang\":\"en-us\",\"value\":\"Failed to connect the payment to invoice 12\"}}}";
+        var sap = new ScriptedServiceLayer { PostStatus = HttpStatusCode.BadRequest, PostBody = body };
+
+        var failure = await Assert.ThrowsAsync<SapRequestRejectedException>(() => CreateClient(sap).CreateInvoiceAsync(Invoice()));
+
+        Assert.True(SapFailureClassifier.DefinitelyNotCommitted(failure));
     }
 
     /// <summary>
@@ -162,12 +229,43 @@ public sealed class SapGatewayFailureTests
         Assert.Equal(2, sap.Pings);
     }
 
+    public enum Document
+    {
+        Invoice,
+        CreditNote,
+        IncomingPayment
+    }
+
+    private static Task PostAsync(SAPServiceLayerClient client, Document document) => document switch
+    {
+        Document.Invoice => client.CreateInvoiceAsync(Invoice()),
+        Document.CreditNote => client.CreateCreditNoteAsync(new CreateCreditNoteRequest
+        {
+            CardCode = "COR007",
+            Lines = [new() { ItemCode = "MUE009", Quantity = 1, UnitPrice = 0.37m, WarehouseCode = "KEFGRS" }]
+        }),
+        Document.IncomingPayment => client.CreateIncomingPaymentAsync(new CreateIncomingPaymentRequest
+        {
+            CardCode = "COR007",
+            CashSum = 0.37m
+        }),
+        _ => throw new ArgumentOutOfRangeException(nameof(document))
+    };
+
     private static CreateInvoiceRequest Invoice() => new()
     {
         CardCode = "COR007",
         DocCurrency = "USD",
         Lines = [new() { ItemCode = "MUE009", Quantity = 1, UnitPrice = 0.37m, WarehouseCode = "KEFGRS" }]
     };
+
+    /// <summary>The session is shared by every client in the process, so a login has to be forced.</summary>
+    private static async Task<SAPServiceLayerClient> LoggedOutClientAsync(ScriptedServiceLayer sap)
+    {
+        var client = CreateClient(sap);
+        await client.LogoutAsync();
+        return client;
+    }
 
     private static SAPServiceLayerClient CreateClient(ScriptedServiceLayer sap)
     {
@@ -189,12 +287,14 @@ public sealed class SapGatewayFailureTests
 
     private sealed class ScriptedServiceLayer : HttpMessageHandler
     {
-        public HttpStatusCode InvoiceStatus { get; init; } = HttpStatusCode.Created;
-        public string InvoiceBody { get; init; } = "{\"DocEntry\":501,\"DocNum\":601,\"DocumentLines\":[]}";
-        public string InvoiceMediaType { get; init; } = "application/json";
+        public HttpStatusCode PostStatus { get; init; } = HttpStatusCode.Created;
+        public string PostBody { get; init; } = "{\"DocEntry\":501,\"DocNum\":601,\"DocumentLines\":[]}";
+        public string PostMediaType { get; init; } = "application/json";
         public HttpStatusCode PingStatus { get; init; } = HttpStatusCode.OK;
         public HttpStatusCode LookupStatus { get; init; } = HttpStatusCode.OK;
         public string LookupBody { get; init; } = "{\"value\":[]}";
+        public HttpStatusCode LoginStatus { get; init; } = HttpStatusCode.OK;
+        public string? LoginBody { get; init; }
         public int UnauthorizedPings { get; set; }
         public int Pings { get; private set; }
         public int Logins { get; private set; }
@@ -205,15 +305,23 @@ public sealed class SapGatewayFailureTests
         {
             var target = request.RequestUri!.PathAndQuery;
 
+            if (target.EndsWith("/Logout", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+            }
+
             if (target.EndsWith("/Login", StringComparison.Ordinal))
             {
                 Logins++;
-                return Task.FromResult(Respond(HttpStatusCode.OK, $"{{\"SessionId\":\"session-{Logins}\"}}"));
+                return Task.FromResult(Respond(LoginStatus, LoginBody ?? $"{{\"SessionId\":\"session-{Logins}\"}}"));
             }
 
-            if (target.EndsWith("/Invoices", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            if ((target.EndsWith("/Invoices", StringComparison.Ordinal)
+                 || target.EndsWith("/CreditNotes", StringComparison.Ordinal)
+                 || target.EndsWith("/IncomingPayments", StringComparison.Ordinal))
+                && request.Method == HttpMethod.Post)
             {
-                return Task.FromResult(Respond(InvoiceStatus, InvoiceBody, InvoiceMediaType));
+                return Task.FromResult(Respond(PostStatus, PostBody, PostMediaType));
             }
 
             if (target.Contains("/Invoices?$filter=U_Van_saleorder", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
