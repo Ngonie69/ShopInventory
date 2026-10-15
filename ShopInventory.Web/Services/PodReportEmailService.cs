@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Blazored.LocalStorage;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 
@@ -53,6 +54,8 @@ public interface IPodReportEmailService
 
 public sealed class PodReportEmailService(
     IHttpClientFactory httpClientFactory,
+    CustomAuthStateProvider authStateProvider,
+    ILocalStorageService localStorage,
     IReportExportService reportExportService,
     IDeliveryRouteDirectory routeDirectory,
     IEmailService emailService,
@@ -483,9 +486,16 @@ public sealed class PodReportEmailService(
             from,
             to);
 
-        using var response = await client.GetAsync(
-            requestPath,
-            cancellationToken);
+        // "Send now" on Settings fetches the report as the person who pressed it. The scheduled send
+        // runs outside every circuit, as the Web app, on the client's key alone.
+        using var response = WebApiCaller.Current is null
+            ? await client.GetAsync(requestPath, cancellationToken)
+            : await ApiTokenAuthentication.SendAsync(
+                client,
+                authStateProvider,
+                localStorage,
+                () => client.GetAsync(requestPath, cancellationToken),
+                logger);
 
         if (!response.IsSuccessStatusCode)
         {

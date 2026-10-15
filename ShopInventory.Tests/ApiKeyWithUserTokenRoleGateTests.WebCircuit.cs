@@ -1,9 +1,25 @@
 using System.Net;
+using System.Reflection;
+using System.Text;
+using Blazored.LocalStorage;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using ShopInventory.Controllers;
 using ShopInventory.Models;
+using ShopInventory.Web.Data;
+using ShopInventory.Web.Features.CreditNotes.Commands.BulkCancelCreditNotes;
+using ShopInventory.Web.Features.CreditNotes.Commands.DuplicateCancelledCreditNotes;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
+using RequirePermissionAttribute = ShopInventory.Authentication.RequirePermissionAttribute;
 using WebLoginResponse = ShopInventory.Web.Models.LoginResponse;
 using WebUserInfo = ShopInventory.Web.Models.UserInfo;
 
@@ -162,6 +178,212 @@ public sealed partial class ApiKeyWithUserTokenRoleGateTests
         Assert.Equal(0, signOuts);
     }
 
+    /// <summary>
+    /// A send from a signed-in member of staff's page on a keyed client its service never put their
+    /// token on — a client it made from the factory — used to be answered as the key. Now it goes
+    /// without the key, so the API sees nobody rather than an Admin.
+    /// </summary>
+    [Fact]
+    public async Task A_signed_in_cashiers_send_without_their_token_goes_without_the_key()
+    {
+        await using var services = BuildServices();
+        var circuit = new WebCircuit();
+        await circuit.Staff.StoreAuthData(SignIn(ApplicationRoles.Cashier));
+
+        var sent = await circuit.RunAsync(async () =>
+        {
+            using var client = circuit.KeyedClient();
+            using var response = await client.PostAsync("api/notification", content: null);
+        });
+
+        Assert.Equal(new SentRequest("POST /api/notification", ApiKey: null, Bearer: null), Assert.Single(sent));
+        Assert.Equal(StatusCodes401, (await EvaluateAsync(services, CreateNotification, apiKey: null, bearerToken: null)).StatusCode);
+    }
+
+    /// <summary>
+    /// Bulk cancel and duplicate on the credit notes page go on the long-running client. They now
+    /// carry the person's token, so the API's permission check reads that person's permissions: the
+    /// cashier holds EditInvoices and CreateInvoices, a merchandiser neither.
+    /// </summary>
+    [Theory]
+    [InlineData(ApplicationRoles.Cashier, StatusCodes.Status200OK)]
+    [InlineData(ApplicationRoles.Merchandiser, StatusCodes.Status403Forbidden)]
+    public async Task Credit_note_bulk_actions_on_the_long_running_client_are_judged_as_the_signed_in_user(string role, int expected)
+    {
+        await using var services = BuildServices();
+        var circuit = new WebCircuit();
+        var token = UserToken(role);
+        await circuit.Staff.StoreAuthData(SignIn(role, token));
+        var cancel = new BulkCancelCreditNotesHandler(
+            circuit.ClientFactory, circuit.Staff, circuit.LocalStorage,
+            StubProxy.Unused<IAuditService>(), NullLogger<BulkCancelCreditNotesHandler>.Instance);
+        var duplicate = new DuplicateCancelledCreditNotesHandler(
+            circuit.ClientFactory, circuit.Staff, circuit.LocalStorage,
+            StubProxy.Unused<IAuditService>(), NullLogger<DuplicateCancelledCreditNotesHandler>.Instance);
+
+        var sent = await circuit.RunAsync(async () =>
+        {
+            await cancel.Handle(new BulkCancelCreditNotesCommand([4101], "Raised twice"), CancellationToken.None);
+            await duplicate.Handle(new DuplicateCancelledCreditNotesCommand([4101], "Raised twice"), CancellationToken.None);
+        });
+
+        Assert.Equal(
+            [
+                new SentRequest("POST /api/creditnote/bulk-cancel", WebApiKey, token),
+                new SentRequest("POST /api/creditnote/duplicate-cancelled", WebApiKey, token)
+            ],
+            sent);
+        foreach (var action in new[] { BulkCancelCreditNotes, DuplicateCancelledCreditNotes })
+        {
+            Assert.Equal(expected, await EvaluateWithPermissionsAsync(services, action, WebApiKey, token));
+        }
+    }
+
+    /// <summary>
+    /// Data Sync's API syncs go on the long-running client with the person's token: an Admin-only sync
+    /// pressed by a cashier is refused as the cashier, where the key alone would have run it.
+    /// </summary>
+    [Fact]
+    public async Task A_data_sync_on_the_long_running_client_is_judged_as_the_signed_in_cashier()
+    {
+        await using var services = BuildServices();
+        var circuit = new WebCircuit();
+        var token = UserToken(ApplicationRoles.Cashier);
+        await circuit.Staff.StoreAuthData(SignIn(ApplicationRoles.Cashier, token));
+        var cache = circuit.MasterDataCache();
+
+        var sent = await circuit.RunAsync(() => cache.SyncItemTaxGroupsFromSapAsync());
+
+        Assert.Equal(new SentRequest("POST /api/sync/item-tax-groups", WebApiKey, token), Assert.Single(sent));
+        Assert.True((await EvaluateAsync(services, SyncItemTaxGroups, WebApiKey, token)).Result.Forbidden);
+        Assert.True((await EvaluateAsync(services, SyncItemTaxGroups, WebApiKey, bearerToken: null)).Result.Succeeded);
+    }
+
+    /// <summary>
+    /// A cache sweep a page starts with SapBackgroundPriority.Run runs on the thread pool but carries
+    /// the page's circuit, and sends on the circuit's client with the person's token.
+    /// </summary>
+    [Fact]
+    public async Task A_cache_sweep_a_cashiers_page_starts_is_judged_as_the_cashier()
+    {
+        await using var services = BuildServices();
+        var circuit = new WebCircuit();
+        var token = UserToken(ApplicationRoles.Cashier);
+        await circuit.Staff.StoreAuthData(SignIn(ApplicationRoles.Cashier, token));
+        var cache = circuit.MasterDataCache();
+
+        var sent = await circuit.RunAsync(() => SapBackgroundPriority.Run(() => cache.ClearTillTransferRequestItemsAsync()));
+
+        Assert.Equal(new SentRequest("POST /api/sync/transfer-request-items/clear", WebApiKey, token), Assert.Single(sent));
+        Assert.True((await EvaluateAsync(services, ClearTransferRequestItems, WebApiKey, token)).Result.Forbidden);
+    }
+
+    /// <summary>
+    /// The POD pages' typed client carries the person's token, and the API judges the cashier: the
+    /// upload-status report admits a cashier, an Admin-only route does not.
+    /// </summary>
+    [Fact]
+    public async Task The_pod_client_is_judged_as_the_signed_in_cashier()
+    {
+        await using var services = BuildServices();
+        var circuit = new WebCircuit();
+        var token = UserToken(ApplicationRoles.Cashier);
+        await circuit.Staff.StoreAuthData(SignIn(ApplicationRoles.Cashier, token));
+        var pods = new PodService(circuit.KeyedClient(), NullLogger<PodService>.Instance, circuit.LocalStorage, circuit.Staff);
+
+        var sent = await circuit.RunAsync(() => pods.GetPodUploadStatusAsync(DateTime.Today.AddDays(-7), DateTime.Today));
+
+        Assert.Equal(new SentRequest("GET /api/invoice/pod-upload-status", WebApiKey, token), Assert.Single(sent));
+        Assert.True((await EvaluateAsync(services, GetPodUploadStatus, WebApiKey, token)).Result.Succeeded);
+        Assert.True((await EvaluateAsync(services, CreateNotification, WebApiKey, token)).Result.Forbidden);
+    }
+
+    /// <summary>
+    /// The POD report email reads its report on the long-running client. Pressed on a page it reads as
+    /// the person pressing; the schedule runs outside every circuit and reads as the Web app.
+    /// </summary>
+    [Fact]
+    public async Task The_pod_report_email_reads_as_the_signed_in_user_from_a_page_and_as_the_web_app_on_schedule()
+    {
+        await using var services = BuildServices();
+        // The report read fails, which ends the send before anything is exported or mailed.
+        var circuit = new WebCircuit(HttpStatusCode.InternalServerError);
+        var token = UserToken(ApplicationRoles.Cashier);
+        await circuit.Staff.StoreAuthData(SignIn(ApplicationRoles.Cashier, token));
+        var email = new PodReportEmailService(
+            circuit.ClientFactory,
+            circuit.Staff,
+            circuit.LocalStorage,
+            StubProxy.Unused<IReportExportService>(),
+            StubProxy.Unused<IDeliveryRouteDirectory>(),
+            StubProxy.Unused<IEmailService>(),
+            // The failure is audited, and the audit swallows its own failures.
+            StubProxy.Unused<IAuditService>(),
+            NullLogger<PodReportEmailService>.Instance);
+        var schedule = new PodReportEmailSchedule { Id = 1, Name = "Weekly POD", ToRecipients = "pod@example.test" };
+
+        var fromPage = await circuit.RunAsync(() => email.SendForScheduleAsync(schedule, "cashier-user"));
+        var onSchedule = await circuit.RunOutsideTheCircuitAsync(() => email.SendForScheduleAsync(schedule, "System schedule"));
+
+        Assert.Equal(new SentRequest("GET /api/invoice/pod-upload-status", WebApiKey, token), Assert.Single(fromPage));
+        Assert.True((await EvaluateAsync(services, CreateNotification, WebApiKey, token)).Result.Forbidden);
+        Assert.Equal(new SentRequest("GET /api/invoice/pod-upload-status", WebApiKey, Bearer: null), Assert.Single(onSchedule));
+    }
+
+    private static MethodInfo BulkCancelCreditNotes => Action<CreditNoteController>(nameof(CreditNoteController.BulkCancel));
+
+    private static MethodInfo DuplicateCancelledCreditNotes => Action<CreditNoteController>(nameof(CreditNoteController.DuplicateCancelled));
+
+    private static MethodInfo SyncItemTaxGroups => Action<SyncController>(nameof(SyncController.SyncItemTaxGroups));
+
+    private static MethodInfo ClearTransferRequestItems => Action<SyncController>(nameof(SyncController.ClearTransferRequestItems));
+
+    private static MethodInfo GetPodUploadStatus => Action<InvoiceController>(nameof(InvoiceController.GetPodUploadStatus));
+
+    /// <summary>
+    /// The authorization middleware's answer, then the action's <see cref="RequirePermissionAttribute"/>
+    /// filter, as MVC runs it before the action: the status the request would be refused with, or 200.
+    /// </summary>
+    private static async Task<int> EvaluateWithPermissionsAsync(ServiceProvider services, MethodInfo action, string? apiKey, string? bearerToken)
+    {
+        var policy = await EndpointPolicyAsync(services, action);
+        await using var request = services.CreateAsyncScope();
+        var httpContext = new DefaultHttpContext { RequestServices = request.ServiceProvider };
+        if (apiKey is not null)
+        {
+            httpContext.Request.Headers["X-API-Key"] = apiKey;
+        }
+
+        if (bearerToken is not null)
+        {
+            httpContext.Request.Headers.Authorization = $"Bearer {bearerToken}";
+        }
+
+        var evaluator = new PolicyEvaluator(request.ServiceProvider.GetRequiredService<IAuthorizationService>());
+        var authentication = await evaluator.AuthenticateAsync(policy, httpContext);
+        var result = await evaluator.AuthorizeAsync(policy, authentication, httpContext, resource: null);
+        if (!result.Succeeded)
+        {
+            return result.Challenged ? StatusCodes.Status401Unauthorized : StatusCodes.Status403Forbidden;
+        }
+
+        var filterContext = new AuthorizationFilterContext(
+            new ActionContext(httpContext, new RouteData(), new ActionDescriptor()), []);
+        foreach (var filter in action.GetCustomAttributes<RequirePermissionAttribute>())
+        {
+            await filter.OnAuthorizationAsync(filterContext);
+        }
+
+        return filterContext.Result switch
+        {
+            null => StatusCodes.Status200OK,
+            ForbidResult => StatusCodes.Status403Forbidden,
+            UnauthorizedResult => StatusCodes.Status401Unauthorized,
+            StatusCodeResult status => status.StatusCode,
+            var other => throw new InvalidOperationException($"Unexpected filter result {other.GetType().Name}.")
+        };
+    }
+
     private sealed class RefusingApi : HttpMessageHandler
     {
         public List<string> Calls { get; } = [];
@@ -185,23 +407,25 @@ public sealed partial class ApiKeyWithUserTokenRoleGateTests
 
     private sealed record SentHeaders(string? ApiKey, string? Bearer);
 
+    /// <summary>One request that reached the API: "METHOD /path" and what it carried.</summary>
+    private sealed record SentRequest(string Route, string? ApiKey, string? Bearer);
+
     /// <summary>One Blazor circuit: its API client, its auth state provider and its portal session.</summary>
     private sealed class WebCircuit
     {
-        private readonly CapturingApi _api = new();
+        private readonly CapturingApi _api;
         private readonly HttpClient _client;
         private readonly WebApiCaller _caller;
 
-        public WebCircuit()
+        /// <param name="answer">The status the API answers every request with.</param>
+        public WebCircuit(HttpStatusCode answer = HttpStatusCode.OK)
         {
-            _client = new HttpClient(new CircuitApiKeyHandler { InnerHandler = _api })
-            {
-                BaseAddress = new Uri("http://api.test/")
-            };
-            _client.DefaultRequestHeaders.Add(CircuitApiKeyHandler.HeaderName, WebApiKey);
+            _api = new CapturingApi(answer);
+            _client = KeyedClient();
 
+            LocalStorage = ExpiringSession.BrowserStorage([]);
             Staff = new CustomAuthStateProvider(
-                ExpiringSession.BrowserStorage([]),
+                LocalStorage,
                 _client,
                 NullLogger<CustomAuthStateProvider>.Instance,
                 new WebClientAuditContext());
@@ -215,7 +439,58 @@ public sealed partial class ApiKeyWithUserTokenRoleGateTests
 
         public CustomAuthStateProvider Staff { get; }
 
+        public ILocalStorageService LocalStorage { get; }
+
         public PortalSession Portal { get; } = new();
+
+        /// <summary>
+        /// What IHttpClientFactory hands out for the Web's keyed named and typed clients
+        /// (ShopInventoryApiLongRunning, IPodService): a new client carrying the key and no token.
+        /// </summary>
+        public IHttpClientFactory ClientFactory => StubProxy.For<IHttpClientFactory>((_, _) => KeyedClient());
+
+        /// <summary>A new client carrying the key, through the same handler Program.cs puts on every keyed client.</summary>
+        public HttpClient KeyedClient()
+        {
+            var client = new HttpClient(new CircuitApiKeyHandler { InnerHandler = _api }, disposeHandler: false)
+            {
+                BaseAddress = new Uri("http://api.test/")
+            };
+            client.DefaultRequestHeaders.Add(CircuitApiKeyHandler.HeaderName, WebApiKey);
+            return client;
+        }
+
+        /// <summary>The circuit's cache service, on the circuit's shared client and this circuit's session.</summary>
+        public MasterDataCacheService MasterDataCache() => new(
+            _client,
+            ClientFactory,
+            NullLogger<MasterDataCacheService>.Instance,
+            // Only the sync bookkeeping reads it, and that swallows its own failures.
+            StubProxy.Unused<IDbContextFactory<WebAppDbContext>>(),
+            LocalStorage,
+            Staff,
+            StubProxy.Unused<IAppSettingsProvider>());
+
+        /// <summary>
+        /// Runs <paramref name="work"/> as an inbound activity of this circuit, as a page's event handler
+        /// runs, and returns every request it sent.
+        /// </summary>
+        public async Task<IReadOnlyList<SentRequest>> RunAsync(Func<Task> work)
+        {
+            var first = _api.Sent.Count;
+            var inbound = new WebApiCallerCircuitHandler(_caller).CreateInboundActivityHandler(_ => work());
+
+            await inbound(null!);
+            return _api.Sent.Skip(first).ToList();
+        }
+
+        /// <summary>Runs <paramref name="work"/> outside every circuit, as a Quartz job runs.</summary>
+        public async Task<IReadOnlyList<SentRequest>> RunOutsideTheCircuitAsync(Func<Task> work)
+        {
+            var first = _api.Sent.Count;
+            await work();
+            return _api.Sent.Skip(first).ToList();
+        }
 
         /// <summary>One send from inside an inbound activity of this circuit, as a page makes it.</summary>
         public Task<SentHeaders> SendAsync() => SendAsync(send => send());
@@ -245,9 +520,11 @@ public sealed partial class ApiKeyWithUserTokenRoleGateTests
         }
     }
 
-    private sealed class CapturingApi : HttpMessageHandler
+    private sealed class CapturingApi(HttpStatusCode answer) : HttpMessageHandler
     {
         public SentHeaders? Last { get; private set; }
+
+        public List<SentRequest> Sent { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -255,7 +532,15 @@ public sealed partial class ApiKeyWithUserTokenRoleGateTests
                 request.Headers.TryGetValues(CircuitApiKeyHandler.HeaderName, out var keys) ? keys.Single() : null,
                 request.Headers.Authorization?.Parameter);
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            lock (Sent)
+            {
+                Sent.Add(new SentRequest($"{request.Method} {request.RequestUri!.AbsolutePath}", Last.ApiKey, Last.Bearer));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(answer)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
         }
     }
 

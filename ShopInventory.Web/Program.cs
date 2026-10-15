@@ -208,7 +208,7 @@ try
         // that covered none, because nobody could tell which they had hit.
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
-    // Off a request with no bearer token from a circuit nobody is signed in on (WebApiCaller).
+    // Off a request with no bearer token from a circuit, bar a proved portal customer's (WebApiCaller).
     .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
     // Cache sweeps started with SapBackgroundPriority.Run tell the API they are background work,
     // so they cannot take the SAP slots it keeps for people. Other requests pass untouched.
@@ -226,7 +226,7 @@ try
         }
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
-    // Off a request with no bearer token from a circuit nobody is signed in on (WebApiCaller).
+    // Off a request with no bearer token from a circuit, bar a proved portal customer's (WebApiCaller).
     .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
     .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler())
     // A page that binds its reads to its own life (PageReads) has them cancelled when it is left.
@@ -251,7 +251,7 @@ try
         }
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
-    // Off a request with no bearer token from a circuit nobody is signed in on (WebApiCaller).
+    // Off a request with no bearer token from a circuit, bar a proved portal customer's (WebApiCaller).
     .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
     .AddHttpMessageHandler(() => new PageReadCancellationHandler());
 
@@ -330,8 +330,8 @@ try
     // Add audit and settings services
     builder.Services.AddScoped<WebClientAuditContext>();
     builder.Services.AddScoped<CircuitHandler, WebClientAuditCircuitHandler>();
-    // Who each circuit calls the API for; the keyed API clients take the key off a signed-out
-    // circuit's requests (CircuitApiKeyHandler).
+    // Whether each circuit may call the API as the Web app; the keyed API clients take the key off a
+    // circuit's tokenless requests unless it is a proved portal customer's (CircuitApiKeyHandler).
     builder.Services.AddScoped<WebApiCaller>();
     builder.Services.AddScoped<CircuitHandler, WebApiCallerCircuitHandler>();
     builder.Services.AddScoped<IAuditService, AuditService>();
