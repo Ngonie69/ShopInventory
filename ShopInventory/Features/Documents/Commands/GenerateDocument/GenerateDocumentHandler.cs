@@ -2,11 +2,13 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Documents;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Documents.Commands.GenerateDocument;
 
 public sealed class GenerateDocumentHandler(
+    DocumentAttachmentAccessService accessService,
     IDocumentService documentService,
     ILogger<GenerateDocumentHandler> logger
 ) : IRequestHandler<GenerateDocumentCommand, ErrorOr<GenerateDocumentResponseDto>>
@@ -15,6 +17,14 @@ public sealed class GenerateDocumentHandler(
         GenerateDocumentCommand command,
         CancellationToken cancellationToken)
     {
+        // The document is rendered from the entity, so the caller must be able to read that entity.
+        var access = await accessService.AuthorizeEntityAccessAsync(
+            command.Request.DocumentType, command.Request.EntityId, isWriteOperation: false, cancellationToken);
+        if (access.IsError)
+        {
+            return access.Errors;
+        }
+
         try
         {
             var result = await documentService.GenerateDocumentAsync(command.Request, command.UserId, cancellationToken);

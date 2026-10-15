@@ -23,9 +23,11 @@ and classifies it:
   service-key      a policy in SERVICE_KEY_POLICIES: an integration's key, never a person
   apiaccess-only   nothing narrower than "any staff role"
   authenticated    no gate at all beyond a valid token (no [Authorize] arguments anywhere)
+  handler-checked  apiaccess-only or authenticated, but on HANDLER_CHECKED: the action sends a command
+                   whose handler asks DocumentAttachmentAccessService about the entity in the request
 
 A write (POST, PUT, PATCH, DELETE) classed apiaccess-only or authenticated fails the run unless it is
-on ALLOWLIST below with the reason it is safe. An allowlist entry no endpoint matches, or one whose
+on ALLOWLIST below with the reason it is safe, or on HANDLER_CHECKED and its handler is seen to ask. An allowlist entry no endpoint matches, or one whose
 endpoint has since been gated, also fails: a list that has stopped describing the code is not a
 review of it.
 
@@ -54,6 +56,7 @@ built-in control below fails the run if the walk finds suspiciously few actions.
 """
 import json
 import os
+import re
 import sys
 from collections import Counter
 
@@ -111,18 +114,46 @@ ALLOWLIST = {
     "POST api/DesktopIntegration/transfers/validate": READ,
     "POST api/Stock/warehouse/{warehouseCode}/sales": READ,
 
-    # --- checked per document in the handler ---------------------------------------------------------
-    "POST api/Document/attachments": "DocumentAttachmentAccessService checks the caller may edit the entity",
-    "DELETE api/Document/attachments/{id}": "DocumentAttachmentAccessService checks the caller may edit the entity",
-
-    # --- pending ------------------------------------------------------------------------------------
-    # /documents/{type}/{id} admits every signed-in role, so a role gate here would break the page.
-    # These take the per-entity check attachments already have, with the DocumentService work.
-    "POST api/Document/generate": "PENDING: per-entity access check, with the DocumentService work",
-    "POST api/Document/generate/download": "PENDING: per-entity access check, with the DocumentService work",
-    "POST api/Document/email": "PENDING: per-entity access check, with the DocumentService work",
-    "POST api/Document/signatures": "PENDING: per-entity access check, with the DocumentService work",
 }
+
+# Writes any staff role may call because the handler decides, entity by entity, whether this caller may
+# read or act on the entity named in the request. /documents/{type}/{id} admits every signed-in role, so
+# a role gate on these would break the page for most of them. Key: "VERB route"; value: the handler.
+# An entry is checked, not trusted: the action must send that handler's command, and the handler must
+# call the access service. A missing call, a missing handler, or an entry whose endpoint has since
+# gained an attribute gate fails the run.
+DOCUMENT_COMMANDS = "ShopInventory/Features/Documents/Commands"
+HANDLER_CHECKED = {
+    "POST api/Document/attachments": f"{DOCUMENT_COMMANDS}/UploadAttachment/UploadAttachmentHandler.cs",
+    "DELETE api/Document/attachments/{id}": f"{DOCUMENT_COMMANDS}/DeleteAttachment/DeleteAttachmentHandler.cs",
+    "POST api/Document/generate": f"{DOCUMENT_COMMANDS}/GenerateDocument/GenerateDocumentHandler.cs",
+    "POST api/Document/generate/download":
+        f"{DOCUMENT_COMMANDS}/GenerateAndDownloadDocument/GenerateAndDownloadDocumentHandler.cs",
+    "POST api/Document/email": f"{DOCUMENT_COMMANDS}/EmailDocument/EmailDocumentHandler.cs",
+    "POST api/Document/signatures": f"{DOCUMENT_COMMANDS}/CreateSignature/CreateSignatureHandler.cs",
+}
+ACCESS_CALL = re.compile(r"\.Authorize(?:Entity|Attachment)AccessAsync\s*\(")
+
+
+def handler_check_problem(row):
+    """None when the action sends the handler's command and the handler asks the access service."""
+    handler = HANDLER_CHECKED[row["key"]]
+    path = os.path.join(REPO, handler)
+    if not os.path.exists(path):
+        return f"{row['key']}: {handler} does not exist"
+    if not ACCESS_CALL.search(gaps.lex_cs(gaps.read(path))[0]):
+        return f"{row['key']}: {handler} never calls DocumentAttachmentAccessService"
+    command = os.path.basename(handler)[: -len("Handler.cs")] + "Command"
+    file, line = row["at"].rsplit(":", 1)
+    src = gaps.read(os.path.join(REPO, file))
+    masked = gaps.lex_cs(src)[0]
+    # "at" is the line of the action's opening brace
+    start = sum(len(x) for x in src.splitlines(keepends=True)[: int(line) - 1])
+    body_open = masked.find("{", start)
+    body = masked[body_open: gaps.match_paren(masked, body_open) + 1] if body_open >= 0 else ""
+    if not re.search(rf"\bnew\s+{command}\s*\(", body):
+        return f"{row['key']}: {row['action']} does not send {command}, so {handler} is not its handler"
+    return None
 
 
 def classify(gate_info, endpoint_attrs, staff):
@@ -215,6 +246,15 @@ def main():
         })
     rows.sort(key=lambda r: (r["action"], r["verb"], r["route"]))
 
+    for r in rows:
+        if r["key"] in HANDLER_CHECKED and r["class"] in ("apiaccess-only", "authenticated"):
+            problem = handler_check_problem(r)
+            if problem:
+                problems.append(problem)
+            else:
+                r["class"] = "handler-checked"
+                r["detail"] = "DocumentAttachmentAccessService in " + os.path.basename(HANDLER_CHECKED[r["key"]])
+
     if len(rows) < MIN_ENDPOINTS:
         problems.append(f"control: only {len(rows)} endpoints parsed (expected at least {MIN_ENDPOINTS}); "
                         "the controller walk has stopped seeing controllers")
@@ -231,6 +271,13 @@ def main():
             stale.append(f"{key}: no endpoint has this verb and route")
         elif not any(r in ungated for r in hits):
             stale.append(f"{key}: now gated ({', '.join(r['class'] + ' ' + r['detail'] for r in hits)}); remove it")
+    for key in HANDLER_CHECKED:
+        hits = by_key.get(key, [])
+        if not hits:
+            stale.append(f"{key}: no endpoint has this verb and route (HANDLER_CHECKED)")
+        elif not any(r["class"] == "handler-checked" for r in hits) and not any(r in ungated for r in hits):
+            stale.append(f"{key}: now gated by attribute ({', '.join(r['class'] + ' ' + r['detail'] for r in hits)}); "
+                         "remove it from HANDLER_CHECKED")
 
     actions = {r["action"] for r in rows}
     broad_actions = {r["action"] for r in rows if r["class"] in ("apiaccess-only", "authenticated")}
