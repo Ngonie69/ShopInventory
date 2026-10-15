@@ -2209,6 +2209,10 @@ The list filter is `documentType`, not `type`.
 | POST | `/api/Document/email` | Render it and email it |
 | GET | `/api/Document/history` | What was generated (`documentType`, `entityId`, `page` 1, `pageSize` 20) |
 
+Generating, downloading and signing need read access to the entity named by `documentType` and the id;
+emailing needs read and write access both, because it sends the document and the entity's attachments
+out. The rules are the attachment rules (`DocumentAttachmentAccessService`): refused with **403**.
+
 #### Signatures
 
 | Method | Endpoint | Description |
