@@ -67,6 +67,13 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         _anonymous = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
     }
 
+    /// <summary>
+    /// Whether this circuit holds a user the API described: signed in, refreshed or confirmed by
+    /// api/auth/me, and not signed out since. Read by <see cref="WebApiCaller"/> without touching the
+    /// browser, so it is safe from an HTTP handler.
+    /// </summary>
+    public bool HasConfirmedUser => _cachedUserInfo is not null;
+
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
         _logger.LogDebug("GetAuthenticationStateAsync called");

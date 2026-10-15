@@ -85,6 +85,15 @@ internal static class ApiTokenAuthentication
         ILogger? logger = null)
     {
         var rejectedToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+        if (string.IsNullOrWhiteSpace(rejectedToken))
+        {
+            // Nothing was rejected: the request went without a token, because nobody is signed in or
+            // ApplyAsync's renewal had already failed. The API refused an anonymous caller (the key does
+            // not travel for one, see WebApiCaller), and renewing now would only sign the empty
+            // session out again on every poll of a page nobody is signed in on.
+            return null;
+        }
+
         var renewedToken = await authStateProvider.RefreshAccessTokenAsync(rejectedToken);
 
         if (string.IsNullOrWhiteSpace(renewedToken) ||

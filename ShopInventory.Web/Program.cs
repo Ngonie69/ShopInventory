@@ -200,7 +200,7 @@ try
         client.Timeout = TimeSpan.FromMinutes(5); // 5 minutes for slow SAP price list syncs
         if (!string.IsNullOrEmpty(apiKey))
         {
-            client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+            client.DefaultRequestHeaders.Add(CircuitApiKeyHandler.HeaderName, apiKey);
         }
         // Says which audience the API's maintenance lockout should judge these calls as. Every
         // client that reaches the API carries it, including the ones that only ever read: a
@@ -208,6 +208,8 @@ try
         // that covered none, because nobody could tell which they had hit.
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
+    // Off a request with no bearer token from a circuit nobody is signed in on (WebApiCaller).
+    .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
     // Cache sweeps started with SapBackgroundPriority.Run tell the API they are background work,
     // so they cannot take the SAP slots it keeps for people. Other requests pass untouched.
     .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler())
@@ -220,10 +222,12 @@ try
         client.Timeout = TimeSpan.FromMinutes(35); // Keep the admin UI waiting longer than the server-side sync window.
         if (!string.IsNullOrEmpty(apiKey))
         {
-            client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+            client.DefaultRequestHeaders.Add(CircuitApiKeyHandler.HeaderName, apiKey);
         }
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
+    // Off a request with no bearer token from a circuit nobody is signed in on (WebApiCaller).
+    .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
     .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler())
     // A page that binds its reads to its own life (PageReads) has them cancelled when it is left.
     .AddHttpMessageHandler(() => new PageReadCancellationHandler());
@@ -243,10 +247,12 @@ try
         client.Timeout = TimeSpan.FromMinutes(35);
         if (!string.IsNullOrEmpty(apiKey))
         {
-            client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+            client.DefaultRequestHeaders.Add(CircuitApiKeyHandler.HeaderName, apiKey);
         }
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
+    // Off a request with no bearer token from a circuit nobody is signed in on (WebApiCaller).
+    .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
     .AddHttpMessageHandler(() => new PageReadCancellationHandler());
 
     // Register a scoped HttpClient that uses the factory
@@ -324,6 +330,10 @@ try
     // Add audit and settings services
     builder.Services.AddScoped<WebClientAuditContext>();
     builder.Services.AddScoped<CircuitHandler, WebClientAuditCircuitHandler>();
+    // Who each circuit calls the API for; the keyed API clients take the key off a signed-out
+    // circuit's requests (CircuitApiKeyHandler).
+    builder.Services.AddScoped<WebApiCaller>();
+    builder.Services.AddScoped<CircuitHandler, WebApiCallerCircuitHandler>();
     builder.Services.AddScoped<IAuditService, AuditService>();
     builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
     builder.Services.AddSingleton<IAppSettingsProvider, AppSettingsProvider>();

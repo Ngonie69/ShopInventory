@@ -29,6 +29,14 @@ public sealed class CustomerPortalSessionService(
     private CustomerPortalSession? _cachedSession;
     private DateTimeOffset _cachedSessionExpiresAt;
 
+    // Set when a resolution proves the customer's token or refresh token, and cleared when one finds
+    // neither or the session is cleared. Outlives the 30-second memo on purpose: it answers whether
+    // anyone is signed in on this circuit, not whether the session needs proving again.
+    private volatile bool _hasVerifiedCustomer;
+
+    /// <inheritdoc />
+    public bool HasVerifiedCustomer => _hasVerifiedCustomer;
+
     /// <summary>
     /// Resolves the signed-in customer, reusing a recent resolution rather than proving the session
     /// from scratch for every caller.
@@ -109,6 +117,8 @@ public sealed class CustomerPortalSessionService(
                     return null;
                 }
             }
+
+            _hasVerifiedCustomer = true;
 
             var linkedAccounts = customerInfo.AccountStructure == "Multi"
                 ? await GetLinkedAccountsAsync(customerInfo)
@@ -211,6 +221,7 @@ public sealed class CustomerPortalSessionService(
     {
         // Before the tokens go, so a caller racing this cannot re-cache the session being cleared.
         InvalidateCachedSession();
+        _hasVerifiedCustomer = false;
 
         try
         {
