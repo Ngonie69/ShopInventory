@@ -439,6 +439,12 @@
                     @if (CanConfirm || CanReject)
                     {
                         <div class="mbk-decide-actions">
+                            @* Undecided, so it prints stamped DRAFT with the counts typed so far. *@
+                            <button type="button" class="mbk-btn mbk-btn-secondary mbk-btn-lg" @onclick="PrintAsync"
+                                    disabled="@isSubmitting" title="Print or save as PDF, stamped DRAFT" aria-label="Print draft">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 9V3h10v6" /><rect x="3" y="9" width="18" height="8" rx="2" /><path d="M7 14h10v7H7z" /></svg>
+                                <span>Print draft</span>
+                            </button>
                             @if (CanReject)
                             {
                                 <button type="button" class="mbk-btn mbk-btn-bad mbk-btn-lg" @onclick="RejectAsync"

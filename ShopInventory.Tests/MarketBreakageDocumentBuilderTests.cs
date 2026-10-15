@@ -57,6 +57,59 @@ public sealed class MarketBreakageDocumentBuilderTests
     }
 
     [Fact]
+    public void A_transferred_report_is_not_a_draft()
+    {
+        var html = Build(Transferred(), "not-draft");
+
+        Assert.DoesNotContain("<span>DRAFT</span>", html);
+        Assert.DoesNotContain("— Draft", html);
+        Assert.Contains("Internal — market breakage return", html);
+    }
+
+    [Theory]
+    [InlineData(MarketBreakageStatus.Pending)]
+    [InlineData(MarketBreakageStatus.TransferFailed)]
+    [InlineData(MarketBreakageStatus.Transferring)]
+    public void An_undecided_report_prints_stamped_draft(string status)
+    {
+        var html = Build(Pending(status), $"draft-{status}");
+
+        Assert.Contains("<div class=\"mod-watermark mbd-watermark-draft\" aria-hidden=\"true\"><span>DRAFT</span></div>", html);
+        Assert.Contains("Breakage Report #3 — Draft", html);
+        Assert.Contains("Draft — not yet confirmed or rejected", html);
+    }
+
+    [Fact]
+    public void A_rejected_report_is_not_a_draft()
+    {
+        var report = Pending(MarketBreakageStatus.Rejected);
+
+        var html = Build(report, "rejected");
+
+        Assert.DoesNotContain("<span>DRAFT</span>", html);
+    }
+
+    [Fact]
+    public void A_draft_carries_the_counts_typed_so_far()
+    {
+        var html = Build(Pending(MarketBreakageStatus.Pending), "draft-counts", new Dictionary<int, decimal> { [1] = 147 });
+
+        Assert.Contains("−3 short", html);                         // line 1: 147 of 150
+        Assert.Contains("mod-stat-value mod-num\">147<", html);    // units counted so far
+        Assert.Contains("Not counted", html);                      // line 2 untouched
+        Assert.DoesNotContain("−19 short", html);                  // no total difference until every line is counted
+    }
+
+    [Fact]
+    public void Typed_counts_never_override_a_decided_report()
+    {
+        var html = Build(Transferred(), "decided-counts", new Dictionary<int, decimal> { [1] = 1 });
+
+        Assert.Contains("mod-stat-value mod-num\">164<", html);
+        Assert.DoesNotContain("−149 short", html);
+    }
+
+    [Fact]
     public void Text_the_rep_typed_is_escaped()
     {
         var report = Transferred();
@@ -68,9 +121,9 @@ public sealed class MarketBreakageDocumentBuilderTests
         Assert.Contains("&lt;script&gt;alert(1)&lt;/script&gt; &amp; two torn", html);
     }
 
-    private static string Build(MarketBreakageDetailDto report, string name)
+    private static string Build(MarketBreakageDetailDto report, string name, IReadOnlyDictionary<int, decimal>? draftCounts = null)
     {
-        var html = MarketBreakageDocumentBuilder.Build(report, PrintedAtCat);
+        var html = MarketBreakageDocumentBuilder.Build(report, PrintedAtCat, draftCounts);
 
         if (Environment.GetEnvironmentVariable("BREAKAGE_SLIP_OUT") is { Length: > 0 } folder)
         {
@@ -79,6 +132,21 @@ public sealed class MarketBreakageDocumentBuilderTests
         }
 
         return html;
+    }
+
+    private static MarketBreakageDetailDto Pending(string status)
+    {
+        var report = Transferred();
+        report.Status = status;
+        report.DecidedByName = null;
+        report.DecidedAtUtc = null;
+        report.DecisionRemarks = null;
+        report.SapDocNum = null;
+        report.SapDocEntry = null;
+        report.TransferredAtUtc = null;
+        foreach (var line in report.Lines)
+            line.ConfirmedQuantity = null;
+        return report;
     }
 
     private static MarketBreakageDetailDto Transferred() => new()

@@ -366,7 +366,10 @@ public partial class MarketBreakages : IDisposable
         }
     }
 
-    /// <summary>Prints the open report's return slip from what the drawer already holds.</summary>
+    /// <summary>
+    /// Prints the open report's return slip from what the drawer already holds. An undecided report
+    /// prints as a draft carrying the counts typed so far.
+    /// </summary>
     private async Task PrintAsync()
     {
         if (detail is null)
@@ -374,7 +377,7 @@ public partial class MarketBreakages : IDisposable
 
         try
         {
-            var html = MarketBreakageDocumentBuilder.Build(detail, IAuditService.ToCAT(DateTime.UtcNow));
+            var html = MarketBreakageDocumentBuilder.Build(detail, IAuditService.ToCAT(DateTime.UtcNow), counts);
             await JS.InvokeVoidAsync("printReportHtml", disposal.Token, html);
         }
         catch (OperationCanceledException) when (disposal.IsCancellationRequested)
