@@ -1,7 +1,9 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param(
     [string]$TaskName = 'ShopInventory-OpenWA',
-    [string]$OpenWARoot = (Join-Path $PSScriptRoot "..\OpenWA"),
+    # Defaults to the OpenWA folder beside this script's. Resolved below rather than here:
+    # Windows PowerShell 5.1 leaves $PSScriptRoot empty in a default value under -File.
+    [string]$OpenWARoot,
     [string]$NodeHome = "C:\Users\ngoni\.config\herd\bin\nvm\v20.20.2",
     [string]$ChromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe",
     [switch]$SkipBuild,
@@ -9,6 +11,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $OpenWARoot) {
+    $OpenWARoot = Join-Path $PSScriptRoot "..\OpenWA"
+}
 
 if (-not (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
     throw 'The ScheduledTasks module is not available on this machine.'
@@ -32,6 +38,8 @@ if ($SkipBuild) {
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ($arguments -join ' ')
 $trigger = New-ScheduledTaskTrigger -AtStartup
+# RestartCount only covers a task that fails to launch. An action that exits non-zero is not restarted
+# by Task Scheduler, which is why Run-OpenWA.ps1 supervises node itself.
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
