@@ -762,6 +762,12 @@
     gap: 6px;
 }
 
+/* The saved session's row carries a sentence and an id hint; at the default 288px both are cut.
+   The menu opens leftwards (nsel-end) over the log, never past the viewport. */
+.wdl-session-pick {
+    --nsel-max-w: min(380px, calc(100vw - 32px));
+}
+
 .wdl .wdl-setting-label {
     margin: 0;
     font-size: 12px;
