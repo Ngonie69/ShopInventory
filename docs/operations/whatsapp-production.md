@@ -246,6 +246,36 @@ starting". That message is the stop working and needs nothing done: press **Star
 session should be running. A second **Start** pressed while the first is still getting going
 answers "Session is already started".
 
+**The inbox holds one message, or stops at a date, though people have written since.** The gateway
+is older than Ngonie69/OpenWA#7 and the API older than ShopInventory#762. OpenWA keyed every
+received message `msg_unknown`, so the API stored the first one it was ever sent and answered every
+later one 409 (OpenWA retries three times, then drops it) or, once its one-hour claim had expired,
+202 with that first message's receipt. Nothing was logged. #762 fixes it on the API side alone.
+
+The lost messages can be recovered from WhatsApp itself: OpenWA keeps no copy of what it receives
+(its `messages` table is outgoing sends only), but the session's linked device holds the chat
+history. The scripts are in `scripts\WhatsAppInboundBackfill`, run on .9, in this order:
+
+1. `Measure-WhatsAppInboundLoss.ps1` - read-only. What the inbox holds, every webhook POST in the
+   IIS logs by day and status, and which sessions still have a profile on disk.
+2. Deploy #762, so nothing more is lost while you recover.
+3. `.\scripts\Stop-OpenWA.ps1` (not the console's **Stop**, which marks the session stopped), then
+   `node Export-WhatsAppReceivedMessages.js --since 2026-09-01 --out C:\Temp\wa-backfill`, then
+   `Start-ScheduledTask ShopInventory-OpenWA`. It opens each session's profile in its own Chrome,
+   reads every chat active since `--since`, and writes each received message as the webhook body
+   OpenWA would have posted. The gateway is down for the minute or two this takes; anything that
+   arrives meanwhile is caught by the export.
+4. `Import-WhatsAppBackfill.ps1 -ExportPath C:\Temp\wa-backfill` - a dry run. It reads the inbox
+   read-only and writes `backfill-plan.csv`: each message as recoverable, already stored, a Status
+   post, or the session's own.
+5. The same with `-Apply`. Each recoverable message is posted, signed, to the API's own webhook, so
+   the row is written by the handler that writes live messages, under the same key; then it reads
+   the table again and reports message by message. Recovered rows carry `DeliveryId` `backfill-…`.
+   A second run sends nothing, and a later redelivery by OpenWA replays instead of duplicating.
+
+The webhook takes at most 1 MB, so a message whose attachment makes it bigger is answered 413, live
+as well as here. The dry run counts them; `-DropOversizedMedia` stores them without the attachment.
+
 ## Customer documents
 
 Invoices sent to customers on WhatsApp from a **dedicated number** paired as its own session: as the
