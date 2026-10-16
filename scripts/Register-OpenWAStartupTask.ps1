@@ -32,6 +32,8 @@ if ($SkipBuild) {
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ($arguments -join ' ')
 $trigger = New-ScheduledTaskTrigger -AtStartup
+# RestartCount only covers a task that fails to launch. An action that exits non-zero is not restarted
+# by Task Scheduler, which is why Run-OpenWA.ps1 supervises node itself.
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
