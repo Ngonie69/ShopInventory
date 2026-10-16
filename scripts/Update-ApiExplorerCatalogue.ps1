@@ -234,12 +234,36 @@ $sb = New-Object System.Text.StringBuilder
 $null = $sb.AppendLine('        _apiCategories = new List<ApiCategory>')
 $null = $sb.AppendLine('{')
 
-$grouped = @{}
-foreach ($name in $controllers.Keys) {
-    if ($controllers[$name].Routes.Count -eq 0) { continue }
+# One module per base path, not per controller. Routes are sometimes split across classes that
+# share a [Route] - DesktopIntegrationCallbacksController holds two api/DesktopIntegration routes
+# so they can carry their own auth policy - and the explorer shows them as the one module they
+# are. The controller that names the module and picks its category is the first one (by name)
+# listed in $categoryOf, else simply the first by name.
+$modules = @{}   # basepath (lowercased) -> @{ Controller; Base; Routes }
+foreach ($name in ($controllers.Keys | Sort-Object)) {
+    $info = $controllers[$name]
+    if ($info.Routes.Count -eq 0) { continue }
+    $key = $info.Base.Trim('/').ToLowerInvariant()
+    if (-not $modules.ContainsKey($key)) {
+        $modules[$key] = @{ Controller = $name; Base = $info.Base; Routes = @() }
+    }
+    elseif ($categoryOf.ContainsKey($name) -and -not $categoryOf.ContainsKey($modules[$key].Controller)) {
+        $modules[$key].Controller = $name
+        $modules[$key].Base = $info.Base
+    }
+    elseif ($categoryOf.ContainsKey($name) -and $categoryOf[$name] -ne $categoryOf[$modules[$key].Controller]) {
+        Write-Warning ("$name and $($modules[$key].Controller) share /$key but are filed under " +
+            "'$($categoryOf[$name])' and '$($categoryOf[$modules[$key].Controller])'; using the latter.")
+    }
+    $modules[$key].Routes += $info.Routes
+}
+
+$grouped = @{}   # category -> module keys
+foreach ($key in $modules.Keys) {
+    $name = $modules[$key].Controller
     $cat = if ($categoryOf.ContainsKey($name)) { $categoryOf[$name] } else { 'Other' }
     if (-not $grouped.ContainsKey($cat)) { $grouped[$cat] = @() }
-    $grouped[$cat] += $name
+    $grouped[$cat] += $key
 }
 
 $catIndex = 0
@@ -253,12 +277,13 @@ foreach ($cat in $emittedCats) {
     $null = $sb.AppendLine('Modules = new List<ApiModule>')
     $null = $sb.AppendLine('{')
 
-    $mods = @($grouped[$cat] | Sort-Object)
+    # Ordered by the naming controller, as they were when there was one module per controller.
+    $mods = @($grouped[$cat] | Sort-Object { $modules[$_].Controller })
     $modIndex = 0
-    foreach ($controller in $mods) {
+    foreach ($baseKey in $mods) {
         $modIndex++
-        $info = $controllers[$controller]
-        $baseKey = $info.Base.Trim('/').ToLowerInvariant()
+        $info = $modules[$baseKey]
+        $controller = $info.Controller
         $prior = $existingModule[$baseKey]
 
         $basePath = '/' + $info.Base.Trim('/')
