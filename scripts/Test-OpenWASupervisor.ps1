@@ -11,7 +11,7 @@
 #     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-OpenWASupervisor.ps1
 #
 # It ends every node.exe whose command line looks like the gateway's, so it refuses to start while a
-# real gateway is running on this machine. The last scenario registers and removes a scheduled task
+# real gateway is running on this machine. Scenario 7 registers and removes a scheduled task
 # as the current user; -SkipScheduledTask leaves it out.
 
 param(
@@ -46,6 +46,7 @@ $script:failures = 0
 #                wedges its event loop and stays alive; later runs answer /api/health and stay up
 #   slow-start   answers /api/health only from 15 s after it starts, then stays up
 # The modes that serve /api/health use PORT from ..\.env, as OpenWA does.
+#   chrome-elsewhere  start a headless Chrome on a profile OUTSIDE the OpenWA folder, then stay up
 $fakeMain = @'
 // Stand-in for OpenWA's dist\main.js, driven by ..\mode.txt:
 //   crash3       exit 1 on runs 1-3 (run 2 first leaves a headless Chrome on a session profile), then stay up
@@ -55,6 +56,7 @@ $fakeMain = @'
 //   hang-once    run 1 leaves a headless Chrome on a session profile, answers /api/health twice, then
 //                wedges its event loop and stays alive; later runs answer /api/health and stay up
 //   slow-start   answers /api/health only from 15 s after it starts, then stays up
+//   chrome-elsewhere  start a headless Chrome on a profile OUTSIDE the OpenWA folder, then stay up
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -122,6 +124,15 @@ if (mode === 'hang-once' && run === 1) {
   crash(1500);
 } else if (mode === 'slow-crash') {
   crash(4000);
+} else if (mode === 'chrome-elsewhere') {
+  // Only the process tree ties this Chrome to the gateway: its command line names no OpenWA path,
+  // as when the command line cannot be read at all.
+  const profile = path.join(root, '..', 'elsewhere', 'profile');
+  const chrome = spawn(process.env.PUPPETEER_EXECUTABLE_PATH,
+    ['--headless=new', '--no-first-run', `--user-data-dir=${profile}`, 'about:blank'],
+    { stdio: 'ignore' });
+  console.log(`started Chrome PID ${chrome.pid} on ${profile}`);
+  setInterval(() => console.log(`alive ${new Date().toISOString()}`), 2000);
 } else if (mode === 'crash3' && run <= 3) {
   if (run === 2) {
     leaveChrome();
@@ -137,9 +148,9 @@ if (mode === 'hang-once' && run === 1) {
 "Windows PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
 
 $running = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 'powershell.exe' or name = 'pwsh.exe'" |
-    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and ($_.CommandLine -like '* .\dist\main.js*' -or $_.CommandLine -like '*\OpenWA\dist\main*' -or $_.CommandLine -like '*Run-OpenWA.ps1*') })
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and ($_.CommandLine -like '* .\dist\main.js*' -or $_.CommandLine -like '*\OpenWA\dist\main*' -or $_.CommandLine -like '*Run-OpenWA.ps1*' -or $_.CommandLine -like '*Test-OpenWASupervisor.ps1*') })
 if ($running.Count -gt 0) {
-    throw "An OpenWA gateway or supervisor is already running here (PID $(($running | ForEach-Object { $_.ProcessId }) -join ', ')). This test would stop it."
+    throw "An OpenWA gateway, supervisor or another run of this test is already running here (PID $(($running | ForEach-Object { $_.ProcessId }) -join ', ')). This test would stop it, or the two runs would stop each other's fake gateway."
 }
 if (Get-NetTCPConnection -LocalPort $HealthPort -State Listen -ErrorAction SilentlyContinue) {
     throw "Something is already listening on port $HealthPort. Pass a free one with -HealthPort."
@@ -178,6 +189,11 @@ function Get-FakeNode {
 
 function Get-FakeChrome {
     @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+}
+
+function Get-ElsewhereChrome {
+    $elsewhere = Join-Path $fake 'elsewhere'
+    @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($elsewhere, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
 function Get-SupervisorLines {
@@ -222,6 +238,7 @@ function Invoke-Stop {
         $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$scripts\Stop-OpenWA.ps1" 2>&1
     }
     $watch.Stop()
+    $script:lastStopOutput = @($output | ForEach-Object { "$_" })
     $output | ForEach-Object { "    stop> $_" }
     "    Stop-OpenWA.ps1 took $([Math]::Round($watch.Elapsed.TotalSeconds, 1))s"
 }
@@ -395,8 +412,120 @@ if ($registered) {
     }
 }
 
+# ---------------------------------------------------------------------------------------------------
+"`n=== 8. Stop ends the gateway's Chrome by process tree, where its command line names no OpenWA path"
+Reset-Fake 'chrome-elsewhere'
+$p = Start-Supervisor @{ RestartDelaySeconds = 2 }
+$up = Wait-For { @(Get-FakeNode).Count -eq 1 -and @(Get-ElsewhereChrome).Count -gt 0 } 30 'node and its Chrome up'
+Start-Sleep -Seconds 2
+$chromeBefore = @(Get-ElsewhereChrome).Count
+Check "node is up with its Chrome ($chromeBefore processes) on a profile outside the OpenWA folder" ($up -and $chromeBefore -gt 0)
+Invoke-Stop
+$exited = $p.WaitForExit(15000)
+Start-Sleep -Seconds 2
+Check 'every one of those Chrome processes was ended' (@(Get-ElsewhereChrome).Count -eq 0) "left=$(@(Get-ElsewhereChrome).Count)"
+Check 'the stop reported ending them' (@($script:lastStopOutput -match 'Ended \d+ Chrome process').Count -eq 1)
+Check 'node gone, supervisor exited 0, no restart' ($exited -and $p.ExitCode -eq 0 -and @(Get-FakeNode).Count -eq 0 -and (Get-Runs) -eq 1)
+
+# ---------------------------------------------------------------------------------------------------
+"`n=== 9. Stop ends an orphaned Chrome on a session profile when no gateway is running"
+Reset-Fake 'clean'
+$orphanProfile = Join-Path $root 'data\sessions\session-orphan'
+Start-Process $ChromePath -ArgumentList '--headless=new', '--no-first-run', "--user-data-dir=$orphanProfile", 'about:blank' | Out-Null
+$orphaned = Wait-For { @(Get-FakeChrome).Count -gt 0 } 20 'orphan Chrome up'
+Start-Sleep -Seconds 2
+Check 'an orphaned Chrome holds a session profile, and no node or supervisor runs' ($orphaned -and @(Get-FakeNode).Count -eq 0)
+Invoke-Stop
+Start-Sleep -Seconds 2
+Check 'the stop ended it' (@(Get-FakeChrome).Count -eq 0 -and @($script:lastStopOutput -match 'Ended \d+ Chrome process').Count -eq 1) "left=$(@(Get-FakeChrome).Count)"
+
+# ---------------------------------------------------------------------------------------------------
+"`n=== 10. Sorting processes, including ones whose command line cannot be read (made-up snapshots)"
+$stopAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $scripts 'Stop-OpenWA.ps1'), [ref]$null, [ref]$null)
+. ([scriptblock]::Create($stopAst.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Select-OpenWAProcesses' }, $true).Extent.Text))
+
+function New-Proc {
+    param([int]$Id, [string]$Name, [int]$Parent, [string]$CommandLine)
+    [pscustomobject]@{ ProcessId = [uint32]$Id; Name = $Name; ParentProcessId = [uint32]$Parent; CommandLine = $(if ($CommandLine) { $CommandLine } else { $null }) }
+}
+$prodRoot = 'C:\ShopInventory\OpenWA'
+$userChrome = New-Proc 200 'chrome.exe' 50 '"chrome.exe" --user-data-dir=C:\Users\someone\AppData\Local\Google\Chrome\User Data'
+
+# An unelevated console looking at the SYSTEM boot task's gateway: nothing readable.
+$asSeenUnelevated = @(
+    (New-Proc 100 'node.exe' 90 ''), (New-Proc 101 'chrome.exe' 100 ''), (New-Proc 102 'chrome.exe' 101 ''),
+    (New-Proc 90 'powershell.exe' 4 ''), $userChrome)
+$sorted = Select-OpenWAProcesses -Snapshot $asSeenUnelevated -Root $prodRoot -ExcludePid 1
+Check 'unelevated view of a SYSTEM gateway: node and Chrome reported as hidden, none taken as OpenWA' (
+    $sorted.Node.Count -eq 0 -and $sorted.Chrome.Count -eq 0 -and $sorted.Hidden.Count -eq 3 -and
+    @($sorted.Hidden | Where-Object { $_.ProcessId -eq 200 }).Count -eq 0)
+
+# Elevated: a browser whose command line is hidden is still found through node, an orphan by its profile.
+$asSeenElevated = @(
+    (New-Proc 100 'node.exe' 90 '"C:\node\node.exe" .\dist\main.js'),
+    (New-Proc 101 'chrome.exe' 100 ''),
+    (New-Proc 102 'chrome.exe' 101 '"chrome.exe" --type=renderer'),
+    (New-Proc 300 'chrome.exe' 999 '"chrome.exe" --user-data-dir=C:\ShopInventory\OpenWA\data\sessions\session-fiscal-alerts about:blank'),
+    (New-Proc 301 'chrome.exe' 300 '"chrome.exe" --type=gpu-process --user-data-dir=C:/ShopInventory/OpenWA/data/sessions/session-fiscal-alerts'),
+    (New-Proc 90 'powershell.exe' 4 'powershell.exe -NoProfile -File "C:\ShopInventory\scripts\Run-OpenWA.ps1" -OpenWARoot "C:\ShopInventory\OpenWA"'),
+    $userChrome)
+$sorted = Select-OpenWAProcesses -Snapshot $asSeenElevated -Root $prodRoot -ExcludePid 1
+$chromeIds = @($sorted.Chrome | ForEach-Object { [int]$_.ProcessId } | Sort-Object)
+Check 'elevated: node, supervisor, tree Chrome (hidden command line too) and orphan Chrome found; your own Chrome left alone' (
+    $sorted.Node.Count -eq 1 -and $sorted.Supervisor.Count -eq 1 -and ($chromeIds -join ',') -eq '101,102,300,301' -and $sorted.Hidden.Count -eq 0) "chrome=$($chromeIds -join ',')"
+
+$afterNode = @($asSeenElevated | Where-Object { $_.ProcessId -ne 100 })
+$sorted = Select-OpenWAProcesses -Snapshot $afterNode -Root $prodRoot -EndedNodePids @(100) -ExcludePid 90
+$chromeIds = @($sorted.Chrome | ForEach-Object { [int]$_.ProcessId } | Sort-Object)
+Check 'after node is ended its Chrome is still found by the ended PID; the excluded PID is not a supervisor' (
+    $sorted.Node.Count -eq 0 -and $sorted.Supervisor.Count -eq 0 -and ($chromeIds -join ',') -eq '101,102,300,301') "chrome=$($chromeIds -join ',')"
+
+# ---------------------------------------------------------------------------------------------------
+"`n=== 11. Unelevated with the gateway's processes hidden: Stop-OpenWA.ps1 refuses and changes nothing"
+# The real script, with Get-CimInstance shadowed by a function returning what an unelevated console sees
+# of a SYSTEM gateway. This laptop has no second account to run a real one under.
+Reset-Fake 'clean'
+$mock = @'
+function global:Get-CimInstance {
+    foreach ($p in @(@{ i = 7100; n = 'node.exe'; pp = 7000 }, @{ i = 7101; n = 'chrome.exe'; pp = 7100 }, @{ i = 7102; n = 'chrome.exe'; pp = 7101 })) {
+        [pscustomobject]@{ ProcessId = [uint32]$p.i; Name = $p.n; ParentProcessId = [uint32]$p.pp; CommandLine = $null }
+    }
+}
+'@
+$isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isElevated) {
+    Write-Host '  SKIPPED: this console is elevated, so the refusal does not apply' -ForegroundColor Yellow
+}
+else {
+    $ErrorActionPreference = 'Continue'
+    $refusal = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$mock; & '$scripts\Stop-OpenWA.ps1'" 2>&1 | ForEach-Object { "$_" })
+    $refusalCode = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    $refusal | Select-Object -First 3 | ForEach-Object { "    stop> $_" }
+    Check 'it refuses, naming the hidden PIDs and asking for elevation' (
+        ($refusal -join ' ') -match 'not elevated' -and ($refusal -join ' ') -match '7100 \(node\.exe\)' -and ($refusal -join ' ') -match 'elevated PowerShell' -and $refusalCode -ne 0)
+    Check 'no stop marker was written, so a later crash is still restarted' (-not (Test-Path -LiteralPath (Join-Path $logs 'stop-requested')))
+
+    # A Chrome of this account caught while starting has no readable command line either. It must not
+    # be taken for the SYSTEM gateway: seen when a test started a browser just before a stop.
+    $ownMock = @'
+function global:Get-CimInstance {
+    [pscustomobject]@{ ProcessId = [uint32]7201; Name = 'chrome.exe'; ParentProcessId = [uint32]7200; CommandLine = $null }
+}
+function global:Invoke-CimMethod {
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')
+    [pscustomobject]@{ ReturnValue = 0; Domain = $me[0]; User = $me[1] }
+}
+'@
+    $ErrorActionPreference = 'Continue'
+    $ownResult = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ownMock; & '$scripts\Stop-OpenWA.ps1'" 2>&1 | ForEach-Object { "$_" })
+    $ErrorActionPreference = 'Stop'
+    $ownResult | Select-Object -First 2 | ForEach-Object { "    stop> $_" }
+    Check "an unreadable Chrome of this account is not a reason to refuse" (($ownResult -join ' ') -notmatch 'not elevated' -and ($ownResult -join ' ') -match 'OpenWA is not running')
+}
+
 Get-FakeNode | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-Get-FakeChrome | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+@(Get-FakeChrome) + @(Get-ElsewhereChrome) | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 "`n$(if ($script:failures) { "$script:failures check(s) FAILED" } else { 'All checks passed' })"
 exit $script:failures
