@@ -107,7 +107,7 @@ else if (FocusedPartner is { } partner)
                 {
                     <span class="sla-legend-item">
                         <span class="slp-legend-line slp-y@(year)" aria-hidden="true"></span>
-                        @(year == 0 ? $"{Performance.Windows[0].Label} window" : $"{Performance.Windows[year].Label} same dates")
+                        @(Performance.ByCalendarYear ? Performance.Windows[year].Label : year == 0 ? $"{Performance.Windows[0].Label} window" : $"{Performance.Windows[year].Label} same dates")
                     </span>
                 }
             </div>
@@ -125,7 +125,7 @@ else if (FocusedPartner is { } partner)
                 @for (var year = Performance.Windows.Count - 1; year >= 0; year--)
                 {
                     <polyline points="@chart.Lines[year]" class="slp-line slp-y@(year)"></polyline>
-                    <circle cx="810" cy="@chart.Ends[year]" r="@(year == 0 ? "5" : "4")" class="slp-dot slp-y@(year)"></circle>
+                    <circle cx="@chart.EndXs[year]" cy="@chart.Ends[year]" r="@(year == 0 ? "5" : "4")" class="slp-dot slp-y@(year)"></circle>
                 }
                 @foreach (var end in chart.EndLabels)
                 {
@@ -159,20 +159,27 @@ else if (FocusedPartner is { } partner)
                     {
                         <tr>
                             <td class="slp-period">@period.Label</td>
-                            @YearCells((period.Revenue, true))
-                            @YearCells((period.Volume, false))
+                            @YearCells((period.Revenue, true, period.InWindow))
+                            @YearCells((period.Volume, false, period.InWindow))
                         </tr>
                     }
                     <tr class="sla-total-row">
                         <td>Window total</td>
-                        @YearCells((figures.Select(year => year.Revenue).ToList(), true))
-                        @YearCells((figures.Select(year => year.Volume).ToList(), false))
+                        @YearCells((figures.Select(year => year.Revenue).ToList(), true, null))
+                        @YearCells((figures.Select(year => year.Volume).ToList(), false, null))
                     </tr>
                 </tbody>
             </table>
         </div>
         <p class="sla-footnote">
-            Each year's window runs the same dates, so the rows line up day for day@(LeapNote).
+            @if (Performance.ByCalendarYear)
+            {
+                @:Each column is one calendar year, so the rows line up month for month@(PartYearsNote).
+            }
+            else
+            {
+                @:Each year's window runs the same dates, so the rows line up day for day@(LeapNote).
+            }
             A period below zero is one where credit notes outran invoices.
         </p>
     </section>
@@ -210,12 +217,12 @@ else
         <article class="sla-stat">
             <span class="sla-stat-label">Growing on @Performance.Windows[basis].Label</span>
             <span class="sla-stat-value slp-good">@growing <span class="sla-stat-unit">of @Performance.Partners.Count</span></span>
-            <span class="sla-stat-note">by revenue, same dates</span>
+            <span class="sla-stat-note">@ByRevenue</span>
         </article>
         <article class="sla-stat">
             <span class="sla-stat-label">Declining on @Performance.Windows[basis].Label</span>
             <span class="sla-stat-value is-credit">@declining <span class="sla-stat-unit">of @Performance.Partners.Count</span></span>
-            <span class="sla-stat-note">@(lost > 0 ? $"{lost} with nothing at all this window" : "by revenue, same dates")</span>
+            <span class="sla-stat-note">@(lost > 0 ? $"{lost} with nothing at all this window" : ByRevenue)</span>
         </article>
     </div>
 
@@ -265,7 +272,7 @@ else
                                     <span class="sla-entity-code">@p.Code</span>
                                 </span>
                             </td>
-                            @YearCells((p.Years.Select(year => year.Revenue).ToList(), true))
+                            @YearCells((p.Years.Select(year => year.Revenue).ToList(), true, null))
                             <td class="sla-num">
                                 <span class="slp-spark" role="img" aria-label="@SparkLabel(p)">
                                     @for (var year = Performance.Windows.Count - 1; year >= 0; year--)
@@ -274,7 +281,7 @@ else
                                     }
                                 </span>
                             </td>
-                            @YearCells((p.Years.Select(year => year.Volume).ToList(), false))
+                            @YearCells((p.Years.Select(year => year.Volume).ToList(), false, null))
                             <td class="sla-num">
                                 <button type="button" class="slp-open" aria-label="Open @p.Name @p.Code" @onclick="@(() => Open(p.Code))">
                                     <i class="ph ph-caret-right" aria-hidden="true"></i>
@@ -284,16 +291,20 @@ else
                     }
                     <tr class="sla-total-row">
                         <td>All @Performance.Partners.Count partners</td>
-                        @YearCells((totals.Select(year => year.Revenue).ToList(), true))
+                        @YearCells((totals.Select(year => year.Revenue).ToList(), true, null))
                         <td></td>
-                        @YearCells((totals.Select(year => year.Volume).ToList(), false))
+                        @YearCells((totals.Select(year => year.Volume).ToList(), false, null))
                         <td></td>
                     </tr>
                 </tbody>
             </table>
         </div>
         <p class="sla-footnote">
-            "new" — nothing on the same dates in @Performance.Windows[basis].Label. The total row is every partner's,
+            @if (Performance.PartYears.Count > 0)
+            {
+                @:@(string.Join(", ", Performance.PartYears)), so set it against a whole year with that in mind.
+            }
+            "new" — nothing @(Performance.ByCalendarYear ? "in" : "on the same dates in") @Performance.Windows[basis].Label. The total row is every partner's,
             whatever the filter shows. Volume adds litres across partners whichever channel each sells through.
         </p>
     </section>
@@ -336,7 +347,7 @@ else
     private sealed record EndLabel(string Y, string Text, bool IsCurrent);
 
     private sealed record Chart(
-        IReadOnlyList<string> Lines, IReadOnlyList<string> Ends, IReadOnlyList<Tick> Ticks,
+        IReadOnlyList<string> Lines, IReadOnlyList<string> EndXs, IReadOnlyList<string> Ends, IReadOnlyList<Tick> Ticks,
         IReadOnlyList<XLabel> XLabels, IReadOnlyList<EndLabel> EndLabels, string Description);
 
     protected override void OnParametersSet()
@@ -369,8 +380,18 @@ else
     private void ShowAll() => focusCode = null;
 
     private string BasisLabel => Performance.Windows.Count > 1
-        ? $"the same dates in {Performance.Windows[basis].Label}"
+        ? SameDates(Performance.Windows[basis].Label)
         : "nothing — there is no earlier year";
+
+    /// <summary>"the same dates in 2025" — or just "2025" when the columns are calendar years, which are not the same dates.</summary>
+    private string SameDates(string label) => Performance.ByCalendarYear ? label : $"the same dates in {label}";
+
+    private string ByRevenue => Performance.ByCalendarYear ? "by revenue" : "by revenue, same dates";
+
+    /// <summary>Which calendar years are not whole, since a part year against a whole one is not like for like.</summary>
+    private string PartYearsNote => Performance.PartYears.Count == 0
+        ? string.Empty
+        : $"; {string.Join(", ", Performance.PartYears)}";
 
     private string YearsSentence => string.Join(", ", Performance.Windows.Select(w => w.Label));
 
@@ -379,6 +400,13 @@ else
         get
         {
             var current = Performance.Windows[0];
+
+            if (Performance.ByCalendarYear)
+            {
+                var oldest = Performance.Windows[^1];
+                return $"{oldest.FromUtc.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)} – {current.ToUtc.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)}, a column per calendar year";
+            }
+
             var range = $"{current.FromUtc.ToString("dd MMM", CultureInfo.InvariantCulture)} – {current.ToUtc.ToString("dd MMM", CultureInfo.InvariantCulture)}";
             return Performance.Windows.Count == 1
                 ? $"{range} {current.Label}"
@@ -444,8 +472,12 @@ else
         }
     };
 
-    /// <summary>One block of cells: a figure per year, oldest first, then the change against the basis.</summary>
-    private RenderFragment<(IReadOnlyList<decimal> Values, bool IsMoney)> YearCells => args => __builder =>
+    /// <summary>
+    /// One block of cells: a figure per year, oldest first, then the change against the basis. A
+    /// row one of the two years never reached — November of a year that ends in October — has no
+    /// change: it did not fall by 100%, it has not happened.
+    /// </summary>
+    private RenderFragment<(IReadOnlyList<decimal> Values, bool IsMoney, IReadOnlyList<bool>? InWindow)> YearCells => args => __builder =>
     {
         var values = args.Values;
 
@@ -457,7 +489,11 @@ else
             </td>
         }
 
-        if (values.Count > 1)
+        if (values.Count > 1 && args.InWindow is { } inWindow && !(inWindow[0] && inWindow[basis]))
+        {
+            <td class="sla-num"></td>
+        }
+        else if (values.Count > 1)
         {
             var delta = DeltaOf(values[0], values[basis]);
             <td class="sla-num"><span class="slp-delta @delta.Css">@delta.Text</span></td>
@@ -544,10 +580,10 @@ else
             .ToList();
     }
 
-    private static string ChangeNote(decimal difference, string lead, string trail, string basisLabel) =>
+    private string ChangeNote(decimal difference, string lead, string trail, string basisLabel) =>
         difference == 0
-            ? $"Level with the same dates in {basisLabel}"
-            : $"{(difference > 0 ? "Up" : "Down")} {lead}{Money(Math.Abs(difference))}{trail} on the same dates in {basisLabel}";
+            ? $"Level with {SameDates(basisLabel)}"
+            : $"{(difference > 0 ? "Up" : "Down")} {lead}{Money(Math.Abs(difference))}{trail} on {SameDates(basisLabel)}";
 
     private static Delta DeltaOf(decimal current, decimal basisValue)
     {
@@ -594,11 +630,22 @@ else
         decimal Y(decimal value) => top + (high - value) / span * (bottom - top);
         static string F(decimal value) => value.ToString("0.#", CultureInfo.InvariantCulture);
 
+        // A part calendar year's line runs only over the rows its window reaches: 2026 stops at
+        // October rather than running flat to December as though nothing sold after it.
+        bool Reached(int year, int index) => periods[index].InWindow is not { } inWindow || inWindow[year];
+
         var lines = running
-            .Select(r => string.Join(" ", r.Select((value, index) => $"{F(X(index))},{F(Y(value))}")))
+            .Select((r, year) => string.Join(" ", r
+                .Select((value, index) => (value, index))
+                .Where(point => Reached(year, point.index))
+                .Select(point => $"{F(X(point.index))},{F(Y(point.value))}")))
             .ToList();
 
-        var ends = running.Select(r => Y(r[^1])).ToList();
+        var lastReached = running
+            .Select((r, year) => Enumerable.Range(0, r.Count).LastOrDefault(index => Reached(year, index), r.Count - 1))
+            .ToList();
+
+        var ends = running.Select((r, year) => Y(r[lastReached[year]])).ToList();
 
         var tickValues = new List<decimal> { high, (high + low) / 2m, low };
         if (low < 0)
@@ -643,7 +690,7 @@ else
             $"{(measure == Measure.Revenue ? "Cumulative revenue" : "Cumulative volume")} in {unit}: " +
             string.Join(", ", Enumerable.Range(0, years).Select(year => $"{Performance.Windows[year].Label} {Total(year)}"));
 
-        return new Chart(lines, ends.Select(F).ToList(), ticks, xLabels, endLabels, description);
+        return new Chart(lines, lastReached.Select(index => F(X(index))).ToList(), ends.Select(F).ToList(), ticks, xLabels, endLabels, description);
     }
 
     /// <summary>The smallest round step — 1, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 times a power of ten — at or above <paramref name="value"/>.</summary>

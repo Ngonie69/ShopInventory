@@ -13,7 +13,11 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetItemVolumeSalesReport;
 /// between them are never read. A single spanning report would ask SAP for the gaps too.
 /// </para>
 /// <para>
-/// Index 0 is always the window that was asked for; 1 is the year before it, 2 the year before that.
+/// A window longer than a year is the exception: the same dates a year back would overlap it, so it
+/// is cut into its <see cref="CalendarYears"/> instead — 2024, 2025 and 2026 so far, side by side.
+/// </para>
+/// <para>
+/// Index 0 is always the window that was asked for, or its newest calendar year; 1 is the year before it, 2 the year before that.
 /// Every figure is the report's own, so it is net of the credit notes raised in that year's window,
 /// and a credited period stays negative here as it does on the other lenses.
 /// </para>
@@ -54,17 +58,26 @@ public sealed class PartnerPerformance
     /// the asked-for window's, since the earlier windows are the same dates. <c>ShortLabel</c> is the
     /// same heading cut to fit under a chart: "Oct", "Q3".
     /// </summary>
-    public sealed record Period(string Label, string ShortLabel, IReadOnlyList<decimal> Revenue, IReadOnlyList<decimal> Volume);
+    public sealed record Period(string Label, string ShortLabel, IReadOnlyList<decimal> Revenue, IReadOnlyList<decimal> Volume)
+    {
+        /// <summary>
+        /// Per window, whether the row falls inside it at all. Only calendar years have rows a
+        /// window does not reach — November of a year that ends in October — and null means all do.
+        /// </summary>
+        public IReadOnlyList<bool>? InWindow { get; init; }
+    }
 
     private readonly IReadOnlyList<GetItemVolumeSalesReportResult> reports;
 
     private PartnerPerformance(
         IReadOnlyList<GetItemVolumeSalesReportResult> reports,
         IReadOnlyList<Window> windows,
-        IReadOnlyList<Partner> partners)
+        IReadOnlyList<Partner> partners,
+        bool byCalendarYear)
     {
         this.reports = reports;
         Windows = windows;
+        ByCalendarYear = byCalendarYear;
         Partners = partners;
         Totals = windows
             .Select((_, year) => partners.Aggregate(Figures.Empty, (sum, partner) => sum.Add(partner.Years[year])))
@@ -83,8 +96,57 @@ public sealed class PartnerPerformance
     public static (DateTime From, DateTime To) Shift(DateTime from, DateTime to, int yearsBack) =>
         (from.AddYears(-yearsBack), to.AddYears(-yearsBack));
 
+    /// <summary>The most windows the lens lays side by side: the asked-for one and two before it.</summary>
+    public const int MaxWindows = 3;
+
+    /// <summary>
+    /// A window longer than a year, cut at each New Year into one window per calendar year, newest
+    /// first: 01 Jan 2024 – 16 Oct 2026 is 2026 to 16 Oct, all of 2025 and all of 2024. The first and
+    /// last keep the window's own ends. Only the newest <see cref="MaxWindows"/> years are kept. Null
+    /// when the window fits in a year, which is compared against the same dates shifted back instead.
+    /// </summary>
+    /// <remarks>
+    /// The same dates a year earlier overlap a longer window: 2024–26 against 2023–25 shares all of
+    /// 2025, so a partner that traded only in the overlap reads the same figure twice at 0.0%, and
+    /// neither column is a year.
+    /// </remarks>
+    public static IReadOnlyList<Window>? CalendarYears(DateTime from, DateTime to)
+    {
+        if (from.Date >= to.Date.AddYears(-1).AddDays(1))
+        {
+            return null;
+        }
+
+        var windows = new List<Window>();
+
+        for (var year = to.Year; year >= from.Year && windows.Count < MaxWindows; year--)
+        {
+            var yearFrom = year == from.Year ? from : new DateTime(year, 1, 1, 0, 0, 0, from.Kind);
+            var yearTo = year == to.Year ? to : new DateTime(year, 12, 31, 0, 0, 0, to.Kind);
+            windows.Add(new Window(year.ToString(CultureInfo.InvariantCulture), yearFrom, yearTo));
+        }
+
+        return windows;
+    }
+
+    /// <summary>
+    /// Whether the windows are calendar years of one long window rather than the same dates in
+    /// earlier years. The rows then line up by month or quarter, and a year need not be whole.
+    /// </summary>
+    public bool ByCalendarYear { get; }
+
+    /// <summary>The years that do not run the whole calendar year — "2026 runs 01 Jan – 16 Oct". Empty when every one does.</summary>
+    public IReadOnlyList<string> PartYears => !ByCalendarYear
+        ? Array.Empty<string>()
+        : Windows
+            .Where(window => window.FromUtc.Date != new DateTime(window.FromUtc.Year, 1, 1)
+                || window.ToUtc.Date != new DateTime(window.ToUtc.Year, 12, 31))
+            .Select(window => $"{window.Label} runs {window.FromUtc.ToString("dd MMM", CultureInfo.InvariantCulture)} – {window.ToUtc.ToString("dd MMM", CultureInfo.InvariantCulture)}")
+            .ToList();
+
     /// <param name="newestFirst">The asked-for window first, then each earlier year in turn.</param>
-    public static PartnerPerformance Build(IReadOnlyList<GetItemVolumeSalesReportResult> newestFirst)
+    /// <param name="byCalendarYear">The reports are the <see cref="CalendarYears"/> of one long window.</param>
+    public static PartnerPerformance Build(IReadOnlyList<GetItemVolumeSalesReportResult> newestFirst, bool byCalendarYear = false)
     {
         ArgumentNullException.ThrowIfNull(newestFirst);
 
@@ -131,7 +193,7 @@ public sealed class PartnerPerformance
             .ThenBy(partner => partner.Code, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return new PartnerPerformance(newestFirst, windows, partners);
+        return new PartnerPerformance(newestFirst, windows, partners, byCalendarYear);
     }
 
     /// <summary>
@@ -141,6 +203,11 @@ public sealed class PartnerPerformance
     /// </summary>
     public IReadOnlyList<Period> PeriodsFor(string? cardCode)
     {
+        if (ByCalendarYear && reports[0].Grouping is ItemVolumeSalesGrouping.Monthly or ItemVolumeSalesGrouping.Quarterly or ItemVolumeSalesGrouping.Total)
+        {
+            return CalendarPeriodsFor(cardCode);
+        }
+
         var current = reports[0];
         var rows = new List<Period>(current.Periods.Count);
 
@@ -176,6 +243,83 @@ public sealed class PartnerPerformance
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Calendar years start where they like — 2024 from March, 2026 from January — so their periods
+    /// line up by name rather than position: March against March, Q2 against Q2, every month any of
+    /// the years reached, in calendar order.
+    /// </summary>
+    private IReadOnlyList<Period> CalendarPeriodsFor(string? cardCode)
+    {
+        var grouping = reports[0].Grouping;
+        var rows = new SortedDictionary<int, (decimal[] Revenue, decimal[] Volume)>();
+
+        for (var year = 0; year < reports.Count; year++)
+        {
+            foreach (var period in reports[year].Periods)
+            {
+                var key = CalendarKey(grouping, period.PeriodStartUtc);
+
+                if (!rows.TryGetValue(key, out var row))
+                {
+                    row = (new decimal[reports.Count], new decimal[reports.Count]);
+                    rows[key] = row;
+                }
+
+                foreach (var account in period.Accounts)
+                {
+                    if (cardCode is not null && !string.Equals(account.CardCode, cardCode, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    row.Revenue[year] += account.NetRevenueUsd;
+                    row.Volume[year] += account.NetVolume;
+                }
+            }
+        }
+
+        return rows
+            .Select(pair => new Period(
+                CalendarLabel(grouping, pair.Key, shortLabel: false),
+                CalendarLabel(grouping, pair.Key, shortLabel: true),
+                pair.Value.Revenue,
+                pair.Value.Volume)
+            {
+                InWindow = Windows.Select(window => Reaches(grouping, pair.Key, window)).ToList()
+            })
+            .ToList();
+    }
+
+    /// <summary>The month (1–12) or quarter (1–4) a period starts in; 0 for a whole-window total.</summary>
+    private static int CalendarKey(ItemVolumeSalesGrouping grouping, DateTime start) => grouping switch
+    {
+        ItemVolumeSalesGrouping.Monthly => start.Month,
+        ItemVolumeSalesGrouping.Quarterly => ((start.Month - 1) / 3) + 1,
+        _ => 0
+    };
+
+    private static string CalendarLabel(ItemVolumeSalesGrouping grouping, int key, bool shortLabel) => grouping switch
+    {
+        ItemVolumeSalesGrouping.Monthly => new DateTime(2000, key, 1).ToString(shortLabel ? "MMM" : "MMMM", CultureInfo.InvariantCulture),
+        ItemVolumeSalesGrouping.Quarterly => string.Create(CultureInfo.InvariantCulture, $"Q{key}"),
+        _ => shortLabel ? "Year" : "Whole year"
+    };
+
+    /// <summary>Whether <paramref name="window"/> takes in any day of the month or quarter <paramref name="key"/> names.</summary>
+    private static bool Reaches(ItemVolumeSalesGrouping grouping, int key, Window window)
+    {
+        var (firstMonth, months) = grouping switch
+        {
+            ItemVolumeSalesGrouping.Monthly => (key, 1),
+            ItemVolumeSalesGrouping.Quarterly => (((key - 1) * 3) + 1, 3),
+            _ => (1, 12)
+        };
+
+        var start = new DateTime(window.FromUtc.Year, firstMonth, 1);
+        var end = start.AddMonths(months).AddDays(-1);
+        return start <= window.ToUtc.Date && end >= window.FromUtc.Date;
     }
 
     /// <summary>The partner's figures per window, or every partner's when <paramref name="cardCode"/> is null.</summary>

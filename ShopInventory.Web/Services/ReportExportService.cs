@@ -7542,10 +7542,12 @@ public partial class ReportExportService : IReportExportService
         const string currency = "USD";
         var current = windows[0];
         // The header prints a date range or a subtitle, not both, so the range is folded into it.
-        var range = $"Period: {current.FromUtc:dd MMM yyyy} – {current.ToUtc:dd MMM yyyy}";
-        var subtitle = years > 1
-            ? $"{range}, against the same dates in {string.Join(" and ", windows.Skip(1).Select(window => window.Label))} · net of credit notes"
-            : $"{range} · net of credit notes";
+        var range = $"Period: {(performance.ByCalendarYear ? windows[^1].FromUtc : current.FromUtc):dd MMM yyyy} – {current.ToUtc:dd MMM yyyy}";
+        var subtitle = performance.ByCalendarYear
+            ? $"{range}, a column per calendar year{string.Concat(performance.PartYears.Select(part => $" · {part}"))} · net of credit notes"
+            : years > 1
+                ? $"{range}, against the same dates in {string.Join(" and ", windows.Skip(1).Select(window => window.Label))} · net of credit notes"
+                : $"{range} · net of credit notes";
 
         // Code, name, then revenue per year and its change on the year before, then the same for volume.
         var partnersSheet = AddSheet(workbook, "Partners");
@@ -7593,7 +7595,7 @@ public partial class ReportExportService : IReportExportService
         FinalizeSheet(partnersSheet, partnerCols, partnersHeader, landscape: true);
 
         // The period rows, every partner together. The earlier years are the same dates, so a row is
-        // the same slice of each year.
+        // the same slice of each year — or, for calendar years, the same month or quarter.
         var periodsSheet = AddSheet(workbook, "Periods");
         row = WriteReportHeader(
             periodsSheet,
