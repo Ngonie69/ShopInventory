@@ -531,9 +531,9 @@
                                     <span><i class="ph ph-activity" aria-hidden="true"></i>@(message.Status ?? "No status")</span>
                                     <span><i class="ph ph-box-arrow-down" aria-hidden="true"></i>Captured @FormatCatTimestamp(message.ReceivedAtUtc)</span>
                                 </div>
-                                <details class="wac-raw">
+                                <details class="wac-raw" @ontoggle="() => LoadRawPayloadAsync(message.Id)">
                                     <summary>Raw payload</summary>
-                                    <pre>@message.RawPayload</pre>
+                                    <pre>@GetRawPayloadText(message.Id)</pre>
                                 </details>
                             }
                         </article>
@@ -630,6 +630,7 @@
     private bool showCreateForm;
     private bool showNewChat;
     private bool showDetails;
+    private readonly Dictionary<int, RawPayloadView> rawPayloadViews = [];
     private bool qrEnlarged;
     private bool enterHandlerAttached;
     private string? renderedConversationKey;
@@ -932,6 +933,39 @@
     private void ToggleDetails()
     {
         showDetails = !showDetails;
+    }
+
+    /// <remarks>
+    /// The list carries no payload, since an attachment is kept in it whole, so each one is read
+    /// when its details are first opened. What is kept here is the cut-down view, a few KB at
+    /// most, and a row's payload never changes, so a refresh does not read it again.
+    /// </remarks>
+    private async Task LoadRawPayloadAsync(int messageId)
+    {
+        if (rawPayloadViews.TryGetValue(messageId, out var existing) && !existing.Failed)
+        {
+            return;
+        }
+
+        rawPayloadViews[messageId] = RawPayloadView.Loading;
+
+        try
+        {
+            rawPayloadViews[messageId] = new RawPayloadView(await WhatsAppService.GetRawPayloadViewAsync(messageId), Failed: false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load the raw payload of WhatsApp message {MessageId}", messageId);
+            rawPayloadViews[messageId] = new RawPayloadView($"Could not load the raw payload: {ex.Message}", Failed: true);
+        }
+    }
+
+    private string GetRawPayloadText(int messageId)
+        => rawPayloadViews.TryGetValue(messageId, out var view) ? view.Text : RawPayloadView.Loading.Text;
+
+    private sealed record RawPayloadView(string Text, bool Failed)
+    {
+        public static readonly RawPayloadView Loading = new("Loading…", Failed: false);
     }
 
     private void ToggleNewChat()

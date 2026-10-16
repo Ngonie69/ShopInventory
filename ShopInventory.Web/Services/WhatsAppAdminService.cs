@@ -8,6 +8,7 @@ public interface IWhatsAppAdminService
 {
     Task<WhatsAppHealthModel> GetHealthAsync(CancellationToken cancellationToken = default);
     Task<WhatsAppInboxResponseModel> GetInboxAsync(int page = 1, int pageSize = 25, string? search = null, CancellationToken cancellationToken = default);
+    Task<string> GetRawPayloadViewAsync(int messageId, CancellationToken cancellationToken = default);
     Task<WhatsAppSessionModel> CreateSessionAsync(string sessionName, CancellationToken cancellationToken = default);
     Task<List<WhatsAppSessionModel>> GetSessionsAsync(CancellationToken cancellationToken = default);
     Task<WhatsAppSessionModel> StartSessionAsync(string sessionId, CancellationToken cancellationToken = default);
@@ -75,6 +76,25 @@ public sealed class WhatsAppAdminService(
                 Page = Math.Max(page, 1),
                 PageSize = Math.Clamp(pageSize, 1, 200)
             };
+    }
+
+    /// <summary>
+    /// One message's raw payload as the inbox shows it, an attachment's base64 cut out
+    /// (<see cref="WhatsAppRawPayloadView"/>). The list does not carry the payload at all.
+    /// </summary>
+    public async Task<string> GetRawPayloadViewAsync(int messageId, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAuthenticatedAsync(() => httpClient.GetAsync($"api/whatsapp/messages/{messageId}/raw", cancellationToken));
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            logger.LogWarning("Failed to fetch the raw payload of WhatsApp message {MessageId}: {StatusCode} {Body}", messageId, response.StatusCode, body);
+            throw new HttpRequestException(BuildApiFailureMessage(response.StatusCode, response.ReasonPhrase, body));
+        }
+
+        // Read as bytes, never as a string: a 27 MB body would be 54 MB of UTF-16 before the cut.
+        var utf8Body = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        return WhatsAppRawPayloadView.Render(utf8Body);
     }
 
     public async Task<List<WhatsAppSessionModel>> GetSessionsAsync(CancellationToken cancellationToken = default)

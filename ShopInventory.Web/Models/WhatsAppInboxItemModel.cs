@@ -1,5 +1,9 @@
 namespace ShopInventory.Web.Models;
 
+/// <remarks>
+/// Mirrors the API's WhatsAppInboxItemDto, which leaves the raw payload out: an attachment is kept
+/// in it whole. <see cref="Services.IWhatsAppAdminService.GetRawPayloadViewAsync"/> reads one.
+/// </remarks>
 public class WhatsAppInboxItemModel
 {
     public int Id { get; set; }
@@ -17,5 +21,4 @@ public class WhatsAppInboxItemModel
     public string? SourcePath { get; set; }
     public DateTime? OccurredAtUtc { get; set; }
     public DateTime ReceivedAtUtc { get; set; }
-    public string RawPayload { get; set; } = string.Empty;
 }
