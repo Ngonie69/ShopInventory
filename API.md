@@ -4875,6 +4875,12 @@ it is started, scanned from a QR code, and then sends.
 The webhook is the one route on this controller outside `AdminOnly`, because the bridge is not a
 user. Everything else refuses anyone who is not an admin.
 
+The webhook takes a body of up to **20 MB** (`[MaxRequestBodySize]`, the server cap), where other
+JSON routes take 1 MB. OpenWA posts a received attachment inside the body, base64 in
+`data.media.data`, so the body is about 4/3 of the file: an image of up to 5 MB fits, and audio, video
+or a document up to about 15 MB. A larger body is answered `413`, and OpenWA drops it after three
+retries. The attachment is kept in the row's `RawPayload`.
+
 A paired session delivers nothing on its own: OpenWA posts events only to webhooks registered
 against that session. Creating or starting a session registers one aimed at `OpenWA:WebhookPublicUrl`
 and signed with `OpenWA:WebhookSecret`, and `GET .../webhook` reports whether OpenWA is actually

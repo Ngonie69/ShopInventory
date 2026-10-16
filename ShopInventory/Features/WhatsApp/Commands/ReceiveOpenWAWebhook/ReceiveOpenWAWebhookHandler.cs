@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -48,12 +49,14 @@ public sealed class ReceiveOpenWAWebhookHandler(
             return Errors.WhatsApp.MissingWebhookSecretConfiguration;
         }
 
-        if (!SignatureMatches(_settings.WebhookSecret, command.RawPayload, command.ProvidedSignature))
+        var utf8Payload = Encoding.UTF8.GetBytes(command.RawPayload);
+
+        if (!SignatureMatches(_settings.WebhookSecret, utf8Payload, command.ProvidedSignature))
         {
             return Errors.WhatsApp.InvalidWebhookSignature;
         }
 
-        var entity = ParsePayload(command.RawPayload, command.ProvidedEventType, command.SourcePath, out var isStatusPost);
+        var entity = ParsePayload(command.RawPayload, utf8Payload, command.ProvidedEventType, command.SourcePath, out var isStatusPost);
         var normalizedIdempotencyKey = DeduplicationKey(entity, command.ProvidedDeliveryId, command.ProvidedIdempotencyKey);
 
         try
@@ -86,21 +89,20 @@ public sealed class ReceiveOpenWAWebhookHandler(
 
             if (!string.IsNullOrWhiteSpace(normalizedIdempotencyKey))
             {
-                var existing = await _dbContext.WhatsAppWebhookEvents
+                // Projected, so a redelivered attachment does not read its stored payload back.
+                var existingResponse = await _dbContext.WhatsAppWebhookEvents
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(
-                        message => message.IdempotencyKey == normalizedIdempotencyKey,
-                        cancellationToken);
-
-                if (existing is not null)
-                {
-                    var existingResponse = new WhatsAppWebhookReceiptDto
+                    .Where(message => message.IdempotencyKey == normalizedIdempotencyKey)
+                    .Select(message => new WhatsAppWebhookReceiptDto
                     {
-                        Id = existing.Id,
-                        EventType = existing.EventType,
-                        ReceivedAtUtc = existing.ReceivedAtUtc
-                    };
+                        Id = message.Id,
+                        EventType = message.EventType,
+                        ReceivedAtUtc = message.ReceivedAtUtc
+                    })
+                    .FirstOrDefaultAsync(cancellationToken);
 
+                if (existingResponse is not null)
+                {
                     if (idempotencyRequestId.HasValue)
                     {
                         try
@@ -180,13 +182,13 @@ public sealed class ReceiveOpenWAWebhookHandler(
         }
     }
 
-    private WhatsAppWebhookEventEntity ParsePayload(string rawPayload, string? providedEventType, string? sourcePath, out bool isStatusPost)
+    private WhatsAppWebhookEventEntity ParsePayload(string rawPayload, byte[] utf8Payload, string? providedEventType, string? sourcePath, out bool isStatusPost)
     {
         isStatusPost = false;
 
         try
         {
-            using var jsonDocument = JsonDocument.Parse(rawPayload);
+            using var jsonDocument = JsonDocument.Parse(WithoutLongStrings(utf8Payload));
             var root = jsonDocument.RootElement;
             var payload = root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
                 ? data
@@ -466,7 +468,61 @@ public sealed class ReceiveOpenWAWebhookHandler(
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
-    private static bool SignatureMatches(string configuredSecret, string payload, string? providedSignature)
+    /// <summary>
+    /// The payload with every string longer than <see cref="LongStringBytes"/> emptied: in practice
+    /// an attachment's base64, <c>data.media.data</c>, which runs to megabytes. The fields are read
+    /// from this copy, so a parse costs what a text message's does. <see cref="JsonDocument"/> over
+    /// the whole body rents pooled buffers the size of the body, and the shared pool keeps them.
+    /// </summary>
+    /// <remarks>
+    /// A WhatsApp text is at most 65,536 characters, so no text body is long enough to be emptied.
+    /// The stored <c>RawPayload</c> is the body as received, attachment included.
+    /// </remarks>
+    private static byte[] WithoutLongStrings(byte[] utf8Payload)
+    {
+        var reader = new Utf8JsonReader(utf8Payload);
+        var copy = new ArrayBufferWriter<byte>();
+
+        using (var writer = new Utf8JsonWriter(copy))
+        {
+            while (reader.Read())
+            {
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject:
+                        writer.WriteStartObject();
+                        break;
+                    case JsonTokenType.EndObject:
+                        writer.WriteEndObject();
+                        break;
+                    case JsonTokenType.StartArray:
+                        writer.WriteStartArray();
+                        break;
+                    case JsonTokenType.EndArray:
+                        writer.WriteEndArray();
+                        break;
+                    case JsonTokenType.PropertyName:
+                        writer.WritePropertyName(reader.GetString()!);
+                        break;
+                    case JsonTokenType.String:
+                        writer.WriteStringValue(reader.ValueSpan.Length > LongStringBytes ? string.Empty : reader.GetString());
+                        break;
+                    case JsonTokenType.Number:
+                    case JsonTokenType.True:
+                    case JsonTokenType.False:
+                    case JsonTokenType.Null:
+                        writer.WriteRawValue(reader.ValueSpan, skipInputValidation: true);
+                        break;
+                }
+            }
+        }
+
+        return copy.WrittenSpan.ToArray();
+    }
+
+    private const int LongStringBytes = 256 * 1024;
+
+    private static bool SignatureMatches(string configuredSecret, byte[] utf8Payload, string? providedSignature)
     {
         if (string.IsNullOrWhiteSpace(providedSignature))
         {
@@ -474,7 +530,7 @@ public sealed class ReceiveOpenWAWebhookHandler(
         }
 
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(configuredSecret.Trim()));
-        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+        var hash = hmac.ComputeHash(utf8Payload);
         var expectedSignature = $"sha256={Convert.ToHexString(hash).ToLowerInvariant()}";
 
         var expectedBytes = Encoding.UTF8.GetBytes(expectedSignature);
