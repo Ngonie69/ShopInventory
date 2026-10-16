@@ -191,6 +191,51 @@ public sealed class CustomerDocumentSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_gateway_that_answers_has_its_sessions_listed()
+    {
+        await _kit.SetRuntimeAsync(sessionId: "gone");
+        _gateway.Sessions = [Session("a", "fiscal-alerts", "ready")];
+
+        var status = await StatusAsync();
+
+        Assert.True(status.SessionsListed);
+        Assert.Equal("The session chosen to send documents no longer exists on the gateway.", status.SessionError);
+    }
+
+    /// <summary>
+    /// The empty list that comes back when the gateway does not answer is not the gateway's list: the
+    /// page must not read the saved session's absence from it as the session being gone.
+    /// </summary>
+    [Fact]
+    public async Task A_gateway_that_does_not_answer_lists_no_sessions_rather_than_none()
+    {
+        await _kit.SetRuntimeAsync(sessionId: "their-choice");
+        _gateway.SessionsFailure = new HttpRequestException("connection refused");
+
+        var status = await StatusAsync();
+
+        Assert.False(status.SessionsListed);
+        Assert.Empty(status.Sessions);
+        Assert.Equal("The WhatsApp gateway could not be reached.", status.SessionError);
+    }
+
+    [Fact]
+    public async Task A_gateway_that_is_not_configured_lists_no_sessions()
+    {
+        await using var context = _kit.NewContext();
+        var status = await CustomerDocumentStatusReader.ReadAsync(
+            context,
+            _gateway,
+            CustomerDocumentTestKit.Gateway(configured: false),
+            CustomerDocumentTestKit.Settings(),
+            NullLogger.Instance,
+            CancellationToken.None);
+
+        Assert.False(status.SessionsListed);
+        Assert.Equal(0, _gateway.SessionReads);
+    }
+
+    [Fact]
     public async Task A_stop_sent_with_a_session_is_not_a_stop()
     {
         var saved = await SaveAsync(new UpdateCustomerDocumentDeliverySettingsRequest

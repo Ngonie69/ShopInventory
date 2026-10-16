@@ -85,6 +85,7 @@ internal static class CustomerDocumentStatusReader
                 })
                 .OrderBy(session => session.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            status.SessionsListed = true;
 
             var selected = status.Sessions.FirstOrDefault(session =>
                 string.Equals(session.Id, runtime.WhatsAppSessionId, StringComparison.OrdinalIgnoreCase));
@@ -114,6 +115,7 @@ internal static class CustomerDocumentStatusReader
         {
             logger.LogWarning(ex, "Could not read the WhatsApp sessions for the customer documents status");
             status.SessionError = "The WhatsApp gateway could not be reached.";
+            status.SessionsListed = false;
         }
 
         return status;

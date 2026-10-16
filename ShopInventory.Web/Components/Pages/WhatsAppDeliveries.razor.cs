@@ -419,7 +419,7 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
             automatic);
     }
 
-    private static IReadOnlyList<NocturneSelectOption<string>> BuildSessionOptions(CustomerDocumentDeliveryStatusModel value)
+    internal static IReadOnlyList<NocturneSelectOption<string>> BuildSessionOptions(CustomerDocumentDeliveryStatusModel value)
     {
         var options = new List<NocturneSelectOption<string>>
         {
@@ -436,11 +436,15 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
         }));
 
         // A session saved earlier that the gateway no longer lists stays visible, so the picker never
-        // shows "None" while documents are in fact waiting on a session that is gone.
+        // shows "None" while documents are in fact waiting on a session that is gone. When the gateway
+        // did not answer, its absence proves nothing: it is labelled as unknown, not as gone.
         if (!string.IsNullOrEmpty(value.SessionId)
             && !value.Sessions.Any(session => string.Equals(session.Id, value.SessionId, StringComparison.OrdinalIgnoreCase)))
         {
-            options.Add(new NocturneSelectOption<string>(value.SessionId, "The saved session (not on the gateway)", "bad")
+            options.Add(new NocturneSelectOption<string>(
+                value.SessionId,
+                value.SessionsListed ? "Saved — not on the gateway" : "Saved — gateway not answering",
+                value.SessionsListed ? "bad" : "warn")
             {
                 Hint = value.SessionId.Length > 8 ? value.SessionId[..8] : value.SessionId
             });
