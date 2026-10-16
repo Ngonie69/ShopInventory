@@ -159,6 +159,39 @@ public sealed class TransferListenerHealthCheckTests
     }
 
     /// <summary>
+    /// 2026-10-16: two SAP cancellations refused on the 12th and 14th kept this check Degraded — and the
+    /// bell ringing — days after the morning snapshot had recounted both, because the count only resets
+    /// when the listener restarts. Every refusal stamps the last delivery error, so one stamped in an
+    /// earlier ledger day dates them all.
+    /// </summary>
+    [Fact]
+    public async Task Refusals_all_from_an_earlier_ledger_day_are_healthy()
+    {
+        var result = await CheckAsync(FakeListener.Healthy(Poll(
+            webhookFailures: 2,
+            rejectedNotifications: 35,
+            lastDeliveryError: "HTTP 400: 'Quantity' must be greater than '0'.",
+            lastDeliveryErrorUtc: DateTime.UtcNow.AddDays(-2))));
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Contains("all before today's snapshot", result.Description);
+        Assert.Equal(true, result.Data["webhookFailuresBeforeToday"]);
+    }
+
+    [Fact]
+    public async Task A_refusal_in_the_current_ledger_day_is_still_degraded()
+    {
+        var result = await CheckAsync(FakeListener.Healthy(Poll(
+            webhookFailures: 2,
+            rejectedNotifications: 35,
+            lastDeliveryError: "HTTP 400",
+            lastDeliveryErrorUtc: DateTime.UtcNow.AddMinutes(-1))));
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Contains("nothing retries them", result.Description);
+    }
+
+    /// <summary>
     /// The two warehouse lists are maintained independently — one in this API's configuration, the
     /// other compiled into the listener — so they drift, and the drift is invisible from either side.
     /// KEFBYS is the case that prompted this check: the Bulawayo shop was snapshotted here and not
@@ -263,8 +296,10 @@ public sealed class TransferListenerHealthCheckTests
         string? lastDeliveryError = null,
         string? webhookUrl = null,
         int rejectedNotifications = 0,
-        int abandonedNotifications = 0) => new()
+        int abandonedNotifications = 0,
+        DateTime? lastDeliveryErrorUtc = null) => new()
         {
+            LastDeliveryErrorUtc = lastDeliveryErrorUtc,
             PendingNotifications = pendingNotifications,
             RejectedNotifications = rejectedNotifications,
             AbandonedNotifications = abandonedNotifications,
