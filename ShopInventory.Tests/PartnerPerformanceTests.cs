@@ -31,6 +31,56 @@ public sealed class PartnerPerformanceTests
         Assert.Equal(new DateTime(2027, 2, 28), to);
     }
 
+    [Fact]
+    public void A_window_of_a_year_or_less_is_compared_against_the_same_dates()
+    {
+        Assert.Null(PartnerPerformance.CalendarYears(new DateTime(2026, 1, 1), new DateTime(2026, 10, 16)));
+        Assert.Null(PartnerPerformance.CalendarYears(new DateTime(2025, 10, 17), new DateTime(2026, 10, 16)));
+    }
+
+    [Fact]
+    public void A_window_longer_than_a_year_is_a_column_per_calendar_year()
+    {
+        var years = PartnerPerformance.CalendarYears(new DateTime(2024, 1, 1), new DateTime(2026, 10, 16));
+
+        Assert.NotNull(years);
+        Assert.Equal(["2026", "2025", "2024"], years.Select(year => year.Label));
+        Assert.Equal((new DateTime(2026, 1, 1), new DateTime(2026, 10, 16)), (years[0].FromUtc, years[0].ToUtc));
+        Assert.Equal((new DateTime(2025, 1, 1), new DateTime(2025, 12, 31)), (years[1].FromUtc, years[1].ToUtc));
+        Assert.Equal((new DateTime(2024, 1, 1), new DateTime(2024, 12, 31)), (years[2].FromUtc, years[2].ToUtc));
+    }
+
+    [Fact]
+    public void Calendar_years_keep_the_window_start_and_only_the_newest_three()
+    {
+        var part = PartnerPerformance.CalendarYears(new DateTime(2024, 3, 15), new DateTime(2025, 6, 30));
+        Assert.Equal(["2025", "2024"], part!.Select(year => year.Label));
+        Assert.Equal(new DateTime(2024, 3, 15), part[1].FromUtc);
+
+        var long_ = PartnerPerformance.CalendarYears(new DateTime(2020, 1, 1), new DateTime(2026, 10, 16));
+        Assert.Equal(["2026", "2025", "2024"], long_!.Select(year => year.Label));
+    }
+
+    [Fact]
+    public void Calendar_year_rows_line_up_by_month_and_say_which_years_reach_them()
+    {
+        var current = Year(2026, new DateTime(2026, 1, 1), new DateTime(2026, 10, 16));
+        current.Periods = [Period(2026, 1, ("BP0001", 10m, 1m)), Period(2026, 10, ("BP0001", 20m, 2m))];
+
+        var prior = Year(2025, new DateTime(2025, 3, 1), new DateTime(2025, 12, 31));
+        prior.Periods = [Period(2025, 3, ("BP0001", 5m, 1m)), Period(2025, 10, ("BP0001", 7m, 1m)), Period(2025, 12, ("BP0001", 9m, 1m))];
+
+        var performance = PartnerPerformance.Build([current, prior], byCalendarYear: true);
+        var rows = performance.PeriodsFor(null);
+
+        Assert.Equal(["January", "March", "October", "December"], rows.Select(row => row.Label));
+        Assert.Equal([20m, 7m], rows[2].Revenue);
+        Assert.Equal([0m, 9m], rows[3].Revenue);
+        Assert.Equal([true, false], rows[0].InWindow!);
+        Assert.Equal([false, true], rows[3].InWindow!);
+        Assert.Equal(["2026 runs 01 Jan – 16 Oct", "2025 runs 01 Mar – 31 Dec"], performance.PartYears);
+    }
+
     [Theory]
     [InlineData(2026, 1, 2026, 10, "2026")]
     [InlineData(2025, 7, 2026, 6, "2025–26")]
@@ -209,6 +259,14 @@ public sealed class PartnerPerformanceTests
         ToDateUtc = new DateTime(year, 10, 16),
         Grouping = ItemVolumeSalesGrouping.Monthly,
         AccountTotals = accounts.ToList()
+    };
+
+    private static GetItemVolumeSalesReportResult Year(int year, DateTime from, DateTime to) => new()
+    {
+        FromDateUtc = from,
+        ToDateUtc = to,
+        Grouping = ItemVolumeSalesGrouping.Monthly,
+        AccountTotals = [Account("BP0001", "A", usd: year)]
     };
 
     private static ItemVolumeSalesAccountResult Account(

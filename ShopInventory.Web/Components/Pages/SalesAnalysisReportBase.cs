@@ -483,6 +483,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         selectedItems = new List<string>();
         loadedReport = null;
         loadedPriors = new List<GetItemVolumeSalesReportResult>();
+        loadedByCalendarYear = false;
         priorReports = new List<GetItemVolumeSalesReportResult>();
         report = null;
         errorMessage = null;
@@ -525,18 +526,27 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         var itemsText = string.Join(",", selectedItems);
 
         // Read at the start, so a lens switched mid-run does not change what this run fetches.
-        var yearsBack = IsPerformance && requestedFrom.HasValue && requestedTo.HasValue ? compareYears : 0;
+        // A window longer than a year would overlap the same dates a year back, so it is read a
+        // calendar year at a time instead: 2026 so far, 2025, 2024, each its own column.
+        var calendarYears = IsPerformance && requestedFrom.HasValue && requestedTo.HasValue
+            ? PartnerPerformance.CalendarYears(requestedFrom.Value, requestedTo.Value)
+            : null;
+        var yearsBack = calendarYears is not null
+            ? calendarYears.Count - 1
+            : IsPerformance && requestedFrom.HasValue && requestedTo.HasValue ? compareYears : 0;
+        var firstFrom = calendarYears?[0].FromUtc ?? requestedFrom;
+        var firstTo = calendarYears?[0].ToUtc ?? requestedTo;
 
         try
         {
             loadingStage = yearsBack > 0
-                ? $"Reading {PartnerPerformance.YearLabel(requestedFrom!.Value, requestedTo!.Value)}"
+                ? $"Reading {PartnerPerformance.YearLabel(firstFrom!.Value, firstTo!.Value)}"
                 : null;
 
             var result = await Mediator.Send(
                 new GetItemVolumeSalesReportQuery(
-                    requestedFrom,
-                    requestedTo,
+                    firstFrom,
+                    firstTo,
                     requestedGrouping,
                     accountsText,
                     itemsText),
@@ -555,7 +565,9 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
             for (var back = 1; back <= yearsBack && !result.IsError; back++)
             {
-                var (priorFrom, priorTo) = PartnerPerformance.Shift(requestedFrom!.Value, requestedTo!.Value, back);
+                var (priorFrom, priorTo) = calendarYears is not null
+                    ? (calendarYears[back].FromUtc, calendarYears[back].ToUtc)
+                    : PartnerPerformance.Shift(requestedFrom!.Value, requestedTo!.Value, back);
                 loadingStage = $"Reading {PartnerPerformance.YearLabel(priorFrom, priorTo)}";
                 await InvokeAsync(StateHasChanged);
 
@@ -582,6 +594,8 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
                 {
                     loadedReport = value;
                     loadedPriors = priorError is null ? priors : new List<GetItemVolumeSalesReportResult>();
+                    loadedByCalendarYear = calendarYears is not null && priorError is null;
+                    loadedFrom = requestedFrom;
                     errorMessage = priorError;
                     ranAtUtc = DateTime.UtcNow;
                     reportToDate = requestedTo?.Date ?? value.ToDateUtc.Date;
@@ -593,6 +607,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
                 {
                     loadedReport = null;
                     loadedPriors = new List<GetItemVolumeSalesReportResult>();
+                    loadedByCalendarYear = false;
                     report = null;
                     errorMessage = error.Description;
                     ApplyCrateFilter();
@@ -761,7 +776,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     /// Whether the earlier years the comparison needs are in hand for the window on screen. A window
     /// run on another lens has none, and asking for two years when one was read needs another run.
     /// </summary>
-    protected bool HasComparison => report is not null && priorReports.Count >= compareYears;
+    protected bool HasComparison => report is not null && priorReports.Count >= ComparedYears;
 
     /// <summary>
     /// The window and its earlier years, partner by partner, under the current crate setting and
@@ -770,17 +785,60 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected PartnerPerformance? Performance =>
         cachedPerformance ??= HasComparison
             ? PartnerPerformance.Build(
-                new[] { report! }.Concat(priorReports.Take(compareYears)).ToList())
+                new[] { report! }.Concat(priorReports.Take(ComparedYears)).ToList(),
+                loadedByCalendarYear)
             : null;
+
+    /// <summary>
+    /// The loaded window was longer than a year, so it was read a calendar year at a time and
+    /// <see cref="report"/> is only its newest year. The year toggle does not apply to it.
+    /// </summary>
+    private bool loadedByCalendarYear;
+
+    /// <summary>The From date the loaded run asked for — the oldest calendar year's start, when it was split.</summary>
+    private DateTime? loadedFrom;
+
+    /// <summary>How many earlier years sit beside the window: every calendar year read, or the toggle's one or two.</summary>
+    private int ComparedYears => loadedByCalendarYear ? loadedPriors.Count : compareYears;
+
+    /// <summary>The window cut into calendar years when it is longer than one; null when it is not.</summary>
+    protected IReadOnlyList<PartnerPerformance.Window>? CalendarYears =>
+        fromDate.HasValue && toDate.HasValue ? PartnerPerformance.CalendarYears(fromDate.Value, toDate.Value) : null;
 
     /// <summary>The earlier years named for the query line: "2025 and 2024".</summary>
     protected string CompareSentence => CompareSentenceFor(fromDate, toDate);
+
+    /// <summary>
+    /// The "Compare with" hint. A window longer than a year says it will be read a calendar year
+    /// at a time, since the same dates a year back would overlap it.
+    /// </summary>
+    protected string CompareHint => CalendarYears is { } years
+        ? $"Longer than a year, so a column per calendar year: {YearList(years)}"
+        : $"Same dates in {CompareSentence}";
+
+    /// <summary>What the window is set against, for the query lines.</summary>
+    private string ComparisonPhrase(DateTime? from, DateTime? to) =>
+        from.HasValue && to.HasValue && PartnerPerformance.CalendarYears(from.Value, to.Value) is { } years
+            ? $"a column per calendar year, {YearList(years)}"
+            : $"against the same dates in {CompareSentenceFor(from, to)}";
+
+    /// <summary>"2024, 2025 and 2026" — oldest first, the way the columns read.</summary>
+    private static string YearList(IReadOnlyList<PartnerPerformance.Window> years)
+    {
+        var labels = years.Reverse().Select(year => year.Label).ToList();
+        return labels.Count == 1 ? labels[0] : $"{string.Join(", ", labels.Take(labels.Count - 1))} and {labels[^1]}";
+    }
 
     private string CompareSentenceFor(DateTime? from, DateTime? to)
     {
         if (!from.HasValue || !to.HasValue)
         {
             return compareYears == 1 ? "the year before" : "the two years before";
+        }
+
+        if (PartnerPerformance.CalendarYears(from.Value, to.Value) is { } years)
+        {
+            return string.Join(" and ", years.Skip(1).Select(year => year.Label));
         }
 
         var labels = Enumerable.Range(1, compareYears)
@@ -1234,7 +1292,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     protected string ReportPeriodSentence => report is null
         ? PeriodSentence
-        : $"{report.FromDateUtc:dd MMM yyyy} – {report.ToDateUtc:dd MMM yyyy}";
+        : $"{(loadedByCalendarYear ? loadedFrom ?? report.FromDateUtc : report.FromDateUtc):dd MMM yyyy} – {report.ToDateUtc:dd MMM yyyy}";
 
     protected string ReportPartnerSentence => report?.RequestedAccountCodes.Count switch
     {
@@ -1266,7 +1324,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     };
 
     protected string ReadySentence => IsPerformance
-        ? $"{GroupLabel} · {PeriodSentence}, against the same dates in {CompareSentence} · {PartnerSentence} · {ItemSentence}"
+        ? $"{GroupLabel} · {PeriodSentence}, {ComparisonPhrase(fromDate, toDate)} · {PartnerSentence} · {ItemSentence}"
         : $"{GroupLabel} · {PeriodSentence} · {PartnerSentence} · {ItemSentence}";
 
     /// <summary>
@@ -1281,7 +1339,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
             {
                 ReportGroupLabel,
                 IsPerformance
-                    ? $"{ReportPeriodSentence}, against the same dates in {CompareSentenceFor(report?.FromDateUtc ?? fromDate, report?.ToDateUtc ?? toDate)}"
+                    ? $"{ReportPeriodSentence}, {(loadedByCalendarYear ? ComparisonPhrase(loadedFrom, report?.ToDateUtc) : ComparisonPhrase(report?.FromDateUtc ?? fromDate, report?.ToDateUtc ?? toDate))}"
                     : ReportPeriodSentence,
                 ReportPartnerSentence,
                 ReportItemSentence

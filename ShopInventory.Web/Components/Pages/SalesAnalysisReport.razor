@@ -194,13 +194,18 @@
                                window — a quarter against the same quarter, not only the year so far. *@
                             <div class="sla-field">
                                 <div class="sla-field-label">Compare with</div>
-                                <div class="sla-seg" role="group" aria-label="Compare with">
-                                    <button type="button" class="sla-seg-opt @(compareYears == 1 ? "is-on" : "")"
-                                            aria-pressed="@(compareYears == 1)" @onclick="@(() => SetCompareYears(1))">Previous year</button>
-                                    <button type="button" class="sla-seg-opt @(compareYears == 2 ? "is-on" : "")"
-                                            aria-pressed="@(compareYears == 2)" @onclick="@(() => SetCompareYears(2))">2 previous years</button>
-                                </div>
-                                <div class="sla-field-hint">Same dates in @CompareSentence</div>
+                                @* A window longer than a year is read a calendar year at a time, so how
+                                   many years sit side by side is the window's to say, not the toggle's. *@
+                                @if (CalendarYears is null)
+                                {
+                                    <div class="sla-seg" role="group" aria-label="Compare with">
+                                        <button type="button" class="sla-seg-opt @(compareYears == 1 ? "is-on" : "")"
+                                                aria-pressed="@(compareYears == 1)" @onclick="@(() => SetCompareYears(1))">Previous year</button>
+                                        <button type="button" class="sla-seg-opt @(compareYears == 2 ? "is-on" : "")"
+                                                aria-pressed="@(compareYears == 2)" @onclick="@(() => SetCompareYears(2))">2 previous years</button>
+                                    </div>
+                                }
+                                <div class="sla-field-hint">@CompareHint</div>
                             </div>
                         }
 
