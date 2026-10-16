@@ -63,6 +63,7 @@ Field Team
 Reports
     Sales Order vs Invoice  /reports/order-fulfillment
     Customer Revenue  /reports/customer-revenue
+    Partner Performance  /reports/partner-performance
     Item Volume  /reports/item-volume
 Account
     Security  /security
@@ -368,6 +369,7 @@ Reports
     Shop & Vending Review  /reports/desktop-sales/review
     Sales Order vs Invoice  /reports/order-fulfillment
     Customer Revenue  /reports/customer-revenue
+    Partner Performance  /reports/partner-performance
     Item Volume  /reports/item-volume
 System
     Exception Center  /exception-center

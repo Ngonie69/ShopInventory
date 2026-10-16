@@ -1,0 +1,700 @@
+@using System.Globalization
+@using ShopInventory.Web.Features.Reports.Queries.GetItemVolumeSalesReport
+
+@* The Partner performance lens's result, drawn from the Partner YTD performance design
+   (claude.ai artifact RzMu2C6zZ9BYi5dHshRdE8): one partner as a scorecard, a running-total
+   chart and a period table; several side by side, each of which opens to the same scorecard.
+
+   It is handed a built PartnerPerformance and draws it. Nothing here asks SAP for anything, so
+   switching the measure, the year changes are counted against, or the partner in view costs
+   no round trip: they are all reads of the years already loaded.
+
+   Years read oldest to newest left to right, the way a reader scans a trend, though the model
+   holds them newest first because the window that was asked for is the one everything is
+   measured from.
+
+   Styles live under the `slp-` prefix in wwwroot/css/sales-analysis.css, and render only
+   inside the `.sla` page root. *@
+
+@if (Performance.Partners.Count == 0)
+{
+    <section class="sla-panel">
+        <div class="sla-empty">
+            <i class="ph ph-file-dashed" aria-hidden="true"></i>
+            <strong>Nothing moved in any of the windows</strong>
+            <span>None of the partners invoiced or credited anything on these dates in @YearsSentence.</span>
+        </div>
+    </section>
+}
+else if (FocusedPartner is { } partner)
+{
+    var figures = partner.Years;
+    var periods = Performance.PeriodsFor(partner.Code);
+
+    <section class="slp-partner">
+        <div class="slp-partner-id">
+            <span class="slp-avatar" aria-hidden="true">@Initials(partner.Name)</span>
+            <div class="slp-partner-text">
+                <div class="slp-partner-name">
+                    <h2>@partner.Name</h2>
+                    <span class="slp-code">@partner.Code</span>
+                </div>
+                <span class="slp-partner-note">@WindowNote</span>
+            </div>
+        </div>
+        <div class="slp-partner-tools">
+            @if (Performance.Partners.Count > 1)
+            {
+                <button type="button" class="sla-btn sla-btn-secondary sla-btn-sm" @onclick="ShowAll">
+                    <i class="ph ph-arrow-left" aria-hidden="true"></i>All @Performance.Partners.Count partners
+                </button>
+            }
+            @BasisPicker
+        </div>
+    </section>
+
+    <div class="slp-cards">
+        @foreach (var card in CardsFor(figures))
+        {
+            <article class="slp-card">
+                <div class="slp-card-head">
+                    <span class="sla-stat-label">@card.Label</span>
+                    <span class="slp-delta @card.Delta.Css">@card.Delta.Text</span>
+                </div>
+                <span class="slp-card-value @(card.IsCredit ? "is-credit" : "")">
+                    @if (card.Lead.Length > 0)
+                    {
+                        <span class="sla-stat-unit">@card.Lead</span>
+                    }
+                    @card.Value
+                    @if (card.Trail.Length > 0)
+                    {
+                        <span class="sla-stat-unit">@card.Trail</span>
+                    }
+                </span>
+                <span class="sla-stat-note">@card.Note</span>
+                <div class="slp-years">
+                    @foreach (var year in card.Years)
+                    {
+                        <div class="slp-year @(year.IsCurrent ? "is-current" : "") @(year.IsBasis ? "is-basis" : "")">
+                            <span class="slp-year-label">@year.Label</span>
+                            <span class="slp-year-track"><span class="slp-year-bar" style="@year.BarStyle"></span></span>
+                            <span class="slp-year-value">@year.Text</span>
+                        </div>
+                    }
+                </div>
+            </article>
+        }
+    </div>
+
+    @if (periods.Count > 1)
+    {
+        var chart = ChartFor(periods);
+
+        <section class="sla-panel sla-chart">
+            <div class="sla-panel-head">
+                <h2 class="sla-panel-title">@(measure == Measure.Revenue ? "Cumulative revenue" : "Cumulative volume")</h2>
+                <span class="sla-panel-sub">running total from the start of each window — where the lines part is where the year was won or lost</span>
+                <div class="sla-seg slp-push" role="group" aria-label="Measure">
+                    <button type="button" class="sla-seg-opt @(measure == Measure.Revenue ? "is-on" : "")"
+                            aria-pressed="@(measure == Measure.Revenue)" @onclick="@(() => measure = Measure.Revenue)">Revenue</button>
+                    <button type="button" class="sla-seg-opt @(measure == Measure.Volume ? "is-on" : "")"
+                            aria-pressed="@(measure == Measure.Volume)" @onclick="@(() => measure = Measure.Volume)">Volume</button>
+                </div>
+            </div>
+            <div class="sla-legend slp-legend">
+                @for (var year = Performance.Windows.Count - 1; year >= 0; year--)
+                {
+                    <span class="sla-legend-item">
+                        <span class="slp-legend-line slp-y@(year)" aria-hidden="true"></span>
+                        @(year == 0 ? $"{Performance.Windows[0].Label} window" : $"{Performance.Windows[year].Label} same dates")
+                    </span>
+                }
+            </div>
+            <div class="slp-plot-wrap">
+            <svg class="slp-plot" viewBox="0 0 1000 300" role="img" aria-label="@chart.Description">
+                @foreach (var tick in chart.Ticks)
+                {
+                    <line x1="70" x2="810" y1="@tick.Y" y2="@tick.Y" class="@(tick.IsZero ? "slp-axis" : "slp-grid")"></line>
+                    <!text x="60" y="@tick.LabelY" text-anchor="end" class="slp-tick">@tick.Text</!text>
+                }
+                @foreach (var label in chart.XLabels)
+                {
+                    <!text x="@label.X" y="288" text-anchor="middle" class="slp-tick">@label.Text</!text>
+                }
+                @for (var year = Performance.Windows.Count - 1; year >= 0; year--)
+                {
+                    <polyline points="@chart.Lines[year]" class="slp-line slp-y@(year)"></polyline>
+                    <circle cx="810" cy="@chart.Ends[year]" r="@(year == 0 ? "5" : "4")" class="slp-dot slp-y@(year)"></circle>
+                }
+                @foreach (var end in chart.EndLabels)
+                {
+                    <!text x="824" y="@end.Y" text-anchor="start" class="slp-end @(end.IsCurrent ? "is-current" : "")">@end.Text</!text>
+                }
+            </svg>
+            </div>
+        </section>
+    }
+
+    <section class="sla-panel sla-tablecard">
+        <div class="sla-panel-head">
+            <h2 class="sla-panel-title">@PeriodHeading</h2>
+            <span class="sla-panel-sub">revenue in @Currency, volume in litres, each net of credit notes · change against @BasisLabel</span>
+        </div>
+        <div class="sla-tablewrap">
+            <table class="sla-table slp-table">
+                <thead>
+                    <tr>
+                        <th rowspan="2" class="slp-th-period">Period</th>
+                        <th colspan="@(Performance.Windows.Count + 1)" class="slp-th-group">Revenue · @Currency</th>
+                        <th colspan="@(Performance.Windows.Count + 1)" class="slp-th-group">Volume · litres</th>
+                    </tr>
+                    <tr>
+                        @YearHeadings
+                        @YearHeadings
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var period in periods)
+                    {
+                        <tr>
+                            <td class="slp-period">@period.Label</td>
+                            @YearCells((period.Revenue, true))
+                            @YearCells((period.Volume, false))
+                        </tr>
+                    }
+                    <tr class="sla-total-row">
+                        <td>Window total</td>
+                        @YearCells((figures.Select(year => year.Revenue).ToList(), true))
+                        @YearCells((figures.Select(year => year.Volume).ToList(), false))
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="sla-footnote">
+            Each year's window runs the same dates, so the rows line up day for day@(LeapNote).
+            A period below zero is one where credit notes outran invoices.
+        </p>
+    </section>
+}
+else
+{
+    var totals = Performance.Totals;
+    var growing = Performance.Partners.Count(p => p.Years[0].Revenue > p.Years[basis].Revenue);
+    var declining = Performance.Partners.Count(p => p.Years[0].Revenue < p.Years[basis].Revenue);
+    var lost = Performance.Partners.Count(p => p.Years[0].Revenue == 0 && p.Years[basis].Revenue != 0);
+    var revenueDelta = DeltaOf(totals[0].Revenue, totals[basis].Revenue);
+    var volumeDelta = DeltaOf(totals[0].Volume, totals[basis].Volume);
+
+    <section class="slp-partner">
+        <div class="slp-partner-text">
+            <div class="slp-partner-name">
+                <h2>@Performance.Partners.Count partners side by side</h2>
+            </div>
+            <span class="slp-partner-note">@WindowNote</span>
+        </div>
+        <div class="slp-partner-tools">@BasisPicker</div>
+    </section>
+
+    <div class="sla-stats slp-stats">
+        <article class="sla-stat">
+            <span class="sla-stat-label">Net revenue · @Performance.Windows[0].Label</span>
+            <span class="sla-stat-value"><span class="sla-stat-unit">@Currency</span> @Money(totals[0].Revenue)</span>
+            <span class="slp-stat-note"><span class="slp-delta @revenueDelta.Css">@revenueDelta.Text</span> vs @Performance.Windows[basis].Label</span>
+        </article>
+        <article class="sla-stat">
+            <span class="sla-stat-label">Net volume · @Performance.Windows[0].Label</span>
+            <span class="sla-stat-value">@Money(totals[0].Volume) <span class="sla-stat-unit">L</span></span>
+            <span class="slp-stat-note"><span class="slp-delta @volumeDelta.Css">@volumeDelta.Text</span> vs @Performance.Windows[basis].Label</span>
+        </article>
+        <article class="sla-stat">
+            <span class="sla-stat-label">Growing on @Performance.Windows[basis].Label</span>
+            <span class="sla-stat-value slp-good">@growing <span class="sla-stat-unit">of @Performance.Partners.Count</span></span>
+            <span class="sla-stat-note">by revenue, same dates</span>
+        </article>
+        <article class="sla-stat">
+            <span class="sla-stat-label">Declining on @Performance.Windows[basis].Label</span>
+            <span class="sla-stat-value is-credit">@declining <span class="sla-stat-unit">of @Performance.Partners.Count</span></span>
+            <span class="sla-stat-note">@(lost > 0 ? $"{lost} with nothing at all this window" : "by revenue, same dates")</span>
+        </article>
+    </div>
+
+    <section class="sla-panel sla-tablecard">
+        <div class="sla-panel-head">
+            <h2 class="sla-panel-title">Partners side by side</h2>
+            <span class="sla-panel-sub">open a partner for its scorecard and period table</span>
+            <div class="sla-table-tools">
+                <div class="sla-seg" role="group" aria-label="Sort by">
+                    <button type="button" class="sla-seg-opt @(sort == Sort.Revenue ? "is-on" : "")"
+                            aria-pressed="@(sort == Sort.Revenue)" @onclick="@(() => sort = Sort.Revenue)">Revenue</button>
+                    <button type="button" class="sla-seg-opt @(sort == Sort.Change ? "is-on" : "")"
+                            aria-pressed="@(sort == Sort.Change)" @onclick="@(() => sort = Sort.Change)">Change</button>
+                    <button type="button" class="sla-seg-opt @(sort == Sort.Volume ? "is-on" : "")"
+                            aria-pressed="@(sort == Sort.Volume)" @onclick="@(() => sort = Sort.Volume)">Volume</button>
+                </div>
+                <div class="sla-search">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <input class="sla-input" type="search" value="@filter" @oninput="@(e => filter = e.Value?.ToString() ?? string.Empty)"
+                           aria-label="Filter partners" placeholder="Filter partners or codes…" />
+                </div>
+            </div>
+        </div>
+        <div class="sla-tablewrap">
+            <table class="sla-table slp-table">
+                <thead>
+                    <tr>
+                        <th rowspan="2" class="sla-th-entity">Business partner</th>
+                        <th colspan="@(Performance.Windows.Count + 2)" class="slp-th-group">Revenue · @Currency</th>
+                        <th colspan="@(Performance.Windows.Count + 1)" class="slp-th-group">Volume · litres</th>
+                        <th rowspan="2"><span class="slp-sr">Open</span></th>
+                    </tr>
+                    <tr>
+                        @YearHeadings
+                        <th class="sla-num">Trend</th>
+                        @YearHeadings
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in SortedPartners)
+                    {
+                        var p = row;
+                        <tr>
+                            <td>
+                                <span class="sla-entity">
+                                    <span class="sla-entity-name">@p.Name</span>
+                                    <span class="sla-entity-code">@p.Code</span>
+                                </span>
+                            </td>
+                            @YearCells((p.Years.Select(year => year.Revenue).ToList(), true))
+                            <td class="sla-num">
+                                <span class="slp-spark" role="img" aria-label="@SparkLabel(p)">
+                                    @for (var year = Performance.Windows.Count - 1; year >= 0; year--)
+                                    {
+                                        <span class="slp-y@(year)" style="@SparkStyle(p, year)"></span>
+                                    }
+                                </span>
+                            </td>
+                            @YearCells((p.Years.Select(year => year.Volume).ToList(), false))
+                            <td class="sla-num">
+                                <button type="button" class="slp-open" aria-label="Open @p.Name @p.Code" @onclick="@(() => Open(p.Code))">
+                                    <i class="ph ph-caret-right" aria-hidden="true"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                    <tr class="sla-total-row">
+                        <td>All @Performance.Partners.Count partners</td>
+                        @YearCells((totals.Select(year => year.Revenue).ToList(), true))
+                        <td></td>
+                        @YearCells((totals.Select(year => year.Volume).ToList(), false))
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="sla-footnote">
+            "new" — nothing on the same dates in @Performance.Windows[basis].Label. The total row is every partner's,
+            whatever the filter shows. Volume adds litres across partners whichever channel each sells through.
+        </p>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public PartnerPerformance Performance { get; set; } = default!;
+
+    /// <summary>The currency the revenue figures are in, as the page reads it.</summary>
+    [Parameter] public string Currency { get; set; } = "USD";
+
+    private enum Measure { Revenue, Volume }
+
+    private enum Sort { Revenue, Change, Volume }
+
+    private Measure measure = Measure.Revenue;
+    private Sort sort = Sort.Revenue;
+    private string filter = string.Empty;
+
+    /// <summary>Which earlier year the changes are counted against: 1 is the year before.</summary>
+    private int basis = 1;
+
+    /// <summary>The partner opened from the side-by-side table; null shows the table.</summary>
+    private string? focusCode;
+
+    private PartnerPerformance? seen;
+
+    private sealed record Delta(string Text, string Css);
+
+    private sealed record YearBar(string Label, string BarStyle, string Text, bool IsCurrent, bool IsBasis);
+
+    private sealed record Card(
+        string Label, string Lead, string Value, string Trail, bool IsCredit,
+        Delta Delta, string Note, IReadOnlyList<YearBar> Years);
+
+    private sealed record Tick(string Y, string LabelY, string Text, bool IsZero);
+
+    private sealed record XLabel(string X, string Text);
+
+    private sealed record EndLabel(string Y, string Text, bool IsCurrent);
+
+    private sealed record Chart(
+        IReadOnlyList<string> Lines, IReadOnlyList<string> Ends, IReadOnlyList<Tick> Ticks,
+        IReadOnlyList<XLabel> XLabels, IReadOnlyList<EndLabel> EndLabels, string Description);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(seen, Performance))
+        {
+            return;
+        }
+
+        // A new run, or the same one re-read under another currency or crate setting. Keep the
+        // partner in view if it is still there; keep the basis if that year still is.
+        seen = Performance;
+        basis = Math.Clamp(basis, 1, Math.Max(1, Performance.Windows.Count - 1));
+
+        if (focusCode is not null &&
+            !Performance.Partners.Any(p => string.Equals(p.Code, focusCode, StringComparison.OrdinalIgnoreCase)))
+        {
+            focusCode = null;
+        }
+    }
+
+    /// <summary>The one partner on the scorecard: the opened one, or the only one there is.</summary>
+    private PartnerPerformance.Partner? FocusedPartner =>
+        focusCode is not null
+            ? Performance.Partners.FirstOrDefault(p => string.Equals(p.Code, focusCode, StringComparison.OrdinalIgnoreCase))
+            : Performance.Partners.Count == 1 ? Performance.Partners[0] : null;
+
+    private void Open(string code) => focusCode = code;
+
+    private void ShowAll() => focusCode = null;
+
+    private string BasisLabel => Performance.Windows.Count > 1
+        ? $"the same dates in {Performance.Windows[basis].Label}"
+        : "nothing — there is no earlier year";
+
+    private string YearsSentence => string.Join(", ", Performance.Windows.Select(w => w.Label));
+
+    private string WindowNote
+    {
+        get
+        {
+            var current = Performance.Windows[0];
+            var range = $"{current.FromUtc.ToString("dd MMM", CultureInfo.InvariantCulture)} – {current.ToUtc.ToString("dd MMM", CultureInfo.InvariantCulture)}";
+            return Performance.Windows.Count == 1
+                ? $"{range} {current.Label}"
+                : $"{range} in {string.Join(", ", Performance.Windows.Select(w => w.Label))}";
+        }
+    }
+
+    /// <summary>
+    /// The windows are the same calendar dates, so they are a day apart in length only across a
+    /// 29 February — worth a word, since otherwise the rows claim to line up exactly.
+    /// </summary>
+    private string LeapNote
+    {
+        get
+        {
+            var lengths = Performance.Windows.Select(w => (w.ToUtc.Date - w.FromUtc.Date).Days + 1).ToList();
+
+            if (lengths.Distinct().Count() == 1)
+            {
+                return string.Empty;
+            }
+
+            var longest = Performance.Windows[lengths.IndexOf(lengths.Max())];
+            return $", though {longest.Label}'s is a day longer for its 29 February";
+        }
+    }
+
+    private string PeriodHeading => Performance.PeriodsFor(null).Count switch
+    {
+        1 => "The window",
+        _ => "Period by period"
+    };
+
+    private RenderFragment BasisPicker => __builder =>
+    {
+        if (Performance.Windows.Count > 2)
+        {
+            <div class="slp-basis">
+                <span class="slp-basis-label">Change against</span>
+                <div class="sla-seg" role="group" aria-label="Change measured against">
+                    @for (var year = 1; year < Performance.Windows.Count; year++)
+                    {
+                        var index = year;
+                        <button type="button" class="sla-seg-opt @(basis == index ? "is-on" : "")"
+                                aria-pressed="@(basis == index)" @onclick="@(() => basis = index)">@Performance.Windows[index].Label</button>
+                    }
+                </div>
+            </div>
+        }
+    };
+
+    /// <summary>The year headings for one block: oldest to newest, then the change.</summary>
+    private RenderFragment YearHeadings => __builder =>
+    {
+        for (var year = Performance.Windows.Count - 1; year >= 0; year--)
+        {
+            <th class="sla-num @(year == 0 ? "slp-th-current" : "")">@Performance.Windows[year].Label</th>
+        }
+
+        if (Performance.Windows.Count > 1)
+        {
+            <th class="sla-num">vs @Performance.Windows[basis].Label</th>
+        }
+    };
+
+    /// <summary>One block of cells: a figure per year, oldest first, then the change against the basis.</summary>
+    private RenderFragment<(IReadOnlyList<decimal> Values, bool IsMoney)> YearCells => args => __builder =>
+    {
+        var values = args.Values;
+
+        for (var year = values.Count - 1; year >= 0; year--)
+        {
+            var value = values[year];
+            <td class="sla-num @(year == 0 ? "is-strong" : "") @(value < 0 ? "is-credit" : "") @(value == 0 ? "slp-zero" : "")">
+                @(value == 0 ? "—" : Money(value))
+            </td>
+        }
+
+        if (values.Count > 1)
+        {
+            var delta = DeltaOf(values[0], values[basis]);
+            <td class="sla-num"><span class="slp-delta @delta.Css">@delta.Text</span></td>
+        }
+    };
+
+    private IEnumerable<PartnerPerformance.Partner> SortedPartners
+    {
+        get
+        {
+            var needle = filter.Trim();
+            var partners = Performance.Partners.AsEnumerable();
+
+            if (needle.Length > 0)
+            {
+                partners = partners.Where(p =>
+                    p.Name.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
+                    p.Code.Contains(needle, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return sort switch
+            {
+                // New partners lead, since they have no percentage to sort by and are the news.
+                Sort.Change => partners
+                    .OrderByDescending(p => PartnerPerformance.Change(p.Years[0].Revenue, p.Years[basis].Revenue) ?? (p.Years[0].Revenue > 0 ? decimal.MaxValue : decimal.MinValue))
+                    .ThenByDescending(p => p.Years[0].Revenue),
+                Sort.Volume => partners.OrderByDescending(p => p.Years[0].Volume),
+                _ => partners
+            };
+        }
+    }
+
+    private List<Card> CardsFor(IReadOnlyList<PartnerPerformance.Figures> years)
+    {
+        var current = years[0];
+        var basisYear = years[basis];
+        var basisLabel = Performance.Windows[basis].Label;
+
+        var perLitre = years.Select(y => y.RevenuePerLitre ?? 0m).ToList();
+        var maxCredit = years.Max(y => y.Credited);
+
+        return new List<Card>
+        {
+            new(
+                $"Net revenue · {Performance.Windows[0].Label}", Currency, Money(current.Revenue), string.Empty, current.Revenue < 0,
+                DeltaOf(current.Revenue, basisYear.Revenue),
+                ChangeNote(current.Revenue - basisYear.Revenue, $"{Currency} ", string.Empty, basisLabel),
+                Bars(years.Select(y => y.Revenue).ToList(), value => $"{Currency} {Money(value)}")),
+            new(
+                $"Net volume · {Performance.Windows[0].Label}", string.Empty, Money(current.Volume), "L", current.Volume < 0,
+                DeltaOf(current.Volume, basisYear.Volume),
+                ChangeNote(current.Volume - basisYear.Volume, string.Empty, " L", basisLabel),
+                Bars(years.Select(y => y.Volume).ToList(), value => $"{Money(value)} L")),
+            new(
+                "Revenue per litre", Currency, current.RevenuePerLitre is { } rate ? rate.ToString("N2", CultureInfo.InvariantCulture) : "—", "/ L", false,
+                current.RevenuePerLitre is { } now && basisYear.RevenuePerLitre is { } then ? DeltaOf(now, then) : new Delta("—", "is-flat"),
+                "Revenue over volume — price and mix in one number",
+                Bars(perLitre, value => value == 0 ? "—" : $"{Currency} {value.ToString("N2", CultureInfo.InvariantCulture)}")),
+            new(
+                $"Credited back · {Performance.Windows[0].Label}", $"−{Currency}", Money(current.Credited), string.Empty, true,
+                new Delta($"{current.CreditNotes:N0} {(current.CreditNotes == 1 ? "note" : "notes")}", "is-flat"),
+                "Already netted out of every figure here",
+                Bars(years.Select(y => y.Credited).ToList(), value => Money(value), years.Select(y => y.CreditNotes).ToList(), "is-credit"))
+        };
+    }
+
+    /// <summary>
+    /// A year per row, newest on top, each bar against the largest of the years. Negative years
+    /// keep a bar the length of their size: it is the table that carries the sign.
+    /// </summary>
+    private List<YearBar> Bars(IReadOnlyList<decimal> values, Func<decimal, string> format, IReadOnlyList<int>? counts = null, string? fill = null)
+    {
+        var max = values.Max(value => Math.Abs(value));
+
+        return values
+            .Select((value, year) => new YearBar(
+                Performance.Windows[year].Label,
+                max == 0
+                    ? "width:0%"
+                    : $"width:{(Math.Abs(value) / max * 100m).ToString("0.##", CultureInfo.InvariantCulture)}%;background:var({(fill is null ? $"--slp-y{year}" : "--sla-fam-bad")})",
+                counts is null ? format(value) : $"{counts[year]:N0} · {format(value)}",
+                year == 0,
+                year == basis && Performance.Windows.Count > 1))
+            .ToList();
+    }
+
+    private static string ChangeNote(decimal difference, string lead, string trail, string basisLabel) =>
+        difference == 0
+            ? $"Level with the same dates in {basisLabel}"
+            : $"{(difference > 0 ? "Up" : "Down")} {lead}{Money(Math.Abs(difference))}{trail} on the same dates in {basisLabel}";
+
+    private static Delta DeltaOf(decimal current, decimal basisValue)
+    {
+        var change = PartnerPerformance.Change(current, basisValue);
+
+        if (change is null)
+        {
+            return current == 0 ? new Delta("—", "is-flat") : new Delta("new", current > 0 ? "is-up" : "is-down");
+        }
+
+        if (change.Value == 0)
+        {
+            return new Delta("0.0%", "is-flat");
+        }
+
+        var text = Math.Abs(change.Value).ToString("N1", CultureInfo.InvariantCulture) + "%";
+        return change.Value > 0 ? new Delta($"+{text}", "is-up") : new Delta($"−{text}", "is-down");
+    }
+
+    /// <summary>
+    /// The running total of each year as a polyline, in a 1000 × 300 box. Built here rather than in
+    /// markup because every coordinate has to be written invariantly — a comma decimal separator is
+    /// not a coordinate, and the line would silently vanish.
+    /// </summary>
+    private Chart ChartFor(IReadOnlyList<PartnerPerformance.Period> periods)
+    {
+        const decimal left = 70m, right = 810m, top = 30m, bottom = 260m;
+        var years = Performance.Windows.Count;
+
+        var running = Enumerable.Range(0, years)
+            .Select(year =>
+            {
+                var sum = 0m;
+                return periods.Select(p => sum += measure == Measure.Revenue ? p.Revenue[year] : p.Volume[year]).ToList();
+            })
+            .ToList();
+
+        var all = running.SelectMany(r => r).ToList();
+        var high = NiceCeiling(Math.Max(0m, all.Max()));
+        var low = all.Min() < 0 ? -NiceCeiling(-all.Min()) : 0m;
+        var span = high - low == 0 ? 1m : high - low;
+
+        decimal X(int index) => left + (right - left) * index / (periods.Count - 1);
+        decimal Y(decimal value) => top + (high - value) / span * (bottom - top);
+        static string F(decimal value) => value.ToString("0.#", CultureInfo.InvariantCulture);
+
+        var lines = running
+            .Select(r => string.Join(" ", r.Select((value, index) => $"{F(X(index))},{F(Y(value))}")))
+            .ToList();
+
+        var ends = running.Select(r => Y(r[^1])).ToList();
+
+        var tickValues = new List<decimal> { high, (high + low) / 2m, low };
+        if (low < 0)
+        {
+            tickValues.Add(0m);
+        }
+
+        var ticks = tickValues
+            .Distinct()
+            .Select(value => new Tick(F(Y(value)), F(Y(value) + 4m), Compact(value), value == 0))
+            .ToList();
+
+        // Every label while they fit, then every other, and so on; the last always shows.
+        var step = Math.Max(1, (int)Math.Ceiling(periods.Count / 12m));
+        var xLabels = periods
+            .Select((p, index) => (p, index))
+            .Where(pair => pair.index % step == 0 || pair.index == periods.Count - 1)
+            .Select(pair => new XLabel(F(X(pair.index)), pair.p.ShortLabel))
+            .ToList();
+
+        // Each year's total sits level with its line's last point, to the right of the plot, pushed
+        // apart where years finish close together so the labels never overprint.
+        var order = Enumerable.Range(0, years).OrderBy(year => ends[year]).ToList();
+        var placed = new decimal[years];
+        var previous = decimal.MinValue;
+        foreach (var year in order)
+        {
+            placed[year] = Math.Max(Math.Max(14m, ends[year] + 4m), previous + 18m);
+            previous = placed[year];
+        }
+
+        var unit = measure == Measure.Revenue ? Currency : "L";
+        string Total(int year) => measure == Measure.Revenue
+            ? $"{Currency} {Money(running[year][^1])}"
+            : $"{Money(running[year][^1])} L";
+
+        var endLabels = Enumerable.Range(0, years)
+            .Select(year => new EndLabel(F(placed[year]), $"{Performance.Windows[year].Label} · {Total(year)}", year == 0))
+            .ToList();
+
+        var description =
+            $"{(measure == Measure.Revenue ? "Cumulative revenue" : "Cumulative volume")} in {unit}: " +
+            string.Join(", ", Enumerable.Range(0, years).Select(year => $"{Performance.Windows[year].Label} {Total(year)}"));
+
+        return new Chart(lines, ends.Select(F).ToList(), ticks, xLabels, endLabels, description);
+    }
+
+    /// <summary>The smallest round step — 1, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 times a power of ten — at or above <paramref name="value"/>.</summary>
+    private static decimal NiceCeiling(decimal value)
+    {
+        if (value <= 0)
+        {
+            return 1m;
+        }
+
+        var magnitude = (decimal)Math.Pow(10, Math.Floor(Math.Log10((double)value)));
+        foreach (var factor in new[] { 1m, 1.5m, 2m, 2.5m, 3m, 4m, 5m, 6m, 8m, 10m })
+        {
+            if (factor * magnitude >= value)
+            {
+                return factor * magnitude;
+            }
+        }
+
+        return 10m * magnitude;
+    }
+
+    private static string Compact(decimal value) =>
+        Math.Abs(value) >= 10_000m
+            ? (value / 1000m).ToString("#,0.#", CultureInfo.InvariantCulture) + "k"
+            : value.ToString("#,0", CultureInfo.InvariantCulture);
+
+    private string SparkStyle(PartnerPerformance.Partner partner, int year)
+    {
+        var max = partner.Years.Max(y => Math.Max(0m, y.Revenue));
+        var height = max == 0 ? 2m : Math.Max(2m, Math.Max(0m, partner.Years[year].Revenue) / max * 26m);
+        return $"height:{height.ToString("0.#", CultureInfo.InvariantCulture)}px";
+    }
+
+    private string SparkLabel(PartnerPerformance.Partner partner) =>
+        "Revenue " + string.Join(", ", Enumerable.Range(0, partner.Years.Count).Reverse()
+            .Select(year => $"{Performance.Windows[year].Label} {Currency} {Money(partner.Years[year].Revenue)}"));
+
+    private static string Money(decimal value) => value.ToString("N2", CultureInfo.InvariantCulture);
+
+    private static string Initials(string name)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => char.IsLetterOrDigit(word[0]))
+            .ToList();
+
+        return words.Count switch
+        {
+            0 => "?",
+            1 => words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant(),
+            _ => $"{char.ToUpperInvariant(words[0][0])}{char.ToUpperInvariant(words[1][0])}"
+        };
+    }
+}

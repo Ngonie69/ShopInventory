@@ -51,7 +51,13 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected enum ReportLens
     {
         Volume,
-        Revenue
+        Revenue,
+
+        /// <summary>
+        /// Revenue and volume per partner, against the same dates in earlier years. The window it
+        /// reads is the same one the other two lenses read; the earlier years are read beside it.
+        /// </summary>
+        Performance
     }
 
     /// <summary>The window presets, plus the state of having typed your own dates.</summary>
@@ -87,7 +93,8 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         DateTime? ToDate,
         ItemVolumeSalesGrouping Grouping,
         IReadOnlyList<string> Accounts,
-        IReadOnlyList<string> Items);
+        IReadOnlyList<string> Items,
+        int CompareYears);
 
     /// <summary>One coloured band of a bar, named and measured, for the hover card.</summary>
     protected sealed record ChartBand(
@@ -117,6 +124,16 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     /// <summary>The window as it was loaded, before the crate filter.</summary>
     private GetItemVolumeSalesReportResult? loadedReport;
+
+    /// <summary>
+    /// The same dates in earlier years, newest first, as loaded — read only by a Partner performance
+    /// run, and only ever beside the <see cref="loadedReport"/> they were run with. Any other run
+    /// clears them, since they would then be earlier years of a window nobody is looking at.
+    /// </summary>
+    private List<GetItemVolumeSalesReportResult> loadedPriors = new();
+
+    /// <summary><see cref="loadedPriors"/> with the crates taken out when they are being left out.</summary>
+    private List<GetItemVolumeSalesReportResult> priorReports = new();
 
     /// <summary>
     /// The window every figure on the page is read from — <see cref="loadedReport"/> with the crates
@@ -156,6 +173,12 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     /// anyone would want them out.
     /// </summary>
     protected bool includeCrates = true;
+
+    /// <summary>How many earlier years the Partner performance lens reads beside the window: one or two.</summary>
+    protected int compareYears = 2;
+
+    /// <summary>Which year is being read while a Partner performance run works through them, for the running state.</summary>
+    protected string? loadingStage;
 
     /// <summary>
     /// The trade channel whose items the volume lens shows; null for the first the window holds. The
@@ -205,20 +228,45 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     protected bool IsVolume => lens == ReportLens.Volume;
 
+    protected bool IsPerformance => lens == ReportLens.Performance;
+
     protected bool HasRun => report is not null;
 
     protected bool CanRun => selectedAccounts.Count > 0 && fromDate.HasValue && toDate.HasValue && !isLoading;
 
-    protected bool CanExport => report is not null && !isLoading && !isExporting;
+    protected bool CanExport => report is not null && !isLoading && !isExporting && (!IsPerformance || HasComparison);
 
     /// <summary>Names the report in the audit log and the exported workbook.</summary>
-    protected string ReportName => IsVolume ? "Item Volume" : "Customer Revenue";
+    protected string ReportName => lens switch
+    {
+        ReportLens.Volume => "Item Volume",
+        ReportLens.Performance => "Partner Performance",
+        _ => "Customer Revenue"
+    };
+
+    private static string RouteOf(ReportLens value) => value switch
+    {
+        ReportLens.Volume => "/reports/item-volume",
+        ReportLens.Performance => "/reports/partner-performance",
+        _ => "/reports/customer-revenue"
+    };
 
     protected override async Task OnInitializedAsync()
     {
-        lens = Navigation.Uri.Contains("/reports/customer-revenue", StringComparison.OrdinalIgnoreCase)
+        var uri = Navigation.Uri;
+        lens = uri.Contains("/reports/customer-revenue", StringComparison.OrdinalIgnoreCase)
             ? ReportLens.Revenue
-            : ReportLens.Volume;
+            : uri.Contains("/reports/partner-performance", StringComparison.OrdinalIgnoreCase)
+                ? ReportLens.Performance
+                : ReportLens.Volume;
+
+        // The comparison is a year against the same dates last year, so it opens on the year so far.
+        if (IsPerformance)
+        {
+            ApplyPreset(PeriodPreset.YearToDate);
+            await LoadPickerOptionsAsync();
+            return;
+        }
 
         ApplyPreset(PeriodPreset.LastFourMonths);
         await LoadPickerOptionsAsync();
@@ -353,10 +401,17 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         // The item view is one channel's partners; the partner view is all of them. Same window, re-read.
         ApplyCrateFilter();
 
-        Navigation.NavigateTo(
-            next == ReportLens.Volume ? "/reports/item-volume" : "/reports/customer-revenue",
-            forceLoad: false,
-            replace: true);
+        Navigation.NavigateTo(RouteOf(next), forceLoad: false, replace: true);
+    }
+
+    /// <summary>
+    /// One earlier year or two. Fewer than were loaded is answered from what is in hand; more needs
+    /// a run, which the page offers rather than starting by itself.
+    /// </summary>
+    protected void SetCompareYears(int years)
+    {
+        compareYears = Math.Clamp(years, 1, 2);
+        InvalidateView();
     }
 
     protected void ApplyPreset(PeriodPreset next)
@@ -431,15 +486,18 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     protected void ResetFilters()
     {
-        ApplyPreset(PeriodPreset.LastFourMonths);
+        ApplyPreset(IsPerformance ? PeriodPreset.YearToDate : PeriodPreset.LastFourMonths);
         grouping = ItemVolumeSalesGrouping.Monthly;
         readZig = false;
         includeCrates = true;
+        compareYears = 2;
         volumeChannel = null;
         unsplitReport = null;
         selectedAccounts = new List<string>();
         selectedItems = new List<string>();
         loadedReport = null;
+        loadedPriors = new List<GetItemVolumeSalesReportResult>();
+        priorReports = new List<GetItemVolumeSalesReportResult>();
         report = null;
         errorMessage = null;
         tableFilter = string.Empty;
@@ -475,17 +533,27 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         errorMessage = null;
 
         var requestedGrouping = grouping;
+        var requestedFrom = fromDate;
         var requestedTo = toDate;
+        var accountsText = string.Join(",", selectedAccounts);
+        var itemsText = string.Join(",", selectedItems);
+
+        // Read at the start, so a lens switched mid-run does not change what this run fetches.
+        var yearsBack = IsPerformance && requestedFrom.HasValue && requestedTo.HasValue ? compareYears : 0;
 
         try
         {
+            loadingStage = yearsBack > 0
+                ? $"Reading {PartnerPerformance.YearLabel(requestedFrom!.Value, requestedTo!.Value)}"
+                : null;
+
             var result = await Mediator.Send(
                 new GetItemVolumeSalesReportQuery(
-                    fromDate,
-                    toDate,
+                    requestedFrom,
+                    requestedTo,
                     requestedGrouping,
-                    string.Join(",", selectedAccounts),
-                    string.Join(",", selectedItems)),
+                    accountsText,
+                    itemsText),
                 cancellationToken);
 
             if (cancellationToken.IsCancellationRequested || isDisposed)
@@ -493,10 +561,42 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
                 return;
             }
 
+            // The earlier years one after another, never together: each is a full read of SAP's
+            // invoices and credit notes for the window, and three at once would take three of the
+            // gate's slots from everybody else for the length of the slowest.
+            var priors = new List<GetItemVolumeSalesReportResult>();
+            string? priorError = null;
+
+            for (var back = 1; back <= yearsBack && !result.IsError; back++)
+            {
+                var (priorFrom, priorTo) = PartnerPerformance.Shift(requestedFrom!.Value, requestedTo!.Value, back);
+                loadingStage = $"Reading {PartnerPerformance.YearLabel(priorFrom, priorTo)}";
+                await InvokeAsync(StateHasChanged);
+
+                var prior = await Mediator.Send(
+                    new GetItemVolumeSalesReportQuery(priorFrom, priorTo, requestedGrouping, accountsText, itemsText),
+                    cancellationToken);
+
+                if (cancellationToken.IsCancellationRequested || isDisposed)
+                {
+                    return;
+                }
+
+                if (prior.IsError)
+                {
+                    priorError = $"{PartnerPerformance.YearLabel(priorFrom, priorTo)} could not be read: {prior.FirstError.Description}";
+                    break;
+                }
+
+                priors.Add(prior.Value);
+            }
+
             result.SwitchFirst(
                 value =>
                 {
                     loadedReport = value;
+                    loadedPriors = priorError is null ? priors : new List<GetItemVolumeSalesReportResult>();
+                    errorMessage = priorError;
                     ranAtUtc = DateTime.UtcNow;
                     reportToDate = requestedTo?.Date ?? value.ToDateUtc.Date;
                     isEditingQuery = false;
@@ -506,9 +606,10 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
                 error =>
                 {
                     loadedReport = null;
+                    loadedPriors = new List<GetItemVolumeSalesReportResult>();
                     report = null;
                     errorMessage = error.Description;
-                    InvalidateView();
+                    ApplyCrateFilter();
                 });
 
             // Once per lens per circuit. Both lenses are the same page now, so logging once
@@ -532,6 +633,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
             if (!isDisposed)
             {
                 isLoading = false;
+                loadingStage = null;
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -539,8 +641,15 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     private void RememberRun()
     {
+        var lensName = lens switch
+        {
+            ReportLens.Volume => "Item volume",
+            ReportLens.Performance => "Partner performance",
+            _ => "Customer revenue"
+        };
+
         var run = new RecentRun(
-            $"{(IsVolume ? "Item volume" : "Customer revenue")} · {PartnerSentence}",
+            $"{lensName} · {PartnerSentence}",
             $"{IAuditService.ToCAT(ranAtUtc):dd MMM HH:mm} · {GroupLabel.ToLowerInvariant()}",
             lens,
             preset,
@@ -548,7 +657,8 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
             toDate,
             grouping,
             selectedAccounts.ToList(),
-            selectedItems.ToList());
+            selectedItems.ToList(),
+            compareYears);
 
         recentRuns.Insert(0, run);
 
@@ -568,6 +678,10 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         grouping = run.Grouping;
         selectedAccounts = run.Accounts.ToList();
         selectedItems = run.Items.ToList();
+        compareYears = run.CompareYears;
+
+        // The address follows the lens, as it does when the pills switch it.
+        Navigation.NavigateTo(RouteOf(lens), forceLoad: false, replace: true);
 
         await RunReportAsync();
     }
@@ -588,16 +702,20 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
             // screen — but a workbook outlives the page it came off, so the title has to say so.
             // Nor is it every partner when the item view is on one channel: the title names it.
             var title = SplitsByChannel ? $"{ReportName} · {ItemVolumeSalesChannels.Label(CurrentChannel)}" : ReportName;
-            var bytes = ExportService.ExportItemVolumeSalesReportToExcel(
-                report,
-                includeCrates ? title : $"{title} (crates excluded)");
+            title = includeCrates ? title : $"{title} (crates excluded)";
+            var performance = IsPerformance ? Performance : null;
+            var bytes = performance is not null
+                ? ExportService.ExportPartnerPerformanceToExcel(performance, title, readZig)
+                : ExportService.ExportItemVolumeSalesReportToExcel(report, title);
             var base64 = Convert.ToBase64String(bytes);
             await JS.InvokeVoidAsync(
                 "downloadFile",
                 $"{ReportName.Replace(' ', '_')}_{IAuditService.ToCAT(DateTime.UtcNow):yyyyMMdd_HHmm}.xlsx",
                 base64);
 
-            toast = $"Workbook prepared — {Rows.Count} rows, {Columns.Count} {(Columns.Count == 1 ? "period" : "periods")}.";
+            toast = performance is not null
+                ? $"Workbook prepared — {performance.Partners.Count} {(performance.Partners.Count == 1 ? "partner" : "partners")} across {performance.Windows.Count} years."
+                : $"Workbook prepared — {Rows.Count} rows, {Columns.Count} {(Columns.Count == 1 ? "period" : "periods")}.";
             _ = DismissToastLaterAsync();
         }
         catch (Exception ex)
@@ -646,6 +764,48 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         cachedColumns = null;
         cachedRows = null;
         cachedColumnTotals = null;
+        cachedPerformance = null;
+    }
+
+    // ── Against earlier years ───────────────────────────────────────────────
+
+    private PartnerPerformance? cachedPerformance;
+
+    /// <summary>
+    /// Whether the earlier years the comparison needs are in hand for the window on screen. A window
+    /// run on another lens has none, and asking for two years when one was read needs another run.
+    /// </summary>
+    protected bool HasComparison => report is not null && priorReports.Count >= compareYears;
+
+    /// <summary>
+    /// The window and its earlier years, partner by partner, under the current crate setting and
+    /// currency. Null until a Partner performance run has read the years it compares against.
+    /// </summary>
+    protected PartnerPerformance? Performance =>
+        cachedPerformance ??= HasComparison
+            ? PartnerPerformance.Build(
+                new[] { report! }.Concat(priorReports.Take(compareYears)).ToList(),
+                readZig)
+            : null;
+
+    /// <summary>The earlier years named for the query line: "2025 and 2024".</summary>
+    protected string CompareSentence => CompareSentenceFor(fromDate, toDate);
+
+    private string CompareSentenceFor(DateTime? from, DateTime? to)
+    {
+        if (!from.HasValue || !to.HasValue)
+        {
+            return compareYears == 1 ? "the year before" : "the two years before";
+        }
+
+        var labels = Enumerable.Range(1, compareYears)
+            .Select(back =>
+            {
+                var (priorFrom, priorTo) = PartnerPerformance.Shift(from.Value, to.Value, back);
+                return PartnerPerformance.YearLabel(priorFrom, priorTo);
+            });
+
+        return string.Join(" and ", labels);
     }
 
     /// <summary>
@@ -657,6 +817,10 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         unsplitReport = loadedReport is null || includeCrates
             ? loadedReport
             : ItemVolumeSalesCrates.Exclude(loadedReport);
+
+        priorReports = includeCrates
+            ? loadedPriors
+            : loadedPriors.Select(ItemVolumeSalesCrates.Exclude).ToList();
 
         // Then the channel, on the item view only. One filtered result feeds the pivot, the chart and the
         // workbook, so none of them can add a shop's volume to a wholesaler's.
@@ -1115,7 +1279,9 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         var count => $"{count} items"
     };
 
-    protected string ReadySentence => $"{GroupLabel} · {PeriodSentence} · {PartnerSentence} · {ItemSentence}";
+    protected string ReadySentence => IsPerformance
+        ? $"{GroupLabel} · {PeriodSentence}, against the same dates in {CompareSentence} · {PartnerSentence} · {ItemSentence}"
+        : $"{GroupLabel} · {PeriodSentence} · {PartnerSentence} · {ItemSentence}";
 
     /// <summary>
     /// The one line the closed query bar carries. Read off the result rather than the filter bar, so
@@ -1128,7 +1294,9 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
             var parts = new List<string>
             {
                 ReportGroupLabel,
-                ReportPeriodSentence,
+                IsPerformance
+                    ? $"{ReportPeriodSentence}, against the same dates in {CompareSentenceFor(report?.FromDateUtc ?? fromDate, report?.ToDateUtc ?? toDate)}"
+                    : ReportPeriodSentence,
                 ReportPartnerSentence,
                 ReportItemSentence
             };

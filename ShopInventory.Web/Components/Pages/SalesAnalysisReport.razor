@@ -1,11 +1,12 @@
 @page "/reports/item-volume"
 @page "/reports/customer-revenue"
+@page "/reports/partner-performance"
 @using ShopInventory.Web.Features.Reports.Queries.GetItemVolumeSalesReport
 @attribute [Authorize(Roles = "Admin,SalesRep")]
 @inherits SalesAnalysisReportBase
 @rendermode InteractiveServer
 
-<PageTitle>@(IsVolume ? "Item Volume" : "Customer Revenue") - Shop Inventory</PageTitle>
+<PageTitle>@ReportName - Shop Inventory</PageTitle>
 
 @* Item Volume Report.dc.html, carried by wwwroot/css/sales-analysis.css (linked
    from App.razor) in both schemes.
@@ -13,8 +14,14 @@
    Two reports, one page. The pills under the title are the report picker, and
    they switch lens without re-asking SAP: the volume and the money come off the
    same invoice and credit-note lines, so this is one window read twice rather
-   than two reports. Both routes reach this component, which is what lets the
+   than two reports. Every route reaches this component, which is what lets the
    swap keep the result — see SalesAnalysisReportBase.
+
+   The third pill, Partner performance, reads the same window against the same
+   dates in earlier years. Those years are extra reads of SAP, so it is the one
+   lens a switch cannot always answer from what is loaded: a window run on the
+   other two has no earlier years, and the lens offers the run rather than
+   starting it. Its result is PartnerPerformanceView.
 
    The query is a single line once it has been run. Before the first run there is
    nothing else on the page, so it opens; after one, the run is the answer and
@@ -50,6 +57,14 @@
                         business partners you choose.
                     </p>
                 }
+                else if (IsPerformance)
+                {
+                    <h1 class="sla-title">Partner performance</h1>
+                    <p class="sla-sub">
+                        Revenue and volume for the partners you choose, set against the same dates in earlier
+                        years. Every figure is net of the credit notes raised in its own window.
+                    </p>
+                }
                 else
                 {
                     <h1 class="sla-title">Customer revenue</h1>
@@ -78,9 +93,13 @@
                     aria-pressed="@IsVolume" @onclick="@(() => PickLens(ReportLens.Volume))">
                 <i class="ph ph-drop" aria-hidden="true"></i>Item volume
             </button>
-            <button type="button" class="sla-lens @(IsVolume ? "" : "is-on")"
-                    aria-pressed="@(!IsVolume)" @onclick="@(() => PickLens(ReportLens.Revenue))">
+            <button type="button" class="sla-lens @(lens == ReportLens.Revenue ? "is-on" : "")"
+                    aria-pressed="@(lens == ReportLens.Revenue)" @onclick="@(() => PickLens(ReportLens.Revenue))">
                 <i class="ph ph-currency-dollar" aria-hidden="true"></i>Customer revenue
+            </button>
+            <button type="button" class="sla-lens @(IsPerformance ? "is-on" : "")"
+                    aria-pressed="@IsPerformance" @onclick="@(() => PickLens(ReportLens.Performance))">
+                <i class="ph ph-trend-up" aria-hidden="true"></i>Partner performance
             </button>
             @* The factors are their own screen — they are master data, not a lens on this window —
                so the third pill leaves the page rather than swapping what is under it. *@
@@ -168,6 +187,22 @@
                                 </div>
                             </div>
                         </div>
+
+                        @if (IsPerformance)
+                        {
+                            @* The earlier years are the same dates shifted back, so this works for any
+                               window — a quarter against the same quarter, not only the year so far. *@
+                            <div class="sla-field">
+                                <div class="sla-field-label">Compare with</div>
+                                <div class="sla-seg" role="group" aria-label="Compare with">
+                                    <button type="button" class="sla-seg-opt @(compareYears == 1 ? "is-on" : "")"
+                                            aria-pressed="@(compareYears == 1)" @onclick="@(() => SetCompareYears(1))">Previous year</button>
+                                    <button type="button" class="sla-seg-opt @(compareYears == 2 ? "is-on" : "")"
+                                            aria-pressed="@(compareYears == 2)" @onclick="@(() => SetCompareYears(2))">2 previous years</button>
+                                </div>
+                                <div class="sla-field-hint">Same dates in @CompareSentence</div>
+                            </div>
+                        }
 
                         <div class="sla-field">
                             <div class="sla-field-label">Group by</div>
@@ -280,8 +315,12 @@
         {
             <section class="sla-panel sla-state">
                 <div class="sla-sweep" aria-hidden="true"><span></span></div>
-                <div class="sla-state-title">Running the query</div>
-                <div class="sla-state-sub">Aggregating posted invoices and credit notes over the period.</div>
+                <div class="sla-state-title">@(loadingStage ?? "Running the query")</div>
+                <div class="sla-state-sub">
+                    @(IsPerformance
+                        ? "Each year is its own read of SAP, one after another, so this takes a while longer than one window."
+                        : "Aggregating posted invoices and credit notes over the period.")
+                </div>
             </section>
         }
         else if (report is null)
@@ -391,7 +430,7 @@
                     </div>
                 }
 
-                @if (IsVolume && report.ItemCodesWithoutFactor.Count > 0)
+                @if ((IsVolume || IsPerformance) && report.ItemCodesWithoutFactor.Count > 0)
                 {
                     <div class="sla-alert is-warn">
                         <i class="ph ph-warning" aria-hidden="true"></i>
@@ -451,6 +490,34 @@
                     </div>
                 }
 
+                @if (IsPerformance)
+                {
+                    if (Performance is { } performance)
+                    {
+                        <PartnerPerformanceView Performance="performance" Currency="@Currency" />
+                    }
+                    else
+                    {
+                        @* A window run on another lens, or one year read where two are now asked for. The
+                           years are not fetched behind the reader's back: each is a full read of SAP. *@
+                        <section class="sla-panel sla-idle slp-needs-run">
+                            <div class="sla-idle-text">
+                                <h2 class="sla-idle-title">The earlier years have not been read yet</h2>
+                                <p class="sla-state-sub">
+                                    This window was run without them. Run it again to read the same dates in
+                                    @CompareSentence beside it — each year is its own read of SAP.
+                                </p>
+                                <div>
+                                    <button type="button" class="sla-btn sla-btn-primary" @onclick="RunReportAsync" disabled="@(!CanRun)">
+                                        <i class="ph ph-play" aria-hidden="true"></i>Compare with @CompareSentence
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+                    }
+                }
+                else
+                {
                 <div class="sla-stats">
                     <article class="sla-stat">
                         <span class="sla-stat-label">@(IsVolume ? "Net volume" : "Net revenue")</span>
@@ -731,6 +798,7 @@
                         </p>
                     }
                 </section>
+                }
             </div>
         }
 

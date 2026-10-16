@@ -7,7 +7,7 @@ A family of reports under `/reports`, most offering an .xlsx export built by
 
 - Report index (`/reports`)
 - Individual reports: `/reports/item-volume`, `/reports/order-fulfillment`,
-  `/reports/customer-revenue`,
+  `/reports/customer-revenue`, `/reports/partner-performance`,
   `/reports/volume-conversions`, `/reports/merchandiser-purchase-orders`
 - Date-range and filter controls on each
 - Excel download
