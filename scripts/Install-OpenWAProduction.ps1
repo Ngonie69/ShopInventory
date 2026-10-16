@@ -17,19 +17,22 @@
 
     What this does:
 
-      1. Checks Node and Chrome are present and new enough.
+      1. Checks Node is present and new enough.
       2. Installs the submodule's dependencies and builds it when nothing is built yet, or when its
          package-lock.json or checked-out commit differs from what the current build was made from.
          A running gateway is stopped only for a dependency install, which replaces files it holds
          open; a rebuild happens while it runs, and it is restarted onto the new build after.
-      3. Writes OpenWA\.env for a production run - SQLite, local storage, no Redis, the installed
-         Chrome rather than a downloaded Chromium, and a request body limit that fits an invoice PDF.
-      4. Starts it, so it mints its admin API key into data\.api-key on a first install. A gateway
+      3. Installs Chrome for Testing at the exact version the installed Puppeteer declares, into
+         OpenWA\chrome (Install-OpenWAChrome.ps1). The machine's Google Chrome updates itself away
+         from the build Puppeteer was released against; Chrome for Testing does not update at all.
+      4. Writes OpenWA\.env for a production run - SQLite, local storage, no Redis, that Chrome for
+         Testing, and a request body limit that fits an invoice PDF.
+      5. Starts it, so it mints its admin API key into data\.api-key on a first install. A gateway
          that was rebuilt or reinstalled, or whose .env changed, is restarted - under the boot task
          when it is registered, so it outlives this console's session.
-      5. Registers a Scheduled Task that starts it as SYSTEM at boot.
-      6. Opens the API port to this host only, if a firewall rule is missing.
-      7. Prints the four OpenWA__* values to set on the API, and the command that verifies them.
+      6. Registers a Scheduled Task that starts it as SYSTEM at boot, on the same Chrome.
+      7. Opens the API port to this host only, if a firewall rule is missing.
+      8. Prints the four OpenWA__* values to set on the API, and the command that verifies them.
 
     It does NOT write the API's configuration. Those values live in each node's web.config and are
     applied by Set-OpenWAApiConfig.ps1, so that one host's install cannot silently repoint both API
@@ -50,6 +53,18 @@
 .PARAMETER ApiNodeAddresses
     The hosts allowed to reach that port. Everything else is refused, because an OpenWA API key is
     the whole of its authentication and this service can send WhatsApp messages as the business.
+
+.PARAMETER ChromePath
+    Run the gateway on this Chrome instead of Chrome for Testing, which is then not installed. The
+    way to keep the machine's own Google Chrome:
+    -ChromePath 'C:\Program Files\Google\Chrome\Application\chrome.exe'.
+
+.PARAMETER AcceptSessionRepair
+    Switch to Chrome for Testing although a session profile was last opened by a newer Chrome. An
+    older Chrome cannot read that IndexedDB and deletes it, and WhatsApp keeps its login there: each
+    such session needs its QR scanned again from the WhatsApp Inbox, so have the phone in hand. The
+    profiles are copied to data\sessions-backup first. Without this switch the installer keeps the
+    Chrome the gateway already runs on, and says so.
 
 .PARAMETER SkipFirewall
     Leave the firewall alone. Use when the rule is managed elsewhere.
@@ -79,6 +94,8 @@ param(
     [int]$Port = 2785,
     [string[]]$ApiNodeAddresses = @('10.10.10.9', '10.10.10.58'),
     [string]$TaskName = 'ShopInventory-OpenWA',
+    [string]$ChromePath,
+    [switch]$AcceptSessionRepair,
     [switch]$SkipFirewall,
     [switch]$SkipScheduledTask,
     [int]$StartTimeoutSeconds = 180
@@ -252,6 +269,46 @@ function Get-SourceVersion {
     return ([string]$commit).Trim()
 }
 
+function Stop-SessionChrome {
+    # Ending node leaves its Chrome running. Any Chrome still holding a session profile has to go
+    # before that profile is copied, or the copy catches LevelDB mid-write.
+    param([string]$SessionsPath)
+
+    $paths = @($SessionsPath, ($SessionsPath -replace '\\', '/'))
+    $deadline = (Get-Date).AddSeconds(15)
+    while ($true) {
+        $holders = @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $commandLine = $_.CommandLine
+                $commandLine -and ($paths | Where-Object { $commandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+            })
+        if ($holders.Count -eq 0) { return }
+        if ((Get-Date) -ge $deadline) {
+            throw "Chrome PID $(($holders | ForEach-Object { $_.ProcessId }) -join ', ') still holds a session profile under $SessionsPath. End it, then re-run."
+        }
+        $holders | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+function Backup-SessionProfile {
+    # A copy the Chrome that last opened each profile can still read, for going back to that Chrome.
+    # Caches are left out: Chrome rebuilds them, and they are most of a profile's size.
+    param([object[]]$Profiles, [string]$BackupRoot)
+
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    foreach ($profileToCopy in $Profiles) {
+        $target = Join-Path $BackupRoot "$stamp-chrome-$($profileToCopy.LastVersion)\$($profileToCopy.Name)"
+        & robocopy.exe $profileToCopy.Path $target /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP `
+            /XD 'Cache' 'Code Cache' 'GPUCache' 'ShaderCache' 'GrShaderCache' 'GraphiteDawnCache' 'DawnGraphiteCache' 'DawnWebGPUCache' 'GPUPersistentCache' 'component_crx_cache' 'CacheStorage' | Out-Null
+        # robocopy exits 0-7 on success; 8 and up means something was not copied.
+        if ($LASTEXITCODE -ge 8) {
+            throw "robocopy could not back up $($profileToCopy.Path) to $target (exit $LASTEXITCODE). Nothing was started, and the profile is unchanged."
+        }
+        Write-Host "  Backed up $($profileToCopy.Name) to $target" -ForegroundColor Green
+    }
+}
+
 $openWaRoot = Join-Path $RepositoryRoot 'OpenWA'
 
 Write-Section "Prerequisites"
@@ -287,21 +344,6 @@ Write-Host "  Node               $node ($nodeVersion)" -ForegroundColor Green
 # it the first start fails on a server ("Node executable not found"), and the boot task registers
 # against a path that does not exist and fails silently at the next reboot.
 $nodeHome = Split-Path -Parent $node
-
-$chrome = Resolve-Executable -Name 'chrome' -Candidates @(
-    'C:\Program Files\Google\Chrome\Application\chrome.exe',
-    'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'
-)
-if (-not $chrome) {
-    throw @"
-Google Chrome was not found.
-
-OpenWA drives a real browser to hold the WhatsApp Web session. Install Chrome for all users, or
-let Puppeteer download its own Chromium by clearing PUPPETEER_SKIP_CHROMIUM_DOWNLOAD - the
-installed browser is preferred because it is patched by whatever patches the rest of the estate.
-"@
-}
-Write-Host "  Chrome             $chrome" -ForegroundColor Green
 
 $npm = Resolve-Executable -Name 'npm.cmd' -Candidates @((Join-Path (Split-Path $node) 'npm.cmd'))
 if (-not $npm) { throw "npm was not found beside $node." }
@@ -360,8 +402,9 @@ if ($needsInstall) {
         Write-Host "  Installing dependencies (this takes a few minutes)..." -ForegroundColor Yellow
         Push-Location $openWaRoot
         try {
-            # This host already has Chrome and PUPPETEER_EXECUTABLE_PATH below is what gets used, so
-            # Puppeteer's own ~150MB browser is dead weight - and when its download fails, npm ci fails.
+            # Chrome for Testing is installed below into OpenWA\chrome, which npm ci leaves alone, and
+            # PUPPETEER_EXECUTABLE_PATH points at it, so Puppeteer's own ~150MB download is dead weight -
+            # and when its download fails, npm ci fails.
             # Current Puppeteer reads PUPPETEER_SKIP_DOWNLOAD and ignores the older name, which stays
             # for older versions.
             $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
@@ -395,6 +438,76 @@ if ($needsBuild) {
 }
 else {
     Write-Host "  dist\main.js is already built from $sourceVersion." -ForegroundColor Green
+}
+
+Write-Section "Browser"
+
+$sessionsToBackUp = @()
+$systemChromeCandidates = @(
+    'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'
+)
+
+if ($ChromePath) {
+    if (-not (Test-Path -LiteralPath $ChromePath)) { throw "-ChromePath $ChromePath does not exist." }
+    $chrome = (Resolve-Path -LiteralPath $ChromePath).Path
+    Write-Host "  Chrome             $chrome (-ChromePath; Chrome for Testing not installed)" -ForegroundColor Yellow
+}
+elseif (-not (Test-Path -LiteralPath $nodeModules)) {
+    # Only under -WhatIf: a real run has installed the dependencies by now.
+    $chrome = Join-Path $openWaRoot 'chrome'
+    Write-Host "  Would install Chrome for Testing at the version the new dependencies declare." -ForegroundColor Yellow
+}
+else {
+    $testing = & (Join-Path $PSScriptRoot 'Install-OpenWAChrome.ps1') -OpenWARoot $openWaRoot -NodeHome $nodeHome
+    $chrome = $testing.ExecutablePath
+    $state = if ($testing.Installed) { 'installed' } elseif (Test-Path -LiteralPath $chrome) { 'already installed' } else { 'would install' }
+    Write-Host "  Chrome for Testing $($testing.Version), $state - $chrome" -ForegroundColor Green
+
+    $newer = @($testing.NewerProfiles)
+    if ($newer.Count -gt 0) {
+        $list = ($newer | ForEach-Object { "      $($_.Name) - last opened by Chrome $($_.LastVersion)" }) -join "`n"
+        if ($AcceptSessionRepair) {
+            Write-Warning @"
+These session profiles were last opened by a newer Chrome than $($testing.Version):
+$list
+Chrome $($testing.Version) deletes their IndexedDB, where WhatsApp keeps its login, so each will show a
+QR code on the WhatsApp Inbox to be scanned again. They are backed up before the gateway starts.
+"@
+            $sessionsToBackUp = $newer
+        }
+        else {
+            # Keep what the gateway runs on now: the browser in the current .env, else Google Chrome.
+            $current = $null
+            $existingEnv = Join-Path $openWaRoot '.env'
+            if (Test-Path -LiteralPath $existingEnv) {
+                $line = @(Get-Content -LiteralPath $existingEnv | Where-Object { $_ -like 'PUPPETEER_EXECUTABLE_PATH=*' }) | Select-Object -First 1
+                if ($line) { $current = $line.Substring('PUPPETEER_EXECUTABLE_PATH='.Length).Trim() -replace '/', '\' }
+            }
+            if (-not $current -or -not (Test-Path -LiteralPath $current)) {
+                $current = Resolve-Executable -Name 'chrome' -Candidates $systemChromeCandidates
+            }
+            if (-not $current) {
+                throw "These session profiles were opened by a newer Chrome than $($testing.Version), and no Chrome to keep them on was found:`n$list`nRe-run with -AcceptSessionRepair and re-pair them, or name a Chrome with -ChromePath."
+            }
+
+            if ([string]::Equals($current, $chrome, [StringComparison]::OrdinalIgnoreCase)) {
+                # An earlier -AcceptSessionRepair run made the switch and took the backup, and Chrome for
+                # Testing has not opened these profiles yet. Nothing is left to keep.
+                Write-Host "  Already on Chrome for Testing; these profiles have not been opened by it yet:`n$list" -ForegroundColor Yellow
+            }
+            else {
+                $chrome = $current
+                Write-Warning @"
+Keeping the gateway on $chrome, not Chrome for Testing $($testing.Version).
+These session profiles were last opened by a newer Chrome:
+$list
+Chrome $($testing.Version) would delete their IndexedDB, where WhatsApp keeps its login, and each would
+need its QR scanned again. With the business phone in hand, re-run with -AcceptSessionRepair to switch.
+"@
+            }
+        }
+    }
 }
 
 Write-Section "Configuration"
@@ -494,6 +607,11 @@ if ($alreadyListening) {
     Write-Host "  OpenWA is already running this build and .env. Leaving it running." -ForegroundColor Green
 }
 elseif ($PSCmdlet.ShouldProcess("localhost:$Port", "Start OpenWA")) {
+    if ($sessionsToBackUp.Count -gt 0) {
+        Stop-SessionChrome -SessionsPath (Join-Path $dataPath 'sessions')
+        Backup-SessionProfile -Profiles $sessionsToBackUp -BackupRoot (Join-Path $dataPath 'sessions-backup')
+    }
+
     # A gateway started from here runs in this console's session and dies when it signs out. Where
     # the boot task is registered, start that instead: it runs as SYSTEM, the way the gateway runs
     # after a reboot. A first install has no task yet - it is registered below.
