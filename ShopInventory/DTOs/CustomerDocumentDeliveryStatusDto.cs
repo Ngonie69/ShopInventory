@@ -43,6 +43,13 @@ public sealed class CustomerDocumentDeliveryStatusDto
 
     public string? SessionError { get; set; }
 
+    /// <summary>
+    /// The gateway answered with its session list, so <see cref="Sessions"/> is what it holds. False when
+    /// it is not configured or could not be reached: then an empty list says nothing, and a saved session
+    /// missing from it is not known to be gone.
+    /// </summary>
+    public bool SessionsListed { get; set; }
+
     public List<WhatsAppSessionOptionDto> Sessions { get; set; } = [];
 
     public int SentToday { get; set; }
