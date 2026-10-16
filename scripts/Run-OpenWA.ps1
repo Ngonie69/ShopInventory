@@ -28,6 +28,8 @@ if (-not $OpenWARoot) {
     $OpenWARoot = Join-Path $PSScriptRoot "..\OpenWA"
 }
 
+. (Join-Path $PSScriptRoot 'OpenWAProcesses.ps1')
+
 function Resolve-RequiredPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -44,16 +46,19 @@ function Resolve-RequiredPath {
 }
 
 function Get-OpenWAProcess {
-    Get-CimInstance Win32_Process -Filter "name = 'node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-        $commandLine = $_.CommandLine
-        $commandLine -and (
-            $commandLine -like "*\OpenWA\dist\main*" -or
-            $commandLine -like "* .\dist\main.js*" -or
-            $commandLine -like "*\OpenWA\node_modules\.bin\*nest.js*" -or
-            $commandLine -like "*npm-cli.js*run start*OpenWA*"
-        )
+    # This install's gateway node. Another folder's gateway, such as a test's fake one, is left alone.
+    $snapshot = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 'powershell.exe' or name = 'pwsh.exe'" -ErrorAction SilentlyContinue)
+    @(Select-OpenWAGateway -Snapshot $snapshot -Root $resolvedOpenWARoot -Name 'node.exe')
+}
+
+function Format-OpenWAProcess {
+    param([object]$Process)
+
+    if ($Process.OpenWARoot) {
+        return "PID $($Process.ProcessId)"
     }
+
+    return "PID $($Process.ProcessId), started as $($Process.CommandLine), whose folder cannot be told and so is taken for this one"
 }
 
 function Write-SupervisorLog {
@@ -84,11 +89,10 @@ function Get-OrphanedChrome {
     # whatsapp-web.js keeps each session's Chrome profile under OpenWA's data directory, and passes it
     # to Chrome as an absolute --user-data-dir. No gateway is running when this is called, so any
     # Chrome still holding one of those profiles is orphaned.
-    $roots = @($resolvedOpenWARoot, ($resolvedOpenWARoot -replace '\\', '/'))
     @($Chromes | Where-Object {
             $commandLine = $_.CommandLine
             $commandLine -and $commandLine.IndexOf('--user-data-dir=', [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-            ($roots | Where-Object { $commandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+            (Test-OpenWAPathInCommandLine -CommandLine $commandLine -Root $resolvedOpenWARoot)
         })
 }
 
@@ -297,7 +301,7 @@ if (-not (Test-Path -LiteralPath $distMainPath)) {
 
 $existingProcess = Get-OpenWAProcess | Select-Object -First 1
 if ($existingProcess) {
-    Write-Host "OpenWA is already running (PID $($existingProcess.ProcessId))."
+    Write-Host "OpenWA is already running from $resolvedOpenWARoot ($(Format-OpenWAProcess $existingProcess))."
     if ($ValidateOnly) {
         return
     }
@@ -373,7 +377,11 @@ try {
         # stderr line it reads from a native command into an error record, and under 'Stop' the first one
         # ended this script and node with it. node writes a punycode deprecation warning to stderr at every
         # start, so the boot task exited 1 within seconds. node's exit code is what reports failure.
-        $node = Start-Process -FilePath $nodeExe -ArgumentList '.\dist\main.js' -WorkingDirectory $resolvedOpenWARoot `
+        #
+        # The entry point goes in by its absolute path, so node's command line names this folder and
+        # Stop-OpenWA.ps1 and the tests can tell this gateway from another folder's. OpenWA reads .env
+        # and data\ from its working directory, which is still this folder.
+        $node = Start-Process -FilePath $nodeExe -ArgumentList "`"$distMainPath`"" -WorkingDirectory $resolvedOpenWARoot `
             -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -NoNewWindow -PassThru
         # Windows PowerShell 5.1 reports no ExitCode for a process whose handle was not read while it ran.
         $null = $node.Handle
@@ -413,7 +421,7 @@ try {
         # for the session profiles.
         $existingProcess = Get-OpenWAProcess | Select-Object -First 1
         if ($existingProcess) {
-            Write-SupervisorLog "Another OpenWA gateway started during the wait (PID $($existingProcess.ProcessId)). Leaving it running."
+            Write-SupervisorLog "Another OpenWA gateway started from this folder during the wait ($(Format-OpenWAProcess $existingProcess)). Leaving it running."
             exit 0
         }
 

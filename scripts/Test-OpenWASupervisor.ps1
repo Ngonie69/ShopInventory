@@ -10,9 +10,12 @@
 #
 #     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-OpenWASupervisor.ps1
 #
-# It ends every node.exe whose command line looks like the gateway's, so it refuses to start while a
-# real gateway is running on this machine. Scenario 7 registers and removes a scheduled task
-# as the current user; -SkipScheduledTask leaves it out.
+# It stops and starts only the gateway in its own folder: the scripts tell installs apart by folder
+# (scripts\OpenWAProcesses.ps1), so a real gateway or another test's fake one elsewhere keeps running.
+# To prove that, it starts a neighbour fake gateway under its own supervisor in a second folder, and
+# checks at the end that every scenario left it running. Two runs at once need a different -Fixture and
+# -HealthPort each. Scenario 7 registers and removes a scheduled task as the current user;
+# -SkipScheduledTask leaves it out.
 
 param(
     # Defaults to this script's checkout. Resolved below, because Windows PowerShell 5.1 leaves
@@ -20,9 +23,13 @@ param(
     [string]$RepoRoot,
     [string]$NodeHome = 'C:\Users\ngoni\.config\herd\bin\nvm\v20.20.2',
     [string]$ChromePath = 'C:\Program Files\Google\Chrome\Application\chrome.exe',
-    # The fake gateway's port, written to its .env. Not OpenWA's 2785, so it cannot be mistaken for a real one.
+    # The fake gateway's port, written to its .env. Not OpenWA's 2785, so it cannot be mistaken for a
+    # real one. The neighbour gateway uses the next port up.
     [int]$HealthPort = 27855,
-    [switch]$SkipScheduledTask
+    # The throwaway checkout layout. The neighbour's is beside it, with -neighbour on the end.
+    [string]$Fixture = (Join-Path ([IO.Path]::GetTempPath()) 'openwa-supervisor-test'),
+    [switch]$SkipScheduledTask,
+    [switch]$SkipNeighbour
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,11 +37,15 @@ if (-not $RepoRoot) {
     $RepoRoot = Split-Path -Parent $PSScriptRoot
 }
 
-$fake = Join-Path ([IO.Path]::GetTempPath()) 'openwa-supervisor-test'
+$fake = [IO.Path]::GetFullPath($Fixture).TrimEnd('\')
 $scripts = Join-Path $fake 'scripts'
 $root = Join-Path $fake 'OpenWA'
 $logs = Join-Path $root 'logs'
 $supervisorLog = Join-Path $logs 'openwa-supervisor.txt'
+$neighbour = "$fake-neighbour"
+$neighbourScripts = Join-Path $neighbour 'scripts'
+$neighbourRoot = Join-Path $neighbour 'OpenWA'
+$neighbourPort = $HealthPort + 1
 $script:failures = 0
 
 # Stands in for OpenWA's dist\main.js, driven by ..\mode.txt:
@@ -45,6 +56,7 @@ $script:failures = 0
 #   hang-once    run 1 leaves a headless Chrome on a session profile, answers /api/health twice, then
 #                wedges its event loop and stays alive; later runs answer /api/health and stay up
 #   slow-start   answers /api/health only from 15 s after it starts, then stays up
+#   serve        answers /api/health and stays up (the neighbour gateway)
 # The modes that serve /api/health use PORT from ..\.env, as OpenWA does.
 #   chrome-elsewhere  start a headless Chrome on a profile OUTSIDE the OpenWA folder, then stay up
 $fakeMain = @'
@@ -56,6 +68,7 @@ $fakeMain = @'
 //   hang-once    run 1 leaves a headless Chrome on a session profile, answers /api/health twice, then
 //                wedges its event loop and stays alive; later runs answer /api/health and stay up
 //   slow-start   answers /api/health only from 15 s after it starts, then stays up
+//   serve        answers /api/health and stays up (the neighbour gateway)
 //   chrome-elsewhere  start a headless Chrome on a profile OUTSIDE the OpenWA folder, then stay up
 const fs = require('fs');
 const http = require('http');
@@ -118,6 +131,8 @@ if (mode === 'hang-once' && run === 1) {
   serveHealth();
 } else if (mode === 'slow-start') {
   setTimeout(() => serveHealth(), 15000);
+} else if (mode === 'serve') {
+  serveHealth();
 } else if (mode === 'clean') {
   setTimeout(() => process.exit(0), 1000);
 } else if (mode === 'always-crash') {
@@ -147,23 +162,45 @@ if (mode === 'hang-once' && run === 1) {
 
 "Windows PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
 
-$running = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 'powershell.exe' or name = 'pwsh.exe'" |
-    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and ($_.CommandLine -like '* .\dist\main.js*' -or $_.CommandLine -like '*\OpenWA\dist\main*' -or $_.CommandLine -like '*Run-OpenWA.ps1*' -or $_.CommandLine -like '*Test-OpenWASupervisor.ps1*') })
-if ($running.Count -gt 0) {
-    throw "An OpenWA gateway, supervisor or another run of this test is already running here (PID $(($running | ForEach-Object { $_.ProcessId }) -join ', ')). This test would stop it, or the two runs would stop each other's fake gateway."
+# Another run of this test on the same fixture would share its files, its task and its gateway. The lock
+# is held until this process exits, however it exits.
+New-Item -ItemType Directory -Path (Split-Path -Parent $fake) -Force | Out-Null
+try {
+    $fixtureLock = [IO.File]::Open("$fake.lock", 'OpenOrCreate', 'ReadWrite', 'None')
 }
-if (Get-NetTCPConnection -LocalPort $HealthPort -State Listen -ErrorAction SilentlyContinue) {
-    throw "Something is already listening on port $HealthPort. Pass a free one with -HealthPort."
+catch {
+    throw "Another run of this test is using $fake ($fake.lock is held). Pass another -Fixture and -HealthPort to run beside it."
+}
+
+# Only a gateway this run would stop or collide with is a reason to refuse: one on its own folders, or
+# one whose folder cannot be told (see OpenWAProcesses.ps1), which every stop takes for its own.
+. (Join-Path $RepoRoot 'scripts\OpenWAProcesses.ps1')
+$snapshot = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 'powershell.exe' or name = 'pwsh.exe'")
+$running = @(@(Select-OpenWAGateway -Snapshot $snapshot -Root $root) + @(Select-OpenWAGateway -Snapshot $snapshot -Root $neighbourRoot) |
+    Where-Object { $_.ProcessId -ne $PID } | Sort-Object ProcessId -Unique)
+if ($running.Count -gt 0) {
+    throw "An OpenWA gateway or supervisor that this test would stop is running (PID $(($running | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }) -join '; ')). It is on this test's folders, or it was started as .\dist\main.js and its folder cannot be told."
+}
+foreach ($port in @($HealthPort, $neighbourPort)) {
+    if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
+        throw "Something is already listening on port $port. Pass a free -HealthPort (this test uses it and the port after it)."
+    }
 }
 $healthUrl = "http://127.0.0.1:$HealthPort/api/health"
 
 # Same layout as production: <checkout>\scripts beside <checkout>\OpenWA, so Stop-OpenWA.ps1 runs with its default root.
-Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $scripts, (Join-Path $root 'dist') -Force | Out-Null
-Copy-Item (Join-Path $RepoRoot 'scripts\Run-OpenWA.ps1'), (Join-Path $RepoRoot 'scripts\Stop-OpenWA.ps1') $scripts
-Set-Content -LiteralPath (Join-Path $root 'dist\main.js') -Value $fakeMain -Encoding Ascii
-# The supervisor is never given -Port here: it has to find the port in .env, as it does on the server.
-Set-Content -LiteralPath (Join-Path $root '.env') -Value @('# fake gateway', "PORT=$HealthPort") -Encoding Ascii
+function New-FakeLayout {
+    param([string]$Folder, [int]$Port)
+    $folderScripts = Join-Path $Folder 'scripts'
+    $folderRoot = Join-Path $Folder 'OpenWA'
+    Remove-Item -LiteralPath $Folder -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $folderScripts, (Join-Path $folderRoot 'dist') -Force | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts\Run-OpenWA.ps1'), (Join-Path $RepoRoot 'scripts\Stop-OpenWA.ps1'), (Join-Path $RepoRoot 'scripts\OpenWAProcesses.ps1') $folderScripts
+    Set-Content -LiteralPath (Join-Path $folderRoot 'dist\main.js') -Value $fakeMain -Encoding Ascii
+    # The supervisor is never given -Port here: it has to find the port in .env, as it does on the server.
+    Set-Content -LiteralPath (Join-Path $folderRoot '.env') -Value @('# fake gateway', "PORT=$Port") -Encoding Ascii
+}
+New-FakeLayout -Folder $fake -Port $HealthPort
 
 function Check {
     param([string]$Name, [bool]$Condition, [string]$Detail = '')
@@ -179,16 +216,19 @@ function Reset-Fake {
 }
 
 function Get-Runs {
-    $path = Join-Path $root 'runs.txt'
+    param([string]$Path = (Join-Path $root 'runs.txt'))
     if (Test-Path -LiteralPath $path) { [int](Get-Content -LiteralPath $path -Raw) } else { 0 }
 }
 
 function Get-FakeNode {
-    @(Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.CommandLine -like '* .\dist\main.js*' })
+    # By the entry point's absolute path, as Run-OpenWA.ps1 now starts node: matched here independently
+    # of OpenWAProcesses.ps1, so a supervisor that went back to .\dist\main.js finds no node and fails.
+    param([string]$Of = $root)
+    @(Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf("$Of\dist\main.js", [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
 function Get-FakeChrome {
-    @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+    @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf("$root\", [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
 function Get-ElsewhereChrome {
@@ -219,16 +259,38 @@ function Wait-For {
 }
 
 function Get-SupervisorArguments {
-    param([hashtable]$Extra)
-    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scripts\Run-OpenWA.ps1`"",
-        '-OpenWARoot', "`"$root`"", '-NodeHome', "`"$NodeHome`"", '-ChromePath', "`"$ChromePath`"", '-SkipBuild')
+    param([hashtable]$Extra, [string]$Folder = $fake)
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$Folder\scripts\Run-OpenWA.ps1`"",
+        '-OpenWARoot', "`"$Folder\OpenWA`"", '-NodeHome', "`"$NodeHome`"", '-ChromePath', "`"$ChromePath`"", '-SkipBuild')
     foreach ($key in $Extra.Keys) { $arguments += "-$key"; $arguments += [string]$Extra[$key] }
     $arguments
 }
 
 function Start-Supervisor {
-    param([hashtable]$Extra)
-    Start-Process powershell.exe -ArgumentList (Get-SupervisorArguments $Extra) -WindowStyle Hidden -PassThru
+    param([hashtable]$Extra, [string]$Folder = $fake)
+    Start-Process powershell.exe -ArgumentList (Get-SupervisorArguments $Extra $Folder) -WindowStyle Hidden -PassThru
+}
+
+function Get-Probe {
+    # 200, or what went wrong.
+    param([int]$Port)
+    $ProgressPreference = 'SilentlyContinue'
+    try { (Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/health" -UseBasicParsing -TimeoutSec 5).StatusCode } catch { $_.Exception.Message }
+}
+
+function Stop-Neighbour {
+    # Its own Stop-OpenWA.ps1, so it ends the neighbour's gateway and nothing else.
+    $ErrorActionPreference = 'Continue'
+    if ($script:neighbourStarted) {
+        $script:neighbourStarted = $false
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$neighbourScripts\Stop-OpenWA.ps1" 2>&1 | ForEach-Object { "    neighbour stop> $_" }
+    }
+}
+
+# A throw part-way through leaves the neighbour running otherwise.
+trap {
+    Stop-Neighbour | Write-Host
+    break
 }
 
 function Invoke-Stop {
@@ -252,6 +314,24 @@ function Invoke-Stop {
 
 function Show-SupervisorLog {
     Get-SupervisorLines | ForEach-Object { "    log> $_" }
+}
+
+# ---------------------------------------------------------------------------------------------------
+"`n=== 0. A neighbour gateway in another folder, which no scenario may end"
+$script:neighbourStarted = $false
+if ($SkipNeighbour) {
+    Write-Host "  SKIPPED: -SkipNeighbour" -ForegroundColor Yellow
+}
+else {
+    New-FakeLayout -Folder $neighbour -Port $neighbourPort
+    Set-Content -LiteralPath (Join-Path $neighbourRoot 'mode.txt') -Value 'serve'
+    $neighbourSupervisor = Start-Supervisor @{ RestartDelaySeconds = 2 } $neighbour
+    $script:neighbourStarted = $true
+    $neighbourUp = Wait-For { @(Get-FakeNode $neighbourRoot).Count -eq 1 -and (Get-Probe $neighbourPort) -eq 200 } 30 'neighbour up'
+    $neighbourNode = @(Get-FakeNode $neighbourRoot)
+    "    neighbour: supervisor PID $($neighbourSupervisor.Id), node PID $(($neighbourNode | ForEach-Object ProcessId) -join ', ') on $neighbourRoot, port $neighbourPort"
+    Check 'the neighbour gateway is up under its own supervisor, and is not counted as this test''s node' (
+        $neighbourUp -and $neighbourNode.Count -eq 1 -and @(Get-FakeNode).Count -eq 0)
 }
 
 # ---------------------------------------------------------------------------------------------------
@@ -366,7 +446,7 @@ Check 'supervisor exited after the stop, with code 0' ($exited -and $p.ExitCode 
 
 # ---------------------------------------------------------------------------------------------------
 "`n=== 7. Installer restart path under Task Scheduler (Stop-OpenWAAndWait, then Start-ScheduledTask)"
-$taskName = 'ShopInventory-OpenWA-SupervisorTest'
+$taskName = "ShopInventory-OpenWA-SupervisorTest-$(Split-Path -Leaf $fake)"
 # The installer's own two functions, lifted verbatim so the test runs what it runs.
 $installerAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot 'scripts\Install-OpenWAProduction.ps1'), [ref]$null, [ref]$null)
 $functions = $installerAst.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'Test-OpenWAListening', 'Stop-OpenWAAndWait' }, $true) |
@@ -448,12 +528,13 @@ Check 'the stop ended it' (@(Get-FakeChrome).Count -eq 0 -and @($script:lastStop
 
 # ---------------------------------------------------------------------------------------------------
 "`n=== 10. Sorting processes, including ones whose command line cannot be read (made-up snapshots)"
+. (Join-Path $scripts 'OpenWAProcesses.ps1')
 $stopAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $scripts 'Stop-OpenWA.ps1'), [ref]$null, [ref]$null)
 . ([scriptblock]::Create($stopAst.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Select-OpenWAProcesses' }, $true).Extent.Text))
 
 function New-Proc {
-    param([int]$Id, [string]$Name, [int]$Parent, [string]$CommandLine)
-    [pscustomobject]@{ ProcessId = [uint32]$Id; Name = $Name; ParentProcessId = [uint32]$Parent; CommandLine = $(if ($CommandLine) { $CommandLine } else { $null }) }
+    param([int]$Id, [string]$Name, [int]$Parent, [string]$CommandLine, [object]$Created)
+    [pscustomobject]@{ ProcessId = [uint32]$Id; Name = $Name; ParentProcessId = [uint32]$Parent; CommandLine = $(if ($CommandLine) { $CommandLine } else { $null }); CreationDate = $Created }
 }
 $prodRoot = 'C:\ShopInventory\OpenWA'
 $userChrome = New-Proc 200 'chrome.exe' 50 '"chrome.exe" --user-data-dir=C:\Users\someone\AppData\Local\Google\Chrome\User Data'
@@ -486,6 +567,54 @@ $sorted = Select-OpenWAProcesses -Snapshot $afterNode -Root $prodRoot -EndedNode
 $chromeIds = @($sorted.Chrome | ForEach-Object { [int]$_.ProcessId } | Sort-Object)
 Check 'after node is ended its Chrome is still found by the ended PID; the excluded PID is not a supervisor' (
     $sorted.Node.Count -eq 0 -and $sorted.Supervisor.Count -eq 0 -and ($chromeIds -join ',') -eq '101,102,300,301') "chrome=$($chromeIds -join ',')"
+
+# Three installs on one machine, as when tests run beside each other or beside a real gateway:
+#   C:\T\OpenWA2   node by absolute path (as Run-OpenWA.ps1 starts it now) under a supervisor with
+#                  -OpenWARoot, its Chrome; a name that C:\T\OpenWA is a prefix of
+#   C:\U\OpenWA    node started as .\dist\main.js by a supervisor from before this change, which named
+#                  no -OpenWARoot: tied to the folder beside the supervisor's script, through its parent
+#   C:\T\OpenWA    nothing running
+$t0 = Get-Date '2026-10-16 08:00'
+$installs = @(
+    (New-Proc 490 'powershell.exe' 4 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\T\scripts\Run-OpenWA.ps1" -OpenWARoot "C:\T\OpenWA2" -SkipBuild' $t0),
+    (New-Proc 500 'node.exe' 490 '"C:\node\node.exe" "C:\T\OpenWA2\dist\main.js"' $t0.AddSeconds(1)),
+    (New-Proc 501 'chrome.exe' 500 '"chrome.exe" --type=renderer' $t0.AddSeconds(2)),
+    (New-Proc 502 'chrome.exe' 999 '"chrome.exe" --user-data-dir=C:\T\OpenWA2\data\sessions\session-x about:blank' $t0),
+    (New-Proc 491 'powershell.exe' 4 'powershell.exe -NoProfile -File C:\U\scripts\Run-OpenWA.ps1' $t0),
+    (New-Proc 510 'node.exe' 491 '"C:\node\node.exe" .\dist\main.js' $t0.AddSeconds(1)),
+    $userChrome)
+$summary = foreach ($case in @(@('C:\T\OpenWA', '', '', ''), @('C:\T\OpenWA2', '500', '490', '501,502'), @('C:\U\OpenWA\', '510', '491', ''))) {
+    $sorted = Select-OpenWAProcesses -Snapshot $installs -Root $case[0] -ExcludePid 1
+    $got = @((($sorted.Node | ForEach-Object { [int]$_.ProcessId } | Sort-Object) -join ','),
+        (($sorted.Supervisor | ForEach-Object { [int]$_.ProcessId } | Sort-Object) -join ','),
+        (($sorted.Chrome | ForEach-Object { [int]$_.ProcessId } | Sort-Object) -join ','))
+    $ok = $got[0] -eq $case[1] -and $got[1] -eq $case[2] -and $got[2] -eq $case[3] -and $sorted.Hidden.Count -eq 0
+    "    $($case[0]): node [$($got[0])] supervisor [$($got[1])] chrome [$($got[2])] $(if (-not $ok) { "expected [$($case[1])] [$($case[2])] [$($case[3])]" })"
+    $ok
+}
+$summary | Where-Object { $_ -is [string] }
+Check 'three installs: each stop takes only its own node, supervisor and Chrome' (@($summary | Where-Object { $_ -is [bool] -and -not $_ }).Count -eq 0)
+
+# A node started as .\dist\main.js whose parent is gone, or whose parent PID now belongs to a later
+# process, cannot be tied to a folder. Every install's stop takes it, as all of them did before.
+$untold = @(
+    (New-Proc 600 'node.exe' 4444 '"C:\node\node.exe" .\dist\main.js' $t0),
+    (New-Proc 491 'powershell.exe' 4 'powershell.exe -NoProfile -File C:\U\scripts\Run-OpenWA.ps1' $t0.AddSeconds(5)),
+    (New-Proc 610 'node.exe' 491 '"C:\node\node.exe" .\dist\main.js' $t0))
+$forT = Select-OpenWAProcesses -Snapshot $untold -Root 'C:\T\OpenWA' -ExcludePid 1
+$forU = Select-OpenWAProcesses -Snapshot $untold -Root 'C:\U\OpenWA' -ExcludePid 1
+Check 'a relative node with no supervisor parent (gone, or a reused PID) is taken by every install, its root unknown' (
+    (($forT.Node | ForEach-Object { [int]$_.ProcessId } | Sort-Object) -join ',') -eq '600,610' -and
+    (($forU.Node | ForEach-Object { [int]$_.ProcessId } | Sort-Object) -join ',') -eq '600,610' -and
+    @($forT.Node | Where-Object { $_.OpenWARoot -ne '' }).Count -eq 0 -and
+    (($forU.Supervisor | ForEach-Object { [int]$_.ProcessId }) -join ',') -eq '491' -and $forT.Supervisor.Count -eq 0)
+Check 'supervisor command lines: -OpenWARoot quoted, unquoted or with a colon; script path; relative = unknown' (
+    (Get-OpenWASupervisorRoot 'powershell -File C:\a\scripts\Run-OpenWA.ps1 -OpenWARoot:C:\b\OpenWA') -eq 'C:\b\OpenWA' -and
+    (Get-OpenWASupervisorRoot "powershell -Command & 'C:\a b\scripts\Run-OpenWA.ps1' -OpenWARoot 'C:\c d\OpenWA'") -eq 'C:\c d\OpenWA' -and
+    (Get-OpenWASupervisorRoot 'powershell -File "C:\a b\scripts\Run-OpenWA.ps1"') -eq 'C:\a b\OpenWA' -and
+    (Get-OpenWASupervisorRoot 'powershell -File .\scripts\Run-OpenWA.ps1') -eq '' -and
+    (Get-OpenWASupervisorRoot 'powershell -File C:\a\scripts\Run-OpenWA.ps1 -OpenWARoot ..\OpenWA') -eq '' -and
+    $null -eq (Get-OpenWASupervisorRoot 'powershell -File C:\a\scripts\Stop-OpenWA.ps1'))
 
 # ---------------------------------------------------------------------------------------------------
 "`n=== 11. Unelevated with the gateway's processes hidden: Stop-OpenWA.ps1 refuses and changes nothing"
@@ -531,7 +660,25 @@ function global:Invoke-CimMethod {
     Check "an unreadable Chrome of this account is not a reason to refuse" (($ownResult -join ' ') -notmatch 'not elevated' -and ($ownResult -join ' ') -match 'OpenWA is not running')
 }
 
-Get-FakeNode | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+# ---------------------------------------------------------------------------------------------------
+"`n=== 12. The neighbour gateway outlived every scenario's stops and starts"
+if ($script:neighbourStarted) {
+    $neighbourNow = @(Get-FakeNode $neighbourRoot)
+    $neighbourProbe = Get-Probe $neighbourPort
+    "    neighbour: supervisor PID $($neighbourSupervisor.Id) running=$(-not $neighbourSupervisor.HasExited), node PID $(($neighbourNow | ForEach-Object ProcessId) -join ', '), /api/health $neighbourProbe"
+    Check 'the same neighbour supervisor and node are still running, and it still answers' (
+        -not $neighbourSupervisor.HasExited -and $neighbourNow.Count -eq 1 -and $neighbourNow[0].ProcessId -eq $neighbourNode[0].ProcessId -and
+        (Get-Runs (Join-Path $neighbourRoot 'runs.txt')) -eq 1 -and $neighbourProbe -eq 200) "runs=$(Get-Runs (Join-Path $neighbourRoot 'runs.txt'))"
+    Stop-Neighbour
+    $neighbourExited = $neighbourSupervisor.WaitForExit(15000)
+    Check 'its own folder''s Stop-OpenWA.ps1 ends it, supervisor exiting 0' ($neighbourExited -and $neighbourSupervisor.ExitCode -eq 0 -and @(Get-FakeNode $neighbourRoot).Count -eq 0)
+}
+else {
+    Write-Host "  SKIPPED: -SkipNeighbour" -ForegroundColor Yellow
+}
+
+# Only what this run started: its own folders' node and Chrome.
+@(Get-FakeNode) + @(Get-FakeNode $neighbourRoot) | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 @(Get-FakeChrome) + @(Get-ElsewhereChrome) | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 "`n$(if ($script:failures) { "$script:failures check(s) FAILED" } else { 'All checks passed' })"

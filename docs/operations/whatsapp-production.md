@@ -224,9 +224,9 @@ step before it writes `.env`. A running gateway is still on its old Chrome. A ga
 stopped for `npm ci` stays down. Run the installer again with `-ChromePath` to bring it up on Google
 Chrome.
 
-The 5.1 test of all of this, against a throwaway layout under `%TEMP%`, is below. It stops gateways
-with `Stop-OpenWA.ps1`, which matches any gateway's node, so do not run it while
-`Test-OpenWASupervisor.ps1` or a real gateway is running on the same machine:
+The 5.1 test of all of this, against a throwaway layout under `%TEMP%`, is below. It stops only its
+own fake gateway, so it can run beside `Test-OpenWASupervisor.ps1` or a real gateway, as long as
+nothing else listens on its port (2799, or `-Port`):
 
 ```bash
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-OpenWAChromeInstall.ps1 -OpenWASource C:\path\to\checkout\OpenWA
@@ -329,6 +329,17 @@ node but missed its Chrome. So if the script finds node or Chrome processes it c
 elevated, it refuses, names them, and stops nothing. If you end `node.exe` any other way, for example
 from Task Manager, the supervisor treats it as a crash and node is back within 5 seconds. Starting the
 task clears the marker.
+
+The stop ends only the gateway of one `OpenWA` folder: the one beside the script, or `-OpenWARoot`.
+A gateway run from another folder, such as a test's fake one under `%TEMP%`, is left running, and so
+is its supervisor. The runner starts node with the absolute path of `dist\main.js`, so node's command
+line names its folder, and the runner's own command line names it with `-OpenWARoot`. Before 16 Oct
+2026 node was started as `.\dist\main.js`, and a stop from any folder ended every gateway on the
+machine. A runner started before then still starts node that way until the task is next restarted.
+Its node is tied to its folder through the runner, its parent process. A `.\dist\main.js` node with
+no runner above it cannot be tied to any folder, so every stop ends it as before and names it in a
+warning. `Run-OpenWA.ps1` and `Start-OpenWA.ps1` likewise refuse to start a second gateway only
+when one is already running from their own folder.
 
 **Every action says "WhatsApp integration is disabled".** `OpenWA__Enabled` is missing from that
 node's `web.config`. Note *that node's* — with two nodes behind a balancer, a half-configured pair

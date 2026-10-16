@@ -14,6 +14,8 @@ if (-not $OpenWARoot) {
     $OpenWARoot = Join-Path $PSScriptRoot "..\OpenWA"
 }
 
+. (Join-Path $PSScriptRoot 'OpenWAProcesses.ps1')
+
 function Resolve-RequiredPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -30,16 +32,9 @@ function Resolve-RequiredPath {
 }
 
 function Get-OpenWAProcess {
-    Get-CimInstance Win32_Process -Filter "name = 'node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object {
-            $commandLine = $_.CommandLine
-            $commandLine -and (
-                $commandLine -like "*\OpenWA\dist\main*" -or
-                $commandLine -like "* .\dist\main.js*" -or
-                $commandLine -like "*\OpenWA\node_modules\.bin\*nest.js*" -or
-                $commandLine -like "*npm-cli.js*run start*OpenWA*"
-            )
-        }
+    # This install's gateway node. Another folder's gateway, such as a test's fake one, is left alone.
+    $snapshot = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 'powershell.exe' or name = 'pwsh.exe'" -ErrorAction SilentlyContinue)
+    @(Select-OpenWAGateway -Snapshot $snapshot -Root $resolvedOpenWARoot -Name 'node.exe')
 }
 
 $resolvedOpenWARoot = Resolve-RequiredPath -Path $OpenWARoot -Description 'OpenWA root directory'
@@ -50,7 +45,7 @@ $distMainPath = Join-Path $resolvedOpenWARoot 'dist\main.js'
 
 $existingProcess = Get-OpenWAProcess | Select-Object -First 1
 if ($existingProcess) {
-    Write-Host "OpenWA is already running (PID $($existingProcess.ProcessId))."
+    Write-Host "OpenWA is already running from $resolvedOpenWARoot (PID $($existingProcess.ProcessId))."
     return
 }
 
@@ -86,9 +81,10 @@ $env:PATH = "$NodeHome;$env:PATH"
 $env:PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 $env:PUPPETEER_EXECUTABLE_PATH = $resolvedChromePath
 
+# The entry point by its absolute path names this folder on node's command line; see OpenWAProcesses.ps1.
 $process = Start-Process `
     -FilePath $nodeExe `
-    -ArgumentList '.\dist\main.js' `
+    -ArgumentList "`"$distMainPath`"" `
     -WorkingDirectory $resolvedOpenWARoot `
     -RedirectStandardOutput $stdoutLog `
     -RedirectStandardError $stderrLog `

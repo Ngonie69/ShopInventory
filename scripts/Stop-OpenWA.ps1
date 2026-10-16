@@ -13,6 +13,8 @@ if (-not $OpenWARoot) {
     $OpenWARoot = Join-Path $PSScriptRoot '..\OpenWA'
 }
 
+. (Join-Path $PSScriptRoot 'OpenWAProcesses.ps1')
+
 function Test-Elevated {
     ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -35,21 +37,13 @@ function Select-OpenWAProcesses {
 
     $Snapshot = @($Snapshot | Where-Object { $_ })
 
-    $node = @($Snapshot | Where-Object {
-            $commandLine = $_.CommandLine
-            $_.Name -eq 'node.exe' -and $commandLine -and (
-                $commandLine -like "*\OpenWA\dist\main*" -or
-                $commandLine -like "* .\dist\main.js*" -or
-                $commandLine -like "*\OpenWA\node_modules\.bin\*nest.js*" -or
-                $commandLine -like "*npm-cli.js*run start*OpenWA*"
-            )
-        })
+    # Only this install's: another folder's gateway, such as a test's fake one, is left running. See
+    # OpenWAProcesses.ps1 for how a process is tied to its folder.
+    $gateway = @(Select-OpenWAGateway -Snapshot $Snapshot -Root $Root)
+    $node = @($gateway | Where-Object { $_.Name -eq 'node.exe' })
 
     # Run-OpenWA.ps1, the boot task's action, restarts node whenever it exits non-zero.
-    $supervisors = @($Snapshot | Where-Object {
-            ($_.Name -eq 'powershell.exe' -or $_.Name -eq 'pwsh.exe') -and [int]$_.ProcessId -ne $ExcludePid -and
-            $_.CommandLine -and $_.CommandLine -like '*Run-OpenWA.ps1*'
-        })
+    $supervisors = @($gateway | Where-Object { $_.Name -ne 'node.exe' -and [int]$_.ProcessId -ne $ExcludePid })
 
     # The Chrome the gateway launched, found by parent id down from node. The parent id is readable
     # even where the command line is not, and a child keeps its parent's id after the parent exits.
@@ -70,12 +64,10 @@ function Select-OpenWAProcesses {
 
     # And any Chrome still holding a session profile under this install, whose node is long gone.
     # whatsapp-web.js passes the profile as an absolute --user-data-dir.
-    $trimmed = $Root.TrimEnd('\', '/')
-    $roots = @($trimmed, ($trimmed -replace '\\', '/'))
     foreach ($process in @($Snapshot | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine })) {
         $commandLine = $process.CommandLine
         if ($commandLine.IndexOf('--user-data-dir=', [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-            @($roots | Where-Object { $commandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0) {
+            (Test-OpenWAPathInCommandLine -CommandLine $commandLine -Root $Root)) {
             $chrome[[int]$process.ProcessId] = $process
         }
     }
@@ -172,6 +164,10 @@ if ($hidden.Count -gt 0) {
     Write-Warning "Cannot read the command line of $(Format-Pids $hidden) even elevated. Any of them left by the gateway is not ended."
 }
 
+foreach ($process in @(@($found.Node) + @($found.Supervisor) | Where-Object { -not $_.OpenWARoot })) {
+    Write-Warning "Cannot tell which OpenWA folder PID $($process.ProcessId) ($($process.Name)) runs from: $($process.CommandLine). Ending it as this install's."
+}
+
 # Ending node looks like a crash to the supervisor, which would restart it. The marker tells it the
 # exit was asked for, so it exits instead - including when it is waiting out a restart delay. Left
 # behind when nothing is running, it is harmless: Run-OpenWA.ps1 clears it when it starts.
@@ -181,7 +177,7 @@ Set-Content -LiteralPath (Join-Path $logsDir 'stop-requested') -Value "Stop requ
 
 $hadSupervisor = $found.Supervisor.Count -gt 0
 if ($found.Node.Count -eq 0 -and $found.Supervisor.Count -eq 0 -and $found.Chrome.Count -eq 0) {
-    Write-Host 'OpenWA is not running.'
+    Write-Host "OpenWA is not running from $resolvedRoot."
     return
 }
 

@@ -14,8 +14,9 @@
 #     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-OpenWAChromeInstall.ps1 -OpenWASource C:\path\to\checkout\OpenWA
 #
 # -OpenWASource defaults to this checkout's OpenWA, which in a worktree is empty: point it at a checkout
-# with node_modules installed. It refuses to run while a real gateway is running on this machine,
-# because stopping the fake one uses Stop-OpenWA.ps1, which matches any gateway's node.
+# with node_modules installed. It stops only the gateway in its own folder (the scripts tell installs
+# apart by folder, see scripts\OpenWAProcesses.ps1), so it runs beside a real gateway or another test's
+# fake one, as long as nothing else listens on -Port.
 #
 # -KeepDownload keeps the browser a previous run downloaded (its stamp is still removed), so scenario 1
 # runs npx against an existing folder instead of downloading again.
@@ -50,8 +51,9 @@ function Check {
 }
 
 function Get-GatewayNode {
+    # This test's fake gateway only, by the absolute entry path Start-OpenWA.ps1 gives node.
     @(Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object {
-        $_.CommandLine -and ($_.CommandLine -like '*\OpenWA\dist\main*' -or $_.CommandLine -like '* .\dist\main.js*') })
+        $_.CommandLine -and $_.CommandLine.IndexOf("$root\dist\main.js", [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
 function Get-ProfileChrome {
@@ -88,8 +90,16 @@ function Get-RunningChrome {
     if (Test-Path -LiteralPath $gatewayChrome) { (Get-Content -LiteralPath $gatewayChrome -Raw).Trim() } else { $null }
 }
 
-if (Get-GatewayNode) {
-    throw 'An OpenWA gateway is running on this machine. Stop it first: this test stops gateways with Stop-OpenWA.ps1.'
+# Only a gateway this test would stop or collide with is a reason to refuse: one on its own folder or
+# its port, or one whose folder cannot be told (started as .\dist\main.js), which every stop takes for its own.
+. (Join-Path $PSScriptRoot 'OpenWAProcesses.ps1')
+$running = @(Select-OpenWAGateway -Snapshot @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 'powershell.exe' or name = 'pwsh.exe'") -Root $root |
+    Where-Object { $_.ProcessId -ne $PID })
+if ($running.Count -gt 0) {
+    throw "An OpenWA gateway or supervisor that this test would stop is running (PID $(($running | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }) -join '; ')). It is on $root, or its folder cannot be told."
+}
+if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
+    throw "Something is already listening on port $Port. Pass a free one with -Port."
 }
 foreach ($required in @((Join-Path $OpenWASource 'node_modules\whatsapp-web.js'), (Join-Path $OpenWASource 'node_modules\@puppeteer\browsers'), (Join-Path $NodeHome 'node.exe'), $SystemChrome)) {
     if (-not (Test-Path -LiteralPath $required)) { throw "$required was not found. See -OpenWASource, -NodeHome and -SystemChrome." }
@@ -113,7 +123,7 @@ if (Test-Path -LiteralPath $fake) {
     Remove-Item -LiteralPath $fake -Recurse -Force
 }
 New-Item -ItemType Directory -Path $scripts, (Join-Path $root 'dist'), (Join-Path $root 'node_modules\@puppeteer'), $sessions -Force | Out-Null
-foreach ($name in 'Install-OpenWAProduction.ps1', 'Install-OpenWAChrome.ps1', 'Run-OpenWA.ps1', 'Start-OpenWA.ps1', 'Stop-OpenWA.ps1', 'Register-OpenWAStartupTask.ps1') {
+foreach ($name in 'Install-OpenWAProduction.ps1', 'Install-OpenWAChrome.ps1', 'Run-OpenWA.ps1', 'Start-OpenWA.ps1', 'Stop-OpenWA.ps1', 'Register-OpenWAStartupTask.ps1', 'OpenWAProcesses.ps1') {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $scripts
 }
 # Node resolves a junction to its real path, so each package's own dependencies come from the real tree.
