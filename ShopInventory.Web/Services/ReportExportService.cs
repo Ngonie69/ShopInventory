@@ -69,6 +69,12 @@ public interface IReportExportService
     byte[] ExportManagementSalesReportToExcel(ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementSalesReportResult report, IReadOnlyDictionary<int, string>? itemGroupNames = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
+
+    /// <summary>
+    /// The Partner performance lens: each partner's window against the same dates in earlier years,
+    /// and the period rows for every partner together. Money is in the one currency the page reads.
+    /// </summary>
+    byte[] ExportPartnerPerformanceToExcel(PartnerPerformance performance, string title, bool readZig);
     byte[] ExportCountVarianceToExcel(CountVarianceReport report);
     byte[] ExportVanCountVarianceToExcel(VanCountVarianceReport report);
 
@@ -7518,6 +7524,148 @@ public partial class ReportExportService : IReportExportService
         FinalizeSheet(linesSheet, lineCols, linesHeader, landscape: true);
 
         return WorkbookToBytes(workbook);
+    }
+
+    public byte[] ExportPartnerPerformanceToExcel(PartnerPerformance performance, string title, bool readZig)
+    {
+        using var workbook = NewWorkbook(title);
+
+        var windows = performance.Windows;
+        var years = windows.Count;
+        var money = readZig ? FormatZig : FormatUsd;
+        var currency = readZig ? "ZiG" : "USD";
+        var current = windows[0];
+        // The header prints a date range or a subtitle, not both, so the range is folded into it.
+        var range = $"Period: {current.FromUtc:dd MMM yyyy} – {current.ToUtc:dd MMM yyyy}";
+        var subtitle = years > 1
+            ? $"{range}, against the same dates in {string.Join(" and ", windows.Skip(1).Select(window => window.Label))} · net of credit notes"
+            : $"{range} · net of credit notes";
+
+        // Code, name, then revenue per year and its change on the year before, then the same for volume.
+        var partnersSheet = AddSheet(workbook, "Partners");
+        var partnerCols = 2 + (years + 1) * 2;
+        var row = WriteReportHeader(
+            partnersSheet,
+            $"{title} — by business partner",
+            partnerCols,
+            subtitle: subtitle);
+
+        var headers = new List<string> { "Card Code", "Card Name" };
+        headers.AddRange(windows.Select(window => $"Revenue {currency} {window.Label}"));
+        headers.Add(years > 1 ? $"Revenue vs {windows[1].Label}" : "Revenue change");
+        headers.AddRange(windows.Select(window => $"Volume L {window.Label}"));
+        headers.Add(years > 1 ? $"Volume vs {windows[1].Label}" : "Volume change");
+
+        var partnersHeader = row;
+        row = WriteItemVolumeTable(partnersSheet, row, headers.ToArray());
+
+        var partnersStart = row;
+        foreach (var partner in performance.Partners)
+        {
+            partnersSheet.Cell(row, 1).Value = partner.Code;
+            partnersSheet.Cell(row, 2).Value = partner.Name;
+            WritePerformanceYears(partnersSheet, row, 3, partner.Years.Select(year => year.Revenue).ToList(), money);
+            WritePerformanceYears(partnersSheet, row, 4 + years, partner.Years.Select(year => year.Volume).ToList(), FormatVolume);
+            row++;
+        }
+
+        var partnersLast = row - 1;
+        row = FinishTable(partnersSheet, partnersHeader, partnersStart, row, partnerCols, "No partner traded in any of the windows.");
+
+        partnersSheet.Cell(row, 1).Value = "TOTAL";
+        for (var year = 0; year < years; year++)
+        {
+            WriteSubtotal(partnersSheet, row, 3 + year, partnersStart, partnersLast, money);
+            WriteSubtotal(partnersSheet, row, 4 + years + year, partnersStart, partnersLast, FormatVolume);
+        }
+
+        WritePerformanceChange(partnersSheet, row, 3 + years, performance.Totals.Select(total => total.Revenue).ToList());
+        WritePerformanceChange(partnersSheet, row, 4 + years + years, performance.Totals.Select(total => total.Volume).ToList());
+        StyleTotalsRow(partnersSheet, row, partnerCols);
+
+        WriteFooter(partnersSheet, row, partnerCols);
+        FinalizeSheet(partnersSheet, partnerCols, partnersHeader, landscape: true);
+
+        // The period rows, every partner together. The earlier years are the same dates, so a row is
+        // the same slice of each year.
+        var periodsSheet = AddSheet(workbook, "Periods");
+        row = WriteReportHeader(
+            periodsSheet,
+            $"{title} — by period, all partners",
+            partnerCols - 1,
+            subtitle: subtitle);
+
+        var periodHeaders = new List<string> { "Period" };
+        periodHeaders.AddRange(headers.Skip(2));
+
+        var periodsHeader = row;
+        row = WriteItemVolumeTable(periodsSheet, row, periodHeaders.ToArray());
+
+        var periodsStart = row;
+        foreach (var period in performance.PeriodsFor(null))
+        {
+            periodsSheet.Cell(row, 1).Value = period.Label;
+            WritePerformanceYears(periodsSheet, row, 2, period.Revenue, money);
+            WritePerformanceYears(periodsSheet, row, 3 + years, period.Volume, FormatVolume);
+            row++;
+        }
+
+        var periodsLast = row - 1;
+        row = FinishTable(periodsSheet, periodsHeader, periodsStart, row, partnerCols - 1, "No periods fell in this window.");
+
+        periodsSheet.Cell(row, 1).Value = "TOTAL";
+        for (var year = 0; year < years; year++)
+        {
+            WriteSubtotal(periodsSheet, row, 2 + year, periodsStart, periodsLast, money);
+            WriteSubtotal(periodsSheet, row, 3 + years + year, periodsStart, periodsLast, FormatVolume);
+        }
+
+        WritePerformanceChange(periodsSheet, row, 2 + years, performance.Totals.Select(total => total.Revenue).ToList());
+        WritePerformanceChange(periodsSheet, row, 3 + years + years, performance.Totals.Select(total => total.Volume).ToList());
+        StyleTotalsRow(periodsSheet, row, partnerCols - 1);
+
+        WriteFooter(periodsSheet, row, partnerCols - 1);
+        FinalizeSheet(periodsSheet, partnerCols - 1, periodsHeader, landscape: true);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>One figure per year from <paramref name="col"/>, then its change on the year before.</summary>
+    private static void WritePerformanceYears(IXLWorksheet ws, int row, int col, IReadOnlyList<decimal> values, string numberFormat)
+    {
+        for (var year = 0; year < values.Count; year++)
+        {
+            ws.Cell(row, col + year).Value = values[year];
+            ws.Cell(row, col + year).Style.NumberFormat.Format = numberFormat;
+        }
+
+        WritePerformanceChange(ws, row, col + values.Count, values);
+    }
+
+    /// <summary>
+    /// The newest year against the one before it, as a fraction Excel formats as a percentage. A year
+    /// with nothing to grow from says "new" rather than dividing by zero.
+    /// </summary>
+    private static void WritePerformanceChange(IXLWorksheet ws, int row, int col, IReadOnlyList<decimal> values)
+    {
+        if (values.Count < 2)
+        {
+            return;
+        }
+
+        var change = PartnerPerformance.Change(values[0], values[1]);
+        var cell = ws.Cell(row, col);
+
+        if (change is null)
+        {
+            cell.Value = values[0] == 0 ? "—" : "new";
+            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            return;
+        }
+
+        cell.Value = change.Value / 100m;
+        cell.Style.NumberFormat.Format = FormatPercent;
+        cell.Style.Font.FontColor = change.Value < 0 ? DangerRed : SuccessGreen;
     }
 
     private static int WriteItemVolumeTable(IXLWorksheet ws, int row, string[] headers)

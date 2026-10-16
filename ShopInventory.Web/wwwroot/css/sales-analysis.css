@@ -4,7 +4,8 @@
    Imported from `Item Volume Report.dc.html` in the claude.ai design project
    4926a6ee-be80-40ac-a2fb-58d6ffe4ed70, which supersedes the rail layout this
    sheet first carried from `Sales Analysis.dc.html`. It dresses one page reached
-   by two routes — /reports/item-volume and /reports/customer-revenue — because
+   by three routes — /reports/item-volume, /reports/customer-revenue and
+   /reports/partner-performance — because
    the design is one page: the pills under the title are the report picker.
 
    The design draws the whole app; only the content column is built here. The
@@ -100,6 +101,8 @@
     --sla-fam-warn-rgb: var(--noct-fam-warn-rgb);
     --sla-fam-bad: var(--noct-fam-bad);
     --sla-fam-bad-rgb: var(--noct-fam-bad-rgb);
+    --sla-fam-good: var(--noct-fam-good);
+    --sla-fam-good-rgb: var(--noct-fam-good-rgb);
 
     --sla-s1: var(--noct-s1);
     --sla-s2: var(--noct-s2);
@@ -129,6 +132,14 @@
     --sla-chip-bg: rgba(var(--sla-accent-rgb), .14);
     --sla-chip-ink: var(--sla-accent-text);
 
+    /* Partner performance's years, newest first. The newest is the accent
+       itself and each earlier year steps away from it towards the ground,
+       so the years differ in lightness and not hue alone — the same reason
+       the series fills are values rather than aliases. */
+    --slp-y0: #5f52c4;
+    --slp-y1: #8f83d0;
+    --slp-y2: #c1baec;
+
     /* NocturneDateField's own fallbacks, set from the page root so its closed
        field lines up with the segments beside it. The calendar stays the shared
        one; see wwwroot/css/nocturne-date-field.css. */
@@ -155,6 +166,9 @@
 }
 
 .dark-theme .sla {
+    --slp-y0: #b5abfc;
+    --slp-y1: #796cbf;
+    --slp-y2: #5d5294;
     --sla-series-1: #b5abfc;
     --sla-series-2: #968ae0;
     --sla-series-3: #796cbf;
@@ -1806,6 +1820,392 @@
     font-size: 12.5px;
 }
 
+/* ── Partner performance ─────────────────────────────────────────────────
+
+   The third lens: a window against the same dates in earlier years. One
+   partner reads as a scorecard, a running-total chart and a period table;
+   several read side by side, each opening to the same scorecard. Drawn from
+   the Partner YTD performance design (claude.ai artifact
+   RzMu2C6zZ9BYi5dHshRdE8), which was cut against this sheet's tokens, so it
+   reuses the panel, stat, segment and table rules above and adds only what a
+   comparison needs: the change badges, the year colours and the chart. */
+
+.slp-partner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px 24px;
+}
+
+.slp-partner-id {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.slp-avatar {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border-radius: var(--sla-r-lg);
+    background: var(--sla-chip-bg);
+    color: var(--sla-chip-ink);
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.slp-partner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.slp-partner-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.slp-partner-name h2 {
+    font-size: 22px;
+}
+
+.slp-code {
+    padding: 2px 8px;
+    border-radius: var(--sla-r-sm);
+    box-shadow: inset 0 0 0 1px var(--sla-divider);
+    font-size: 12px;
+    letter-spacing: .04em;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-mute-2);
+}
+
+.slp-partner-note {
+    font-size: 12.5px;
+    color: var(--sla-mute-3);
+}
+
+.slp-partner-tools,
+.slp-basis {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.slp-basis-label {
+    font-size: 12.5px;
+    color: var(--sla-mute-2);
+}
+
+/* The change badge. Up and down differ by sign as well as colour, so the
+   badge reads the same to a reader who cannot tell the hues apart. */
+.slp-delta {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.slp-delta.is-up {
+    color: var(--sla-fam-good);
+    background: rgba(var(--sla-fam-good-rgb), .14);
+}
+
+.slp-delta.is-down {
+    color: var(--sla-fam-bad);
+    background: rgba(var(--sla-fam-bad-rgb), .14);
+}
+
+.slp-delta.is-flat {
+    color: var(--sla-mute-2);
+    background: rgba(var(--sla-fam-neutral-rgb), .14);
+}
+
+.slp-good {
+    color: var(--sla-fam-good);
+}
+
+.slp-stat-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--sla-mute-3);
+}
+
+.sla-stats.slp-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* — the scorecard — */
+
+.slp-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.slp-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    padding: 16px 18px 14px;
+    border-radius: var(--sla-r-lg);
+    background: var(--sla-surface);
+    box-shadow: 0 0 0 1px var(--sla-divider);
+}
+
+.slp-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.slp-card-value {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.slp-card-value.is-credit {
+    color: var(--sla-fam-bad);
+}
+
+.slp-years {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 2px;
+    padding-top: 10px;
+    box-shadow: inset 0 1px 0 var(--sla-rule);
+}
+
+.slp-year {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--sla-mute-2);
+}
+
+.slp-year.is-current .slp-year-label {
+    color: var(--sla-ink);
+    font-weight: 500;
+}
+
+.slp-year.is-basis .slp-year-label {
+    color: var(--sla-accent-text);
+    font-weight: 500;
+}
+
+.slp-year-track {
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--sla-track);
+}
+
+.slp-year-bar {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+}
+
+.slp-year-value {
+    min-width: 92px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-ink-2);
+}
+
+/* — the running-total chart — */
+
+.slp-push {
+    margin-left: auto;
+}
+
+.sla-legend.slp-legend {
+    margin-left: 0;
+}
+
+.slp-legend-line {
+    display: inline-block;
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+.slp-legend-line.slp-y0 { background: var(--slp-y0); }
+.slp-legend-line.slp-y1 { background: var(--slp-y1); }
+
+/* The oldest year is dashed as well as paler, so the lines stay apart where
+   they cross and in a print that has lost its colour. */
+.slp-legend-line.slp-y2 {
+    height: 0;
+    border-top: 3px dashed var(--slp-y2);
+    border-radius: 0;
+}
+
+/* The chart's text scales with it, so on a phone it keeps a readable width
+   and scrolls inside its panel, as the tables do, rather than shrinking. */
+.slp-plot-wrap {
+    overflow-x: auto;
+}
+
+.slp-plot {
+    display: block;
+    width: 100%;
+    min-width: 640px;
+    height: auto;
+    overflow: visible;
+}
+
+.slp-grid {
+    stroke: var(--sla-rule);
+    stroke-width: 1;
+}
+
+.slp-axis {
+    stroke: var(--sla-divider);
+    stroke-width: 1;
+}
+
+.slp-tick {
+    fill: var(--sla-mute-3);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.slp-line {
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.slp-line.slp-y0 { stroke: var(--slp-y0); stroke-width: 3.5; }
+.slp-line.slp-y1 { stroke: var(--slp-y1); }
+.slp-line.slp-y2 { stroke: var(--slp-y2); stroke-dasharray: 7 6; }
+
+.slp-dot.slp-y0 { fill: var(--slp-y0); }
+.slp-dot.slp-y1 { fill: var(--slp-y1); }
+.slp-dot.slp-y2 { fill: var(--slp-y2); }
+
+.slp-end {
+    fill: var(--sla-mute-2);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.slp-end.is-current {
+    fill: var(--sla-ink);
+    font-weight: 500;
+}
+
+/* — the tables — */
+
+.slp-table th.slp-th-group {
+    text-align: center;
+    color: var(--sla-mute-2);
+    box-shadow: inset 1px 0 0 var(--sla-divider), inset 0 -1px 0 var(--sla-rule);
+}
+
+/* The second heading row sticks under the first rather than over it. */
+.slp-table thead tr + tr th {
+    top: 34px;
+}
+
+.slp-table th.slp-th-current {
+    color: var(--sla-accent-text);
+}
+
+.slp-th-period {
+    min-width: 150px;
+    vertical-align: bottom;
+}
+
+.slp-period {
+    white-space: nowrap;
+}
+
+.slp-table .slp-zero {
+    color: var(--sla-mute-3);
+}
+
+.slp-spark {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 26px;
+}
+
+.slp-spark span {
+    width: 7px;
+    min-height: 2px;
+    border-radius: 2px 2px 0 0;
+}
+
+.slp-spark .slp-y0 { background: var(--slp-y0); }
+.slp-spark .slp-y1 { background: var(--slp-y1); }
+.slp-spark .slp-y2 { background: var(--slp-y2); }
+
+.sla .slp-open {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--sla-r-md);
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--sla-divider);
+    color: var(--sla-ink);
+    cursor: pointer;
+}
+
+.sla .slp-open:hover {
+    background: var(--sla-hover);
+    color: var(--sla-accent-text);
+}
+
+.slp-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.sla-idle.slp-needs-run {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.slp-needs-run .sla-idle-text {
+    gap: 12px;
+}
+
 /* ── The toast ───────────────────────────────────────────────────────────── */
 
 .sla-toast {
@@ -1871,6 +2271,14 @@
     .sla-stat + .sla-stat {
         padding-top: 16px;
         box-shadow: inset 0 1px 0 var(--sla-divider);
+    }
+
+    .slp-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .slp-push {
+        margin-left: 0;
     }
 
     .sla-table-tools {
