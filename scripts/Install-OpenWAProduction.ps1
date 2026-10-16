@@ -107,6 +107,8 @@ if (-not $RepositoryRoot) {
     $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 }
 
+. (Join-Path $PSScriptRoot 'OpenWAProcesses.ps1')
+
 function Write-Section {
     param([string]$Text)
     Write-Host ""
@@ -157,19 +159,15 @@ function Stop-OpenWAAndWait {
 }
 
 function Test-OpenWAProcessRunning {
-    # The same match Stop-OpenWA.ps1 uses to find the gateway's node process.
-    [bool](Get-CimInstance Win32_Process -Filter "name = 'node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object {
-            $commandLine = $_.CommandLine
-            $commandLine -and (
-                $commandLine -like "*\OpenWA\dist\main*" -or
-                $commandLine -like "* .\dist\main.js*"
-            )
-        })
+    # The same match Stop-OpenWA.ps1 uses to find the gateway's node process: this install's only.
+    param([string]$Root)
+
+    $snapshot = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 'powershell.exe' or name = 'pwsh.exe'" -ErrorAction SilentlyContinue)
+    @(Select-OpenWAGateway -Snapshot $snapshot -Root $Root -Name 'node.exe').Count -gt 0
 }
 
 function Wait-OpenWAHealthy {
-    param([int]$Port, [string]$TaskName, [int]$TimeoutSeconds, [string]$LogsPath)
+    param([int]$Port, [string]$TaskName, [int]$TimeoutSeconds, [string]$LogsPath, [string]$OpenWARoot)
 
     # On 10.10.10.9 a restart took longer than a minute to answer: the old 60s wait threw while the
     # boot task was still bringing up a healthy gateway, and the run stopped before registering the
@@ -192,7 +190,7 @@ function Wait-OpenWAHealthy {
 
         $elapsed = [int]((Get-Date) - $started).TotalSeconds
 
-        if ($elapsed -ge $graceSeconds -and -not (Test-OpenWAProcessRunning)) {
+        if ($elapsed -ge $graceSeconds -and -not (Test-OpenWAProcessRunning -Root $OpenWARoot)) {
             $task = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
             $taskNote = if ($task) { " The '$TaskName' task last returned $($task.LastTaskResult). While it runs, its runner restarts node with a growing gap." } else { '' }
             throw "OpenWA exited without answering http://127.0.0.1:$Port/api/health.$taskNote Read openwa-supervisor.txt and the newest .err.log under $LogsPath."
@@ -627,7 +625,7 @@ elseif ($PSCmdlet.ShouldProcess("localhost:$Port", "Start OpenWA")) {
         & (Join-Path $PSScriptRoot 'Start-OpenWA.ps1') -NodeHome $nodeHome -ChromePath $chrome
     }
 
-    Wait-OpenWAHealthy -Port $Port -TaskName $TaskName -TimeoutSeconds $StartTimeoutSeconds -LogsPath (Join-Path $openWaRoot 'logs')
+    Wait-OpenWAHealthy -Port $Port -TaskName $TaskName -TimeoutSeconds $StartTimeoutSeconds -LogsPath (Join-Path $openWaRoot 'logs') -OpenWARoot $openWaRoot
 }
 
 $apiKeyPath = Join-Path $dataPath '.api-key'

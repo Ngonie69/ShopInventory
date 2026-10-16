@@ -19,7 +19,8 @@ anything.
 
 - `scripts/Run-OpenWA.ps1`: foreground runner intended for Task Scheduler. It supervises node: a non-zero exit is restarted after 5 seconds, doubling to 5 minutes, and an exit code of 0 or a stop requested by `Stop-OpenWA.ps1` ends it.
 - `scripts/Start-OpenWA.ps1`: starts the runner in a detached PowerShell process.
-- `scripts/Stop-OpenWA.ps1`: stops active OpenWA Node processes. It writes `OpenWA/logs/stop-requested` first so the runner does not restart node, then waits for the runner to exit.
+- `scripts/Stop-OpenWA.ps1`: stops the OpenWA node, Chrome and runner of one `OpenWA` folder (beside the script, or `-OpenWARoot`), leaving any other folder's gateway running. It writes `OpenWA/logs/stop-requested` first so the runner does not restart node, then waits for the runner to exit.
+- `scripts/OpenWAProcesses.ps1`: dot-sourced by the scripts above to tell which `OpenWA` folder a node or runner process belongs to, from its command line.
 - `scripts/Register-OpenWAStartupTask.ps1`: registers a startup task as `NT AUTHORITY\SYSTEM`.
 
 ## Validate Prerequisites
@@ -82,11 +83,13 @@ To remove the Startup entry later:
 Each run of node gets its own pair. `openwa-supervisor.txt` records every start, exit code and restart.
 
 `scripts/Test-OpenWASupervisor.ps1` exercises the restart and stop behaviour against a fake gateway
-under `%TEMP%`. Run it with `powershell.exe -File` after changing either script.
+under `%TEMP%`. Run it with `powershell.exe -File` after changing either script. It leaves gateways in
+other folders alone, and checks that by running a neighbour fake gateway through every scenario. A
+second run at the same time needs its own `-Fixture` and `-HealthPort`.
 
 ## Notes
 
-- The runner uses `node .\dist\main.js` because that startup path was more reliable on this Windows host than `npm run start`.
+- The runner uses `node <OpenWA>\dist\main.js`, run in the `OpenWA` folder, because that startup path was more reliable on this Windows host than `npm run start`. The entry point is given by its absolute path so that the command line names the folder, which is how the stop tells gateways in different folders apart. OpenWA still reads `.env` and `data\` from its working directory.
 - The runner sets `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` and points Puppeteer at `-ChromePath`, which defaults to the installed Google Chrome. The production installer passes the Chrome for Testing build Puppeteer expects instead; see [The gateway's Chrome](whatsapp-production.md#the-gateways-chrome).
 - The runner will build OpenWA automatically only if `dist\main.js` is missing. Use `-SkipBuild` when you want startup to fail fast instead.
 - Local webhook registration should use `127.0.0.1`, not `localhost`, because OpenWA rejects `localhost` for webhook URLs.

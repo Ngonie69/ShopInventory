@@ -18,6 +18,12 @@ otherwise be surprised.
 
 ### Changed
 
+- **`scripts\Stop-OpenWA.ps1` stops only its own folder's gateway.** It ends the node, Chrome and
+  runner of one `OpenWA` folder (beside the script, or `-OpenWARoot`) and leaves a gateway run from
+  any other folder alone; before, it ended every OpenWA gateway on the machine. `Run-OpenWA.ps1` and
+  `Start-OpenWA.ps1` now start node as `node <OpenWA>\dist\main.js` (absolute) so the command line
+  names the folder, and refuse to start only when their own folder's gateway is running. A
+  `.\dist\main.js` node that no runner started still counts as every folder's.
 - **`POST /api/DesktopIntegration/webhook/transfer-event` takes SAP cancellations.** A negative
   `Quantity` is now applied as the reverse movement (stock back from `DestinationWarehouse` to
   `SourceWarehouse`) instead of being refused with a 400; only zero is refused. SAP books a cancelled

@@ -224,9 +224,9 @@ step before it writes `.env`. A running gateway is still on its old Chrome. A ga
 stopped for `npm ci` stays down. Run the installer again with `-ChromePath` to bring it up on Google
 Chrome.
 
-The 5.1 test of all of this, against a throwaway layout under `%TEMP%`, is below. It stops gateways
-with `Stop-OpenWA.ps1`, which matches any gateway's node, so do not run it while
-`Test-OpenWASupervisor.ps1` or a real gateway is running on the same machine:
+The 5.1 test of all of this, against a throwaway layout under `%TEMP%`, is below. It stops only its
+own fake gateway, so it can run beside `Test-OpenWASupervisor.ps1` or a real gateway, as long as
+nothing else listens on its port (2799, or `-Port`):
 
 ```bash
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-OpenWAChromeInstall.ps1 -OpenWASource C:\path\to\checkout\OpenWA
@@ -280,12 +280,30 @@ The boot task's runner, `scripts\Run-OpenWA.ps1`, supervises node. When node exi
 but 0 it is started again after 5 seconds, then 10, 20 and so on up to 5 minutes between tries. A
 run that lasted 10 minutes counts as healthy, and the next crash starts again at 5 seconds. Before
 each start the runner ends any Chrome still holding one of OpenWA's session profiles, which a crash
-can leave behind. Every start, exit code and restart is a line in `OpenWA\logs\openwa-supervisor.txt`,
-and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
+can leave behind.
+
+The runner also restarts a node that is still running but has stopped answering, for example with a
+wedged event loop or a puppeteer deadlock. No exit code reports that. Once node has answered
+`http://127.0.0.1:<port>/api/health` with 200, the runner asks again every 30 seconds, with a
+10-second timeout. After 4 failures in a row, about 2 minutes, it ends node and any Chrome on
+OpenWA's session profiles, then restarts node with the same backoff as a crash. Until the first 200
+nothing is counted, because a restart on .9 took over a minute to answer. A gateway that is slow to
+start is never ended for it. The port is taken from `PORT` in the environment, then `OpenWA\.env`,
+then `data\.env.generated`, then 2785. `-Port` overrides all of these, and `-HealthCheckSeconds 0`
+turns the check off. `/api/health` shows only that node's HTTP server is answering. A session whose
+Chrome has hung while node still answers is not covered here. That is the session's own
+`readyTimeoutMs` retry, below.
+
+Every start, first answer, failed health check, exit code and restart is a line in
+`OpenWA\logs\openwa-supervisor.txt`, and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
 
 - **The supervisor log shows restarts, and the gateway answers again.** It crashed and came back.
   The reason is at the end of the `.err.log` named in the line before the restart. Sessions that
   were running start again by themselves.
+- **The supervisor log shows `Health check 1 of 4 failed` … `Ending it`, then a restart.** node was
+  alive but stopped answering, and the runner ended it. The `.err.log` and `.out.log` named in the
+  restart line end where it hung, with no crash message, because node never exited by itself. A
+  `Health check` line followed by `answered … again` is a slow moment that passed. Nothing was ended.
 - **The supervisor log shows a restart every few minutes.** The gateway crashes as soon as it starts.
   The gap has grown to 5 minutes, and it keeps trying. Read the newest `.err.log`. Each run has the
   same failure until the cause is fixed.
@@ -294,11 +312,34 @@ and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
   or node exiting with code 0. If the log is missing, or has no line from that day, the runner on
   this host is older than the supervisor and ran node only once. That is how the gateway stayed down
   for two days from 14 Oct 2026. Start it with `Start-ScheduledTask ShopInventory-OpenWA`.
+- **node is running and `/api/health` does not answer, and the supervisor log has no `Health check`
+  lines.** Either node has not answered once since it started, which counts as still starting, or
+  the runner on this host is older than the health check, which reaches .9 only when the task is
+  restarted. The log's `Supervisor started` line names the URL it checks. If it has no such line,
+  or names the wrong port, restart the task.
 
-To stop the gateway on purpose, use `.\scripts\Stop-OpenWA.ps1`. It writes `OpenWA\logs\stop-requested`
-first, so the supervisor exits and does not restart node, then ends node and waits for the supervisor
-to go. If you end `node.exe` any other way, for example from Task Manager, the supervisor treats it as
-a crash and node is back within 5 seconds. Starting the task clears the marker.
+To stop the gateway on purpose, use `.\scripts\Stop-OpenWA.ps1` **from an elevated PowerShell**. It
+writes `OpenWA\logs\stop-requested`, so the supervisor exits and does not restart node. Then it ends
+node and the gateway's Chrome, and waits for the supervisor to go. It finds Chrome two ways: every
+Chrome under node in the process tree, and any Chrome holding a profile under
+`OpenWA\data\sessions`. A Chrome left running would keep its session's profile locked, and the next
+start would fail with "The browser is already running". The gateway runs as SYSTEM, and an unelevated
+console cannot read a SYSTEM process's command line. On 16 Oct 2026 a stop from such a console ended
+node but missed its Chrome. So if the script finds node or Chrome processes it cannot read, and is not
+elevated, it refuses, names them, and stops nothing. If you end `node.exe` any other way, for example
+from Task Manager, the supervisor treats it as a crash and node is back within 5 seconds. Starting the
+task clears the marker.
+
+The stop ends only the gateway of one `OpenWA` folder: the one beside the script, or `-OpenWARoot`.
+A gateway run from another folder, such as a test's fake one under `%TEMP%`, is left running, and so
+is its supervisor. The runner starts node with the absolute path of `dist\main.js`, so node's command
+line names its folder, and the runner's own command line names it with `-OpenWARoot`. Before 16 Oct
+2026 node was started as `.\dist\main.js`, and a stop from any folder ended every gateway on the
+machine. A runner started before then still starts node that way until the task is next restarted.
+Its node is tied to its folder through the runner, its parent process. A `.\dist\main.js` node with
+no runner above it cannot be tied to any folder, so every stop ends it as before and names it in a
+warning. `Run-OpenWA.ps1` and `Start-OpenWA.ps1` likewise refuse to start a second gateway only
+when one is already running from their own folder.
 
 **Every action says "WhatsApp integration is disabled".** `OpenWA__Enabled` is missing from that
 node's `web.config`. Note *that node's* — with two nodes behind a balancer, a half-configured pair
@@ -344,11 +385,11 @@ a stop always answers. On the older gateway:
 
 1. Wait a minute and look at the row again. `disconnected` means the stop went through.
 2. Still `ready` after a few minutes means Chrome never exited. Stop the gateway with
-   `.\scripts\Stop-OpenWA.ps1`, then start the `ShopInventory-OpenWA` task. A healthy Chrome exits
-   by itself within half a minute of the gateway stopping. A hung one does not, and while it runs
-   the session cannot start again. The supervising runner ends any Chrome still holding a session
-   profile before it starts node. An older runner does not, so end it with the command below, using
-   the session's name, before you start the task.
+   `.\scripts\Stop-OpenWA.ps1` from an elevated PowerShell, then start the `ShopInventory-OpenWA`
+   task. A hung Chrome does not exit by itself, and while it runs the session cannot start again.
+   The stop script ends the gateway's Chrome along with node, and the supervising runner ends any
+   left on a session profile before it starts node. An older checkout does neither, so end it with
+   the command below, using the session's name and an elevated console, before you start the task.
 3. Either way, press **Start** when the session should be running. The stop marked it as stopped on
    purpose before it did anything else, so no restart brings it back by itself.
 
@@ -387,6 +428,9 @@ keeps the session's profile locked, so every later **Start** answers "Internal s
 newest `OpenWA\logs\*.log` has `The browser is already running for …\session-<name>`. The
 five-minute restart of a stuck session could leave a Chrome behind the same way. On the older
 gateway, end that Chrome with the command above (with the session's name), then press **Start**.
+Run that command from an elevated console. Unelevated, it matches nothing, because the SYSTEM
+gateway's Chrome hides its command line. The same message straight after a gateway restart means the
+old gateway's Chrome outlived it. `Stop-OpenWA.ps1` from this repository ends that Chrome as well.
 
 From #6 on a stop waits for Chrome to come up and closes it, so it can take a few seconds longer.
 The start it overtook answers "Session '…' was stopped, deleted or restarted before it finished
