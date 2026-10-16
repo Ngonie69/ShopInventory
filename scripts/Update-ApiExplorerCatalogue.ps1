@@ -46,11 +46,55 @@ $repoRoot = (& git rev-parse --show-toplevel).Trim()
 $explorer = Join-Path $repoRoot 'ShopInventory.Web/Components/Pages/ApiExplorer.razor'
 $dir = Join-Path $repoRoot 'ShopInventory/Controllers'
 
+# Windows PowerShell 5.1 and pwsh 7 must produce the same bytes, and two of their defaults differ.
+#
+# Encoding: Get-Content with no -Encoding reads BOM-less UTF-8 as ANSI under 5.1, so every em-dash
+# in a curated description came back as mojibake and was written out that way; and Set-Content
+# -Encoding UTF8 writes a BOM under 5.1 but not under 7. Everything here reads and writes
+# BOM-less UTF-8 explicitly.
+$utf8 = New-Object System.Text.UTF8Encoding $false
+
+# Ordering: Sort-Object compares with the current culture, and 5.1 (NLS) and 7 (ICU) disagree - NLS
+# all but ignores '-', so request-edits/... and request/{docEntry} swapped places. Every sort goes
+# through Get-SortKey and compares ordinally instead. The key reproduces the order pwsh 7 has always
+# produced: case-insensitive, punctuation before digits before letters, punctuation in ICU's root
+# order. A character outside that set sorts after the letters by code point.
+$punctuationOrder = '_-,;:!?.''"()[]{}@*/\&#%`^+<=>|~$'
+
+function Get-SortKey {
+    param([string]$S)
+    $key = New-Object System.Text.StringBuilder
+    foreach ($c in [int[]]$S.ToLowerInvariant().ToCharArray()) {
+        $p = $punctuationOrder.IndexOf([char]$c)
+        if ($p -ge 0) { $null = $key.Append([char](1 + $p)) }                   # below '0'
+        elseif (($c -ge 0x61 -and $c -le 0x7A) -or ($c -ge 0x30 -and $c -le 0x39)) { $null = $key.Append([char]$c) }
+        else { $null = $key.Append([char](0x100 + $c)) }
+    }
+    return $key.ToString()
+}
+
+# Sorts by one or more key strings, earlier keys first. Each key is a scriptblock over $_; the raw
+# keys break any tie Get-SortKey leaves (case alone). Only the keys are sorted, each carrying its
+# item's index: [Array]::Sort(keys, items) binds the generic overload, which copies string items
+# into a new array and sorts the copy, leaving the caller's untouched.
+function Sort-Ordinal {
+    param([object[]]$Items, [scriptblock[]]$By)
+    if (-not $Items -or $Items.Count -lt 2) { return $Items }
+    $sep = [string][char]0
+    [string[]]$keys = for ($i = 0; $i -lt $Items.Count; $i++) {
+        $item = $Items[$i]
+        $raw = @(foreach ($b in $By) { [string]($item | ForEach-Object $b) })
+        (@($raw | ForEach-Object { Get-SortKey $_ }) + $raw + @($i.ToString('D6'))) -join $sep
+    }
+    [Array]::Sort($keys, [StringComparer]::Ordinal)
+    foreach ($k in $keys) { $Items[[int]$k.Substring($k.LastIndexOf([char]0) + 1)] }
+}
+
 # ---- what the explorer already says, so curation is not thrown away -------------------------
 $existingEndpoint = @{}   # "VERB path" (lowercased) -> description
 $existingModule = @{}     # basepath (lowercased) -> @{ Name; Description; Icon; Color }
 
-$text = Get-Content -LiteralPath $explorer -Raw
+$text = [IO.File]::ReadAllText($explorer, $utf8)
 foreach ($m in [regex]::Matches($text, 'new\(\s*"([A-Z]+)"\s*,\s*"([^"]+)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)')) {
     $key = ($m.Groups[1].Value + ' ' + $m.Groups[2].Value.Trim('/')).ToLowerInvariant()
     $existingEndpoint[$key] = $m.Groups[3].Value
@@ -69,8 +113,8 @@ Write-Verbose "carried over: $($existingEndpoint.Count) endpoint descriptions, $
 $verbPattern = 'Get|Post|Put|Delete|Patch|Head|Options'
 $controllers = @{}   # controller name -> @{ Base; Routes = @(@{Verb;Path;Action}) }
 
-foreach ($file in (Get-ChildItem -LiteralPath $dir -Filter *.cs | Sort-Object Name)) {
-    $lines = Get-Content -LiteralPath $file.FullName
+foreach ($file in (Sort-Ordinal @(Get-ChildItem -LiteralPath $dir -Filter *.cs) { $_.Name })) {
+    $lines = [IO.File]::ReadAllLines($file.FullName, $utf8)
     $base = $null; $className = $null; $pendingRoute = $null
     $verbs = @()
 
@@ -234,12 +278,36 @@ $sb = New-Object System.Text.StringBuilder
 $null = $sb.AppendLine('        _apiCategories = new List<ApiCategory>')
 $null = $sb.AppendLine('{')
 
-$grouped = @{}
-foreach ($name in $controllers.Keys) {
-    if ($controllers[$name].Routes.Count -eq 0) { continue }
+# One module per base path, not per controller. Routes are sometimes split across classes that
+# share a [Route] - DesktopIntegrationCallbacksController holds two api/DesktopIntegration routes
+# so they can carry their own auth policy - and the explorer shows them as the one module they
+# are. The controller that names the module and picks its category is the first one (by name)
+# listed in $categoryOf, else simply the first by name.
+$modules = @{}   # basepath (lowercased) -> @{ Controller; Base; Routes }
+foreach ($name in (Sort-Ordinal @($controllers.Keys) { $_ })) {
+    $info = $controllers[$name]
+    if ($info.Routes.Count -eq 0) { continue }
+    $key = $info.Base.Trim('/').ToLowerInvariant()
+    if (-not $modules.ContainsKey($key)) {
+        $modules[$key] = @{ Controller = $name; Base = $info.Base; Routes = @() }
+    }
+    elseif ($categoryOf.ContainsKey($name) -and -not $categoryOf.ContainsKey($modules[$key].Controller)) {
+        $modules[$key].Controller = $name
+        $modules[$key].Base = $info.Base
+    }
+    elseif ($categoryOf.ContainsKey($name) -and $categoryOf[$name] -ne $categoryOf[$modules[$key].Controller]) {
+        Write-Warning ("$name and $($modules[$key].Controller) share /$key but are filed under " +
+            "'$($categoryOf[$name])' and '$($categoryOf[$modules[$key].Controller])'; using the latter.")
+    }
+    $modules[$key].Routes += $info.Routes
+}
+
+$grouped = @{}   # category -> module keys
+foreach ($key in $modules.Keys) {
+    $name = $modules[$key].Controller
     $cat = if ($categoryOf.ContainsKey($name)) { $categoryOf[$name] } else { 'Other' }
     if (-not $grouped.ContainsKey($cat)) { $grouped[$cat] = @() }
-    $grouped[$cat] += $name
+    $grouped[$cat] += $key
 }
 
 $catIndex = 0
@@ -253,12 +321,13 @@ foreach ($cat in $emittedCats) {
     $null = $sb.AppendLine('Modules = new List<ApiModule>')
     $null = $sb.AppendLine('{')
 
-    $mods = @($grouped[$cat] | Sort-Object)
+    # Ordered by the naming controller, as they were when there was one module per controller.
+    $mods = @(Sort-Ordinal $grouped[$cat] { $modules[$_].Controller })
     $modIndex = 0
-    foreach ($controller in $mods) {
+    foreach ($baseKey in $mods) {
         $modIndex++
-        $info = $controllers[$controller]
-        $baseKey = $info.Base.Trim('/').ToLowerInvariant()
+        $info = $modules[$baseKey]
+        $controller = $info.Controller
         $prior = $existingModule[$baseKey]
 
         $basePath = '/' + $info.Base.Trim('/')
@@ -271,7 +340,7 @@ foreach ($cat in $emittedCats) {
         $icon = if ($prior) { $prior.Icon } else { $fallbackIcons[$modIndex % $fallbackIcons.Count] }
         $color = if ($prior) { $prior.Color } else { $fallbackColors[$modIndex % $fallbackColors.Count] }
 
-        $verbs = @($info.Routes | ForEach-Object { $_.Verb } | Sort-Object -Unique)
+        $verbs = @(Sort-Ordinal @($info.Routes | ForEach-Object { $_.Verb } | Select-Object -Unique) { $_ })
 
         $null = $sb.AppendLine('new ApiModule')
         $null = $sb.AppendLine('{')
@@ -286,8 +355,7 @@ foreach ($cat in $emittedCats) {
         $null = $sb.AppendLine('{')
 
         # GETs first so the tester seeds on something safe, then by path.
-        $ordered = @($info.Routes |
-            Sort-Object @{ Expression = { if ($_.Verb -eq 'GET') { 0 } else { 1 } } }, @{ Expression = { $_.Path } }, @{ Expression = { $_.Verb } })
+        $ordered = @(Sort-Ordinal $info.Routes { if ($_.Verb -eq 'GET') { '0' } else { '1' } }, { $_.Path }, { $_.Verb })
 
         for ($r = 0; $r -lt $ordered.Count; $r++) {
             $route = $ordered[$r]
@@ -311,7 +379,8 @@ $total = ($controllers.Values | ForEach-Object { $_.Routes.Count } | Measure-Obj
 Write-Verbose "emitted $total endpoints across $($emittedCats.Count) categories"
 
 if ($OutFile) {
-    $sb.ToString() | Set-Content -LiteralPath $OutFile -Encoding UTF8
+    $outPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutFile)
+    [IO.File]::WriteAllText($outPath, $sb.ToString(), $utf8)
     Write-Host "Wrote the generated initializer to $OutFile ($total endpoints)."
     return
 }
@@ -319,7 +388,7 @@ if ($OutFile) {
 # ---- splice it back into the page ------------------------------------------------------------
 # Bounded by the `_apiCategories = new List<ApiCategory>` line and the first `};` that closes it,
 # so everything else on the page - markup, the tester, the nested classes - is left alone.
-$lines = Get-Content -LiteralPath $explorer
+$lines = [IO.File]::ReadAllLines($explorer, $utf8)
 $start = ($lines | Select-String -Pattern '^\s*_apiCategories = new List<ApiCategory>$' |
     Select-Object -First 1).LineNumber
 if (-not $start) { throw "Cannot find the _apiCategories initializer in $explorer." }
@@ -335,7 +404,7 @@ $updated += $lines[0..($start - 2)]
 $updated += ($sb.ToString() -split "`r?`n" | Select-Object -SkipLast 1)
 $updated += $lines[$end..($lines.Count - 1)]
 
-Set-Content -LiteralPath $explorer -Value $updated -Encoding UTF8
+[IO.File]::WriteAllLines($explorer, [string[]]$updated, $utf8)
 
 $moduleCount = ($grouped.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
 Write-Host ("Rewrote {0} ({1} endpoints, {2} modules, {3} categories)." -f

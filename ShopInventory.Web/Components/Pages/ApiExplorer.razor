@@ -1087,7 +1087,7 @@ new ApiModule
 {
 Name = "Van Sales Reporting",
 BasePath = "/api/van-sales",
-Description = "Departure compliance, the call ledger, the selling routes and the areas each one works, for the /van-sales pages. Needs vansales.attendance.view; the routes and route-stops lists also answer to users.view or users.create_merchandiser_accounts, and editing either needs users.edit.",
+Description = "Departure compliance, the call ledger, the selling routes and the areas each one works, for the /van-sales pages. Needs vansales.attendance.view; the routes and route-stops lists also answer to users.view or users.create_merchandiser_accounts, and editing either needs users.edit. The van invoices and credit notes need invoices.view instead.",
 Icon = Icons.Material.Filled.Assessment,
 Color = Color.Primary,
 Methods = new[] { "DELETE", "GET", "POST", "PUT" },
@@ -1096,7 +1096,10 @@ Endpoints = new List<ApiEndpoint>
 new("GET", "/api/van-sales/adr-performance-report", "Each ADR's sales orders and van sales, and the ADRs' share of every van's"),
 new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
 new("GET", "/api/van-sales/coverage-report", "Who the vans are reaching and who they are losing"),
+new("GET", "/api/van-sales/credit-notes", "Get credit notes"),
 new("GET", "/api/van-sales/fleet-audit", "Get fleet audit"),
+new("GET", "/api/van-sales/invoices", "Get invoices"),
+new("GET", "/api/van-sales/invoices/{reference}", "Get invoice"),
 new("GET", "/api/van-sales/performance-report", "What sold, by territory and route, by rep, by item, over time"),
 new("GET", "/api/van-sales/replenishment-report", "How well the depots are keeping the vans stocked"),
 new("GET", "/api/van-sales/route-stops", "The areas each route works, and when"),
@@ -1909,21 +1912,6 @@ new("GET", "/api/van-sales-customer/orders/{orderId}", "Get order"),
 new("GET", "/api/van-sales-customer/orders/by-client-request/{clientRequestId}", "Get by client request ID"),
 new("POST", "/api/van-sales-customer/orders", "Submit"),
 new("POST", "/api/van-sales-customer/orders/{orderId}/cancel", "Cancel")
-}
-},
-new ApiModule
-{
-Name = "Van Sales Reporting",
-BasePath = "/api/van-sales",
-Description = "Departure compliance, the call ledger, the selling routes and the areas each one works, for the /van-sales pages. Needs vansales.attendance.view; the routes and route-stops lists also answer to users.view or users.create_merchandiser_accounts, and editing either needs users.edit.",
-Icon = Icons.Material.Filled.Assessment,
-Color = Color.Primary,
-Methods = new[] { "GET" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/van-sales/credit-notes", "Get credit notes"),
-new("GET", "/api/van-sales/invoices", "Get invoices"),
-new("GET", "/api/van-sales/invoices/{reference}", "Get invoice")
 }
 },
 new ApiModule
