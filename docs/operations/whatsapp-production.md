@@ -88,6 +88,18 @@ git -C C:\path\to\ShopInventory submodule update --init OpenWA
 .\scripts\Install-OpenWAProduction.ps1
 ```
 
+From outside the checkout, launch it with `-File` instead:
+
+```bash
+powershell -ExecutionPolicy Bypass -File C:\ShopInventory\scripts\Install-OpenWAProduction.ps1
+```
+
+Before ShopInventory#763 that form failed at once under Windows PowerShell 5.1 with
+`Split-Path : Cannot bind argument to parameter 'Path' because it is an empty string`. 5.1 leaves
+`$PSScriptRoot` empty in a parameter's default value under `-File`, and every OpenWA script used it to
+find the checkout. On an older checkout, run the script in-process and name the checkout yourself:
+`& C:\ShopInventory\scripts\Install-OpenWAProduction.ps1 -RepositoryRoot C:\ShopInventory`.
+
 The installer keeps stamps of the commit it built and the `package-lock.json` it installed from,
 and does only what changed:
 
@@ -102,6 +114,12 @@ outlives your session. Every session that was running is started again by the ga
 seconds apart, and a paired one reconnects without a new QR code. A session someone pressed **Stop**
 on stays stopped. (Before Ngonie69/OpenWA#3 the gateway started nothing: every restart left every
 session `disconnected` until someone pressed **Start**.)
+
+The boot task runs `scripts\Run-OpenWA.ps1` from this checkout, and a running task keeps the copy
+it started with. A change to that script takes effect the next time the task starts. That happens
+on an installer run that restarts the gateway, on a reboot, or with `.\scripts\Stop-OpenWA.ps1`
+followed by `Start-ScheduledTask ShopInventory-OpenWA`. A re-run with nothing changed leaves the
+old runner going.
 
 The first run on an install made before the stamps adopts its dependencies when `npm ls` finds
 them complete, so that upgrade is a rebuild and a restart, not a reinstall.
@@ -157,6 +175,30 @@ verifies no signature at all.
 On 10.10.10.9: `Invoke-WebRequest http://127.0.0.1:2785/api/health`. If that answers and the API
 still cannot reach it, the rule is the problem. Logs are in `OpenWA\logs\`.
 
+The boot task's runner, `scripts\Run-OpenWA.ps1`, supervises node. When node exits with any code
+but 0 it is started again after 5 seconds, then 10, 20 and so on up to 5 minutes between tries. A
+run that lasted 10 minutes counts as healthy, and the next crash starts again at 5 seconds. Before
+each start the runner ends any Chrome still holding one of OpenWA's session profiles, which a crash
+can leave behind. Every start, exit code and restart is a line in `OpenWA\logs\openwa-supervisor.txt`,
+and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
+
+- **The supervisor log shows restarts, and the gateway answers again.** It crashed and came back.
+  The reason is at the end of the `.err.log` named in the line before the restart. Sessions that
+  were running start again by themselves.
+- **The supervisor log shows a restart every few minutes.** The gateway crashes as soon as it starts.
+  The gap has grown to 5 minutes, and it keeps trying. Read the newest `.err.log`. Each run has the
+  same failure until the cause is fixed.
+- **Nothing listens on 2785 and `Get-ScheduledTask ShopInventory-OpenWA` reads `Ready`, not
+  `Running`.** The supervisor itself is gone. The last line of the supervisor log says why: a stop,
+  or node exiting with code 0. If the log is missing, or has no line from that day, the runner on
+  this host is older than the supervisor and ran node only once. That is how the gateway stayed down
+  for two days from 14 Oct 2026. Start it with `Start-ScheduledTask ShopInventory-OpenWA`.
+
+To stop the gateway on purpose, use `.\scripts\Stop-OpenWA.ps1`. It writes `OpenWA\logs\stop-requested`
+first, so the supervisor exits and does not restart node, then ends node and waits for the supervisor
+to go. If you end `node.exe` any other way, for example from Task Manager, the supervisor treats it as
+a crash and node is back within 5 seconds. Starting the task clears the marker.
+
 **Every action says "WhatsApp integration is disabled".** `OpenWA__Enabled` is missing from that
 node's `web.config`. Note *that node's* — with two nodes behind a balancer, a half-configured pair
 fails for about half of requests, which reads as intermittent rather than as missing configuration.
@@ -197,10 +239,11 @@ a stop always answers. On the older gateway:
 
 1. Wait a minute and look at the row again. `disconnected` means the stop went through.
 2. Still `ready` after a few minutes means Chrome never exited. Stop the gateway with
-   `.\scripts\Stop-OpenWA.ps1`, end any Chrome still holding the session's profile (the command
-   below, with the session's name), then start the `ShopInventory-OpenWA` task. A healthy Chrome
-   exits by itself within half a minute of the gateway stopping. A hung one does not, and while it
-   runs the session cannot start again.
+   `.\scripts\Stop-OpenWA.ps1`, then start the `ShopInventory-OpenWA` task. A healthy Chrome exits
+   by itself within half a minute of the gateway stopping. A hung one does not, and while it runs
+   the session cannot start again. The supervising runner ends any Chrome still holding a session
+   profile before it starts node. An older runner does not, so end it with the command below, using
+   the session's name, before you start the task.
 3. Either way, press **Start** when the session should be running. The stop marked it as stopped on
    purpose before it did anything else, so no restart brings it back by itself.
 
@@ -217,9 +260,9 @@ Ngonie69/OpenWA#5. Pressing **Stop** while a session read `initializing` could c
 while WhatsApp Web was still downloading. whatsapp-web.js was reading that page with nothing waiting
 on the result, the read was rejected, and Node ends a process on a rejection nobody handles. The
 newest `OpenWA\logs\*.err.log` ends with
-`TargetCloseError: Protocol error (Network.getResponseBody): Target closed`. The boot task runs the
-gateway once and nothing restarts it during the day, so no session sends or receives until someone
-does:
+`TargetCloseError: Protocol error (Network.getResponseBody): Target closed`. The supervising runner
+restarts it within seconds (see **Gateway Unreachable** above). An older runner ran the gateway only
+once, and on that runner no session sends or receives until someone restarts it:
 
 ```powershell
 Start-ScheduledTask ShopInventory-OpenWA

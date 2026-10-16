@@ -73,7 +73,9 @@
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    # Defaults to this script's parent. Resolved below rather than here:
+    # Windows PowerShell 5.1 leaves $PSScriptRoot empty in a default value under -File.
+    [string]$RepositoryRoot,
     [int]$Port = 2785,
     [string[]]$ApiNodeAddresses = @('10.10.10.9', '10.10.10.58'),
     [string]$TaskName = 'ShopInventory-OpenWA',
@@ -83,6 +85,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $RepositoryRoot) {
+    $RepositoryRoot = Split-Path -Parent $PSScriptRoot
+}
 
 function Write-Section {
     param([string]$Text)
@@ -171,8 +177,8 @@ function Wait-OpenWAHealthy {
 
         if ($elapsed -ge $graceSeconds -and -not (Test-OpenWAProcessRunning)) {
             $task = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
-            $taskNote = if ($task) { " The '$TaskName' task last returned $($task.LastTaskResult)." } else { '' }
-            throw "OpenWA exited without answering http://127.0.0.1:$Port/api/health.$taskNote Read the newest log under $LogsPath."
+            $taskNote = if ($task) { " The '$TaskName' task last returned $($task.LastTaskResult). While it runs, its runner restarts node with a growing gap." } else { '' }
+            throw "OpenWA exited without answering http://127.0.0.1:$Port/api/health.$taskNote Read openwa-supervisor.txt and the newest .err.log under $LogsPath."
         }
 
         if ($elapsed -ge $TimeoutSeconds) {

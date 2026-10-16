@@ -17,9 +17,9 @@ anything.
 
 ## Scripts
 
-- `scripts/Run-OpenWA.ps1`: foreground runner intended for Task Scheduler.
+- `scripts/Run-OpenWA.ps1`: foreground runner intended for Task Scheduler. It supervises node: a non-zero exit is restarted after 5 seconds, doubling to 5 minutes, and an exit code of 0 or a stop requested by `Stop-OpenWA.ps1` ends it.
 - `scripts/Start-OpenWA.ps1`: starts the runner in a detached PowerShell process.
-- `scripts/Stop-OpenWA.ps1`: stops active OpenWA Node processes.
+- `scripts/Stop-OpenWA.ps1`: stops active OpenWA Node processes. It writes `OpenWA/logs/stop-requested` first so the runner does not restart node, then waits for the runner to exit.
 - `scripts/Register-OpenWAStartupTask.ps1`: registers a startup task as `NT AUTHORITY\SYSTEM`.
 
 ## Validate Prerequisites
@@ -78,6 +78,11 @@ To remove the Startup entry later:
 
 - `openwa-*.out.log`
 - `openwa-*.err.log`
+
+Each run of node gets its own pair. `openwa-supervisor.txt` records every start, exit code and restart.
+
+`scripts/Test-OpenWASupervisor.ps1` exercises the restart and stop behaviour against a fake gateway
+under `%TEMP%`. Run it with `powershell.exe -File` after changing either script.
 
 ## Notes
 
