@@ -7,9 +7,10 @@
    drawer where every line is counted before the van → returns move unlocks.
 
    The palette is an alias layer over nocturne-tokens.css and flips at the
-   root, so this sheet carries no `.dark-theme` block. The drawer and its scrim
-   render inside `.mbk` (position: fixed, so the root's min-height does not
-   reach them), so the tokens reach them without an overlay class.
+   root, so this sheet carries no `.dark-theme` block. The drawer is the
+   /desktop-sales invoice drawer from operations.css, rendered inside `.mbk`
+   under its own `.ops-overlay` (position: fixed, so the root's min-height does
+   not reach it); this sheet adds only the parts that drawer lacks.
    ========================================================================== */
 
 .mbk {
@@ -118,18 +119,8 @@
     white-space: nowrap;
 }
 
-.mbk-mono {
-    font-family: var(--mbk-mono);
-    font-size: .92em;
-    font-weight: 600;
-}
-
 .mbk-right {
     text-align: right;
-}
-
-.mbk-center {
-    text-align: center;
 }
 
 /* ── Header ────────────────────────────────────────────────────────────── */
@@ -300,13 +291,6 @@
     height: 16px;
 }
 
-.mbk .mbk-btn-lg {
-    height: 44px;
-    padding: 0 18px;
-    font-size: 14px;
-    font-weight: 600;
-}
-
 .mbk .mbk-btn-secondary {
     background: var(--mbk-surface);
     border-color: var(--mbk-field-edge);
@@ -320,36 +304,6 @@
 .mbk .mbk-btn-ghost:hover:not(:disabled) {
     background: var(--mbk-hover);
     color: var(--mbk-ink);
-}
-
-.mbk .mbk-btn-fill {
-    background: var(--mbk-fill);
-    color: var(--mbk-on-fill);
-}
-
-.mbk .mbk-btn-fill:hover:not(:disabled) {
-    filter: brightness(1.08);
-}
-
-.mbk .mbk-btn-fill:active:not(:disabled) {
-    filter: brightness(.94);
-}
-
-/* A locked confirm reads as a quiet slab with its reason as the label, not as
-   a faded accent button that looks pressable. */
-.mbk .mbk-btn-fill:disabled {
-    opacity: 1;
-    background: var(--mbk-chip);
-    color: var(--mbk-mute);
-}
-
-.mbk .mbk-btn-bad {
-    color: var(--mbk-bad);
-    border-color: rgba(var(--mbk-bad-rgb), .45);
-}
-
-.mbk .mbk-btn-bad:hover:not(:disabled) {
-    background: rgba(var(--mbk-bad-rgb), .08);
 }
 
 .mbk .mbk-btn-icon {
@@ -684,596 +638,213 @@
 }
 
 /* ── The drawer ───────────────────────────────────────────────────────── */
-/* Fixed below the app bar. It is not the root class, so the root's
-   `min-height: 100vh` never reaches it and the footer stays in the fold. */
+/* The open report wears the /desktop-sales invoice drawer: `.ops-overlay`,
+   `.ops-drawer`, `.ops-ds-drawer` and its `ops-ds-*` parts, the defs grid,
+   the table, the sums and the buttons, all from operations.css. What follows
+   is only what that drawer has no part for.
 
-.mbk .mbk-scrim {
-    position: fixed;
-    inset: var(--mbk-top) 0 0;
-    z-index: 1399;
-    width: auto;
-    height: auto;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: var(--mbk-scrim);
-    cursor: default;
-}
-
-.mbk-drawer {
-    position: fixed;
-    top: var(--mbk-top);
-    right: 0;
-    bottom: 0;
-    z-index: 1400;
-    width: 640px;
-    max-width: 100%;
-    display: flex;
-    flex-direction: column;
-    background: var(--mbk-surface);
-    border-left: 1px solid var(--mbk-divider);
-    box-shadow: var(--mbk-shadow-lg);
-    outline: 0;
-    animation: mbk-slide .18s ease-out;
-}
-
-@keyframes mbk-slide {
-    from { transform: translateX(24px); opacity: 0; }
-}
+   operations.css is in the late bundle and this sheet in the early one, so it
+   wins every tie: each rule here that meets one of its rules on the same
+   element carries a class more than the rule it overrides. */
 
 @media (prefers-reduced-motion: reduce) {
     .mbk-skel,
-    .mbk-spin,
-    .mbk-drawer {
+    .mbk-spin {
         animation: none;
     }
 }
 
-.mbk-drawer-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--mbk-rule);
-    flex-shrink: 0;
+/* Under the snackbar. operations.css stands its overlays at 9998, over
+   MudBlazor's snackbar, and a confirm or a reject announces itself in one
+   while this drawer stays open on the next report in the queue. */
+.mbk .mbk-overlay {
+    z-index: 1400;
 }
 
-.mbk-drawer-titles {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
+.mbk-drawer {
+    outline: 0;
 }
 
-.mbk-drawer-titlerow {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
+/* The glyphs are drawn inline rather than from the icon font the invoice
+   drawer uses, so they take the sizes its glyphs render at. */
+.mbk-drawer .ops-icon-btn svg {
+    width: 15px;
+    height: 15px;
 }
 
-.mbk-drawer-title {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 600;
-    line-height: 1.3;
-    color: var(--mbk-ink);
+.mbk-drawer .ops-btn svg {
+    width: 14px;
+    height: 14px;
 }
 
-.mbk-drawer-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 8px;
-    font-size: 13px;
-    color: var(--mbk-mute-3);
+.mbk-drawer .ops-btn-sm svg {
+    width: 12px;
+    height: 12px;
 }
 
-.mbk-drawer-meta .mbk-mono,
-.mbk-drawer-meta .mbk-strong {
-    color: var(--mbk-ink);
-}
-
-.mbk-drawer-nav {
-    display: flex;
-    gap: 4px;
-    flex-shrink: 0;
-}
-
-.mbk-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 24px;
-    padding: 0 10px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    color: var(--mbk-neutral);
-    background: rgba(var(--mbk-neutral-rgb), .14);
-}
-
-.mbk-pill-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-}
-
-.mbk-pill.is-accent { color: var(--mbk-accent-text); background: rgba(var(--mbk-accent-rgb), .14); }
-.mbk-pill.is-info { color: var(--mbk-info); background: rgba(var(--mbk-info-rgb), .14); }
-.mbk-pill.is-good { color: var(--mbk-good); background: rgba(var(--mbk-good-rgb), .14); }
-.mbk-pill.is-bad { color: var(--mbk-bad); background: rgba(var(--mbk-bad-rgb), .14); }
-
-.mbk-drawer-body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    padding: 20px 24px 24px;
-}
-
-/* The body scrolls; its blocks must not shrink to fit instead. The totals
-   strip clips its overflow, so without this it collapsed to its labels. */
-.mbk-drawer-body > * {
-    flex-shrink: 0;
-}
-
-/* One banner per state the report is stuck in, tinted by its family. */
-.mbk-banner {
-    display: flex;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: var(--mbk-r-md);
-    color: var(--mbk-ink);
-    background: rgba(var(--mbk-neutral-rgb), .1);
-    border: 1px solid rgba(var(--mbk-neutral-rgb), .3);
-}
-
-.mbk-banner > svg {
-    width: 18px;
-    height: 18px;
+.mbk-drawer .ops-msg > svg {
+    width: 16px;
+    height: 16px;
     margin-top: 1px;
-    color: var(--mbk-neutral);
+    flex: none;
 }
 
-.mbk-banner > div {
+/* A block's label with a control beside it, and a field's label with its
+   hint beside it. */
+.mbk-dblock-head {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    font-size: 13px;
-}
-
-.mbk-banner strong {
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.mbk-banner span {
-    color: var(--mbk-ink-2);
-}
-
-.mbk-banner .mbk-banner-hint {
-    color: var(--mbk-mute-3);
-}
-
-.mbk-banner.is-info { background: rgba(var(--mbk-info-rgb), .1); border-color: rgba(var(--mbk-info-rgb), .35); }
-.mbk-banner.is-info > svg { color: var(--mbk-info); }
-.mbk-banner.is-bad { background: rgba(var(--mbk-bad-rgb), .1); border-color: rgba(var(--mbk-bad-rgb), .35); }
-.mbk-banner.is-bad > svg { color: var(--mbk-bad); }
-
-.mbk-quote {
-    display: flex;
-    gap: 12px;
-    margin: 0;
-    padding: 12px 14px;
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-hover);
-}
-
-.mbk-quote > svg {
-    width: 18px;
-    height: 18px;
-    margin-top: 1px;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-quote figcaption {
-    font-size: 12px;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-quote blockquote {
-    margin: 0;
-    color: var(--mbk-ink-2);
-}
-
-/* ── Counting ─────────────────────────────────────────────────────────── */
-
-.mbk-count-head {
-    display: flex;
-    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--ops-s4);
+    min-height: 26px;
 }
 
-.mbk-progress-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex: 1;
-    min-width: 200px;
-}
-
-.mbk-progress-title {
+.mbk-dlabel {
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 2px var(--ops-s3);
 }
 
-.mbk-progress-title h3 {
-    margin: 0;
+.mbk-drawer .mbk-needed {
+    color: var(--ops-fam-bad);
+}
+
+.mbk-dnote {
     font-size: 13px;
-    font-weight: 600;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    color: var(--mbk-ink-2);
+    line-height: 1.5;
+    color: var(--ops-ink-2);
+    white-space: pre-line;
+    overflow-wrap: anywhere;
 }
 
-.mbk-progress-title span {
-    font-size: 13px;
-    color: var(--mbk-mute-3);
+.ops-overlay .ops-input.mbk-input-bad {
+    border-color: var(--ops-fam-bad);
 }
 
-.mbk-progress {
-    height: 6px;
-    border-radius: 3px;
-    background: var(--mbk-chip);
-    overflow: hidden;
-}
-
-.mbk-progress-bar {
-    height: 100%;
-    border-radius: 3px;
-    background: var(--mbk-accent);
-    transition: width .2s ease-out;
-}
-
-.mbk-progress-bar.is-done {
-    background: var(--mbk-good);
-}
-
-.mbk-lines {
-    display: flex;
-    flex-direction: column;
-}
-
-.mbk-line {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 64px 136px 104px;
-    gap: 14px;
-    align-items: center;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--mbk-rule);
-}
-
-.mbk-line-head {
-    padding: 8px 0;
-    border-bottom-color: var(--mbk-divider);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-line-product {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+/* The lines' own scroll box. At phone width four columns do not fit 390px,
+   and the drawer body's `overflow-y: auto` would clip the last one instead of
+   letting it be reached. The item column keeps a floor so a description wraps
+   to two lines rather than one word a line. */
+.mbk-dscroll {
+    overflow-x: auto;
     min-width: 0;
 }
 
-/* SAP descriptions run long and will wrap; balancing keeps "250 g" from
-   being split into a stranded last word. */
-.mbk-item-name {
-    font-weight: 600;
-    color: var(--mbk-ink);
-    text-wrap: balance;
+.mbk-dscroll .ops-table td:first-child {
+    min-width: 160px;
 }
 
-.mbk-item-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-item-meta .mbk-mono {
-    font-weight: 400;
-}
-
-.mbk-chip {
-    padding: 1px 7px;
-    border-radius: 5px;
-    background: var(--mbk-chip);
-    color: var(--mbk-ink-2);
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-.mbk-line-reported {
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--mbk-ink-2);
-}
-
-.mbk-line-label {
-    display: none;
-}
-
-.mbk-counted {
-    font-size: 15px;
+/* The lines: the item code leads, as on the invoice; the rep's reason rides
+   beside it as a tag, and the description sits under both. */
+.mbk-drawer .mbk-dcode {
     font-weight: 600;
 }
 
-/* The stepper: minus, the count box, plus, in one well. An uncounted line
-   rings in the accent so the eye finds what is left. */
+.mbk-reason {
+    display: inline-flex;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: var(--ops-r-sm);
+    font-size: 10.5px;
+    line-height: 17px;
+    color: var(--ops-mute-2);
+    background: var(--ops-field-bg);
+    vertical-align: 1px;
+}
+
+/* The stepper: minus, the count box, plus, in one well the height of a row
+   control. An uncounted line is outlined dashed in the accent so the eye
+   finds what is left. */
 .mbk-stepper {
     display: inline-flex;
     align-items: center;
-    height: 40px;
-    padding: 0 2px;
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-field-bg);
-    border: 1px solid var(--mbk-field-edge);
+    height: 28px;
+    border-radius: var(--ops-r-md);
+    background: var(--ops-field-bg);
+    border: 1px solid transparent;
+    transition: border-color .15s;
 }
 
 .mbk-stepper.is-uncounted {
-    border-color: var(--mbk-accent);
-    box-shadow: 0 0 0 1px rgba(var(--mbk-accent-rgb), .25);
+    border-style: dashed;
+    border-color: rgba(var(--ops-accent-rgb), .6);
 }
 
 .mbk-stepper:focus-within {
-    border-color: var(--mbk-field-edge-hi);
+    border-style: solid;
+    border-color: var(--ops-accent);
 }
 
 .mbk .mbk-step {
     display: grid;
     place-items: center;
-    width: 34px;
-    height: 34px;
+    width: 26px;
+    height: 26px;
     padding: 0;
+    margin: 0;
     border: 0;
-    border-radius: 6px;
+    border-radius: 7px;
     background: transparent;
-    color: var(--mbk-ink-2);
+    color: var(--ops-mute-2);
     cursor: pointer;
-    transition: background-color .12s;
+    transition: background-color .13s, color .13s;
 }
 
 .mbk .mbk-step:hover:not(:disabled) {
-    background: var(--mbk-press);
-    color: var(--mbk-ink);
+    background: var(--ops-press);
+    color: var(--ops-ink);
 }
 
 .mbk .mbk-step:disabled {
-    opacity: .35;
+    opacity: .3;
     cursor: not-allowed;
 }
 
 .mbk .mbk-step svg {
-    width: 13px;
-    height: 13px;
+    width: 12px;
+    height: 12px;
     stroke-width: 2.4;
 }
 
 /* The count box, guarded against app.css's dark input fill (see the search
-   box above). */
+   box above). The focus ring is the well's border, not the box's outline. */
 .mbk .mbk-stepper input.mbk-count-input {
-    width: 52px;
-    height: 34px;
+    width: 40px;
+    height: 26px;
     padding: 0;
     margin: 0;
     border: 0;
     outline: 0;
     appearance: none;
     background-color: transparent;
-    color: var(--mbk-ink);
+    color: var(--ops-ink);
+    caret-color: var(--ops-accent);
     font: inherit;
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
     text-align: center;
 }
 
 .mbk .mbk-stepper input.mbk-count-input::placeholder {
-    color: var(--mbk-placeholder);
-    -webkit-text-fill-color: var(--mbk-placeholder);
-    font-size: 13px;
-    font-weight: 500;
+    color: var(--ops-mute-3);
+    -webkit-text-fill-color: var(--ops-mute-3);
+    font-size: 11.5px;
+    font-weight: 400;
     opacity: 1;
 }
 
-/* The difference as a chip: to count (quiet), matches (good), short (warn),
-   over (info). */
-.mbk-diff {
-    display: inline-flex;
-    align-items: center;
-    height: 26px;
-    padding: 0 9px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    white-space: nowrap;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-diff.is-even { color: var(--mbk-good); background: rgba(var(--mbk-good-rgb), .14); }
-.mbk-diff.is-short { color: var(--mbk-warn); background: rgba(var(--mbk-warn-rgb), .14); }
-.mbk-diff.is-over { color: var(--mbk-info); background: rgba(var(--mbk-info-rgb), .14); }
-
-.mbk-sums {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1px;
-    border-radius: 10px;
-    border: 1px solid var(--mbk-rule);
-    background: var(--mbk-rule);
-    overflow: hidden;
-}
-
-.mbk-sum {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 12px 16px;
-    background: var(--mbk-bg);
-}
-
-.mbk-sum > span {
-    font-size: 12px;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-sum > strong {
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--mbk-ink);
-}
-
-.mbk-sum > strong.mbk-diff-total.is-even { color: var(--mbk-good); }
-.mbk-sum > strong.mbk-diff-total.is-short { color: var(--mbk-warn); }
-.mbk-sum > strong.mbk-diff-total.is-over { color: var(--mbk-info); }
-
-/* ── Remarks ──────────────────────────────────────────────────────────── */
-
-.mbk-field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.mbk-field label,
-.mbk-field-label {
-    display: flex;
+/* The foot: Close, print and reject from the left, the confirm on the right,
+   wrapping rather than squeezing on a narrow screen. */
+.mbk-drawer .ops-drawer-foot {
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: 8px;
 }
 
-.mbk-field-name {
-    font-weight: 600;
-    color: var(--mbk-ink);
+.mbk-drawer .mbk-dconfirm {
+    margin-left: auto;
 }
 
-.mbk-field-hint {
-    font-size: 13px;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-field-hint.is-needed {
-    color: var(--mbk-warn);
-}
-
-.mbk .mbk-field textarea.mbk-textarea {
-    width: 100%;
-    min-height: 76px;
-    padding: 10px 12px;
-    resize: vertical;
-    border: 1px solid var(--mbk-field-edge);
-    border-radius: var(--mbk-r-md);
-    outline: 0;
-    background-color: var(--mbk-field-bg);
-    color: var(--mbk-ink);
-    font: inherit;
-}
-
-.mbk .mbk-field textarea.mbk-textarea:focus {
-    border-color: var(--mbk-field-edge-hi);
-}
-
-.mbk .mbk-field textarea.mbk-textarea.is-invalid {
-    border-color: var(--mbk-bad);
-}
-
-.mbk .mbk-field textarea.mbk-textarea::placeholder {
-    color: var(--mbk-placeholder);
-    -webkit-text-fill-color: var(--mbk-placeholder);
-    opacity: 1;
-}
-
-.mbk-remark-read {
-    margin: 0;
-    padding: 10px 12px;
-    border-radius: var(--mbk-r-md);
-    background: var(--mbk-hover);
-    color: var(--mbk-ink-2);
-}
-
-/* ── Decision ─────────────────────────────────────────────────────────── */
-
-.mbk-decide {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px 24px;
-    border-top: 1px solid var(--mbk-rule);
-    background: var(--mbk-hover);
-    flex-shrink: 0;
-}
-
-.mbk-route {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    font-size: 13px;
-    color: var(--mbk-mute-3);
-}
-
-.mbk-route svg {
-    width: 16px;
-    height: 16px;
-}
-
-.mbk-route-wh {
-    padding: 3px 8px;
-    border-radius: 6px;
-    background: var(--mbk-chip);
-    color: var(--mbk-ink);
-    font-weight: 600;
-}
-
-.mbk-decide-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.mbk .mbk-confirm {
-    flex: 1 1 260px;
-}
-
-/* A decided report: what happened, and for a transferred one the slip to print. */
-.mbk-done-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-}
-
-.mbk-done {
-    font-size: 13px;
-    color: var(--mbk-mute-3);
-}
 
 /* ── Narrow screens ───────────────────────────────────────────────────── */
 
@@ -1359,57 +930,5 @@
     .mbk-row-skel > span,
     .mbk-row-skel > :nth-child(n+6) {
         display: none;
-    }
-
-    .mbk-drawer-head {
-        padding: 14px 16px;
-        gap: 10px;
-    }
-
-    .mbk-drawer-body {
-        padding: 16px;
-    }
-
-    .mbk-decide {
-        padding: 12px 16px;
-    }
-
-    .mbk-decide-actions .mbk-btn {
-        flex: 1 1 auto;
-    }
-
-    /* A line becomes a card: the product on top; reported, the stepper and
-       the difference beneath, so the stepper keeps its full target size. */
-    .mbk-line-head {
-        display: none;
-    }
-
-    .mbk-line {
-        grid-template-columns: auto 1fr auto;
-        grid-template-areas:
-            "product product product"
-            "reported count diff";
-        gap: 10px 12px;
-    }
-
-    .mbk-line-product { grid-area: product; }
-    .mbk-line-reported { grid-area: reported; text-align: left; }
-    .mbk-line-count { grid-area: count; }
-    .mbk-line-diff { grid-area: diff; }
-
-    .mbk-line-label {
-        display: inline;
-        margin-right: 6px;
-        font-size: 12px;
-        font-weight: 400;
-        color: var(--mbk-mute-3);
-    }
-
-    .mbk-sum {
-        padding: 10px 12px;
-    }
-
-    .mbk-sum > strong {
-        font-size: 18px;
     }
 }

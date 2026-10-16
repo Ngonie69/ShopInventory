@@ -120,10 +120,7 @@ public partial class MarketBreakages : IDisposable
 
     private bool CanSubmitCount => CanConfirm && AllCounted && !RemarkMissing && CountedTotal > 0;
 
-    private int ProgressPercent => detail is null || detail.Lines.Count == 0
-        ? 0
-        : (int)Math.Round(CountedLines * 100d / detail.Lines.Count);
-
+    /// <summary>The mark beside the status badge: how far the count is, or where a decided report went.</summary>
     private string ProgressLabel
     {
         get
@@ -131,14 +128,49 @@ public partial class MarketBreakages : IDisposable
             if (detail is null)
                 return string.Empty;
             if (!CanConfirm)
-                return "Count closed";
+            {
+                return detail.Status switch
+                {
+                    MarketBreakageStatus.Transferred => detail.SapDocNum is int num ? $"SAP transfer #{num}" : "Moved in SAP",
+                    MarketBreakageStatus.Rejected => "Back with the rep",
+                    _ => "Count closed"
+                };
+            }
+
             return AllCounted
                 ? $"All {LinesText(detail.Lines.Count)} counted"
                 : $"{CountedLines} of {detail.Lines.Count} counted";
         }
     }
 
-    private string TotalDiffLabel => TotalDiff == 0 ? "None" : SignedText(TotalDiff);
+    private string ProgressFamily => detail is null
+        ? "ops-fam-neutral"
+        : !CanConfirm
+            ? detail.Status == MarketBreakageStatus.Transferred ? "ops-fam-good" : "ops-fam-neutral"
+            : AllCounted ? "ops-fam-good" : "ops-fam-warn";
+
+    /// <summary>The drawer's figure: what moved once it has, else what the rep says came off the van.</summary>
+    private decimal HeadlineUnits => detail?.Status == MarketBreakageStatus.Transferred ? CountedTotal : ReportedTotal;
+
+    private string HeadlineNote
+    {
+        get
+        {
+            if (detail is null)
+                return string.Empty;
+
+            return detail.Status switch
+            {
+                MarketBreakageStatus.Transferred => $"moved to {ReturnsText} · {QuantityDisplay.Format(ReportedTotal)} reported",
+                MarketBreakageStatus.Rejected => "reported · sent back to the rep",
+                _ => $"reported off the van · {ProductsText(detail.Lines.Count)}"
+            };
+        }
+    }
+
+    private string TotalDiffLabel => DiffWords(TotalDiff);
+
+    private string TotalDiffFamily => DiffFamily(TotalDiff);
 
     private string RemarkHint
     {
@@ -178,20 +210,6 @@ public partial class MarketBreakages : IDisposable
             return detail.Status == MarketBreakageStatus.Pending
                 ? $"Confirm & transfer {UnitsText(CountedTotal)}"
                 : $"Retry transfer · {UnitsText(CountedTotal)}";
-        }
-    }
-
-    private string MoveLabel
-    {
-        get
-        {
-            if (detail is null)
-                return string.Empty;
-            if (!CanConfirm)
-                return $"{UnitsText(CountedLines > 0 ? CountedTotal : ReportedTotal)} · {ProductsText(detail.Lines.Count)}";
-            return AllCounted
-                ? $"{UnitsText(CountedTotal)} · {ProductsText(detail.Lines.Count(line => CountedFor(line) > 0))}"
-                : $"{UnitsText(ReportedTotal)} · {ProductsText(detail.Lines.Count)} reported";
         }
     }
 
@@ -766,35 +784,39 @@ public partial class MarketBreakages : IDisposable
         var days => $"{days} days ago"
     };
 
-    private static string DiffLabel(decimal? counted, decimal reported)
+    /// <summary>
+    /// A badge's family for a report's status, in operations.css's names: the office's work in accent,
+    /// a move under way in info, a move made in good, a failed one in bad.
+    /// </summary>
+    private static string StatusFamily(string status) => status switch
     {
-        if (counted is not decimal value)
-            return "To count";
-
-        var diff = value - reported;
-        return diff switch
-        {
-            0 => "Matches",
-            < 0 => $"{SignedText(diff)} short",
-            _ => $"{SignedText(diff)} over"
-        };
-    }
-
-    private static string DiffModifier(decimal? counted, decimal reported)
-        => counted is decimal value ? DiffFamily(value - reported) : "is-pending";
-
-    private static string DiffFamily(decimal diff) => diff switch
-    {
-        0 => "is-even",
-        < 0 => "is-short",
-        _ => "is-over"
+        MarketBreakageStatus.Pending => "ops-fam-accent",
+        MarketBreakageStatus.Transferring => "ops-fam-info",
+        MarketBreakageStatus.Transferred => "ops-fam-good",
+        MarketBreakageStatus.TransferFailed => "ops-fam-bad",
+        _ => "ops-fam-neutral"
     };
 
-    private static string SignedText(decimal diff) => diff switch
+    private static string DiffLabel(decimal? counted, decimal reported)
+        => counted is decimal value ? (value == reported ? "Matches" : DiffWords(value - reported)) : "To count";
+
+    private static string DiffFamily(decimal? counted, decimal reported)
+        => counted is decimal value ? DiffFamily(value - reported) : "ops-fam-neutral";
+
+    /// <summary>Short in warn and over in info, so the two differ in lightness as well as hue.</summary>
+    private static string DiffFamily(decimal diff) => diff switch
     {
-        > 0 => $"+{QuantityDisplay.Format(diff)}",
-        < 0 => $"−{QuantityDisplay.Format(-diff)}",
-        _ => "0"
+        0 => "ops-fam-good",
+        < 0 => "ops-fam-warn",
+        _ => "ops-fam-info"
+    };
+
+    /// <summary>A difference in words: the word carries the direction, so the figure carries no sign.</summary>
+    private static string DiffWords(decimal diff) => diff switch
+    {
+        > 0 => $"{QuantityDisplay.Format(diff)} over",
+        < 0 => $"{QuantityDisplay.Format(-diff)} short",
+        _ => "None"
     };
 
     private static string UnitsText(decimal units) => units == 1 ? "1 unit" : $"{QuantityDisplay.Format(units)} units";
