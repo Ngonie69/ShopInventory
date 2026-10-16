@@ -64,12 +64,13 @@ function Test-StopRequested {
 }
 
 function Get-OrphanedChrome {
+    param([object[]]$Chromes = @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" -ErrorAction SilentlyContinue))
+
     # whatsapp-web.js keeps each session's Chrome profile under OpenWA's data directory, and passes it
     # to Chrome as an absolute --user-data-dir. No gateway is running when this is called, so any
     # Chrome still holding one of those profiles is orphaned.
     $roots = @($resolvedOpenWARoot, ($resolvedOpenWARoot -replace '\\', '/'))
-    @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" -ErrorAction SilentlyContinue |
-        Where-Object {
+    @($Chromes | Where-Object {
             $commandLine = $_.CommandLine
             $commandLine -and $commandLine.IndexOf('--user-data-dir=', [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
             ($roots | Where-Object { $commandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
@@ -79,7 +80,30 @@ function Get-OrphanedChrome {
 function Stop-OrphanedChrome {
     # A crash on a Chrome protocol timeout can leave a hung Chrome behind, and while it holds a
     # session's profile that session cannot start again.
-    $orphans = @(Get-OrphanedChrome)
+    $chromes = @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" -ErrorAction SilentlyContinue)
+
+    # Matching is by command line, which only an elevated or SYSTEM runner (the boot task) can read
+    # for another account's process. Say so rather than skip what it cannot see.
+    # One of this account's own processes is unreadable for a moment while it starts or exits.
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $unreadable = @($chromes | Where-Object {
+            $owner = $null
+            if (-not $_.CommandLine) {
+                try {
+                    $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction Stop
+                }
+                catch { }
+            }
+            -not $_.CommandLine -and -not ($owner -and $owner.ReturnValue -eq 0 -and "$($owner.Domain)\$($owner.User)" -eq $me)
+        })
+    if ($unreadable.Count -gt 0) {
+        Write-SupervisorLog ("WARNING: cannot read the command line of $($unreadable.Count) chrome.exe process(es) " +
+            "(PID $(($unreadable | ForEach-Object { $_.ProcessId }) -join ', ')), so any of them holding an OpenWA session " +
+            "profile is not ended. This runner is not elevated. If a session then fails with 'The browser is already " +
+            "running', run Stop-OpenWA.ps1 from an elevated PowerShell.")
+    }
+
+    $orphans = @(Get-OrphanedChrome -Chromes $chromes)
     if ($orphans.Count -eq 0) {
         return
     }

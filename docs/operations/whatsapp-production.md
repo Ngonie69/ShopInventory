@@ -194,10 +194,17 @@ and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
   this host is older than the supervisor and ran node only once. That is how the gateway stayed down
   for two days from 14 Oct 2026. Start it with `Start-ScheduledTask ShopInventory-OpenWA`.
 
-To stop the gateway on purpose, use `.\scripts\Stop-OpenWA.ps1`. It writes `OpenWA\logs\stop-requested`
-first, so the supervisor exits and does not restart node, then ends node and waits for the supervisor
-to go. If you end `node.exe` any other way, for example from Task Manager, the supervisor treats it as
-a crash and node is back within 5 seconds. Starting the task clears the marker.
+To stop the gateway on purpose, use `.\scripts\Stop-OpenWA.ps1` **from an elevated PowerShell**. It
+writes `OpenWA\logs\stop-requested`, so the supervisor exits and does not restart node. Then it ends
+node and the gateway's Chrome, and waits for the supervisor to go. It finds Chrome two ways: every
+Chrome under node in the process tree, and any Chrome holding a profile under
+`OpenWA\data\sessions`. A Chrome left running would keep its session's profile locked, and the next
+start would fail with "The browser is already running". The gateway runs as SYSTEM, and an unelevated
+console cannot read a SYSTEM process's command line. On 16 Oct 2026 a stop from such a console ended
+node but missed its Chrome. So if the script finds node or Chrome processes it cannot read, and is not
+elevated, it refuses, names them, and stops nothing. If you end `node.exe` any other way, for example
+from Task Manager, the supervisor treats it as a crash and node is back within 5 seconds. Starting the
+task clears the marker.
 
 **Every action says "WhatsApp integration is disabled".** `OpenWA__Enabled` is missing from that
 node's `web.config`. Note *that node's* — with two nodes behind a balancer, a half-configured pair
@@ -239,11 +246,11 @@ a stop always answers. On the older gateway:
 
 1. Wait a minute and look at the row again. `disconnected` means the stop went through.
 2. Still `ready` after a few minutes means Chrome never exited. Stop the gateway with
-   `.\scripts\Stop-OpenWA.ps1`, then start the `ShopInventory-OpenWA` task. A healthy Chrome exits
-   by itself within half a minute of the gateway stopping. A hung one does not, and while it runs
-   the session cannot start again. The supervising runner ends any Chrome still holding a session
-   profile before it starts node. An older runner does not, so end it with the command below, using
-   the session's name, before you start the task.
+   `.\scripts\Stop-OpenWA.ps1` from an elevated PowerShell, then start the `ShopInventory-OpenWA`
+   task. A hung Chrome does not exit by itself, and while it runs the session cannot start again.
+   The stop script ends the gateway's Chrome along with node, and the supervising runner ends any
+   left on a session profile before it starts node. An older checkout does neither, so end it with
+   the command below, using the session's name and an elevated console, before you start the task.
 3. Either way, press **Start** when the session should be running. The stop marked it as stopped on
    purpose before it did anything else, so no restart brings it back by itself.
 
@@ -282,6 +289,9 @@ keeps the session's profile locked, so every later **Start** answers "Internal s
 newest `OpenWA\logs\*.log` has `The browser is already running for …\session-<name>`. The
 five-minute restart of a stuck session could leave a Chrome behind the same way. On the older
 gateway, end that Chrome with the command above (with the session's name), then press **Start**.
+Run that command from an elevated console. Unelevated, it matches nothing, because the SYSTEM
+gateway's Chrome hides its command line. The same message straight after a gateway restart means the
+old gateway's Chrome outlived it. `Stop-OpenWA.ps1` from this repository ends that Chrome as well.
 
 From #6 on a stop waits for Chrome to come up and closes it, so it can take a few seconds longer.
 The start it overtook answers "Session '…' was stopped, deleted or restarted before it finished
