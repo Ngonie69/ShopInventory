@@ -120,12 +120,15 @@ public static class UndeliveredTransfers
         {
             var lines = document.Lines
                 .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode))
-                .Select(line => new
+                .Select(line =>
                 {
-                    ItemCode = line.ItemCode!.Trim(),
-                    From = FirstNonBlank(line.FromWarehouseCode, document.FromWarehouse),
-                    To = FirstNonBlank(line.WarehouseCode, document.ToWarehouse),
-                    line.StockQuantity
+                    // A cancellation's negative line counts as the reverse movement, as the webhook reads it.
+                    var (from, to, quantity) = TransferCancellation.AsMovement(
+                        FirstNonBlank(line.FromWarehouseCode, document.FromWarehouse),
+                        FirstNonBlank(line.WarehouseCode, document.ToWarehouse),
+                        line.StockQuantity);
+
+                    return new { ItemCode = line.ItemCode!.Trim(), From = from, To = to, StockQuantity = quantity };
                 })
                 .Where(line => !Is(line.From, line.To))
                 .Select(line => new

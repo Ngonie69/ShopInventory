@@ -10,6 +10,7 @@ public sealed class ProcessTransferEventValidator : AbstractValidator<ProcessTra
         RuleFor(x => x.ItemCode).NotEmpty();
         RuleFor(x => x.SourceWarehouse).NotEmpty();
         RuleFor(x => x.DestinationWarehouse).NotEmpty();
-        RuleFor(x => x.Quantity).GreaterThan(0);
+        // Negative is an SAP cancellation, the original movement reversed — see TransferCancellation.
+        RuleFor(x => x.Quantity).NotEqual(0);
     }
 }
