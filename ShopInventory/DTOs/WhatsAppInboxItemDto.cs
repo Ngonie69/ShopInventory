@@ -1,5 +1,9 @@
 namespace ShopInventory.DTOs;
 
+/// <remarks>
+/// No <c>RawPayload</c>: a received attachment is kept in it whole as base64, up to 20 MB. Read one
+/// message's from <c>GET /api/whatsapp/messages/{id}/raw</c>.
+/// </remarks>
 public class WhatsAppInboxItemDto
 {
     public int Id { get; set; }
@@ -17,5 +21,4 @@ public class WhatsAppInboxItemDto
     public string? SourcePath { get; set; }
     public DateTime? OccurredAtUtc { get; set; }
     public DateTime ReceivedAtUtc { get; set; }
-    public string RawPayload { get; set; } = string.Empty;
 }

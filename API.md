@@ -4860,7 +4860,8 @@ it is started, scanned from a QR code, and then sends.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/whatsapp/health` | Bridge health |
-| GET | `/api/whatsapp/messages` | Inbox (`page` 1, `pageSize` 50, `search`) |
+| GET | `/api/whatsapp/messages` | Inbox (`page` 1, `pageSize` 50, `search`). Rows carry no raw payload |
+| GET | `/api/whatsapp/messages/{id}/raw` | One row's webhook body as received, attachment included. `404` for an unknown id |
 | GET | `/api/whatsapp/sessions` | The sessions |
 | POST | `/api/whatsapp/sessions` | Create one. Answers `201`, and registers the inbound webhook |
 | POST | `/api/whatsapp/sessions/{sessionId}/start` | Start it |
@@ -4880,6 +4881,11 @@ JSON routes take 1 MB. OpenWA posts a received attachment inside the body, base6
 `data.media.data`, so the body is about 4/3 of the file: an image of up to 5 MB fits, and audio, video
 or a document up to about 15 MB. A larger body is answered `413`, and OpenWA drops it after three
 retries. The attachment is kept in the row's `RawPayload`.
+
+That is why the inbox list leaves `RawPayload` out: with attachments kept whole, a page of 50 could
+carry tens of MB of base64. `GET .../messages/{id}/raw` answers one row's body, verbatim and as
+`application/json`. The operator console reads it when a message's *Raw payload* is opened, and shows
+it with every string value over 2,048 characters replaced by a note of its length.
 
 A paired session delivers nothing on its own: OpenWA posts events only to webhooks registered
 against that session. Creating or starting a session registers one aimed at `OpenWA:WebhookPublicUrl`

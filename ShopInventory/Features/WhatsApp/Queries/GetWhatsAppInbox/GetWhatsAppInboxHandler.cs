@@ -51,8 +51,7 @@ public sealed class GetWhatsAppInboxHandler(ApplicationDbContext dbContext) : IR
                 TextBody = message.TextBody,
                 SourcePath = message.SourcePath,
                 OccurredAtUtc = message.OccurredAtUtc,
-                ReceivedAtUtc = message.ReceivedAtUtc,
-                RawPayload = message.RawPayload
+                ReceivedAtUtc = message.ReceivedAtUtc
             })
             .ToListAsync(cancellationToken);
 

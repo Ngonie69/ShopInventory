@@ -21,6 +21,9 @@ public static partial class Errors
         public static Error InvalidConfiguration(string message) =>
             Error.Validation("WhatsApp.InvalidConfiguration", message);
 
+        public static Error MessageNotFound(int id) =>
+            Error.NotFound("WhatsApp.MessageNotFound", $"WhatsApp inbox message {id} was not found");
+
         public static Error Unreachable(string message) =>
             Error.Failure("WhatsApp.Unreachable", message);
     }

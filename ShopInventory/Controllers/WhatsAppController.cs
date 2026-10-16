@@ -10,6 +10,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.WhatsApp.Commands.ReceiveOpenWAWebhook;
 using ShopInventory.Features.WhatsApp.Queries.GetWhatsAppHealth;
 using ShopInventory.Features.WhatsApp.Queries.GetWhatsAppInbox;
+using ShopInventory.Features.WhatsApp.Queries.GetWhatsAppRawPayload;
 using ShopInventory.Middleware;
 using ShopInventory.Services;
 
@@ -54,6 +55,24 @@ public class WhatsAppController(
     {
         var result = await _mediator.Send(new GetWhatsAppInboxQuery(page, pageSize, search), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// One message's webhook body, as received
+    /// </summary>
+    /// <remarks>
+    /// The inbox list does not carry it: a received attachment is kept in it whole, base64 in
+    /// <c>data.media.data</c>, up to the webhook's 20 MB. This is the stored body verbatim,
+    /// attachment included.
+    /// </remarks>
+    [HttpGet("messages/{id:int}/raw")]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMessageRawPayload(int id, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetWhatsAppRawPayloadQuery(id), cancellationToken);
+        return result.Match(value => Content(value, "application/json"), errors => Problem(errors));
     }
 
     /// <summary>
