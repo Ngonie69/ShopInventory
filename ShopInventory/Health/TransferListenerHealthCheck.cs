@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Services;
@@ -151,9 +152,25 @@ public sealed class TransferListenerHealthCheck(
         // Documents with a line this API refused, or that the listener gave up on. Nothing retries them,
         // but none is lost for good: the next morning's snapshot reads SAP afresh and counts them, and a
         // line given up on because its ledger day ended is already in the snapshot that ended that day.
-        // So this is Degraded by the rule above. The count is also held since the listener started, so
-        // it cannot say whether the damage is still on today's tills.
-        if (poll.WebhookFailures > 0)
+        // So this is Degraded by the rule above. The count is held since the listener started, so on its
+        // own it cannot say whether the damage is still on today's tills — but every refusal also stamps
+        // the listener's last delivery error, so when that stamp falls in an earlier ledger day, every
+        // refused line belongs to a day the morning snapshot has since recounted. Without this the check
+        // stayed Degraded from 2026-10-12 until the listener next restarted, re-alerting all the while.
+        var failuresBeforeToday = false;
+        if (poll.WebhookFailures > 0 && poll.LastDeliveryErrorUtc is { } lastDeliveryError)
+        {
+            var fetchTime = StockLedgerDay.ParseFetchTime(dailyStockOptions.Value.StockFetchTimeCAT);
+            failuresBeforeToday = StockLedgerDay.Resolve(DateTime.SpecifyKind(lastDeliveryError, DateTimeKind.Utc), fetchTime)
+                < StockLedgerDay.Resolve(DateTime.UtcNow, fetchTime);
+        }
+
+        if (failuresBeforeToday)
+        {
+            data["webhookFailuresBeforeToday"] = true;
+        }
+
+        if (poll.WebhookFailures > 0 && !failuresBeforeToday)
         {
             return HealthCheckResult.Degraded(
                 $"{poll.WebhookFailures} transfer document(s) have a line this API will never take from the "
@@ -184,7 +201,11 @@ public sealed class TransferListenerHealthCheck(
         }
 
         return HealthCheckResult.Healthy(
-            $"TransferEventListener polled SAP successfully {sinceSuccess.TotalMinutes:N0} minute(s) ago.",
+            $"TransferEventListener polled SAP successfully {sinceSuccess.TotalMinutes:N0} minute(s) ago."
+            + (failuresBeforeToday
+                ? $" {poll.WebhookFailures} document(s) had a line refused or given up on, all before today's "
+                  + "snapshot, which counted them."
+                : string.Empty),
             data);
     }
 

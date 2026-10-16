@@ -23,6 +23,12 @@ public sealed class ProcessTransferEventHandler(
         ProcessTransferEventCommand command,
         CancellationToken cancellationToken)
     {
+        // A cancellation document's line arrives negative; from here on it is the reverse movement,
+        // so the deduplication key and the arrival announcement name the warehouse stock really entered.
+        var (from, to, quantity) = TransferCancellation.AsMovement(
+            command.SourceWarehouse, command.DestinationWarehouse, command.Quantity);
+        command = command with { SourceWarehouse = from, DestinationWarehouse = to, Quantity = quantity };
+
         // The snapshot day in force, resolved the way the fetch that writes the snapshot, the till
         // that reads it and the ledger that sells from it all resolve it. This was the last caller
         // left on DateTime.UtcNow.Date, which rolls at 02:00 CAT — five hours before the 07:00 fetch

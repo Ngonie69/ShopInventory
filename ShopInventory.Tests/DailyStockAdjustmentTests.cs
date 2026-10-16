@@ -246,6 +246,68 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         Assert.Equal(5m, row.AvailableQuantity);
     }
 
+    /// <summary>
+    /// 2026-10-12: a van load keyed in twice (91023, 91045) was cancelled in SAP by 91086, which books
+    /// the same From and To with every quantity negated. The webhook refused it as invalid, so the van's
+    /// ledger kept the duplicate load all day. A cancellation is the original movement run backwards.
+    /// </summary>
+    [Fact]
+    public async Task A_cancelled_transfer_puts_the_stock_back_where_it_came_from()
+    {
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+        await AddSnapshotItemAsync(Destination, "ITEM-1", 2m);
+
+        await Handler().Handle(new ProcessTransferEventCommand("ITEM-1", Source, Destination, 4m, 7101, 9101), default);
+        var cancelled = await Handler().Handle(
+            new ProcessTransferEventCommand("ITEM-1", Source, Destination, -4m, 7102, 9102), default);
+
+        Assert.False(cancelled.IsError);
+        Assert.True(cancelled.Value.Adjusted);
+        Assert.Equal(10m, await AvailableAsync(Source, "ITEM-1"));
+        Assert.Equal(2m, await AvailableAsync(Destination, "ITEM-1"));
+
+        var reversal = await _context.StockTransferAdjustments
+            .AsNoTracking()
+            .Where(adjustment => adjustment.TransferDocEntry == 7102)
+            .OrderBy(adjustment => adjustment.WarehouseCode)
+            .Select(adjustment => new { adjustment.WarehouseCode, adjustment.Direction, adjustment.AdjustmentQuantity })
+            .ToListAsync();
+
+        Assert.Equal(2, reversal.Count);
+        Assert.Contains(reversal, row => row.WarehouseCode == Destination && row.Direction == "OUT" && row.AdjustmentQuantity == -4m);
+        Assert.Contains(reversal, row => row.WarehouseCode == Source && row.Direction == "IN" && row.AdjustmentQuantity == 4m);
+    }
+
+    /// <summary>
+    /// The stock a cancellation moves lands back in the original source, and that is the arrival a
+    /// handset there needs to hear about — not one at the warehouse the stock just left.
+    /// </summary>
+    [Fact]
+    public async Task A_cancelled_transfer_announces_the_arrival_back_at_its_source()
+    {
+        await AddSnapshotItemAsync(Source, "ITEM-1", 6m);
+        await AddSnapshotItemAsync(Destination, "ITEM-1", 6m);
+
+        await Handler().Handle(new ProcessTransferEventCommand("ITEM-1", Source, Destination, -4m, 7103, 9103), default);
+
+        var arrived = Assert.Single(_publisher.Of<StockTransferReceivedEvent>());
+        Assert.Equal(Source, arrived.WarehouseCode);
+        Assert.Equal(Destination, arrived.SourceWarehouse);
+        Assert.Equal(4m, arrived.Quantity);
+    }
+
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(-4, true)]
+    [InlineData(0, false)]
+    public void Only_a_zero_quantity_is_refused(int quantity, bool valid)
+    {
+        var result = new ProcessTransferEventValidator().Validate(
+            new ProcessTransferEventCommand("ITEM-1", Source, Destination, quantity, 7104, 9104));
+
+        Assert.Equal(valid, result.IsValid);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     // ── what the webhook announces ─────────────────────────────────────────

@@ -67,13 +67,15 @@ Then:
 .\scripts\Install-OpenWAProduction.ps1
 ```
 
-That checks Node 20+ and Chrome, builds `dist\main.js`, writes a production `OpenWA\.env`, starts
+That checks Node 20+, builds `dist\main.js`, installs the Chrome for Testing build its Puppeteer
+expects (see [The gateway's Chrome](#the-gateways-chrome)), writes a production `OpenWA\.env`, starts
 the service, registers the `ShopInventory-OpenWA` boot task, and firewalls port 2785 to the two API
 nodes. It is re-runnable: an existing install keeps its data directory, its API key and its paired
 session.
 
-Note the API key it prints — OpenWA mints a random one on first start under `NODE_ENV=production`
-and writes it to `OpenWA\data\.api-key`.
+OpenWA mints a random admin API key on first start under `NODE_ENV=production` and writes it to
+`OpenWA\data\.api-key`; read it there. Since Ngonie69/OpenWA#8 the startup log shows only its first
+12 characters.
 
 ### Upgrading OpenWA
 
@@ -100,13 +102,19 @@ Before ShopInventory#763 that form failed at once under Windows PowerShell 5.1 w
 find the checkout. On an older checkout, run the script in-process and name the checkout yourself:
 `& C:\ShopInventory\scripts\Install-OpenWAProduction.ps1 -RepositoryRoot C:\ShopInventory`.
 
-The installer keeps stamps of the commit it built and the `package-lock.json` it installed from,
-and does only what changed:
+The installer keeps stamps of the commit it built and of the `package-lock.json` and
+`OpenWA\patches\*.patch` it installed from, and does only what changed:
 
 - **A new commit.** It rebuilds while the gateway keeps running, then restarts it.
-- **A new `package-lock.json`.** It stops the gateway, because `npm ci` replaces files it holds
-  open, then installs, builds and starts it.
+- **A new `package-lock.json` or patch.** It stops the gateway, because `npm ci` replaces files it
+  holds open, then installs, builds and starts it. `npm ci` applies `OpenWA\patches` (patch-package)
+  and fails if a patch no longer applies, which leaves the gateway stopped: see
+  `OpenWA\patches\README.md`. The whatsapp-web.js patch (OpenWA#8) is what makes document sends work
+  and gives every sent and received message its id. It replaces the hand edit made to `Utils.js` on .9
+  on 2026-10-16.
 - **A changed `.env`.** It restarts the gateway.
+- **A Puppeteer that expects another Chrome.** It installs that Chrome for Testing build, points
+  `.env` at it, and restarts the gateway. The first switch costs a QR scan: see below.
 - **Nothing changed.** It leaves the gateway running.
 
 A restart goes through the `ShopInventory-OpenWA` boot task, so the gateway runs as SYSTEM and
@@ -130,6 +138,99 @@ Confirm it took:
 2. `fiscal-alerts` reads `ready` on `/whatsapp-inbox` within a few minutes, without anyone pressing
    **Start**.
 3. `scripts/Test-WhatsAppDeliveryPath.ps1` passes.
+
+### The gateway's Chrome
+
+The gateway drives **Chrome for Testing**, not the machine's Google Chrome. The installer reads the
+build the installed Puppeteer was released against from puppeteer-core's `revisions.js` (146.0.7680.31
+for puppeteer-core 24.38.0) and installs exactly that one into `OpenWA\chrome` with
+`npx @puppeteer/browsers`, on the gateway's own Node (`scripts\Install-OpenWAChrome.ps1`). The first
+install downloads about 170 MB from `storage.googleapis.com` and takes about 410 MB on disk. On the
+laptop the download took between 3 and 9 minutes.
+`OpenWA\chrome\.shopinventory-chrome` records the build in use, and a re-run with the same Puppeteer
+installs nothing. `PUPPETEER_EXECUTABLE_PATH` in `OpenWA\.env` and the boot task both point at it.
+
+Chrome for Testing does not update itself, which is the point. Google Chrome does: on 2026-10-16
+10.10.10.9 was running Chrome 155.0.8059.80 under a Puppeteer built for 146. That day a send failed
+with `Attempted to use detached Frame` three and a half minutes after its session read `ready`, with
+no navigation logged in between. On 14 Oct the gateway had crashed on `Runtime.callFunctionOn timed
+out`. Both fit a browser that Puppeteer was not tested against. Neither proves it. Now the browser
+changes only when an OpenWA upgrade moves Puppeteer. The installer then installs the new build beside
+the old one. Moving to a newer Chrome is an ordinary upgrade, and sessions keep their login. Once the
+gateway is running on the new build, delete the old `OpenWA\chrome\chrome\win64-*` folder that the stamp
+does not name.
+
+`-ChromePath` overrides all of it. The installer then installs no Chrome for Testing and runs the
+gateway on the Chrome you name.
+
+#### The first switch costs a QR scan
+
+An older Chrome cannot read IndexedDB written by a newer one. It deletes that IndexedDB and starts
+empty. WhatsApp Web keeps the linked device's login there, so every session profile that Chrome 155
+has opened loses its pairing when Chrome for Testing 146 opens it.
+
+This was tested on the laptop on 2026-10-16. Google Chrome 155.0.8059.80 wrote a profile: localStorage,
+a persistent cookie, a service worker and an IndexedDB database on a test page, and 25 seconds of the
+real web.whatsapp.com. Chrome for Testing 146.0.7680.31 then opened it headless, through the gateway's
+own Puppeteer and launch arguments:
+
+- localStorage, the cookie and the service worker survived. The `Last Version` file went to 146.
+- **Every IndexedDB database was gone**, on both origins. Chrome logged `IndexedDB backing store had
+  unknown schema, treating it as failure to open`, then `IndexedDB recovering from a corrupted (and
+  deleted) database`. Among them were WhatsApp Web's eight: `wawc`, `wawc_db_enc`, `signal-storage`,
+  `model-storage` and four more.
+- Opening the same profile with Chrome 155 again did not bring them back. A copy taken before the
+  downgrade, opened with Chrome 155, still had all of them.
+
+`scripts\Probe-ChromeProfileDowngrade.js` repeats the test. Pairing itself was not tested: an unpaired
+profile on the laptop rarely gets a QR. Expect each paired session on .9 to show a QR code after the
+switch, and do not expect a WhatsApp login to outlive losing its keys.
+
+So the installer will not make the switch on its own. When a profile under `OpenWA\data\sessions`
+has a `Last Version` newer than the build it installs, it installs Chrome for Testing anyway, keeps
+the gateway on the Chrome that the current `.env` names, and warns with the sessions it found. Then
+choose:
+
+1. **Switch and re-pair.** This is the recommended choice. Do it at a quiet time, with the business
+   phone in hand:
+
+   ```bash
+   .\scripts\Install-OpenWAProduction.ps1 -AcceptSessionRepair
+   ```
+
+   It stops the gateway and ends any Chrome still holding a session profile. It copies each affected
+   profile, without its caches, to `OpenWA\data\sessions-backup\<time>-chrome-<version>\`. Then it
+   starts the gateway on Chrome for Testing. On **/whatsapp-inbox** each session shows a QR code: scan
+   it from WhatsApp → Linked devices → Link a device. On the phone, remove the old linked-device entry
+   that is now dead. Check **Delivery** reads *Registered*. The webhook is in OpenWA's database, not
+   the profile, so it should survive; **Repair delivery** fixes it if not. Then send one document.
+2. **Keep Google Chrome.** Name it, and the installer leaves Chrome for Testing out entirely:
+
+   ```bash
+   .\scripts\Install-OpenWAProduction.ps1 -ChromePath 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+   ```
+
+   No QR scan is needed. The browser keeps updating away from Puppeteer, which is the instability
+   this change is trying to remove.
+
+**Going back after a switch.** The live profile's IndexedDB cannot be recovered. Restore the backup:
+stop the gateway with `.\scripts\Stop-OpenWA.ps1`, then replace `OpenWA\data\sessions\session-<name>`
+with the copy under `sessions-backup`. Re-run the installer with `-ChromePath` naming Google Chrome.
+That works only while the phone still lists the old linked device. If you removed it when you re-paired,
+the backup holds keys WhatsApp no longer accepts.
+
+**If the download fails** (no route to `storage.googleapis.com`), the installer stops at the Browser
+step before it writes `.env`. A running gateway is still on its old Chrome. A gateway that the same run
+stopped for `npm ci` stays down. Run the installer again with `-ChromePath` to bring it up on Google
+Chrome.
+
+The 5.1 test of all of this, against a throwaway layout under `%TEMP%`, is below. It stops gateways
+with `Stop-OpenWA.ps1`, which matches any gateway's node, so do not run it while
+`Test-OpenWASupervisor.ps1` or a real gateway is running on the same machine:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-OpenWAChromeInstall.ps1 -OpenWASource C:\path\to\checkout\OpenWA
+```
 
 ## Point the API at it
 
@@ -254,6 +355,10 @@ either state for more than about half an hour means the gateway is older than Ng
 On that older gateway, press **Stop** and then **Start**: Start alone answers "Session is already
 started".
 
+**Every session shows a QR code after an installer run.** That run switched the gateway to Chrome for
+Testing with `-AcceptSessionRepair`, and the older Chrome deleted the logins that the newer one had
+written. It is expected: scan each one. See [The gateway's Chrome](#the-gateways-chrome).
+
 **Session reads `failed`.** Its retries are used up. Press **Start**. If it shows a QR code, the
 phone has dropped the linked device: scan it from WhatsApp → Linked devices. If it fails again,
 the reason is in the newest `OpenWA\logs\*.log`. *Execution context was destroyed* is whatsapp-web.js
@@ -321,6 +426,41 @@ The start it overtook answers "Session '…' was stopped, deleted or restarted b
 starting". That message is the stop working and needs nothing done: press **Start** again when the
 session should be running. A second **Start** pressed while the first is still getting going
 answers "Session is already started".
+
+**The inbox holds one message, or stops at a date, though people have written since.** The gateway
+is older than Ngonie69/OpenWA#7 and the API older than ShopInventory#762. OpenWA keyed every
+received message `msg_unknown`, so the API stored the first one it was ever sent and answered every
+later one 409 (OpenWA retries three times, then drops it) or, once its one-hour claim had expired,
+202 with that first message's receipt. Nothing was logged. #762 fixes it on the API side alone.
+
+The lost messages can be recovered from WhatsApp itself: OpenWA keeps no copy of what it receives
+(its `messages` table is outgoing sends only), but the session's linked device holds the chat
+history. The scripts are in `scripts\WhatsAppInboundBackfill`, run on .9, in this order:
+
+1. `Measure-WhatsAppInboundLoss.ps1` - read-only. What the inbox holds, every webhook POST in the
+   IIS logs by day and status, and which sessions still have a profile on disk.
+2. Deploy #762 and #765, so nothing more is lost while you recover, and install Ngonie69/OpenWA#8
+   (see *Upgrading OpenWA*). The export loads OpenWA's own whatsapp-web.js. Before #8 that library
+   reads every message id as empty, and the export skips every message and reports nothing.
+3. `.\scripts\Stop-OpenWA.ps1` (not the console's **Stop**, which marks the session stopped), then
+   `node Export-WhatsAppReceivedMessages.js --since 2026-09-01 --out C:\Temp\wa-backfill`, then
+   `Start-ScheduledTask ShopInventory-OpenWA`. It opens each session's profile in its own Chrome,
+   reads every chat active since `--since`, and writes each received message as the webhook body
+   OpenWA would have posted. The gateway is down for the minute or two this takes; anything that
+   arrives meanwhile is caught by the export.
+4. `Import-WhatsAppBackfill.ps1 -ExportPath C:\Temp\wa-backfill` - a dry run. It reads the inbox
+   read-only and writes `backfill-plan.csv`: each message as recoverable, already stored, a Status
+   post, or the session's own.
+5. The same with `-Apply`. Each recoverable message is posted, signed, to the API's own webhook, so
+   the row is written by the handler that writes live messages, under the same key; then it reads
+   the table again and reports message by message. Recovered rows carry `DeliveryId` `backfill-…`.
+   A second run sends nothing, and a later redelivery by OpenWA replays instead of duplicating.
+
+Until #765 the webhook took at most 1 MB, so a received attachment over about 750 KB was answered
+413 and lost, live as well as here. It now takes 20 MB, the server's cap: an image of up to 5 MB, or
+audio, video or a document up to about 15 MB, arrives whole and is kept in `RawPayload`. The dry run
+counts the messages still over the limit (`-WebhookBodyLimitBytes 1MB` against an API older than
+#765); `-DropOversizedMedia` stores those without the attachment.
 
 ## Customer documents
 
@@ -439,8 +579,12 @@ Judge by what arrives on the phone, never by the row's status:
 3. Compare `CustomerDocumentDeliveries` with OpenWA's own message log for the session. Every **Sent**
    and **Sent (unconfirmed)** row should have an outgoing message to that chat with that file name.
 
-**Sent (unconfirmed)** is normal. Current WhatsApp Web builds often accept a message without returning
-its id. It is finished and is never sent again by itself.
+**Sent (unconfirmed)** means WhatsApp took the message but OpenWA got no id back. It is finished and is
+never sent again by itself. Before Ngonie69/OpenWA#8 every send read this way: released
+whatsapp-web.js 1.34.7 looks the sent message up under a property WhatsApp Web renamed (`_serialized`,
+now `$1`). With #8 installed a send should come back **Sent** with an id that acks can update. If they
+still read unconfirmed, look for "returned a message without an id" in `OpenWA\logs`: WhatsApp has
+renamed it again.
 
 ### When it goes wrong
 
@@ -479,6 +623,28 @@ The conditions are:
 
 Doing step 1 alone drops every inbound message with a signature failure while the console keeps
 showing a healthy, registered session.
+
+## Rotating the admin API key
+
+Before Ngonie69/OpenWA#8 every gateway start wrote the whole admin key into `OpenWA\logs\*.out.log`,
+and one was pasted into chat on 2026-10-16, so rotate it once #8 is installed. On .9, in PowerShell from
+the `OpenWA` folder, mint a new admin key with the old one, save it to `data\.api-key`, and revoke the
+old one:
+
+```powershell
+$gw = 'http://127.0.0.1:2785'
+$old = (Get-Content data\.api-key -Raw).Trim()
+$new = Invoke-RestMethod -Method Post -Uri "$gw/api/auth/api-keys" -Headers @{ 'X-API-Key' = $old } -ContentType 'application/json' -Body '{"name":"Admin (rotated)","role":"admin"}'
+[IO.File]::WriteAllText((Resolve-Path data\.api-key), $new.apiKey)
+Invoke-RestMethod -Uri "$gw/api/auth/api-keys" -Headers @{ 'X-API-Key' = $new.apiKey } | ForEach-Object { $_ } |
+    Where-Object { $_.keyPrefix -eq $old.Substring(0, 12) -and $_.id -ne $new.id } |
+    ForEach-Object { Invoke-RestMethod -Method Post -Uri "$gw/api/auth/api-keys/$($_.id)/revoke" -Headers @{ 'X-API-Key' = $new.apiKey } }
+```
+
+It prints the old key with `isActive : False`. The API nodes (`OpenWA__ApiKey`) and Fiscalisation use
+keys of their own, so nothing else changes. If either one's first 12 characters match the old key's,
+mint an operator key the same way and re-run `Set-OpenWAApiConfig.ps1` with it. Then delete the
+`logs\*.out.log` files written before #8, and run `Test-WhatsAppDeliveryPath.ps1`.
 
 ## Turning it off
 

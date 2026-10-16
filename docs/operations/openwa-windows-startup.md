@@ -87,7 +87,7 @@ under `%TEMP%`. Run it with `powershell.exe -File` after changing either script.
 ## Notes
 
 - The runner uses `node .\dist\main.js` because that startup path was more reliable on this Windows host than `npm run start`.
-- The runner sets `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` and points Puppeteer to the locally installed Chrome binary.
+- The runner sets `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` and points Puppeteer at `-ChromePath`, which defaults to the installed Google Chrome. The production installer passes the Chrome for Testing build Puppeteer expects instead; see [The gateway's Chrome](whatsapp-production.md#the-gateways-chrome).
 - The runner will build OpenWA automatically only if `dist\main.js` is missing. Use `-SkipBuild` when you want startup to fail fast instead.
 - Local webhook registration should use `127.0.0.1`, not `localhost`, because OpenWA rejects `localhost` for webhook URLs.
 - `Register-OpenWAStartupTask.ps1` needs an elevated PowerShell session. Use the Startup-folder fallback when elevation is not available.

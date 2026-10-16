@@ -18,6 +18,12 @@ otherwise be surprised.
 
 ### Changed
 
+- **`POST /api/DesktopIntegration/webhook/transfer-event` takes SAP cancellations.** A negative
+  `Quantity` is now applied as the reverse movement (stock back from `DestinationWarehouse` to
+  `SourceWarehouse`) instead of being refused with a 400; only zero is refused. SAP books a cancelled
+  transfer as a new document with the same warehouses and negated quantities, and those lines were
+  being dropped. The `transfer-listener` health check also stops reporting Degraded for refusals
+  that all fall in an earlier ledger day.
 - **The van sign-in reply says where the password stands.** `POST /api/vansales/auth/login` and
   `/refresh` now carry `password_change_required`, `password_change_reason`, `password_expires_at`,
   `password_expires_in_days` and `password_expiring_soon` — the five members `/api/Auth/login` has

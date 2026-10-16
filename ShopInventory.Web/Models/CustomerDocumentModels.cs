@@ -134,6 +134,7 @@ public sealed class CustomerDocumentDeliveryStatusModel
     public string? SessionStatus { get; set; }
     public string? SessionPhone { get; set; }
     public string? SessionError { get; set; }
+    public bool SessionsListed { get; set; }
     public List<WhatsAppSessionOptionModel> Sessions { get; set; } = [];
     public int SentToday { get; set; }
     public int SentLastHour { get; set; }
