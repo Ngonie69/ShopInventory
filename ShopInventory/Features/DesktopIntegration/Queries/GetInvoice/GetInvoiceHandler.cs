@@ -36,6 +36,8 @@ public sealed class GetInvoiceHandler(
         var credits = await SaleCredits.ForInvoicesAsync(db, [dto.DocEntry], cancellationToken);
         SaleCredits.ApplyTo(dto, credits.GetValueOrDefault(dto.DocEntry));
 
+        await InvoiceSaleNumbers.StampAsync(db, [dto], cancellationToken);
+
         return dto;
     }
 }
