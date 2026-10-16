@@ -46,14 +46,15 @@
     ConnectionStrings__DefaultConnection). For running against a non-production API.
 
 .PARAMETER DropOversizedMedia
-    The webhook takes at most 1 MB (ReceiveOpenWaWebhook has no [MaxRequestBodySize], so the
-    middleware's default applies), and a message whose media makes the body larger is answered 413 -
-    live, too. With this switch such a message is sent again without data.media, so its row (type,
-    sender, time, caption) is stored and only the attachment is lost; Media dropped is recorded.
-    Without it those messages are left out and reported, to wait for a larger limit.
+    The webhook takes at most 20 MB ([MaxRequestBodySize] on ReceiveOpenWaWebhook, from
+    ShopInventory#PRNUM; 1 MB before it), and a message whose media makes the body larger is answered
+    413 - live, too. With this switch such a message is sent again without data.media, so its row
+    (type, sender, time, caption) is stored and only the attachment is lost; Media dropped is recorded.
+    Without it those messages are left out and reported.
 
 .PARAMETER WebhookBodyLimitBytes
-    The limit the dry run measures against. Default 1 MB.
+    The limit the dry run measures against. Default 20 MB; pass 1MB against an API older than
+    ShopInventory#PRNUM.
 
 .PARAMETER DelayMilliseconds
     Pause between sends. The webhook is on the API's sliding-window rate limit; a 429 is waited
@@ -74,7 +75,7 @@ param(
     [string]$WebhookSecret,
     [string]$ConnectionString,
     [switch]$DropOversizedMedia,
-    [int]$WebhookBodyLimitBytes = 1MB,
+    [int]$WebhookBodyLimitBytes = 20MB,
     [int]$DelayMilliseconds = 250
 )
 

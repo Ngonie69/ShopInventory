@@ -10,6 +10,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.WhatsApp.Commands.ReceiveOpenWAWebhook;
 using ShopInventory.Features.WhatsApp.Queries.GetWhatsAppHealth;
 using ShopInventory.Features.WhatsApp.Queries.GetWhatsAppInbox;
+using ShopInventory.Middleware;
 using ShopInventory.Services;
 
 namespace ShopInventory.Controllers;
@@ -268,9 +269,18 @@ public class WhatsAppController(
     /// <summary>
     /// Anonymous. Inbound from the bridge. application/json only, answers 202
     /// </summary>
+    /// <remarks>
+    /// OpenWA posts a received attachment inside the body, base64 in <c>data.media.data</c>, which
+    /// is 4/3 of the file. Under the middleware's 1 MB default anything over about 750 KB was
+    /// answered 413, retried three times by OpenWA and dropped. The limit is the 20 MB server cap
+    /// (Program.cs, web.config), which holds what WhatsApp sends: an image (5 MB, 6.7 MB encoded)
+    /// and audio, video or a document up to about 15 MB. A bigger file would need that cap raised
+    /// for an anonymous route whose rows are kept for good, so it is still refused.
+    /// </remarks>
     [HttpPost("webhook/openwa")]
     [AllowAnonymous]
     [Consumes("application/json")]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(WhatsAppWebhookReceiptDto), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ReceiveOpenWaWebhook(CancellationToken cancellationToken)
     {

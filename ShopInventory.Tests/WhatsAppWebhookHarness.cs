@@ -40,10 +40,14 @@ internal sealed class WhatsAppWebhookHarness : IDisposable
 
     public ApplicationDbContext NewContext() => new(_options);
 
-    public async Task<ErrorOr<WhatsAppWebhookReceiptDto>> Receive(
+    public Task<ErrorOr<WhatsAppWebhookReceiptDto>> Receive(
         string payload,
         string? idempotencyKey = null,
         string? deliveryId = null)
+        => Handle(new ReceiveOpenWAWebhookCommand(payload, Sign(payload), null, idempotencyKey, deliveryId, "/api/whatsapp/webhook/openwa"));
+
+    /// <summary>Runs one command as it arrives, signature and all, on a context of its own.</summary>
+    public async Task<ErrorOr<WhatsAppWebhookReceiptDto>> Handle(ReceiveOpenWAWebhookCommand command)
     {
         using var context = NewContext();
         var handler = new ReceiveOpenWAWebhookHandler(
@@ -52,14 +56,13 @@ internal sealed class WhatsAppWebhookHarness : IDisposable
             new IdempotencyRequestStore(new SingleContextScopeFactory(_options), Options.Create(new SecuritySettings())),
             NullLogger<ReceiveOpenWAWebhookHandler>.Instance);
 
-        return await handler.Handle(
-            new ReceiveOpenWAWebhookCommand(payload, Sign(payload), null, idempotencyKey, deliveryId, "/api/whatsapp/webhook/openwa"),
-            CancellationToken.None);
+        return await handler.Handle(command, CancellationToken.None);
     }
 
     public void Dispose() => _connection.Dispose();
 
-    private static string Sign(string payload)
+    /// <summary>The <c>X-OpenWA-Signature</c> OpenWA would send with this body.</summary>
+    public static string Sign(string payload)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(Secret));
         return $"sha256={Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant()}";
