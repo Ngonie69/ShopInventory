@@ -47,14 +47,14 @@
 
 .PARAMETER DropOversizedMedia
     The webhook takes at most 20 MB ([MaxRequestBodySize] on ReceiveOpenWaWebhook, from
-    ShopInventory#PRNUM; 1 MB before it), and a message whose media makes the body larger is answered
+    ShopInventory#765; 1 MB before it), and a message whose media makes the body larger is answered
     413 - live, too. With this switch such a message is sent again without data.media, so its row
     (type, sender, time, caption) is stored and only the attachment is lost; Media dropped is recorded.
     Without it those messages are left out and reported.
 
 .PARAMETER WebhookBodyLimitBytes
     The limit the dry run measures against. Default 20 MB; pass 1MB against an API older than
-    ShopInventory#PRNUM.
+    ShopInventory#765.
 
 .PARAMETER DelayMilliseconds
     Pause between sends. The webhook is on the API's sliding-window rate limit; a 429 is waited

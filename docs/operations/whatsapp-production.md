@@ -301,7 +301,7 @@ history. The scripts are in `scripts\WhatsAppInboundBackfill`, run on .9, in thi
 
 1. `Measure-WhatsAppInboundLoss.ps1` - read-only. What the inbox holds, every webhook POST in the
    IIS logs by day and status, and which sessions still have a profile on disk.
-2. Deploy #762 and #PRNUM, so nothing more is lost while you recover.
+2. Deploy #762 and #765, so nothing more is lost while you recover.
 3. `.\scripts\Stop-OpenWA.ps1` (not the console's **Stop**, which marks the session stopped), then
    `node Export-WhatsAppReceivedMessages.js --since 2026-09-01 --out C:\Temp\wa-backfill`, then
    `Start-ScheduledTask ShopInventory-OpenWA`. It opens each session's profile in its own Chrome,
@@ -316,11 +316,11 @@ history. The scripts are in `scripts\WhatsAppInboundBackfill`, run on .9, in thi
    the table again and reports message by message. Recovered rows carry `DeliveryId` `backfill-…`.
    A second run sends nothing, and a later redelivery by OpenWA replays instead of duplicating.
 
-Until #PRNUM the webhook took at most 1 MB, so a received attachment over about 750 KB was answered
+Until #765 the webhook took at most 1 MB, so a received attachment over about 750 KB was answered
 413 and lost, live as well as here. It now takes 20 MB, the server's cap: an image of up to 5 MB, or
 audio, video or a document up to about 15 MB, arrives whole and is kept in `RawPayload`. The dry run
 counts the messages still over the limit (`-WebhookBodyLimitBytes 1MB` against an API older than
-#PRNUM); `-DropOversizedMedia` stores those without the attachment.
+#765); `-DropOversizedMedia` stores those without the attachment.
 
 ## Customer documents
 
