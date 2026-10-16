@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$OpenWARoot = (Join-Path $PSScriptRoot "..\OpenWA"),
+    # Defaults to the OpenWA folder beside this script's. Resolved below rather than here:
+    # Windows PowerShell 5.1 leaves $PSScriptRoot empty in a default value under -File.
+    [string]$OpenWARoot,
     [string]$NodeHome = "C:\Users\ngoni\.config\herd\bin\nvm\v20.20.2",
     [string]$ChromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe",
     [switch]$SkipBuild,
@@ -13,6 +15,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $OpenWARoot) {
+    $OpenWARoot = Join-Path $PSScriptRoot "..\OpenWA"
+}
 
 function Resolve-RequiredPath {
     param(

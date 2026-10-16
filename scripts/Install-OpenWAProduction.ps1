@@ -73,7 +73,9 @@
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    # Defaults to this script's parent. Resolved below rather than here:
+    # Windows PowerShell 5.1 leaves $PSScriptRoot empty in a default value under -File.
+    [string]$RepositoryRoot,
     [int]$Port = 2785,
     [string[]]$ApiNodeAddresses = @('10.10.10.9', '10.10.10.58'),
     [string]$TaskName = 'ShopInventory-OpenWA',
@@ -83,6 +85,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $RepositoryRoot) {
+    $RepositoryRoot = Split-Path -Parent $PSScriptRoot
+}
 
 function Write-Section {
     param([string]$Text)

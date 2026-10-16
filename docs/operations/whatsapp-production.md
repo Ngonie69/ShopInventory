@@ -88,6 +88,18 @@ git -C C:\path\to\ShopInventory submodule update --init OpenWA
 .\scripts\Install-OpenWAProduction.ps1
 ```
 
+From outside the checkout, launch it with `-File` instead:
+
+```bash
+powershell -ExecutionPolicy Bypass -File C:\ShopInventory\scripts\Install-OpenWAProduction.ps1
+```
+
+Before ShopInventory#763 that form failed at once under Windows PowerShell 5.1 with
+`Split-Path : Cannot bind argument to parameter 'Path' because it is an empty string`. 5.1 leaves
+`$PSScriptRoot` empty in a parameter's default value under `-File`, and every OpenWA script used it to
+find the checkout. On an older checkout, run the script in-process and name the checkout yourself:
+`& C:\ShopInventory\scripts\Install-OpenWAProduction.ps1 -RepositoryRoot C:\ShopInventory`.
+
 The installer keeps stamps of the commit it built and the `package-lock.json` it installed from,
 and does only what changed:
 
