@@ -58,8 +58,7 @@ public sealed class PartnerPerformanceTests
                 Window(2026, Account("FOR012", "Fortwell", usd: 9842.18m, volume: 6112m, invoices: 148)),
                 Window(2025, Account("FOR012", "Fortwell", usd: 1262.89m, volume: 751m, invoices: 31)),
                 Window(2024, Account("FOR012", "Fortwell", usd: 612.40m, volume: 352m, invoices: 14))
-            ],
-            readZig: false);
+            ]);
 
         var partner = Assert.Single(performance.Partners);
         Assert.Equal("FOR012", partner.Code);
@@ -80,8 +79,7 @@ public sealed class PartnerPerformanceTests
                 Window(2025,
                     Account("BP0001", "Small now", usd: 400m),
                     Account("BP0003", "Lost", usd: 700m))
-            ],
-            readZig: false);
+            ]);
 
         Assert.Equal(["BP0002", "BP0001", "BP0003"], performance.Partners.Select(partner => partner.Code));
 
@@ -100,8 +98,7 @@ public sealed class PartnerPerformanceTests
             [
                 Window(2026, Account("BP0001", "Trades", usd: 10m), Account("BP0009", "Idle", usd: 0m, invoices: 0)),
                 Window(2025, Account("BP0009", "Idle", usd: 0m, invoices: 0))
-            ],
-            readZig: false);
+            ]);
 
         Assert.Equal(["BP0001"], performance.Partners.Select(partner => partner.Code));
     }
@@ -113,23 +110,23 @@ public sealed class PartnerPerformanceTests
             [
                 Window(2026, Account("BP0001", "A", usd: 100m, volume: 10m), Account("BP0002", "B", usd: 50m, volume: 4m)),
                 Window(2025, Account("BP0001", "A", usd: 80m, volume: 8m))
-            ],
-            readZig: false);
+            ]);
 
         Assert.Equal([150m, 80m], performance.Totals.Select(total => total.Revenue));
         Assert.Equal([14m, 8m], performance.Totals.Select(total => total.Volume));
     }
 
     [Fact]
-    public void Revenue_reads_the_currency_asked_for_and_never_adds_the_other()
+    public void Revenue_is_usd_with_the_zig_documents_already_inside_it()
     {
+        // A partner billed in both currencies: USD 2,600 in all, 2,500 of it on ZiG documents that SAP
+        // booked in USD at their own rate. The ZiG share is part of the USD, never added on top of it.
         var performance = PartnerPerformance.Build(
-            [Window(2026, Account("BP0001", "A", usd: 100m, zig: 2500m, creditedZig: 40m))],
-            readZig: true);
+            [Window(2026, Account("FOR009", "Fortwell", usd: 2600m, zig: 2500m, creditedZig: 40m, creditedUsd: 55m))]);
 
         var year = Assert.Single(performance.Partners).Years[0];
-        Assert.Equal(2500m, year.Revenue);
-        Assert.Equal(40m, year.Credited);
+        Assert.Equal(2600m, year.Revenue);
+        Assert.Equal(55m, year.Credited);
     }
 
     [Fact]
@@ -156,7 +153,7 @@ public sealed class PartnerPerformanceTests
             Period(2025, 10, ("BP0001", 40m, 4m))
         ];
 
-        var performance = PartnerPerformance.Build([current, prior], readZig: false);
+        var performance = PartnerPerformance.Build([current, prior]);
 
         var one = performance.PeriodsFor("BP0001");
         Assert.Equal([300m, 100m], one[0].Revenue);
@@ -173,7 +170,7 @@ public sealed class PartnerPerformanceTests
         var current = Window(2026, Account("BP0001", "A", usd: 1m));
         current.Periods = [Period(2026, 9, ("BP0001", 1m, 1m)), Period(2026, 10, ("BP0001", 1m, 1m))];
 
-        var rows = PartnerPerformance.Build([current], readZig: false).PeriodsFor(null);
+        var rows = PartnerPerformance.Build([current]).PeriodsFor(null);
 
         Assert.Equal("September", rows[0].Label);
         Assert.Equal("October (to 16 Oct)", rows[1].Label);
@@ -188,11 +185,10 @@ public sealed class PartnerPerformanceTests
                 Window(2026, Account("FOR012", "Fortwell", usd: 300m, volume: 30m)),
                 Window(2025, Account("FOR012", "Fortwell", usd: 200m, volume: 20m)),
                 Window(2024, Account("FOR012", "Fortwell", usd: 100m, volume: 10m))
-            ],
-            readZig: false);
+            ]);
 
         using var workbook = new XLWorkbook(new MemoryStream(
-            new ReportExportService().ExportPartnerPerformanceToExcel(performance, "Partner Performance", readZig: false)));
+            new ReportExportService().ExportPartnerPerformanceToExcel(performance, "Partner Performance")));
 
         var sheet = workbook.Worksheet("Partners");
         var header = sheet.RowsUsed().First(row => row.Cell(1).GetString() == "Card Code");
@@ -222,13 +218,15 @@ public sealed class PartnerPerformanceTests
         decimal volume = 0m,
         int invoices = 1,
         decimal zig = 0m,
-        decimal creditedZig = 0m) => new()
+        decimal creditedZig = 0m,
+        decimal creditedUsd = 0m) => new()
     {
         CardCode = code,
         CardName = name,
         NetRevenueUsd = usd,
-        NetRevenueZig = zig,
-        CreditedSalesZig = creditedZig,
+        NetRevenueFromZig = zig,
+        CreditedSalesUsd = creditedUsd,
+        CreditedSalesFromZig = creditedZig,
         NetVolume = volume,
         InvoiceCount = invoices
     };

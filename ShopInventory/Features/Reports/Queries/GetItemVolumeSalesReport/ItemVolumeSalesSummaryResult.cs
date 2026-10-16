@@ -30,10 +30,14 @@ public sealed class ItemVolumeSalesSummaryResult
 
     public decimal QuantityWithoutFactor { get; set; }
 
+    // Money is USD, every document included. SAP's line total is in the company's local currency,
+    // USD, so a ZiG document's lines arrive already converted at that document's own rate — what
+    // SAP's DocTotal carries. The FromZig figures are the part that came off ZiG documents: already
+    // inside the USD figure beside them, and never to be added to it.
     public decimal InvoicedSalesUsd { get; set; }
-    public decimal InvoicedSalesZig { get; set; }
+    public decimal InvoicedSalesFromZig { get; set; }
     public decimal CreditedSalesUsd { get; set; }
-    public decimal CreditedSalesZig { get; set; }
+    public decimal CreditedSalesFromZig { get; set; }
     public decimal NetRevenueUsd { get; set; }
-    public decimal NetRevenueZig { get; set; }
+    public decimal NetRevenueFromZig { get; set; }
 }

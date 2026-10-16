@@ -206,7 +206,7 @@ public sealed class GetItemVolumeSalesReportHandler(
                     NormalizeName(line.ItemDescription, line.ItemCode),
                     line.Quantity,
                     line.LineTotal,
-                    IsUsdCurrency(invoice.DocCurrency) ? line.LineTotal : 0m,
+                    line.LineTotal,
                     IsZigCurrency(invoice.DocCurrency) ? line.LineTotal : 0m)))
             .Where(line => line.DocumentDateUtc != DateTime.MinValue)
             .ToList();
@@ -240,7 +240,7 @@ public sealed class GetItemVolumeSalesReportHandler(
                     NormalizeName(line.ItemDescription, line.ItemCode),
                     -Math.Abs(line.Quantity),
                     -Math.Abs(line.LineTotal),
-                    IsUsdCurrency(note.DocCurrency) ? -Math.Abs(line.LineTotal) : 0m,
+                    -Math.Abs(line.LineTotal),
                     IsZigCurrency(note.DocCurrency) ? -Math.Abs(line.LineTotal) : 0m)))
             .Where(line => line.DocumentDateUtc != DateTime.MinValue)
             .ToList();
@@ -319,11 +319,11 @@ public sealed class GetItemVolumeSalesReportHandler(
             CreditedVolume = hasFactor ? RoundVolume(creditedQuantity * factor) : 0m,
             NetVolume = hasFactor ? RoundVolume(netQuantity * factor) : 0m,
             InvoicedSalesUsd = invoiceLines.Sum(line => line.AmountUsd),
-            InvoicedSalesZig = invoiceLines.Sum(line => line.AmountZig),
+            InvoicedSalesFromZig = invoiceLines.Sum(line => line.AmountFromZig),
             CreditedSalesUsd = -creditLines.Sum(line => line.AmountUsd),
-            CreditedSalesZig = -creditLines.Sum(line => line.AmountZig),
+            CreditedSalesFromZig = -creditLines.Sum(line => line.AmountFromZig),
             NetRevenueUsd = lines.Sum(line => line.AmountUsd),
-            NetRevenueZig = lines.Sum(line => line.AmountZig)
+            NetRevenueFromZig = lines.Sum(line => line.AmountFromZig)
         };
     }
 
@@ -375,11 +375,11 @@ public sealed class GetItemVolumeSalesReportHandler(
             NetVolume = items.Sum(item => item.NetVolume),
             ItemsWithoutFactorCount = items.Count(item => !item.HasVolumeFactor),
             InvoicedSalesUsd = items.Sum(item => item.InvoicedSalesUsd),
-            InvoicedSalesZig = items.Sum(item => item.InvoicedSalesZig),
+            InvoicedSalesFromZig = items.Sum(item => item.InvoicedSalesFromZig),
             CreditedSalesUsd = items.Sum(item => item.CreditedSalesUsd),
-            CreditedSalesZig = items.Sum(item => item.CreditedSalesZig),
+            CreditedSalesFromZig = items.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = items.Sum(item => item.NetRevenueUsd),
-            NetRevenueZig = items.Sum(item => item.NetRevenueZig),
+            NetRevenueFromZig = items.Sum(item => item.NetRevenueFromZig),
             Items = items
         };
     }
@@ -422,7 +422,7 @@ public sealed class GetItemVolumeSalesReportHandler(
                     NetQuantity = accounts.Sum(account => account.NetQuantity),
                     NetVolume = accounts.Sum(account => account.NetVolume),
                     NetRevenueUsd = accounts.Sum(account => account.NetRevenueUsd),
-                    NetRevenueZig = accounts.Sum(account => account.NetRevenueZig),
+                    NetRevenueFromZig = accounts.Sum(account => account.NetRevenueFromZig),
                     Accounts = accounts
                 };
             })
@@ -459,7 +459,7 @@ public sealed class GetItemVolumeSalesReportHandler(
                     Volume = hasFactor ? RoundVolume(line.Quantity * factor) : 0m,
                     LineAmount = line.LineAmount,
                     AmountUsd = line.AmountUsd,
-                    AmountZig = line.AmountZig
+                    AmountFromZig = line.AmountFromZig
                 };
             })
             .OrderBy(line => line.DocumentDateUtc)
@@ -496,11 +496,11 @@ public sealed class GetItemVolumeSalesReportHandler(
             ItemsWithoutFactorCount = itemTotals.Count(item => !item.HasVolumeFactor),
             QuantityWithoutFactor = itemTotals.Where(item => !item.HasVolumeFactor).Sum(item => item.NetQuantity),
             InvoicedSalesUsd = itemTotals.Sum(item => item.InvoicedSalesUsd),
-            InvoicedSalesZig = itemTotals.Sum(item => item.InvoicedSalesZig),
+            InvoicedSalesFromZig = itemTotals.Sum(item => item.InvoicedSalesFromZig),
             CreditedSalesUsd = itemTotals.Sum(item => item.CreditedSalesUsd),
-            CreditedSalesZig = itemTotals.Sum(item => item.CreditedSalesZig),
+            CreditedSalesFromZig = itemTotals.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = itemTotals.Sum(item => item.NetRevenueUsd),
-            NetRevenueZig = itemTotals.Sum(item => item.NetRevenueZig)
+            NetRevenueFromZig = itemTotals.Sum(item => item.NetRevenueFromZig)
         };
     }
 
