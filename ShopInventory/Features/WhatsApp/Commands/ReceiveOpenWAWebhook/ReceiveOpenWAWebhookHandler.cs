@@ -30,9 +30,6 @@ public sealed class ReceiveOpenWAWebhookHandler(
         ReceiveOpenWAWebhookCommand command,
         CancellationToken cancellationToken)
     {
-        var normalizedIdempotencyKey = string.IsNullOrWhiteSpace(command.ProvidedIdempotencyKey)
-            ? null
-            : command.ProvidedIdempotencyKey.Trim();
         long? idempotencyRequestId = null;
         var releaseIdempotencyRequest = false;
 
@@ -56,20 +53,20 @@ public sealed class ReceiveOpenWAWebhookHandler(
             return Errors.WhatsApp.InvalidWebhookSignature;
         }
 
+        var entity = ParsePayload(command.RawPayload, command.ProvidedEventType, command.SourcePath, out var isStatusPost);
+        var normalizedIdempotencyKey = DeduplicationKey(entity, command.ProvidedDeliveryId, command.ProvidedIdempotencyKey);
+
         try
         {
             if (!string.IsNullOrWhiteSpace(normalizedIdempotencyKey))
             {
+                // Fingerprinted on the key alone. The body differs on every dispatch (its timestamp
+                // and delivery id), so a body fingerprint answered a second dispatch under the same
+                // key 409, which OpenWA retries three times and then drops.
                 var acquireResult = await _idempotencyRequestStore.TryAcquireAsync<WhatsAppWebhookReceiptDto>(
                     "whatsapp.webhook.receive",
                     normalizedIdempotencyKey,
-                    new
-                    {
-                        command.RawPayload,
-                        command.ProvidedEventType,
-                        command.ProvidedDeliveryId,
-                        command.SourcePath
-                    },
+                    new { DeduplicationKey = normalizedIdempotencyKey },
                     cancellationToken);
 
                 switch (acquireResult.Outcome)
@@ -121,7 +118,6 @@ public sealed class ReceiveOpenWAWebhookHandler(
                 }
             }
 
-            var entity = ParsePayload(command.RawPayload, command.ProvidedEventType, command.SourcePath, out var isStatusPost);
             entity.IdempotencyKey = normalizedIdempotencyKey;
             entity.DeliveryId = command.ProvidedDeliveryId;
 
@@ -271,6 +267,55 @@ public sealed class ReceiveOpenWAWebhookHandler(
             };
         }
     }
+
+    /// <summary>
+    /// What a receipt is deduplicated on. OpenWA's own <c>X-OpenWA-Idempotency-Key</c> is not used
+    /// for messages: it reads <c>data.messageId</c>, which a received message does not carry, so
+    /// every message on every session arrived keyed <c>msg_unknown</c>. The first one was stored and
+    /// every later one was answered 409 (and dropped by OpenWA after three tries) or, once the claim
+    /// had expired, answered 202 with the first message's receipt and never stored.
+    /// </summary>
+    /// <remarks>
+    /// A message is identified by its session and WhatsApp message id, so a re-dispatch of the same
+    /// message replays the first receipt. Anything else — session lifecycle events, or a message
+    /// with no id — is one event per dispatch: OpenWA keeps the delivery id across its retries of a
+    /// dispatch and mints a new one for the next, so a second <c>ready</c> is a new event and not a
+    /// conflicting copy of the first. The sender's key is the last resort.
+    /// </remarks>
+    private static string? DeduplicationKey(WhatsAppWebhookEventEntity parsed, string? providedDeliveryId, string? providedIdempotencyKey)
+    {
+        string? key = null;
+
+        if (MessageIdentityEvents.Contains(parsed.EventType) && !string.IsNullOrWhiteSpace(parsed.MessageId))
+        {
+            key = $"openwa:{parsed.EventType}:{parsed.SessionName?.Trim()}:{parsed.MessageId.Trim()}";
+        }
+        else if (!string.IsNullOrWhiteSpace(providedDeliveryId))
+        {
+            key = $"openwa:delivery:{providedDeliveryId.Trim()}";
+        }
+        else if (!string.IsNullOrWhiteSpace(providedIdempotencyKey))
+        {
+            key = providedIdempotencyKey.Trim();
+        }
+
+        // IdempotencyRequests holds 200 characters. A group message id names the group and the
+        // author, so a long one is hashed rather than cut, which could merge two messages.
+        if (key is { Length: > MaxDeduplicationKeyLength })
+        {
+            key = $"openwa:sha256:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant()}";
+        }
+
+        return key;
+    }
+
+    private const int MaxDeduplicationKeyLength = 200;
+
+    private static readonly HashSet<string> MessageIdentityEvents = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "message.received",
+        "message.sent"
+    };
 
     /// <summary>
     /// A Status post names <c>status@broadcast</c> as its chat. Which field carries it depends on
