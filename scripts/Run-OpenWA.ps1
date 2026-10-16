@@ -61,10 +61,17 @@ function Write-SupervisorLog {
 
     $line = '{0}  {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
     Write-Host $line
-    try {
-        Add-Content -LiteralPath $supervisorLog -Value $line -Encoding UTF8
+    # Anyone reading the log at that moment (Get-Content, an editor) can hold it open long enough for
+    # Add-Content to fail, and the line would be lost.
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Add-Content -LiteralPath $supervisorLog -Value $line -Encoding UTF8
+            return
+        }
+        catch {
+            Start-Sleep -Milliseconds 100
+        }
     }
-    catch { }
 }
 
 function Test-StopRequested {

@@ -197,7 +197,14 @@ function Get-ElsewhereChrome {
 }
 
 function Get-SupervisorLines {
-    if (Test-Path -LiteralPath $supervisorLog) { @(Get-Content -LiteralPath $supervisorLog) } else { @() }
+    # The supervisor appends to its log every second in the health-check scenarios, and a read that
+    # lands on a write fails with "being used by another process".
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        if (-not (Test-Path -LiteralPath $supervisorLog)) { return @() }
+        try { return @(Get-Content -LiteralPath $supervisorLog -ErrorAction Stop) }
+        catch { Start-Sleep -Milliseconds 100 }
+    }
+    throw "Could not read $supervisorLog after 10 attempts."
 }
 
 function Wait-For {
