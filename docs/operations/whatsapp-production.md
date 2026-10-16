@@ -179,12 +179,30 @@ The boot task's runner, `scripts\Run-OpenWA.ps1`, supervises node. When node exi
 but 0 it is started again after 5 seconds, then 10, 20 and so on up to 5 minutes between tries. A
 run that lasted 10 minutes counts as healthy, and the next crash starts again at 5 seconds. Before
 each start the runner ends any Chrome still holding one of OpenWA's session profiles, which a crash
-can leave behind. Every start, exit code and restart is a line in `OpenWA\logs\openwa-supervisor.txt`,
-and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
+can leave behind.
+
+The runner also restarts a node that is still running but has stopped answering, for example with a
+wedged event loop or a puppeteer deadlock. No exit code reports that. Once node has answered
+`http://127.0.0.1:<port>/api/health` with 200, the runner asks again every 30 seconds, with a
+10-second timeout. After 4 failures in a row, about 2 minutes, it ends node and any Chrome on
+OpenWA's session profiles, then restarts node with the same backoff as a crash. Until the first 200
+nothing is counted, because a restart on .9 took over a minute to answer. A gateway that is slow to
+start is never ended for it. The port is taken from `PORT` in the environment, then `OpenWA\.env`,
+then `data\.env.generated`, then 2785. `-Port` overrides all of these, and `-HealthCheckSeconds 0`
+turns the check off. `/api/health` shows only that node's HTTP server is answering. A session whose
+Chrome has hung while node still answers is not covered here. That is the session's own
+`readyTimeoutMs` retry, below.
+
+Every start, first answer, failed health check, exit code and restart is a line in
+`OpenWA\logs\openwa-supervisor.txt`, and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
 
 - **The supervisor log shows restarts, and the gateway answers again.** It crashed and came back.
   The reason is at the end of the `.err.log` named in the line before the restart. Sessions that
   were running start again by themselves.
+- **The supervisor log shows `Health check 1 of 4 failed` … `Ending it`, then a restart.** node was
+  alive but stopped answering, and the runner ended it. The `.err.log` and `.out.log` named in the
+  restart line end where it hung, with no crash message, because node never exited by itself. A
+  `Health check` line followed by `answered … again` is a slow moment that passed. Nothing was ended.
 - **The supervisor log shows a restart every few minutes.** The gateway crashes as soon as it starts.
   The gap has grown to 5 minutes, and it keeps trying. Read the newest `.err.log`. Each run has the
   same failure until the cause is fixed.
@@ -193,6 +211,11 @@ and each run has its own `openwa-<time>.out.log` and `.err.log`. So:
   or node exiting with code 0. If the log is missing, or has no line from that day, the runner on
   this host is older than the supervisor and ran node only once. That is how the gateway stayed down
   for two days from 14 Oct 2026. Start it with `Start-ScheduledTask ShopInventory-OpenWA`.
+- **node is running and `/api/health` does not answer, and the supervisor log has no `Health check`
+  lines.** Either node has not answered once since it started, which counts as still starting, or
+  the runner on this host is older than the health check, which reaches .9 only when the task is
+  restarted. The log's `Supervisor started` line names the URL it checks. If it has no such line,
+  or names the wrong port, restart the task.
 
 To stop the gateway on purpose, use `.\scripts\Stop-OpenWA.ps1`. It writes `OpenWA\logs\stop-requested`
 first, so the supervisor exits and does not restart node, then ends node and waits for the supervisor

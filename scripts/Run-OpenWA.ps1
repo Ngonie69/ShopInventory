@@ -11,7 +11,15 @@ param(
     [int]$RestartDelaySeconds = 5,
     [int]$MaxRestartDelaySeconds = 300,
     # A run that lasted this long was healthy, so the next restart starts the backoff again.
-    [int]$HealthyRunSeconds = 600
+    [int]$HealthyRunSeconds = 600,
+    # The port node serves on, for its health check. 0 takes it from where OpenWA does: the PORT
+    # environment variable, then OpenWA\.env, then data\.env.generated, then OpenWA's own 2785.
+    [int]$Port = 0,
+    # Once node has answered /api/health it is asked again this often (0 turns the check off). A node
+    # that is still running but fails this many checks in a row is ended, and restarted like a crash.
+    [int]$HealthCheckSeconds = 30,
+    [int]$HealthCheckFailures = 4,
+    [int]$HealthCheckTimeoutSeconds = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -119,6 +127,116 @@ function Wait-RestartDelay {
     return -not (Test-StopRequested)
 }
 
+function Resolve-OpenWAPort {
+    # OpenWA's main.ts lets the process environment win over .env, and .env over data\.env.generated.
+    if ($Port -gt 0) {
+        return $Port
+    }
+
+    if ($env:PORT -match '^\s*(\d+)\s*$') {
+        return [int]$Matches[1]
+    }
+
+    foreach ($file in @((Join-Path $resolvedOpenWARoot '.env'), (Join-Path $resolvedOpenWARoot 'data\.env.generated'))) {
+        if (-not (Test-Path -LiteralPath $file)) {
+            continue
+        }
+
+        $value = 0
+        foreach ($line in @(Get-Content -LiteralPath $file)) {
+            # dotenv keeps the last assignment in a file.
+            if ($line -match '^\s*PORT\s*=\s*["'']?(\d+)["'']?\s*(#.*)?$') {
+                $value = [int]$Matches[1]
+            }
+        }
+
+        if ($value -gt 0) {
+            return $value
+        }
+    }
+
+    return 2785
+}
+
+function Get-HealthFailure {
+    # $null when node answers its health check with 200, otherwise what went wrong.
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec $HealthCheckTimeoutSeconds
+        if ($response.StatusCode -eq 200) {
+            return $null
+        }
+
+        return "HTTP $($response.StatusCode)"
+    }
+    catch {
+        return $_.Exception.Message
+    }
+}
+
+function Wait-NodeExit {
+    param([System.Diagnostics.Process]$Process, [int]$Run, [datetime]$Started)
+
+    # Returns $true when node was ended here for not answering, $false when it exited by itself.
+    #
+    # A crash ends node, but a wedged event loop or a puppeteer deadlock leaves it running and silent,
+    # which no exit code reports. So node is asked for /api/health, and held to it only once it has
+    # answered: a restart on 10.10.10.9 took over a minute to answer, and a gateway that is still
+    # starting must not be ended for being slow.
+    $answered = $false
+    $failures = 0
+    $nextCheck = (Get-Date).AddSeconds($HealthCheckSeconds)
+
+    while (-not $Process.WaitForExit(500)) {
+        if ($HealthCheckSeconds -le 0 -or (Get-Date) -lt $nextCheck -or (Test-StopRequested)) {
+            continue
+        }
+
+        $failure = Get-HealthFailure
+        $nextCheck = (Get-Date).AddSeconds($HealthCheckSeconds)
+
+        if ($null -eq $failure) {
+            if (-not $answered) {
+                Write-SupervisorLog "node answered $healthUrl $([int]((Get-Date) - $Started).TotalSeconds)s after it started (run $Run). Health checks count from now."
+                $answered = $true
+            }
+            elseif ($failures -gt 0) {
+                Write-SupervisorLog "node answered $healthUrl again after $failures failed check(s)."
+            }
+
+            $failures = 0
+            continue
+        }
+
+        if (-not $answered) {
+            continue
+        }
+
+        $failures++
+        Write-SupervisorLog "Health check $failures of $HealthCheckFailures failed: $failure"
+        if ($failures -lt $HealthCheckFailures) {
+            continue
+        }
+
+        Write-SupervisorLog "node PID $($Process.Id) is running but failed $failures health checks in a row. Ending it."
+        try {
+            # The handle held on $Process keeps Windows from reusing this PID, so this ends node and nothing else.
+            $Process.Kill()
+        }
+        catch { }
+
+        if (-not $Process.WaitForExit(15000)) {
+            Write-SupervisorLog "node PID $($Process.Id) was still running 15s after it was ended."
+        }
+
+        # node's Chrome outlives it, and would keep holding the session profiles.
+        Stop-OrphanedChrome
+        return $true
+    }
+
+    return $false
+}
+
 $resolvedOpenWARoot = Resolve-RequiredPath -Path $OpenWARoot -Description 'OpenWA root directory'
 $nodeExe = Resolve-RequiredPath -Path (Join-Path $NodeHome 'node.exe') -Description 'Node executable'
 $npmCmd = Resolve-RequiredPath -Path (Join-Path $NodeHome 'npm.cmd') -Description 'npm executable'
@@ -175,12 +293,20 @@ $supervisorLog = Join-Path $logsDir 'openwa-supervisor.txt'
 $stopMarker = Join-Path $logsDir 'stop-requested'
 Remove-Item -LiteralPath $stopMarker -Force -ErrorAction SilentlyContinue
 
+$healthUrl = "http://127.0.0.1:$(Resolve-OpenWAPort)/api/health"
+
 $env:PATH = "$NodeHome;$env:PATH"
 $env:PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 $env:PUPPETEER_EXECUTABLE_PATH = $resolvedChromePath
 
 Write-Host "Starting OpenWA from $resolvedOpenWARoot"
 Write-Host "Supervisor log: $supervisorLog"
+if ($HealthCheckSeconds -gt 0) {
+    Write-SupervisorLog "Supervisor started. Once node answers $healthUrl it is checked every ${HealthCheckSeconds}s, and restarted after $HealthCheckFailures failed checks in a row."
+}
+else {
+    Write-SupervisorLog "Supervisor started with health checks off (-HealthCheckSeconds 0): node is restarted only when it exits."
+}
 
 # Task Scheduler's restart settings only cover a task that fails to launch, not an action that exits
 # non-zero, so this loop is what brings the gateway back after a crash. On 14 Oct 2026 an unhandled
@@ -210,14 +336,19 @@ try {
         Write-SupervisorLog "Starting node (run $run). Stdout log: $stdoutLog  Stderr log: $stderrLog"
         $runStarted = Get-Date
 
-        # Windows PowerShell 5.1 turns each stderr line of a redirected native command into an error
-        # record, and under 'Stop' the first one ends this script and takes Node with it. Node writes a
-        # punycode deprecation warning to stderr at every start, so the boot task exited 1 within
-        # seconds of starting. Node's stderr is log output here; its exit code is what reports failure.
-        $ErrorActionPreference = 'Continue'
-        & $nodeExe '.\dist\main.js' 1>> $stdoutLog 2>> $stderrLog
-        $exitCode = $LASTEXITCODE
-        $ErrorActionPreference = 'Stop'
+        # node runs as a child this loop can watch, not under &, which blocks until it exits. Start-Process
+        # gives node the two log files as its own stdout and stderr, so PowerShell never reads its output.
+        # That keeps what the old 2>> redirect needed 'Continue' for: Windows PowerShell 5.1 turns each
+        # stderr line it reads from a native command into an error record, and under 'Stop' the first one
+        # ended this script and node with it. node writes a punycode deprecation warning to stderr at every
+        # start, so the boot task exited 1 within seconds. node's exit code is what reports failure.
+        $node = Start-Process -FilePath $nodeExe -ArgumentList '.\dist\main.js' -WorkingDirectory $resolvedOpenWARoot `
+            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -NoNewWindow -PassThru
+        # Windows PowerShell 5.1 reports no ExitCode for a process whose handle was not read while it ran.
+        $null = $node.Handle
+
+        $endedUnresponsive = Wait-NodeExit -Process $node -Run $run -Started $runStarted
+        $exitCode = if ($node.HasExited) { $node.ExitCode } else { 'none' }
 
         $ranSeconds = [int]((Get-Date) - $runStarted).TotalSeconds
 
@@ -226,7 +357,7 @@ try {
             exit 0
         }
 
-        if ($exitCode -eq 0) {
+        if (-not $endedUnresponsive -and $exitCode -eq 0) {
             Write-SupervisorLog "node exited cleanly after ${ranSeconds}s. Not restarting."
             exit 0
         }
@@ -235,7 +366,12 @@ try {
             $restartDelay = $RestartDelaySeconds
         }
 
-        Write-SupervisorLog "node exited with code $exitCode after ${ranSeconds}s. Restarting in ${restartDelay}s; the reason is in $stderrLog."
+        if ($endedUnresponsive) {
+            Write-SupervisorLog "node was ended after ${ranSeconds}s for not answering $healthUrl. Restarting in ${restartDelay}s; its last output is in $stdoutLog and $stderrLog."
+        }
+        else {
+            Write-SupervisorLog "node exited with code $exitCode after ${ranSeconds}s. Restarting in ${restartDelay}s; the reason is in $stderrLog."
+        }
 
         if (-not (Wait-RestartDelay -Seconds $restartDelay)) {
             Write-SupervisorLog "Stop requested while waiting to restart. Not restarting."

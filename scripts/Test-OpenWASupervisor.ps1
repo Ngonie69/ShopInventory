@@ -1,5 +1,6 @@
-# Exercises the OpenWA supervisor: scripts\Run-OpenWA.ps1 restarting node after a crash, and
-# scripts\Stop-OpenWA.ps1 stopping it without the supervisor fighting back.
+# Exercises the OpenWA supervisor: scripts\Run-OpenWA.ps1 restarting node after a crash or after it
+# stops answering /api/health while still running, and scripts\Stop-OpenWA.ps1 stopping it without
+# the supervisor fighting back.
 #
 # On 14 Oct 2026 the production gateway on 10.10.10.9 died on an unhandled Chrome protocol timeout
 # and stayed down for two days: the boot task ran node once, and Task Scheduler's restart settings
@@ -19,6 +20,8 @@ param(
     [string]$RepoRoot,
     [string]$NodeHome = 'C:\Users\ngoni\.config\herd\bin\nvm\v20.20.2',
     [string]$ChromePath = 'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    # The fake gateway's port, written to its .env. Not OpenWA's 2785, so it cannot be mistaken for a real one.
+    [int]$HealthPort = 27855,
     [switch]$SkipScheduledTask
 )
 
@@ -39,13 +42,21 @@ $script:failures = 0
 #   always-crash exit 1 after 1.5 s, every run
 #   slow-crash   exit 1 after 4 s, every run (outlasts a small -HealthyRunSeconds)
 #   clean        exit 0 after 1 s
+#   hang-once    run 1 leaves a headless Chrome on a session profile, answers /api/health twice, then
+#                wedges its event loop and stays alive; later runs answer /api/health and stay up
+#   slow-start   answers /api/health only from 15 s after it starts, then stays up
+# The modes that serve /api/health use PORT from ..\.env, as OpenWA does.
 $fakeMain = @'
 // Stand-in for OpenWA's dist\main.js, driven by ..\mode.txt:
 //   crash3       exit 1 on runs 1-3 (run 2 first leaves a headless Chrome on a session profile), then stay up
 //   always-crash exit 1 after 1.5 s, every run
 //   slow-crash   exit 1 after 4 s, every run (outlasts a small -HealthyRunSeconds)
 //   clean        exit 0 after 1 s
+//   hang-once    run 1 leaves a headless Chrome on a session profile, answers /api/health twice, then
+//                wedges its event loop and stays alive; later runs answer /api/health and stay up
+//   slow-start   answers /api/health only from 15 s after it starts, then stays up
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -65,7 +76,47 @@ function crash(afterMs) {
   }, afterMs);
 }
 
-if (mode === 'clean') {
+function leaveChrome() {
+  const profile = path.join(root, 'data', 'sessions', 'session-test');
+  const chrome = spawn(process.env.PUPPETEER_EXECUTABLE_PATH,
+    ['--headless=new', '--no-first-run', `--user-data-dir=${profile}`, 'about:blank'],
+    { detached: true, stdio: 'ignore' });
+  chrome.unref();
+  console.log(`left Chrome PID ${chrome.pid} on ${profile}`);
+}
+
+// Serves /api/health; onAnswer(count) runs after each answer has been sent.
+function serveHealth(onAnswer) {
+  const port = parseInt(/^PORT=(\d+)/m.exec(fs.readFileSync(path.join(root, '.env'), 'utf8'))[1], 10);
+  let answers = 0;
+  http.createServer((req, res) => {
+    if (req.url !== '/api/health') { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }), () => {
+      answers++;
+      console.log(`answered /api/health (${answers})`);
+      if (onAnswer) onAnswer(answers);
+    });
+  }).listen(port, '127.0.0.1', () => console.log(`listening on ${port}`));
+}
+
+if (mode === 'hang-once' && run === 1) {
+  leaveChrome();
+  serveHealth((answers) => {
+    if (answers === 2) {
+      setTimeout(() => {
+        console.log('wedging the event loop');
+        // Blocks the main thread for good, as a deadlock would: the process stays alive and the port
+        // stays open, but nothing is answered again.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+      }, 100);
+    }
+  });
+} else if (mode === 'hang-once') {
+  serveHealth();
+} else if (mode === 'slow-start') {
+  setTimeout(() => serveHealth(), 15000);
+} else if (mode === 'clean') {
   setTimeout(() => process.exit(0), 1000);
 } else if (mode === 'always-crash') {
   crash(1500);
@@ -73,12 +124,7 @@ if (mode === 'clean') {
   crash(4000);
 } else if (mode === 'crash3' && run <= 3) {
   if (run === 2) {
-    const profile = path.join(root, 'data', 'sessions', 'session-test');
-    const chrome = spawn(process.env.PUPPETEER_EXECUTABLE_PATH,
-      ['--headless=new', '--no-first-run', `--user-data-dir=${profile}`, 'about:blank'],
-      { detached: true, stdio: 'ignore' });
-    chrome.unref();
-    console.log(`left Chrome PID ${chrome.pid} on ${profile}`);
+    leaveChrome();
     crash(4000);
   } else {
     crash(1500);
@@ -95,12 +141,18 @@ $running = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe' or name = 
 if ($running.Count -gt 0) {
     throw "An OpenWA gateway or supervisor is already running here (PID $(($running | ForEach-Object { $_.ProcessId }) -join ', ')). This test would stop it."
 }
+if (Get-NetTCPConnection -LocalPort $HealthPort -State Listen -ErrorAction SilentlyContinue) {
+    throw "Something is already listening on port $HealthPort. Pass a free one with -HealthPort."
+}
+$healthUrl = "http://127.0.0.1:$HealthPort/api/health"
 
 # Same layout as production: <checkout>\scripts beside <checkout>\OpenWA, so Stop-OpenWA.ps1 runs with its default root.
 Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $scripts, (Join-Path $root 'dist') -Force | Out-Null
 Copy-Item (Join-Path $RepoRoot 'scripts\Run-OpenWA.ps1'), (Join-Path $RepoRoot 'scripts\Stop-OpenWA.ps1') $scripts
 Set-Content -LiteralPath (Join-Path $root 'dist\main.js') -Value $fakeMain -Encoding Ascii
+# The supervisor is never given -Port here: it has to find the port in .env, as it does on the server.
+Set-Content -LiteralPath (Join-Path $root '.env') -Value @('# fake gateway', "PORT=$HealthPort") -Encoding Ascii
 
 function Check {
     param([string]$Name, [bool]$Condition, [string]$Detail = '')
@@ -243,7 +295,53 @@ Show-SupervisorLog
 Check 'supervisor exited by itself with code 0 after one run' ($exited -and $p.ExitCode -eq 0 -and (Get-Runs) -eq 1)
 
 # ---------------------------------------------------------------------------------------------------
-"`n=== 5. Installer restart path under Task Scheduler (Stop-OpenWAAndWait, then Start-ScheduledTask)"
+"`n=== 5. node answers /api/health, then wedges and stays alive: ended and restarted"
+# Checks every 1s, 3 failures, 1s timeout: the server's 30s x 4 scaled down.
+$watchdog = @{ RestartDelaySeconds = 2; HealthCheckSeconds = 1; HealthCheckFailures = 3; HealthCheckTimeoutSeconds = 1 }
+Reset-Fake 'hang-once'
+$p = Start-Supervisor $watchdog
+$failing = Wait-For { @(Get-SupervisorLines) -match 'Health check 1 of 3 failed' } 30 'first failed health check'
+$wedged = @(Get-FakeNode)
+Check 'run 1 answered, then failed a check while its node was still running, with a Chrome on a session profile' (
+    $failing -and $wedged.Count -eq 1 -and (Get-Runs) -eq 1 -and @(Get-FakeChrome).Count -gt 0 -and
+    @(@(Get-SupervisorLines) -match 'node answered .* \(run 1\)').Count -eq 1) "nodes=$($wedged.Count) runs=$(Get-Runs) chrome=$(@(Get-FakeChrome).Count)"
+$restarted = Wait-For { @(@(Get-SupervisorLines) -match 'node answered .* \(run 2\)').Count -eq 1 } 60 'run 2 to answer'
+Start-Sleep -Seconds 4
+Show-SupervisorLog
+$lines = Get-SupervisorLines
+$nodes = @(Get-FakeNode)
+Check 'supervisor found the port in OpenWA\.env' (@($lines -match [regex]::Escape("Once node answers $healthUrl")).Count -eq 1)
+Check 'three failed checks in a row, then node ended and restarted after the 2s backoff' (
+    @($lines -match 'Health check 3 of 3 failed').Count -eq 1 -and @($lines -match 'failed 3 health checks in a row. Ending it').Count -eq 1 -and
+    @($lines -match "ended after \d+s for not answering $([regex]::Escape($healthUrl)). Restarting in 2s").Count -eq 1)
+Check 'the wedged node is gone and exactly one new node is running' ($restarted -and $nodes.Count -eq 1 -and $wedged.Count -eq 1 -and $nodes[0].ProcessId -ne $wedged[0].ProcessId -and (Get-Runs) -eq 2) "runs=$(Get-Runs)"
+Check 'the Chrome run 1 left on the session profile was ended' (@($lines -match 'Ending \d+ Chrome').Count -ge 1 -and @(Get-FakeChrome).Count -eq 0)
+Check 'run 2 has failed no check since it answered' (@($lines -match 'Health check \d+ of 3 failed').Count -eq 3)
+$probe = try { (Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 5).StatusCode } catch { $_.Exception.Message }
+Check 'run 2 answers /api/health from here too' ($probe -eq 200) "probe=$probe"
+Invoke-Stop
+$exited = $p.WaitForExit(15000)
+Check 'supervisor exited after the stop, with code 0' ($exited -and $p.ExitCode -eq 0) "exited=$exited code=$($p.ExitCode)"
+
+# ---------------------------------------------------------------------------------------------------
+"`n=== 6. A gateway that takes 15s to answer is not ended while it starts"
+# With the same 1s x 3 checks, a watchdog that counted before the first answer would end it at about 3s.
+Reset-Fake 'slow-start'
+$p = Start-Supervisor $watchdog
+$answered = Wait-For { @(Get-SupervisorLines) -match 'node answered' } 45 'first answer'
+Start-Sleep -Seconds 4
+Show-SupervisorLog
+$lines = Get-SupervisorLines
+$after = if ("$($lines -match 'node answered')" -match 'answered \S+ (\d+)s after') { [int]$Matches[1] } else { -1 }
+Check 'node answered 15s or more after it started' ($answered -and $after -ge 15) "after=${after}s"
+Check 'one run, still running, no failed check and nothing ended' (
+    (Get-Runs) -eq 1 -and @(Get-FakeNode).Count -eq 1 -and @($lines -match 'Health check \d+ of|Ending it|Restarting in').Count -eq 0) "runs=$(Get-Runs)"
+Invoke-Stop
+$exited = $p.WaitForExit(15000)
+Check 'supervisor exited after the stop, with code 0' ($exited -and $p.ExitCode -eq 0) "exited=$exited code=$($p.ExitCode)"
+
+# ---------------------------------------------------------------------------------------------------
+"`n=== 7. Installer restart path under Task Scheduler (Stop-OpenWAAndWait, then Start-ScheduledTask)"
 $taskName = 'ShopInventory-OpenWA-SupervisorTest'
 # The installer's own two functions, lifted verbatim so the test runs what it runs.
 $installerAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot 'scripts\Install-OpenWAProduction.ps1'), [ref]$null, [ref]$null)
