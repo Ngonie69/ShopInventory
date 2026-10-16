@@ -72,8 +72,9 @@ the service, registers the `ShopInventory-OpenWA` boot task, and firewalls port 
 nodes. It is re-runnable: an existing install keeps its data directory, its API key and its paired
 session.
 
-Note the API key it prints — OpenWA mints a random one on first start under `NODE_ENV=production`
-and writes it to `OpenWA\data\.api-key`.
+OpenWA mints a random admin API key on first start under `NODE_ENV=production` and writes it to
+`OpenWA\data\.api-key`; read it there. Since Ngonie69/OpenWA#8 the startup log shows only its first
+12 characters.
 
 ### Upgrading OpenWA
 
@@ -100,12 +101,16 @@ Before ShopInventory#763 that form failed at once under Windows PowerShell 5.1 w
 find the checkout. On an older checkout, run the script in-process and name the checkout yourself:
 `& C:\ShopInventory\scripts\Install-OpenWAProduction.ps1 -RepositoryRoot C:\ShopInventory`.
 
-The installer keeps stamps of the commit it built and the `package-lock.json` it installed from,
-and does only what changed:
+The installer keeps stamps of the commit it built and of the `package-lock.json` and
+`OpenWA\patches\*.patch` it installed from, and does only what changed:
 
 - **A new commit.** It rebuilds while the gateway keeps running, then restarts it.
-- **A new `package-lock.json`.** It stops the gateway, because `npm ci` replaces files it holds
-  open, then installs, builds and starts it.
+- **A new `package-lock.json` or patch.** It stops the gateway, because `npm ci` replaces files it
+  holds open, then installs, builds and starts it. `npm ci` applies `OpenWA\patches` (patch-package)
+  and fails if a patch no longer applies, which leaves the gateway stopped: see
+  `OpenWA\patches\README.md`. The whatsapp-web.js patch (OpenWA#8) is what makes document sends work
+  and gives every sent and received message its id. It replaces the hand edit made to `Utils.js` on .9
+  on 2026-10-16.
 - **A changed `.env`.** It restarts the gateway.
 - **Nothing changed.** It leaves the gateway running.
 
@@ -301,7 +306,9 @@ history. The scripts are in `scripts\WhatsAppInboundBackfill`, run on .9, in thi
 
 1. `Measure-WhatsAppInboundLoss.ps1` - read-only. What the inbox holds, every webhook POST in the
    IIS logs by day and status, and which sessions still have a profile on disk.
-2. Deploy #762, so nothing more is lost while you recover.
+2. Deploy #762, so nothing more is lost while you recover, and install Ngonie69/OpenWA#8 (see
+   *Upgrading OpenWA*). The export loads OpenWA's own whatsapp-web.js. Before #8 that library reads
+   every message id as empty, and the export skips every message and reports nothing.
 3. `.\scripts\Stop-OpenWA.ps1` (not the console's **Stop**, which marks the session stopped), then
    `node Export-WhatsAppReceivedMessages.js --since 2026-09-01 --out C:\Temp\wa-backfill`, then
    `Start-ScheduledTask ShopInventory-OpenWA`. It opens each session's profile in its own Chrome,
@@ -436,8 +443,12 @@ Judge by what arrives on the phone, never by the row's status:
 3. Compare `CustomerDocumentDeliveries` with OpenWA's own message log for the session. Every **Sent**
    and **Sent (unconfirmed)** row should have an outgoing message to that chat with that file name.
 
-**Sent (unconfirmed)** is normal. Current WhatsApp Web builds often accept a message without returning
-its id. It is finished and is never sent again by itself.
+**Sent (unconfirmed)** means WhatsApp took the message but OpenWA got no id back. It is finished and is
+never sent again by itself. Before Ngonie69/OpenWA#8 every send read this way: released
+whatsapp-web.js 1.34.7 looks the sent message up under a property WhatsApp Web renamed (`_serialized`,
+now `$1`). With #8 installed a send should come back **Sent** with an id that acks can update. If they
+still read unconfirmed, look for "returned a message without an id" in `OpenWA\logs`: WhatsApp has
+renamed it again.
 
 ### When it goes wrong
 
@@ -476,6 +487,28 @@ The conditions are:
 
 Doing step 1 alone drops every inbound message with a signature failure while the console keeps
 showing a healthy, registered session.
+
+## Rotating the admin API key
+
+Before Ngonie69/OpenWA#8 every gateway start wrote the whole admin key into `OpenWA\logs\*.out.log`,
+and one was pasted into chat on 2026-10-16, so rotate it once #8 is installed. On .9, in PowerShell from
+the `OpenWA` folder, mint a new admin key with the old one, save it to `data\.api-key`, and revoke the
+old one:
+
+```powershell
+$gw = 'http://127.0.0.1:2785'
+$old = (Get-Content data\.api-key -Raw).Trim()
+$new = Invoke-RestMethod -Method Post -Uri "$gw/api/auth/api-keys" -Headers @{ 'X-API-Key' = $old } -ContentType 'application/json' -Body '{"name":"Admin (rotated)","role":"admin"}'
+[IO.File]::WriteAllText((Resolve-Path data\.api-key), $new.apiKey)
+Invoke-RestMethod -Uri "$gw/api/auth/api-keys" -Headers @{ 'X-API-Key' = $new.apiKey } | ForEach-Object { $_ } |
+    Where-Object { $_.keyPrefix -eq $old.Substring(0, 12) -and $_.id -ne $new.id } |
+    ForEach-Object { Invoke-RestMethod -Method Post -Uri "$gw/api/auth/api-keys/$($_.id)/revoke" -Headers @{ 'X-API-Key' = $new.apiKey } }
+```
+
+It prints the old key with `isActive : False`. The API nodes (`OpenWA__ApiKey`) and Fiscalisation use
+keys of their own, so nothing else changes. If either one's first 12 characters match the old key's,
+mint an operator key the same way and re-run `Set-OpenWAApiConfig.ps1` with it. Then delete the
+`logs\*.out.log` files written before #8, and run `Test-WhatsAppDeliveryPath.ps1`.
 
 ## Turning it off
 

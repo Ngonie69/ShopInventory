@@ -318,13 +318,21 @@ $nodeModules = Join-Path $openWaRoot 'node_modules'
 $installStamp = Join-Path $nodeModules '.shopinventory-install'
 $buildStamp = Join-Path $openWaRoot 'dist\.shopinventory-build'
 $lockVersion = Get-Sha256 -Path (Join-Path $openWaRoot 'package-lock.json')
+# npm ci's postinstall also applies OpenWA\patches to node_modules (patch-package), so a changed patch
+# needs a reinstall as much as a changed lock does.
+$patchFiles = @(Get-ChildItem -LiteralPath (Join-Path $openWaRoot 'patches') -Filter '*.patch' -File -ErrorAction SilentlyContinue |
+    Sort-Object Name)
+foreach ($patchFile in $patchFiles) {
+    $lockVersion += " $($patchFile.Name)=$(Get-Sha256 -Path $patchFile.FullName)"
+}
 $sourceVersion = Get-SourceVersion -Root $openWaRoot
 
 $needsInstall = (-not (Test-Path -LiteralPath $nodeModules)) -or ((Read-Stamp -Path $installStamp) -ne $lockVersion)
 
 # An install made before these stamps has none. Reinstalling it would stop the gateway for the minutes
-# npm ci takes, so when npm finds the installed tree complete it is adopted instead.
-if ($needsInstall -and (Test-Path -LiteralPath $nodeModules) -and -not (Test-Path -LiteralPath $installStamp)) {
+# npm ci takes, so when npm finds the installed tree complete it is adopted instead - unless there are
+# patches: npm ls cannot tell whether they were applied.
+if ($needsInstall -and $patchFiles.Count -eq 0 -and (Test-Path -LiteralPath $nodeModules) -and -not (Test-Path -LiteralPath $installStamp)) {
     if (Test-DependenciesComplete -Root $openWaRoot -Npm $npm) {
         Write-Host "  Adopting the dependencies already installed: npm finds them complete." -ForegroundColor Green
         if ($PSCmdlet.ShouldProcess($installStamp, "Record the installed dependencies")) {
