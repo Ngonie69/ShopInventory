@@ -125,11 +125,11 @@ public static class ItemVolumeSalesChannels
                     CreditedVolume = group.Sum(item => item.CreditedVolume),
 
                     InvoicedSalesUsd = group.Sum(item => item.InvoicedSalesUsd),
-                    InvoicedSalesZig = group.Sum(item => item.InvoicedSalesZig),
+                    InvoicedSalesFromZig = group.Sum(item => item.InvoicedSalesFromZig),
                     CreditedSalesUsd = group.Sum(item => item.CreditedSalesUsd),
-                    CreditedSalesZig = group.Sum(item => item.CreditedSalesZig),
+                    CreditedSalesFromZig = group.Sum(item => item.CreditedSalesFromZig),
                     NetRevenueUsd = group.Sum(item => item.NetRevenueUsd),
-                    NetRevenueZig = group.Sum(item => item.NetRevenueZig)
+                    NetRevenueFromZig = group.Sum(item => item.NetRevenueFromZig)
                 };
             })
             .OrderByDescending(item => item.NetVolume)
@@ -164,11 +164,11 @@ public static class ItemVolumeSalesChannels
             QuantityWithoutFactor = items.Where(item => !item.HasVolumeFactor).Sum(item => item.NetQuantity),
 
             InvoicedSalesUsd = items.Sum(item => item.InvoicedSalesUsd),
-            InvoicedSalesZig = items.Sum(item => item.InvoicedSalesZig),
+            InvoicedSalesFromZig = items.Sum(item => item.InvoicedSalesFromZig),
             CreditedSalesUsd = items.Sum(item => item.CreditedSalesUsd),
-            CreditedSalesZig = items.Sum(item => item.CreditedSalesZig),
+            CreditedSalesFromZig = items.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = items.Sum(item => item.NetRevenueUsd),
-            NetRevenueZig = items.Sum(item => item.NetRevenueZig)
+            NetRevenueFromZig = items.Sum(item => item.NetRevenueFromZig)
         };
 
     private static ItemVolumeSalesPeriodResult OnlyPeriod(
@@ -188,7 +188,7 @@ public static class ItemVolumeSalesChannels
             NetQuantity = accounts.Sum(account => account.NetQuantity),
             NetVolume = accounts.Sum(account => account.NetVolume),
             NetRevenueUsd = accounts.Sum(account => account.NetRevenueUsd),
-            NetRevenueZig = accounts.Sum(account => account.NetRevenueZig),
+            NetRevenueFromZig = accounts.Sum(account => account.NetRevenueFromZig),
 
             Accounts = accounts
         };

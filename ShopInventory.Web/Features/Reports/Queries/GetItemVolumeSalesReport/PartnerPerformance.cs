@@ -18,8 +18,9 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetItemVolumeSalesReport;
 /// and a credited period stays negative here as it does on the other lenses.
 /// </para>
 /// <para>
-/// Money is read in one currency. The two are never added together, for the reason the revenue lens
-/// gives: no rate on the document would make one figure of them honest.
+/// Money is USD, every document included. A partner that traded in ZiG as well has those documents
+/// in its figures at the USD SAP booked them at — each document's own rate, as SAP's DocTotal carries
+/// it — so a partner billed in both currencies reads as one partner rather than two half-partners.
 /// </para>
 /// </remarks>
 public sealed class PartnerPerformance
@@ -56,16 +57,13 @@ public sealed class PartnerPerformance
     public sealed record Period(string Label, string ShortLabel, IReadOnlyList<decimal> Revenue, IReadOnlyList<decimal> Volume);
 
     private readonly IReadOnlyList<GetItemVolumeSalesReportResult> reports;
-    private readonly bool readZig;
 
     private PartnerPerformance(
         IReadOnlyList<GetItemVolumeSalesReportResult> reports,
-        bool readZig,
         IReadOnlyList<Window> windows,
         IReadOnlyList<Partner> partners)
     {
         this.reports = reports;
-        this.readZig = readZig;
         Windows = windows;
         Partners = partners;
         Totals = windows
@@ -86,8 +84,7 @@ public sealed class PartnerPerformance
         (from.AddYears(-yearsBack), to.AddYears(-yearsBack));
 
     /// <param name="newestFirst">The asked-for window first, then each earlier year in turn.</param>
-    /// <param name="readZig">Read revenue in ZiG rather than USD.</param>
-    public static PartnerPerformance Build(IReadOnlyList<GetItemVolumeSalesReportResult> newestFirst, bool readZig)
+    public static PartnerPerformance Build(IReadOnlyList<GetItemVolumeSalesReportResult> newestFirst)
     {
         ArgumentNullException.ThrowIfNull(newestFirst);
 
@@ -119,7 +116,7 @@ public sealed class PartnerPerformance
                     figures[account.CardCode] = years;
                 }
 
-                years[year] = years[year].Add(FiguresOf(account, readZig));
+                years[year] = years[year].Add(FiguresOf(account));
             }
         }
 
@@ -134,7 +131,7 @@ public sealed class PartnerPerformance
             .ThenBy(partner => partner.Code, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return new PartnerPerformance(newestFirst, readZig, windows, partners);
+        return new PartnerPerformance(newestFirst, windows, partners);
     }
 
     /// <summary>
@@ -166,7 +163,7 @@ public sealed class PartnerPerformance
                         continue;
                     }
 
-                    revenue[year] += readZig ? account.NetRevenueZig : account.NetRevenueUsd;
+                    revenue[year] += account.NetRevenueUsd;
                     volume[year] += account.NetVolume;
                 }
             }
@@ -201,10 +198,10 @@ public sealed class PartnerPerformance
             ? from.Year.ToString(CultureInfo.InvariantCulture)
             : $"{from.Year.ToString(CultureInfo.InvariantCulture)}–{(to.Year % 100).ToString("00", CultureInfo.InvariantCulture)}";
 
-    private static Figures FiguresOf(ItemVolumeSalesAccountResult account, bool readZig) => new(
-        readZig ? account.NetRevenueZig : account.NetRevenueUsd,
+    private static Figures FiguresOf(ItemVolumeSalesAccountResult account) => new(
+        account.NetRevenueUsd,
         account.NetVolume,
-        readZig ? account.CreditedSalesZig : account.CreditedSalesUsd,
+        account.CreditedSalesUsd,
         account.InvoiceCount,
         account.CreditNoteCount);
 

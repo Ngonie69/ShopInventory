@@ -72,9 +72,10 @@ public interface IReportExportService
 
     /// <summary>
     /// The Partner performance lens: each partner's window against the same dates in earlier years,
-    /// and the period rows for every partner together. Money is in the one currency the page reads.
+    /// and the period rows for every partner together. Money is USD, ZiG documents included at the
+    /// USD SAP booked them at.
     /// </summary>
-    byte[] ExportPartnerPerformanceToExcel(PartnerPerformance performance, string title, bool readZig);
+    byte[] ExportPartnerPerformanceToExcel(PartnerPerformance performance, string title);
     byte[] ExportCountVarianceToExcel(CountVarianceReport report);
     byte[] ExportVanCountVarianceToExcel(VanCountVarianceReport report);
 
@@ -7251,7 +7252,7 @@ public partial class ReportExportService : IReportExportService
         WriteKpiCard(itemsSheet, row, 1, "Net Volume", report.Summary.NetVolume, FormatVolume);
         WriteKpiCard(itemsSheet, row, 2, "Net Quantity", report.Summary.NetQuantity, FormatQuantity);
         WriteKpiCard(itemsSheet, row, 3, "Net Revenue USD", report.Summary.NetRevenueUsd, FormatUsd);
-        WriteKpiCard(itemsSheet, row, 4, "Net Revenue ZiG", report.Summary.NetRevenueZig, FormatZig);
+        WriteKpiCard(itemsSheet, row, 4, "of which from ZiG docs", report.Summary.NetRevenueFromZig, FormatUsd);
         WriteKpiCard(itemsSheet, row, 5, "Invoices", report.Summary.InvoiceCount, FormatCount);
         WriteKpiCard(itemsSheet, row, 6, "Credit Notes", report.Summary.CreditNoteCount, FormatCount, WarningOrange);
         row += 3;
@@ -7275,7 +7276,7 @@ public partial class ReportExportService : IReportExportService
             row,
             [
                 "Item Code", "Item Name", "Factor", "Invoiced Qty", "Credited Qty", "Net Qty",
-                "Net Volume", "Invoiced USD", "Invoiced ZiG", "Credited USD", "Credited ZiG", "Net Revenue USD"
+                "Net Volume", "Invoiced USD", "Invoiced USD from ZiG docs", "Credited USD", "Credited USD from ZiG docs", "Net Revenue USD"
             ]);
 
         var itemsStart = row;
@@ -7302,16 +7303,16 @@ public partial class ReportExportService : IReportExportService
             itemsSheet.Cell(row, 5).Value = item.CreditedQuantity;
             itemsSheet.Cell(row, 6).Value = item.NetQuantity;
             itemsSheet.Cell(row, 8).Value = item.InvoicedSalesUsd;
-            itemsSheet.Cell(row, 9).Value = item.InvoicedSalesZig;
+            itemsSheet.Cell(row, 9).Value = item.InvoicedSalesFromZig;
             itemsSheet.Cell(row, 10).Value = item.CreditedSalesUsd;
-            itemsSheet.Cell(row, 11).Value = item.CreditedSalesZig;
+            itemsSheet.Cell(row, 11).Value = item.CreditedSalesFromZig;
             itemsSheet.Cell(row, 12).Value = item.NetRevenueUsd;
 
             itemsSheet.Range(row, 4, row, 6).Style.NumberFormat.Format = FormatQuantity;
             itemsSheet.Cell(row, 8).Style.NumberFormat.Format = FormatUsd;
-            itemsSheet.Cell(row, 9).Style.NumberFormat.Format = FormatZig;
+            itemsSheet.Cell(row, 9).Style.NumberFormat.Format = FormatUsd;
             itemsSheet.Cell(row, 10).Style.NumberFormat.Format = FormatUsd;
-            itemsSheet.Cell(row, 11).Style.NumberFormat.Format = FormatZig;
+            itemsSheet.Cell(row, 11).Style.NumberFormat.Format = FormatUsd;
             itemsSheet.Cell(row, 12).Style.NumberFormat.Format = FormatUsd;
 
             row++;
@@ -7326,9 +7327,9 @@ public partial class ReportExportService : IReportExportService
         WriteSubtotal(itemsSheet, row, 6, itemsStart, itemsLast, FormatQuantity);
         WriteSubtotal(itemsSheet, row, 7, itemsStart, itemsLast, FormatVolume);
         WriteSubtotal(itemsSheet, row, 8, itemsStart, itemsLast, FormatUsd);
-        WriteSubtotal(itemsSheet, row, 9, itemsStart, itemsLast, FormatZig);
+        WriteSubtotal(itemsSheet, row, 9, itemsStart, itemsLast, FormatUsd);
         WriteSubtotal(itemsSheet, row, 10, itemsStart, itemsLast, FormatUsd);
-        WriteSubtotal(itemsSheet, row, 11, itemsStart, itemsLast, FormatZig);
+        WriteSubtotal(itemsSheet, row, 11, itemsStart, itemsLast, FormatUsd);
         WriteSubtotal(itemsSheet, row, 12, itemsStart, itemsLast, FormatUsd);
         StyleTotalsRow(itemsSheet, row, itemCols);
 
@@ -7350,12 +7351,12 @@ public partial class ReportExportService : IReportExportService
             row,
             [
                 "Card Code", "Card Name", "Invoices", "Credit Notes", "Invoiced Qty", "Credited Qty",
-                "Net Qty", "Net Volume", "Net Revenue USD", "Net Revenue ZiG", "Items Without Factor"
+                "Net Qty", "Net Volume", "Net Revenue USD", "of which from ZiG docs", "Items Without Factor"
             ]);
 
         var partnersStart = row;
         foreach (var account in report.AccountTotals
-            .OrderByDescending(account => account.NetRevenueUsd + account.NetRevenueZig)
+            .OrderByDescending(account => account.NetRevenueUsd)
             .ThenBy(account => account.CardCode, StringComparer.OrdinalIgnoreCase))
         {
             partnersSheet.Cell(row, 1).Value = account.CardCode;
@@ -7367,7 +7368,7 @@ public partial class ReportExportService : IReportExportService
             partnersSheet.Cell(row, 7).Value = account.NetQuantity;
             partnersSheet.Cell(row, 8).Value = account.NetVolume;
             partnersSheet.Cell(row, 9).Value = account.NetRevenueUsd;
-            partnersSheet.Cell(row, 10).Value = account.NetRevenueZig;
+            partnersSheet.Cell(row, 10).Value = account.NetRevenueFromZig;
             partnersSheet.Cell(row, 11).Value = account.ItemsWithoutFactorCount;
 
             partnersSheet.Range(row, 3, row, 4).Style.NumberFormat.Format = FormatCount;
@@ -7375,7 +7376,7 @@ public partial class ReportExportService : IReportExportService
             partnersSheet.Range(row, 5, row, 7).Style.NumberFormat.Format = FormatQuantity;
             partnersSheet.Cell(row, 8).Style.NumberFormat.Format = FormatVolume;
             partnersSheet.Cell(row, 9).Style.NumberFormat.Format = FormatUsd;
-            partnersSheet.Cell(row, 10).Style.NumberFormat.Format = FormatZig;
+            partnersSheet.Cell(row, 10).Style.NumberFormat.Format = FormatUsd;
             partnersSheet.Cell(row, 11).Style.NumberFormat.Format = FormatCount;
             partnersSheet.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
@@ -7400,7 +7401,7 @@ public partial class ReportExportService : IReportExportService
         WriteSubtotal(partnersSheet, row, 7, partnersStart, partnersLast, FormatQuantity);
         WriteSubtotal(partnersSheet, row, 8, partnersStart, partnersLast, FormatVolume);
         WriteSubtotal(partnersSheet, row, 9, partnersStart, partnersLast, FormatUsd);
-        WriteSubtotal(partnersSheet, row, 10, partnersStart, partnersLast, FormatZig);
+        WriteSubtotal(partnersSheet, row, 10, partnersStart, partnersLast, FormatUsd);
         StyleTotalsRow(partnersSheet, row, partnerCols);
 
         WriteFooter(partnersSheet, row, partnerCols);
@@ -7459,7 +7460,7 @@ public partial class ReportExportService : IReportExportService
         FinalizeSheet(periodsSheet, periodCols, periodsHeader);
 
         var linesSheet = AddSheet(workbook, "Document Lines");
-        const int lineCols = 11;
+        const int lineCols = 12;
         row = WriteReportHeader(
             linesSheet,
             $"{title} — document lines",
@@ -7473,7 +7474,7 @@ public partial class ReportExportService : IReportExportService
             row,
             [
                 "Date", "Type", "Document", "Card Code", "Card Name", "Item Code", "Item Name",
-                "Quantity", "Factor", "Volume", "Line Amount"
+                "Quantity", "Factor", "Volume", "Doc Currency", "Line Amount USD"
             ]);
 
         var linesStart = row;
@@ -7499,8 +7500,12 @@ public partial class ReportExportService : IReportExportService
                 linesSheet.Cell(row, 10).Style.NumberFormat.Format = FormatVolume;
             }
 
-            linesSheet.Cell(row, 11).Value = line.LineAmount;
-            linesSheet.Cell(row, 11).Style.NumberFormat.Format = $"\"{line.Currency}\" #,##0.00;[Red](\"{line.Currency}\" #,##0.00)";
+            // SAP's line total is in the company's local currency, USD, whatever the document was
+            // raised in — a ZiG document's line is already converted at that document's rate.
+            linesSheet.Cell(row, 11).Value = line.Currency;
+            linesSheet.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            linesSheet.Cell(row, 12).Value = line.AmountUsd;
+            linesSheet.Cell(row, 12).Style.NumberFormat.Format = FormatUsd;
 
             if (string.Equals(line.DocumentType, "Credit Note", StringComparison.OrdinalIgnoreCase))
             {
@@ -7513,11 +7518,11 @@ public partial class ReportExportService : IReportExportService
         var linesLast = row - 1;
         row = FinishTable(linesSheet, linesHeader, linesStart, row, lineCols, "No document lines fell in this period.");
 
-        // Quantity and volume only: the amounts on this sheet are each stated in their
-        // own document's currency, which is why the column names one per cell.
+        // Every amount here is USD, so it totals like the quantity and the volume do.
         linesSheet.Cell(row, 1).Value = "TOTAL";
         WriteSubtotal(linesSheet, row, 8, linesStart, linesLast, FormatQuantity);
         WriteSubtotal(linesSheet, row, 10, linesStart, linesLast, FormatVolume);
+        WriteSubtotal(linesSheet, row, 12, linesStart, linesLast, FormatUsd);
         StyleTotalsRow(linesSheet, row, lineCols);
 
         WriteFooter(linesSheet, row, lineCols);
@@ -7526,14 +7531,15 @@ public partial class ReportExportService : IReportExportService
         return WorkbookToBytes(workbook);
     }
 
-    public byte[] ExportPartnerPerformanceToExcel(PartnerPerformance performance, string title, bool readZig)
+    public byte[] ExportPartnerPerformanceToExcel(PartnerPerformance performance, string title)
     {
         using var workbook = NewWorkbook(title);
 
         var windows = performance.Windows;
         var years = windows.Count;
-        var money = readZig ? FormatZig : FormatUsd;
-        var currency = readZig ? "ZiG" : "USD";
+        // USD, ZiG documents included at the USD SAP booked them at — see PartnerPerformance.
+        const string money = FormatUsd;
+        const string currency = "USD";
         var current = windows[0];
         // The header prints a date range or a subtitle, not both, so the range is folded into it.
         var range = $"Period: {current.FromUtc:dd MMM yyyy} – {current.ToUtc:dd MMM yyyy}";

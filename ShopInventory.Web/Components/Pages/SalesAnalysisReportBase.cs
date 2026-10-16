@@ -161,13 +161,6 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected ItemVolumeSalesGrouping grouping = ItemVolumeSalesGrouping.Monthly;
 
     /// <summary>
-    /// Which currency the revenue lens reads. The two are never added together — there is no rate
-    /// on the document that would make a combined figure honest — so a pivot of money has to name
-    /// one of them and say so.
-    /// </summary>
-    protected bool readZig;
-
-    /// <summary>
     /// Whether returnable crates count as items. On by default, so a report reads the same as it
     /// always has until somebody says otherwise — see <see cref="ItemVolumeSalesCrates"/> for why
     /// anyone would want them out.
@@ -450,12 +443,6 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     protected void SetGrouping(ItemVolumeSalesGrouping next) => grouping = next;
 
-    protected void SetCurrency(bool zig)
-    {
-        readZig = zig;
-        InvalidateView();
-    }
-
     /// <summary>
     /// Puts the crates in or takes them out. It re-reads the window already in hand rather than
     /// asking SAP again — nothing about the request changes, only which of its lines are counted —
@@ -488,7 +475,6 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     {
         ApplyPreset(IsPerformance ? PeriodPreset.YearToDate : PeriodPreset.LastFourMonths);
         grouping = ItemVolumeSalesGrouping.Monthly;
-        readZig = false;
         includeCrates = true;
         compareYears = 2;
         volumeChannel = null;
@@ -705,7 +691,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
             title = includeCrates ? title : $"{title} (crates excluded)";
             var performance = IsPerformance ? Performance : null;
             var bytes = performance is not null
-                ? ExportService.ExportPartnerPerformanceToExcel(performance, title, readZig)
+                ? ExportService.ExportPartnerPerformanceToExcel(performance, title)
                 : ExportService.ExportItemVolumeSalesReportToExcel(report, title);
             var base64 = Convert.ToBase64String(bytes);
             await JS.InvokeVoidAsync(
@@ -784,8 +770,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected PartnerPerformance? Performance =>
         cachedPerformance ??= HasComparison
             ? PartnerPerformance.Build(
-                new[] { report! }.Concat(priorReports.Take(compareYears)).ToList(),
-                readZig)
+                new[] { report! }.Concat(priorReports.Take(compareYears)).ToList())
             : null;
 
     /// <summary>The earlier years named for the query line: "2025 and 2024".</summary>
@@ -1003,7 +988,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
                     cells[account.CardCode] = row;
                 }
 
-                row[index] += readZig ? account.NetRevenueZig : account.NetRevenueUsd;
+                row[index] += account.NetRevenueUsd;
             }
         }
 
@@ -1217,7 +1202,8 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     protected string EntityPlural => IsVolume ? "items" : "partners";
 
-    protected string Currency => readZig ? "ZiG" : "USD";
+    /// <summary>Every money figure's currency. ZiG documents are in it at the USD SAP booked them at.</summary>
+    protected const string Currency = "USD";
 
     protected string UnitNote => IsVolume
         ? "litres, invoiced less credited"
@@ -1367,32 +1353,21 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         ? 0m
         : IsVolume
             ? report.Summary.CreditedVolume
-            : readZig
-                ? report.Summary.CreditedSalesZig
-                : report.Summary.CreditedSalesUsd;
+            : report.Summary.CreditedSalesUsd;
 
     protected int CreditNoteCount => report?.Summary.CreditNoteCount ?? 0;
 
     /// <summary>
-    /// True when the window traded in the currency the revenue lens is not showing. Two currencies
-    /// are never added together — no rate on the document would make that honest — so the other
-    /// one has to be pointed at rather than quietly folded in.
+    /// True when some of the money on screen was invoiced or credited in ZiG. It is already in the USD
+    /// figures, at the USD SAP booked each document at, so this only says so — a reader comparing the
+    /// page with a ZiG statement needs to know the two are the same documents.
     /// </summary>
-    protected bool HasOtherCurrencyActivity => report is not null &&
+    protected bool HasZigDocuments => report is not null &&
         !IsVolume &&
-        (readZig
-            ? report.Summary.InvoicedSalesUsd != 0 || report.Summary.CreditedSalesUsd != 0
-            : report.Summary.InvoicedSalesZig != 0 || report.Summary.CreditedSalesZig != 0);
+        (report.Summary.InvoicedSalesFromZig != 0 || report.Summary.CreditedSalesFromZig != 0);
 
-    protected string OtherCurrency => readZig ? "USD" : "ZiG";
-
-    protected static string FormatOther(decimal value) => value.ToString("N2", CultureInfo.InvariantCulture);
-
-    protected decimal OtherCurrencyNet => report is null
-        ? 0m
-        : readZig
-            ? report.Summary.NetRevenueUsd
-            : report.Summary.NetRevenueZig;
+    /// <summary>The USD the window's ZiG documents came to, net of their credit notes.</summary>
+    protected decimal FromZigNet => report?.Summary.NetRevenueFromZig ?? 0m;
 
     private CancellationToken BeginLoad()
     {

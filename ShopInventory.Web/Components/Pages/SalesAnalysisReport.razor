@@ -236,21 +236,6 @@
                                 @ItemVolumeSalesCrates.Codes[0]–@ItemVolumeSalesCrates.Codes[^1], returnable
                             </div>
                         </div>
-
-                        @if (!IsVolume)
-                        {
-                            @* Money has two currencies here and no rate that would make one figure of
-                               them, so the pivot names the one it is reading. *@
-                            <div class="sla-field">
-                                <div class="sla-field-label">Currency</div>
-                                <div class="sla-seg" role="group" aria-label="Currency">
-                                    <button type="button" class="sla-seg-opt @(readZig ? "" : "is-on")"
-                                            aria-pressed="@(!readZig)" @onclick="@(() => SetCurrency(false))">USD</button>
-                                    <button type="button" class="sla-seg-opt @(readZig ? "is-on" : "")"
-                                            aria-pressed="@readZig" @onclick="@(() => SetCurrency(true))">ZiG</button>
-                                </div>
-                            </div>
-                        }
                     </div>
 
                     <div class="sla-pickers">
@@ -478,14 +463,16 @@
                     </div>
                 }
 
-                @if (HasOtherCurrencyActivity)
+                @* One figure in USD, ZiG documents included. SAP books every line in the company's
+                   local currency, USD, at the document's own rate — the amount its DocTotal carries — so
+                   a partner billed in both currencies is one partner here, not two halves. *@
+                @if (HasZigDocuments)
                 {
                     <div class="sla-alert is-info">
                         <i class="ph ph-info" aria-hidden="true"></i>
                         <div class="sla-alert-body">
-                            This window also traded in @OtherCurrency, netting
-                            @OtherCurrency @FormatOther(OtherCurrencyNet). The two are never added together —
-                            no rate on the document would make that honest — so switch the currency to read it.
+                            USD @FormatValue(FromZigNet) of the revenue below was invoiced in ZiG. It is
+                            counted at the USD SAP booked each of those documents at, the rate on the document.
                         </div>
                     </div>
                 }

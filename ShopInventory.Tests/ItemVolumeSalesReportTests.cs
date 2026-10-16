@@ -219,25 +219,33 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
     }
 
     [Fact]
-    public async Task Zig_and_usd_are_reported_side_by_side_rather_than_added_together()
+    public async Task A_zig_document_counts_in_usd_at_the_amount_sap_booked_it_at()
     {
         await SeedFactorAsync("YOG143", 0.6m);
 
-        var zigInvoice = Invoice(2, 5010, "CIS006", "2026-07-06", ("YOG143", 50m, 6500m));
+        // SAP's line LineTotal is in the company's local currency, USD, whatever the document was
+        // raised in: this ZiG invoice's line is USD 125, converted at the invoice's own rate.
+        var zigInvoice = Invoice(2, 5010, "CIS006", "2026-07-06", ("YOG143", 50m, 125m));
         zigInvoice.DocCurrency = "ZIG";
+        var zigCredit = CreditNote(3, 7001, "CIS006", "2026-07-07", ("YOG143", 10m, 25m));
+        zigCredit.DocCurrency = "ZIG";
 
         var handler = CreateHandler(
             invoices: [Invoice(1, 5009, "CIS006", "2026-07-04", ("YOG143", 100m, 250m)), zigInvoice],
-            creditNotes: []);
+            creditNotes: [zigCredit]);
 
         var result = await handler.Handle(Query(), default);
 
         var item = Assert.Single(result.Value.ItemTotals);
-        Assert.Equal(250m, item.NetRevenueUsd);
-        Assert.Equal(6500m, item.NetRevenueZig);
-        // The quantity is a quantity in either currency, so it does combine.
-        Assert.Equal(150m, item.NetQuantity);
-        Assert.Equal(90m, item.NetVolume);
+        Assert.Equal(350m, item.NetRevenueUsd);
+        Assert.Equal(25m, item.CreditedSalesUsd);
+        // The ZiG share is inside the USD figure, reported only so a reader can see it.
+        Assert.Equal(100m, item.NetRevenueFromZig);
+        Assert.Equal(350m, Assert.Single(result.Value.AccountTotals).NetRevenueUsd);
+        Assert.Equal(350m, result.Value.Summary.NetRevenueUsd);
+        Assert.Equal(350m, result.Value.DocumentLines.Sum(line => line.AmountUsd));
+        Assert.Equal(140m, item.NetQuantity);
+        Assert.Equal(84m, item.NetVolume);
     }
 
     // ---- Trade channels ---------------------------------------------------------------------------
