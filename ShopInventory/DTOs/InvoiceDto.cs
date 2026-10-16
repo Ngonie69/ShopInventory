@@ -18,6 +18,13 @@ public class InvoiceDto
     public string? DocStatus { get; set; }
     public string? Remarks { get; set; }
     public string? VanSaleOrderNumber { get; set; }
+
+    /// <summary>
+    /// The number of the till sale this invoice posted, as its receipt printed it — <c>INV12830</c>.
+    /// Null when no one sale posted it, or the read did not look; only the till's invoice reads do.
+    /// See <see cref="Common.Sales.InvoiceSaleNumbers"/>.
+    /// </summary>
+    public string? SaleNumber { get; set; }
     public bool IsVanSalesInvoice { get; set; }
     public decimal DocTotal { get; set; }
     public decimal PaidToDate { get; set; }

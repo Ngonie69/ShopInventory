@@ -49,6 +49,9 @@ public sealed class GetInvoicesByCustomerHandler(
             SaleCredits.ApplyTo(invoice, creditByDocEntry.GetValueOrDefault(invoice.DocEntry));
         }
 
+        // What the receipt says, so a cashier can find the sale a customer brings back.
+        await InvoiceSaleNumbers.StampAsync(db, dtos, cancellationToken);
+
         return dtos;
     }
 }
