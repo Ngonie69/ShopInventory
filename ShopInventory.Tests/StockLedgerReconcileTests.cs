@@ -960,6 +960,32 @@ public sealed class StockLedgerReconcileTests : IDisposable
     }
 
     /// <summary>
+    /// A cancellation SAP has booked is stock coming back. The pass takes it with SAP's figure, and the
+    /// webhook's later delivery of the same negative lines must meet the pass's record and stop there —
+    /// which needs both writers to read the cancellation as the same direction.
+    /// </summary>
+    [Fact]
+    public async Task A_cancellation_the_pass_took_from_SAP_is_not_taken_again_by_the_webhook()
+    {
+        await SeedRowAsync(Shop, Item, original: 10m, available: 10m);
+        _sapTransfers.Add(SapTransfer(5002, 7002, Shop, "KEFBYC", (Item, -24m)));
+        _sapIssuable[Item] = 34m;
+
+        await RunAsync();
+        Assert.Equal(34m, await AvailableAsync(Shop, Item));
+
+        var recorded = Assert.Single(await _context.StockTransferAdjustments.AsNoTracking().ToListAsync());
+        Assert.Equal("IN", recorded.Direction);
+        Assert.Equal(24m, recorded.AdjustmentQuantity);
+
+        var delivery = await DeliverAsync(new ProcessTransferEventCommand(Item, Shop, "KEFBYC", -24m, 5002, 7002));
+
+        Assert.False(delivery.Adjusted);
+        Assert.Equal(34m, await AvailableAsync(Shop, Item));
+        await AssertJournalAddsUpAsync(Item);
+    }
+
+    /// <summary>
     /// The listener delivering while the pass is reading SAP. The rows already hold the transfer when
     /// the correction is made, so there is nothing to correct and nothing to record a second time.
     /// </summary>
