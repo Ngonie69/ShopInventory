@@ -424,6 +424,26 @@ public class DesktopSaleEntity
     public DateTime? PostedAt { get; set; }
 
     /// <summary>
+    /// When this sale reached SAP before it had a fiscal receipt, because an Admin posted it during a
+    /// fiscal outage; null for every sale that was signed first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Written in the same SaveChanges as <see cref="SapDocNum"/>, so the invoice can never exist without
+    /// it. It is what <c>PerSaleInvoiceRegistry</c> reads to claim the invoice for this sale while the
+    /// receipt is still owed. Without the claim the invoice looks like an ordinary unfiscalised SAP
+    /// document, the Fiscalise button appears on it, and one press signs it under its DocNum while the
+    /// sweep signs the sale under its own reference: two receipts for one sale, neither withdrawable.
+    /// </para>
+    /// <para>
+    /// Kept after the sale is signed, as the record that the invoice went out before its receipt and
+    /// so carries "fiscal receipt pending" in its SAP remarks. The registry stops reading it then:
+    /// a signed sale is claimed by its status.
+    /// </para>
+    /// </remarks>
+    public DateTime? PostedBeforeReceiptAt { get; set; }
+
+    /// <summary>
     /// Posting attempts so far. The 18:00 run and the 19:30 mop-up both increment this, so a sale that
     /// fails every night is visible rather than silently retried forever.
     /// </summary>

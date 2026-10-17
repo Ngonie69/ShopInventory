@@ -94,8 +94,19 @@ public sealed class PostDesktopSaleToSapHandler(
             return Errors.DesktopSales.SalesReadOutsideScope(sale.WarehouseCode, scope.Value.WarehouseCode!);
         }
 
-        var refusal = DesktopSalePostEligibility.Refusal(
-            sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus, sale.SapDocNum);
+        // The account's own role, never the request's: a Web call carries the API key too, and the
+        // key's Admin role would answer for every signed-in user.
+        if (command.WithoutReceipt &&
+            !string.Equals(caller?.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.DesktopSales.PostWithoutReceiptNotPermitted;
+        }
+
+        var refusal = command.WithoutReceipt
+            ? DesktopSalePostEligibility.RefusalWithoutReceipt(
+                sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus, sale.SapDocNum)
+            : DesktopSalePostEligibility.Refusal(
+                sale.SourceSystem, sale.ConsolidationStatus, sale.FiscalizationStatus, sale.SapDocNum);
 
         if (refusal is not null)
         {
@@ -103,10 +114,21 @@ public sealed class PostDesktopSaleToSapHandler(
         }
 
         var route = RouteFor(sale.SourceSystem);
+        var beforeReceipt = sale.FiscalizationStatus != DesktopSaleFiscalizationStatus.Success;
 
-        logger.LogInformation(
-            "Posting sale {ExternalReference} to SAP on request via the {Route} route.",
-            reference, route);
+        if (beforeReceipt)
+        {
+            logger.LogWarning(
+                "Posting sale {ExternalReference} to SAP before it has a fiscal receipt (fiscalisation {FiscalStatus}), "
+                + "on an Admin's override; the sweep is left to sign it.",
+                reference, sale.FiscalizationStatus);
+        }
+        else
+        {
+            logger.LogInformation(
+                "Posting sale {ExternalReference} to SAP on request via the {Route} route.",
+                reference, route);
+        }
 
         var outcome = route switch
         {
@@ -123,7 +145,11 @@ public sealed class PostDesktopSaleToSapHandler(
             .Select(s => new { s.SapDocEntry, s.SapDocNum, s.LastPostingError })
             .FirstOrDefaultAsync(cancellationToken);
 
-        await AuditAsync(reference, outcome, posted?.SapDocNum);
+        await AuditAsync(reference, outcome, posted?.SapDocNum, beforeReceipt);
+
+        var receiptNote = beforeReceipt
+            ? " Its fiscal receipt is still owed and will be signed when the device can be reached."
+            : string.Empty;
 
         return outcome.Kind switch
         {
@@ -134,9 +160,9 @@ public sealed class PostDesktopSaleToSapHandler(
                     : DesktopSalePostOutcomes.AlreadyInSap,
                 posted?.SapDocEntry,
                 posted?.SapDocNum,
-                outcome.Kind == PostKind.Posted
+                (outcome.Kind == PostKind.Posted
                     ? $"Posted to SAP as invoice {posted?.SapDocNum}."
-                    : $"SAP already held this sale as invoice {posted?.SapDocNum}."),
+                    : $"SAP already held this sale as invoice {posted?.SapDocNum}.") + receiptNote),
 
             PostKind.InFlight => Errors.DesktopSales.SalePostInProgress(reference),
 
@@ -292,19 +318,20 @@ public sealed class PostDesktopSaleToSapHandler(
     /// SAP by the time this runs, so a failed audit write must not turn a successful post into an
     /// error the operator will press Post again over.
     /// </remarks>
-    private async Task AuditAsync(string reference, PostOutcome outcome, int? sapDocNum)
+    private async Task AuditAsync(string reference, PostOutcome outcome, int? sapDocNum, bool beforeReceipt)
     {
         try
         {
             var succeeded = outcome.Kind is PostKind.Posted or PostKind.Adopted;
+            var suffix = beforeReceipt ? " before its fiscal receipt (Admin override)" : string.Empty;
 
             await auditService.LogAsync(
                 AuditActions.PostDesktopSaleToSAP,
                 nameof(DesktopSaleEntity),
                 reference,
                 succeeded
-                    ? $"Sale {reference} {(outcome.Kind == PostKind.Posted ? "posted" : "adopted")} as SAP invoice {sapDocNum}"
-                    : $"Sale {reference} was not posted ({outcome.Kind})",
+                    ? $"Sale {reference} {(outcome.Kind == PostKind.Posted ? "posted" : "adopted")} as SAP invoice {sapDocNum}{suffix}"
+                    : $"Sale {reference} was not posted{suffix} ({outcome.Kind})",
                 succeeded,
                 succeeded ? null : outcome.Error);
         }

@@ -20,5 +20,6 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSalesToS
 /// </remarks>
 public sealed record PostDesktopSalesToSapCommand(
     Guid CallerUserId,
-    IReadOnlyList<string> ExternalReferenceIds
+    IReadOnlyList<string> ExternalReferenceIds,
+    bool WithoutReceipt = false
 ) : IRequest<ErrorOr<DesktopSalesBulkPostResult>>;

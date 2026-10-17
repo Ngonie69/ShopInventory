@@ -69,7 +69,8 @@ public sealed class PostDesktopSalesToSapHandler(
             }
 
             var outcome = await mediator.Send(
-                new PostDesktopSaleToSapCommand(command.CallerUserId, reference), cancellationToken);
+                new PostDesktopSaleToSapCommand(command.CallerUserId, reference, command.WithoutReceipt),
+                cancellationToken);
 
             if (!outcome.IsError)
             {

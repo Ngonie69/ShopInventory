@@ -163,6 +163,19 @@ public static partial class Errors
                 + "number, which cannot be reversed.");
 
         /// <remarks>
+        /// The same refusal for a till or vending sale an Admin posted before it had a receipt, during
+        /// a fiscal outage. The sweep will sign the sale under its own reference; signing the invoice
+        /// as well would give one sale two receipts.
+        /// </remarks>
+        public static Error ReceiptPendingOnSale(int docNum, string externalReference) =>
+            Error.Conflict(
+                "Invoice.ReceiptPendingOnSale",
+                $"Invoice {docNum} records sale {externalReference}, which was posted to SAP before its fiscal "
+                + "receipt and will be fiscalised as that sale. Fiscalising the invoice as well would give the "
+                + "sale two receipts, which cannot be reversed. Retry fiscalisation on the sale under Shop & "
+                + "Vending Sales instead.");
+
+        /// <remarks>
         /// The same refusal for an invoice reposted after the SAP Business One update. It was fiscalised
         /// under its old number before the update, and nothing under the new DocNum says so — see
         /// <see cref="Fiscalization.RepostedInvoiceMarker"/>.

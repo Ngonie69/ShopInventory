@@ -587,7 +587,7 @@
                                    row would open the drawer over the list being selected. *@
                                 <td class="ops-ds-pick" data-label="Select"
                                     @onclick:stopPropagation="true">
-                                    @if (canWrite && sale.CanPostToSap)
+                                    @if (CanSelect(sale))
                                     {
                                         <input type="checkbox" aria-label="@($"Select sale {sale.Number} for posting")"
                                                checked="@selected.Contains(sale.ExternalReferenceId)"
@@ -614,6 +614,12 @@
                                     @if (sale.SapDocNum.HasValue)
                                     {
                                         <div class="ops-sub">SAP #@sale.SapDocNum</div>
+                                        @if (sale.IsReceiptOwed)
+                                        {
+                                            <div class="ops-sub ops-ds-held" title="Posted to SAP before its fiscal receipt. It is fiscalised as this sale once the device can be reached; never fiscalise the SAP invoice.">
+                                                Receipt owed
+                                            </div>
+                                        }
                                     }
                                     else if (HeldUntil(sale) is { } heldUntil)
                                     {
@@ -1263,6 +1269,26 @@
                         }
                     </button>
                 }
+                else if (CanPostWithoutReceipt(selectedSale))
+                {
+                    @* The fiscal outage override, Admin only. Named for what it does, because the
+                       invoice it raises carries no receipt until the sweep signs the sale. *@
+                    <button type="button" class="ops-btn ops-btn-ghost"
+                            title="Post to SAP now and fiscalise this sale when the device can be reached"
+                            @onclick="() => PostOne(selectedSale, withoutReceipt: true)"
+                            disabled="@(isPosting || isLoading)">
+                        @if (postingReference == selectedSale.ExternalReferenceId)
+                        {
+                            <span class="ops-spin"></span>
+                            <span>Posting&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-cloud-warning" aria-hidden="true"></i>
+                            <span>Post without receipt</span>
+                        }
+                    </button>
+                }
                 else if (!string.IsNullOrWhiteSpace(selectedSale.PostRefusal) && !selectedSale.CanRetryFiscalisation)
                 {
                     @* The reason stands in the button's place rather than a disabled button
@@ -1291,7 +1317,7 @@
 
             <div class="ops-dialog-body">
                 <p class="ops-ds-lede">
-                    Each of these becomes one A/R invoice in SAP, keeping its own fiscal receipt.
+                    Each of these becomes one A/R invoice in SAP@(selectedWithoutReceipt.Count == 0 ? ", keeping its own fiscal receipt" : "").
                     They are sent one at a time; a sale SAP refuses does not stop the rest.
                 </p>
 
@@ -1303,6 +1329,16 @@
                     <dt>Posting date</dt>
                     <dd>@DateTime.Today.ToString("dd.MM.yyyy")</dd>
                 </dl>
+
+                @if (selectedWithoutReceipt.Count > 0)
+                {
+                    <div class="ops-msg ops-fam-warn" role="status">
+                        <i class="ph ph-cloud-warning" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            @WithoutReceiptWarning(selectedWithoutReceipt.Count)
+                        </div>
+                    </div>
+                }
 
                 <div class="ops-msg ops-fam-info">
                     <i class="ph ph-shield-check" aria-hidden="true"></i>
@@ -1544,7 +1580,29 @@
     private bool showBulkPost;
     private DesktopSalesBulkPostResultDto? bulkResult;
 
-    private List<DesktopSaleDto> postableOnPage => sales.Where(s => s.CanPostToSap).ToList();
+    private List<DesktopSaleDto> postableOnPage => sales.Where(CanSelect).ToList();
+
+    // Admins only: the fiscal outage override, posting a sale before it has a receipt. The API judges
+    // the account's own role as well; this only decides what to offer.
+    private bool isAdmin;
+
+    private bool CanPostWithoutReceipt(DesktopSaleDto sale) =>
+        isAdmin && canWrite && !sale.CanPostToSap && sale.CanPostWithoutReceipt;
+
+    private bool CanSelect(DesktopSaleDto sale) =>
+        canWrite && (sale.CanPostToSap || CanPostWithoutReceipt(sale));
+
+    /// <summary>The selected sales that would reach SAP without a receipt.</summary>
+    private List<DesktopSaleDto> selectedWithoutReceipt =>
+        sales.Where(s => selected.Contains(s.ExternalReferenceId) && CanPostWithoutReceipt(s)).ToList();
+
+    private static string WithoutReceiptWarning(int count) => count == 1
+        ? "1 of these has no fiscal receipt yet. It goes to SAP now and is fiscalised as a sale once the "
+          + "device can be reached. Never fiscalise its invoice from SAP or the invoice list: that would give "
+          + "the sale two receipts."
+        : $"{count} of these have no fiscal receipt yet. They go to SAP now and are fiscalised as sales once "
+          + "the device can be reached. Never fiscalise their invoices from SAP or the invoice list: that would "
+          + "give a sale two receipts.";
 
     private bool allPostableSelected =>
         postableOnPage.Count > 0 && postableOnPage.All(s => selected.Contains(s.ExternalReferenceId));
@@ -1619,6 +1677,8 @@
     {
         canWrite = AuthenticationStateTask is not null &&
                    UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.DesktopSaleWriteRoles);
+        isAdmin = AuthenticationStateTask is not null &&
+                  (await AuthenticationStateTask).User.IsInRole(UserRoles.Admin);
         filterFromDate = DateTime.Today;
         filterToDate = DateTime.Today;
 
@@ -2418,7 +2478,7 @@
         }
 
         var onPage = sales
-            .Where(s => s.CanPostToSap)
+            .Where(CanSelect)
             .Select(s => s.ExternalReferenceId)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -2439,7 +2499,7 @@
     /// to say — the row behind it now carries its invoice number — while a sale SAP refused is
     /// exactly what the drawer is for, and closing it would hide the reason the operator asked for.
     /// </remarks>
-    private async Task PostOne(DesktopSaleDto sale)
+    private async Task PostOne(DesktopSaleDto sale, bool withoutReceipt = false)
     {
         if (isPosting)
         {
@@ -2452,7 +2512,7 @@
 
         try
         {
-            var (result, error) = await DesktopService.PostSaleToSapAsync(sale.ExternalReferenceId);
+            var (result, error) = await DesktopService.PostSaleToSapAsync(sale.ExternalReferenceId, withoutReceipt);
 
             if (error is null)
             {
@@ -2550,10 +2610,11 @@
         // Snapshotted before the call. A push can reload `sales` while this is in flight, and the
         // results have to be matched against what was actually sent.
         var references = selected.ToList();
+        var withoutReceipt = selectedWithoutReceipt.Count > 0;
 
         try
         {
-            var (result, error) = await DesktopService.PostSalesToSapAsync(references);
+            var (result, error) = await DesktopService.PostSalesToSapAsync(references, withoutReceipt);
             showBulkPost = false;
 
             if (error is null)

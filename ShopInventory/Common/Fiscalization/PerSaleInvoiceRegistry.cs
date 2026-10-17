@@ -76,6 +76,79 @@ internal static class PerSaleInvoiceRegistry
     }
 
     /// <summary>
+    /// Returns the sale reference of an unsigned sale that an Admin posted as <paramref name="docNum"/>
+    /// during a fiscal outage, or null if the invoice is not one of those.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The exception to <see cref="FindByDocNumAsync"/>'s "a sale that never fiscalised has nothing to
+    /// protect". This one will be fiscalised: the sweep signs it under its own reference once the device
+    /// can be reached, whatever SAP holds. Fiscalising the invoice by its DocNum meanwhile would file a
+    /// second receipt for the same sale, so the invoice is the sale's until it is signed, and then
+    /// <see cref="FindByDocNumAsync"/> claims it by its status.
+    /// </para>
+    /// <para>
+    /// Keyed on <c>PostedBeforeReceiptAt</c> rather than on status alone. Older sales that reached SAP
+    /// unsigned — Skipped tills and van sales before September 2026 — were fiscalised from their
+    /// invoices, if at all, and must stay that way.
+    /// </para>
+    /// </remarks>
+    public static async Task<string?> FindReceiptPendingByDocNumAsync(
+        ApplicationDbContext dbContext,
+        int docNum,
+        CancellationToken cancellationToken)
+    {
+        if (docNum <= 0)
+        {
+            return null;
+        }
+
+        return await ReceiptPendingSales(dbContext)
+            .Where(sale => sale.SapDocNum == docNum)
+            .OrderByDescending(sale => sale.Id)
+            .Select(sale => sale.ExternalReferenceId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Narrows a page of document numbers to those posted before their sale's receipt, with the sale
+    /// each records, in one query. See <see cref="FindReceiptPendingByDocNumAsync"/>.
+    /// </summary>
+    public static async Task<Dictionary<int, string>> FindReceiptPendingSalesAsync(
+        ApplicationDbContext dbContext,
+        IEnumerable<int> docNums,
+        CancellationToken cancellationToken)
+    {
+        var candidates = docNums
+            .Where(docNum => docNum > 0)
+            .Distinct()
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var pending = await ReceiptPendingSales(dbContext)
+            .Where(sale => candidates.Contains(sale.SapDocNum!.Value))
+            .Select(sale => new { sale.Id, DocNum = sale.SapDocNum!.Value, sale.ExternalReferenceId })
+            .ToListAsync(cancellationToken);
+
+        // Newest sale first, the same choice FindReceiptPendingByDocNumAsync makes.
+        return pending
+            .OrderByDescending(sale => sale.Id)
+            .GroupBy(sale => sale.DocNum)
+            .ToDictionary(group => group.Key, group => group.First().ExternalReferenceId);
+    }
+
+    private static IQueryable<DesktopSaleEntity> ReceiptPendingSales(ApplicationDbContext dbContext) =>
+        dbContext.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.SapDocNum.HasValue
+                && sale.PostedBeforeReceiptAt.HasValue
+                && sale.FiscalizationStatus != DesktopSaleFiscalizationStatus.Success);
+
+    /// <summary>
     /// The receipt a per-sale invoice's own sale holds: the QR and the details printed beside it.
     /// </summary>
     /// <remarks>

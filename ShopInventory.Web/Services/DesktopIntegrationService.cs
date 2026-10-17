@@ -87,11 +87,12 @@ public interface IDesktopIntegrationService
     // Posting held sales to SAP by hand. Both return the API's own refusal rather than a bool: every
     // one of them is a sentence the operator has to read — "not fiscalised yet", "already in SAP",
     // "somebody else is posting this" — and a false would collapse them all into "it didn't work".
+    // withoutReceipt is the Admin's fiscal outage override; the API judges the account's role.
     Task<(DesktopSalePostResultDto? Result, string? Error)> PostSaleToSapAsync(
-        string externalReference, CancellationToken cancellationToken = default);
+        string externalReference, bool withoutReceipt = false, CancellationToken cancellationToken = default);
 
     Task<(DesktopSalesBulkPostResultDto? Result, string? Error)> PostSalesToSapAsync(
-        IReadOnlyList<string> externalReferences, CancellationToken cancellationToken = default);
+        IReadOnlyList<string> externalReferences, bool withoutReceipt = false, CancellationToken cancellationToken = default);
 
     // Asking the fiscal device to sign a sale whose fiscalisation failed. Returns the API's own words for
     // the same reason the posts do: "the device could not be asked" and "the device refused ITEMNAME2"
@@ -515,13 +516,18 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
     }
 
+    /// <remarks>
+    /// <c>withoutReceipt</c> is Admin only: post a sale that has no fiscal receipt yet, during a fiscal
+    /// outage. The API checks the account's role itself.
+    /// </remarks>
     public async Task<(DesktopSalePostResultDto? Result, string? Error)> PostSaleToSapAsync(
-        string externalReference, CancellationToken cancellationToken = default)
+        string externalReference, bool withoutReceipt = false, CancellationToken cancellationToken = default)
     {
         try
         {
             var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync(
-                $"api/DesktopIntegration/sales/{Uri.EscapeDataString(externalReference)}/post",
+                $"api/DesktopIntegration/sales/{Uri.EscapeDataString(externalReference)}/post"
+                + (withoutReceipt ? "?withoutReceipt=true" : string.Empty),
                 null,
                 cancellationToken));
 
@@ -578,13 +584,13 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     }
 
     public async Task<(DesktopSalesBulkPostResultDto? Result, string? Error)> PostSalesToSapAsync(
-        IReadOnlyList<string> externalReferences, CancellationToken cancellationToken = default)
+        IReadOnlyList<string> externalReferences, bool withoutReceipt = false, CancellationToken cancellationToken = default)
     {
         try
         {
             var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync(
                 "api/DesktopIntegration/sales/post-batch",
-                new { ExternalReferenceIds = externalReferences },
+                new { ExternalReferenceIds = externalReferences, WithoutReceipt = withoutReceipt },
                 cancellationToken));
 
             if (!response.IsSuccessStatusCode)
@@ -1076,6 +1082,22 @@ public class DesktopSaleDto
     /// reason beside it cannot disagree.
     /// </remarks>
     public bool CanPostToSap => string.IsNullOrWhiteSpace(PostRefusal);
+
+    /// <summary>
+    /// Whether an Admin may post this sale before it has a fiscal receipt, during a fiscal outage.
+    /// Decided by the API; false when the API predates the field.
+    /// </summary>
+    public bool CanPostWithoutReceipt { get; set; }
+
+    /// <summary>
+    /// When this sale reached SAP before its fiscal receipt; null when it was signed first.
+    /// </summary>
+    public DateTime? PostedBeforeReceiptAt { get; set; }
+
+    /// <summary>In SAP, and still owed its fiscal receipt.</summary>
+    public bool IsReceiptOwed =>
+        PostedBeforeReceiptAt is not null &&
+        !string.Equals(FiscalizationStatus, "Success", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Why this sale may not be fiscalised again on request, or null when it may. Decided by the API

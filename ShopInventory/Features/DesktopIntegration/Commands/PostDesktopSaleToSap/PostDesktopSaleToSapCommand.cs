@@ -18,8 +18,14 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSaleToSa
 /// it matters more here than there — without it a shop-scoped account could post another shop's
 /// takings to SAP.
 /// </para>
+/// <para>
+/// <c>WithoutReceipt</c> is the Admin's fiscal outage override: it lets a till or vending sale that is
+/// still Pending or Failed reach SAP, with the receipt left to the sweep. See
+/// <c>DesktopSalePostEligibility.RefusalWithoutReceipt</c>.
+/// </para>
 /// </remarks>
 public sealed record PostDesktopSaleToSapCommand(
     Guid CallerUserId,
-    string ExternalReferenceId
+    string ExternalReferenceId,
+    bool WithoutReceipt = false
 ) : IRequest<ErrorOr<DesktopSalePostResult>>;

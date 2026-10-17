@@ -2146,6 +2146,9 @@ namespace ShopInventory.Migrations
                     b.Property<DateTime?>("PostedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("PostedBeforeReceiptAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("PostingAttempts")
                         .HasColumnType("integer");
 

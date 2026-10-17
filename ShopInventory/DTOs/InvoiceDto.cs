@@ -39,6 +39,13 @@ public class InvoiceDto
     /// itself rather than trusting this.
     /// </summary>
     public bool IsRepostedAfterSapUpdate { get; set; }
+
+    /// <summary>
+    /// The sale this invoice records when an Admin posted it before its fiscal receipt, during a fiscal
+    /// outage; null otherwise. The receipt is the sale's to sign, so the invoice is never fiscalised by
+    /// its DocNum. Set by <c>FiscalDocumentStatusProjector</c>; the fiscalise route checks for itself.
+    /// </summary>
+    public string? ReceiptPendingOnSale { get; set; }
     public string? FiscalQrCode { get; set; }
     public int? FiscalReceiptGlobalNo { get; set; }
     public string? FiscalVerificationCode { get; set; }

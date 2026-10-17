@@ -112,6 +112,28 @@ public sealed class FiscalizeInvoiceHandler(
             return refusal;
         }
 
+        // And for a sale posted before its receipt during a fiscal outage, which the sweep will sign
+        // under the sale's own reference.
+        var receiptPendingSale = await PerSaleInvoiceRegistry.FindReceiptPendingByDocNumAsync(
+            dbContext,
+            invoice.DocNum,
+            cancellationToken);
+
+        if (receiptPendingSale is not null)
+        {
+            var refusal = Errors.Invoice.ReceiptPendingOnSale(invoice.DocNum, receiptPendingSale);
+
+            logger.LogWarning(
+                "Refused manual fiscalisation of invoice {DocNum} requested by {Username}; it records sale "
+                + "{ExternalReference}, posted before its receipt and still to be fiscalised as that sale",
+                invoice.DocNum,
+                command.Username,
+                receiptPendingSale);
+
+            await TryAuditAsync(invoice, isSuccess: false, refusal.Description, command);
+            return refusal;
+        }
+
         if (string.Equals(invoice.FiscalizationStatus, FiscalisedStatus, StringComparison.OrdinalIgnoreCase))
         {
             var skippedResult = new FiscalizationResult

@@ -39,6 +39,12 @@ public static class DesktopSaleInvoiceRemarks
     private const string Separator = " | ";
 
     /// <summary>
+    /// What the receipt part says on an invoice posted before its receipt. Kept with the receipt's
+    /// priority, so it is the last part a long remark gives up.
+    /// </summary>
+    public const string PendingReceiptRemark = "FISCAL RECEIPT PENDING - signed as this sale, do not fiscalise in SAP";
+
+    /// <summary>
     /// How much each part matters, for the order they are given up in when the column is short.
     /// </summary>
     /// <remarks>
@@ -305,6 +311,14 @@ public static class DesktopSaleInvoiceRemarks
         if (sale.FiscalizationStatus == DesktopSaleFiscalizationStatus.Skipped)
         {
             return "Not fiscalised";
+        }
+
+        // Only an Admin's post during a fiscal outage reaches SAP unsigned. The receipt will be the
+        // sale's, signed under its reference; this tells whoever reads the invoice in SAP not to
+        // fiscalise it themselves, which would give the sale a second receipt.
+        if (sale.FiscalizationStatus is DesktopSaleFiscalizationStatus.Pending or DesktopSaleFiscalizationStatus.Failed)
+        {
+            return PendingReceiptRemark;
         }
 
         var details = new List<string>();

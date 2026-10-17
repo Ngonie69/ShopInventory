@@ -117,6 +117,55 @@ public static class DesktopSalePostEligibility
     }
 
     /// <summary>
+    /// Why an Admin may not post this sale before it has a fiscal receipt, or null when they may.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fiscal outage override. While ZIMRA cannot be reached every till sale sits Failed or Pending,
+    /// and the rule above holds all of them out of SAP. This lets an Admin put them in SAP now and leave
+    /// the receipt to <c>DesktopSaleFiscalisationSweep</c>, which signs a sale under its own reference
+    /// whether or not SAP holds it. A sale that already passes the ordinary rule passes here too, so a
+    /// mixed selection posts as one batch.
+    /// </para>
+    /// <para>
+    /// Narrow on purpose. Shop till and vending only: those are the sales the sweep signs later and the
+    /// registry can claim by <c>PostedBeforeReceiptAt</c>; a van sale's invoice is what the
+    /// SAP-to-FDMS reconciliation is matched against and an online van row has no sale behind it to
+    /// sign. Pending or Failed only: Skipped was created with fiscalisation switched off, so nothing
+    /// will sign it unless a person retries it, and an invoice for it would be owed a receipt forever.
+    /// </para>
+    /// </remarks>
+    public static string? RefusalWithoutReceipt(
+        string? sourceSystem,
+        DesktopSaleConsolidationStatus consolidationStatus,
+        DesktopSaleFiscalizationStatus fiscalizationStatus,
+        int? sapDocNum)
+    {
+        var refusal = Refusal(sourceSystem, consolidationStatus, fiscalizationStatus, sapDocNum);
+        if (refusal is null)
+        {
+            return null;
+        }
+
+        var isTillSale = sourceSystem is not null && SaleSourceSystems.PostedByDesktopSaleJob.Contains(sourceSystem);
+        if (!isTillSale)
+        {
+            return refusal;
+        }
+
+        // Asked of the status the ordinary rule refused on, so "already in SAP" and "excluded" still
+        // answer before anything about receipts.
+        if (consolidationStatus is DesktopSaleConsolidationStatus.Consolidated or DesktopSaleConsolidationStatus.Excluded)
+        {
+            return refusal;
+        }
+
+        return fiscalizationStatus is DesktopSaleFiscalizationStatus.Pending or DesktopSaleFiscalizationStatus.Failed
+            ? null
+            : refusal;
+    }
+
+    /// <summary>
     /// The rule for an online van sale's receipt row, which its consolidation status cannot answer.
     /// </summary>
     /// <remarks>

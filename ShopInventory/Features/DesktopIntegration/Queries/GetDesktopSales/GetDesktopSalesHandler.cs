@@ -253,6 +253,7 @@ public sealed class GetDesktopSalesHandler(
                 s.FiscalizationStatus,
                 s.FiscalizationRequiresReconciliation,
                 s.PostIssuedAtUtc,
+                s.PostedBeforeReceiptAt,
                 Sale = new DesktopSaleListItemDto(
                 s.Id,
                 // Filled below, with the rest of what a method has to compute. The formatter cannot be
@@ -331,6 +332,9 @@ public sealed class GetDesktopSalesHandler(
                 CreatedByName = SaleOperatorNames.Label(row.Sale.CreatedBy, operators),
                 PostRefusal = DesktopSalePostEligibility.Refusal(
                     row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus, row.Sale.SapDocNum),
+                CanPostWithoutReceipt = DesktopSalePostEligibility.RefusalWithoutReceipt(
+                    row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus, row.Sale.SapDocNum) is null,
+                PostedBeforeReceiptAt = row.PostedBeforeReceiptAt,
                 FiscaliseRefusal = DesktopSaleFiscalisationRetry.ManualRefusal(
                     row.Sale.SourceSystem,
                     row.FiscalizationStatus,

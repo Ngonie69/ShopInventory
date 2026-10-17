@@ -22,7 +22,7 @@ public sealed class PostVanSalesInvoiceToSapHandler(
         PostVanSalesInvoiceToSapCommand request,
         CancellationToken cancellationToken)
     {
-        var (result, error) = await desktop.PostSaleToSapAsync(request.Reference, cancellationToken);
+        var (result, error) = await desktop.PostSaleToSapAsync(request.Reference, cancellationToken: cancellationToken);
 
         if (error is not null || result is null)
         {

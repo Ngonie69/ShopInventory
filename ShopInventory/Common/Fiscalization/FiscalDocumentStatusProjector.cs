@@ -13,6 +13,7 @@ internal static class FiscalDocumentStatusProjector
     private const string FiscalisedStatus = "Fiscalised";
     private const string NotFiscalisedStatus = "Not Fiscalised";
     private const string UnknownStatus = "Unknown";
+    private const string ReceiptPendingStatus = "Receipt pending";
 
     /// <summary>
     /// Whether a fiscal transaction row is evidence that ZIMRA holds a receipt for its document.
@@ -80,6 +81,7 @@ internal static class FiscalDocumentStatusProjector
 
         await ApplyConsolidatedInvoiceStatusAsync(dbContext, invoiceList, cancellationToken);
         await ApplyPerSaleInvoiceStatusAsync(dbContext, invoiceList, cancellationToken);
+        await ApplyReceiptPendingStatusAsync(dbContext, invoiceList, cancellationToken);
     }
 
     public static Task EnrichInvoiceAsync(
@@ -306,6 +308,45 @@ internal static class FiscalDocumentStatusProjector
             // read from there rather than restated on the SAP document.
             invoice.IsFiscalized = true;
             invoice.FiscalizationStatus = FiscalisedStatus;
+        }
+    }
+
+    /// <summary>
+    /// Marks the invoices an Admin posted before their sale's receipt, during a fiscal outage.
+    /// </summary>
+    /// <remarks>
+    /// Their own status, not "Not Fiscalised" and not "Unknown". "Not Fiscalised" puts the Fiscalise
+    /// button on a sale the sweep is about to sign under its own reference, and "Unknown" queues it for
+    /// the backfill, which records it as unfiscalised under its DocNum. Runs last and only on what is
+    /// still unresolved, so a sale signed since is left to the per-sale pass above.
+    /// </remarks>
+    private static async Task ApplyReceiptPendingStatusAsync(
+        ApplicationDbContext dbContext,
+        IReadOnlyList<InvoiceDto> invoices,
+        CancellationToken cancellationToken)
+    {
+        var unresolved = invoices
+            .Where(invoice => invoice.IsFiscalized != true)
+            .ToList();
+
+        if (unresolved.Count == 0)
+        {
+            return;
+        }
+
+        var pendingSales = await PerSaleInvoiceRegistry.FindReceiptPendingSalesAsync(
+            dbContext,
+            unresolved.Select(invoice => invoice.DocNum),
+            cancellationToken);
+
+        foreach (var invoice in unresolved)
+        {
+            if (pendingSales.TryGetValue(invoice.DocNum, out var sale))
+            {
+                invoice.IsFiscalized = false;
+                invoice.FiscalizationStatus = ReceiptPendingStatus;
+                invoice.ReceiptPendingOnSale = sale;
+            }
         }
     }
 
