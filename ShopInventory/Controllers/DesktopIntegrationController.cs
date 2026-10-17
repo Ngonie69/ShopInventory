@@ -1292,7 +1292,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// business dates, at most a year, defaulting to today. <c>paymentMethod</c> confines every figure to one
     /// tender, and each currency also states the same number of days just before. Van sales are left out
     /// unless <c>sourceSystem</c> names one of their sources: they are analysed at
-    /// <c>api/van-sales/sales-analysis</c>.
+    /// <c>api/van-sales/sales-analysis</c>. <c>includeMargin</c> adds SAP's booked gross profit to every
+    /// item, and so reads SAP; without it the analysis is local only.
     /// </remarks>
     [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
     [HttpGet("sales/analysis")]
@@ -1303,7 +1304,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] string? sourceSystem,
         [FromQuery] string? paymentMethod,
         [FromQuery] string? cardCode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] bool includeMargin = false)
     {
         var userId = UserClaimReader.GetUserId(User);
         if (userId is null)
@@ -1311,7 +1313,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
         var result = await mediator.Send(
             new GetDesktopSalesAnalysisQuery(
-                userId.Value, fromDate, toDate, warehouseCode, sourceSystem, paymentMethod, CardCode: cardCode),
+                userId.Value, fromDate, toDate, warehouseCode, sourceSystem, paymentMethod, CardCode: cardCode,
+                IncludeMargin: includeMargin),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

@@ -67,7 +67,8 @@ public static class VanSalesFactReader
                 sale.Currency,
                 sale.WarehouseCode,
                 sale.ReceiptDate,
-                sale.CreatedAt
+                sale.CreatedAt,
+                sale.SapDocEntry
             })
             .ToListAsync(cancellationToken);
 
@@ -92,6 +93,7 @@ public static class VanSalesFactReader
                 reservation.PaymentMethod,
                 reservation.TotalValue,
                 reservation.Currency,
+                reservation.SAPDocEntry,
                 WarehouseCode = reservation.Lines
                     .OrderBy(line => line.LineNum)
                     .Select(line => line.WarehouseCode)
@@ -141,7 +143,8 @@ public static class VanSalesFactReader
                 // was uploaded, which can be hours after the sale.
                 SoldAtCat = sale.ReceiptDate ?? AuditService.ToCAT(sale.CreatedAt),
                 VatAmount = sale.VatAmount,
-                PaymentReference = sale.PaymentReference
+                PaymentReference = sale.PaymentReference,
+                SapDocEntry = sale.SapDocEntry
             });
         }
 
@@ -177,7 +180,8 @@ public static class VanSalesFactReader
             {
                 SoldAtCat = AuditService.ToCAT(reservation.CreatedAt),
                 VatAmount = money.Vat,
-                AmountIncludesVat = money.IncludesVat
+                AmountIncludesVat = money.IncludesVat,
+                SapDocEntry = reservation.SAPDocEntry
             });
         }
 

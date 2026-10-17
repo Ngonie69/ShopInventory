@@ -37,6 +37,24 @@ public sealed record DesktopSalesItemRow(
 
     /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>: the item's line value after credits, before VAT.</summary>
     public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+
+    /// <summary>
+    /// SAP's booked gross profit on the item's lines of the invoices its sales were posted as: their value
+    /// before VAT less the stock cost SAP relieved when the goods left. Null when margin was not asked for,
+    /// SAP could not be read, or none of the item's sales has reached SAP yet. Negative is a loss.
+    /// </summary>
+    public decimal? GrossProfit { get; init; }
+
+    /// <summary>
+    /// The value before VAT that <see cref="GrossProfit"/> was measured on: the part of <c>NetAmount</c>
+    /// SAP holds an invoice for. Below <c>NetAmount</c> while some of the item's sales are still unposted.
+    /// </summary>
+    public decimal? CostedNetAmount { get; init; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, to one place.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? Math.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }
 
 /// <summary>What one line of business sold in a currency, of which its rows in <c>TopItems</c> are the head.</summary>
@@ -60,4 +78,15 @@ public sealed record DesktopSalesBusinessItems(
 
     /// <summary><c>NetAmount</c> less <see cref="CreditedNetAmount"/>.</summary>
     public decimal NetAmountAfterCredits => NetAmount - CreditedNetAmount;
+
+    /// <summary>SAP's booked gross profit on every item it sold, not only the listed head; null as on an item row.</summary>
+    public decimal? GrossProfit { get; init; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; init; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, to one place.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? Math.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }

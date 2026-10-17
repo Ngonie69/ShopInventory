@@ -37,6 +37,18 @@ public sealed class DesktopSalesItemRow
 
     /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
     public decimal NetAmountAfterCredits { get; set; }
+
+    /// <summary>
+    /// SAP's booked gross profit on the item's posted lines; negative is a loss. Null when margin was not
+    /// read, or none of the item's sales has reached SAP.
+    /// </summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on: the posted part of <see cref="NetAmount"/>.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 /// <summary>What one line of business sold in a currency, of which its rows in <c>TopItems</c> are the head.</summary>
@@ -62,4 +74,11 @@ public sealed class DesktopSalesBusinessItems
 
     /// <summary><see cref="NetAmount"/> less <see cref="CreditedNetAmount"/>, as the API states it.</summary>
     public decimal NetAmountAfterCredits { get; set; }
+
+    /// <summary>SAP's booked gross profit on every item it sold; null as on an item row.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    public decimal? CostedNetAmount { get; set; }
+
+    public decimal? MarginPercent { get; set; }
 }

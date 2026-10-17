@@ -257,7 +257,10 @@ public partial class DesktopSalesReport : IDisposable
             // most four are ever missing.
             foreach (var key in new[] { contextKey, focusKey, paymentsKey, partnersKey }.Distinct())
             {
-                if (loaded.ContainsKey(key))
+                // Only the focus feeds the best sellers, so only it asks SAP for their gross profit. A focus
+                // that was read earlier as context has none, and is read again with it.
+                var withMargin = key == focusKey;
+                if (loaded.TryGetValue(key, out var cached) && (!withMargin || cached.Margin is not null))
                 {
                     continue;
                 }
@@ -269,7 +272,8 @@ public partial class DesktopSalesReport : IDisposable
                         key.Warehouse == "" ? null : key.Warehouse,
                         key.Method,
                         Vans: Vans,
-                        CardCode: key.Partner == "" ? null : key.Partner),
+                        CardCode: key.Partner == "" ? null : key.Partner,
+                        IncludeMargin: withMargin),
                     cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested || isDisposed)
@@ -876,6 +880,20 @@ public partial class DesktopSalesReport : IDisposable
 
     private string Money(decimal value) =>
         $"{Currency} {value.ToString("N2", CultureInfo.InvariantCulture)}".Trim();
+
+    /// <summary>The tone a gross profit or margin is drawn in: a loss, a profit, or neither.</summary>
+    private static string GpTone(decimal value) => value < 0 ? "is-loss" : value > 0 ? "is-profit" : "is-even";
+
+    /// <summary>The word beside a margin, so a loss is never told by its colour alone.</summary>
+    private static string GpVerdict(decimal margin) => margin < 0 ? "Loss" : margin > 0 ? "Profit" : "Break-even";
+
+    /// <summary>A margin to one place with a real minus sign, matching <see cref="SignedMoney"/>.</summary>
+    private static string SignedPercent(decimal value) =>
+        (value < 0 ? "−" : "") + Math.Abs(value).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>Money with a real minus sign, for a figure that can go below zero.</summary>
+    private static string SignedMoney(decimal value) =>
+        (value < 0 ? "\u2212" : "") + Math.Abs(value).ToString("N2", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string Pct(decimal percent) =>
         percent.ToString("0.#", CultureInfo.InvariantCulture) + "%";

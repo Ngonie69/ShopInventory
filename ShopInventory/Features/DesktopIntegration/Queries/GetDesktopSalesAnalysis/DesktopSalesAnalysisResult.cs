@@ -1,3 +1,5 @@
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
+
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 
 /// <summary>
@@ -37,4 +39,10 @@ public sealed record DesktopSalesAnalysisResult(
     string? CardCode = null)
 {
     public bool CreditsCounted { get; init; }
+
+    /// <summary>
+    /// Where the items' gross profit came from, or why it is missing. Null when margin was not asked for:
+    /// it is read from SAP, so only a caller that will show it asks.
+    /// </summary>
+    public ManagementMarginStatus? Margin { get; init; }
 }

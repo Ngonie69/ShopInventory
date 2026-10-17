@@ -254,13 +254,15 @@ internal static class ManagementSalesRollup
     /// <param name="costReader">Where SAP's booked cost is read from.</param>
     /// <param name="logger">Where a failed SAP read is recorded.</param>
     /// <param name="cancellationToken">Cancels the database and SAP reads.</param>
+    /// <param name="deadline">How long the SAP read may take; see <see cref="MarginOfPostedAsync"/>.</param>
     public static async Task<(MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
         IQueryable<DesktopSaleEntity> sales,
         string? itemCode,
         Window window,
         ISaleInvoiceCostReader costReader,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? deadline = null)
     {
         if (itemCode is not null)
         {
@@ -304,6 +306,30 @@ internal static class ManagementSalesRollup
                 c.DocEntry, CurrencyKey(c.Currency), c.WarehouseCode ?? string.Empty, c.CardCode ?? string.Empty, c.SalesCount))
             .ToList();
 
+        return await MarginOfPostedAsync(
+            direct, consolidated, itemCode, window.From, window.To, costReader, logger, deadline, cancellationToken);
+    }
+
+    /// <summary>
+    /// The margin SAP booked on invoices already known by number: what <see cref="MarginAsync"/> does once
+    /// it has found them, for a report whose sales are not all desktop sales — the vans' online invoices
+    /// are known from their reservations.
+    /// </summary>
+    /// <param name="deadline">
+    /// How long the SAP read may take before margin is reported unavailable rather than holding the
+    /// report; null waits as long as the caller does.
+    /// </param>
+    public static async Task<(MarginBook Book, ManagementMarginStatus Status)> MarginOfPostedAsync(
+        List<PostedSale> direct,
+        List<ConsolidatedInvoice> consolidated,
+        string? itemCode,
+        DateTime from,
+        DateTime to,
+        ISaleInvoiceCostReader costReader,
+        ILogger logger,
+        TimeSpan? deadline,
+        CancellationToken cancellationToken)
+    {
         if (direct.Count == 0 && consolidated.Count == 0)
         {
             return (MarginBook.Empty, new ManagementMarginStatus(
@@ -320,11 +346,17 @@ internal static class ManagementSalesRollup
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            lines = await costReader.ReadAsync(warehouses, window.From, window.To.AddDays(PostingGraceDays), cancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            if (deadline is { } limit)
+            {
+                timeout.CancelAfter(limit);
+            }
+
+            lines = await costReader.ReadAsync(warehouses, from, to.AddDays(PostingGraceDays), timeout.Token);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "Management sales report could not read invoice cost from SAP");
+            logger.LogWarning(ex, "Could not read invoice cost from SAP for a sales margin");
             return (MarginBook.Empty, new ManagementMarginStatus(
                 false,
                 "Gross margin is unavailable: SAP could not be reached for the booked cost of these sales. "

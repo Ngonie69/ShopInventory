@@ -8662,6 +8662,9 @@ public partial class ReportExportService : IReportExportService
         /// credits, because a column of zeros would say nothing was credited when nobody looked.
         /// </summary>
         public bool Credits => Report.CreditsCounted;
+
+        /// <summary>Whether SAP's gross profit was read for the items, and so whether the sheet shows it.</summary>
+        public bool GrossProfit => Report.Margin is { Available: true };
     }
 
     /// <summary>
@@ -9279,7 +9282,9 @@ public partial class ReportExportService : IReportExportService
         // ranges, so one list of all of them compares nothing with anything.
         // Where credits were read, four more columns close the sheet: the units credited back and what
         // is left, then the same in money. The rank and the share stay on what was sold.
-        var lastCol = context.Credits ? 13 : 9;
+        // Where gross profit was read, three more close it: SAP's booked profit, the margin, and the verdict.
+        var gpCol = (context.Credits ? 13 : 9) + 1;
+        var lastCol = context.GrossProfit ? gpCol + 2 : gpCol - 1;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("Best Sellers");
         PodApplyDefaults(ws);
@@ -9325,7 +9330,8 @@ public partial class ReportExportService : IReportExportService
         row = PodColumnHeaders(ws, headerRow, lastCol,
             [
                 "Currency", "Channel", "Rank", "Item Code", "Description", "Quantity", "Sales", "Value Before VAT", "Share of Channel",
-                .. context.Credits ? new[] { "Credited Qty", "Qty After Credits", "Credited Value", "Value After Credits" } : []
+                .. context.Credits ? new[] { "Credited Qty", "Qty After Credits", "Credited Value", "Value After Credits" } : [],
+                .. context.GrossProfit ? new[] { "Gross Profit", "Margin", "Profit / Loss" } : []
             ]);
 
         var rowIndex = 0;
@@ -9383,6 +9389,11 @@ public partial class ReportExportService : IReportExportService
                     DesktopAnalysisTotalCell(ws.Cell(row, 13), item.NetAmountAfterCredits, isStripe);
                 }
 
+                if (context.GrossProfit)
+                {
+                    DesktopAnalysisGrossProfitCells(ws, row, gpCol, item.GrossProfit, item.MarginPercent);
+                }
+
                 row++;
             }
         }
@@ -9411,6 +9422,16 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisSummaryNumber(ws.Cell(row, 13), groupItems.Sum(item => item.NetAmountAfterCredits), FormatMoney);
             }
 
+            // The channel's whole profit, not the listed items': the API sums every item it sold.
+            if (context.GrossProfit && business.GrossProfit is { } channelProfit)
+            {
+                DesktopAnalysisSummaryNumber(ws.Cell(row, gpCol), channelProfit, FormatSignedMoney);
+                if (business.MarginPercent is { } channelMargin)
+                {
+                    DesktopAnalysisSummaryNumber(ws.Cell(row, gpCol + 1), channelMargin / 100m, FormatSignedPercent);
+                }
+            }
+
             row++;
         }
 
@@ -9421,9 +9442,56 @@ public partial class ReportExportService : IReportExportService
                 + (context.Credits
                     ? " Quantity and value are what was sold, and the rank and share are of that; the credited columns "
                       + "are what credit notes gave back of the item, valued before VAT at what those units were sold for."
-                    : ""));
+                    : "")
+                + (context.GrossProfit
+                    ? " Gross profit is SAP's booked gross profit on the invoices these sales were posted as - their value "
+                      + "before VAT less the stock cost SAP relieved when the goods left - and the margin is that profit over "
+                      + "the posted value. A sale not yet in SAP is not costed, and an item none of whose sales is in SAP "
+                      + "reads 'Not in SAP yet'. A channel's total is of every item it sold, not only those listed."
+                    : context.Report.Margin is { Available: false } unavailable
+                        ? " " + unavailable.Detail
+                        : ""));
         DesktopAnalysisFinish(ws, row + 3, lastCol, context, headerRow, 4, lastDataRow,
-            context.Credits ? [12, 14, 8, 14, 40, 12, 10, 18, 16, 13, 16, 15, 18] : [12, 14, 8, 14, 40, 12, 10, 18, 16]);
+            [
+                .. context.Credits ? new[] { 12, 14, 8, 14, 40, 12, 10, 18, 16, 13, 16, 15, 18 } : [12, 14, 8, 14, 40, 12, 10, 18, 16],
+                .. context.GrossProfit ? new[] { 15, 10, 14 } : []
+            ]);
+    }
+
+    private const string FormatSignedMoney = "#,##0.00;[Red]-#,##0.00";
+
+    private const string FormatSignedPercent = "0.0%;[Red]-0.0%";
+
+    /// <summary>
+    /// An item's gross profit, margin and verdict. The verdict is a word as well as a colour, so a printed
+    /// sheet still says which items lose money.
+    /// </summary>
+    private static void DesktopAnalysisGrossProfitCells(IXLWorksheet ws, int row, int col, decimal? grossProfit, decimal? marginPercent)
+    {
+        if (grossProfit is not { } profit)
+        {
+            ws.Cell(row, col).Value = "Not in SAP yet";
+            ws.Cell(row, col).Style.Font.FontColor = PodTextMuted;
+            ws.Cell(row, col).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            return;
+        }
+
+        ws.Cell(row, col).Value = profit;
+        StylePodCurrencyCell(ws.Cell(row, col));
+        ws.Cell(row, col).Style.NumberFormat.Format = FormatSignedMoney;
+
+        if (marginPercent is { } margin)
+        {
+            ws.Cell(row, col + 1).Value = margin / 100m;
+            ws.Cell(row, col + 1).Style.NumberFormat.Format = FormatSignedPercent;
+            ws.Cell(row, col + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        }
+
+        var verdict = ws.Cell(row, col + 2);
+        verdict.Value = profit < 0 ? "Loss" : profit > 0 ? "Profit" : "Break-even";
+        verdict.Style.Font.Bold = profit < 0;
+        verdict.Style.Font.FontColor = profit < 0 ? XLColor.FromHtml("#B42318") : profit > 0 ? PodGreen : PodTextMuted;
+        verdict.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
     }
 
     // ─── Local Stock Export ──────────────────────────────────────

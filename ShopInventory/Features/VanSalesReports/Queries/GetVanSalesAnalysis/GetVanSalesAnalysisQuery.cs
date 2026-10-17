@@ -16,11 +16,13 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 ///
 /// The dates are inclusive CAT trading days. <c>WarehouseCode</c> confines it to one van;
 /// <c>PaymentMethod</c> to one tender by its reporting name, "Not recorded" selecting the sales that
-/// named none.
+/// named none. <c>IncludeMargin</c> adds SAP's booked gross profit to every item; it reads SAP, so it is
+/// off unless asked for.
 /// </remarks>
 public sealed record GetVanSalesAnalysisQuery(
     DateTime FromDate,
     DateTime ToDate,
     string? WarehouseCode = null,
-    string? PaymentMethod = null
+    string? PaymentMethod = null,
+    bool IncludeMargin = false
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;
