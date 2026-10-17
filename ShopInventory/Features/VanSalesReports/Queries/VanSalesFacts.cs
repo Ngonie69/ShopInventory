@@ -138,6 +138,12 @@ public sealed record VanSaleFact(
 
     /// <summary>The wallet or card reference the handset recorded. Only the offline path carries one.</summary>
     public string? PaymentReference { get; init; }
+
+    /// <summary>
+    /// The SAP invoice the sale was posted as: the reservation's on an online sale, the desktop sale's on
+    /// an offline one. Null until it is posted. What a sale's booked cost is matched on.
+    /// </summary>
+    public int? SapDocEntry { get; init; }
 }
 
 /// <summary>

@@ -19,6 +19,9 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 ///
 /// <c>CardCode</c> confines every figure to the sales made as one business partner, inside whatever the
 /// account may read. The van analysis has no such filter, so it is not sent there.
+///
+/// <c>IncludeMargin</c> asks for SAP's booked gross profit on every item, on either analysis. It costs a
+/// SAP read, so a page asks for it only on the result it draws items from.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     DateTime? FromDate,
@@ -27,5 +30,6 @@ public sealed record GetDesktopSalesAnalysisQuery(
     string? PaymentMethod = null,
     string? SourceSystem = null,
     bool Vans = false,
-    string? CardCode = null
+    string? CardCode = null,
+    bool IncludeMargin = false
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;

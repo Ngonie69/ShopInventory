@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -23,10 +24,25 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// period that were credited back, and each is taken off the same groups it was added to. Nothing that
 /// was sold is reduced — the credited figure stands beside it.
 /// </para>
+/// <para>
+/// Margin, when asked for, is the management report's: SAP's booked gross profit on the invoices the
+/// sales were posted as (<see cref="ManagementSalesRollup.MarginAsync"/>), so an item's GP here is its GP
+/// there. The cost reader is optional so a caller that never asks for margin needs no SAP.
+/// </para>
 /// </remarks>
-public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAuditService auditService)
+public sealed class GetDesktopSalesAnalysisHandler(
+    ApplicationDbContext db,
+    IAuditService auditService,
+    ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetDesktopSalesAnalysisHandler>? logger = null)
     : IRequestHandler<GetDesktopSalesAnalysisQuery, ErrorOr<DesktopSalesAnalysisResult>>
 {
+    /// <summary>
+    /// How long the SAP cost read may hold the page. Past it the analysis is answered without margin: the
+    /// takings are local and should never wait on SAP.
+    /// </summary>
+    public static readonly TimeSpan MarginDeadline = TimeSpan.FromSeconds(30);
+
     /// <summary>How many items the best-sellers list carries per currency for each line of business.</summary>
     public const int TopItemCount = 25;
 
@@ -290,6 +306,13 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             .GroupBy(p => CurrencyKey(p.Currency))
             .ToDictionary(g => g.Key, g => (SalesCount: g.Sum(p => p.SalesCount), TotalAmount: g.Sum(p => p.TotalAmount)));
 
+        ManagementSalesRollup.MarginBook? margin = null;
+        ManagementMarginStatus? marginStatus = null;
+        if (request.IncludeMargin)
+        {
+            (margin, marginStatus) = await MarginAsync(sales, from, to, cancellationToken);
+        }
+
         var operators = await OperatorNamesAsync(cells, cancellationToken);
         var paymentMethods = PaymentMethodColumns(cells.Select(c => c.PaymentMethod));
 
@@ -302,7 +325,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 items.Where(i => i.Currency == group.Key).ToList(),
                 paymentMethods,
                 operators,
-                previous.GetValueOrDefault(group.Key)))
+                previous.GetValueOrDefault(group.Key),
+                margin))
             // US dollars first — the currency the tills price in — then the rest by name. Not by
             // value: 370 ZWG and 106 USD are not comparable numbers, and ranking on them put ZiG on top.
             .OrderBy(c => c.Currency == "USD" ? 0 : 1)
@@ -322,8 +346,34 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             previousTo,
             cardCode)
         {
-            CreditsCounted = true
+            CreditsCounted = true,
+            Margin = marginStatus
         };
+    }
+
+    /// <summary>
+    /// SAP's booked margin on the period's posted sales, or an unavailable status — never an error: the
+    /// takings stand without it.
+    /// </summary>
+    private async Task<(ManagementSalesRollup.MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
+        IQueryable<DesktopSaleEntity> sales, DateTime from, DateTime to, CancellationToken cancellationToken)
+    {
+        if (costReader is null)
+        {
+            return (ManagementSalesRollup.MarginBook.Empty, new ManagementMarginStatus(
+                false, "Gross profit is unavailable: this server has no SAP cost reader."));
+        }
+
+        var days = (to - from).Days + 1;
+
+        return await ManagementSalesRollup.MarginAsync(
+            sales,
+            null,
+            new ManagementSalesRollup.Window(from, to, from.AddDays(-days), from.AddDays(-1), days, null, null),
+            costReader,
+            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            cancellationToken,
+            MarginDeadline);
     }
 
     private static DesktopSalesCurrencyAnalysis Analyse(
@@ -333,7 +383,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         List<ItemCell> items,
         IReadOnlyList<string> paymentMethods,
         IReadOnlyDictionary<Guid, string> operators,
-        (int SalesCount, decimal TotalAmount) previous)
+        (int SalesCount, decimal TotalAmount) previous,
+        ManagementSalesRollup.MarginBook? margin)
     {
         var salesCount = cells.Sum(c => c.SalesCount);
         var total = cells.Sum(c => c.TotalAmount);
@@ -400,12 +451,18 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                     .OrderByDescending(i => i.NetAmount)
                     .ThenBy(i => i.ItemCode, StringComparer.OrdinalIgnoreCase)
                     .Take(TopItemCount)
-                    .Select(i => new DesktopSalesItemRow(
-                        i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount,
-                        Share(i.NetAmount, lineValue), group.Business)
+                    .Select(i =>
                     {
-                        CreditedQuantity = i.CreditedQuantity,
-                        CreditedNetAmount = i.CreditedNetAmount
+                        var figure = ItemMargin(margin, currency, group.Business, i.ItemCode);
+                        return new DesktopSalesItemRow(
+                            i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount,
+                            Share(i.NetAmount, lineValue), group.Business)
+                        {
+                            CreditedQuantity = i.CreditedQuantity,
+                            CreditedNetAmount = i.CreditedNetAmount,
+                            GrossProfit = figure?.GrossProfit,
+                            CostedNetAmount = figure?.Revenue
+                        };
                     });
             })
             .ToList();
@@ -434,15 +491,22 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             previous.TotalAmount)
         {
             ItemsByBusiness = itemsByBusiness
-                .Select(group => new DesktopSalesBusinessItems(
-                    group.Business,
-                    SaleBusinesses.Label(group.Business),
-                    group.Items.Count,
-                    group.Items.Sum(i => i.Quantity),
-                    group.Items.Sum(i => i.NetAmount))
+                .Select(group =>
                 {
-                    CreditedQuantity = group.Items.Sum(i => i.CreditedQuantity),
-                    CreditedNetAmount = group.Items.Sum(i => i.CreditedNetAmount)
+                    var figure = ManagementSalesRollup.MarginFigure.Sum(
+                        group.Items.Select(i => ItemMargin(margin, currency, group.Business, i.ItemCode)));
+                    return new DesktopSalesBusinessItems(
+                        group.Business,
+                        SaleBusinesses.Label(group.Business),
+                        group.Items.Count,
+                        group.Items.Sum(i => i.Quantity),
+                        group.Items.Sum(i => i.NetAmount))
+                    {
+                        CreditedQuantity = group.Items.Sum(i => i.CreditedQuantity),
+                        CreditedNetAmount = group.Items.Sum(i => i.CreditedNetAmount),
+                        GrossProfit = figure?.GrossProfit,
+                        CostedNetAmount = figure?.Revenue
+                    };
                 })
                 .ToList(),
             CreditedAmount = cells.Sum(c => c.CreditedAmount),
@@ -451,6 +515,11 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             CreditedQuantity = items.Sum(i => i.CreditedQuantity)
         };
     }
+
+    /// <summary>An item's booked margin inside the business that sold it, or null when none was costed.</summary>
+    internal static ManagementSalesRollup.MarginFigure? ItemMargin(
+        ManagementSalesRollup.MarginBook? margin, string currency, string business, string itemCode) =>
+        margin?.For(currency, ManagementSalesRollup.Dimension.Item, ManagementSalesRollup.ItemKey(business, itemCode));
 
     private static List<DesktopSalesBreakdownRow> Breakdown(
         List<Cell> cells,

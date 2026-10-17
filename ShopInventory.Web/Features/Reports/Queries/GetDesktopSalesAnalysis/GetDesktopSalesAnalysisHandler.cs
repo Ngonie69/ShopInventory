@@ -51,6 +51,11 @@ public sealed class GetDesktopSalesAnalysisHandler(
             queryParts.Add($"cardCode={Uri.EscapeDataString(request.CardCode.Trim())}");
         }
 
+        if (request.IncludeMargin)
+        {
+            queryParts.Add("includeMargin=true");
+        }
+
         var path = request.Vans ? "api/van-sales/sales-analysis" : "api/DesktopIntegration/sales/analysis";
         var url = queryParts.Count == 0 ? path : $"{path}?{string.Join("&", queryParts)}";
 

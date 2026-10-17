@@ -177,6 +177,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
     /// <param name="warehouseCode">One van's warehouse, or every van when omitted.</param>
     /// <param name="paymentMethod">One tender by its reporting name; "Not recorded" for sales that named none.</param>
+    /// <param name="includeMargin">Adds SAP's booked gross profit to every item, which reads SAP.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("sales-analysis")]
     [RequirePermission(Permission.ViewVanSalesAttendance)]
@@ -187,6 +188,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] string? warehouseCode = null,
         [FromQuery] string? paymentMethod = null,
+        [FromQuery] bool includeMargin = false,
         CancellationToken cancellationToken = default)
     {
         var today = AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -196,7 +198,8 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 fromDate?.Date ?? today.AddDays(-29),
                 toDate?.Date ?? today,
                 warehouseCode,
-                paymentMethod),
+                paymentMethod,
+                includeMargin),
             cancellationToken);
 
         return result.Match(

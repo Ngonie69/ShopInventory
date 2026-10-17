@@ -835,6 +835,70 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* ── Gross profit ──────────────────────────────────────────────────────── */
+/* SAP's booked profit on each best seller. A loss is the one thing on this card
+   somebody must act on, so it is the bad hue; a profit is the good one. The tag
+   carries an arrow and a word as well, never the hue alone. */
+
+.ops-sbd .ops-sbd-gp {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+
+.ops-sbd .ops-sbd-gp.is-profit {
+    color: var(--ops-fam-good);
+}
+
+.ops-sbd .ops-sbd-gp.is-loss {
+    color: var(--ops-fam-bad);
+}
+
+.ops-sbd .ops-sbd-gp.is-even {
+    color: var(--ops-mute-2);
+}
+
+.ops-sbd .ops-sbd-gp-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-gp-tag.is-profit {
+    color: var(--ops-fam-good);
+    background: rgba(var(--ops-fam-good-rgb), .12);
+}
+
+.ops-sbd .ops-sbd-gp-tag.is-loss {
+    color: var(--ops-fam-bad);
+    background: rgba(var(--ops-fam-bad-rgb), .14);
+}
+
+.ops-sbd .ops-sbd-gp-tag.is-even {
+    color: var(--ops-mute-2);
+    background: rgba(var(--ops-fam-neutral-rgb), .12);
+}
+
+.ops-sbd .ops-sbd-gp-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+    margin: 0 0 var(--ops-s3);
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+}
+
+.ops-sbd .ops-sbd-gp-note .ph {
+    color: var(--ops-fam-warn);
+    margin-right: 2px;
+}
+
 /* ── Foot and toast ────────────────────────────────────────────────────── */
 
 .ops-sbd .ops-sbd-foot {

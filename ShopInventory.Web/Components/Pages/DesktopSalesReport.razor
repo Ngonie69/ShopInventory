@@ -660,6 +660,10 @@
 
                         var ranked = itemGroup.Items ?? [];
                         var items = showAllItems ? ranked : ranked.Take(ItemsShown).ToList();
+
+                        // Gross profit is read from SAP for the focus only; null means it was not asked for.
+                        var margin = view.Focus.Margin;
+                        var showGp = margin is { Available: true };
                     }
                     <div class="ops-ds-card-head">
                         <i class="ph ph-package" aria-hidden="true"></i>
@@ -691,6 +695,23 @@
                         </span>
                     </div>
 
+                    @if (margin is { Available: false })
+                    {
+                        <p class="ops-sbd-gp-note"><i class="ph ph-warning" aria-hidden="true"></i>@margin.Detail</p>
+                    }
+                    else if (showGp && itemGroup.Business is { GrossProfit: { } channelGp, CostedNetAmount: { } channelCosted })
+                    {
+                        <p class="ops-sbd-gp-note">
+                            <span>Gross profit</span>
+                            <span class="ops-sbd-gp @GpTone(channelGp)">@SignedMoney(channelGp)</span>
+                            @if (itemGroup.Business.MarginPercent is { } channelMargin)
+                            {
+                                <span>&middot; @SignedPercent(channelMargin) margin</span>
+                            }
+                            <span>on @channelCosted.ToString("N2", System.Globalization.CultureInfo.InvariantCulture) of sales SAP holds, at the stock cost SAP booked when the goods left.</span>
+                        </p>
+                    }
+
                     @if (items.Count == 0)
                     {
                         <p class="ops-dsa-none">No lines were recorded on these sales.</p>
@@ -707,6 +728,11 @@
                                         <th class="ops-num">Qty</th>
                                         <th class="ops-num">Sales</th>
                                         <th class="ops-num">Value before VAT</th>
+                                        @if (showGp)
+                                        {
+                                            <th class="ops-num">Gross profit</th>
+                                            <th class="ops-num">Margin</th>
+                                        }
                                         <th class="ops-sbd-share-head">Share of line value</th>
                                     </tr>
                                 </thead>
@@ -740,6 +766,37 @@
                                                     <div class="ops-sub">net @item.NetAmountAfterCredits.ToString("N2", System.Globalization.CultureInfo.InvariantCulture)</div>
                                                 }
                                             </td>
+                                            @if (showGp)
+                                            {
+                                                @* SAP's booked profit on the item's posted lines. Where some of its sales
+                                                   are not in SAP yet, what it was measured on is said under it. *@
+                                                <td class="ops-num">
+                                                    @if (item.GrossProfit is { } gp)
+                                                    {
+                                                        <span class="ops-sbd-gp @GpTone(gp)">@SignedMoney(gp)</span>
+                                                        @if (item.CostedNetAmount is { } costed && costed < item.NetAmount - 0.005m)
+                                                        {
+                                                            <div class="ops-sub">on @costed.ToString("N2", System.Globalization.CultureInfo.InvariantCulture) posted</div>
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="ops-sub" title="None of this item's sales has reached SAP yet, so there is no booked cost to measure against.">not in SAP yet</span>
+                                                    }
+                                                </td>
+                                                <td class="ops-num">
+                                                    @if (item.MarginPercent is { } itemMargin)
+                                                    {
+                                                        <span class="ops-sbd-gp-tag @GpTone(itemMargin)">
+                                                            <i class="ph @(itemMargin < 0 ? "ph-trend-down" : "ph-trend-up")" aria-hidden="true"></i>@GpVerdict(itemMargin) &middot; @SignedPercent(itemMargin)
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="ops-sub">&mdash;</span>
+                                                    }
+                                                </td>
+                                            }
                                             <td>
                                                 <div class="ops-sbd-split">
                                                     <span class="ops-sbd-track">

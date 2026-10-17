@@ -1,3 +1,5 @@
+using ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport;
+
 namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 
 /// <summary>
@@ -38,4 +40,9 @@ public sealed class DesktopSalesAnalysisResult
     /// "not read", so a page must not draw it as "nothing was credited".
     /// </summary>
     public bool CreditsCounted { get; set; }
+
+    /// <summary>
+    /// Where the items' gross profit came from, or why it is missing. Null when it was not asked for.
+    /// </summary>
+    public ManagementMarginStatus? Margin { get; set; }
 }

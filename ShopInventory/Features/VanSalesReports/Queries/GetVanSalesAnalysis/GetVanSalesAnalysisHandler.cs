@@ -5,6 +5,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 
 namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 
@@ -27,8 +28,17 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 /// VAT is the fiscal receipt's and so is known only on offline sales. An online sale's split lives on its
 /// SAP invoice, so it adds nothing to <c>VatAmount</c> and its whole value to <c>NetAmount</c>.
 /// </para>
+/// <para>
+/// Margin, when asked for, is SAP's booked gross profit on the invoice each sale was posted as — the
+/// reservation's on an online sale, the desktop sale's on an offline one — by the same book the
+/// management report keeps for the counters.
+/// </para>
 /// </remarks>
-public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions<TaxSettings> tax)
+public sealed class GetVanSalesAnalysisHandler(
+    ApplicationDbContext db,
+    IOptions<TaxSettings> tax,
+    ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetVanSalesAnalysisHandler>? logger = null)
     : IRequestHandler<GetVanSalesAnalysisQuery, ErrorOr<DesktopSalesAnalysisResult>>
 {
     public const string OnlineKey = "online";
@@ -97,6 +107,13 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
                 group => group.Key,
                 group => (SalesCount: group.Count(), TotalAmount: group.Sum(sale => sale.TotalAmount)));
 
+        ManagementSalesRollup.MarginBook? margin = null;
+        ManagementMarginStatus? marginStatus = null;
+        if (query.IncludeMargin)
+        {
+            (margin, marginStatus) = await MarginAsync(sales, from, to, cancellationToken);
+        }
+
         var operators = await SaleOperatorNames.ResolveAsync(
             db, sales.Select(sale => sale.UserId.ToString()), cancellationToken);
         var paymentMethods = PaymentMethodColumns(sales.Select(Tender));
@@ -109,7 +126,8 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
                 lines.Where(line => CurrencyKey(line.Currency) == group.Key).ToList(),
                 paymentMethods,
                 operators,
-                previous.GetValueOrDefault(group.Key)))
+                previous.GetValueOrDefault(group.Key),
+                margin))
             // US dollars first, then the rest by name — never by value, which is not comparable across them.
             .OrderBy(section => section.Currency == "USD" ? 0 : 1)
             .ThenBy(section => section.Currency, StringComparer.Ordinal)
@@ -125,7 +143,48 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
             currencies,
             paymentMethod,
             previousFrom,
-            previousTo);
+            previousTo)
+        {
+            Margin = marginStatus
+        };
+    }
+
+    /// <summary>
+    /// SAP's booked margin on the period's posted van sales, or an unavailable status — never an error.
+    /// </summary>
+    private async Task<(ManagementSalesRollup.MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
+        List<VanSaleFact> sales, DateTime from, DateTime to, CancellationToken cancellationToken)
+    {
+        if (costReader is null)
+        {
+            return (ManagementSalesRollup.MarginBook.Empty, new ManagementMarginStatus(
+                false, "Gross profit is unavailable: this server has no SAP cost reader."));
+        }
+
+        // Filed as the van source on both routes, so every item lands under the vans' business.
+        var posted = sales
+            .Where(sale => sale.SapDocEntry is not null)
+            .Select(sale => new ManagementSalesRollup.PostedSale(
+                sale.SapDocEntry!.Value,
+                CurrencyKey(sale.Currency),
+                sale.WarehouseCode?.Trim() ?? string.Empty,
+                sale.VanAccountCode,
+                SaleSourceSystems.VanSales,
+                sale.UserId.ToString(),
+                string.Empty,
+                sale.RouteCustomerId))
+            .ToList();
+
+        return await ManagementSalesRollup.MarginOfPostedAsync(
+            posted,
+            [],
+            null,
+            from,
+            to,
+            costReader,
+            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            GetDesktopSalesAnalysisHandler.MarginDeadline,
+            cancellationToken);
     }
 
     private static DesktopSalesCurrencyAnalysis Analyse(
@@ -134,7 +193,8 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
         List<VanSaleLineFact> lines,
         IReadOnlyList<string> paymentMethods,
         IReadOnlyDictionary<Guid, string> operators,
-        (int SalesCount, decimal TotalAmount) previous)
+        (int SalesCount, decimal TotalAmount) previous,
+        ManagementSalesRollup.MarginBook? margin)
     {
         var salesCount = sales.Count;
         var total = sales.Sum(sale => sale.TotalAmount);
@@ -198,15 +258,26 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
             .OrderByDescending(item => item.NetAmount)
             .ThenBy(item => item.ItemCode, StringComparer.OrdinalIgnoreCase)
             .Take(GetDesktopSalesAnalysisHandler.TopItemCount)
-            .Select(item => new DesktopSalesItemRow(
-                item.ItemCode,
-                item.ItemDescription,
-                item.Quantity,
-                item.NetAmount,
-                item.SalesCount,
-                Share(item.NetAmount, lineValue),
-                SaleBusinesses.Vans))
+            .Select(item =>
+            {
+                var figure = GetDesktopSalesAnalysisHandler.ItemMargin(margin, currency, SaleBusinesses.Vans, item.ItemCode);
+                return new DesktopSalesItemRow(
+                    item.ItemCode,
+                    item.ItemDescription,
+                    item.Quantity,
+                    item.NetAmount,
+                    item.SalesCount,
+                    Share(item.NetAmount, lineValue),
+                    SaleBusinesses.Vans)
+                {
+                    GrossProfit = figure?.GrossProfit,
+                    CostedNetAmount = figure?.Revenue
+                };
+            })
             .ToList();
+
+        var vansMargin = ManagementSalesRollup.MarginFigure.Sum(items.Select(item =>
+            GetDesktopSalesAnalysisHandler.ItemMargin(margin, currency, SaleBusinesses.Vans, item.ItemCode)));
 
         // A route customer's code is unique only within the van's account, so the account is part of the
         // grouping even though only the code is shown.
@@ -274,6 +345,10 @@ public sealed class GetVanSalesAnalysisHandler(ApplicationDbContext db, IOptions
                         items.Count,
                         items.Sum(item => item.Quantity),
                         lineValue)
+                    {
+                        GrossProfit = vansMargin?.GrossProfit,
+                        CostedNetAmount = vansMargin?.Revenue
+                    }
                 ]
         };
     }
