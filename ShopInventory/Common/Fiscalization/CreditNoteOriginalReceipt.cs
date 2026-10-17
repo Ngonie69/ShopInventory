@@ -86,6 +86,16 @@ internal static class CreditNoteOriginalReceipt
             return CreditNoteOriginalReceiptNumber.Found(settings.BuildPreSapInvoiceNo(sale.ExternalReferenceId));
         }
 
+        // Posted before its receipt during a fiscal outage: the receipt, once signed, is the sale's, under
+        // the same pre-SAP number. Until then the device holds nothing under it and says so.
+        var receiptPendingSale = await PerSaleInvoiceRegistry.FindReceiptPendingByDocNumAsync(
+            dbContext, originalInvoiceDocNum, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(receiptPendingSale))
+        {
+            return CreditNoteOriginalReceiptNumber.Found(settings.BuildPreSapInvoiceNo(receiptPendingSale));
+        }
+
         return CreditNoteOriginalReceiptNumber.Found(
             originalInvoiceDocNum.ToString(CultureInfo.InvariantCulture));
     }

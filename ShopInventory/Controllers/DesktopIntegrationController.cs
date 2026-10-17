@@ -1173,11 +1173,17 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <see cref="Middleware.IdempotencyMiddleware"/>'s handler-owned set so that a client which does
     /// send an <c>Idempotency-Key</c> gets that answer rather than the middleware's bare message.
     /// </para>
+    /// <para>
+    /// <c>?withoutReceipt=true</c> is the Admin's fiscal outage override: it posts a till or vending
+    /// sale that has no fiscal receipt yet and leaves the receipt to the sweep. The handler judges the
+    /// caller's own account, because the request's roles include the API key's.
+    /// </para>
     /// </remarks>
     [Authorize(Roles = "Admin,Cashier,ApiUser")]
     [HttpPost("sales/{externalReference}/post")]
     public async Task<IActionResult> PostDesktopSaleToSap(
         string externalReference,
+        [FromQuery] bool withoutReceipt,
         CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -1185,7 +1191,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             return Unauthorized();
 
         var result = await mediator.Send(
-            new PostDesktopSaleToSapCommand(userId.Value, externalReference), cancellationToken);
+            new PostDesktopSaleToSapCommand(userId.Value, externalReference, withoutReceipt), cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
@@ -1233,7 +1239,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             return Unauthorized();
 
         var result = await mediator.Send(
-            new PostDesktopSalesToSapCommand(userId.Value, request.ExternalReferenceIds ?? []),
+            new PostDesktopSalesToSapCommand(userId.Value, request.ExternalReferenceIds ?? [], request.WithoutReceipt),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

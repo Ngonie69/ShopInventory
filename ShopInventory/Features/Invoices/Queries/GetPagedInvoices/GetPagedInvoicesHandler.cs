@@ -224,6 +224,7 @@ public sealed class GetPagedInvoicesHandler(
     internal static bool CanFiscalise(InvoiceDto invoice) =>
         invoice.DocEntry > 0
         && !invoice.IsRepostedAfterSapUpdate
+        && invoice.ReceiptPendingOnSale is null
         && FiscalStatusFilter.Normalize(invoice.FiscalizationStatus) != FiscalStatusFilter.Fiscalised;
 
     private sealed record InvoiceScan(List<InvoiceDto> Invoices, bool LimitReached);

@@ -255,6 +255,14 @@ public static partial class Errors
             Error.Validation("DesktopSales.SaleNotPostable", $"{externalRef}: {reason}");
 
         /// <summary>
+        /// Only an Admin may put an unsigned sale in SAP. Judged by the caller's own account, not the
+        /// request's roles, because a Web request also carries the API key's.
+        /// </summary>
+        public static readonly Error PostWithoutReceiptNotPermitted =
+            Error.Forbidden("DesktopSales.PostWithoutReceiptNotPermitted",
+                "Only an Admin may post a sale to SAP before it has a fiscal receipt.");
+
+        /// <summary>
         /// Somebody else is posting this sale right now — the background pass, or another person.
         /// </summary>
         /// <remarks>

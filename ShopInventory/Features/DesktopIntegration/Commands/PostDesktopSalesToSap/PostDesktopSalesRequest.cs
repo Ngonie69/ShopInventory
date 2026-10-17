@@ -10,4 +10,9 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSalesToS
 public sealed class PostDesktopSalesRequest
 {
     public List<string>? ExternalReferenceIds { get; set; }
+
+    /// <summary>
+    /// Admin only: post sales that have no fiscal receipt yet, during a fiscal outage.
+    /// </summary>
+    public bool WithoutReceipt { get; set; }
 }

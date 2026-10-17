@@ -266,6 +266,22 @@ public sealed record DesktopSaleListItemDto(
     public bool CanPostToSap => PostRefusal is null;
 
     /// <summary>
+    /// Whether an Admin may post this sale before it has a fiscal receipt, during a fiscal outage.
+    /// </summary>
+    /// <remarks>
+    /// From <c>DesktopSalePostEligibility.RefusalWithoutReceipt</c>. Carried for every caller and
+    /// enforced against the caller's account by the post itself; the console shows it to Admins only.
+    /// False unless set, so a reader that never asks cannot offer the override by accident.
+    /// </remarks>
+    public bool CanPostWithoutReceipt { get; init; }
+
+    /// <summary>
+    /// When this sale reached SAP before its fiscal receipt; null when it was signed first or is not in
+    /// SAP. See <c>DesktopSaleEntity.PostedBeforeReceiptAt</c>.
+    /// </summary>
+    public DateTime? PostedBeforeReceiptAt { get; init; }
+
+    /// <summary>
     /// When this sale may be sent to SAP again, while it is held after a post whose outcome is
     /// unknown; null when it is not held.
     /// </summary>

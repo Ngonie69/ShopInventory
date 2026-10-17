@@ -633,6 +633,13 @@ public sealed class DesktopSalePostingService(
         sale.PostingAttempts++;
         sale.LastPostingError = null;
         sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
+
+        // Only an Admin's post-without-receipt lets an unsigned sale this far. Stamped beside the
+        // DocNum so the registry can claim the invoice for the sale the moment it exists.
+        if (sale.FiscalizationStatus != DesktopSaleFiscalizationStatus.Success)
+        {
+            sale.PostedBeforeReceiptAt ??= DateTime.UtcNow;
+        }
     }
 
     /// <remarks>

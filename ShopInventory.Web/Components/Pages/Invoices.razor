@@ -1315,7 +1315,7 @@
 
     private bool CanFiscalize(InvoiceDto? invoice)
         => canInvoice
-           && invoice is { DocEntry: > 0, IsRepostedAfterSapUpdate: false }
+           && invoice is { DocEntry: > 0, IsRepostedAfterSapUpdate: false, ReceiptPendingOnSale: null }
            && NormalizeFiscalStatus(invoice.FiscalizationStatus) != "fiscalised"
            && !unresolvedDocEntries.Contains(invoice.DocEntry);
 
@@ -2059,7 +2059,9 @@
     private static string? GetFiscalTitle(InvoiceDto invoice)
         => invoice.IsRepostedAfterSapUpdate
             ? "Reposted after the SAP update; already fiscalised under its old number — not fiscalised again."
-            : null;
+            : invoice.ReceiptPendingOnSale is { } sale
+                ? $"Posted before its fiscal receipt; it will be fiscalised as sale {sale}, never from here."
+                : null;
 
     private int GetActiveCreditNoteCount()
     {

@@ -26,6 +26,12 @@ public class InvoiceDto
     /// fiscalise it again.
     /// </summary>
     public bool IsRepostedAfterSapUpdate { get; set; }
+
+    /// <summary>
+    /// The sale this invoice records when it was posted before its fiscal receipt; the receipt is the
+    /// sale's to sign, and the API refuses to fiscalise the invoice.
+    /// </summary>
+    public string? ReceiptPendingOnSale { get; set; }
     public string? FiscalQrCode { get; set; }
     public int? FiscalReceiptGlobalNo { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
