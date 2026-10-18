@@ -170,6 +170,18 @@ public interface ISAPServiceLayerClient
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The named header fields of one invoice, as text; null when SAP has no such document. A field the
+    /// document leaves empty reads as null.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, string?>?> GetInvoiceFieldsAsync(
+        int docEntry, IReadOnlyCollection<string> fields, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets text header fields on an existing invoice (PATCH). Fields not named are left as they are.</summary>
+    Task UpdateInvoiceFieldsAsync(
+        int docEntry, IReadOnlyDictionary<string, string> fields, CancellationToken cancellationToken = default);
+
     Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
 
     /// <summary>

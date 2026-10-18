@@ -2209,6 +2209,16 @@ namespace ShopInventory.Migrations
                     b.Property<int?>("SapDocNum")
                         .HasColumnType("integer");
 
+                    b.Property<int>("SapReceiptWriteAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SapReceiptWriteError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("SapReceiptWrittenAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("SourceSystem")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");

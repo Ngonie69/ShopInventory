@@ -2306,6 +2306,99 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return JsonSerializer.Deserialize<Invoice>(content);
     }
 
+    public async Task<IReadOnlyDictionary<string, string?>?> GetInvoiceFieldsAsync(
+        int docEntry,
+        IReadOnlyCollection<string> fields,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"Invoices({docEntry})?$select={string.Join(",", fields)}";
+
+        HttpRequestMessage CreateRequest() => CreateSapJsonRequest(HttpMethod.Get, url);
+
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"get fields of invoice {docEntry}",
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
+
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"get fields of invoice {docEntry} after SAP re-authentication",
+                cancellationToken);
+        }
+
+        using var responseOwner = response;
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new SapReadFailedException(
+                response.StatusCode, $"Failed to get fields of invoice {docEntry}: {response.StatusCode} - {errorContent}");
+        }
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+
+        foreach (var field in fields)
+        {
+            values[field] = document.RootElement.TryGetProperty(field, out var value)
+                ? value.ValueKind switch
+                {
+                    JsonValueKind.String => string.IsNullOrEmpty(value.GetString()) ? null : value.GetString(),
+                    JsonValueKind.Null or JsonValueKind.Undefined => null,
+                    _ => value.GetRawText()
+                }
+                : null;
+        }
+
+        return values;
+    }
+
+    public async Task UpdateInvoiceFieldsAsync(
+        int docEntry,
+        IReadOnlyDictionary<string, string> fields,
+        CancellationToken cancellationToken = default)
+    {
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
+        var currentSession = _sessionId;
+
+        var patchPayload = JsonSerializer.Serialize(fields);
+        var url = $"Invoices({docEntry})";
+
+        var response = await _httpClient.SendAsync(CreateSapJsonRequest(HttpMethod.Patch, url, patchPayload), cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
+            response = await _httpClient.SendAsync(CreateSapJsonRequest(HttpMethod.Patch, url, patchPayload), cancellationToken);
+        }
+
+        using var responseOwner = response;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new Exception($"Failed to update invoice {docEntry}: {response.StatusCode} - {errorContent}");
+        }
+    }
+
     public async Task<Invoice?> GetInvoiceByDocNumAsync(
         int docNum,
         CancellationToken cancellationToken = default)
