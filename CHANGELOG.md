@@ -18,6 +18,18 @@ otherwise be surprised.
 
 ### Changed
 
+- **SAP invoices whose fiscalisation failed are filed again on a schedule.** Until now an invoice this
+  app posts to SAP was fiscalised once, straight after it was created; one that failed then (ZIMRA
+  unreachable on 2026-10-17 and -18) stayed owed until someone pressed Fiscalise on the fiscalisation
+  console. The new `invoice-fiscalisation-retry` job (every 2 minutes, `InvoiceFiscalisationRetry`
+  section, on by default) sends each one again through that same Fiscalise route, so its refusals still
+  hold: reposted, consolidated, filed as a till sale or posted before its sale's receipt. Each invoice
+  waits 2, 4, 8 ... up to 60 minutes between attempts, for 7 days after it first failed. A pass stops at
+  the first failure, so an outage costs the device one request per pass. An invoice whose outcome was
+  never established is never sent again; it stays on the console for a person. Its attempts are recorded
+  under `SourceSystem = InvoiceFiscalisationRetry`. A reconciliation result from the manual route is now
+  recorded with the "Unresolved: " marker, so the console no longer offers Fiscalise on it after a reload.
+
 - **SAP invoices of sales posted before their receipt are updated once the sale is signed.** A till or
   vending sale an Admin posted with *Post without receipt* now has its SAP invoice PATCHed after it
   fiscalises: `U_Fiscal_Code` and `U_Fiscal_Url` (per `Fiscalisation:Udf`) are filled, and

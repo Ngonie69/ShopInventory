@@ -14,7 +14,7 @@ public sealed class InvoiceFiscalizationBackgroundService(
     IServiceScopeFactory serviceScopeFactory,
     ILogger<InvoiceFiscalizationBackgroundService> logger) : BackgroundService
 {
-    private const string SourceSystem = "InvoiceFiscalisation";
+    internal const string SourceSystem = "InvoiceFiscalisation";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
