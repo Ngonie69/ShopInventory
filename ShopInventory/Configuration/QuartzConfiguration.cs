@@ -30,6 +30,8 @@ public static class QuartzConfiguration
             .Get<CreditNoteSyncSettings>() ?? new CreditNoteSyncSettings();
         var creditNoteFiscalisation = configuration.GetSection(CreditNoteFiscalisationSettings.SectionName)
             .Get<CreditNoteFiscalisationSettings>() ?? new CreditNoteFiscalisationSettings();
+        var invoiceFiscalisationRetry = configuration.GetSection(InvoiceFiscalisationRetrySettings.SectionName)
+            .Get<InvoiceFiscalisationRetrySettings>() ?? new InvoiceFiscalisationRetrySettings();
         var dailyStock = configuration.GetSection("DailyStock").Get<DailyStockSettings>() ?? new DailyStockSettings();
         var creditLimit = configuration.GetSection(CreditLimitSettings.SectionName)
             .Get<CreditLimitSettings>() ?? new CreditLimitSettings();
@@ -143,6 +145,17 @@ public static class QuartzConfiguration
                     "sap-credit-note-fiscalisation",
                     TimeSpan.FromMinutes(Math.Max(1, creditNoteFiscalisation.IntervalMinutes)),
                     startDelay: TimeSpan.FromMinutes(3));
+            }
+
+            // Files again the SAP invoices whose fiscalisation failed. Nothing else retries them: the attempt
+            // after an invoice is created is its only one, and an outage left every invoice it touched owed.
+            if (sap.Enabled && invoiceFiscalisationRetry.Enabled)
+            {
+                AddIntervalJob<InvoiceFiscalisationRetryJob>(
+                    q,
+                    "invoice-fiscalisation-retry",
+                    TimeSpan.FromMinutes(Math.Max(1, invoiceFiscalisationRetry.IntervalMinutes)),
+                    startDelay: TimeSpan.FromMinutes(4));
             }
 
             // No master-data sync is scheduled. The price catalogue, special prices, item VAT groups and

@@ -25,7 +25,7 @@ public sealed class FiscalizeInvoiceHandler(
 {
     private const string DocumentType = "Invoice";
     private const string FiscalisedStatus = "Fiscalised";
-    private const string SourceSystem = "InvoiceFiscalisationManual";
+    internal const string SourceSystem = "InvoiceFiscalisationManual";
 
     public async Task<ErrorOr<FiscalizationResult>> Handle(
         FiscalizeInvoiceCommand command,
@@ -159,7 +159,7 @@ public sealed class FiscalizeInvoiceHandler(
 
         var syncResult = await sender.Send(
             new SyncFiscalTransactionCommand(
-                BuildSyncRequest(invoice, customerDetails, fiscalizationResult),
+                BuildSyncRequest(invoice, customerDetails, fiscalizationResult, command.SourceSystem ?? SourceSystem),
                 command.UserId?.ToString(),
                 command.Username),
             cancellationToken);
@@ -190,20 +190,24 @@ public sealed class FiscalizeInvoiceHandler(
     private static SyncFiscalTransactionRequest BuildSyncRequest(
         InvoiceDto invoice,
         CustomerFiscalDetails customerDetails,
-        FiscalizationResult result)
+        FiscalizationResult result,
+        string sourceSystem)
     {
         var timestampUtc = DateTime.UtcNow;
+        var idPrefix = sourceSystem == SourceSystem ? "invoice-fiscalisation-manual" : sourceSystem.ToLowerInvariant();
 
         return new SyncFiscalTransactionRequest
         {
-            ClientTransactionId = $"invoice-fiscalisation-manual-{invoice.DocNum}-{timestampUtc:yyyyMMddHHmmssfffffff}",
+            ClientTransactionId = $"{idPrefix}-{invoice.DocNum}-{timestampUtc:yyyyMMddHHmmssfffffff}",
             TimestampUtc = timestampUtc,
             DocNum = invoice.DocNum,
             DocumentType = DocumentType,
             // A dry run is recorded Failed, with its message, so the work queue still lists the invoice as
             // owing a receipt. See FiscalTransactionStatus.
             Status = FiscalTransactionStatus.Of(result),
-            Message = result.Message,
+            // Marked so it reads as unresolved after a reload: the row's status is only "Failed", and both the
+            // console and the scheduled retry decide from this message whether the document may be sent again.
+            Message = result.RequiresReconciliation ? FiscalOutcomeMessages.MarkUnresolved(result.Message) : result.Message,
             VerificationCode = result.VerificationCode,
             QRCode = result.QRCode,
             DeviceSerialNumber = result.DeviceSerial,
@@ -220,7 +224,7 @@ public sealed class FiscalizeInvoiceHandler(
                 CustomerDetails = customerDetails
             }),
             RawResponse = result.RawResponseJson ?? JsonSerializer.Serialize(result),
-            SourceSystem = SourceSystem
+            SourceSystem = sourceSystem
         };
     }
 
@@ -243,9 +247,10 @@ public sealed class FiscalizeInvoiceHandler(
         string? message,
         FiscalizeInvoiceCommand command)
     {
+        var kind = command.SourceSystem is null ? "Manual fiscalization" : $"Fiscalization ({command.SourceSystem})";
         var details = isSuccess
-            ? $"Manual fiscalization processed for invoice #{invoice.DocNum}. {message}"
-            : $"Manual fiscalization failed for invoice #{invoice.DocNum}. {message}";
+            ? $"{kind} processed for invoice #{invoice.DocNum}. {message}"
+            : $"{kind} failed for invoice #{invoice.DocNum}. {message}";
 
         try
         {
