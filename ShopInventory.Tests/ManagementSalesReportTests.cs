@@ -252,16 +252,17 @@ public sealed class ManagementSalesReportTests : IDisposable
         Add(Vend(115m, From, vendor: _vendorA, docEntry: 501, lines: [("BREAD", 10, 100m)]));
         Add(Vend(23m, From, vendor: _vendorB)); // not posted yet: no margin, still in takings
 
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BREAD", DepotWarehouse, 10m, 100m, 25m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", DepotWarehouse, 10m, 100m, 25m));
         // An invoice raised in SAP directly out of the same warehouse. Not a desktop sale.
-        _costs.Lines.Add(new SaleInvoiceLineCost(999, "USD", "BREAD", DepotWarehouse, 50m, 500m, 400m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(999, "BREAD", DepotWarehouse, 50m, 500m, 400m));
 
         var report = await RunAsync();
         var usd = Dollars(report);
 
         Assert.True(report.Margin.Available);
         Assert.Equal([DepotWarehouse], _costs.RequestedWarehouses);
-        Assert.Equal(To.AddDays(GetManagementSalesReportHandler.PostingGraceDays), _costs.RequestedTo);
+        // SAP is asked for the invoices the sales were posted as, not for a date window.
+        Assert.Equal([501], _costs.RequestedDocEntries);
 
         Assert.Equal(25m, usd.Summary.GrossProfit);
         Assert.Equal(25m, usd.Summary.MarginPercent);
@@ -300,7 +301,7 @@ public sealed class ManagementSalesReportTests : IDisposable
             Add(sale);
         }
 
-        _costs.Lines.Add(new SaleInvoiceLineCost(777, "USD", "MILK", DepotWarehouse, 12m, 100m, 20m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(777, "MILK", DepotWarehouse, 12m, 100m, 20m));
 
         var usd = Dollars(await RunAsync());
 
@@ -402,8 +403,8 @@ public sealed class ManagementSalesReportTests : IDisposable
         Add(depotSale);
         Add(OtherPartnerOffDepot(50m, From, docEntry: 602, lines: [("BREAD", 5, 40m)]));
 
-        _costs.Lines.Add(new SaleInvoiceLineCost(601, "USD", "BREAD", DepotWarehouse, 10m, 80m, 20m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(602, "USD", "BREAD", DepotWarehouse, 5m, 40m, 4m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(601, "BREAD", DepotWarehouse, 10m, 80m, 20m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(602, "BREAD", DepotWarehouse, 5m, 40m, 4m));
 
         var report = await RunAsync();
         var usd = Dollars(report);
@@ -482,17 +483,17 @@ public sealed class ManagementSalesReportTests : IDisposable
         // columns; a local-currency invoice leaves them zero.
         var dollars = SAPServiceLayerClient.ReadInvoiceLineCost(new Dictionary<string, object?>
         {
-            ["DocEntry"] = 501L, ["DocCur"] = "usd", ["ItemCode"] = "BREAD", ["WhsCode"] = DepotWarehouse,
+            ["DocEntry"] = 501L, ["ItemCode"] = "BREAD", ["WhsCode"] = DepotWarehouse,
             ["Quantity"] = 10L, ["LineTotal"] = 3000m, ["TotalFrgn"] = 100m, ["GrssProfit"] = 750m, ["GrssProfFC"] = 25m,
         });
         var local = SAPServiceLayerClient.ReadInvoiceLineCost(new Dictionary<string, object?>
         {
-            ["DocEntry"] = 502L, ["DocCur"] = "ZWG", ["ItemCode"] = "BREAD", ["WhsCode"] = DepotWarehouse,
+            ["DocEntry"] = 502L, ["ItemCode"] = "BREAD", ["WhsCode"] = DepotWarehouse,
             ["Quantity"] = 10L, ["LineTotal"] = 3000m, ["TotalFrgn"] = 0L, ["GrssProfit"] = 750m, ["GrssProfFC"] = 0L,
         });
 
-        Assert.Equal(("USD", 100m, 25m), (dollars.Currency, dollars.Revenue, dollars.GrossProfit));
-        Assert.Equal(("ZWG", 3000m, 750m), (local.Currency, local.Revenue, local.GrossProfit));
+        Assert.Equal((501, 100m, 25m), (dollars.DocEntry, dollars.Revenue, dollars.GrossProfit));
+        Assert.Equal((502, 3000m, 750m), (local.DocEntry, local.Revenue, local.GrossProfit));
     }
 
     // ---- Items ------------------------------------------------------------------------------------
@@ -529,8 +530,8 @@ public sealed class ManagementSalesReportTests : IDisposable
         Add(Vend(115m, From, docEntry: 501, lines: [("BREAD", 10, 60m), ("BUNS", 5, 40m)]));
         Add(Vend(34.5m, From, lines: [("MILK", 3, 30m)]));
         Add(Vend(11.5m, From, lines: [("RETIRED", 1, 10m)]));
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BREAD", DepotWarehouse, 10m, 60m, 15m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BUNS", DepotWarehouse, 5m, 40m, 5m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", DepotWarehouse, 10m, 60m, 15m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BUNS", DepotWarehouse, 5m, 40m, 5m));
 
         var usd = Dollars(await RunAsync());
         var groups = usd.ByItemGroup.ToDictionary(group => group.ItemsGroupCode ?? -1);
@@ -569,8 +570,8 @@ public sealed class ManagementSalesReportTests : IDisposable
         Add(Vend(23m, To, vendor: _vendorB, lines: [("BREAD", 5, 20m)]));
         Add(Sale(11.5m, From, SaleSourceSystems.ShopTill, ShopWarehouse, "FARM-BP", lines: [("BREAD", 2, 10m)]));
         Add(Vend(46m, PreviousDay, vendor: _vendorA, lines: [("BREAD", 20, 40m)]));
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BREAD", DepotWarehouse, 10m, 60m, 18m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "MILK", DepotWarehouse, 2m, 40m, 2m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", DepotWarehouse, 10m, 60m, 18m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "MILK", DepotWarehouse, 2m, 40m, 2m));
 
         // Vending and the shop both sell BREAD, so it is two rows, and each is opened on its own.
         var rows = Dollars(await RunAsync()).ByItem.Where(item => item.ItemCode == "BREAD").ToDictionary(item => item.Business);
@@ -630,8 +631,8 @@ public sealed class ManagementSalesReportTests : IDisposable
         costed.SapDocEntry = 702;
         Add(costed);
 
-        _costs.Lines.Add(new SaleInvoiceLineCost(701, "USD", "BREAD", DepotWarehouse, 100m, 300m, 30m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(702, "USD", "BREAD", ShopWarehouse, 2m, 10m, 4m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(701, "BREAD", DepotWarehouse, 100m, 300m, 30m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(702, "BREAD", ShopWarehouse, 2m, 10m, 4m));
 
         var usd = Dollars(await RunAsync());
 
@@ -873,7 +874,7 @@ public sealed class ManagementSalesReportTests : IDisposable
     {
         Add(Vend(115m, From, vendor: _vendorA, docEntry: 501, lines: [("BREAD", 10, 100m)]));
         Add(Vend(70m, PreviousDay, vendor: _vendorB));
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BREAD", DepotWarehouse, 10m, 100m, 25m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", DepotWarehouse, 10m, 100m, 25m));
 
         var sent = await RunAsync();
         var json = System.Text.Json.JsonSerializer.Serialize(sent, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
@@ -1109,13 +1110,13 @@ public sealed class ManagementSalesReportTests : IDisposable
         public List<SaleInvoiceLineCost> Lines { get; } = [];
         public Exception? Failure { get; set; }
         public List<string>? RequestedWarehouses { get; private set; }
-        public DateTime? RequestedTo { get; private set; }
+        public List<int>? RequestedDocEntries { get; private set; }
 
         public Task<IReadOnlyList<SaleInvoiceLineCost>> ReadAsync(
-            IReadOnlyCollection<string> warehouseCodes, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+            IReadOnlyCollection<string> warehouseCodes, IReadOnlyCollection<int> docEntries, CancellationToken cancellationToken)
         {
             RequestedWarehouses = warehouseCodes.ToList();
-            RequestedTo = toDate;
+            RequestedDocEntries = docEntries.ToList();
             return Failure is not null
                 ? Task.FromException<IReadOnlyList<SaleInvoiceLineCost>>(Failure)
                 : Task.FromResult<IReadOnlyList<SaleInvoiceLineCost>>(Lines);

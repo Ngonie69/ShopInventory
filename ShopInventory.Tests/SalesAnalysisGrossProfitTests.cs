@@ -71,11 +71,11 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
             CounterSale("S3", null, [("BREAD", 3, 30m)]));
         await _context.SaveChangesAsync();
 
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BREAD", Shop, 10m, 100m, 30m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "MILK", Shop, 4m, 40m, -6m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(502, "USD", "BREAD", Shop, 5m, 50m, 12m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "MILK", Shop, 4m, 40m, -6m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(502, "BREAD", Shop, 5m, 50m, 12m));
         // Invoiced out of the same warehouse straight from SAP: not one of these sales.
-        _costs.Lines.Add(new SaleInvoiceLineCost(999, "USD", "BREAD", Shop, 50m, 500m, 400m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(999, "BREAD", Shop, 50m, 500m, 400m));
 
         var result = await AnalyseCountersAsync(includeMargin: true);
         var usd = result.Currencies.Single();
@@ -105,8 +105,8 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
             CounterSale("V1", 601, [("BREAD", 20, 160m)], source: SaleSourceSystems.Vending, warehouse: Depot));
         await _context.SaveChangesAsync();
 
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BREAD", Shop, 10m, 100m, 30m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(601, "USD", "BREAD", Depot, 20m, 160m, 8m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(601, "BREAD", Depot, 20m, 160m, 8m));
 
         var usd = (await AnalyseCountersAsync(includeMargin: true)).Currencies.Single();
 
@@ -157,9 +157,9 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
         _context.StockReservations.Add(OnlineVanSale("ON-2", 703, "YOG500", 1, 5m));
         await _context.SaveChangesAsync();
 
-        _costs.Lines.Add(new SaleInvoiceLineCost(701, "USD", "CHE011", Van, 2m, 20m, 4m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(702, "USD", "CHE011", Van, 3m, 30m, 6m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(703, "USD", "YOG500", Van, 1m, 5m, -1m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(701, "CHE011", Van, 2m, 20m, 4m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(702, "CHE011", Van, 3m, 30m, 6m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(703, "YOG500", Van, 1m, 5m, -1m));
 
         var result = await new GetVanSalesAnalysisHandler(
                 _context, Options.Create(new TaxSettings { VatRate = 0m }), _costs)
@@ -188,8 +188,8 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
             CounterSale("S1", 501, [("BREAD", 10, 100m), ("MILK", 4, 40m)]),
             CounterSale("S2", null, [("JAM", 1, 9m)]));
         await _context.SaveChangesAsync();
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "BREAD", Shop, 10m, 100m, 30m));
-        _costs.Lines.Add(new SaleInvoiceLineCost(501, "USD", "MILK", Shop, 4m, 40m, -6m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "MILK", Shop, 4m, 40m, -6m));
 
         var json = JsonSerializer.Serialize(
             await AnalyseCountersAsync(includeMargin: true), new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -346,7 +346,7 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
         public List<string>? RequestedWarehouses { get; private set; }
 
         public Task<IReadOnlyList<SaleInvoiceLineCost>> ReadAsync(
-            IReadOnlyCollection<string> warehouseCodes, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+            IReadOnlyCollection<string> warehouseCodes, IReadOnlyCollection<int> docEntries, CancellationToken cancellationToken)
         {
             Reads++;
             RequestedWarehouses = warehouseCodes.ToList();

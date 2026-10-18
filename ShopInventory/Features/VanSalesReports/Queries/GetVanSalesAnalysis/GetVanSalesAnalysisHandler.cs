@@ -111,7 +111,7 @@ public sealed class GetVanSalesAnalysisHandler(
         ManagementMarginStatus? marginStatus = null;
         if (query.IncludeMargin)
         {
-            (margin, marginStatus) = await MarginAsync(sales, from, to, cancellationToken);
+            (margin, marginStatus) = await MarginAsync(sales, cancellationToken);
         }
 
         var operators = await SaleOperatorNames.ResolveAsync(
@@ -153,7 +153,7 @@ public sealed class GetVanSalesAnalysisHandler(
     /// SAP's booked margin on the period's posted van sales, or an unavailable status — never an error.
     /// </summary>
     private async Task<(ManagementSalesRollup.MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
-        List<VanSaleFact> sales, DateTime from, DateTime to, CancellationToken cancellationToken)
+        List<VanSaleFact> sales, CancellationToken cancellationToken)
     {
         if (costReader is null)
         {
@@ -179,8 +179,6 @@ public sealed class GetVanSalesAnalysisHandler(
             posted,
             [],
             null,
-            from,
-            to,
             costReader,
             (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
             GetDesktopSalesAnalysisHandler.MarginDeadline,

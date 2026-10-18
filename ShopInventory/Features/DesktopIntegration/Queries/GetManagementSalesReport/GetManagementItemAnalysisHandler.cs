@@ -85,7 +85,7 @@ public sealed class GetManagementItemAnalysisHandler(
                 CreditedNetAmount = entry.Lines.Sum(line => line.Value)
             }));
         var (margin, marginStatus) = await MarginAsync(
-            Sales(db, window, window.From, window.To), itemCode, window, costReader, logger, cancellationToken);
+            Sales(db, window, window.From, window.To), itemCode, costReader, logger, cancellationToken);
 
         var everyCell = current.Concat(previous).ToList();
         var labels = await LabelsAsync(

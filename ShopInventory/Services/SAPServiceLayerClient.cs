@@ -9913,56 +9913,114 @@ ORDER BY T1."ItemCode"
             .ToList();
     }
 
-    private const string InvoiceLineCostQueryCode = "DSK_INV_COST";
+    private const string InvoiceLineCostQueryCode = "DSK_INV_COST_RANGE";
+
+    private const string CancelledInvoiceQueryCode = "DSK_INV_CANCELLED_RANGE";
 
     /// <summary>
-    /// Invoice lines with SAP's booked gross profit, for the management sales report's margin.
+    /// Invoice lines with SAP's booked gross profit, for the sales reports' margin: one warehouse's lines on
+    /// the invoices between two document numbers.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// INV1 alone, bounded by its key. This was <c>DSK_INV_COST</c>, an OINV-INV1 join filtered by warehouse
+    /// and document date, and in production it never answered a first page inside the 30-second margin
+    /// deadline (2026-10-18, five reads in a row, while stock reads beside them answered in 40 ms). A join
+    /// under bound parameters is the shape this Service Layer is slow on — the ITM1 join that took 46-93 s
+    /// against 0.5 s alone (PR #499). <c>PODCRA_RANGE</c> reads INV1 by the same bound key range and serves
+    /// the POD report daily.
+    /// </para>
+    /// <para>
+    /// The caller knows the invoices: the sales hold their <c>SapDocEntry</c>. So the range is theirs, not a
+    /// date window, and a sale posted days late is covered without a grace period. The range also holds
+    /// invoices raised in SAP directly from the same warehouse; the caller keeps only its own.
+    /// </para>
+    /// <para>
     /// Both currencies' columns are returned and the choice made on read. <c>LineTotal</c> and
     /// <c>GrssProfit</c> are in the company's local currency; <c>TotalFrgn</c> and <c>GrssProfFC</c> are in
     /// the document's, and are zero on a local-currency document. Reading the document-currency pair when
     /// it is non-zero gives every line in the currency the sale was made in, without this code needing to
-    /// know which currency the company books in.
-    ///
+    /// know which currency the company books in. The document currency itself is OINV's and is not read:
+    /// the margin is filed under the sale's currency.
+    /// </para>
+    /// <para>
     /// Parameterised, with no values in the text, for the reason <see cref="SalesQuantitiesSql"/> is: a
-    /// statement per range leaves an undeletable OUQR row per range. No ORDER BY on an aggregate and no
-    /// trailing whitespace, for the reasons given there.
+    /// statement per range leaves an undeletable OUQR row per range. No trailing whitespace, for the reason
+    /// given there.
+    /// </para>
     /// </remarks>
     internal const string InvoiceLineCostSql = """
 SELECT
     T0."DocEntry",
-    T0."DocCur",
-    T1."ItemCode",
-    T1."WhsCode",
-    T1."Quantity",
-    T1."LineTotal",
-    T1."TotalFrgn",
-    T1."GrssProfit",
-    T1."GrssProfFC"
-FROM OINV T0
-INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
-WHERE T1."WhsCode" = :whsCode
-  AND T0."DocDate" >= :fromDate
-  AND T0."DocDate" <= :toDate
-  AND T0."CANCELED" = 'N'
-ORDER BY T0."DocEntry", T1."LineNum"
+    T0."ItemCode",
+    T0."WhsCode",
+    T0."Quantity",
+    T0."LineTotal",
+    T0."TotalFrgn",
+    T0."GrssProfit",
+    T0."GrssProfFC"
+FROM INV1 T0
+WHERE T0."DocEntry" >= :docEntryStart AND T0."DocEntry" <= :docEntryEnd
+  AND T0."WhsCode" = :whsCode
+ORDER BY T0."DocEntry", T0."LineNum"
 """;
+
+    /// <summary>
+    /// The cancelled invoices between two document numbers: the half of the old join's
+    /// <c>CANCELED = 'N'</c> that needs OINV, read on its own so neither statement joins.
+    /// </summary>
+    /// <remarks>
+    /// <c>'Y'</c> is a cancelled invoice. Its cancellation document is <c>'C'</c> and is never a sale's
+    /// invoice, so it needs no exclusion. Few rows, whatever the range.
+    /// </remarks>
+    internal const string CancelledInvoiceSql = """
+SELECT
+    T0."DocEntry"
+FROM OINV T0
+WHERE T0."DocEntry" >= :docEntryStart AND T0."DocEntry" <= :docEntryEnd
+  AND T0."CANCELED" = 'Y'
+ORDER BY T0."DocEntry"
+""";
+
+    internal static Dictionary<string, string> BuildDocEntryRangeParameters(int docEntryStart, int docEntryEnd) =>
+        new()
+        {
+            ["docEntryStart"] = docEntryStart.ToString(CultureInfo.InvariantCulture),
+            ["docEntryEnd"] = docEntryEnd.ToString(CultureInfo.InvariantCulture)
+        };
 
     public async Task<List<ShopInventory.Common.Sales.SaleInvoiceLineCost>> GetInvoiceLineCostsAsync(
         string warehouseCode,
-        DateTime fromDate,
-        DateTime toDate,
+        int docEntryStart,
+        int docEntryEnd,
         CancellationToken cancellationToken = default)
     {
-        var rows = await ExecuteRawSqlQueryAsync(
+        var parameters = BuildDocEntryRangeParameters(docEntryStart, docEntryEnd);
+        parameters["whsCode"] = warehouseCode.Trim();
+
+        var rows = await ExecuteParameterisedSqlQueryAsync(
             InvoiceLineCostQueryCode,
-            "Desktop sale invoice line costs",
+            "Sale invoice line costs",
             InvoiceLineCostSql,
-            BuildSalesQuantityParameters(warehouseCode, fromDate, toDate),
+            parameters,
             cancellationToken);
 
         return rows.Select(ReadInvoiceLineCost).ToList();
+    }
+
+    public async Task<HashSet<int>> GetCancelledInvoiceDocEntriesAsync(
+        int docEntryStart,
+        int docEntryEnd,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await ExecuteParameterisedSqlQueryAsync(
+            CancelledInvoiceQueryCode,
+            "Cancelled invoices",
+            CancelledInvoiceSql,
+            BuildDocEntryRangeParameters(docEntryStart, docEntryEnd),
+            cancellationToken);
+
+        return rows.Select(row => (int)SqlDecimal(row, "DocEntry")).ToHashSet();
     }
 
     /// <summary>One row of <see cref="InvoiceLineCostSql"/>, in the document's own currency.</summary>
@@ -9973,7 +10031,6 @@ ORDER BY T0."DocEntry", T1."LineNum"
 
         return new ShopInventory.Common.Sales.SaleInvoiceLineCost(
             (int)SqlDecimal(row, "DocEntry"),
-            (row.GetValueOrDefault("DocCur") as string ?? string.Empty).Trim().ToUpperInvariant(),
             row.GetValueOrDefault("ItemCode") as string ?? string.Empty,
             row.GetValueOrDefault("WhsCode") as string ?? string.Empty,
             SqlDecimal(row, "Quantity"),

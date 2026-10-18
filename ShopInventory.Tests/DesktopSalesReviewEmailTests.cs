@@ -268,7 +268,7 @@ public sealed class DesktopSalesReviewEmailTests : IDisposable
     private sealed class NoCost : ISaleInvoiceCostReader
     {
         public Task<IReadOnlyList<SaleInvoiceLineCost>> ReadAsync(
-            IReadOnlyCollection<string> warehouseCodes, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+            IReadOnlyCollection<string> warehouseCodes, IReadOnlyCollection<int> docEntries, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<SaleInvoiceLineCost>>([]);
     }
 

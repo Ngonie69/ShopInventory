@@ -39,9 +39,6 @@ public sealed class GetManagementSalesReportHandler(
     ILogger<GetManagementSalesReportHandler> logger)
     : IRequestHandler<GetManagementSalesReportQuery, ErrorOr<ManagementSalesReport>>
 {
-    /// <inheritdoc cref="ManagementSalesRollup.PostingGraceDays"/>
-    public const int PostingGraceDays = ManagementSalesRollup.PostingGraceDays;
-
     public async Task<ErrorOr<ManagementSalesReport>> Handle(
         GetManagementSalesReportQuery request, CancellationToken cancellationToken)
     {
@@ -85,7 +82,7 @@ public sealed class GetManagementSalesReportHandler(
         var directory = PartnerDirectory(partners);
         var health = await HealthAsync(Sales(db, window, window.From, window.To), cancellationToken);
         var (margin, marginStatus) = await MarginAsync(
-            Sales(db, window, window.From, window.To), null, window, costReader, logger, cancellationToken);
+            Sales(db, window, window.From, window.To), null, costReader, logger, cancellationToken);
 
         var everyCell = current.Concat(previous).ToList();
         var labels = await LabelsAsync(
