@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Blazored.LocalStorage;
 using Microsoft.Extensions.Logging;
 using ShopInventory.Web.Models;
@@ -99,6 +100,13 @@ public interface IDesktopIntegrationService
     // call for different things.
     Task<(DesktopSaleFiscalisationRetryResultDto? Result, string? Error)> RetrySaleFiscalisationAsync(
         string externalReference, CancellationToken cancellationToken = default);
+
+    // The same retry for a chosen set, one sale at a time through the endpoint above, with a row per sale.
+    // progress is told how many have been answered so far; cancelling stops it between sales.
+    Task<DesktopSalesBulkFiscalisationResultDto> RetrySalesFiscalisationAsync(
+        IReadOnlyList<DesktopSaleFiscalisationTarget> sales,
+        IProgress<int>? progress = null,
+        CancellationToken cancellationToken = default);
 }
 
 public class DesktopIntegrationService : IDesktopIntegrationService
@@ -554,6 +562,99 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     public async Task<(DesktopSaleFiscalisationRetryResultDto? Result, string? Error)> RetrySaleFiscalisationAsync(
         string externalReference, CancellationToken cancellationToken = default)
     {
+        var (result, _, error) = await SendFiscalisationRetryAsync(externalReference, cancellationToken);
+        return (result, error);
+    }
+
+    /// <remarks>
+    /// <para>
+    /// One request per sale, in order, never side by side. The API has no batch route for this and should
+    /// not need one: each retry asks the device first and submits under the sale's one reference, and two
+    /// in flight at once against the same device are exactly the race the sweep's
+    /// <c>DisallowConcurrentExecution</c> exists to avoid.
+    /// </para>
+    /// <para>
+    /// A device that cannot be asked stops its own sales, not the batch. The API answers
+    /// <c>SaleFiscalisationUncheckable</c> when the look-up failed and nothing was sent; asking that device
+    /// again for every other sale it signs would wait out its timeout once per sale, the way the sweep used
+    /// to before it learned to stop. Sales are signed by the device for their source and warehouse
+    /// (<c>FiscalReceiptSource.ForSale</c>), so that pair is what is skipped. Sales on other devices go on.
+    /// </para>
+    /// </remarks>
+    public async Task<DesktopSalesBulkFiscalisationResultDto> RetrySalesFiscalisationAsync(
+        IReadOnlyList<DesktopSaleFiscalisationTarget> sales,
+        IProgress<int>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = new List<DesktopSaleFiscalisationRowDto>(sales.Count);
+        var silentDevices = new HashSet<(string?, string?)>();
+
+        foreach (var sale in sales)
+        {
+            var device = (sale.SourceSystem, sale.WarehouseCode?.ToUpperInvariant());
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                rows.Add(new(sale.ExternalReferenceId, DesktopSaleFiscalisationRowOutcomes.NotSent, null,
+                    "Not sent: the page was closed before this sale was reached."));
+            }
+            else if (silentDevices.Contains(device))
+            {
+                rows.Add(new(sale.ExternalReferenceId, DesktopSaleFiscalisationRowOutcomes.NotSent, null,
+                    "Not sent: its fiscal device could not be asked about an earlier sale in this batch. "
+                    + "Retry once the device answers."));
+            }
+            else
+            {
+                // Not on the caller's token. Cancelling stops the batch between sales; aborting a request
+                // the device may be signing would only lose its answer, and the sale would look unsigned.
+                var (result, code, error) = await SendFiscalisationRetryAsync(sale.ExternalReferenceId, CancellationToken.None);
+
+                if (result is not null)
+                {
+                    rows.Add(new(sale.ExternalReferenceId, result.Outcome, result.FiscalReceiptNumber, result.Message));
+                }
+                else
+                {
+                    if (code == UncheckableCode)
+                    {
+                        silentDevices.Add(device);
+                    }
+
+                    rows.Add(new(
+                        sale.ExternalReferenceId,
+                        code switch
+                        {
+                            UncheckableCode => DesktopSaleFiscalisationRowOutcomes.Unreachable,
+                            NotFiscalisableCode => DesktopSaleFiscalisationRowOutcomes.Refused,
+                            _ => DesktopSaleFiscalisationRowOutcomes.Failed
+                        },
+                        null,
+                        WithoutReferencePrefix(error, sale.ExternalReferenceId)));
+                }
+            }
+
+            progress?.Report(rows.Count);
+        }
+
+        return new DesktopSalesBulkFiscalisationResultDto(rows);
+    }
+
+    private const string UncheckableCode = "DesktopSales.SaleFiscalisationUncheckable";
+    private const string NotFiscalisableCode = "DesktopSales.SaleNotFiscalisable";
+
+    /// <summary>
+    /// The API words each refusal "{reference}: {reason}". A results table already has a column for the
+    /// reference, so the row says only the reason.
+    /// </summary>
+    private static string? WithoutReferencePrefix(string? message, string reference) =>
+        message is not null && message.StartsWith(reference + ": ", StringComparison.Ordinal)
+            ? message[(reference.Length + 2)..]
+            : message;
+
+    private async Task<(DesktopSaleFiscalisationRetryResultDto? Result, string? Code, string? Error)> SendFiscalisationRetryAsync(
+        string externalReference, CancellationToken cancellationToken)
+    {
         try
         {
             var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync(
@@ -563,13 +664,14 @@ public class DesktopIntegrationService : IDesktopIntegrationService
 
             if (!response.IsSuccessStatusCode)
             {
-                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+                var (code, message) = await ReadProblemAsync(response, cancellationToken);
+                return (null, code, message);
             }
 
             var result = await response.Content.ReadFromJsonAsync<DesktopSaleFiscalisationRetryResultDto>(cancellationToken);
             return result is null
-                ? (null, "The API accepted the retry but returned nothing to show for it.")
-                : (result, null);
+                ? (null, null, "The API accepted the retry but returned nothing to show for it.")
+                : (result, null, null);
         }
         catch (Exception ex)
         {
@@ -577,7 +679,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
 
             // Not phrased as a failure to fiscalise: the device may have signed while the reply was lost.
             // Pressing Retry again is safe, because the device is asked for an existing receipt first.
-            return (null,
+            return (null, null,
                 $"The retry could not be completed from here: {ex.Message}. Refresh to see whether the sale "
                 + "now has a receipt; retrying again will not sign it twice.");
         }
@@ -691,6 +793,67 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         catch
         {
             return $"The API refused the post ({(int)response.StatusCode}).";
+        }
+    }
+
+    /// <summary>
+    /// The API's error code and its sentence for the operator.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="ReadProblemDetailAsync"/>, which takes <c>detail</c> first. A refusal raised as a
+    /// validation error — <c>SaleNotFiscalisable</c> is one — comes back as a validation problem whose
+    /// <c>detail</c> is only "The request contains validation errors." and whose reason is in the
+    /// <c>errors</c> dictionary, so that reader showed the operator the boilerplate and not the reason.
+    /// </remarks>
+    private static async Task<(string? Code, string Message)> ReadProblemAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var fallback = $"The API refused the retry ({(int)response.StatusCode}).";
+
+        try
+        {
+            using var document = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(cancellationToken));
+            var root = document.RootElement;
+
+            string? Text(string name) =>
+                root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+                    ? value.GetString()
+                    : null;
+
+            var code = Text("code");
+
+            if (root.TryGetProperty("errors", out var errors) &&
+                errors.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var entry in errors.EnumerateObject())
+                {
+                    if (entry.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in entry.Value.EnumerateArray())
+                        {
+                            if (item.ValueKind == JsonValueKind.String &&
+                                !string.IsNullOrWhiteSpace(item.GetString()))
+                            {
+                                return (code ?? entry.Name, item.GetString()!);
+                            }
+                        }
+                    }
+                }
+            }
+
+            var detail = Text("detail");
+            if (!string.IsNullOrWhiteSpace(detail))
+            {
+                return (code, detail);
+            }
+
+            var title = Text("title");
+            return (code, string.IsNullOrWhiteSpace(title) ? fallback : title);
+        }
+        catch
+        {
+            return (null, fallback);
         }
     }
 
@@ -1150,6 +1313,51 @@ public class DesktopSaleFiscalisationRetryResultDto
 
     public string? FiscalReceiptNumber { get; set; }
     public string? Message { get; set; }
+}
+
+/// <summary>A sale to retry, with what decides which fiscal device signs it.</summary>
+public sealed record DesktopSaleFiscalisationTarget(
+    string ExternalReferenceId,
+    string? SourceSystem,
+    string? WarehouseCode);
+
+/// <summary>
+/// The outcomes of one sale in a batch retry. The first two are the API's own; the rest say why the API
+/// did not sign it.
+/// </summary>
+public static class DesktopSaleFiscalisationRowOutcomes
+{
+    public const string Fiscalised = "Fiscalised";
+    public const string AlreadyFiscalised = "AlreadyFiscalised";
+
+    /// <summary>The device was asked to sign and did not.</summary>
+    public const string Failed = "Failed";
+
+    /// <summary>The device could not be asked whether it already holds the receipt, so nothing was sent.</summary>
+    public const string Unreachable = "Unreachable";
+
+    /// <summary>The API will not retry this sale — already fiscalised, signed elsewhere, still at the till.</summary>
+    public const string Refused = "Refused";
+
+    /// <summary>Not asked: its device had already failed to answer in this batch.</summary>
+    public const string NotSent = "NotSent";
+}
+
+public sealed record DesktopSaleFiscalisationRowDto(
+    string ExternalReferenceId,
+    string Outcome,
+    string? FiscalReceiptNumber,
+    string? Message)
+{
+    public bool HasReceipt =>
+        Outcome is DesktopSaleFiscalisationRowOutcomes.Fiscalised or DesktopSaleFiscalisationRowOutcomes.AlreadyFiscalised;
+}
+
+public sealed record DesktopSalesBulkFiscalisationResultDto(IReadOnlyList<DesktopSaleFiscalisationRowDto> Results)
+{
+    public int Requested => Results.Count;
+    public int WithReceipt => Results.Count(r => r.HasReceipt);
+    public int Count(string outcome) => Results.Count(r => r.Outcome == outcome);
 }
 
 /// <summary>
