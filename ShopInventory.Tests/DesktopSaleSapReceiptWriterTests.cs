@@ -1,7 +1,14 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Caching;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -202,6 +209,100 @@ public sealed class DesktopSaleSapReceiptWriterTests : IDisposable
         var patch = Assert.Single(_sap.Patches);
         Assert.Equal(["Comments"], patch.Fields.Keys);
         Assert.DoesNotContain("U_Fiscal_Code", _sap.LastRead!);
+    }
+
+    [Fact]
+    public async Task The_client_reads_only_the_named_fields_and_blank_reads_as_null()
+    {
+        var sap = new ServiceLayer(HttpStatusCode.OK,
+            """{"DocNum":790100,"Comments":"x","U_Fiscal_Code":"","U_Fiscal_Url":null}""");
+
+        var fields = await RealClient(sap).GetInvoiceFieldsAsync(DocEntry, ["DocNum", "Comments", "U_Fiscal_Code", "U_Fiscal_Url"]);
+
+        Assert.Equal("GET /b1s/v1/Invoices(51234)?$select=DocNum,Comments,U_Fiscal_Code,U_Fiscal_Url", sap.Requests.Single());
+        Assert.NotNull(fields);
+        Assert.Equal("790100", fields["DocNum"]);
+        Assert.Equal("x", fields["Comments"]);
+        Assert.Null(fields["U_Fiscal_Code"]);
+        Assert.Null(fields["U_Fiscal_Url"]);
+    }
+
+    [Fact]
+    public async Task The_client_patches_only_the_fields_it_is_given()
+    {
+        var sap = new ServiceLayer(HttpStatusCode.NoContent, "");
+
+        await RealClient(sap).UpdateInvoiceFieldsAsync(DocEntry, new Dictionary<string, string>
+        {
+            ["U_Fiscal_Code"] = "ABCD-1234-EFGH-5678",
+            ["Comments"] = "Fiscal receipt 1190"
+        });
+
+        Assert.Equal("PATCH /b1s/v1/Invoices(51234)", sap.Requests.Single());
+        using var body = JsonDocument.Parse(sap.LastBody!);
+        Assert.Equal(["U_Fiscal_Code", "Comments"], body.RootElement.EnumerateObject().Select(p => p.Name));
+        Assert.Equal("ABCD-1234-EFGH-5678", body.RootElement.GetProperty("U_Fiscal_Code").GetString());
+    }
+
+    private static SAPServiceLayerClient RealClient(ServiceLayer sap)
+    {
+        var httpClient = new HttpClient(sap) { BaseAddress = new Uri("https://sap.invalid/b1s/v1/") };
+        var services = new ServiceCollection().BuildServiceProvider();
+
+        return new SAPServiceLayerClient(
+            httpClient,
+            new SingleClientFactory(httpClient),
+            Options.Create(new SAPSettings { ServiceLayerUrl = "https://sap.invalid/b1s/v1/" }),
+            new StubHostEnvironment(),
+            NullLogger<SAPServiceLayerClient>.Instance,
+            new MemoryCache(new MemoryCacheOptions()),
+            new CacheSyncStateRecorder(
+                services.GetRequiredService<IServiceScopeFactory>(),
+                NullLogger<CacheSyncStateRecorder>.Instance),
+            StubProxy.Unused<ISapItemUomMappingStore>());
+    }
+
+    /// <summary>Answers the login, then records every other request and answers it with one reply.</summary>
+    private sealed class ServiceLayer(HttpStatusCode status, string body) : HttpMessageHandler
+    {
+        public List<string> Requests { get; } = [];
+        public string? LastBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var target = Uri.UnescapeDataString(request.RequestUri!.PathAndQuery);
+
+            if (target.EndsWith("/Login", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"SessionId\":\"test-session\"}", Encoding.UTF8, "application/json")
+                };
+            }
+
+            Requests.Add($"{request.Method} {target}");
+            LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+
+            return new HttpResponseMessage(status)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    private sealed class SingleClientFactory(HttpClient client) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => client;
+    }
+
+    private sealed class StubHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Development";
+        public string ApplicationName { get; set; } = "ShopInventory.Tests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
     }
 
     private DesktopSaleSapReceiptWriter Writer(
