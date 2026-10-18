@@ -250,7 +250,6 @@ internal static class ManagementSalesRollup
     /// </summary>
     /// <param name="sales">The period's sales, already scoped.</param>
     /// <param name="itemCode">When given, only that item's invoice lines count — the drill-down's margin.</param>
-    /// <param name="window">The period, whose end is extended by <see cref="PostingGraceDays"/> for the SAP read.</param>
     /// <param name="costReader">Where SAP's booked cost is read from.</param>
     /// <param name="logger">Where a failed SAP read is recorded.</param>
     /// <param name="cancellationToken">Cancels the database and SAP reads.</param>
@@ -258,7 +257,6 @@ internal static class ManagementSalesRollup
     public static async Task<(MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
         IQueryable<DesktopSaleEntity> sales,
         string? itemCode,
-        Window window,
         ISaleInvoiceCostReader costReader,
         ILogger logger,
         CancellationToken cancellationToken,
@@ -306,8 +304,7 @@ internal static class ManagementSalesRollup
                 c.DocEntry, CurrencyKey(c.Currency), c.WarehouseCode ?? string.Empty, c.CardCode ?? string.Empty, c.SalesCount))
             .ToList();
 
-        return await MarginOfPostedAsync(
-            direct, consolidated, itemCode, window.From, window.To, costReader, logger, deadline, cancellationToken);
+        return await MarginOfPostedAsync(direct, consolidated, itemCode, costReader, logger, deadline, cancellationToken);
     }
 
     /// <summary>
@@ -323,8 +320,6 @@ internal static class ManagementSalesRollup
         List<PostedSale> direct,
         List<ConsolidatedInvoice> consolidated,
         string? itemCode,
-        DateTime from,
-        DateTime to,
         ISaleInvoiceCostReader costReader,
         ILogger logger,
         TimeSpan? deadline,
@@ -352,15 +347,32 @@ internal static class ManagementSalesRollup
                 timeout.CancelAfter(limit);
             }
 
-            lines = await costReader.ReadAsync(warehouses, from, to.AddDays(PostingGraceDays), timeout.Token);
+            var docEntries = direct.Select(s => s.DocEntry)
+                .Concat(consolidated.Select(c => c.DocEntry))
+                .Distinct()
+                .ToList();
+
+            lines = await costReader.ReadAsync(warehouses, docEntries, timeout.Token);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "Could not read invoice cost from SAP for a sales margin");
+            // The deadline is the usual way here, and "could not be reached" sent the last diagnosis
+            // looking for an outage when SAP was answering everything else in 40 ms.
+            string reason;
+            if (ex is OperationCanceledException && deadline is { } missed)
+            {
+                logger.LogWarning(ex, "Invoice cost from SAP did not arrive within the {Deadline} margin deadline", missed);
+                reason = $"SAP did not return the booked cost of these sales within {missed.TotalSeconds:0} seconds.";
+            }
+            else
+            {
+                logger.LogWarning(ex, "Could not read invoice cost from SAP for a sales margin");
+                reason = "SAP could not be reached for the booked cost of these sales.";
+            }
+
             return (MarginBook.Empty, new ManagementMarginStatus(
                 false,
-                "Gross margin is unavailable: SAP could not be reached for the booked cost of these sales. "
-                    + "Everything else on this report is unaffected."));
+                $"Gross margin is unavailable: {reason} Everything else on this report is unaffected."));
         }
 
         if (itemCode is not null)
@@ -378,13 +390,6 @@ internal static class ManagementSalesRollup
 
         return (MarginBook.From(direct, consolidated, lines), new ManagementMarginStatus(true, detail));
     }
-
-    /// <summary>
-    /// How long after a period ends its sales may still be posted and dated. SAP invoices are read this
-    /// far past the end so a sale posted a few days late still carries its cost into the period it was
-    /// made in; matching is by document number, so nothing from outside the period is counted.
-    /// </summary>
-    public const int PostingGraceDays = 14;
 
     // ── Shapes ─────────────────────────────────────────────────────────────────────────────────────
 

@@ -310,7 +310,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
         ManagementMarginStatus? marginStatus = null;
         if (request.IncludeMargin)
         {
-            (margin, marginStatus) = await MarginAsync(sales, from, to, cancellationToken);
+            (margin, marginStatus) = await MarginAsync(sales, cancellationToken);
         }
 
         var operators = await OperatorNamesAsync(cells, cancellationToken);
@@ -356,7 +356,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
     /// takings stand without it.
     /// </summary>
     private async Task<(ManagementSalesRollup.MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
-        IQueryable<DesktopSaleEntity> sales, DateTime from, DateTime to, CancellationToken cancellationToken)
+        IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken)
     {
         if (costReader is null)
         {
@@ -364,12 +364,9 @@ public sealed class GetDesktopSalesAnalysisHandler(
                 false, "Gross profit is unavailable: this server has no SAP cost reader."));
         }
 
-        var days = (to - from).Days + 1;
-
         return await ManagementSalesRollup.MarginAsync(
             sales,
             null,
-            new ManagementSalesRollup.Window(from, to, from.AddDays(-days), from.AddDays(-1), days, null, null),
             costReader,
             (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
             cancellationToken,
