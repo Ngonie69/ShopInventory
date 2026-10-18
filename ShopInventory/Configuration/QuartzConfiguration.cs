@@ -117,6 +117,14 @@ public static class QuartzConfiguration
                     SalesOrderCardNameBackfillJob.StartupDelay);
             }
 
+            // The sales reports' gross profit is read from a copy of SAP's booked invoice cost, never
+            // from SAP during a page load. This keeps the copy a few minutes behind posting.
+            if (sap.Enabled)
+            {
+                AddIntervalJob<SaleInvoiceCostSyncJob>(
+                    q, "sale-invoice-cost-sync", TimeSpan.FromMinutes(5), startDelay: TimeSpan.FromMinutes(3));
+            }
+
             if (sap.Enabled && creditNoteSync.Enabled)
             {
                 AddIntervalJob<CreditNoteProjectionSyncJob>(

@@ -242,6 +242,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<DesktopCreditNoteEntity> DesktopCreditNotes { get; set; }
   public DbSet<DesktopSaleLineEntity> DesktopSaleLines { get; set; }
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
+  public DbSet<SaleInvoiceCostEntity> SaleInvoiceCosts { get; set; }
+  public DbSet<SaleInvoiceCostLineEntity> SaleInvoiceCostLines { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
 
   /// <summary>
