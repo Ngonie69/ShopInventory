@@ -659,6 +659,7 @@ try
     // Carries shop till and vending sales to SAP, one invoice each, shortly after the till has already
     // fiscalised and printed them.
     builder.Services.AddScoped<DesktopSalePostingService>();
+    builder.Services.AddScoped<DesktopSaleSapReceiptWriter>();
 
     // Tells the admins when one of those sales is stuck before SAP while its units are held off the
     // shelf, and before and when the hold ends.

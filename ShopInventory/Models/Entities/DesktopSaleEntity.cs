@@ -444,6 +444,26 @@ public class DesktopSaleEntity
     public DateTime? PostedBeforeReceiptAt { get; set; }
 
     /// <summary>
+    /// When the SAP invoice of a sale posted before its receipt was given the receipt: the fiscal code
+    /// and QR URL UDFs, and the receipt in place of "fiscal receipt pending" in its remarks.
+    /// </summary>
+    /// <remarks>
+    /// An ordinary sale carries these on the invoice POST, because it is signed first. A sale posted
+    /// before its receipt reached SAP without them, and nothing went back to fill them in: the platform
+    /// writes them only on documents it fiscalises from SAP, and this sale is signed by its own
+    /// reference, not the invoice's DocEntry. So the invoice printed with no QR code and still said its
+    /// receipt was pending. Null while that is still owed; see <c>DesktopSaleSapReceiptWriter</c>.
+    /// </remarks>
+    public DateTime? SapReceiptWrittenAt { get; set; }
+
+    /// <summary>Failed attempts to give the SAP invoice its receipt. Bounded so a refusal stops being retried.</summary>
+    public int SapReceiptWriteAttempts { get; set; }
+
+    /// <summary>Why the last attempt to give the SAP invoice its receipt failed.</summary>
+    [MaxLength(1000)]
+    public string? SapReceiptWriteError { get; set; }
+
+    /// <summary>
     /// Posting attempts so far. The 18:00 run and the 19:30 mop-up both increment this, so a sale that
     /// fails every night is visible rather than silently retried forever.
     /// </summary>

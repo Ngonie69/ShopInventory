@@ -48,5 +48,25 @@ public sealed class DesktopSalePostingJob(
             // misfire policy instead, which is tuned for jobs that fire far less often.
             logger.LogError(ex, "Till sale posting failed.");
         }
+
+        // Under this job's key rather than one of its own: it writes to the same invoices, behind the
+        // same SAP gate, and a new clustered job is one an out-of-date node refuses. After the posting
+        // pass, and whatever that pass did, because it only touches invoices that already exist.
+        try
+        {
+            var receiptWriter = scope.ServiceProvider.GetRequiredService<DesktopSaleSapReceiptWriter>();
+            var written = await receiptWriter.WriteOwedReceiptsAsync(context.CancellationToken);
+
+            if (written.Failed > 0)
+            {
+                logger.LogWarning(
+                    "Gave {Written} SAP invoices their fiscal receipt; {Failed} could not be.",
+                    written.Written, written.Failed);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Giving SAP invoices their fiscal receipt failed.");
+        }
     }
 }

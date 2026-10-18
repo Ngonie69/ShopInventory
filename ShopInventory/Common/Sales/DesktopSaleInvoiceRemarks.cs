@@ -88,6 +88,27 @@ public static class DesktopSaleInvoiceRemarks
     }
 
     /// <summary>
+    /// An invoice's remarks with "fiscal receipt pending" swapped for the receipt the sale now has, or
+    /// null when they do not carry the marker or the sale has no receipt to quote.
+    /// </summary>
+    /// <remarks>
+    /// Swapped in place rather than rebuilt, so anything a person added to the remarks in SAP survives.
+    /// The result can exceed <see cref="MaxLength"/>; the caller rebuilds with <see cref="Build"/> then.
+    /// </remarks>
+    public static string? WithReceipt(string? comments, DesktopSaleEntity sale)
+    {
+        if (string.IsNullOrEmpty(comments) ||
+            !comments.Contains(PendingReceiptRemark, StringComparison.Ordinal) ||
+            sale.FiscalizationStatus != DesktopSaleFiscalizationStatus.Success)
+        {
+            return null;
+        }
+
+        var receipt = DescribeFiscalReceipt(sale);
+        return receipt is null ? null : comments.Replace(PendingReceiptRemark, receipt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The same remark for an online van sale, whose invoice posts from a reservation before any sale
     /// row exists to build it from.
     /// </summary>

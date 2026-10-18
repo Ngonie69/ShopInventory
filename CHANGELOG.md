@@ -18,6 +18,14 @@ otherwise be surprised.
 
 ### Changed
 
+- **SAP invoices of sales posted before their receipt are updated once the sale is signed.** A till or
+  vending sale an Admin posted with *Post without receipt* now has its SAP invoice PATCHed after it
+  fiscalises: `U_Fiscal_Code` and `U_Fiscal_Url` (per `Fiscalisation:Udf`) are filled, and
+  "FISCAL RECEIPT PENDING - …" in its remarks is replaced by the receipt. It runs after each
+  desktop sale posting pass. Sales already signed when this deploys are updated on the first pass.
+  An invoice whose DocNum does not match the sale, or that already holds a different fiscal code,
+  is left alone and the reason is stored in `DesktopSales.SapReceiptWriteError`.
+
 - **`scripts\Stop-OpenWA.ps1` stops only its own folder's gateway.** It ends the node, Chrome and
   runner of one `OpenWA` folder (beside the script, or `-OpenWARoot`) and leaves a gateway run from
   any other folder alone; before, it ended every OpenWA gateway on the machine. `Run-OpenWA.ps1` and
