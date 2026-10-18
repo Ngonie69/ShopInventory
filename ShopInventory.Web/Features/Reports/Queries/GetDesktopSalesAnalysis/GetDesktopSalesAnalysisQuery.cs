@@ -20,8 +20,8 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 /// <c>CardCode</c> confines every figure to the sales made as one business partner, inside whatever the
 /// account may read. The van analysis has no such filter, so it is not sent there.
 ///
-/// <c>IncludeMargin</c> asks for SAP's booked gross profit on every item, on either analysis. It costs a
-/// SAP read, so a page asks for it only on the result it draws items from.
+/// <c>IncludeMargin</c> asks for SAP's booked gross profit on every item, on either analysis. The API reads
+/// it from its own copy, but it is still extra work, so a page asks for it only on the result it draws items from.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     DateTime? FromDate,

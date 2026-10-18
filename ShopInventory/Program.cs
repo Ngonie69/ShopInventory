@@ -499,8 +499,11 @@ try
     // Register stock validation service - CRITICAL for preventing negative quantities
     builder.Services.AddScoped<IStockValidationService, StockValidationService>();
 
-    // Booked invoice cost from SAP, for the management sales report's gross margin
-    builder.Services.AddScoped<ShopInventory.Common.Sales.ISaleInvoiceCostReader, SapSaleInvoiceCostReader>();
+    // Booked invoice cost for the sales reports' gross margin: the reports read the copy kept in this
+    // database, and only SaleInvoiceCostSyncJob reads SAP for it.
+    builder.Services.AddScoped<ShopInventory.Common.Sales.ISaleInvoiceCostReader, StoredSaleInvoiceCostReader>();
+    builder.Services.AddScoped<ShopInventory.Common.Sales.ISapSaleInvoiceCostReader, SapSaleInvoiceCostReader>();
+    builder.Services.AddScoped<SaleInvoiceCostSyncService>();
 
     // Register batch inventory validation service - CRITICAL for batch-managed items
     // Implements FIFO/FEFO auto-allocation and prevents negative batch quantities

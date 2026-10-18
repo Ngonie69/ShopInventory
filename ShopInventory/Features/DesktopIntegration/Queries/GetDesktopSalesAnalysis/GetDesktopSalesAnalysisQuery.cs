@@ -31,8 +31,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// management report matches it. It narrows within the caller's scope and never widens it: a shop-confined
 /// caller naming a partner reads that partner's sales at their own shop only.
 ///
-/// <c>IncludeMargin</c> adds SAP's booked gross profit to every item and line of business. It reads SAP,
-/// so it is off unless asked for: the till's own calls and the review email do not need it.
+/// <c>IncludeMargin</c> adds SAP's booked gross profit to every item and line of business, from this API's
+/// copy of it (<c>SaleInvoiceCostSyncService</c>). It is off unless asked for: the till's own calls and the
+/// review email do not need it.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     Guid CallerUserId,

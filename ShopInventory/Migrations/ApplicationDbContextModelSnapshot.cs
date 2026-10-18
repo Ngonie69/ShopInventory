@@ -5944,6 +5944,65 @@ namespace ShopInventory.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.SaleInvoiceCostEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocEntry", "WarehouseCode")
+                        .IsUnique();
+
+                    b.ToTable("SaleInvoiceCosts");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SaleInvoiceCostLineEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("GrossProfit")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<decimal>("Revenue")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<int>("SaleInvoiceCostId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SaleInvoiceCostId");
+
+                    b.ToTable("SaleInvoiceCostLines");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -9613,6 +9672,17 @@ namespace ShopInventory.Migrations
                     b.Navigation("Route");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.SaleInvoiceCostLineEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.SaleInvoiceCostEntity", "Invoice")
+                        .WithMany("Lines")
+                        .HasForeignKey("SaleInvoiceCostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Invoice");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "ApprovedByUser")
@@ -10069,6 +10139,11 @@ namespace ShopInventory.Migrations
             modelBuilder.Entity("ShopInventory.Models.Entities.SaleConsolidationEntity", b =>
                 {
                     b.Navigation("Sales");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SaleInvoiceCostEntity", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>

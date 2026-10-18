@@ -38,8 +38,8 @@ public sealed class GetDesktopSalesAnalysisHandler(
     : IRequestHandler<GetDesktopSalesAnalysisQuery, ErrorOr<DesktopSalesAnalysisResult>>
 {
     /// <summary>
-    /// How long the SAP cost read may hold the page. Past it the analysis is answered without margin: the
-    /// takings are local and should never wait on SAP.
+    /// How long the cost read may hold the page. Past it the analysis is answered without margin. The
+    /// reader is the stored copy, so this is a backstop; it was the SAP read's limit when the page asked SAP.
     /// </summary>
     public static readonly TimeSpan MarginDeadline = TimeSpan.FromSeconds(30);
 

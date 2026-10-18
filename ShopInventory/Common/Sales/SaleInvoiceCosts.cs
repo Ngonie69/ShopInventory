@@ -43,3 +43,13 @@ public interface ISaleInvoiceCostReader
         IReadOnlyCollection<int> docEntries,
         CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Reads booked invoice cost from SAP itself, rather than from the copy the reports read.
+/// </summary>
+/// <remarks>
+/// Only the background copy (<c>SaleInvoiceCostSyncService</c>) asks SAP. A report that did so on
+/// every page load missed its deadline whenever the Service Layer was slow, which on a busy morning
+/// was every time.
+/// </remarks>
+public interface ISapSaleInvoiceCostReader : ISaleInvoiceCostReader;

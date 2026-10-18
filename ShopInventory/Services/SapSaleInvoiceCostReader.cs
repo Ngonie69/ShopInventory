@@ -15,7 +15,7 @@ namespace ShopInventory.Services;
 /// </remarks>
 public sealed class SapSaleInvoiceCostReader(
     ISAPServiceLayerClient sapClient,
-    ILogger<SapSaleInvoiceCostReader> logger) : ISaleInvoiceCostReader
+    ILogger<SapSaleInvoiceCostReader> logger) : ISapSaleInvoiceCostReader
 {
     public async Task<IReadOnlyList<SaleInvoiceLineCost>> ReadAsync(
         IReadOnlyCollection<string> warehouseCodes,
