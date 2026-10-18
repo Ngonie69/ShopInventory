@@ -511,26 +511,50 @@
     @* Only while something is ticked. A permanently visible "Post 0 to SAP" would
        invite the press that does nothing, and the count is the whole point of the
        button: it states what is about to reach SAP before it does. *@
-    @if (selected.Count > 0)
+    @if (selected.Count > 0 || isBulkFiscalising)
     {
         <div class="ops-ds-selbar">
             <span class="ops-ds-selbar-count">@selected.Count selected</span>
             <span class="ops-ds-selbar-value">@Money(selectedValue)</span>
             <span class="ops-ds-selbar-gap"></span>
-            <button type="button" class="ops-btn ops-btn-primary ops-btn-sm" @onclick="OpenBulkPost"
-                    disabled="@(isPosting || isLoading)">
-                @if (isPosting)
-                {
-                    <span class="ops-spin"></span>
-                    <span>Posting&hellip;</span>
-                }
-                else
-                {
-                    <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
-                    <span>Post @selected.Count to SAP</span>
-                }
-            </button>
-            <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="() => selected.Clear()">
+            @* Each button names its own count, because a selection can hold both kinds: a sale that
+               fiscalised and waits for SAP, and one whose fiscalisation failed. Neither button acts on
+               the other's rows. *@
+            @if (selectedRetryable.Count > 0 || isBulkFiscalising)
+            {
+                <button type="button" class="ops-btn @(selectedPostable.Count > 0 ? "ops-btn-ghost" : "ops-btn-primary") ops-btn-sm"
+                        @onclick="OpenBulkFiscalise"
+                        disabled="@(isBulkFiscalising || isPosting || isLoading)">
+                    @if (isBulkFiscalising)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Fiscalising @Math.Min(bulkFiscalDone + 1, bulkFiscalTotal) of @bulkFiscalTotal&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-receipt" aria-hidden="true"></i>
+                        <span>Retry fiscalisation for @selectedRetryable.Count</span>
+                    }
+                </button>
+            }
+            @if (selectedPostable.Count > 0)
+            {
+                <button type="button" class="ops-btn ops-btn-primary ops-btn-sm" @onclick="OpenBulkPost"
+                        disabled="@(isPosting || isBulkFiscalising || isLoading)">
+                    @if (isPosting)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Posting&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                        <span>Post @selectedPostable.Count to SAP</span>
+                    }
+                </button>
+            }
+            <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="() => selected.Clear()"
+                    disabled="@isBulkFiscalising">
                 Clear
             </button>
         </div>
@@ -551,15 +575,15 @@
                     <thead>
                         <tr>
                             <th class="ops-ds-pick">
-                                @* Selects the postable rows on this page, not every row that
-                                   matches the filters. The button it feeds names a count, and a
-                                   count that included rows the operator cannot see would be the
-                                   one number on the page they could not check. *@
-                                @if (postableOnPage.Count > 0)
+                                @* Selects the rows on this page that can be posted or fiscalised, not
+                                   every row that matches the filters. The buttons it feeds name a
+                                   count, and a count that included rows the operator cannot see would
+                                   be the one number on the page they could not check. *@
+                                @if (selectableOnPage.Count > 0)
                                 {
-                                    <input type="checkbox" aria-label="Select every postable sale on this page"
-                                           title="Select every postable sale on this page"
-                                           checked="@allPostableSelected" @onchange="ToggleSelectAll" />
+                                    <input type="checkbox" aria-label="Select every sale on this page that can be posted or fiscalised"
+                                           title="Select every sale on this page that can be posted or fiscalised"
+                                           checked="@allSelectableSelected" @onchange="ToggleSelectAll" />
                                 }
                             </th>
                             <th>Sale</th>
@@ -589,7 +613,7 @@
                                     @onclick:stopPropagation="true">
                                     @if (CanSelect(sale))
                                     {
-                                        <input type="checkbox" aria-label="@($"Select sale {sale.Number} for posting")"
+                                        <input type="checkbox" aria-label="@($"Select sale {sale.Number}")"
                                                checked="@selected.Contains(sale.ExternalReferenceId)"
                                                @onchange="e => ToggleSelected(sale, e)" />
                                     }
@@ -1239,7 +1263,7 @@
                        existing receipt before sending anything, so pressing it twice cannot sign twice. *@
                     <button type="button" class="ops-btn ops-btn-primary"
                             @onclick="() => RetryFiscalisation(selectedSale)"
-                            disabled="@(isRetryingFiscal || isPosting || isLoading)">
+                            disabled="@(isRetryingFiscal || isBulkFiscalising || isPosting || isLoading)">
                         @if (isRetryingFiscal)
                         {
                             <span class="ops-spin"></span>
@@ -1309,7 +1333,7 @@
         <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Post sales to SAP"
              @onclick:stopPropagation="true">
             <div class="ops-dialog-head">
-                <h2>Post @selected.Count to SAP</h2>
+                <h2>Post @selectedPostable.Count to SAP</h2>
                 <button type="button" class="ops-x" aria-label="Close" @onclick="CloseBulkPost">
                     <i class="ph ph-x" aria-hidden="true"></i>
                 </button>
@@ -1323,9 +1347,9 @@
 
                 <dl class="ops-ds-facts">
                     <dt>Sales selected</dt>
-                    <dd>@selected.Count</dd>
+                    <dd>@selectedPostable.Count</dd>
                     <dt>Value selected</dt>
-                    <dd>@Money(selectedValue)</dd>
+                    <dd>@Money(selectedPostable.Sum(s => s.TotalAmount))</dd>
                     <dt>Posting date</dt>
                     <dd>@DateTime.Today.ToString("dd.MM.yyyy")</dd>
                 </dl>
@@ -1361,9 +1385,127 @@
                     }
                     else
                     {
-                        <span>Post @selected.Count to SAP</span>
+                        <span>Post @selectedPostable.Count to SAP</span>
                     }
                 </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Confirmed before it runs, because every attempt that reaches a device is a submission to ZIMRA.
+   The dialog says the one thing that makes a batch safe — the device is asked first — and the one
+   thing that makes it slow: one sale at a time, each waiting on its device. *@
+@if (showBulkFiscalise)
+{
+    <div class="ops-overlay ops-overlay-center" @onclick="CloseBulkFiscalise">
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Retry fiscalisation"
+             @onclick:stopPropagation="true">
+            <div class="ops-dialog-head">
+                <h2>Retry fiscalisation for @selectedRetryable.Count</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseBulkFiscalise">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body">
+                <p class="ops-ds-lede">
+                    Each sale is offered to its fiscal device again, one at a time. A sale the device
+                    refuses does not stop the rest. Sales that fiscalise post to SAP with the next pass.
+                </p>
+
+                <dl class="ops-ds-facts">
+                    <dt>Sales selected</dt>
+                    <dd>@selectedRetryable.Count</dd>
+                    <dt>Value selected</dt>
+                    <dd>@Money(selectedRetryable.Sum(s => s.TotalAmount))</dd>
+                </dl>
+
+                @if (selected.Count - selectedRetryable.Count is > 0 and var others)
+                {
+                    <div class="ops-msg ops-fam-neutral" role="status">
+                        <i class="ph ph-info" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            @others other selected @(others == 1 ? "sale is" : "sales are") not part of
+                            this. Post @(others == 1 ? "it" : "them") to SAP separately.
+                        </div>
+                    </div>
+                }
+
+                <div class="ops-msg ops-fam-info">
+                    <i class="ph ph-shield-check" aria-hidden="true"></i>
+                    <div class="ops-msg-body">
+                        Sending this twice is safe. Before anything is submitted, the device is asked
+                        whether it already holds a receipt for the sale. If it does, that receipt is kept.
+                        If the device can't be asked, nothing is sent, and its other sales in this batch
+                        are skipped.
+                    </div>
+                </div>
+            </div>
+
+            <div class="ops-dialog-foot">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseBulkFiscalise">Cancel</button>
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="FiscaliseSelected"
+                        disabled="@isBulkFiscalising">
+                    <span>Retry fiscalisation for @selectedRetryable.Count</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* What the batch did, sale by sale, for the same reason the posting results are shown that way. *@
+@if (bulkFiscalResult != null)
+{
+    <div class="ops-overlay ops-overlay-center" @onclick="CloseBulkFiscalResult">
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Fiscalisation results"
+             @onclick:stopPropagation="true">
+            <div class="ops-dialog-head">
+                <h2>@bulkFiscalResult.WithReceipt of @bulkFiscalResult.Requested fiscalised</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseBulkFiscalResult">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body">
+                <div class="ops-scroll">
+                    <table class="ops-table">
+                        <thead>
+                            <tr>
+                                <th>Sale</th>
+                                <th>Outcome</th>
+                                <th>Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in bulkFiscalResult.Results)
+                            {
+                                <tr>
+                                    <td><span class="ops-code">@row.ExternalReferenceId</span></td>
+                                    <td>
+                                        <span class="ops-ds-state @FiscalOutcomeFamily(row.Outcome)">
+                                            <span class="ops-dot"></span>@FiscalOutcomeLabel(row.Outcome)
+                                        </span>
+                                    </td>
+                                    <td class="ops-name">
+                                        @if (row.HasReceipt && !string.IsNullOrWhiteSpace(row.FiscalReceiptNumber))
+                                        {
+                                            <span>Receipt @row.FiscalReceiptNumber</span>
+                                        }
+                                        else
+                                        {
+                                            @Blank(row.Message)
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="ops-dialog-foot">
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="CloseBulkFiscalResult">Done</button>
             </div>
         </div>
     </div>
@@ -1580,7 +1722,19 @@
     private bool showBulkPost;
     private DesktopSalesBulkPostResultDto? bulkResult;
 
-    private List<DesktopSaleDto> postableOnPage => sales.Where(CanSelect).ToList();
+    // A fiscalisation retry over the selected sales, one at a time. The counts drive the button's
+    // "Fiscalising 3 of 12…", because a batch waits on a device per sale and can run for minutes.
+    private bool showBulkFiscalise;
+    private bool isBulkFiscalising;
+    private int bulkFiscalDone;
+    private int bulkFiscalTotal;
+    private DesktopSalesBulkFiscalisationResultDto? bulkFiscalResult;
+
+    // Stops a batch between sales when the page goes away, rather than leaving it asking devices for
+    // a circuit nobody is looking at.
+    private readonly CancellationTokenSource lifetime = new();
+
+    private List<DesktopSaleDto> selectableOnPage => sales.Where(CanSelect).ToList();
 
     // Admins only: the fiscal outage override, posting a sale before it has a receipt. The API judges
     // the account's own role as well; this only decides what to offer.
@@ -1589,8 +1743,20 @@
     private bool CanPostWithoutReceipt(DesktopSaleDto sale) =>
         isAdmin && canWrite && !sale.CanPostToSap && sale.CanPostWithoutReceipt;
 
-    private bool CanSelect(DesktopSaleDto sale) =>
+    private bool CanPost(DesktopSaleDto sale) =>
         canWrite && (sale.CanPostToSap || CanPostWithoutReceipt(sale));
+
+    private bool CanRetryFiscal(DesktopSaleDto sale) => canWrite && sale.CanRetryFiscalisation;
+
+    // A row is ticked for either verb. Fiscalisation failures used to have no box, so a day of them
+    // meant opening each one and pressing Retry in its drawer.
+    private bool CanSelect(DesktopSaleDto sale) => CanPost(sale) || CanRetryFiscal(sale);
+
+    private List<DesktopSaleDto> selectedPostable =>
+        sales.Where(s => selected.Contains(s.ExternalReferenceId) && CanPost(s)).ToList();
+
+    private List<DesktopSaleDto> selectedRetryable =>
+        sales.Where(s => selected.Contains(s.ExternalReferenceId) && CanRetryFiscal(s)).ToList();
 
     /// <summary>The selected sales that would reach SAP without a receipt.</summary>
     private List<DesktopSaleDto> selectedWithoutReceipt =>
@@ -1604,8 +1770,8 @@
           + "the device can be reached. Never fiscalise their invoices from SAP or the invoice list: that would "
           + "give a sale two receipts.";
 
-    private bool allPostableSelected =>
-        postableOnPage.Count > 0 && postableOnPage.All(s => selected.Contains(s.ExternalReferenceId));
+    private bool allSelectableSelected =>
+        selectableOnPage.Count > 0 && selectableOnPage.All(s => selected.Contains(s.ExternalReferenceId));
 
     private decimal selectedValue =>
         sales.Where(s => selected.Contains(s.ExternalReferenceId)).Sum(s => s.TotalAmount);
@@ -2439,12 +2605,12 @@
     }
 
     /// <remarks>
-    /// Clears only this page's postable rows rather than the whole set, so unticking here does not
+    /// Clears only this page's selectable rows rather than the whole set, so unticking here does not
     /// silently drop a selection made on a page the operator has already left.
     /// </remarks>
     private void ToggleSelectAll(ChangeEventArgs args)
     {
-        var references = postableOnPage.Select(s => s.ExternalReferenceId);
+        var references = selectableOnPage.Select(s => s.ExternalReferenceId);
 
         if (args.Value is true)
         {
@@ -2599,7 +2765,11 @@
 
     private async Task PostSelected()
     {
-        if (isPosting || selected.Count == 0)
+        // Only the postable ones: a selection can also hold sales waiting to be fiscalised, which the
+        // API would answer "not postable" one by one.
+        var references = selectedPostable.Select(s => s.ExternalReferenceId).ToList();
+
+        if (isPosting || isBulkFiscalising || references.Count == 0)
         {
             return;
         }
@@ -2607,9 +2777,8 @@
         isPosting = true;
         StateHasChanged();
 
-        // Snapshotted before the call. A push can reload `sales` while this is in flight, and the
-        // results have to be matched against what was actually sent.
-        var references = selected.ToList();
+        // Snapshotted before the call (above). A push can reload `sales` while this is in flight, and
+        // the results have to be matched against what was actually sent.
         var withoutReceipt = selectedWithoutReceipt.Count > 0;
 
         try
@@ -2653,6 +2822,120 @@
             isPosting = false;
         }
     }
+
+    private void OpenBulkFiscalise() => showBulkFiscalise = true;
+
+    private void CloseBulkFiscalise() => showBulkFiscalise = false;
+
+    private void CloseBulkFiscalResult() => bulkFiscalResult = null;
+
+    /// <summary>
+    /// Retries fiscalisation for every selected sale that may be retried, one at a time.
+    /// </summary>
+    /// <remarks>
+    /// Through the same per-sale endpoint as the drawer's Retry button, so a batch is exactly that
+    /// button pressed once per sale: same refusal rules, same look-up before anything is sent, same
+    /// audit row. Sales that now hold a receipt leave the selection; the rest stay ticked, so pressing
+    /// the button again retries exactly those.
+    /// </remarks>
+    private async Task FiscaliseSelected()
+    {
+        var targets = selectedRetryable
+            .Select(s => new DesktopSaleFiscalisationTarget(s.ExternalReferenceId, s.SourceSystem, s.WarehouseCode))
+            .ToList();
+
+        if (isBulkFiscalising || isPosting || targets.Count == 0)
+        {
+            return;
+        }
+
+        showBulkFiscalise = false;
+        isBulkFiscalising = true;
+        bulkFiscalDone = 0;
+        bulkFiscalTotal = targets.Count;
+        StateHasChanged();
+
+        try
+        {
+            var progress = new Progress<int>(done =>
+            {
+                bulkFiscalDone = done;
+                _ = InvokeAsync(StateHasChanged);
+            });
+
+            var result = await DesktopService.RetrySalesFiscalisationAsync(targets, progress, lifetime.Token);
+            bulkFiscalResult = result;
+
+            foreach (var row in result.Results.Where(r => r.HasReceipt))
+            {
+                selected.Remove(row.ExternalReferenceId);
+            }
+
+            // Reloaded before the outcome is said: a successful reload clears a red notice.
+            await LoadData();
+
+            Say(SummariseFiscal(result), FiscalSummaryFamily(result), FiscalSummaryIcon(result));
+        }
+        catch (Exception ex)
+        {
+            await LoadData();
+            SayError($"The batch could not be completed: {ex.Message}. Refresh to see which sales now "
+                + "have a receipt; retrying again will not sign any of them twice.");
+        }
+        finally
+        {
+            isBulkFiscalising = false;
+        }
+    }
+
+    private static string SummariseFiscal(DesktopSalesBulkFiscalisationResultDto result)
+    {
+        var parts = new List<string>();
+
+        void Add(string outcome, string words)
+        {
+            if (result.Count(outcome) is > 0 and var n) parts.Add($"{n} {words}");
+        }
+
+        Add(DesktopSaleFiscalisationRowOutcomes.Fiscalised, "fiscalised");
+        Add(DesktopSaleFiscalisationRowOutcomes.AlreadyFiscalised, "already held a receipt");
+        Add(DesktopSaleFiscalisationRowOutcomes.Failed, "refused by the device");
+        Add(DesktopSaleFiscalisationRowOutcomes.Unreachable, "not sent: device could not be asked");
+        Add(DesktopSaleFiscalisationRowOutcomes.NotSent, "skipped: device not answering");
+        Add(DesktopSaleFiscalisationRowOutcomes.Refused, "not retryable");
+
+        return parts.Count == 0 ? "Nothing was fiscalised." : $"{string.Join(", ", parts)}.";
+    }
+
+    // As with posting: a batch with anything unresolved in it is not a success.
+    private static string FiscalSummaryFamily(DesktopSalesBulkFiscalisationResultDto result) =>
+        result.Count(DesktopSaleFiscalisationRowOutcomes.Failed) > 0 ? "ops-fam-bad"
+        : result.WithReceipt < result.Requested ? "ops-fam-warn"
+        : "ops-fam-good";
+
+    private static string FiscalSummaryIcon(DesktopSalesBulkFiscalisationResultDto result) =>
+        result.Count(DesktopSaleFiscalisationRowOutcomes.Failed) > 0 ? "ph-warning-octagon"
+        : result.WithReceipt < result.Requested ? "ph-warning"
+        : "ph-check-circle";
+
+    private static string FiscalOutcomeFamily(string? outcome) => outcome switch
+    {
+        DesktopSaleFiscalisationRowOutcomes.Fiscalised => "ops-fam-good",
+        DesktopSaleFiscalisationRowOutcomes.AlreadyFiscalised => "ops-fam-good",
+        DesktopSaleFiscalisationRowOutcomes.Failed => "ops-fam-bad",
+        _ => "ops-fam-warn"
+    };
+
+    private static string FiscalOutcomeLabel(string? outcome) => outcome switch
+    {
+        DesktopSaleFiscalisationRowOutcomes.Fiscalised => "Fiscalised",
+        DesktopSaleFiscalisationRowOutcomes.AlreadyFiscalised => "Receipt already held",
+        DesktopSaleFiscalisationRowOutcomes.Failed => "Device refused it",
+        DesktopSaleFiscalisationRowOutcomes.Unreachable => "Device not answering",
+        DesktopSaleFiscalisationRowOutcomes.NotSent => "Not sent",
+        DesktopSaleFiscalisationRowOutcomes.Refused => "Not retryable",
+        _ => Blank(outcome)
+    };
 
     private static bool InSap(DesktopSalePostResultDto row) =>
         row.Outcome is DesktopSalePostOutcomes.Posted or DesktopSalePostOutcomes.AlreadyInSap;
@@ -3009,6 +3292,8 @@
 
     public void Dispose()
     {
+        lifetime.Cancel();
+        lifetime.Dispose();
         HubService.OnDesktopSaleCreated -= OnSaleCreated;
         HubService.OnConsolidationCompleted -= OnConsolidationDone;
     }
