@@ -18,6 +18,14 @@ otherwise be surprised.
 
 ### Changed
 
+- **The invoice fiscalisation retry takes only invoices this app posted.** The retry job also took any
+  SAP invoice whose last Fiscalise press had failed, so a document raised in SAP that someone had once
+  tried was later filed with nobody present: export reserve invoice 793468 was filed at 19:04 on
+  2026-10-18, minutes after the job was deployed. Now an invoice is retried only if
+  `InvoiceFiscalizationBackgroundService` fiscalised it (`SourceSystem = InvoiceFiscalisation`), and never
+  once a person's failed press (`InvoiceFiscalisationManual`) is its latest row. A press that failed is
+  repeated by a person, on the console or the invoice list.
+
 - **SAP invoices whose fiscalisation failed are filed again on a schedule.** Until now an invoice this
   app posts to SAP was fiscalised once, straight after it was created; one that failed then (ZIMRA
   unreachable on 2026-10-17 and -18) stayed owed until someone pressed Fiscalise on the fiscalisation

@@ -105,13 +105,42 @@ public sealed class InvoiceFiscalisationRetryTests : IDisposable
         await AddRow(11, "Failed", minutesAgo: 25);
         await AddRow(11, "Failed", minutesAgo: 15, source: RetryFailedInvoiceFiscalisationsHandler.SourceSystem);
         await AddRow(11, "Failed", minutesAgo: 9, source: RetryFailedInvoiceFiscalisationsHandler.SourceSystem);
-        await AddRow(12, "Failed", minutesAgo: 2 * 24 * 60, source: FiscalizeInvoiceHandler.SourceSystem);
+        await AddRow(12, "Failed", minutesAgo: 2 * 24 * 60, source: FiscalizeInvoiceHandler.SourceSystem); // a person's press
 
         var candidates = await Candidates(DateTime.UtcNow);
 
-        // 10 has failed three times and waits 8 minutes after the last; 11 has waited them. Earliest failure first.
-        Assert.Equal([12, 11], candidates.Select(candidate => candidate.DocNum));
-        Assert.Equal(3, candidates[1].Failures);
+        // 10 has failed three times and waits 8 minutes after the last; 11 has waited them.
+        var candidate = Assert.Single(candidates);
+        Assert.Equal(11, candidate.DocNum);
+        Assert.Equal(3, candidate.Failures);
+    }
+
+    [Fact]
+    public async Task An_invoice_a_person_tried_to_fiscalise_is_never_filed_by_the_timer()
+    {
+        const string Manual = FiscalizeInvoiceHandler.SourceSystem;
+        const string Retry = RetryFailedInvoiceFiscalisationsHandler.SourceSystem;
+
+        // Raised in SAP (export reserve invoice 793468, 2026-10-18): a press that failed is all this app knows of it.
+        await AddRow(793468, "Failed", minutesAgo: 30, source: Manual,
+            message: "FDMS_UNREACHABLE_NOT_SIGNED: ZIMRA did not answer.");
+        // Raised in SAP and already retried by the build that took a person's presses: its retry rows do not make it ours.
+        await AddRow(793470, "Failed", minutesAgo: 35, source: Manual);
+        await AddRow(793470, "Failed", minutesAgo: 20, source: Retry);
+        // Posted here, then a person pressed Fiscalise and it failed: from then on it is theirs, on the console.
+        await AddRow(793471, "Failed", minutesAgo: 50);
+        await AddRow(793471, "Failed", minutesAgo: 20, source: Manual);
+        // Posted here and failed: the pass's own work.
+        await AddRow(793472, "Failed", minutesAgo: 30);
+        _answers.Enqueue(new FiscalizationResult { Success = true, ReceiptGlobalNo = "5130" });
+
+        Assert.Equal([793472], (await Candidates(DateTime.UtcNow)).Select(candidate => candidate.DocNum));
+
+        var result = await Pass();
+
+        Assert.Equal(1, result.Fiscalised);
+        Assert.Equal([793472], _filed);
+        Assert.Equal(Manual, (await Latest(793468)).SourceSystem);
     }
 
     [Theory]

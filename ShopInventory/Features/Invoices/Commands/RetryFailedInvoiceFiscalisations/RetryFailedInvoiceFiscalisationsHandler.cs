@@ -28,10 +28,19 @@ namespace ShopInventory.Features.Invoices.Commands.RetryFailedInvoiceFiscalisati
 /// the platform, which keys the receipt on the DocNum and answers a second submission with the first receipt.
 /// </para>
 /// <para>
+/// Only invoices this app posted: the invoice must have a row from
+/// <see cref="InvoiceFiscalizationBackgroundService"/>. A document raised in SAP reaches this log only when a
+/// person presses Fiscalise on it, and an export invoice, for one, is fiscalised only when a person starts it.
+/// On 2026-10-18 at 19:04, minutes after this pass was deployed, it filed export reserve invoice 793468, raised in
+/// SAP, with nobody present. So a failed press is that person's to repeat, never the timer's: <see cref="FiscalizeInvoiceHandler"/>'s
+/// rows are not retried, and once one is an invoice's latest row the timer leaves that invoice to the console.
+/// </para>
+/// <para>
 /// Never taken: an invoice with any evidence of a receipt; one whose outcome someone could not establish
 /// (<see cref="FiscalOutcomeMessages.IsUnresolved"/>, on any of its rows: the next step there is a look-up by a
-/// person); one whose latest row is not a failure from one of the fiscalise routes; one that first failed more
-/// than <see cref="InvoiceFiscalisationRetrySettings.LookbackDays"/> ago; and one still waiting out its back-off.
+/// person); one this app did not post; one whose latest row is not a failure from the background fiscalisation or
+/// this pass; one that first failed more than <see cref="InvoiceFiscalisationRetrySettings.LookbackDays"/> ago;
+/// and one still waiting out its back-off.
 /// </para>
 /// <para>
 /// A pass stops at the first invoice that fails. During an outage every invoice fails the same way, so the pass
@@ -54,11 +63,13 @@ public sealed class RetryFailedInvoiceFiscalisationsHandler(
     private const string InvoiceDocumentType = "Invoice";
     private const string Username = "invoice-fiscalisation-retry";
 
-    /// <summary>The routes whose failures this pass owns. A row any other writer left is not its to act on.</summary>
+    /// <summary>
+    /// The routes whose failures this pass owns. A row any other writer left is not its to act on, and that
+    /// includes a person's press of Fiscalise (<see cref="FiscalizeInvoiceHandler.SourceSystem"/>).
+    /// </summary>
     private static readonly string[] RetriedSources =
     [
         InvoiceFiscalizationBackgroundService.SourceSystem,
-        FiscalizeInvoiceHandler.SourceSystem,
         SourceSystem
     ];
 
@@ -218,7 +229,12 @@ public sealed class RetryFailedInvoiceFiscalisationsHandler(
                 .ThenByDescending(row => row.Id)
                 .First();
 
-            if (rows.Any(FiscalDocumentStatusProjector.HasFiscalEvidencePredicate)
+            // Not posted here: a retry row alone does not make it ours, since before 2026-10-19 this pass also took
+            // invoices a person had tried, and those rows would otherwise keep it filing them.
+            var postedByThisApp = rows.Any(row => row.SourceSystem == InvoiceFiscalizationBackgroundService.SourceSystem);
+
+            if (!postedByThisApp
+                || rows.Any(FiscalDocumentStatusProjector.HasFiscalEvidencePredicate)
                 || rows.Any(row => FiscalOutcomeMessages.IsUnresolved(row.Message))
                 || latest.RepostedAfterSapUpdate
                 || latest.Status != FiscalTransactionStatus.Failed
