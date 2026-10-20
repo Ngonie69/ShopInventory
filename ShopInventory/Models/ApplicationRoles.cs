@@ -61,6 +61,27 @@ public static class ApplicationRoles
     public const string WashBay = "WashBay";
 
     /// <summary>
+    /// A production department's stock officer: releases stock from its production warehouse to
+    /// dispatch through the holding warehouse, and accepts what dispatch returns.
+    /// </summary>
+    /// <remarks>
+    /// Scoped by <see cref="User.AssignedWarehouseCodes"/>: it sends only from, and accepts only into,
+    /// the production warehouses on its account (PROYG, PROYG 2, PROMM, PROIC, PROCH, PROPC, PROCS).
+    /// </remarks>
+    public const string ProductionOfficer = "ProductionOfficer";
+
+    /// <summary>
+    /// A dispatch section's controller or stock officer: accepts what production releases into its
+    /// dispatch warehouse, and returns stock to production.
+    /// </summary>
+    /// <remarks>
+    /// Scoped by <see cref="User.AssignedWarehouseCodes"/> to its dispatch warehouses (DISPYOG,
+    /// DISPMILK, DISPICE, DISPCH). The dispatch manager holds this role too, with the
+    /// <c>factory.transfers.accept_any</c> permission granted on the account.
+    /// </remarks>
+    public const string DispatchOfficer = "DispatchOfficer";
+
+    /// <summary>
     /// A van sales customer signing in on the customer ordering app. Not an employee.
     /// </summary>
     /// <remarks>
@@ -110,7 +131,9 @@ public static class ApplicationRoles
         Sales,
         CartVendor,
         TillOperator,
-        WashBay
+        WashBay,
+        ProductionOfficer,
+        DispatchOfficer
     ];
 
     // Roles that can continue to exist on managed users during compatibility cleanup.
@@ -134,7 +157,9 @@ public static class ApplicationRoles
         Sales,
         CartVendor,
         TillOperator,
-        WashBay
+        WashBay,
+        ProductionOfficer,
+        DispatchOfficer
     ];
 
     public static readonly string[] ApiAccessRoles =
@@ -156,7 +181,9 @@ public static class ApplicationRoles
         Sales,
         CartVendor,
         TillOperator,
-        WashBay
+        WashBay,
+        ProductionOfficer,
+        DispatchOfficer
     ];
 
     public static readonly string[] ApiAccessWithOperatorRoles =
@@ -179,7 +206,9 @@ public static class ApplicationRoles
         Sales,
         CartVendor,
         TillOperator,
-        WashBay
+        WashBay,
+        ProductionOfficer,
+        DispatchOfficer
     ];
 
     public static readonly string[] ScopedPodViewerRoles =
@@ -252,10 +281,10 @@ public static class ApplicationRoles
     // warehouse. Leaving it out would let an account be created that passes every check at creation
     // and then cannot ring up a single sale.
     public static bool RequiresWarehouseAssignments(string? role)
-        => Contains([StockController, DepotController, Adr, Sales, CartVendor], role);
+        => Contains([StockController, DepotController, Adr, Sales, CartVendor, ProductionOfficer, DispatchOfficer], role);
 
     public static bool SupportsWarehouseAssignments(string? role)
-        => Contains([StockController, DepotController, Merchandiser, Adr, Sales, CartVendor], role);
+        => Contains([StockController, DepotController, Merchandiser, Adr, Sales, CartVendor, ProductionOfficer, DispatchOfficer], role);
 
     public static bool RequiresCustomerAssignments(string? role)
         => Contains([Merchandiser], role);

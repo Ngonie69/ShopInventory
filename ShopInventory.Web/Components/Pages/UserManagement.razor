@@ -500,7 +500,7 @@
                                         <span class="um-toggle-label">@(userModel.IsActive ? "Active" : "Inactive")</span>
                                     </label>
                                 </div>
-                                @if (userModel.Role == "StockController" || userModel.Role == "DepotController")
+                                @if (userModel.Role == "StockController" || userModel.Role == "DepotController" || UserRoles.IsFactoryRole(userModel.Role))
                                 {
                                     <div class="um-form-field um-form-full">
                                         <label>Assigned Warehouses <span class="required">*</span></label>
@@ -2213,7 +2213,7 @@ StringComparison.OrdinalIgnoreCase)))
             {
                 yield return new ValidationResult("Passwords do not match", new[] { nameof(ConfirmPassword) });
             }
-            if ((Role == "StockController" || Role == "DepotController") && AssignedWarehouseCodes.Count == 0)
+            if ((Role == "StockController" || Role == "DepotController" || UserRoles.IsFactoryRole(Role)) && AssignedWarehouseCodes.Count == 0)
             {
                 yield return new ValidationResult("At least one warehouse is required for this role", new[] {
 nameof(AssignedWarehouseCodes) });

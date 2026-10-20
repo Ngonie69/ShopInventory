@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ShopInventory.Common.Stock;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -200,6 +201,20 @@ public class CreateInventoryTransferRequest
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
     public List<CreateInventoryTransferLineRequest>? Lines { get; set; }
+
+    /// <summary>
+    /// Written to SAP's <c>U_OrderNumber</c>, so a transfer whose reply was lost can be found by it.
+    /// Set by the server only, never read from a request body.
+    /// </summary>
+    [JsonIgnore]
+    public string? OrderNumber { get; set; }
+
+    /// <summary>
+    /// Written to SAP's <c>U_ToWhs</c>: where stock sent into a holding warehouse is bound for.
+    /// Set by the server only, never read from a request body.
+    /// </summary>
+    [JsonIgnore]
+    public string? FinalDestinationWarehouse { get; set; }
 }
 
 /// <summary>

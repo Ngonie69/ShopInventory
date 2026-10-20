@@ -1,0 +1,603 @@
+@page "/factory-transfers"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.FactoryTransferRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>Factory Transfers - Shop Inventory</PageTitle>
+
+@* Nocturne, on the Market Breakages layout: the queue under three tabs, and the open transfer in the
+   operations.css drawer, where the receiving side counts what arrived before it can accept. A second
+   drawer sends a new one. wwwroot/css/factory-transfers.css (generated from market-breakages.css)
+   carries both schemes. *@
+
+<div class="fxt">
+
+    <header class="fxt-head">
+        <div class="fxt-shell">
+            <div class="fxt-titles">
+                <span class="fxt-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false"><path d="M3 21V10l5 3V10l5 3V5h4l1 16" /><path d="M3 21h18" /><path d="M7 17h2M12 17h2" /></svg>
+                </span>
+                <div class="fxt-titles-text">
+                    <h1 class="fxt-title">Factory Transfers</h1>
+                    <p class="fxt-sub">Production releases to dispatch through @HoldingWarehouse; the receiving side counts it and accepts.</p>
+                </div>
+            </div>
+            <div class="fxt-head-actions">
+                <label class="fxt-search">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                    <span class="fxt-sr">Search transfers</span>
+                    <input class="fxt-search-input" type="text" placeholder="Number, sender, warehouse or item"
+                           value="@searchText" @oninput="OnSearchInputAsync" />
+                    @if (!string.IsNullOrWhiteSpace(searchText))
+                    {
+                        <button type="button" class="fxt-search-clear" aria-label="Clear search" title="Clear search" @onclick="ClearSearchAsync">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                        </button>
+                    }
+                </label>
+                <button type="button" class="fxt-btn fxt-btn-secondary fxt-btn-icon" @onclick="RefreshAsync" disabled="@isLoading"
+                        title="Refresh" aria-label="Refresh">
+                    @if (isLoading)
+                    {
+                        <span class="fxt-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
+                    }
+                </button>
+                @if (CanSend)
+                {
+                    <button type="button" class="fxt-btn fxt-btn-primary" @onclick="OpenSend">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" /></svg>
+                        <span>New transfer</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </header>
+
+    <div class="fxt-body">
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="fxt-alert" role="alert">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                <div class="fxt-alert-body">@errorMessage</div>
+                <button type="button" class="fxt-btn fxt-btn-ghost fxt-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                </button>
+            </div>
+        }
+
+        @if (options is not null && options.AssignedWarehouses.Count == 0 && !options.CanAcceptAny)
+        {
+            <div class="fxt-alert fxt-alert-info" role="status">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+                <div class="fxt-alert-body">Your account has no factory warehouses, so there is nothing for you to send or accept. Ask an administrator to assign yours.</div>
+            </div>
+        }
+
+        <nav class="fxt-tabs" aria-label="Transfer view">
+            <div class="fxt-tablist">
+                @foreach (var tab in Tabs)
+                {
+                    var isOn = view == tab.Value;
+                    <button type="button" class="fxt-tab @(isOn ? "is-on" : "")" aria-pressed="@(isOn ? "true" : "false")"
+                            @onclick="() => SetViewAsync(tab.Value)">
+                        <span>@tab.Label</span>
+                        <span class="fxt-tab-count">@(CountFor(tab.Value) is int count ? count.ToString("N0") : "—")</span>
+                    </button>
+                }
+            </div>
+            <span class="fxt-tabs-note">Newest first</span>
+        </nav>
+
+        <section class="fxt-list" aria-label="Factory transfers">
+            <div class="fxt-grid fxt-grid-head" aria-hidden="true">
+                <span></span>
+                <span>Transfer</span>
+                <span>To</span>
+                <span>Sent by</span>
+                <span>Movement</span>
+                <span class="fxt-right">Units</span>
+                <span>Sent</span>
+                <span class="fxt-right">Status</span>
+                <span></span>
+            </div>
+
+            <div class="fxt-rows">
+                @if (isLoading && transfers.Count == 0)
+                {
+                    @for (var skeleton = 0; skeleton < 6; skeleton++)
+                    {
+                        <div class="fxt-grid fxt-row-skel" aria-hidden="true">
+                            <span></span>
+                            <div class="fxt-skel" style="width:70%"></div>
+                            <div class="fxt-skel" style="width:80%"></div>
+                            <div class="fxt-skel" style="width:75%"></div>
+                            <div class="fxt-skel" style="width:90%"></div>
+                            <div class="fxt-skel" style="width:60%"></div>
+                            <div class="fxt-skel" style="width:85%"></div>
+                            <div class="fxt-skel" style="width:60%"></div>
+                            <span></span>
+                        </div>
+                    }
+                }
+                else
+                {
+                    @foreach (var transfer in transfers)
+                    {
+                        var isCurrent = drawerOpen && detailId == transfer.Id;
+                        <button type="button" @key="transfer.Id" class="fxt-grid fxt-row @(isCurrent ? "is-on" : "")"
+                                aria-current="@(isCurrent ? "true" : null)"
+                                aria-label="Open @transfer.Number, @transfer.SourceWarehouseCode to @transfer.DestinationWarehouseCode"
+                                @onclick="() => PickAsync(transfer.Id)">
+                            <span class="fxt-dot @StatusModifier(transfer.Status)" aria-hidden="true"></span>
+                            <span class="fxt-row-no">@transfer.Number</span>
+                            <span class="fxt-row-van"><span class="fxt-tag">@transfer.DestinationWarehouseCode</span></span>
+                            <span class="fxt-row-rep">@transfer.SentByName</span>
+                            <span class="fxt-row-products">
+                                <span class="fxt-row-item">
+                                    <span class="fxt-row-name">@transfer.DepartmentName @DirectionWord(transfer.Direction)</span>
+                                    <span class="fxt-row-more">@transfer.SourceWarehouseCode → @transfer.HoldingWarehouseCode → @transfer.DestinationWarehouseCode</span>
+                                </span>
+                                <span class="fxt-row-summary @SummaryModifier(transfer)">@RowSummary(transfer)</span>
+                            </span>
+                            <span class="fxt-row-units fxt-right">@QuantityDisplay.Format(transfer.TotalQuantity)</span>
+                            <span class="fxt-row-when">@FormatStamp(transfer.SentAtUtc)</span>
+                            <span class="fxt-row-age fxt-right @(transfer.CanDecide ? "is-overdue" : "")">@StatusLabel(transfer.Status)</span>
+                            <span class="fxt-row-go" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" focusable="false"><path d="M9 6l6 6-6 6" /></svg>
+                            </span>
+                        </button>
+                    }
+                }
+
+                @if (!isLoading && transfers.Count == 0)
+                {
+                    <div class="fxt-empty">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 5 5L20 7" /></svg>
+                        <span>@EmptyMessage</span>
+                    </div>
+                }
+            </div>
+
+            @if (TotalPages > 1)
+            {
+                <div class="fxt-foot">
+                    <span class="fxt-foot-range">@RangeLabel</span>
+                    <div class="fxt-pager">
+                        <button type="button" class="fxt-btn fxt-btn-secondary fxt-btn-icon" title="Previous page"
+                                aria-label="Previous page" disabled="@(currentPage <= 1 || isLoading)" @onclick="PreviousPageAsync">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7" /></svg>
+                        </button>
+                        <span class="fxt-page-label">@currentPage / @TotalPages</span>
+                        <button type="button" class="fxt-btn fxt-btn-secondary fxt-btn-icon" title="Next page"
+                                aria-label="Next page" disabled="@(currentPage >= TotalPages || isLoading)" @onclick="NextPageAsync">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7" /></svg>
+                        </button>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
+
+    @* ── The open transfer ─────────────────────────────────────────────────────── *@
+    @if (drawerOpen && detailId is int openId)
+    {
+        <div class="ops-overlay ops-overlay-right fxt-overlay" @onclick="CloseDrawer">
+            <aside class="ops-drawer ops-ds-drawer fxt-drawer" role="dialog" aria-modal="true" aria-label="Factory transfer @openId"
+                   tabindex="-1" @onclick:stopPropagation="true">
+
+                <div class="ops-drawer-head ops-ds-dhead">
+                    <div class="ops-ds-dhead-id">
+                        <span class="ops-kicker">Factory transfer</span>
+                        <span class="ops-ds-dhead-no">@(detail?.Summary.Number ?? $"#{openId}")</span>
+                        @if (detail is not null)
+                        {
+                            <span class="ops-ds-dhead-ref">@detail.Summary.SourceWarehouseCode → @detail.Summary.HoldingWarehouseCode → @detail.Summary.DestinationWarehouseCode</span>
+                        }
+                    </div>
+                    <div class="ops-ds-dnav">
+                        <button type="button" class="ops-icon-btn" title="Close" aria-label="Close" @onclick="CloseDrawer">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                        </button>
+                    </div>
+                    @if (detail is not null)
+                    {
+                        <div class="ops-ds-dtags">
+                            <span class="ops-badge @StatusFamily(detail.Summary.Status)">@StatusLabel(detail.Summary.Status)</span>
+                            <span class="ops-ds-dwhen">@detail.Summary.DepartmentName @DirectionWord(detail.Summary.Direction)</span>
+                        </div>
+                    }
+                </div>
+
+                @if (detail is null)
+                {
+                    <div class="ops-drawer-body">
+                        @if (isLoadingDetail)
+                        {
+                            <div class="fxt-skel" style="width:48%;height:22px"></div>
+                            <div class="fxt-skel" style="width:70%"></div>
+                            <div class="fxt-skel" style="width:100%;height:160px"></div>
+                        }
+                        else
+                        {
+                            <div class="ops-msg ops-fam-bad" role="alert">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                                <div class="ops-msg-body">@(detailError ?? "This transfer could not be loaded.")</div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    var summary = detail.Summary;
+                    <div class="ops-drawer-body">
+
+                        <div class="ops-ds-headline">
+                            <b>@UnitsText(summary.TotalQuantity)</b>
+                            <span>@HeadlineNote</span>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(detailError))
+                        {
+                            <div class="ops-msg ops-fam-bad" role="alert">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                                <div class="ops-msg-body">@detailError</div>
+                            </div>
+                        }
+
+                        @if (summary.Status is FactoryTransferStatus.SendFailed or FactoryTransferStatus.SettleFailed)
+                        {
+                            <div class="ops-msg ops-fam-bad" role="alert">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                                <div class="ops-msg-body">
+                                    <strong>@(summary.Status == FactoryTransferStatus.SendFailed ? "The send did not reach SAP." : "The decision is saved but SAP has not moved the stock yet.")</strong>
+                                    @if (!string.IsNullOrWhiteSpace(detail.LastError))
+                                    {
+                                        <div class="ops-msg-said">@detail.LastError</div>
+                                    }
+                                    <div class="ops-sub">Retry looks for this transfer in SAP before posting anything, so it cannot move the stock twice.</div>
+                                </div>
+                            </div>
+                        }
+                        else if (summary.Status is FactoryTransferStatus.Sending or FactoryTransferStatus.Settling)
+                        {
+                            <div class="ops-msg ops-fam-info" role="status">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+                                <div class="ops-msg-body">
+                                    <strong>Posting to SAP has started and not finished.</strong>
+                                    <div class="ops-msg-said">If it is still running, wait and refresh. If it was interrupted, Retry finds what SAP already has.</div>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="ops-defs">
+                            <div>
+                                <div class="ops-def-k">From</div>
+                                <div class="ops-def-v">@summary.SourceWarehouseCode</div>
+                            </div>
+                            <div>
+                                <div class="ops-def-k">Held in</div>
+                                <div class="ops-def-v">@summary.HoldingWarehouseCode</div>
+                            </div>
+                            <div>
+                                <div class="ops-def-k">For</div>
+                                <div class="ops-def-v">@summary.DestinationWarehouseCode</div>
+                            </div>
+                            <div>
+                                <div class="ops-def-k">Sent by</div>
+                                <div class="ops-def-v">
+                                    @summary.SentByName
+                                    <div class="ops-sub">@FormatStamp(summary.SentAtUtc)</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="ops-def-k">SAP out</div>
+                                <div class="ops-def-v">@(summary.OutSapDocNum > 0 ? $"#{summary.OutSapDocNum}" : "Not posted")</div>
+                            </div>
+                            <div>
+                                <div class="ops-def-k">SAP in</div>
+                                <div class="ops-def-v">@(summary.InSapDocNum > 0 ? $"#{summary.InSapDocNum}" : "Not posted")</div>
+                            </div>
+                            @if (summary.DecidedAtUtc is DateTime decidedAt && !string.IsNullOrWhiteSpace(summary.DecidedByName))
+                            {
+                                <div>
+                                    <div class="ops-def-k">@DecidedLabel(summary)</div>
+                                    <div class="ops-def-v">
+                                        @summary.DecidedByName
+                                        <div class="ops-sub">@FormatStamp(decidedAt)</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="ops-ds-block">
+                            <div class="ops-def-k">Reason</div>
+                            <div class="fxt-dnote">@summary.Reason</div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(detail.DecisionReason))
+                        {
+                            <div class="ops-ds-block">
+                                <div class="ops-def-k">Note with the decision</div>
+                                <div class="fxt-dnote">@detail.DecisionReason</div>
+                            </div>
+                        }
+
+                        <div class="ops-ds-block">
+                            <div class="fxt-dblock-head">
+                                <span class="ops-def-k">@(summary.CanDecide ? "Count what arrived" : "Lines")</span>
+                                @if (summary.CanDecide && !AllCountedAsSent)
+                                {
+                                    <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="FillWithSent" disabled="@isSubmitting">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12l4 4L19 6" /></svg>
+                                        All arrived
+                                    </button>
+                                }
+                            </div>
+                            <div class="fxt-dscroll">
+                                <table class="ops-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th class="ops-num">Sent</th>
+                                            <th class="@(summary.CanDecide ? "ops-mid" : "ops-num")">Accepted</th>
+                                            <th>Batches</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var line in detail.Lines)
+                                        {
+                                            var name = string.IsNullOrWhiteSpace(line.ItemDescription) ? line.ItemCode : line.ItemDescription;
+                                            var counted = CountFor(line);
+                                            <tr @key="line.Id">
+                                                <td>
+                                                    <span class="ops-code fxt-dcode">@line.ItemCode</span>
+                                                    @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                                                    {
+                                                        <div class="ops-sub">@line.ItemDescription</div>
+                                                    }
+                                                </td>
+                                                <td class="ops-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                                @if (summary.CanDecide)
+                                                {
+                                                    <td class="ops-mid">
+                                                        <span class="fxt-stepper @(counted is null ? "is-uncounted" : "")">
+                                                            <button type="button" class="fxt-step" aria-label="One fewer @name"
+                                                                    disabled="@(isSubmitting || counted <= 0)" @onclick="() => StepCount(line, -1)">
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14" /></svg>
+                                                            </button>
+                                                            <input type="text" inputmode="decimal" class="fxt-count-input" placeholder="Count"
+                                                                   aria-label="Accepted, @name" value="@CountText(line.Id)" disabled="@isSubmitting"
+                                                                   @onchange="args => SetCount(line, args.Value)" />
+                                                            <button type="button" class="fxt-step" aria-label="One more @name"
+                                                                    disabled="@(isSubmitting || counted >= line.Quantity)" @onclick="() => StepCount(line, 1)">
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14M12 5v14" /></svg>
+                                                            </button>
+                                                        </span>
+                                                    </td>
+                                                }
+                                                else
+                                                {
+                                                    <td class="ops-num">@(line.AcceptedQuantity is decimal accepted ? QuantityDisplay.Format(accepted) : "—")</td>
+                                                }
+                                                <td>
+                                                    @if (line.Batches.Count == 0)
+                                                    {
+                                                        <span class="ops-sub">—</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var batch in line.Batches)
+                                                        {
+                                                            <div class="ops-sub ops-code">@batch.BatchNumber · @QuantityDisplay.Format(batch.Quantity)</div>
+                                                        }
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        @if (summary.CanDecide || summary.CanRecall)
+                        {
+                            <div class="ops-ds-block">
+                                <label class="fxt-dlabel" for="fxt-note">
+                                    <span class="ops-def-k">@(summary.CanDecide ? "Note" : "Why recall it")</span>
+                                    <span class="ops-sub @(noteNeeded ? "fxt-needed" : "")">@NoteHint</span>
+                                </label>
+                                <textarea id="fxt-note" class="ops-input @(noteNeeded ? "fxt-input-bad" : "")" rows="3" maxlength="500"
+                                          aria-invalid="@(noteNeeded ? "true" : null)"
+                                          placeholder="@(summary.CanDecide ? "e.g. Three crates were leaking and went back." : "e.g. Sent the wrong product.")"
+                                          @bind="decisionNote" @bind:event="oninput" @bind:after="() => noteNeeded = false"
+                                          disabled="@isSubmitting"></textarea>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="ops-drawer-foot">
+                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDrawer" disabled="@isSubmitting">Close</button>
+                        @if (summary.CanCancel)
+                        {
+                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="CancelAsync" disabled="@isSubmitting"
+                                    title="Abandon a send that never reached SAP. SAP is checked first.">
+                                @if (submittingAction == "cancel") { <span class="ops-spin" aria-hidden="true"></span> }
+                                Cancel send
+                            </button>
+                        }
+                        @if (summary.CanRetry)
+                        {
+                            <button type="button" class="ops-btn ops-btn-primary" @onclick="RetryAsync" disabled="@isSubmitting">
+                                @if (submittingAction == "retry") { <span class="ops-spin" aria-hidden="true"></span> }
+                                Retry in SAP
+                            </button>
+                        }
+                        @if (summary.CanRecall)
+                        {
+                            <button type="button" class="ops-btn ops-btn-danger" @onclick="RecallAsync" disabled="@isSubmitting"
+                                    title="Bring everything back to @summary.SourceWarehouseCode">
+                                @if (submittingAction == "recall") { <span class="ops-spin" aria-hidden="true"></span> }
+                                Recall to @summary.SourceWarehouseCode
+                            </button>
+                        }
+                        @if (summary.CanDecide)
+                        {
+                            <button type="button" class="ops-btn ops-btn-danger" @onclick="RejectAsync" disabled="@isSubmitting"
+                                    title="Send everything back to @summary.SourceWarehouseCode with your note">
+                                @if (submittingAction == "reject") { <span class="ops-spin" aria-hidden="true"></span> }
+                                Reject
+                            </button>
+                            <button type="button" class="ops-btn ops-btn-primary fxt-dconfirm" @onclick="AcceptAsync"
+                                    disabled="@(isSubmitting || !CanSubmitCount)">
+                                @if (submittingAction == "accept") { <span class="ops-spin" aria-hidden="true"></span> }
+                                @AcceptLabel
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
+                            </button>
+                        }
+                        @if (!summary.CanDecide && !summary.CanRecall && !summary.CanRetry && !summary.CanCancel)
+                        {
+                            <span class="ops-ds-foot-why">@DoneLabel(summary)</span>
+                        }
+                    </div>
+                }
+            </aside>
+        </div>
+    }
+
+    @* ── Sending a new one ─────────────────────────────────────────────────────── *@
+    @if (sendOpen && options is not null)
+    {
+        <div class="ops-overlay ops-overlay-right fxt-overlay" @onclick="CloseSend">
+            <aside class="ops-drawer ops-ds-drawer fxt-drawer" role="dialog" aria-modal="true" aria-label="New factory transfer"
+                   tabindex="-1" @onclick:stopPropagation="true">
+                <div class="ops-drawer-head ops-ds-dhead">
+                    <div class="ops-ds-dhead-id">
+                        <span class="ops-kicker">New factory transfer</span>
+                        <span class="ops-ds-dhead-no">@(SelectedRoute is { } route ? $"{route.DepartmentName} {DirectionWord(route.Direction)}" : "Send stock")</span>
+                        <span class="ops-ds-dhead-ref">@(string.IsNullOrEmpty(sendSource) ? "Choose where it comes from" : $"{sendSource} → {HoldingWarehouse} → {(string.IsNullOrEmpty(sendDestination) ? "…" : sendDestination)}")</span>
+                    </div>
+                    <div class="ops-ds-dnav">
+                        <button type="button" class="ops-icon-btn" title="Close" aria-label="Close" @onclick="CloseSend">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="ops-drawer-body">
+                    @if (!string.IsNullOrEmpty(sendError))
+                    {
+                        <div class="ops-msg ops-fam-bad" role="alert">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                            <div class="ops-msg-body">@sendError</div>
+                        </div>
+                    }
+
+                    <div class="fxt-form">
+                        <div class="fxt-field">
+                            <span class="ops-def-k">From</span>
+                            <NocturneSelect Class="nsel-block" TValue="string" Options="SourceOptions" Value="@sendSource"
+                                            ValueChanged="@(value => OnSourceChangedAsync(value))" Placeholder="Your warehouse"
+                                            AriaLabel="Send from" Disabled="isSubmitting" />
+                        </div>
+                        <div class="fxt-field">
+                            <span class="ops-def-k">To</span>
+                            @if (DestinationOptions.Count <= 1)
+                            {
+                                <div class="fxt-fixed">@(string.IsNullOrEmpty(sendDestination) ? "—" : sendDestination)</div>
+                            }
+                            else
+                            {
+                                <NocturneSelect Class="nsel-block" TValue="string" Options="DestinationOptions" @bind-Value="sendDestination"
+                                                Placeholder="Which production warehouse" AriaLabel="Send to" Disabled="isSubmitting" />
+                            }
+                        </div>
+                    </div>
+
+                    <div class="ops-ds-block">
+                        <label class="fxt-dlabel" for="fxt-reason">
+                            <span class="ops-def-k">Reason</span>
+                            <span class="ops-sub">goes on both SAP transfers</span>
+                        </label>
+                        <textarea id="fxt-reason" class="ops-input" rows="2" maxlength="500" placeholder="e.g. End of shift 2 release"
+                                  @bind="sendReason" @bind:event="oninput" disabled="@isSubmitting"></textarea>
+                    </div>
+
+                    <div class="ops-ds-block">
+                        <span class="ops-def-k">Add a product from @(string.IsNullOrEmpty(sendSource) ? "the warehouse" : sendSource)</span>
+                        <NocturnePicker Class="npick-block" Options="stockOptions" Value="@pickerValue"
+                                        ValueChanged="@(value => AddLine(value))" Loading="isLoadingStock"
+                                        Disabled="@(string.IsNullOrEmpty(sendSource) || isSubmitting)"
+                                        Placeholder="Search the warehouse's stock" EmptyText="No stock in this warehouse"
+                                        AriaLabel="Add a product" />
+                    </div>
+
+                    @if (sendLines.Count > 0)
+                    {
+                        <div class="ops-ds-block">
+                            <div class="fxt-dscroll">
+                                <table class="ops-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th class="ops-num">In stock</th>
+                                            <th class="ops-mid">Send</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var line in sendLines)
+                                        {
+                                            <tr @key="line.ItemCode">
+                                                <td>
+                                                    <span class="ops-code fxt-dcode">@line.ItemCode</span>
+                                                    <div class="ops-sub">@line.ItemName@(string.IsNullOrWhiteSpace(line.UoM) ? "" : $" · {line.UoM}")</div>
+                                                </td>
+                                                <td class="ops-num">@QuantityDisplay.Format(line.Available)</td>
+                                                <td class="ops-mid">
+                                                    <span class="fxt-stepper @(line.Quantity is null ? "is-uncounted" : "")">
+                                                        <input type="text" inputmode="decimal" class="fxt-count-input" placeholder="Qty"
+                                                               aria-label="Quantity of @line.ItemCode" value="@line.QuantityText" disabled="@isSubmitting"
+                                                               @onchange="args => SetSendQuantity(line, args.Value)" />
+                                                    </span>
+                                                    @if (line.Quantity > line.Available)
+                                                    {
+                                                        <div class="ops-sub fxt-needed">more than in stock</div>
+                                                    }
+                                                </td>
+                                                <td class="ops-num">
+                                                    <button type="button" class="ops-icon-btn" title="Remove" aria-label="Remove @line.ItemCode"
+                                                            disabled="@isSubmitting" @onclick="() => sendLines.Remove(line)">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="ops-drawer-foot">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseSend" disabled="@isSubmitting">Close</button>
+                    <span class="ops-ds-foot-why">@SendHint</span>
+                    <button type="button" class="ops-btn ops-btn-primary fxt-dconfirm" @onclick="SendAsync" disabled="@(isSubmitting || !CanSubmitSend)">
+                        @if (submittingAction == "send") { <span class="ops-spin" aria-hidden="true"></span> }
+                        Send to @HoldingWarehouse
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
+                    </button>
+                </div>
+            </aside>
+        </div>
+    }
+</div>

@@ -1479,6 +1479,47 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return JsonSerializer.Deserialize<InventoryTransfer>(content);
     }
 
+    public async Task<InventoryTransfer?> FindStockTransferByOrderNumberAsync(
+        string orderNumber,
+        DateTime dateFrom,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        // U_OrderNumber is not indexed, so the date bounds the scan to the days the document can be on.
+        var filter = $"U_OrderNumber eq '{EscapeODataStringLiteral(orderNumber)}' and DocDate ge '{dateFrom:yyyy-MM-dd}'";
+        var url = $"StockTransfers?$filter={Uri.EscapeDataString(filter)}&{StockTransferSelect}&$orderby=DocEntry desc&$top=1";
+
+        HttpRequestMessage Build()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
+
+        var response = await _httpClient.SendAsync(Build(), cancellationToken);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response = await _httpClient.SendAsync(Build(), cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to look up stock transfer {OrderNumber}: {StatusCode} - {Error}",
+                orderNumber, response.StatusCode, errorContent);
+            throw new SapReadFailedException(response.StatusCode,
+                $"Failed to look up stock transfer {orderNumber}: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var found = JsonSerializer.Deserialize<SAPResponse<InventoryTransfer>>(content);
+        return found?.Value?.FirstOrDefault();
+    }
+
     #region Invoice Operations
 
     /// <summary>
@@ -12535,6 +12576,16 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         if (!string.IsNullOrWhiteSpace(request.Comments))
         {
             payload["Comments"] = request.Comments;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.OrderNumber))
+        {
+            payload["U_OrderNumber"] = request.OrderNumber;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.FinalDestinationWarehouse))
+        {
+            payload["U_ToWhs"] = request.FinalDestinationWarehouse;
         }
 
         var jsonPayload = JsonSerializer.Serialize(payload);

@@ -44,6 +44,9 @@ public static class RoleLandingRoutes
     /// <summary>Where the wash bay lands: the transfers list.</summary>
     public const string InventoryTransfers = "/inventory-transfers";
 
+    /// <summary>Where the factory floor lands: production and dispatch handing stock to each other.</summary>
+    public const string FactoryTransfers = "/factory-transfers";
+
     /// <summary>
     /// Resolves the landing route from a role predicate, so a caller holding a
     /// <see cref="ClaimsPrincipal"/> and one holding only the role name from a
@@ -90,6 +93,12 @@ public static class RoleLandingRoutes
         if (isInRole(UserRoles.WashBay) && !isInRole(UserRoles.Admin))
         {
             return InventoryTransfers;
+        }
+
+        // The factory floor has one page: the transfers between production and dispatch.
+        if ((isInRole(UserRoles.ProductionOfficer) || isInRole(UserRoles.DispatchOfficer)) && !isInRole(UserRoles.Admin))
+        {
+            return FactoryTransfers;
         }
 
         // The three roles the dashboard route still serves, each with a page of

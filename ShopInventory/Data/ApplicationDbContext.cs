@@ -196,6 +196,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<PendingTransferRequestEditEntity> PendingTransferRequestEdits { get; set; }
   public DbSet<MarketBreakageEntity> MarketBreakages { get; set; }
   public DbSet<MarketBreakageLineEntity> MarketBreakageLines { get; set; }
+  public DbSet<FactoryTransferEntity> FactoryTransfers { get; set; }
+  public DbSet<FactoryTransferLineEntity> FactoryTransferLines { get; set; }
   public DbSet<StockWriteOffEntity> StockWriteOffs { get; set; }
   public DbSet<StockWriteOffLineEntity> StockWriteOffLines { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
@@ -483,6 +485,27 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       {
         t.HasCheckConstraint("CK_MarketBreakageLines_ReportedQuantity_Positive", "\"ReportedQuantity\" > 0");
         t.HasCheckConstraint("CK_MarketBreakageLines_ConfirmedQuantity_NonNegative", "\"ConfirmedQuantity\" IS NULL OR \"ConfirmedQuantity\" >= 0");
+      });
+    });
+
+    // Factory transfers: production and dispatch hand stock to each other through the holding warehouse.
+    modelBuilder.Entity<FactoryTransferEntity>(entity =>
+    {
+      entity.ToTable("FactoryTransfers");
+      entity.HasIndex(e => e.ClientRequestId).IsUnique();
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.Transfer)
+            .HasForeignKey(l => l.TransferId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<FactoryTransferLineEntity>(entity =>
+    {
+      entity.ToTable("FactoryTransferLines", t =>
+      {
+        t.HasCheckConstraint("CK_FactoryTransferLines_Quantity_Positive", "\"Quantity\" > 0");
+        t.HasCheckConstraint("CK_FactoryTransferLines_AcceptedQuantity_InRange",
+          "\"AcceptedQuantity\" IS NULL OR (\"AcceptedQuantity\" >= 0 AND \"AcceptedQuantity\" <= \"Quantity\")");
       });
     });
 

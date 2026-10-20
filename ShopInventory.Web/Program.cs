@@ -313,6 +313,7 @@ try
     builder.Services.AddScoped<IApprovalProcessService, ApprovalProcessService>();
     builder.Services.AddScoped<ICreditNoteApprovalService, CreditNoteApprovalService>();
     builder.Services.AddScoped<IMarketBreakageService, MarketBreakageService>();
+    builder.Services.AddScoped<IFactoryTransferService, FactoryTransferService>();
     builder.Services.AddScoped<IStockWriteOffService, StockWriteOffService>();
     builder.Services.AddScoped<ICountVarianceService, CountVarianceService>();
     builder.Services.AddScoped<IIncomingPaymentCacheService, IncomingPaymentCacheService>();

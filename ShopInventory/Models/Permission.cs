@@ -169,6 +169,15 @@ public static class Permissions
     public const string ReportMarketBreakages = "vansales.breakages.report";
     public const string ConfirmMarketBreakages = "vansales.breakages.confirm";
 
+    // Factory transfers: production and dispatch handing stock to each other through the holding
+    // warehouse (FSRW). Sending and accepting are each narrowed again to the warehouses on the
+    // account, so these say what a person may do and the account says where. AcceptAny is the
+    // dispatch manager's: accept for any department, whatever warehouses the account holds.
+    public const string ViewFactoryTransfers = "factory.transfers.view";
+    public const string SendFactoryTransfers = "factory.transfers.send";
+    public const string AcceptFactoryTransfers = "factory.transfers.accept";
+    public const string AcceptAnyFactoryTransfers = "factory.transfers.accept_any";
+
     /// <summary>
     /// Get all permissions grouped by category
     /// </summary>
@@ -307,6 +316,13 @@ public static class Permissions
                 new(ManageVanSalesRoutes, "Manage Van Sales Routes", "Create and edit selling routes and the stops on each route's plan"),
                 new(ReportMarketBreakages, "Report Market Breakages", "Report stock broken or damaged in transit, from the van sales handset"),
                 new(ConfirmMarketBreakages, "Confirm Market Breakages", "Count reported breakages and transfer them from the van to the returns warehouse, or reject them")
+            },
+            ["Factory Transfers"] = new()
+            {
+                new(ViewFactoryTransfers, "View Factory Transfers", "See the transfers between production and dispatch for the warehouses on the account"),
+                new(SendFactoryTransfers, "Send Factory Transfers", "Release stock from an assigned production warehouse to dispatch, or return it from an assigned dispatch warehouse"),
+                new(AcceptFactoryTransfers, "Accept Factory Transfers", "Accept, part-accept or reject stock sent to an assigned warehouse"),
+                new(AcceptAnyFactoryTransfers, "Accept Any Factory Transfer", "Accept, part-accept or reject a factory transfer for any department")
             },
             ["System"] = new()
             {
@@ -470,6 +486,18 @@ public static class Permissions
             ApplicationRoles.Lab => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewStock, ViewInventory
+            },
+            // The two sides of the factory floor. Each sends from, and accepts into, only the
+            // warehouses on its account; the factory transfer handlers enforce that, not these lists.
+            ApplicationRoles.ProductionOfficer => new List<string>
+            {
+                ViewProducts, ViewStock, ViewInventory,
+                ViewFactoryTransfers, SendFactoryTransfers, AcceptFactoryTransfers
+            },
+            ApplicationRoles.DispatchOfficer => new List<string>
+            {
+                ViewProducts, ViewStock, ViewInventory,
+                ViewFactoryTransfers, SendFactoryTransfers, AcceptFactoryTransfers
             },
             ApplicationRoles.Merchandiser => new List<string>
             {
@@ -659,6 +687,12 @@ public static class Permission
     // Market breakages
     public const string ReportMarketBreakages = Permissions.ReportMarketBreakages;
     public const string ConfirmMarketBreakages = Permissions.ConfirmMarketBreakages;
+
+    // Factory transfers
+    public const string ViewFactoryTransfers = Permissions.ViewFactoryTransfers;
+    public const string SendFactoryTransfers = Permissions.SendFactoryTransfers;
+    public const string AcceptFactoryTransfers = Permissions.AcceptFactoryTransfers;
+    public const string AcceptAnyFactoryTransfers = Permissions.AcceptAnyFactoryTransfers;
 
     /// <summary>
     /// Get all permissions grouped by category (delegates to Permissions)

@@ -98,6 +98,7 @@ Examples:
   - [Market Breakages](#52-market-breakages)
   - [Stock Write-offs](#53-stock-write-offs)
   - [Count Variance](#54-count-variance)
+  - [Factory Transfers](#55-factory-transfers)
 - [DTOs Reference](#dtos-reference)
 
 ---
@@ -5853,6 +5854,49 @@ at a time.
 
 
 ---
+
+### 55. Factory Transfers
+
+**Base route:** `/api/factory-transfers`  
+**Auth:** Bearer + a `factory.transfers.*` permission on every route, narrowed again to the warehouses on the account
+
+Production releasing stock to dispatch, and dispatch returning it, through the holding warehouse `FSRW`
+(Factory Stock Released). Each transfer is two SAP stock transfers. **Sending** posts the "out" leg at
+once, from the sender's warehouse into `FSRW`, stamped `U_OrderNumber` = `FT-000123-OUT` and `U_ToWhs` =
+the destination. The receiving side then **accepts** (with the count of every line), **part-accepts**
+or **rejects** it, or the sender **recalls** it, and that posts the "in" leg out of `FSRW`
+(`FT-000123-IN`): what was accepted to the destination and the rest back to the sender's warehouse, in
+one document, moving exactly the batches the out leg put in.
+
+| Department | Production | Dispatch |
+|------------|-----------|----------|
+| Yoghurt | `PROYG`, `PROYG 2` | `DISPYOG` |
+| Market Milk | `PROMM` | `DISPMILK` |
+| Ice Cream | `PROIC` | `DISPICE` |
+| Cheese | `PROCH`, `PROPC`, `PROCS` | `DISPCH` |
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|-----------|-------------|
+| GET | `/api/factory-transfers` | `factory.transfers.view` | Transfers whose source or destination is one of the caller's warehouses (every one for `accept_any`), newest first. `view` is `awaiting` (in transit and the caller's to decide), `open`, `all`, or a status; `search` matches `FT-000123`, the sender, a warehouse or an item code; `page` 1, `pageSize` 25. `awaitingMeCount` counts the caller's queue across every page. Each row carries `canDecide`, `canRecall`, `canRetry`, `canCancel` |
+| GET | `/api/factory-transfers/options` | `factory.transfers.view` | The caller's `routes`: each of their warehouses that can send, with its department, direction and allowed destinations; plus `canSend`, `canAccept`, `canAcceptAny` |
+| GET | `/api/factory-transfers/{id}` | `factory.transfers.view` | One transfer: lines with sent and accepted quantity and the batches SAP moved, both SAP documents, the decision and `lastError`. `404` for a transfer outside the caller's warehouses |
+| POST | `/api/factory-transfers` | `factory.transfers.send` | `{ "clientRequestId", "sourceWarehouseCode", "destinationWarehouseCode", "reason", "lines": [{ "itemCode", "quantity" }] }`. The source must be on the account; the destination must be the same department's other side (left empty only where there is one). Posts the out leg. A repeat `clientRequestId` returns the transfer it made |
+| POST | `/api/factory-transfers/{id}/decision` | `factory.transfers.accept` or `factory.transfers.accept_any` | `{ "decision": "Accept", "lines": [{ "lineId", "acceptedQuantity" }], "reason" }` — every line, none above what was sent; `reason` required when short. `{ "decision": "Reject", "reason" }` sends everything back. The caller must hold the destination (or `accept_any`) and must not be the sender |
+| POST | `/api/factory-transfers/{id}/recall` | `factory.transfers.send` | `{ "reason" }` — the sender only, while in transit. Everything goes back |
+| POST | `/api/factory-transfers/{id}/retry` | `factory.transfers.view` | Re-posts the failed or stranded leg. Looks it up in SAP by its order number first, so a post whose reply was lost is adopted, not repeated |
+| POST | `/api/factory-transfers/{id}/cancel` | `factory.transfers.send` | The sender abandons a send that failed. SAP is checked first: one that reached SAP after all is finished into transit instead |
+
+**Nobody accepts their own transfer**, the dispatch manager included (`FactoryTransfer.CannotDecideOwnTransfer`).
+`factory.transfers.accept_any` is granted on the account, never by a role's defaults.
+
+**Remarks.** Both legs carry `Comments` of at most 254 characters: the number, department, direction and
+warehouses, `Sent by <name> <CAT time>`, then on the in leg `Accepted|Part-accepted|Rejected|Recalled by
+<name> <CAT time>`, then `Reason:` and `Note:` in what space is left.
+
+**One post at a time.** Each leg holds a post lock keyed on the transfer and leg (scope
+`factory-transfer-post`); a second post while one runs is `409 FactoryTransfer.PostInProgress`. A decision is
+claimed with its line quantities in one transaction before SAP is called, and from the claim on the request's
+token is dropped. Failures leave `SendFailed` or `SettleFailed` with `lastError`; retry from there.
 
 ## DTOs Reference
 

@@ -54,6 +54,19 @@ public class InventoryTransferLine
 
     [JsonPropertyName("UoMCode")]
     public string? UoMCode { get; set; }
+
+    /// <summary>The batches this line moved, as SAP returns them on the created document.</summary>
+    [JsonPropertyName("BatchNumbers")]
+    public List<InventoryTransferLineBatch>? BatchNumbers { get; set; }
+}
+
+public class InventoryTransferLineBatch
+{
+    [JsonPropertyName("BatchNumber")]
+    public string? BatchNumber { get; set; }
+
+    [JsonPropertyName("Quantity")]
+    public decimal Quantity { get; set; }
 }
 
 public class SAPResponse<T>
