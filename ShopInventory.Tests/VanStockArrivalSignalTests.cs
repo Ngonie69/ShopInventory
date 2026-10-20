@@ -27,6 +27,7 @@ public sealed class VanStockArrivalSignalTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly RecordingPushService _push = new();
+    private readonly NoOpNotificationService _notices = new();
     private readonly MemoryCache _cache = new(new MemoryCacheOptions());
 
     public VanStockArrivalSignalTests()
@@ -167,13 +168,117 @@ public sealed class VanStockArrivalSignalTests : IDisposable
         Assert.Null(exception);
     }
 
+    // --- The visible notice, beside the signal ---
+
+    /// <summary>
+    /// A Sales rep is the one who can open the transfer, so a Sales rep is the one told. The ADR on
+    /// the same van is woken for the ledger and nothing more: they have no transfers screen.
+    /// </summary>
+    [Fact]
+    public async Task A_load_landing_on_a_van_tells_its_sales_reps_and_not_its_adr()
+    {
+        await AddUserAsync(ApplicationRoles.Adr, Van);
+        var rep = await AddUserAsync(ApplicationRoles.Sales, Van);
+        await AddUserAsync(ApplicationRoles.Sales, OtherVan);
+
+        await Handler().Handle(Arrival(Van, docEntry: 7001, docNum: 9001), default);
+
+        var notice = Assert.Single(_notices.Sent);
+        Assert.Equal(rep.Id, notice.TargetUserId);
+        Assert.Equal(rep.Username, notice.TargetUsername);
+        Assert.Null(notice.TargetRole);
+        Assert.Single(_push.SilentPushes);
+    }
+
+    /// <summary>
+    /// The handset opens a tap on <c>InventoryTransfer</c> plus an id on the transfer whose DocEntry
+    /// it is, so those two are the contract. And it must not carry the signal's <c>changeType</c>:
+    /// the handset would take it for the ledger signal and show the rep nothing.
+    /// </summary>
+    [Fact]
+    public async Task The_notice_names_the_transfer_the_way_the_handset_opens_it()
+    {
+        await AddUserAsync(ApplicationRoles.Sales, Van);
+
+        await Handler().Handle(Arrival(Van, docEntry: 7001, docNum: 9001), default);
+
+        var notice = Assert.Single(_notices.Sent);
+        Assert.Equal("InventoryTransfer", notice.EntityType);
+        Assert.Equal("7001", notice.EntityId);
+        Assert.Contains("9001", notice.Message);
+        Assert.Contains(Depot, notice.Message);
+        Assert.Contains(Van, notice.Title);
+        Assert.False(string.IsNullOrWhiteSpace(notice.Title));
+        Assert.DoesNotContain("changeType", notice.Data!.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Every_line_of_one_transfer_raises_one_notice()
+    {
+        await AddUserAsync(ApplicationRoles.Sales, Van);
+        var handler = Handler();
+
+        await handler.Handle(Arrival(Van, docEntry: 7001, docNum: 9001, itemCode: "GOU015"), default);
+        await handler.Handle(Arrival(Van, docEntry: 7001, docNum: 9001, itemCode: "FET020"), default);
+        await handler.Handle(Arrival(Van, docEntry: 7002, docNum: 9002), default);
+
+        Assert.Equal(new[] { "7001", "7002" }, _notices.Sent.Select(notice => notice.EntityId));
+    }
+
+    /// <summary>
+    /// The rep who raised the request was told when the depot converted it, under this same
+    /// transfer. A second notice for one load is noise; the rep on the van who did not ask still
+    /// hears. The same stored row is what stops a restart, which forgets the in-memory window, from
+    /// telling a rep twice.
+    /// </summary>
+    [Fact]
+    public async Task A_rep_already_told_about_the_transfer_is_not_told_again()
+    {
+        var requester = await AddUserAsync(ApplicationRoles.Sales, Van);
+        var colleague = await AddUserAsync(ApplicationRoles.Sales, Van);
+        _context.Notifications.Add(new Notification
+        {
+            UserId = requester.Id,
+            TargetUsername = requester.Username,
+            Title = "Stock request #512 is on its way",
+            Message = "Transfer #9001 was raised against it.",
+            Type = "Success",
+            Category = "InventoryTransfer",
+            EntityType = "InventoryTransfer",
+            EntityId = "7001",
+            CreatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+
+        await Handler().Handle(Arrival(Van, docEntry: 7001, docNum: 9001), default);
+
+        var notice = Assert.Single(_notices.Sent);
+        Assert.Equal(colleague.Id, notice.TargetUserId);
+    }
+
+    /// <summary>
+    /// Without a document entry there is no transfer to open and no way to hold a load to one
+    /// notice. The ledger still needs to hear.
+    /// </summary>
+    [Fact]
+    public async Task A_line_with_no_document_entry_signals_but_tells_nobody()
+    {
+        await AddUserAsync(ApplicationRoles.Sales, Van);
+
+        await Handler().Handle(Arrival(Van, docEntry: null, docNum: null), default);
+
+        Assert.Single(_push.SilentPushes);
+        Assert.Empty(_notices.Sent);
+    }
+
     private StockTransferReceivedHandler Handler() => new(
         _context,
         _push,
+        _notices,
         _cache,
         NullLogger<StockTransferReceivedHandler>.Instance);
 
-    private static StockTransferReceivedEvent Arrival(string warehouse, int docEntry, int docNum, string itemCode = "GOU015") =>
+    private static StockTransferReceivedEvent Arrival(string warehouse, int? docEntry, int? docNum, string itemCode = "GOU015") =>
         new(warehouse, Depot, itemCode, "Gouda 1kg", 30m, docEntry, docNum, DateTime.UtcNow);
 
     private async Task<User> AddUserAsync(string role, string warehouse, bool isActive = true)
@@ -214,7 +319,8 @@ public sealed class VanStockArrivalSignalTests : IDisposable
             return Task.FromResult(userIds.Count);
         }
 
-        // A load landing is a signal for the app, never news for the rep.
+        // The signal is never news for the rep, and the notice that is goes through
+        // INotificationService, so it is stored and can be checked for — never pushed straight.
         public Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default) =>
             throw new InvalidOperationException($"A van stock arrival was pushed to the whole {role} role.");
 
