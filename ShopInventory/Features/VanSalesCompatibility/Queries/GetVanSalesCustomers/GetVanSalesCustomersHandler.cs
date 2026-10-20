@@ -43,8 +43,11 @@ public sealed class GetVanSalesCustomersHandler(
                 ? await businessPartnerService.GetBusinessPartnerByCodeAsync(assignedBusinessPartnerCode, cancellationToken)
                 : null;
 
+            var accountPricesItself = await VanSalesRouteCustomerScope.AccountPricesItselfAsync(
+                db, assignedBusinessPartnerCode, cancellationToken);
+
             return routeCustomers
-                .Select(routeCustomer => VanSalesCompatibilityMapper.MapShop(user, routeCustomer, partner))
+                .Select(routeCustomer => VanSalesCompatibilityMapper.MapShop(user, routeCustomer, partner, accountPricesItself))
                 .ToList();
         }
 
