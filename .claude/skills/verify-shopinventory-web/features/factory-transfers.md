@@ -15,11 +15,17 @@ warehouses on the account.
 - Open drawer: lines with the batches SAP moved, a count stepper per line, Accept / Accept *n* of *m*
   (a short count needs a note), Reject (needs a note), Recall (sender only), Retry, Cancel send
 
+- Depot trucks: a DistributionOfficer picks "Load a truck for a depot" in From, a depot in To, then
+  truck registration and driver (both required). An open depot order fills the lines from the dispatch
+  warehouse holding most of each item. The DepotController for that depot accepts it; short lines go
+  back to each line's own dispatch warehouse. A depot can also return stock from its centre or shop.
+
 ## How to get to it (user POV)
 
 Sign in as a `ProductionOfficer` or `DispatchOfficer` and you land on `/factory-transfers`; Admin finds
 it under Inventory. Both factory roles need warehouses on the account (Users → edit → Assigned
-Warehouses). The dispatch manager holds `factory.transfers.accept_any` on the account.
+Warehouses). The dispatch manager holds `factory.transfers.accept_any` on the account. A
+DistributionOfficer lands here too; a DepotController keeps its dashboard and finds the link under Inventory.
 
 ## Driving it with cdp.py
 
@@ -48,3 +54,6 @@ quantities. After a short accept the drawer reads Part-accepted.
   first build of this page had both pickers bound to their own field names.
 - The API's half (scope, routes, two legs, lost-reply adoption) is proven by `FactoryTransferTests`,
   not by this page; a stub cannot show it.
+- Depot flow: `scratchpad/verify/drive_depot.py` in the session that built it. The stub also needs
+  `api/factory-transfers/depot-orders` and stock for DISPYOG and DISPICE. Its stock sync writes into
+  `CachedWarehouseStocks`, so delete the stub rows afterwards.
