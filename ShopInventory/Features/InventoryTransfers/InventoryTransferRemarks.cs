@@ -49,7 +49,11 @@ public static class InventoryTransferRemarks
 
         var trailText = Truncate(string.Join(Separator, trail), MaxLength);
 
+        // The Web composes the requester's comments as "Reason: X | notes", so stored comments
+        // usually carry the label already; drop it so SAP reads "Reason: " once, not twice.
         var text = (reason ?? pending.Comments)?.Trim();
+        if (text is not null && text.StartsWith(ReasonLabel, StringComparison.OrdinalIgnoreCase))
+            text = text[ReasonLabel.Length..].Trim();
         if (string.IsNullOrEmpty(text))
             return trailText;
 
