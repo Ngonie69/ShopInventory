@@ -265,6 +265,18 @@ Inventory
 Account
     Security  /security
 
+## ProductionOfficer
+Inventory
+    Factory Transfers  /factory-transfers
+Account
+    Security  /security
+
+## DispatchOfficer
+Inventory
+    Factory Transfers  /factory-transfers
+Account
+    Security  /security
+
 ## Lab
 Lab
     Batch Status  /lab/batch-status
@@ -300,6 +312,7 @@ Customers & Products
 Inventory
     Stock Monitoring  /stock
     Transfers  /inventory-transfers
+    Factory Transfers  /factory-transfers
     Local Stock  /local-stock
     Stock Write-offs  /stock-write-offs
     Count Variance  /count-variance
