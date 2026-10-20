@@ -91,6 +91,25 @@ public static class UserRoles
     public const string WashBay = "WashBay";
 
     /// <summary>
+    /// A production department's stock officer: releases stock from its production warehouses to
+    /// dispatch through FSRW, and accepts what dispatch returns. Scoped by its assigned warehouses.
+    /// </summary>
+    public const string ProductionOfficer = "ProductionOfficer";
+
+    /// <summary>
+    /// A dispatch section's controller or stock officer: accepts what production releases into its
+    /// dispatch warehouse, and returns stock to production. Scoped by its assigned warehouses; the
+    /// dispatch manager also holds <c>factory.transfers.accept_any</c>.
+    /// </summary>
+    public const string DispatchOfficer = "DispatchOfficer";
+
+    /// <summary>
+    /// Distribution: loads one truck per depot delivery from its dispatch warehouses into DEPOTRAN, and
+    /// accepts what a depot returns. Scoped by its assigned warehouses.
+    /// </summary>
+    public const string DistributionOfficer = "DistributionOfficer";
+
+    /// <summary>
     /// Legacy POD role. Not offered for new accounts, but still runtime-supported and
     /// still landing on the POD list — see <c>RoleLandingRoutes.For</c>.
     /// </summary>
@@ -237,6 +256,20 @@ public static class UserRoles
     public const string MarketBreakageRoles = "Admin,Manager,StockController,DepotController";
 
     /// <summary>
+    /// Who can open /factory-transfers: the two sides of the factory floor, Distribution, the depots it
+    /// delivers to, and the administrator. The
+    /// API agrees through <c>factory.transfers.view</c>; <c>FactoryTransferAccessTests</c> pins the two.
+    /// Which transfers each person sees, sends and accepts is narrowed again by their warehouses.
+    /// </summary>
+    public const string FactoryTransferRoles = "Admin,ProductionOfficer,DispatchOfficer,DistributionOfficer,DepotController";
+
+    /// <summary>The roles whose account names factory warehouses, and must name at least one.</summary>
+    public static bool IsFactoryRole(string? role) =>
+        string.Equals(role, ProductionOfficer, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, DispatchOfficer, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, DistributionOfficer, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Who can open /stock-write-offs: the roles that may issue counted stock out of a warehouse in
     /// SAP. The API agrees through <c>stock.writeoffs.view</c> and <c>stock.writeoffs.post</c>;
     /// <c>WebPageGatePermissionAlignmentTests</c> pins the two. Narrower than
@@ -319,6 +352,9 @@ public static class UserRoles
         StockController,
         DepotController,
         WashBay,
+        ProductionOfficer,
+        DispatchOfficer,
+        DistributionOfficer,
         Lab,
         MerchandiserPurchaseOrderViewer,
         Admin,
@@ -360,7 +396,10 @@ public static class UserRoles
         Sales,
         CartVendor,
         TillOperator,
-        WashBay
+        WashBay,
+        ProductionOfficer,
+        DispatchOfficer,
+        DistributionOfficer
     ];
 
     /// <summary>

@@ -29,6 +29,9 @@
     <!-- Generated from credit-note-approvals.css — the same queue-and-drawer shape — for the broken
          stock vans bring back, counted and confirmed into a transfer to returns. -->
     <StaffStylesheetEarly Include="wwwroot/css/market-breakages.css" />
+    <!-- Generated from market-breakages.css — the same queue-and-drawer shape — for production and
+         dispatch handing stock to each other through FSRW. -->
+    <StaffStylesheetEarly Include="wwwroot/css/factory-transfers.css" />
     <!-- The other half of the same story: what the returns warehouse fills up with has to leave
          SAP's books eventually, and /stock-write-offs is the goods issue that does it. -->
     <StaffStylesheetEarly Include="wwwroot/css/stock-write-offs.css" />

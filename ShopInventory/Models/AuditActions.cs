@@ -140,6 +140,13 @@ public static class AuditActions
     public const string ConfirmMarketBreakage = "ConfirmMarketBreakage";
     public const string RejectMarketBreakage = "RejectMarketBreakage";
 
+    // Factory transfer actions
+    public const string SendFactoryTransfer = "SendFactoryTransfer";
+    public const string DecideFactoryTransfer = "DecideFactoryTransfer";
+    public const string RecallFactoryTransfer = "RecallFactoryTransfer";
+    public const string RetryFactoryTransfer = "RetryFactoryTransfer";
+    public const string CancelFactoryTransfer = "CancelFactoryTransfer";
+
     // Stock write-off actions
     public const string CreateStockWriteOff = "CreateStockWriteOff";
 

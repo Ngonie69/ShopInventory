@@ -187,6 +187,13 @@ public static class AuditActions
     public const string ConfirmMarketBreakage = "ConfirmMarketBreakage";
     public const string RejectMarketBreakage = "RejectMarketBreakage";
 
+    // Factory transfers between production and dispatch
+    public const string SendFactoryTransfer = "SendFactoryTransfer";
+    public const string DecideFactoryTransfer = "DecideFactoryTransfer";
+    public const string RecallFactoryTransfer = "RecallFactoryTransfer";
+    public const string RetryFactoryTransfer = "RetryFactoryTransfer";
+    public const string CancelFactoryTransfer = "CancelFactoryTransfer";
+
     // Van sales actions
     //
     // The attendance report leaves the building as an email with the workbook attached, so both the

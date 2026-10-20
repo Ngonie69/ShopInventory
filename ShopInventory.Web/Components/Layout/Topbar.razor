@@ -417,6 +417,9 @@
         if (user.IsInRole("StockController")) return "Stock controller";
         if (user.IsInRole("DepotController")) return "Depot controller";
         if (user.IsInRole("WashBay")) return "Wash bay";
+        if (user.IsInRole("ProductionOfficer")) return "Production officer";
+        if (user.IsInRole("DispatchOfficer")) return "Dispatch officer";
+        if (user.IsInRole("DistributionOfficer")) return "Distribution";
         if (user.IsInRole("Driver")) return "Driver";
         return "Staff";
     }

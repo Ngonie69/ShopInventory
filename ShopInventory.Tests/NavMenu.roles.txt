@@ -250,6 +250,7 @@ Overview
     Dashboard  /dashboard
 Inventory
     Transfers  /inventory-transfers
+    Factory Transfers  /factory-transfers
     Local Stock  /local-stock
 Van Sales
     Customer Orders  /van-sales-customer-orders
@@ -262,6 +263,24 @@ Sales
     Credit Note Approvals  /credit-notes/approvals
 Inventory
     Transfers  /inventory-transfers
+Account
+    Security  /security
+
+## ProductionOfficer
+Inventory
+    Factory Transfers  /factory-transfers
+Account
+    Security  /security
+
+## DispatchOfficer
+Inventory
+    Factory Transfers  /factory-transfers
+Account
+    Security  /security
+
+## DistributionOfficer
+Inventory
+    Factory Transfers  /factory-transfers
 Account
     Security  /security
 
@@ -300,6 +319,7 @@ Customers & Products
 Inventory
     Stock Monitoring  /stock
     Transfers  /inventory-transfers
+    Factory Transfers  /factory-transfers
     Local Stock  /local-stock
     Stock Write-offs  /stock-write-offs
     Count Variance  /count-variance

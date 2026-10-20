@@ -2847,6 +2847,194 @@ namespace ShopInventory.Migrations
                     b.ToTable("ExchangeRates", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.FactoryTransferEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClientRequestId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DecidedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Decision")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("DepartmentCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("DestinationWarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("DriverName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("HoldingWarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("InAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("InPostedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("InSapDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("InSapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastAttemptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("OutAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("OutPostedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("OutSapDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("OutSapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SentByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<Guid>("SentByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("SourceRequestDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SourceRequestDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceWarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("VehiclePlate")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientRequestId")
+                        .IsUnique();
+
+                    b.HasIndex("DestinationWarehouseCode");
+
+                    b.HasIndex("SourceWarehouseCode");
+
+                    b.HasIndex("Status", "SentAtUtc");
+
+                    b.ToTable("FactoryTransfers", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.FactoryTransferLineEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("AcceptedQuantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("BatchesJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FromWarehouseCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ItemDescription")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("LineNum")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<int>("TransferId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UoMCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TransferId");
+
+                    b.ToTable("FactoryTransferLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_FactoryTransferLines_AcceptedQuantity_InRange", "\"AcceptedQuantity\" IS NULL OR (\"AcceptedQuantity\" >= 0 AND \"AcceptedQuantity\" <= \"Quantity\")");
+
+                            t.HasCheckConstraint("CK_FactoryTransferLines_Quantity_Positive", "\"Quantity\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.FiscalDayStateEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -9455,6 +9643,17 @@ namespace ShopInventory.Migrations
                     b.Navigation("CreatedByUser");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.FactoryTransferLineEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.FactoryTransferEntity", "Transfer")
+                        .WithMany("Lines")
+                        .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Transfer");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.IncomingPaymentCheckEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.Entities.IncomingPaymentEntity", "IncomingPayment")
@@ -10124,6 +10323,11 @@ namespace ShopInventory.Migrations
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleEntity", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.FactoryTransferEntity", b =>
                 {
                     b.Navigation("Lines");
                 });

@@ -1,0 +1,998 @@
+/* ==========================================================================
+   Factory Transfers — Nocturne handover queue
+
+   Production releasing stock to dispatch, and dispatch returning it, through
+   the holding warehouse FSRW. GENERATED from market-breakages.css by renaming
+   its `mbk` prefix to `fxt` (the two pages share a layout: a queue under
+   tabs, and the open item in the operations.css drawer with a count stepper
+   per line), then retuned below the "Factory Transfers additions" rule.
+   Regenerate rather than hand-copy if the breakage sheet's shell changes.
+
+   The palette is an alias layer over nocturne-tokens.css and flips at the
+   root, so this sheet carries no `.dark-theme` block.
+   ========================================================================== */
+
+.fxt {
+    --fxt-bg: var(--noct-bg);
+    --fxt-surface: var(--noct-surface);
+    --fxt-ink: var(--noct-ink);
+    --fxt-ink-2: var(--noct-ink-2);
+    --fxt-mute: var(--noct-mute);
+    --fxt-mute-2: var(--noct-mute-2);
+    --fxt-mute-3: var(--noct-mute-3);
+    --fxt-faint: var(--noct-faint);
+    --fxt-placeholder: var(--noct-placeholder);
+    --fxt-divider: var(--noct-divider);
+    --fxt-rule: var(--noct-rule);
+    --fxt-hover: var(--noct-hover);
+    --fxt-press: var(--noct-press);
+    --fxt-chip: var(--noct-avatar-bg);
+    --fxt-field-bg: var(--noct-field-bg);
+    --fxt-field-edge: var(--noct-field-edge);
+    --fxt-field-edge-hi: var(--noct-field-edge-hi);
+    --fxt-accent: var(--noct-accent);
+    --fxt-accent-rgb: var(--noct-accent-rgb);
+    --fxt-accent-text: var(--noct-accent-text);
+    --fxt-fill: var(--noct-box);
+    --fxt-on-fill: var(--noct-on-box);
+    --fxt-scrim: var(--noct-scrim);
+    --fxt-shadow-pop: var(--noct-shadow-pop);
+    --fxt-shadow-lg: var(--noct-shadow-lg);
+
+    /* The five states a report can be in, from the system's families so they
+       agree with every other status chip: to count (accent), transferring
+       (info), transferred (good), transfer failed (bad), rejected (neutral). */
+    --fxt-accent-fam: var(--noct-fam-accent);
+    --fxt-accent-fam-rgb: var(--noct-fam-accent-rgb);
+    --fxt-info: var(--noct-fam-info);
+    --fxt-info-rgb: var(--noct-fam-info-rgb);
+    --fxt-good: var(--noct-fam-good);
+    --fxt-good-rgb: var(--noct-fam-good-rgb);
+    --fxt-warn: var(--noct-fam-warn);
+    --fxt-warn-rgb: var(--noct-fam-warn-rgb);
+    --fxt-bad: var(--noct-fam-bad);
+    --fxt-bad-rgb: var(--noct-fam-bad-rgb);
+    --fxt-neutral: var(--noct-fam-neutral);
+    --fxt-neutral-rgb: var(--noct-fam-neutral-rgb);
+
+    --fxt-s1: var(--noct-s1);
+    --fxt-s2: var(--noct-s2);
+    --fxt-s3: var(--noct-s3);
+    --fxt-s4: var(--noct-s4);
+    --fxt-s6: var(--noct-s6);
+    --fxt-s8: var(--noct-s8);
+    --fxt-r-sm: var(--noct-r-sm);
+    --fxt-r-md: var(--noct-r-md);
+    --fxt-r-lg: var(--noct-r-lg);
+
+    --fxt-top: var(--kf-topbar-h, 74px);
+    --fxt-mono: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+
+    /* The queue's columns, shared by the header row and every report row. */
+    --fxt-cols: 10px 92px 104px minmax(140px, 1.1fr) minmax(200px, 1.7fr) 72px 150px 104px 16px;
+
+    color-scheme: var(--noct-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.fxt {
+    min-height: 100vh;
+    background: var(--fxt-bg);
+    color: var(--fxt-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+}
+
+.fxt * {
+    box-sizing: border-box;
+}
+
+.fxt :focus-visible {
+    outline: 2px solid var(--fxt-accent);
+    outline-offset: 2px;
+}
+
+.fxt ::selection {
+    background: rgba(var(--fxt-accent-rgb), .3);
+}
+
+.fxt svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+}
+
+.fxt-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.fxt-right {
+    text-align: right;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.fxt-shell {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: var(--fxt-s6) 32px 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--fxt-s4) var(--fxt-s8);
+}
+
+.fxt-titles {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.fxt-mark {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: rgba(var(--fxt-accent-rgb), .14);
+    color: var(--fxt-accent-text);
+}
+
+.fxt-mark svg {
+    width: 20px;
+    height: 20px;
+}
+
+.fxt-titles-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.fxt-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    line-height: 1.25;
+    color: var(--fxt-ink);
+}
+
+.fxt-sub {
+    margin: 0;
+    font-size: 13px;
+    color: var(--fxt-mute-3);
+}
+
+.fxt-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--fxt-s2);
+}
+
+/* The search box. The input inside is guarded against app.css's dark
+   `.dark-theme input` fill (0,1,1) and its placeholder rule; see the
+   dark-theme-input-fill note: `background-color` and the WebKit text fill
+   both have to be set, at a higher weight. */
+.fxt-search {
+    display: flex;
+    align-items: center;
+    gap: var(--fxt-s3);
+    width: 280px;
+    max-width: 100%;
+    height: 40px;
+    padding: 0 var(--fxt-s2) 0 var(--fxt-s3);
+    border-radius: var(--fxt-r-md);
+    background: var(--fxt-field-bg);
+    border: 1px solid var(--fxt-field-edge);
+    color: var(--fxt-mute-3);
+    transition: border-color .15s;
+}
+
+.fxt-search:focus-within {
+    border-color: var(--fxt-field-edge-hi);
+}
+
+.fxt-search svg {
+    width: 16px;
+    height: 16px;
+}
+
+.fxt .fxt-search input.fxt-search-input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    appearance: none;
+    background-color: transparent;
+    color: var(--fxt-ink);
+    font: inherit;
+    font-size: 13px;
+}
+
+.fxt .fxt-search input.fxt-search-input::placeholder {
+    color: var(--fxt-placeholder);
+    -webkit-text-fill-color: var(--fxt-placeholder);
+    opacity: 1;
+}
+
+.fxt .fxt-search-clear {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--fxt-r-sm);
+    background: transparent;
+    color: var(--fxt-mute-3);
+    cursor: pointer;
+}
+
+.fxt .fxt-search-clear:hover {
+    background: var(--fxt-hover);
+    color: var(--fxt-ink);
+}
+
+.fxt-search-clear svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.fxt .fxt-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 14px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--fxt-ink-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--fxt-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.fxt .fxt-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.fxt .fxt-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.fxt .fxt-btn-secondary {
+    background: var(--fxt-surface);
+    border-color: var(--fxt-field-edge);
+}
+
+.fxt .fxt-btn-ghost {
+    border-color: var(--fxt-field-edge);
+}
+
+.fxt .fxt-btn-secondary:hover:not(:disabled),
+.fxt .fxt-btn-ghost:hover:not(:disabled) {
+    background: var(--fxt-hover);
+    color: var(--fxt-ink);
+}
+
+.fxt .fxt-btn-icon {
+    width: 40px;
+    padding: 0;
+}
+
+.fxt .fxt-btn-icon-sm {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+}
+
+.fxt-spin {
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: fxt-spin .7s linear infinite;
+}
+
+@keyframes fxt-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.fxt-body {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 20px 32px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.fxt-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--fxt-s3);
+    padding: var(--fxt-s3) var(--fxt-s4);
+    border-radius: var(--fxt-r-md);
+    background: rgba(var(--fxt-bad-rgb), .1);
+    border: 1px solid rgba(var(--fxt-bad-rgb), .35);
+    color: var(--fxt-ink);
+}
+
+.fxt-alert > svg {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    color: var(--fxt-bad);
+}
+
+.fxt-alert-body {
+    flex: 1;
+}
+
+/* ── Tabs: the status filter ──────────────────────────────────────────── */
+
+.fxt-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--fxt-divider);
+}
+
+.fxt-tablist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.fxt .fxt-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--fxt-mute-3);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: inset 0 -2px 0 transparent;
+    transition: color .15s, box-shadow .15s;
+}
+
+.fxt .fxt-tab:hover {
+    color: var(--fxt-ink);
+}
+
+.fxt .fxt-tab.is-on {
+    color: var(--fxt-ink);
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--fxt-accent);
+}
+
+.fxt-tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--fxt-chip);
+    color: var(--fxt-ink-2);
+}
+
+.fxt-tab.is-on .fxt-tab-count {
+    background: var(--fxt-fill);
+    color: var(--fxt-on-fill);
+}
+
+.fxt-tabs-note {
+    padding-bottom: 12px;
+    font-size: 12px;
+    color: var(--fxt-mute-3);
+}
+
+/* ── The queue ────────────────────────────────────────────────────────── */
+
+.fxt-list {
+    border-radius: var(--fxt-r-lg);
+    background: var(--fxt-surface);
+    border: 1px solid var(--fxt-rule);
+    overflow: hidden;
+}
+
+.fxt-grid {
+    display: grid;
+    grid-template-columns: var(--fxt-cols);
+    gap: 16px;
+    align-items: center;
+    padding: 10px 20px;
+}
+
+.fxt-grid-head {
+    border-bottom: 1px solid var(--fxt-rule);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--fxt-mute-3);
+}
+
+/* `align-items` and `text-align` are restated on the row: a global button
+   rule centres a button's children. */
+.fxt .fxt-row {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--fxt-rule);
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    align-items: center;
+    cursor: pointer;
+    transition: background-color .12s;
+}
+
+.fxt .fxt-row:last-child {
+    border-bottom: 0;
+}
+
+.fxt .fxt-row:hover {
+    background: var(--fxt-hover);
+}
+
+.fxt .fxt-row.is-on {
+    background: rgba(var(--fxt-accent-rgb), .1);
+    box-shadow: inset 0 0 0 1px var(--fxt-accent);
+}
+
+.fxt-row > span {
+    min-width: 0;
+}
+
+.fxt-row-no {
+    color: var(--fxt-ink-2);
+}
+
+.fxt-tag {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: var(--fxt-r-sm);
+    background: var(--fxt-chip);
+    color: var(--fxt-ink);
+    font-family: var(--fxt-mono);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.fxt-row-item {
+    display: flex;
+    gap: 4px;
+    min-width: 0;
+}
+
+/* The name gives way; "+ 2 more" never does. */
+.fxt-row-more {
+    flex-shrink: 0;
+    color: var(--fxt-mute-3);
+}
+
+.fxt-row-rep,
+.fxt-row-name,
+.fxt-row-summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fxt-row-rep {
+    font-weight: 500;
+}
+
+.fxt-row-products {
+    display: flex;
+    flex-direction: column;
+}
+
+.fxt-row-summary {
+    font-size: 12px;
+    color: var(--fxt-mute-3);
+}
+
+.fxt-row-summary.is-bad { color: var(--fxt-bad); }
+.fxt-row-summary.is-info { color: var(--fxt-info); }
+
+.fxt-row-units {
+    font-weight: 600;
+}
+
+.fxt-row-when {
+    font-size: 13px;
+    color: var(--fxt-mute-3);
+    white-space: nowrap;
+}
+
+.fxt-row-age {
+    color: var(--fxt-mute-3);
+    white-space: nowrap;
+}
+
+.fxt-row-age.is-overdue {
+    color: var(--fxt-warn);
+    font-weight: 600;
+}
+
+.fxt-row-go {
+    display: flex;
+    justify-content: flex-end;
+    color: var(--fxt-mute-3);
+}
+
+.fxt-row-go svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Status: a dot in the family's hue. */
+.fxt-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--fxt-neutral);
+}
+
+.fxt-dot.is-accent { background: var(--fxt-accent-fam); }
+.fxt-dot.is-info { background: var(--fxt-info); }
+.fxt-dot.is-good { background: var(--fxt-good); }
+.fxt-dot.is-bad { background: var(--fxt-bad); }
+
+.fxt-row-skel {
+    border-bottom: 1px solid var(--fxt-rule);
+}
+
+.fxt-skel {
+    height: 12px;
+    border-radius: var(--fxt-r-sm);
+    background: var(--fxt-chip);
+    animation: fxt-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes fxt-pulse {
+    50% { opacity: .45; }
+}
+
+.fxt-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 48px 16px;
+    color: var(--fxt-mute-3);
+    text-align: center;
+}
+
+.fxt-empty svg {
+    width: 28px;
+    height: 28px;
+}
+
+.fxt-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--fxt-s4);
+    padding: 10px 14px 10px 20px;
+    border-top: 1px solid var(--fxt-rule);
+    font-size: 12px;
+    color: var(--fxt-mute-3);
+}
+
+.fxt-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--fxt-s3);
+}
+
+/* ── The drawer ───────────────────────────────────────────────────────── */
+/* The open report wears the /desktop-sales invoice drawer: `.ops-overlay`,
+   `.ops-drawer`, `.ops-ds-drawer` and its `ops-ds-*` parts, the defs grid,
+   the table, the sums and the buttons, all from operations.css. What follows
+   is only what that drawer has no part for.
+
+   operations.css is in the late bundle and this sheet in the early one, so it
+   wins every tie: each rule here that meets one of its rules on the same
+   element carries a class more than the rule it overrides. */
+
+@media (prefers-reduced-motion: reduce) {
+    .fxt-skel,
+    .fxt-spin {
+        animation: none;
+    }
+}
+
+/* Under the snackbar. operations.css stands its overlays at 9998, over
+   MudBlazor's snackbar, and a confirm or a reject announces itself in one
+   while this drawer stays open on the next report in the queue. */
+.fxt .fxt-overlay {
+    z-index: 1400;
+}
+
+.fxt-drawer {
+    outline: 0;
+}
+
+/* The glyphs are drawn inline rather than from the icon font the invoice
+   drawer uses, so they take the sizes its glyphs render at. */
+.fxt-drawer .ops-icon-btn svg {
+    width: 15px;
+    height: 15px;
+}
+
+.fxt-drawer .ops-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.fxt-drawer .ops-btn-sm svg {
+    width: 12px;
+    height: 12px;
+}
+
+.fxt-drawer .ops-msg > svg {
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    flex: none;
+}
+
+/* A block's label with a control beside it, and a field's label with its
+   hint beside it. */
+.fxt-dblock-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    min-height: 26px;
+}
+
+.fxt-dlabel {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px var(--ops-s3);
+}
+
+.fxt-drawer .fxt-needed {
+    color: var(--ops-fam-bad);
+}
+
+.fxt-dnote {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ops-ink-2);
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.ops-overlay .ops-input.fxt-input-bad {
+    border-color: var(--ops-fam-bad);
+}
+
+/* The lines' own scroll box. At phone width four columns do not fit 390px,
+   and the drawer body's `overflow-y: auto` would clip the last one instead of
+   letting it be reached. The item column keeps a floor so a description wraps
+   to two lines rather than one word a line. */
+.fxt-dscroll {
+    overflow-x: auto;
+    min-width: 0;
+}
+
+.fxt-dscroll .ops-table td:first-child {
+    min-width: 160px;
+}
+
+/* The lines: the item code leads, as on the invoice; the rep's reason rides
+   beside it as a tag, and the description sits under both. */
+.fxt-drawer .fxt-dcode {
+    font-weight: 600;
+}
+
+.fxt-reason {
+    display: inline-flex;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: var(--ops-r-sm);
+    font-size: 10.5px;
+    line-height: 17px;
+    color: var(--ops-mute-2);
+    background: var(--ops-field-bg);
+    vertical-align: 1px;
+}
+
+/* The stepper: minus, the count box, plus, in one well the height of a row
+   control. An uncounted line is outlined dashed in the accent so the eye
+   finds what is left. */
+.fxt-stepper {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    border-radius: var(--ops-r-md);
+    background: var(--ops-field-bg);
+    border: 1px solid transparent;
+    transition: border-color .15s;
+}
+
+.fxt-stepper.is-uncounted {
+    border-style: dashed;
+    border-color: rgba(var(--ops-accent-rgb), .6);
+}
+
+.fxt-stepper:focus-within {
+    border-style: solid;
+    border-color: var(--ops-accent);
+}
+
+.fxt .fxt-step {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--ops-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.fxt .fxt-step:hover:not(:disabled) {
+    background: var(--ops-press);
+    color: var(--ops-ink);
+}
+
+.fxt .fxt-step:disabled {
+    opacity: .3;
+    cursor: not-allowed;
+}
+
+.fxt .fxt-step svg {
+    width: 12px;
+    height: 12px;
+    stroke-width: 2.4;
+}
+
+/* The count box, guarded against app.css's dark input fill (see the search
+   box above). The focus ring is the well's border, not the box's outline. */
+.fxt .fxt-stepper input.fxt-count-input {
+    width: 40px;
+    height: 26px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    outline: 0;
+    appearance: none;
+    background-color: transparent;
+    color: var(--ops-ink);
+    caret-color: var(--ops-accent);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.fxt .fxt-stepper input.fxt-count-input::placeholder {
+    color: var(--ops-mute-3);
+    -webkit-text-fill-color: var(--ops-mute-3);
+    font-size: 11.5px;
+    font-weight: 400;
+    opacity: 1;
+}
+
+/* The foot: Close, print and reject from the left, the confirm on the right,
+   wrapping rather than squeezing on a narrow screen. */
+.fxt-drawer .ops-drawer-foot {
+    flex-wrap: wrap;
+}
+
+.fxt-drawer .fxt-dconfirm {
+    margin-left: auto;
+}
+
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+/* The queue drops the timestamp before it drops anything a clerk sorts by. */
+@media (max-width: 1180px) {
+    .fxt {
+        --fxt-cols: 10px 92px 104px minmax(120px, 1fr) minmax(180px, 1.6fr) 64px 104px 16px;
+    }
+
+    .fxt-grid > :nth-child(7) {
+        display: none;
+    }
+}
+
+@media (max-width: 860px) {
+    .fxt-shell {
+        padding: var(--fxt-s4) 16px 0;
+    }
+
+    .fxt-head-actions {
+        width: 100%;
+    }
+
+    .fxt-search {
+        flex: 1 1 200px;
+        width: auto;
+    }
+
+    .fxt-body {
+        padding: var(--fxt-s4) 16px 48px;
+    }
+
+    .fxt-tabs-note {
+        display: none;
+    }
+
+    /* The four tabs stay one row and scroll sideways rather than wrapping
+       a tab under its own underline. */
+    .fxt-tablist {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .fxt .fxt-tab {
+        flex-shrink: 0;
+        padding: 0 10px;
+    }
+
+    /* A report becomes a card: dot, number, van and age on top; rep and the
+       units, then the products, beneath. */
+    .fxt-grid-head {
+        display: none;
+    }
+
+    .fxt .fxt-row {
+        grid-template-columns: 10px auto auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "dot no van . age"
+            ". rep rep rep units"
+            ". products products products products";
+        gap: 4px 10px;
+        padding: 12px 16px;
+    }
+
+    .fxt-row .fxt-dot { grid-area: dot; }
+    .fxt-row-no { grid-area: no; }
+    .fxt-row-van { grid-area: van; }
+    .fxt-row-age { grid-area: age; }
+    .fxt-row-rep { grid-area: rep; }
+    .fxt-row-units { grid-area: units; }
+    .fxt-row-products { grid-area: products; }
+
+    .fxt-row-when,
+    .fxt-row-go {
+        display: none;
+    }
+
+    .fxt-row-skel {
+        grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .fxt-row-skel > span,
+    .fxt-row-skel > :nth-child(n+6) {
+        display: none;
+    }
+}
+
+
+/* ── Factory Transfers additions ──────────────────────────────────────── */
+
+/* The one filled button on the page: "New transfer". */
+.fxt .fxt-btn-primary {
+    background: var(--fxt-fill);
+    border-color: var(--fxt-fill);
+    color: var(--fxt-on-fill);
+}
+
+.fxt .fxt-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+/* An account with no factory warehouses: information, not an error. */
+.fxt-alert.fxt-alert-info {
+    background: rgba(var(--fxt-info-rgb), .1);
+    border-color: rgba(var(--fxt-info-rgb), .35);
+}
+
+.fxt-alert.fxt-alert-info > svg {
+    color: var(--fxt-info);
+}
+
+/* The send drawer's From / To pair. */
+.fxt-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--fxt-s4);
+}
+
+.fxt-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* A destination there is only one of reads as a fact, not a control. */
+.fxt-fixed {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: var(--fxt-r-md);
+    border: 1px dashed var(--fxt-field-edge);
+    color: var(--fxt-ink);
+    font-family: var(--fxt-mono);
+    font-size: 13px;
+}
+
+@media (max-width: 560px) {
+    .fxt-form {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* The depot return's pointer to RETURNS: the link has to read as one inside the info message. */
+.fxt .fxt-breakage-note a {
+    color: var(--fxt-accent-text);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}

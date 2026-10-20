@@ -33,6 +33,13 @@ public interface ISAPServiceLayerClient
     Task<InventoryTransfer?> GetInventoryTransferByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The stock transfer stamped with <paramref name="orderNumber"/> in <c>U_OrderNumber</c>, dated on or
+    /// after <paramref name="dateFrom"/>, lines and batches included; null when there is none. How a
+    /// transfer whose reply was lost is found instead of posted again.
+    /// </summary>
+    Task<InventoryTransfer?> FindStockTransferByOrderNumberAsync(string orderNumber, DateTime dateFrom, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Creates a new inventory transfer in SAP Business One.
     /// CRITICAL: Validates stock availability to prevent negative quantities.
     /// </summary>
