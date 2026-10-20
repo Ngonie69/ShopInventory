@@ -132,41 +132,37 @@
                         <h2>Warehouses</h2>
                     </div>
                     <div class="tfm-card-bd tfm-fields">
-                        <label class="tfm-lab tfm-span2">
-                            <span class="tfm-lab-t">From warehouse <span class="tfm-req">*</span></span>
-                            <select class="tfm-select @(FromWarehouseError is not null ? "is-bad" : "")"
-                                    value="@selectedFromWarehouse?.WarehouseCode"
-                                    @onchange="e => OnFromWarehouseChangedAsync(e.Value?.ToString())"
-                                    disabled="@isLoadingMasterData">
-                                <option value="">@(isLoadingMasterData ? "Loading warehouses…" : "Select source warehouse…")</option>
-                                @foreach (var warehouse in cachedWarehouses)
-                                {
-                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
-                                }
-                            </select>
+                        <div class="tfm-lab tfm-span2">
+                            <label class="tfm-lab-t" for="tfm-from-wh">From warehouse <span class="tfm-req">*</span></label>
+                            <NocturnePicker Class="npick-block" Id="tfm-from-wh" Options="warehouseOptions"
+                                            Value="@selectedFromWarehouse?.WarehouseCode"
+                                            ValueChanged="@(code => OnFromWarehouseChangedAsync(code))"
+                                            Loading="isLoadingMasterData" LoadingText="Loading warehouses…"
+                                            Invalid="@(FromWarehouseError is not null)"
+                                            Placeholder="Select source warehouse…"
+                                            EmptyText="No warehouses loaded"
+                                            AriaLabel="From warehouse" />
                             @if (FromWarehouseError is not null)
                             {
                                 <div class="tfm-field-err">@FromWarehouseError</div>
                             }
-                        </label>
+                        </div>
 
-                        <label class="tfm-lab tfm-span2">
-                            <span class="tfm-lab-t">To warehouse <span class="tfm-req">*</span></span>
-                            <select class="tfm-select @(ToWarehouseError is not null ? "is-bad" : "")"
-                                    value="@selectedToWarehouse?.WarehouseCode"
-                                    @onchange="e => OnToWarehouseChanged(e.Value?.ToString())"
-                                    disabled="@isLoadingMasterData">
-                                <option value="">@(isLoadingMasterData ? "Loading warehouses…" : "Select destination warehouse…")</option>
-                                @foreach (var warehouse in cachedWarehouses)
-                                {
-                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
-                                }
-                            </select>
+                        <div class="tfm-lab tfm-span2">
+                            <label class="tfm-lab-t" for="tfm-to-wh">To warehouse <span class="tfm-req">*</span></label>
+                            <NocturnePicker Class="npick-block npick-end" Id="tfm-to-wh" Options="warehouseOptions"
+                                            Value="@selectedToWarehouse?.WarehouseCode"
+                                            ValueChanged="@(code => OnToWarehouseChanged(code))"
+                                            Loading="isLoadingMasterData" LoadingText="Loading warehouses…"
+                                            Invalid="@(ToWarehouseError is not null)"
+                                            Placeholder="Select destination warehouse…"
+                                            EmptyText="No warehouses loaded"
+                                            AriaLabel="To warehouse" />
                             @if (ToWarehouseError is not null)
                             {
                                 <div class="tfm-field-err">@ToWarehouseError</div>
                             }
-                        </label>
+                        </div>
 
                         <label class="tfm-lab tfm-span4">
                             <span class="tfm-lab-t">Reason for transfer <span class="tfm-req">*</span></span>
@@ -517,6 +513,7 @@
     private readonly string clientRequestId = Guid.NewGuid().ToString("N");
 
     private List<WarehouseDto> cachedWarehouses = new();
+    private List<NocturnePickerOption> warehouseOptions = new();
     private List<ProductDto> cachedProducts = new();
     private HashSet<string> assignedWarehouseCodes = new(StringComparer.OrdinalIgnoreCase);
 
@@ -685,6 +682,7 @@
         try
         {
             cachedWarehouses = await CacheService.GetWarehousesAsync();
+            warehouseOptions = WarehouseOptions.From(cachedWarehouses);
             cachedProducts = await CacheService.GetProductsAsync();
             Logger.LogInformation("Loaded {Warehouses} warehouses and {Products} products",
                 cachedWarehouses.Count, cachedProducts.Count);
