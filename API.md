@@ -5067,6 +5067,15 @@ time it has signal instead of the next time the rep pulls the stock screen down.
 also carries `is_silent_in_foreground: "true"`, which is what keeps the handset's FCM plugin from
 raising a blank tray entry for it.
 
+**Beside the signal, each `Sales` rep on that warehouse is told in words** — a stored notification
+addressed to them (`Category`/`EntityType` `InventoryTransfer`, `EntityId` the transfer's
+DocEntry, title "Stock loaded onto {warehouse}"), which the handset opens on the transfer. `ADR`
+accounts get the signal only; they have no transfers screen. Once per rep per transfer, checked
+against the stored notifications, so a restart does not repeat it and a rep the request conversion
+already told about this transfer ("Stock request #N is on its way") is not told twice. A line with
+no DocEntry raises no notice. The notice never carries `changeType`, or the handset would take it
+for the signal.
+
 ---
 
 ### 43. Exception Center
