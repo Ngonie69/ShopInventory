@@ -12588,6 +12588,11 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             payload["U_ToWhs"] = request.FinalDestinationWarehouse;
         }
 
+        if (!string.IsNullOrWhiteSpace(request.VehiclePlate))
+        {
+            payload["VehiclePlate"] = request.VehiclePlate;
+        }
+
         var jsonPayload = JsonSerializer.Serialize(payload);
         _logger.LogInformation("Creating inventory transfer with payload (truncated): {Payload}",
             jsonPayload.Length > 2000 ? jsonPayload[..2000] + "..." : jsonPayload);

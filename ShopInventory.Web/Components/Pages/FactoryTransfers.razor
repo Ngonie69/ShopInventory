@@ -22,7 +22,7 @@
                 </span>
                 <div class="fxt-titles-text">
                     <h1 class="fxt-title">Factory Transfers</h1>
-                    <p class="fxt-sub">Production releases to dispatch through @HoldingWarehouse; the receiving side counts it and accepts.</p>
+                    <p class="fxt-sub">Production releases to dispatch through @HoldingWarehouse, Distribution's trucks go to the depots through DEPOTRAN, and the receiving side counts it and accepts.</p>
                 </div>
             </div>
             <div class="fxt-head-actions">
@@ -142,7 +142,7 @@
                             <span class="fxt-row-van"><span class="fxt-tag">@transfer.DestinationWarehouseCode</span></span>
                             <span class="fxt-row-rep">@transfer.SentByName</span>
                             <span class="fxt-row-products">
-                                <span class="fxt-row-name">@transfer.DepartmentName @DirectionWord(transfer.Direction) · @transfer.SourceWarehouseCode → @transfer.DestinationWarehouseCode</span>
+                                <span class="fxt-row-name">@transfer.DepartmentName @DirectionWord(transfer.Direction) · @transfer.SourceLabel → @transfer.DestinationWarehouseCode</span>
                                 <span class="fxt-row-summary @SummaryModifier(transfer)">@RowSummary(transfer)</span>
                             </span>
                             <span class="fxt-row-units fxt-right">@QuantityDisplay.Format(transfer.TotalQuantity)</span>
@@ -197,7 +197,7 @@
                         <span class="ops-ds-dhead-no">@(detail?.Summary.Number ?? $"#{openId}")</span>
                         @if (detail is not null)
                         {
-                            <span class="ops-ds-dhead-ref">@detail.Summary.SourceWarehouseCode → @detail.Summary.HoldingWarehouseCode → @detail.Summary.DestinationWarehouseCode</span>
+                            <span class="ops-ds-dhead-ref">@detail.Summary.SourceLabel → @detail.Summary.HoldingWarehouseCode → @detail.Summary.DestinationWarehouseCode</span>
                         }
                     </div>
                     <div class="ops-ds-dnav">
@@ -278,7 +278,7 @@
                         <div class="ops-defs">
                             <div>
                                 <div class="ops-def-k">From</div>
-                                <div class="ops-def-v">@summary.SourceWarehouseCode</div>
+                                <div class="ops-def-v">@summary.SourceLabel</div>
                             </div>
                             <div>
                                 <div class="ops-def-k">Held in</div>
@@ -303,6 +303,23 @@
                                 <div class="ops-def-k">SAP in</div>
                                 <div class="ops-def-v">@(summary.InSapDocNum > 0 ? $"#{summary.InSapDocNum}" : "Not posted")</div>
                             </div>
+                            @if (!string.IsNullOrWhiteSpace(summary.VehiclePlate))
+                            {
+                                <div>
+                                    <div class="ops-def-k">Truck</div>
+                                    <div class="ops-def-v">
+                                        @summary.VehiclePlate
+                                        <div class="ops-sub">@summary.DriverName</div>
+                                    </div>
+                                </div>
+                            }
+                            @if (summary.SourceRequestDocNum > 0)
+                            {
+                                <div>
+                                    <div class="ops-def-k">Depot order</div>
+                                    <div class="ops-def-v">#@summary.SourceRequestDocNum</div>
+                                </div>
+                            }
                             @if (summary.DecidedAtUtc is DateTime decidedAt && !string.IsNullOrWhiteSpace(summary.DecidedByName))
                             {
                                 <div>
@@ -344,6 +361,10 @@
                                     <thead>
                                         <tr>
                                             <th>Item</th>
+                                            @if (ShowLineSources)
+                                            {
+                                                <th>From</th>
+                                            }
                                             <th class="ops-num">Sent</th>
                                             <th class="@(summary.CanDecide ? "ops-mid" : "ops-num")">Accepted</th>
                                             <th>Batches</th>
@@ -362,6 +383,10 @@
                                                         <div class="ops-sub">@line.ItemDescription</div>
                                                     }
                                                 </td>
+                                                @if (ShowLineSources)
+                                                {
+                                                    <td><span class="fxt-tag">@line.FromWarehouseCode</span></td>
+                                                }
                                                 <td class="ops-num">@QuantityDisplay.Format(line.Quantity)</td>
                                                 @if (summary.CanDecide)
                                                 {
@@ -470,17 +495,17 @@
         </div>
     }
 
-    @* ── Sending a new one ─────────────────────────────────────────────────────── *@
+    @* ── Sending a new one, or loading a depot truck ───────────────────────────── *@
     @if (sendOpen && options is not null)
     {
         <div class="ops-overlay ops-overlay-right fxt-overlay" @onclick="CloseSend">
-            <aside class="ops-drawer ops-ds-drawer fxt-drawer" role="dialog" aria-modal="true" aria-label="New factory transfer"
+            <aside class="ops-drawer ops-ds-drawer fxt-drawer" role="dialog" aria-modal="true" aria-label="@(IsTruck ? "Load a depot truck" : "New factory transfer")"
                    tabindex="-1" @onclick:stopPropagation="true">
                 <div class="ops-drawer-head ops-ds-dhead">
                     <div class="ops-ds-dhead-id">
-                        <span class="ops-kicker">New factory transfer</span>
-                        <span class="ops-ds-dhead-no">@(SelectedRoute is { } route ? $"{route.DepartmentName} {DirectionWord(route.Direction)}" : "Send stock")</span>
-                        <span class="ops-ds-dhead-ref">@(string.IsNullOrEmpty(sendSource) ? "Choose where it comes from" : $"{sendSource} → {HoldingWarehouse} → {(string.IsNullOrEmpty(sendDestination) ? "…" : sendDestination)}")</span>
+                        <span class="ops-kicker">@(IsTruck ? "Load a depot truck" : "New factory transfer")</span>
+                        <span class="ops-ds-dhead-no">@SendTitle</span>
+                        <span class="ops-ds-dhead-ref">@SendRoute</span>
                     </div>
                     <div class="ops-ds-dnav">
                         <button type="button" class="ops-icon-btn" title="Close" aria-label="Close" @onclick="CloseSend">
@@ -507,33 +532,67 @@
                         </div>
                         <div class="fxt-field">
                             <span class="ops-def-k">To</span>
-                            @if (DestinationOptions.Count <= 1)
+                            @if (IsTruck)
+                            {
+                                <NocturneSelect Class="nsel-block" TValue="string" Options="DestinationOptions" Value="@sendDestination"
+                                                ValueChanged="@(value => OnDepotChangedAsync(value))" Placeholder="Which depot"
+                                                AriaLabel="Deliver to" Disabled="isSubmitting" />
+                            }
+                            else if (DestinationOptions.Count <= 1)
                             {
                                 <div class="fxt-fixed">@(string.IsNullOrEmpty(sendDestination) ? "—" : sendDestination)</div>
                             }
                             else
                             {
                                 <NocturneSelect Class="nsel-block" TValue="string" Options="DestinationOptions" @bind-Value="sendDestination"
-                                                Placeholder="Which production warehouse" AriaLabel="Send to" Disabled="isSubmitting" />
+                                                Placeholder="Which warehouse" AriaLabel="Send to" Disabled="isSubmitting" />
                             }
                         </div>
                     </div>
+
+                    @if (IsTruck)
+                    {
+                        <div class="fxt-form">
+                            <label class="fxt-field" for="fxt-plate">
+                                <span class="ops-def-k">Truck</span>
+                                <input id="fxt-plate" class="ops-input fxt-text" maxlength="20" placeholder="Registration, e.g. ACE 1234"
+                                       @bind="sendPlate" @bind:event="oninput" disabled="@isSubmitting" />
+                            </label>
+                            <label class="fxt-field" for="fxt-driver">
+                                <span class="ops-def-k">Driver</span>
+                                <input id="fxt-driver" class="ops-input fxt-text" maxlength="100" placeholder="e.g. Waiti"
+                                       @bind="sendDriver" @bind:event="oninput" disabled="@isSubmitting" />
+                            </label>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(sendDestination))
+                        {
+                            <div class="ops-ds-block">
+                                <span class="ops-def-k">Depot order</span>
+                                <NocturneSelect Class="nsel-block" TValue="string" Options="OrderOptions" Value="@selectedOrder"
+                                                ValueChanged="@(value => OnOrderChanged(value))" Placeholder="@(isLoadingOrders ? "Loading orders…" : "No order — load it by hand")"
+                                                AriaLabel="Depot order" Disabled="@(isSubmitting || isLoadingOrders)" />
+                                <span class="ops-sub">Choosing one fills the lines from the dispatch warehouse holding the most of each item, and closes the order in SAP once the truck is loaded.</span>
+                            </div>
+                        }
+                    }
 
                     <div class="ops-ds-block">
                         <label class="fxt-dlabel" for="fxt-reason">
                             <span class="ops-def-k">Reason</span>
                             <span class="ops-sub">goes on both SAP transfers</span>
                         </label>
-                        <textarea id="fxt-reason" class="ops-input" rows="2" maxlength="500" placeholder="e.g. End of shift 2 release"
+                        <textarea id="fxt-reason" class="ops-input" rows="2" maxlength="500"
+                                  placeholder="@(IsTruck ? "e.g. Graniteside order" : "e.g. End of shift 2 release")"
                                   @bind="sendReason" @bind:event="oninput" disabled="@isSubmitting"></textarea>
                     </div>
 
                     <div class="ops-ds-block">
-                        <span class="ops-def-k">Add a product from @(string.IsNullOrEmpty(sendSource) ? "the warehouse" : sendSource)</span>
+                        <span class="ops-def-k">Add a product from @(IsTruck ? "dispatch" : string.IsNullOrEmpty(sendSource) ? "the warehouse" : sendSource)</span>
                         <NocturnePicker Class="npick-block" Options="stockOptions" Value="@pickerValue"
                                         ValueChanged="@(value => AddLine(value))" Loading="isLoadingStock"
                                         Disabled="@(string.IsNullOrEmpty(sendSource) || isSubmitting)"
-                                        Placeholder="Search the warehouse's stock" EmptyText="No stock in this warehouse"
+                                        Placeholder="Search the stock" EmptyText="No stock to send"
                                         AriaLabel="Add a product" />
                     </div>
 
@@ -545,6 +604,10 @@
                                     <thead>
                                         <tr>
                                             <th>Item</th>
+                                            @if (IsTruck)
+                                            {
+                                                <th>From</th>
+                                            }
                                             <th class="ops-num">In stock</th>
                                             <th class="ops-mid">Send</th>
                                             <th></th>
@@ -553,16 +616,20 @@
                                     <tbody>
                                         @foreach (var line in sendLines)
                                         {
-                                            <tr @key="line.ItemCode">
+                                            <tr @key="line.Key">
                                                 <td>
                                                     <span class="ops-code fxt-dcode">@line.ItemCode</span>
                                                     <div class="ops-sub">@line.ItemName@(string.IsNullOrWhiteSpace(line.UoM) ? "" : $" · {line.UoM}")</div>
                                                 </td>
+                                                @if (IsTruck)
+                                                {
+                                                    <td><span class="fxt-tag">@line.FromWarehouse</span></td>
+                                                }
                                                 <td class="ops-num">@QuantityDisplay.Format(line.Available)</td>
                                                 <td class="ops-mid">
                                                     <span class="fxt-stepper @(line.Quantity is null ? "is-uncounted" : "")">
                                                         <input type="text" inputmode="decimal" class="fxt-count-input" placeholder="Qty"
-                                                               aria-label="Quantity of @line.ItemCode" value="@line.QuantityText" disabled="@isSubmitting"
+                                                               aria-label="Quantity of @line.ItemCode from @line.FromWarehouse" value="@line.QuantityText" disabled="@isSubmitting"
                                                                @onchange="args => SetSendQuantity(line, args.Value)" />
                                                     </span>
                                                     @if (line.Quantity > line.Available)
@@ -590,7 +657,7 @@
                     <span class="ops-ds-foot-why">@SendHint</span>
                     <button type="button" class="ops-btn ops-btn-primary fxt-dconfirm" @onclick="SendAsync" disabled="@(isSubmitting || !CanSubmitSend)">
                         @if (submittingAction == "send") { <span class="ops-spin" aria-hidden="true"></span> }
-                        Send to @HoldingWarehouse
+                        @(IsTruck ? "Load into " : "Send to ")@SendHolding
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
                     </button>
                 </div>

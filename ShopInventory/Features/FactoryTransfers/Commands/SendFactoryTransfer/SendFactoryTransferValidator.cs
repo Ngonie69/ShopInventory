@@ -20,16 +20,21 @@ public sealed class SendFactoryTransferValidator : AbstractValidator<SendFactory
             .NotEmpty().WithMessage("Add at least one product.")
             .Must(lines => lines.Count <= MaxLines).WithMessage($"A transfer can carry at most {MaxLines} products.")
             .Must(lines => lines
-                    .Select(line => (line.ItemCode ?? string.Empty).Trim().ToUpperInvariant())
+                    .Select(line => $"{(line.FromWarehouseCode ?? string.Empty).Trim().ToUpperInvariant()}|{(line.ItemCode ?? string.Empty).Trim().ToUpperInvariant()}")
                     .Distinct()
                     .Count() == lines.Count)
-            .WithMessage("Each product may appear only once; add the quantities together.");
+            .WithMessage("Each product may appear only once per warehouse; add the quantities together.");
+
+        RuleFor(command => command.VehiclePlate).MaximumLength(20);
+        RuleFor(command => command.DriverName).MaximumLength(100);
+        RuleFor(command => command.SourceRequestDocEntry).GreaterThan(0).When(command => command.SourceRequestDocEntry is not null);
 
         RuleForEach(command => command.Lines).ChildRules(line =>
         {
             line.RuleFor(item => item.ItemCode).NotEmpty().MaximumLength(50);
             line.RuleFor(item => item.ItemDescription).MaximumLength(200);
             line.RuleFor(item => item.UoMCode).MaximumLength(20);
+            line.RuleFor(item => item.FromWarehouseCode).MaximumLength(50);
             line.RuleFor(item => item.Quantity)
                 .GreaterThan(0).WithMessage("Each quantity must be more than zero.")
                 .LessThanOrEqualTo(1_000_000m);

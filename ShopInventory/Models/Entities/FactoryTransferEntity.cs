@@ -58,6 +58,19 @@ public sealed class FactoryTransferEntity
     [MaxLength(500)]
     public string Reason { get; set; } = string.Empty;
 
+    /// <summary>The truck carrying a depot delivery, written to SAP's <c>VehiclePlate</c> on both legs.</summary>
+    [MaxLength(20)]
+    public string? VehiclePlate { get; set; }
+
+    /// <summary>Who drove a depot delivery; named in the remarks on both legs.</summary>
+    [MaxLength(100)]
+    public string? DriverName { get; set; }
+
+    /// <summary>The depot's transfer request this delivery fulfils, closed in SAP once the truck is loaded.</summary>
+    public int? SourceRequestDocEntry { get; set; }
+
+    public int? SourceRequestDocNum { get; set; }
+
     public Guid SentByUserId { get; set; }
 
     [Required]
@@ -114,6 +127,9 @@ public sealed class FactoryTransferEntity
     public string InOrderNumber => $"{Number}-IN";
 
     public static string FormatNumber(int id) => $"FT-{id:D6}";
+
+    /// <summary>A delivery to a depot or a return from one, through DEPOTRAN rather than FSRW.</summary>
+    public bool IsDepotMovement => FactoryTransferDirections.IsDepot(Direction);
 }
 
 public static class FactoryTransferDirections
@@ -123,6 +139,14 @@ public static class FactoryTransferDirections
 
     /// <summary>Dispatch back to production.</summary>
     public const string Return = "Return";
+
+    /// <summary>Distribution loading a truck from the dispatch warehouses for a depot.</summary>
+    public const string Delivery = "Delivery";
+
+    /// <summary>A depot sending stock back to a dispatch warehouse.</summary>
+    public const string DepotReturn = "DepotReturn";
+
+    public static bool IsDepot(string? direction) => direction is Delivery or DepotReturn;
 }
 
 public static class FactoryTransferDecisions

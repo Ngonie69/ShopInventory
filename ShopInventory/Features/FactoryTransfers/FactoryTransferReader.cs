@@ -30,7 +30,10 @@ public static class FactoryTransferReader
         DateTime? DecidedAtUtc,
         int? OutSapDocNum,
         int? InSapDocNum,
-        int LineCount);
+        int LineCount,
+        string? VehiclePlate,
+        string? DriverName,
+        int? SourceRequestDocNum);
 
     public static readonly Expression<Func<FactoryTransferEntity, Row>> RowProjection = transfer => new Row(
         transfer.Id,
@@ -50,7 +53,10 @@ public static class FactoryTransferReader
         transfer.DecidedAtUtc,
         transfer.OutSapDocNum,
         transfer.InSapDocNum,
-        transfer.Lines.Count);
+        transfer.Lines.Count,
+        transfer.VehiclePlate,
+        transfer.DriverName,
+        transfer.SourceRequestDocNum);
 
     /// <summary>The transfers <paramref name="actor"/> may see: their warehouse at either end, or all.</summary>
     public static IQueryable<FactoryTransferEntity> Visible(IQueryable<FactoryTransferEntity> transfers, FactoryTransferActor actor)
@@ -58,9 +64,12 @@ public static class FactoryTransferReader
         if (actor.CanAcceptAny)
             return transfers;
 
+        // A depot delivery loads lines from several dispatch warehouses, so a line's own source counts too.
         var warehouses = actor.Warehouses.ToList();
         return transfers.Where(transfer =>
-            warehouses.Contains(transfer.SourceWarehouseCode) || warehouses.Contains(transfer.DestinationWarehouseCode));
+            warehouses.Contains(transfer.SourceWarehouseCode)
+            || warehouses.Contains(transfer.DestinationWarehouseCode)
+            || transfer.Lines.Any(line => line.FromWarehouseCode != null && warehouses.Contains(line.FromWarehouseCode)));
     }
 
     /// <summary>In transit and decidable by <paramref name="actor"/>; the "waiting for me" queue.</summary>
@@ -69,40 +78,46 @@ public static class FactoryTransferReader
         var inTransit = transfers.Where(transfer =>
             transfer.Status == FactoryTransferStatuses.InTransit && transfer.SentByUserId != actor.UserId);
 
+        // Mirrors FactoryTransferActor.MayDecideInto.
+        var warehouses = actor.CanAccept ? actor.Warehouses.ToList() : [];
         if (actor.CanAcceptAny)
-            return inTransit;
-        if (!actor.CanAccept)
-            return inTransit.Where(_ => false);
+            return inTransit.Where(transfer =>
+                transfer.Direction != FactoryTransferDirections.Delivery || warehouses.Contains(transfer.DestinationWarehouseCode));
 
-        var warehouses = actor.Warehouses.ToList();
         return inTransit.Where(transfer => warehouses.Contains(transfer.DestinationWarehouseCode));
     }
 
+    /// <summary>Units sent, and the warehouses lines left from other than the transfer's own.</summary>
+    public sealed record LineFacts(decimal TotalQuantity, IReadOnlyList<string> LineSources);
+
     /// <summary>
-    /// Units sent per transfer. Summed here rather than in SQL: SQLite, which the tests run on, cannot
-    /// sum a decimal column.
+    /// Units sent per transfer, and its lines' own sources. Summed here rather than in SQL: SQLite,
+    /// which the tests run on, cannot sum a decimal column.
     /// </summary>
-    public static async Task<Dictionary<int, decimal>> TotalsAsync(
+    public static async Task<Dictionary<int, LineFacts>> TotalsAsync(
         ApplicationDbContext context,
         IReadOnlyCollection<int> ids,
         CancellationToken cancellationToken)
     {
-        var quantities = await context.FactoryTransferLines
+        var lines = await context.FactoryTransferLines
             .AsNoTracking()
             .Where(line => ids.Contains(line.TransferId))
-            .Select(line => new { line.TransferId, line.Quantity })
+            .Select(line => new { line.TransferId, line.Quantity, line.FromWarehouseCode })
             .ToListAsync(cancellationToken);
 
-        return quantities
+        return lines
             .GroupBy(line => line.TransferId)
-            .ToDictionary(group => group.Key, group => group.Sum(line => line.Quantity));
+            .ToDictionary(
+                group => group.Key,
+                group => new LineFacts(
+                    group.Sum(line => line.Quantity),
+                    group.Select(line => line.FromWarehouseCode).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
     }
 
-    public static FactoryTransferSummaryDto ToSummary(Row row, FactoryTransferActor actor, decimal totalQuantity)
+    public static FactoryTransferSummaryDto ToSummary(Row row, FactoryTransferActor actor, LineFacts? facts)
     {
         var isSender = row.SentByUserId == actor.UserId;
-        var mayDecide = !isSender
-            && ((actor.CanAccept && actor.Holds(row.DestinationWarehouseCode)) || actor.CanAcceptAny);
+        var mayDecide = !isSender && actor.MayDecideInto(row.Direction, row.DestinationWarehouseCode);
 
         var canRetry = row.Status switch
         {
@@ -117,7 +132,7 @@ public static class FactoryTransferReader
             Id = row.Id,
             Number = FactoryTransferEntity.FormatNumber(row.Id),
             DepartmentCode = row.DepartmentCode,
-            DepartmentName = FactoryDepartments.Find(row.DepartmentCode)?.Name ?? row.DepartmentCode,
+            DepartmentName = FactoryDepartments.DisplayName(row.DepartmentCode, row.Direction, row.SourceWarehouseCode, row.DestinationWarehouseCode),
             Direction = row.Direction,
             SourceWarehouseCode = row.SourceWarehouseCode,
             HoldingWarehouseCode = row.HoldingWarehouseCode,
@@ -132,7 +147,13 @@ public static class FactoryTransferReader
             OutSapDocNum = row.OutSapDocNum ?? 0,
             InSapDocNum = row.InSapDocNum ?? 0,
             LineCount = row.LineCount,
-            TotalQuantity = totalQuantity,
+            TotalQuantity = facts?.TotalQuantity ?? 0,
+            SourceLabel = string.Join(", ", (facts?.LineSources ?? [])
+                .Prepend(row.SourceWarehouseCode)
+                .Distinct(StringComparer.OrdinalIgnoreCase)),
+            VehiclePlate = row.VehiclePlate ?? string.Empty,
+            DriverName = row.DriverName ?? string.Empty,
+            SourceRequestDocNum = row.SourceRequestDocNum ?? 0,
             CanDecide = row.Status == FactoryTransferStatuses.InTransit && mayDecide,
             CanRecall = row.Status == FactoryTransferStatuses.InTransit && isSender && actor.CanSend,
             CanRetry = canRetry,
@@ -180,6 +201,7 @@ public static class FactoryTransferReader
                 ItemCode = line.ItemCode,
                 ItemDescription = line.ItemDescription,
                 UoMCode = line.UoMCode,
+                FromWarehouseCode = line.FromWarehouseCode,
                 Quantity = line.Quantity,
                 AcceptedQuantity = line.AcceptedQuantity,
                 BatchesJson = line.BatchesJson
@@ -188,7 +210,9 @@ public static class FactoryTransferReader
 
         return new FactoryTransferDetailDto
         {
-            Summary = ToSummary(row, actor, lines.Sum(line => line.Quantity)),
+            Summary = ToSummary(row, actor, new LineFacts(
+                lines.Sum(line => line.Quantity),
+                lines.Select(line => line.FromWarehouseCode).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList())),
             DecisionReason = extra.DecisionReason,
             LastError = extra.LastError,
             OutSapDocEntry = extra.OutSapDocEntry ?? 0,
@@ -202,6 +226,7 @@ public static class FactoryTransferReader
                 ItemCode = line.ItemCode,
                 ItemDescription = line.ItemDescription,
                 UoMCode = line.UoMCode,
+                FromWarehouseCode = string.IsNullOrWhiteSpace(line.FromWarehouseCode) ? row.SourceWarehouseCode : line.FromWarehouseCode,
                 Quantity = line.Quantity,
                 AcceptedQuantity = line.AcceptedQuantity,
                 Batches = FactoryTransferLegPoster.ReadBatches(line)

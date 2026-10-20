@@ -5878,13 +5878,26 @@ one document, moving exactly the batches the out leg put in.
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
 | GET | `/api/factory-transfers` | `factory.transfers.view` | Transfers whose source or destination is one of the caller's warehouses (every one for `accept_any`), newest first. `view` is `awaiting` (in transit and the caller's to decide), `open`, `all`, or a status; `search` matches `FT-000123`, the sender, a warehouse or an item code; `page` 1, `pageSize` 25. `awaitingMeCount` counts the caller's queue across every page. Each row carries `canDecide`, `canRecall`, `canRetry`, `canCancel` |
-| GET | `/api/factory-transfers/options` | `factory.transfers.view` | The caller's `routes`: each of their warehouses that can send, with its department, direction and allowed destinations; plus `canSend`, `canAccept`, `canAcceptAny` |
+| GET | `/api/factory-transfers/options` | `factory.transfers.view` | The caller's `routes`: each of their warehouses that can send, with its department (or depot), direction and allowed destinations; `depotDelivery` (the caller's dispatch warehouses and the depots) for `factory.transfers.deliver`; plus `canSend`, `canAccept`, `canAcceptAny` |
+| GET | `/api/factory-transfers/depot-orders` | `factory.transfers.deliver` | `depot` (KEFGRC, CORMACH, KEFBYC): that depot's open SAP transfer requests, newest first, with lines. A truck loaded for one closes it |
 | GET | `/api/factory-transfers/{id}` | `factory.transfers.view` | One transfer: lines with sent and accepted quantity and the batches SAP moved, both SAP documents, the decision and `lastError`. `404` for a transfer outside the caller's warehouses |
-| POST | `/api/factory-transfers` | `factory.transfers.send` | `{ "clientRequestId", "sourceWarehouseCode", "destinationWarehouseCode", "reason", "lines": [{ "itemCode", "quantity" }] }`. The source must be on the account; the destination must be the same department's other side (left empty only where there is one). Posts the out leg. A repeat `clientRequestId` returns the transfer it made |
+| POST | `/api/factory-transfers` | `factory.transfers.send` or `factory.transfers.deliver` | `{ "clientRequestId", "sourceWarehouseCode", "destinationWarehouseCode", "reason", "lines": [{ "itemCode", "quantity", "fromWarehouseCode" }], "vehiclePlate", "driverName", "sourceRequestDocEntry" }`. The source must be on the account; the destination must be the same department's other side (left empty only where there is one). A depot centre as the destination makes it a depot delivery (below). Posts the out leg. A repeat `clientRequestId` returns the transfer it made |
 | POST | `/api/factory-transfers/{id}/decision` | `factory.transfers.accept` or `factory.transfers.accept_any` | `{ "decision": "Accept", "lines": [{ "lineId", "acceptedQuantity" }], "reason" }` — every line, none above what was sent; `reason` required when short. `{ "decision": "Reject", "reason" }` sends everything back. The caller must hold the destination (or `accept_any`) and must not be the sender |
 | POST | `/api/factory-transfers/{id}/recall` | `factory.transfers.send` | `{ "reason" }` — the sender only, while in transit. Everything goes back |
 | POST | `/api/factory-transfers/{id}/retry` | `factory.transfers.view` | Re-posts the failed or stranded leg. Looks it up in SAP by its order number first, so a post whose reply was lost is adopted, not repeated |
 | POST | `/api/factory-transfers/{id}/cancel` | `factory.transfers.send` | The sender abandons a send that failed. SAP is checked first: one that reached SAP after all is finished into transit instead |
+
+**Depot deliveries and returns** go through `DEPOTRAN` instead of `FSRW`. Distribution
+(`factory.transfers.deliver`, role `DistributionOfficer`) loads one truck per delivery to KEFGRC, CORMACH
+or KEFBYC. Each line names the dispatch warehouse it is loaded from (`fromWarehouseCode`, one of DISPYOG,
+DISPMILK, DISPICE, DISPCH on the account), and `vehiclePlate` and `driverName` are required. The plate
+goes into SAP's `VehiclePlate` on both legs. Only somebody holding the depot (a `DepotController`)
+accepts the delivery; `accept_any` does not reach a depot. Short or rejected lines go back to the
+dispatch warehouse each came from. `sourceRequestDocEntry` names the depot's open order the truck
+fulfils; once the truck is loaded it is closed in SAP and its approval marked generated. A depot sends
+stock back from its centre or shop (KEFGRS, CORMACH2, KEFBYS) to one dispatch warehouse, and whoever
+holds that warehouse accepts. Whoever may accept a transfer is notified once it is in transit,
+addressed to them by username.
 
 **Nobody accepts their own transfer**, the dispatch manager included (`FactoryTransfer.CannotDecideOwnTransfer`).
 `factory.transfers.accept_any` is granted on the account, never by a role's defaults.

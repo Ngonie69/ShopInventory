@@ -57,6 +57,33 @@ public sealed class GetFactoryTransferOptionsHandler(
                     });
                 }
             }
+
+            // A depot sends stock back to dispatch from its centre or the shop beside it.
+            foreach (var depot in FactoryDepartments.Depots)
+            {
+                foreach (var warehouse in depot.Warehouses.Where(actor.Holds))
+                {
+                    routes.Add(new FactoryTransferRouteDto
+                    {
+                        SourceWarehouseCode = warehouse,
+                        DepartmentCode = FactoryDepartments.DepotDepartmentCode,
+                        DepartmentName = depot.Name,
+                        Direction = FactoryTransferDirections.DepotReturn,
+                        DestinationWarehouseCodes = FactoryDepartments.DispatchWarehouses.ToList()
+                    });
+                }
+            }
+        }
+
+        DepotDeliveryOptionsDto? delivery = null;
+        if (actor.CanDeliver)
+        {
+            delivery = new DepotDeliveryOptionsDto
+            {
+                HoldingWarehouseCode = FactoryDepartments.DepotHoldingWarehouseCode,
+                DispatchWarehouses = FactoryDepartments.DispatchWarehouses.Where(actor.Holds).ToList(),
+                Depots = FactoryDepartments.Depots.Select(depot => new DepotDto { Code = depot.Centre, Name = depot.Name }).ToList()
+            };
         }
 
         return new FactoryTransferOptionsDto
@@ -66,7 +93,8 @@ public sealed class GetFactoryTransferOptionsHandler(
             CanAccept = actor.CanAccept,
             CanAcceptAny = actor.CanAcceptAny,
             AssignedWarehouses = actor.Warehouses.ToList(),
-            Routes = routes
+            Routes = routes,
+            DepotDelivery = delivery
         };
     }
 }

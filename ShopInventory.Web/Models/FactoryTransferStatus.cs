@@ -19,4 +19,6 @@ public static class FactoryTransferStatus
 
     public const string Release = "Release";
     public const string Return = "Return";
+    public const string Delivery = "Delivery";
+    public const string DepotReturn = "DepotReturn";
 }

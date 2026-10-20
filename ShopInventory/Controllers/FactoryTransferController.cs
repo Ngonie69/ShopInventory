@@ -12,6 +12,7 @@ using ShopInventory.Features.FactoryTransfers.Commands.SendFactoryTransfer;
 using ShopInventory.Features.FactoryTransfers.Queries.GetFactoryTransfer;
 using ShopInventory.Features.FactoryTransfers.Queries.GetFactoryTransferOptions;
 using ShopInventory.Features.FactoryTransfers.Queries.GetFactoryTransfers;
+using ShopInventory.Features.FactoryTransfers.Queries.GetDepotOrders;
 using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
@@ -64,6 +65,23 @@ public sealed class FactoryTransferController(IMediator mediator) : ApiControlle
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// The open transfer requests a depot raised, newest first, with their lines: what a delivery to
+    /// <c>depot</c> can fulfil. For whoever loads the trucks.
+    /// </summary>
+    [HttpGet("depot-orders")]
+    [RequirePermission(Permission.DeliverFactoryTransfers)]
+    [ProducesResponseType(typeof(List<DepotOrderDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetDepotOrders([FromQuery] string depot, CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new GetDepotOrdersQuery(userId.Value, depot), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
     /// <summary>One transfer with its lines, the batches SAP moved and both SAP documents.</summary>
     [HttpGet("{id:int}")]
     [RequirePermission(Permission.ViewFactoryTransfers)]
@@ -85,7 +103,7 @@ public sealed class FactoryTransferController(IMediator mediator) : ApiControlle
     /// it already made.
     /// </summary>
     [HttpPost]
-    [RequirePermission(Permission.SendFactoryTransfers)]
+    [RequirePermission(Permission.SendFactoryTransfers, Permission.DeliverFactoryTransfers)]
     [ProducesResponseType(typeof(FactoryTransferActionResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -102,7 +120,10 @@ public sealed class FactoryTransferController(IMediator mediator) : ApiControlle
                 request.DestinationWarehouseCode,
                 request.Reason,
                 request.Lines,
-                userId.Value),
+                userId.Value,
+                request.VehiclePlate,
+                request.DriverName,
+                request.SourceRequestDocEntry),
             cancellationToken);
         return result.Match(Ok, Problem);
     }

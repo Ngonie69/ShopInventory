@@ -25,6 +25,13 @@ public sealed class FactoryTransferSummaryDto
     public int InSapDocNum { get; set; }
     public int LineCount { get; set; }
     public decimal TotalQuantity { get; set; }
+    /// <summary>Every warehouse the lines left from, comma-separated; a depot delivery can load from several.</summary>
+    public string SourceLabel { get; set; } = string.Empty;
+    /// <summary>The truck on a depot delivery; empty otherwise.</summary>
+    public string VehiclePlate { get; set; } = string.Empty;
+    public string DriverName { get; set; } = string.Empty;
+    /// <summary>The depot order this delivery fulfils; 0 when none.</summary>
+    public int SourceRequestDocNum { get; set; }
     public bool CanDecide { get; set; }
     public bool CanRecall { get; set; }
     public bool CanRetry { get; set; }
@@ -50,6 +57,8 @@ public sealed class FactoryTransferLineDto
     public string ItemCode { get; set; } = string.Empty;
     public string? ItemDescription { get; set; }
     public string? UoMCode { get; set; }
+    /// <summary>The warehouse this line left from; anything not accepted goes back there.</summary>
+    public string FromWarehouseCode { get; set; } = string.Empty;
     public decimal Quantity { get; set; }
     /// <summary>Null until decided.</summary>
     public decimal? AcceptedQuantity { get; set; }
@@ -81,6 +90,41 @@ public sealed class FactoryTransferOptionsDto
     public bool CanAcceptAny { get; set; }
     public List<string> AssignedWarehouses { get; set; } = [];
     public List<FactoryTransferRouteDto> Routes { get; set; } = [];
+    /// <summary>Set when the caller may load trucks for the depots; null otherwise.</summary>
+    public DepotDeliveryOptionsDto? DepotDelivery { get; set; }
+}
+
+/// <summary>What Distribution may load a truck from, and where it may go.</summary>
+public sealed class DepotDeliveryOptionsDto
+{
+    public string HoldingWarehouseCode { get; set; } = string.Empty;
+    /// <summary>The dispatch warehouses on the caller's account.</summary>
+    public List<string> DispatchWarehouses { get; set; } = [];
+    public List<DepotDto> Depots { get; set; } = [];
+}
+
+public sealed class DepotDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>An open transfer request a depot raised, which a delivery can fulfil.</summary>
+public sealed class DepotOrderDto
+{
+    public int DocEntry { get; set; }
+    public int DocNum { get; set; }
+    public string DocDate { get; set; } = string.Empty;
+    public string DepotCode { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+    public List<DepotOrderLineDto> Lines { get; set; } = [];
+}
+
+public sealed class DepotOrderLineDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemDescription { get; set; } = string.Empty;
+    public decimal Quantity { get; set; }
 }
 
 /// <summary>One warehouse the caller may send from, and where stock sent from it may go.</summary>
@@ -100,6 +144,12 @@ public sealed class SendFactoryTransferRequestDto
     public string SourceWarehouseCode { get; set; } = string.Empty;
     public string DestinationWarehouseCode { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
+    /// <summary>Required on a depot delivery: the truck's registration.</summary>
+    public string? VehiclePlate { get; set; }
+    /// <summary>Required on a depot delivery: who is driving it.</summary>
+    public string? DriverName { get; set; }
+    /// <summary>The depot's open transfer request this delivery fulfils, if any.</summary>
+    public int? SourceRequestDocEntry { get; set; }
     public List<SendFactoryTransferLineDto> Lines { get; set; } = [];
 }
 
@@ -108,6 +158,8 @@ public sealed class SendFactoryTransferLineDto
     public string ItemCode { get; set; } = string.Empty;
     public string? ItemDescription { get; set; }
     public string? UoMCode { get; set; }
+    /// <summary>On a depot delivery, the dispatch warehouse this line is loaded from; else empty.</summary>
+    public string? FromWarehouseCode { get; set; }
     public decimal Quantity { get; set; }
 }
 

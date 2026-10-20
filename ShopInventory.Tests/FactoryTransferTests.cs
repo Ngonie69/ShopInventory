@@ -36,6 +36,9 @@ public sealed class FactoryTransferTests : IDisposable
     private static readonly Guid Leo = Guid.Parse("20000000-0000-0000-0000-000000000001");      // yoghurt dispatch
     private static readonly Guid Garikai = Guid.Parse("20000000-0000-0000-0000-000000000002");  // milk + cheese dispatch
     private static readonly Guid Millicent = Guid.Parse("20000000-0000-0000-0000-000000000003"); // dispatch manager
+    private static readonly Guid Douglas = Guid.Parse("30000000-0000-0000-0000-000000000001");   // distribution
+    private static readonly Guid Graniteside = Guid.Parse("40000000-0000-0000-0000-000000000001"); // depot controller
+    private static readonly Guid Machipisa = Guid.Parse("40000000-0000-0000-0000-000000000002");   // depot controller
 
     private readonly SqliteConnection _connection;
     private readonly DbContextOptions<ApplicationDbContext> _options;
@@ -57,7 +60,10 @@ public sealed class FactoryTransferTests : IDisposable
             NewUser(Leo, "leo", ApplicationRoles.DispatchOfficer, "Leo", "Banda", ["DISPYOG"]),
             NewUser(Garikai, "garikai", ApplicationRoles.DispatchOfficer, "Garikai", "Kuseni", ["DISPMILK", "DISPCH"]),
             NewUser(Millicent, "millicent", ApplicationRoles.DispatchOfficer, "Millicent", "Muchechetere", [],
-                [Permission.AcceptAnyFactoryTransfers]));
+                [Permission.AcceptAnyFactoryTransfers]),
+            NewUser(Douglas, "douglas", ApplicationRoles.DistributionOfficer, "Douglas", "Makosa", ["DISPYOG", "DISPMILK", "DISPICE", "DISPCH"]),
+            NewUser(Graniteside, "graniteside", ApplicationRoles.DepotController, "Graniteside", "Controller", ["KEFGRC", "KEFGRS"]),
+            NewUser(Machipisa, "machipisa", ApplicationRoles.DepotController, "Machipisa", "Controller", ["CORMACH", "CORMACH2"]));
         _context.SaveChanges();
     }
 
@@ -437,6 +443,197 @@ public sealed class FactoryTransferTests : IDisposable
         Assert.All(all, code => Assert.True(code.Length <= 8, code));
     }
 
+    // ---- Depot deliveries --------------------------------------------------------------------
+
+    [Fact]
+    public async Task Distribution_loads_one_truck_from_several_dispatch_warehouses_into_DEPOTRAN()
+    {
+        var result = await Deliver(Douglas, "KEFGRC", "ace 1234", "Waiti", null,
+            ("DISPYOG", "YOG500", 40m), ("DISPICE", "ICE1L", 12m));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        var saved = await ReloadAsync(result.Value.Transfer.Summary.Id);
+        Assert.Equal(FactoryTransferDirections.Delivery, saved.Direction);
+        Assert.Equal("DEPOTRAN", saved.HoldingWarehouseCode);
+        Assert.Equal("KEFGRC", saved.DestinationWarehouseCode);
+        Assert.Equal(FactoryTransferStatuses.InTransit, saved.Status);
+
+        var posted = Assert.Single(_sap.Created);
+        Assert.Equal("DEPOTRAN", posted.ToWarehouse);
+        Assert.Equal("KEFGRC", posted.FinalDestinationWarehouse);
+        Assert.Equal("ACE 1234", posted.VehiclePlate);
+        Assert.Equal(["DISPYOG", "DISPICE"], posted.Lines!.Select(line => line.FromWarehouseCode));
+        Assert.All(posted.Lines!, line => Assert.Equal("DEPOTRAN", line.ToWarehouseCode));
+        Assert.StartsWith("FT-000001 Graniteside delivery DISPICE+DISPYOG to KEFGRC | Truck ACE 1234 DR Waiti | Sent by Douglas Makosa", posted.Comments);
+
+        Assert.Equal("Graniteside", result.Value.Transfer.Summary.DepartmentName);
+        Assert.Equal("DISPYOG, DISPICE", result.Value.Transfer.Summary.SourceLabel);
+    }
+
+    [Fact]
+    public async Task Only_the_destination_depots_people_are_told_a_truck_is_coming()
+    {
+        await Deliver(Douglas, "KEFGRC", "ACE1234", "Waiti", null, ("DISPYOG", "YOG500", 40m));
+
+        var told = Assert.Single(_notifications);
+        Assert.Equal("graniteside", told.TargetUsername);
+        Assert.Equal("TransferApproval", told.Category);
+        Assert.Contains("truck ACE1234 (Waiti)", told.Message);
+    }
+
+    [Fact]
+    public async Task A_truck_needs_its_registration_and_driver()
+    {
+        var result = await Deliver(Douglas, "KEFGRC", null, "Waiti", null, ("DISPYOG", "YOG500", 40m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.TruckDetailsRequired", result.FirstError.Code);
+        Assert.Empty(_sap.Created);
+    }
+
+    [Fact]
+    public async Task A_dispatch_officer_cannot_load_a_depot_truck()
+    {
+        var result = await Deliver(Leo, "KEFGRC", "ACE1234", "Waiti", null, ("DISPYOG", "YOG500", 40m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.DeliverNotPermitted", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task Distribution_cannot_load_from_a_warehouse_that_is_not_dispatch()
+    {
+        var result = await Deliver(Douglas, "KEFGRC", "ACE1234", "Waiti", null, ("PROYG", "YOG500", 40m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.NotADispatchWarehouse", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task The_depot_counts_short_and_each_short_line_goes_back_to_its_own_dispatch_warehouse()
+    {
+        var sent = await Deliver(Douglas, "KEFGRC", "ACE1234", "Waiti", null,
+            ("DISPYOG", "YOG500", 40m), ("DISPICE", "ICE1L", 12m));
+        var id = sent.Value.Transfer.Summary.Id;
+
+        var result = await Decide(Graniteside, id, DecideFactoryTransferCommand.Accept, "2 ice cream tubs melted",
+            Accepted(id, 40m, 10m));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(FactoryTransferStatuses.PartiallyAccepted, (await ReloadAsync(id)).Status);
+
+        var inLeg = _sap.Created[1];
+        Assert.Equal("DEPOTRAN", inLeg.FromWarehouse);
+        Assert.Equal("ACE1234", inLeg.VehiclePlate);
+        Assert.Collection(inLeg.Lines!,
+            yoghurt => Assert.Equal(("KEFGRC", 40m), (yoghurt.ToWarehouseCode, yoghurt.Quantity)),
+            iceAccepted => Assert.Equal(("KEFGRC", 10m), (iceAccepted.ToWarehouseCode, iceAccepted.Quantity)),
+            iceShort => Assert.Equal(("DISPICE", 2m), (iceShort.ToWarehouseCode, iceShort.Quantity)));
+        Assert.All(inLeg.Lines!, line => Assert.Equal("DEPOTRAN", line.FromWarehouseCode));
+        Assert.Contains("Part-accepted by Graniteside Controller", inLeg.Comments);
+    }
+
+    [Fact]
+    public async Task Another_depot_cannot_see_or_accept_the_truck()
+    {
+        var sent = await Deliver(Douglas, "KEFGRC", "ACE1234", "Waiti", null, ("DISPYOG", "YOG500", 40m));
+        var id = sent.Value.Transfer.Summary.Id;
+
+        var result = await Decide(Machipisa, id, DecideFactoryTransferCommand.Accept, null, Accepted(id, 40m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.NotFound", result.FirstError.Code);
+        Assert.Empty((await List(Machipisa, GetFactoryTransfersQuery.All)).Items);
+    }
+
+    [Fact]
+    public async Task Accepting_for_any_department_does_not_reach_a_depot()
+    {
+        var sent = await Deliver(Douglas, "KEFGRC", "ACE1234", "Waiti", null, ("DISPYOG", "YOG500", 40m));
+        var id = sent.Value.Transfer.Summary.Id;
+
+        var listed = Assert.Single((await List(Millicent, GetFactoryTransfersQuery.All)).Items);
+        Assert.False(listed.CanDecide);
+        Assert.Equal(0, (await List(Millicent, GetFactoryTransfersQuery.Awaiting)).AwaitingMeCount);
+
+        var result = await Decide(Millicent, id, DecideFactoryTransferCommand.Accept, null, Accepted(id, 40m));
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.DestinationNotAssigned", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task Loading_a_truck_for_a_depot_order_closes_the_order()
+    {
+        _sap.Orders[10241] = new InventoryTransferRequest { DocEntry = 10241, DocNum = 10241, ToWarehouse = "KEFGRC", DocumentStatus = "bost_Open" };
+
+        var result = await Deliver(Douglas, "KEFGRC", "ACE1234", "Waiti", 10241, ("DISPYOG", "YOG500", 40m));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(10241, result.Value.Transfer.Summary.SourceRequestDocNum);
+        Assert.Equal([10241], _sap.ClosedOrders);
+        Assert.Equal([10241], _generatedFor);
+
+        var again = await Deliver(Douglas, "KEFGRC", "ACE5678", "Kelvin", 10241, ("DISPYOG", "YOG500", 5m));
+        Assert.True(again.IsError);
+        Assert.Equal("FactoryTransfer.DepotOrderNotOpen", again.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_truck_cannot_fulfil_another_depots_order()
+    {
+        _sap.Orders[10239] = new InventoryTransferRequest { DocEntry = 10239, DocNum = 10239, ToWarehouse = "CORMACH", DocumentStatus = "bost_Open" };
+
+        var result = await Deliver(Douglas, "KEFGRC", "ACE1234", "Waiti", 10239, ("DISPYOG", "YOG500", 40m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.DepotOrderForAnotherDepot", result.FirstError.Code);
+        Assert.Empty(_sap.Created);
+    }
+
+    [Fact]
+    public async Task A_depot_returns_stock_to_dispatch_and_distribution_accepts_it()
+    {
+        var sent = await Send(Machipisa, "CORMACH2", "DISPYOG", "Short supply", ("YOG500", 6m));
+        Assert.False(sent.IsError, sent.IsError ? sent.FirstError.Description : null);
+        var id = sent.Value.Transfer.Summary.Id;
+        Assert.Equal(FactoryTransferDirections.DepotReturn, sent.Value.Transfer.Summary.Direction);
+        Assert.Equal("Machipisa", sent.Value.Transfer.Summary.DepartmentName);
+        Assert.Equal(("CORMACH2", "DEPOTRAN"), (_sap.Created[0].FromWarehouse, _sap.Created[0].ToWarehouse));
+
+        var result = await Decide(Douglas, id, DecideFactoryTransferCommand.Accept, null, Accepted(id, 6m));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal("DISPYOG", Assert.Single(_sap.Created[1].Lines!).ToWarehouseCode);
+    }
+
+    [Fact]
+    public async Task A_depot_cannot_send_to_a_production_warehouse()
+    {
+        var result = await Send(Machipisa, "CORMACH", "PROYG", "Wrong door", ("YOG500", 6m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.InvalidDestination", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task Distribution_is_offered_its_dispatch_warehouses_and_every_depot()
+    {
+        var options = await new GetFactoryTransferOptionsHandler(_context, Users())
+            .Handle(new GetFactoryTransferOptionsQuery(Douglas), default);
+
+        Assert.False(options.IsError);
+        Assert.NotNull(options.Value.DepotDelivery);
+        Assert.Equal(["DISPYOG", "DISPMILK", "DISPICE", "DISPCH"], options.Value.DepotDelivery!.DispatchWarehouses);
+        Assert.Equal(["KEFGRC", "CORMACH", "KEFBYC"], options.Value.DepotDelivery.Depots.Select(depot => depot.Code));
+        Assert.Empty(options.Value.Routes);
+
+        var depot = await new GetFactoryTransferOptionsHandler(_context, Users())
+            .Handle(new GetFactoryTransferOptionsQuery(Machipisa), default);
+        Assert.Null(depot.Value.DepotDelivery);
+        Assert.Equal(["CORMACH", "CORMACH2"], depot.Value.Routes.Select(route => route.SourceWarehouseCode));
+        Assert.All(depot.Value.Routes, route => Assert.Equal(FactoryTransferDirections.DepotReturn, route.Direction));
+    }
+
     // ---- Helpers -----------------------------------------------------------------------------
 
     private static User NewUser(Guid id, string username, string role, string first, string last, List<string> warehouses, List<string>? permissions = null)
@@ -469,7 +666,36 @@ public sealed class FactoryTransferTests : IDisposable
                 _ => throw new InvalidOperationException($"Unexpected stock-validation call: {method.Name}")
             }),
             new IdempotencyRequestStore(new SingleContextScopeFactory(_options), Options.Create(new SecuritySettings())),
+            new FactoryTransferFollowUps(
+                _context,
+                _sap.AsClient(),
+                StubProxy.For<IInventoryTransferApprovalService>((method, args) => method.Name switch
+                {
+                    nameof(IInventoryTransferApprovalService.MarkGeneratedAsync) => RecordGenerated(args!),
+                    _ => throw new InvalidOperationException($"Unexpected approval call: {method.Name}")
+                }),
+                StubProxy.For<INotificationService>((method, args) => method.Name switch
+                {
+                    nameof(INotificationService.CreateNotificationAsync) => RecordNotification((CreateNotificationRequest)args![0]!),
+                    _ => throw new InvalidOperationException($"Unexpected notification call: {method.Name}")
+                }),
+                NullLogger<FactoryTransferFollowUps>.Instance),
             NullLogger<FactoryTransferLegPoster>.Instance);
+
+    private readonly List<CreateNotificationRequest> _notifications = [];
+    private readonly List<int> _generatedFor = [];
+
+    private Task<NotificationDto> RecordNotification(CreateNotificationRequest request)
+    {
+        _notifications.Add(request);
+        return Task.FromResult(new NotificationDto());
+    }
+
+    private Task RecordGenerated(object?[] args)
+    {
+        _generatedFor.Add((int)args[0]!);
+        return Task.CompletedTask;
+    }
 
     private static IAuditService Audit() => StubProxy.For<IAuditService>((_, _) => Task.CompletedTask);
 
@@ -483,7 +709,7 @@ public sealed class FactoryTransferTests : IDisposable
         Guid user, string source, string? destination, string reason, string clientRequestId, params (string Code, decimal Quantity)[] lines)
     {
         _context.ChangeTracker.Clear();
-        return new SendFactoryTransferHandler(_context, Users(), Poster(), Audit(), Sap(), NullLogger<SendFactoryTransferHandler>.Instance)
+        return new SendFactoryTransferHandler(_context, Users(), Poster(), _sap.AsClient(), Audit(), Sap(), NullLogger<SendFactoryTransferHandler>.Instance)
             .Handle(new SendFactoryTransferCommand(
                 clientRequestId,
                 source,
@@ -491,6 +717,24 @@ public sealed class FactoryTransferTests : IDisposable
                 reason,
                 lines.Select(line => new SendFactoryTransferLineDto { ItemCode = line.Code, Quantity = line.Quantity }).ToList(),
                 user), default);
+    }
+
+    /// <summary>A truck for a depot: each line names the dispatch warehouse it is loaded from.</summary>
+    private Task<ErrorOr.ErrorOr<FactoryTransferActionResultDto>> Deliver(
+        Guid user, string depot, string? plate, string? driver, int? order, params (string From, string Code, decimal Quantity)[] lines)
+    {
+        _context.ChangeTracker.Clear();
+        return new SendFactoryTransferHandler(_context, Users(), Poster(), _sap.AsClient(), Audit(), Sap(), NullLogger<SendFactoryTransferHandler>.Instance)
+            .Handle(new SendFactoryTransferCommand(
+                $"truck-{++_requests}",
+                lines[0].From,
+                depot,
+                "Graniteside order",
+                lines.Select(line => new SendFactoryTransferLineDto { FromWarehouseCode = line.From, ItemCode = line.Code, Quantity = line.Quantity }).ToList(),
+                user,
+                plate,
+                driver,
+                order), default);
     }
 
     private async Task<int> GivenReleaseAsync(params (string Code, decimal Quantity)[] lines)
@@ -563,6 +807,8 @@ public sealed class FactoryTransferTests : IDisposable
 
         public List<CreateInventoryTransferRequest> Created { get; } = [];
         private readonly Dictionary<string, InventoryTransfer> _byOrderNumber = new();
+        public Dictionary<int, InventoryTransferRequest> Orders { get; } = new();
+        public List<int> ClosedOrders { get; } = [];
 
         public Exception? RefuseNext { get; set; }
         public bool LoseNextReply { get; set; }
@@ -574,8 +820,19 @@ public sealed class FactoryTransferTests : IDisposable
                     Create((CreateInventoryTransferRequest)args![0]!),
                 nameof(ISAPServiceLayerClient.FindStockTransferByOrderNumberAsync) =>
                     Task.FromResult(_byOrderNumber.GetValueOrDefault((string)args![0]!)),
+                nameof(ISAPServiceLayerClient.GetInventoryTransferRequestByDocEntryAsync) =>
+                    Task.FromResult(Orders.GetValueOrDefault((int)args![0]!)),
+                nameof(ISAPServiceLayerClient.CloseInventoryTransferRequestAsync) => Close((int)args![0]!),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
+
+        private Task Close(int docEntry)
+        {
+            ClosedOrders.Add(docEntry);
+            if (Orders.TryGetValue(docEntry, out var order))
+                order.DocumentStatus = "bost_Close";
+            return Task.CompletedTask;
+        }
 
         private Task<InventoryTransfer> Create(CreateInventoryTransferRequest request)
         {
@@ -598,6 +855,8 @@ public sealed class FactoryTransferTests : IDisposable
                     LineNum = index,
                     ItemCode = line.ItemCode,
                     Quantity = line.Quantity,
+                    FromWarehouseCode = line.FromWarehouseCode,
+                    WarehouseCode = line.ToWarehouseCode,
                     BatchNumbers = line.BatchNumbers is { Count: > 0 } chosen
                         ? chosen.Select(batch => new InventoryTransferLineBatch { BatchNumber = batch.BatchNumber, Quantity = batch.Quantity }).ToList()
                         : [new InventoryTransferLineBatch { BatchNumber = $"{line.ItemCode}-B1", Quantity = line.Quantity }]

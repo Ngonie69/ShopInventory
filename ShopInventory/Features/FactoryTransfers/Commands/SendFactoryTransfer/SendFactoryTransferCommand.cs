@@ -10,4 +10,7 @@ public sealed record SendFactoryTransferCommand(
     string? DestinationWarehouseCode,
     string Reason,
     IReadOnlyList<SendFactoryTransferLineDto> Lines,
-    Guid UserId) : IRequest<ErrorOr<FactoryTransferActionResultDto>>;
+    Guid UserId,
+    string? VehiclePlate = null,
+    string? DriverName = null,
+    int? SourceRequestDocEntry = null) : IRequest<ErrorOr<FactoryTransferActionResultDto>>;

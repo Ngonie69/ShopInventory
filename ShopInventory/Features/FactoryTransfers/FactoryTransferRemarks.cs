@@ -25,14 +25,21 @@ public static class FactoryTransferRemarks
 
     private static List<string> Trail(FactoryTransferEntity transfer, bool includeDecision)
     {
-        var department = FactoryDepartments.Find(transfer.DepartmentCode)?.Name ?? transfer.DepartmentCode;
-        var direction = transfer.Direction == FactoryTransferDirections.Return ? "return" : "release";
+        var name = FactoryDepartments.DisplayName(
+            transfer.DepartmentCode, transfer.Direction, transfer.SourceWarehouseCode, transfer.DestinationWarehouseCode);
+        var sources = string.Join("+", transfer.Lines
+            .Select(line => FactoryTransferLegPoster.SourceOf(transfer, line))
+            .Append(transfer.SourceWarehouseCode)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase));
 
         var trail = new List<string>
         {
-            $"{transfer.Number} {department} {direction} {transfer.SourceWarehouseCode} to {transfer.DestinationWarehouseCode}",
-            $"Sent by {transfer.SentByName} {FormatTime(transfer.SentAtUtc)}"
+            $"{transfer.Number} {name} {FactoryDepartments.DirectionWord(transfer.Direction)} {sources} to {transfer.DestinationWarehouseCode}"
         };
+        if (!string.IsNullOrWhiteSpace(transfer.VehiclePlate))
+            trail.Add($"Truck {transfer.VehiclePlate}" + (string.IsNullOrWhiteSpace(transfer.DriverName) ? string.Empty : $" DR {transfer.DriverName}"));
+        trail.Add($"Sent by {transfer.SentByName} {FormatTime(transfer.SentAtUtc)}");
 
         if (includeDecision && transfer.DecidedAtUtc is DateTime decidedAt)
             trail.Add($"{DecisionVerb(transfer)} by {transfer.DecidedByName} {FormatTime(decidedAt)}");

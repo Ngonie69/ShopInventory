@@ -215,6 +215,13 @@ public class CreateInventoryTransferRequest
     /// </summary>
     [JsonIgnore]
     public string? FinalDestinationWarehouse { get; set; }
+
+    /// <summary>
+    /// Written to SAP's <c>VehiclePlate</c>: the truck carrying it. Set by the server only, never read
+    /// from a request body.
+    /// </summary>
+    [JsonIgnore]
+    public string? VehiclePlate { get; set; }
 }
 
 /// <summary>

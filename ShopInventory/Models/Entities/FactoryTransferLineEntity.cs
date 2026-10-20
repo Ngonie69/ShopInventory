@@ -30,6 +30,14 @@ public sealed class FactoryTransferLineEntity
     [MaxLength(20)]
     public string? UoMCode { get; set; }
 
+    /// <summary>
+    /// Where this line was sent from when it differs from the transfer's: a depot delivery loads one
+    /// truck from several dispatch warehouses. Anything not accepted goes back here. Null means the
+    /// transfer's own source warehouse.
+    /// </summary>
+    [MaxLength(50)]
+    public string? FromWarehouseCode { get; set; }
+
     /// <summary>What was sent, in the item's inventory unit. Never changed after the send.</summary>
     [Column(TypeName = "decimal(18,6)")]
     public decimal Quantity { get; set; }

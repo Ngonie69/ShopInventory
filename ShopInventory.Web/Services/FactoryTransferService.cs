@@ -17,6 +17,8 @@ public interface IFactoryTransferService
 
     Task<(bool Success, string Message, FactoryTransferOptionsDto? Value)> GetOptionsAsync();
 
+    Task<(bool Success, string Message, List<DepotOrderDto>? Value)> GetDepotOrdersAsync(string depotCode);
+
     Task<(bool Success, string Message, FactoryTransferActionResultDto? Value)> SendAsync(SendFactoryTransferRequestDto request);
 
     Task<(bool Success, string Message, FactoryTransferActionResultDto? Value)> DecideAsync(int id, DecideFactoryTransferRequestDto request);
@@ -78,6 +80,20 @@ public sealed class FactoryTransferService(HttpClient httpClient, ILogger<Factor
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching factory transfer options");
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, List<DepotOrderDto>? Value)> GetDepotOrdersAsync(string depotCode)
+    {
+        var fallback = $"{depotCode}'s open orders could not be loaded.";
+        try
+        {
+            return await ReadAsync<List<DepotOrderDto>>($"{Root}/depot-orders?depot={Uri.EscapeDataString(depotCode)}", fallback);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching open orders for depot {Depot}", depotCode);
             return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
         }
     }

@@ -33,6 +33,7 @@ public sealed class SendFactoryTransferHandler(
     ApplicationDbContext context,
     IUserManagementService userManagement,
     IFactoryTransferLegPoster poster,
+    ISAPServiceLayerClient sapClient,
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
     ILogger<SendFactoryTransferHandler> logger)
@@ -48,18 +49,42 @@ public sealed class SendFactoryTransferHandler(
         var actor = await FactoryTransferActor.ResolveAsync(context, userManagement, command.UserId, cancellationToken);
         if (actor is null)
             return Errors.FactoryTransfer.UserNotFound;
-        if (!actor.CanSend)
-            return Errors.FactoryTransfer.SendNotPermitted;
 
         var clientRequestId = command.ClientRequestId.Trim();
         var existing = await FindExistingAsync(clientRequestId, cancellationToken);
         if (existing is not null)
             return await ReplayAsync(existing, actor, cancellationToken);
 
-        var route = ResolveRoute(command.SourceWarehouseCode, command.DestinationWarehouseCode, actor);
+        var route = ResolveRoute(
+            command.SourceWarehouseCode,
+            command.DestinationWarehouseCode,
+            command.Lines.Select(line => line.FromWarehouseCode).ToList(),
+            actor);
         if (route.IsError)
             return route.Errors;
-        var (department, direction, source, destination) = route.Value;
+        var plan = route.Value;
+
+        var isDelivery = plan.Direction == FactoryTransferDirections.Delivery;
+        var vehiclePlate = Blank(command.VehiclePlate)?.ToUpperInvariant();
+        var driverName = Blank(command.DriverName);
+        if (isDelivery && (vehiclePlate is null || driverName is null))
+            return Errors.FactoryTransfer.TruckDetailsRequired;
+
+        int? requestDocNum = null;
+        if (command.SourceRequestDocEntry is int requestDocEntry)
+        {
+            if (!isDelivery)
+                return Errors.FactoryTransfer.LinesMismatch("Only a depot delivery fulfils a depot order.");
+
+            var order = await sapClient.GetInventoryTransferRequestByDocEntryAsync(requestDocEntry, cancellationToken);
+            if (order is null)
+                return Errors.FactoryTransfer.DepotOrderNotFound(requestDocEntry);
+            if (!string.Equals(order.DocumentStatus, "bost_Open", StringComparison.OrdinalIgnoreCase))
+                return Errors.FactoryTransfer.DepotOrderNotOpen(order.DocNum);
+            if (!string.Equals(order.ToWarehouse, plan.Destination, StringComparison.OrdinalIgnoreCase))
+                return Errors.FactoryTransfer.DepotOrderForAnotherDepot(order.DocNum, order.ToWarehouse ?? "another warehouse");
+            requestDocNum = order.DocNum;
+        }
 
         var lines = command.Lines
             .Select((line, index) => new FactoryTransferLineEntity
@@ -68,6 +93,9 @@ public sealed class SendFactoryTransferHandler(
                 ItemCode = line.ItemCode.Trim().ToUpperInvariant(),
                 ItemDescription = Blank(line.ItemDescription),
                 UoMCode = Blank(line.UoMCode),
+                FromWarehouseCode = string.Equals(plan.LineSources[index], plan.Source, StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : plan.LineSources[index],
                 Quantity = line.Quantity
             })
             .ToList();
@@ -86,12 +114,16 @@ public sealed class SendFactoryTransferHandler(
         var transfer = new FactoryTransferEntity
         {
             ClientRequestId = clientRequestId,
-            DepartmentCode = department.Code,
-            Direction = direction,
-            SourceWarehouseCode = source,
-            HoldingWarehouseCode = FactoryDepartments.HoldingWarehouseCode,
-            DestinationWarehouseCode = destination,
+            DepartmentCode = plan.DepartmentCode,
+            Direction = plan.Direction,
+            SourceWarehouseCode = plan.Source,
+            HoldingWarehouseCode = plan.Holding,
+            DestinationWarehouseCode = plan.Destination,
             Reason = command.Reason.Trim(),
+            VehiclePlate = vehiclePlate,
+            DriverName = driverName,
+            SourceRequestDocEntry = command.SourceRequestDocEntry,
+            SourceRequestDocNum = requestDocNum,
             SentByUserId = actor.UserId,
             SentByName = actor.Name,
             SentAtUtc = DateTime.UtcNow,
@@ -133,20 +165,53 @@ public sealed class SendFactoryTransferHandler(
         var detail = await FactoryTransferReader.ReadDetailAsync(context, transfer.Id, actor, CancellationToken.None);
         return new FactoryTransferActionResultDto
         {
-            Message = $"{transfer.Number} sent. SAP transfer #{posted.Value.OutSapDocNum} moved it from {source} into "
-                + $"{transfer.HoldingWarehouseCode}; it waits there for {destination} to accept it.",
+            Message = $"{transfer.Number} sent. SAP transfer #{posted.Value.OutSapDocNum} moved it into "
+                + $"{transfer.HoldingWarehouseCode}; it waits there for {transfer.DestinationWarehouseCode} to accept it.",
             Transfer = detail!
         };
     }
 
     /// <summary>
-    /// The department, direction and canonical warehouse codes for a send, or why it is refused.
+    /// Where a send may go and who may make it, or why it is refused. Three shapes:
+    /// <list type="bullet">
+    /// <item>to a depot centre: a depot delivery, loaded by Distribution from any dispatch warehouses
+    /// on the account (one per line), through DEPOTRAN;</item>
+    /// <item>from a depot centre or its shop: a depot return to one dispatch warehouse;</item>
+    /// <item>otherwise a factory release or return within one department, through FSRW.</item>
+    /// </list>
     /// </summary>
-    internal static ErrorOr<(FactoryDepartment Department, string Direction, string Source, string Destination)> ResolveRoute(
+    internal static ErrorOr<SendPlan> ResolveRoute(
         string sourceWarehouseCode,
         string? destinationWarehouseCode,
+        IReadOnlyList<string?> lineSources,
         FactoryTransferActor actor)
     {
+        var depot = FactoryDepartments.FindDepotCentre(destinationWarehouseCode);
+        if (depot is not null)
+            return ResolveDelivery(sourceWarehouseCode, depot, lineSources, actor);
+
+        if (lineSources.Any(line => !string.IsNullOrWhiteSpace(line)
+                && !string.Equals(line.Trim(), sourceWarehouseCode.Trim(), StringComparison.OrdinalIgnoreCase)))
+            return Errors.FactoryTransfer.LineSourceNotAllowed;
+
+        if (!actor.CanSend)
+            return Errors.FactoryTransfer.SendNotPermitted;
+
+        var depotSource = FactoryDepartments.LocateDepotWarehouse(sourceWarehouseCode);
+        if (depotSource is not null)
+        {
+            var (fromDepot, warehouse) = depotSource.Value;
+            if (!actor.Holds(warehouse))
+                return Errors.FactoryTransfer.SourceNotAssigned(warehouse);
+            var back = FactoryDepartments.CanonicalDispatch(destinationWarehouseCode);
+            if (back is null)
+                return Errors.FactoryTransfer.InvalidDestination(
+                    string.IsNullOrWhiteSpace(destinationWarehouseCode) ? "(none chosen)" : destinationWarehouseCode.Trim(),
+                    $"{fromDepot.Name} return");
+            return new SendPlan(FactoryDepartments.DepotDepartmentCode, FactoryTransferDirections.DepotReturn,
+                FactoryDepartments.DepotHoldingWarehouseCode, warehouse, back, lineSources.Select(_ => warehouse).ToList());
+        }
+
         var located = FactoryDepartments.Locate(sourceWarehouseCode);
         if (located is null)
             return Errors.FactoryTransfer.NotAFactoryWarehouse(sourceWarehouseCode.Trim());
@@ -177,7 +242,34 @@ public sealed class SendFactoryTransferHandler(
         }
 
         var direction = side == FactorySide.Production ? FactoryTransferDirections.Release : FactoryTransferDirections.Return;
-        return (department, direction, source, destination);
+        return new SendPlan(department.Code, direction, FactoryDepartments.HoldingWarehouseCode, source, destination,
+            lineSources.Select(_ => source).ToList());
+    }
+
+    private static ErrorOr<SendPlan> ResolveDelivery(
+        string sourceWarehouseCode,
+        FactoryDepot depot,
+        IReadOnlyList<string?> lineSources,
+        FactoryTransferActor actor)
+    {
+        if (!actor.CanDeliver)
+            return Errors.FactoryTransfer.DeliverNotPermitted;
+
+        var resolved = new List<string>(lineSources.Count);
+        foreach (var requested in lineSources)
+        {
+            var code = string.IsNullOrWhiteSpace(requested) ? sourceWarehouseCode : requested;
+            var dispatch = FactoryDepartments.CanonicalDispatch(code);
+            if (dispatch is null)
+                return Errors.FactoryTransfer.NotADispatchWarehouse(code.Trim());
+            if (!actor.Holds(dispatch))
+                return Errors.FactoryTransfer.SourceNotAssigned(dispatch);
+            resolved.Add(dispatch);
+        }
+
+        // The header names the first line's warehouse; each line carries its own.
+        return new SendPlan(FactoryDepartments.DepotDepartmentCode, FactoryTransferDirections.Delivery,
+            FactoryDepartments.DepotHoldingWarehouseCode, resolved[0], depot.Centre, resolved);
     }
 
     private Task<FactoryTransferEntity?> FindExistingAsync(string clientRequestId, CancellationToken cancellationToken)
@@ -221,3 +313,12 @@ public sealed class SendFactoryTransferHandler(
     private static string? Blank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
+
+/// <summary>What a send resolves to: its route, and the warehouse each line leaves from.</summary>
+internal sealed record SendPlan(
+    string DepartmentCode,
+    string Direction,
+    string Holding,
+    string Source,
+    string Destination,
+    IReadOnlyList<string> LineSources);

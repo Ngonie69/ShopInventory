@@ -21,7 +21,8 @@ public sealed record FactoryTransferActor(
     IReadOnlyList<string> Warehouses,
     bool CanSend,
     bool CanAccept,
-    bool CanAcceptAny)
+    bool CanAcceptAny,
+    bool CanDeliver = false)
 {
     public bool Holds(string warehouseCode)
         => Warehouses.Contains(warehouseCode, StringComparer.OrdinalIgnoreCase);
@@ -31,12 +32,20 @@ public sealed record FactoryTransferActor(
         => CanAcceptAny || Holds(source) || Holds(destination);
 
     /// <summary>
-    /// Whether this person may accept or reject a transfer into <paramref name="destination"/>. Never the
-    /// sender: the point of the handover is that the other side counts it.
+    /// Whether this person may accept or reject the transfer. Never the sender: the point of the
+    /// handover is that the other side counts it.
     /// </summary>
     public bool MayDecide(FactoryTransferEntity transfer)
-        => transfer.SentByUserId != UserId
-            && ((CanAccept && Holds(transfer.DestinationWarehouseCode)) || CanAcceptAny);
+        => transfer.SentByUserId != UserId && MayDecideInto(transfer.Direction, transfer.DestinationWarehouseCode);
+
+    /// <summary>
+    /// The receiving side of a transfer into <paramref name="destination"/>. Accepting for any
+    /// department is the dispatch manager's reach on the factory floor; it does not reach a depot,
+    /// where only the people who run it can say what came off the truck.
+    /// </summary>
+    public bool MayDecideInto(string direction, string destination)
+        => (CanAccept && Holds(destination))
+            || (CanAcceptAny && direction != FactoryTransferDirections.Delivery);
 
     public static async Task<FactoryTransferActor?> ResolveAsync(
         ApplicationDbContext context,
@@ -70,7 +79,8 @@ public sealed record FactoryTransferActor(
             warehouses,
             CanSend: isSystemAdmin || permissions.Contains(Permission.SendFactoryTransfers),
             CanAccept: isSystemAdmin || permissions.Contains(Permission.AcceptFactoryTransfers),
-            CanAcceptAny: isSystemAdmin || permissions.Contains(Permission.AcceptAnyFactoryTransfers));
+            CanAcceptAny: isSystemAdmin || permissions.Contains(Permission.AcceptAnyFactoryTransfers),
+            CanDeliver: isSystemAdmin || permissions.Contains(Permission.DeliverFactoryTransfers));
     }
 
     /// <summary>The account's warehouse list, read as <see cref="User.GetWarehouseCodes"/> reads it.</summary>

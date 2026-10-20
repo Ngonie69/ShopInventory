@@ -2889,6 +2889,10 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("DriverName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("HoldingWarehouseCode")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -2941,6 +2945,12 @@ namespace ShopInventory.Migrations
                     b.Property<Guid>("SentByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("SourceRequestDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SourceRequestDocNum")
+                        .HasColumnType("integer");
+
                     b.Property<string>("SourceWarehouseCode")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -2950,6 +2960,10 @@ namespace ShopInventory.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
+
+                    b.Property<string>("VehiclePlate")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
 
@@ -2978,6 +2992,10 @@ namespace ShopInventory.Migrations
 
                     b.Property<string>("BatchesJson")
                         .HasColumnType("text");
+
+                    b.Property<string>("FromWarehouseCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("ItemCode")
                         .IsRequired()

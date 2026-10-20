@@ -250,6 +250,7 @@ Overview
     Dashboard  /dashboard
 Inventory
     Transfers  /inventory-transfers
+    Factory Transfers  /factory-transfers
     Local Stock  /local-stock
 Van Sales
     Customer Orders  /van-sales-customer-orders
@@ -272,6 +273,12 @@ Account
     Security  /security
 
 ## DispatchOfficer
+Inventory
+    Factory Transfers  /factory-transfers
+Account
+    Security  /security
+
+## DistributionOfficer
 Inventory
     Factory Transfers  /factory-transfers
 Account

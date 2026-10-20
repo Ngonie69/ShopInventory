@@ -48,7 +48,7 @@ public sealed class RetryFactoryTransferHandler(
         if (row is null || !actor.MaySee(row.SourceWarehouseCode, row.DestinationWarehouseCode))
             return Errors.FactoryTransfer.NotFound(command.TransferId);
 
-        var summary = FactoryTransferReader.ToSummary(row, actor, 0);
+        var summary = FactoryTransferReader.ToSummary(row, actor, null);
         if (!summary.CanRetry)
             return row.Status is FactoryTransferStatuses.Sending or FactoryTransferStatuses.SendFailed
                 or FactoryTransferStatuses.Settling or FactoryTransferStatuses.SettleFailed

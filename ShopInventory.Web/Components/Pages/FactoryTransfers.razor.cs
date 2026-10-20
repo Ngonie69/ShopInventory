@@ -11,6 +11,7 @@ using ShopInventory.Web.Features.FactoryTransfers.Commands.SendFactoryTransfer;
 using ShopInventory.Web.Features.FactoryTransfers.Queries.GetFactoryTransfer;
 using ShopInventory.Web.Features.FactoryTransfers.Queries.GetFactoryTransferOptions;
 using ShopInventory.Web.Features.FactoryTransfers.Queries.GetFactoryTransfers;
+using ShopInventory.Web.Features.FactoryTransfers.Queries.GetDepotOrders;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -80,12 +81,17 @@ public partial class FactoryTransfers : IDisposable
     private string? pickerValue;
     private bool isLoadingStock;
     private List<NocturnePickerOption> stockOptions = [];
-    private readonly Dictionary<string, ProductDto> stockByCode = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, StockRow> stockByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SendLine> sendLines = [];
+    private string? sendPlate;
+    private string? sendDriver;
+    private List<DepotOrderDto> depotOrders = [];
+    private string? selectedOrder;
+    private bool isLoadingOrders;
 
     private string HoldingWarehouse => options?.HoldingWarehouseCode is { Length: > 0 } code ? code : "FSRW";
 
-    private bool CanSend => options is { CanSend: true } && options.Routes.Count > 0;
+    private bool CanSend => options is not null && (options.Routes.Count > 0 || options.DepotDelivery is { DispatchWarehouses.Count: > 0 });
 
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(totalCount / (double)PageSize));
 
@@ -388,26 +394,85 @@ public partial class FactoryTransfers : IDisposable
 
     // ── Sending ──────────────────────────────────────────────────────────────────
 
+    /// <summary>The From choice that means "load a truck for a depot" rather than a warehouse.</summary>
+    private const string TruckSource = "__truck";
+
+    private bool IsTruck => sendSource == TruckSource;
+
     private FactoryTransferRouteDto? SelectedRoute
         => options?.Routes.FirstOrDefault(route => route.SourceWarehouseCode == sendSource);
 
+    private bool ShowLineSources => detail?.Summary.Direction == FactoryTransferStatus.Delivery;
+
     private IReadOnlyList<INocturneSelectOption<string>> SourceOptions
-        => options?.Routes
-            .Select(route => (INocturneSelectOption<string>)new NocturneSelectOption<string>(
+    {
+        get
+        {
+            var list = new List<INocturneSelectOption<string>>();
+            if (options?.DepotDelivery is { DispatchWarehouses.Count: > 0 })
+                list.Add(new NocturneSelectOption<string>(TruckSource, "Load a truck for a depot", "accent") { RuleAfter = options.Routes.Count > 0 });
+            list.AddRange((options?.Routes ?? []).Select(route => (INocturneSelectOption<string>)new NocturneSelectOption<string>(
                 route.SourceWarehouseCode,
-                $"{route.SourceWarehouseCode} · {route.DepartmentName} {DirectionWord(route.Direction)}"))
-            .ToList() ?? [];
+                $"{route.SourceWarehouseCode} · {route.DepartmentName} {DirectionWord(route.Direction)}")));
+            return list;
+        }
+    }
 
     private IReadOnlyList<INocturneSelectOption<string>> DestinationOptions
-        => SelectedRoute?.DestinationWarehouseCodes
-            .Select(code => (INocturneSelectOption<string>)new NocturneSelectOption<string>(code, code))
-            .ToList() ?? [];
+        => IsTruck
+            ? (options?.DepotDelivery?.Depots ?? [])
+                .Select(depot => (INocturneSelectOption<string>)new NocturneSelectOption<string>(depot.Code, $"{depot.Code} · {depot.Name}"))
+                .ToList()
+            : SelectedRoute?.DestinationWarehouseCodes
+                .Select(code => (INocturneSelectOption<string>)new NocturneSelectOption<string>(code, code))
+                .ToList() ?? [];
+
+    private IReadOnlyList<INocturneSelectOption<string>> OrderOptions
+        => depotOrders
+            .Select(order => (INocturneSelectOption<string>)new NocturneSelectOption<string>(
+                order.DocEntry.ToString(CultureInfo.InvariantCulture),
+                $"#{order.DocNum} · {ShortDate(order.DocDate)} · {OrderSummary(order)}"))
+            .Prepend(new NocturneSelectOption<string>(string.Empty, "No order — load it by hand", "neutral") { RuleAfter = true, IsUnset = true })
+            .ToList();
+
+    /// <summary>Where the stock waits: DEPOTRAN for a truck or a depot return, FSRW otherwise.</summary>
+    private string SendHolding
+        => IsTruck || SelectedRoute?.Direction == FactoryTransferStatus.DepotReturn
+            ? options?.DepotDelivery?.HoldingWarehouseCode is { Length: > 0 } depot ? depot : "DEPOTRAN"
+            : HoldingWarehouse;
+
+    private string SendTitle
+    {
+        get
+        {
+            if (IsTruck)
+            {
+                var depot = options?.DepotDelivery?.Depots.FirstOrDefault(item => item.Code == sendDestination);
+                return depot is null ? "Truck to a depot" : $"Truck to {depot.Name}";
+            }
+
+            return SelectedRoute is { } route ? $"{route.DepartmentName} {DirectionWord(route.Direction)}" : "Send stock";
+        }
+    }
+
+    private string SendRoute
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(sendSource))
+                return "Choose where it comes from";
+            var from = IsTruck
+                ? sendLines.Count == 0 ? "dispatch" : string.Join(", ", sendLines.Select(line => line.FromWarehouse).Distinct())
+                : sendSource;
+            return $"{from} → {SendHolding} → {(string.IsNullOrEmpty(sendDestination) ? "…" : sendDestination)}";
+        }
+    }
 
     private void OpenSend()
     {
         sendOpen = true;
         sendError = null;
-        if (sendSource is null && options?.Routes.Count == 1)
+        if (sendSource is null && options is { Routes.Count: 1, DepotDelivery: null })
             _ = OnSourceChangedAsync(options.Routes[0].SourceWarehouseCode);
     }
 
@@ -423,41 +488,57 @@ public partial class FactoryTransfers : IDisposable
             return;
 
         sendSource = source;
-        var destinations = SelectedRoute?.DestinationWarehouseCodes ?? [];
-        sendDestination = destinations.Count == 1 ? destinations[0] : null;
+        sendDestination = null;
+        depotOrders = [];
+        selectedOrder = null;
         sendLines.Clear();
         stockOptions = [];
-        stockByCode.Clear();
+        stockByKey.Clear();
         if (string.IsNullOrEmpty(source))
             return;
+
+        if (!IsTruck)
+        {
+            var destinations = SelectedRoute?.DestinationWarehouseCodes ?? [];
+            sendDestination = destinations.Count == 1 ? destinations[0] : null;
+        }
+
+        // A truck loads from every dispatch warehouse on the account; anything else from its source.
+        var warehouses = IsTruck ? options?.DepotDelivery?.DispatchWarehouses ?? [] : [source];
 
         isLoadingStock = true;
         await InvokeAsync(StateHasChanged);
         try
         {
-            var stock = await StockCache.GetAllCachedStockAsync(source);
-            // A late answer for a warehouse the form has since moved off is dropped.
-            if (!string.Equals(sendSource, source, StringComparison.Ordinal))
-                return;
-
-            foreach (var product in stock?.Products ?? [])
+            foreach (var warehouse in warehouses)
             {
-                if (string.IsNullOrWhiteSpace(product.ItemCode) || product.QuantityInStock <= 0)
-                    continue;
-                stockByCode[product.ItemCode] = product;
+                var stock = await StockCache.GetAllCachedStockAsync(warehouse);
+                // A late answer for a form that has since moved off this source is dropped.
+                if (!string.Equals(sendSource, source, StringComparison.Ordinal))
+                    return;
+
+                foreach (var product in stock?.Products ?? [])
+                {
+                    if (string.IsNullOrWhiteSpace(product.ItemCode) || product.QuantityInStock <= 0)
+                        continue;
+                    stockByKey[StockKey(warehouse, product.ItemCode)] = new StockRow(warehouse, product);
+                }
             }
 
-            stockOptions = stockByCode.Values
-                .OrderBy(product => product.ItemCode, StringComparer.OrdinalIgnoreCase)
-                .Select(product => new NocturnePickerOption(
-                    product.ItemCode!,
-                    product.ItemName ?? product.ItemCode!,
-                    $"{product.ItemCode} · {QuantityDisplay.Format(product.QuantityInStock)} in stock"))
+            stockOptions = stockByKey
+                .OrderBy(entry => entry.Value.Product.ItemCode, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.Value.Warehouse, StringComparer.OrdinalIgnoreCase)
+                .Select(entry => new NocturnePickerOption(
+                    entry.Key,
+                    entry.Value.Product.ItemName ?? entry.Value.Product.ItemCode!,
+                    IsTruck
+                        ? $"{entry.Value.Warehouse} · {entry.Value.Product.ItemCode} · {QuantityDisplay.Format(entry.Value.Product.QuantityInStock)} in stock"
+                        : $"{entry.Value.Product.ItemCode} · {QuantityDisplay.Format(entry.Value.Product.QuantityInStock)} in stock"))
                 .ToList();
         }
         catch (Exception)
         {
-            sendError = $"The stock in {source} could not be loaded. Refresh and try again.";
+            sendError = $"The stock in {string.Join(", ", warehouses)} could not be loaded. Refresh and try again.";
         }
         finally
         {
@@ -466,16 +547,80 @@ public partial class FactoryTransfers : IDisposable
         }
     }
 
-    private void AddLine(string? itemCode)
+    private async Task OnDepotChangedAsync(string? depot)
     {
-        pickerValue = null;
-        if (string.IsNullOrEmpty(itemCode) || !stockByCode.TryGetValue(itemCode, out var product))
-            return;
-        if (sendLines.Any(line => string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)))
+        sendDestination = depot;
+        depotOrders = [];
+        selectedOrder = null;
+        if (string.IsNullOrEmpty(depot))
             return;
 
-        sendLines.Add(new SendLine(product.ItemCode!, product.ItemName ?? product.ItemCode!, product.UoM, product.QuantityInStock));
+        isLoadingOrders = true;
+        try
+        {
+            var result = await Mediator.Send(new GetDepotOrdersQuery(depot), disposal.Token);
+            // Orders are a convenience; a truck can always be loaded by hand.
+            if (!result.IsError && sendDestination == depot)
+                depotOrders = result.Value;
+        }
+        finally
+        {
+            isLoadingOrders = false;
+        }
     }
+
+    /// <summary>
+    /// Fills the lines from a depot order. Each item is taken from the dispatch warehouse holding the
+    /// most of it; one no dispatch warehouse holds is named rather than silently left off.
+    /// </summary>
+    private void OnOrderChanged(string? docEntry)
+    {
+        selectedOrder = string.IsNullOrEmpty(docEntry) ? null : docEntry;
+        var order = depotOrders.FirstOrDefault(item => item.DocEntry.ToString(CultureInfo.InvariantCulture) == selectedOrder);
+        if (order is null)
+            return;
+
+        sendLines.Clear();
+        var missing = new List<string>();
+        foreach (var wanted in order.Lines)
+        {
+            var best = stockByKey.Values
+                .Where(row => string.Equals(row.Product.ItemCode, wanted.ItemCode, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(row => row.Product.QuantityInStock)
+                .FirstOrDefault();
+            if (best is null)
+            {
+                missing.Add(wanted.ItemCode);
+                continue;
+            }
+
+            if (sendLines.Any(line => line.Key == StockKey(best.Warehouse, wanted.ItemCode)))
+                continue;
+            var line = NewLine(best);
+            SetSendQuantity(line, wanted.Quantity.ToString(CultureInfo.InvariantCulture));
+            sendLines.Add(line);
+        }
+
+        if (string.IsNullOrWhiteSpace(sendReason))
+            sendReason = string.IsNullOrWhiteSpace(order.Comments) ? $"Depot order #{order.DocNum}" : order.Comments.Trim();
+        sendError = missing.Count == 0
+            ? null
+            : $"Not in any dispatch warehouse, so left off: {string.Join(", ", missing)}.";
+    }
+
+    private void AddLine(string? key)
+    {
+        pickerValue = null;
+        if (string.IsNullOrEmpty(key) || !stockByKey.TryGetValue(key, out var row))
+            return;
+        if (sendLines.Any(line => line.Key == key))
+            return;
+
+        sendLines.Add(NewLine(row));
+    }
+
+    private static SendLine NewLine(StockRow row)
+        => new(row.Warehouse, row.Product.ItemCode!, row.Product.ItemName ?? row.Product.ItemCode!, row.Product.UoM, row.Product.QuantityInStock);
 
     private static void SetSendQuantity(SendLine line, object? raw)
     {
@@ -486,10 +631,13 @@ public partial class FactoryTransfers : IDisposable
             : null;
     }
 
+    private bool TruckDetailsGiven => !IsTruck || (!string.IsNullOrWhiteSpace(sendPlate) && !string.IsNullOrWhiteSpace(sendDriver));
+
     private bool CanSubmitSend
         => !string.IsNullOrEmpty(sendSource)
             && !string.IsNullOrEmpty(sendDestination)
             && !string.IsNullOrWhiteSpace(sendReason)
+            && TruckDetailsGiven
             && sendLines.Count > 0
             && sendLines.All(line => line.Quantity > 0 && line.Quantity <= line.Available);
 
@@ -498,12 +646,13 @@ public partial class FactoryTransfers : IDisposable
         get
         {
             if (string.IsNullOrEmpty(sendSource)) return "Choose where it comes from.";
-            if (string.IsNullOrEmpty(sendDestination)) return "Choose where it goes.";
+            if (string.IsNullOrEmpty(sendDestination)) return IsTruck ? "Choose the depot." : "Choose where it goes.";
+            if (!TruckDetailsGiven) return "Give the truck's registration and the driver.";
             if (sendLines.Count == 0) return "Add at least one product.";
             if (sendLines.Any(line => line.Quantity is null)) return "Enter a quantity on every line.";
             if (sendLines.Any(line => line.Quantity > line.Available)) return "A quantity is more than is in stock.";
             if (string.IsNullOrWhiteSpace(sendReason)) return "Say why it is being sent.";
-            return $"{sendLines.Count} product(s) to {HoldingWarehouse}, for {sendDestination}.";
+            return $"{sendLines.Count} product(s) to {SendHolding}, for {sendDestination}.";
         }
     }
 
@@ -518,14 +667,18 @@ public partial class FactoryTransfers : IDisposable
             var request = new SendFactoryTransferRequestDto
             {
                 ClientRequestId = clientRequestId,
-                SourceWarehouseCode = sendSource!,
+                SourceWarehouseCode = IsTruck ? sendLines[0].FromWarehouse : sendSource!,
                 DestinationWarehouseCode = sendDestination!,
                 Reason = sendReason!.Trim(),
+                VehiclePlate = IsTruck ? sendPlate!.Trim() : null,
+                DriverName = IsTruck ? sendDriver!.Trim() : null,
+                SourceRequestDocEntry = IsTruck && int.TryParse(selectedOrder, out var order) ? order : null,
                 Lines = sendLines.Select(line => new SendFactoryTransferLineDto
                 {
                     ItemCode = line.ItemCode,
                     ItemDescription = line.ItemName,
                     UoMCode = line.UoM,
+                    FromWarehouseCode = IsTruck ? line.FromWarehouse : null,
                     Quantity = line.Quantity!.Value
                 }).ToList()
             };
@@ -560,12 +713,33 @@ public partial class FactoryTransfers : IDisposable
         clientRequestId = Guid.NewGuid().ToString("N");
         sendLines.Clear();
         sendReason = null;
+        selectedOrder = null;
+        sendPlate = null;
+        sendDriver = null;
+    }
+
+    private static string StockKey(string warehouse, string itemCode) => $"{warehouse}|{itemCode}";
+
+    private static string ShortDate(string sapDate)
+        => DateTime.TryParse(sapDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date.ToString("dd MMM", CultureInfo.InvariantCulture)
+            : sapDate;
+
+    private static string OrderSummary(DepotOrderDto order)
+    {
+        var products = order.Lines.Count == 1 ? "1 product" : $"{order.Lines.Count} products";
+        var note = order.Comments.Split('|').Select(part => part.Trim()).LastOrDefault(part => part.Length > 0);
+        return string.IsNullOrWhiteSpace(note) ? products : $"{products} · {(note.Length > 40 ? note[..40] + "…" : note)}";
     }
 
     // ── Words and colours ────────────────────────────────────────────────────────
 
-    private static string DirectionWord(string direction)
-        => direction == FactoryTransferStatus.Return ? "return" : "release";
+    private static string DirectionWord(string direction) => direction switch
+    {
+        FactoryTransferStatus.Return or FactoryTransferStatus.DepotReturn => "return",
+        FactoryTransferStatus.Delivery => "delivery",
+        _ => "release"
+    };
 
     private static string StatusLabel(string status) => status switch
     {
@@ -655,8 +829,12 @@ public partial class FactoryTransfers : IDisposable
         disposal.Dispose();
     }
 
-    private sealed class SendLine(string itemCode, string itemName, string? uoM, decimal available)
+    private sealed record StockRow(string Warehouse, ProductDto Product);
+
+    private sealed class SendLine(string fromWarehouse, string itemCode, string itemName, string? uoM, decimal available)
     {
+        public string FromWarehouse { get; } = fromWarehouse;
+        public string Key => StockKey(FromWarehouse, ItemCode);
         public string ItemCode { get; } = itemCode;
         public string ItemName { get; } = itemName;
         public string? UoM { get; } = uoM;

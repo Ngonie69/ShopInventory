@@ -177,6 +177,8 @@ public static class Permissions
     public const string SendFactoryTransfers = "factory.transfers.send";
     public const string AcceptFactoryTransfers = "factory.transfers.accept";
     public const string AcceptAnyFactoryTransfers = "factory.transfers.accept_any";
+    // Loading a truck for a depot from any of the dispatch warehouses on the account: Distribution's.
+    public const string DeliverFactoryTransfers = "factory.transfers.deliver";
 
     /// <summary>
     /// Get all permissions grouped by category
@@ -322,7 +324,8 @@ public static class Permissions
                 new(ViewFactoryTransfers, "View Factory Transfers", "See the transfers between production and dispatch for the warehouses on the account"),
                 new(SendFactoryTransfers, "Send Factory Transfers", "Release stock from an assigned production warehouse to dispatch, or return it from an assigned dispatch warehouse"),
                 new(AcceptFactoryTransfers, "Accept Factory Transfers", "Accept, part-accept or reject stock sent to an assigned warehouse"),
-                new(AcceptAnyFactoryTransfers, "Accept Any Factory Transfer", "Accept, part-accept or reject a factory transfer for any department")
+                new(AcceptAnyFactoryTransfers, "Accept Any Factory Transfer", "Accept, part-accept or reject a factory transfer for any department"),
+                new(DeliverFactoryTransfers, "Load Depot Deliveries", "Load a truck for a depot from the dispatch warehouses on the account, through DEPOTRAN")
             },
             ["System"] = new()
             {
@@ -461,7 +464,9 @@ public static class Permissions
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 FulfilVanSalesCustomerOrders,
                 // The depot is where a van unloads its breakages, so it counts and confirms them.
-                ConfirmMarketBreakages
+                ConfirmMarketBreakages,
+                // Receives the trucks Distribution loads for its depot, and sends stock back to dispatch.
+                ViewFactoryTransfers, SendFactoryTransfers, AcceptFactoryTransfers
             },
             ApplicationRoles.ReadOnly => new List<string>
             {
@@ -498,6 +503,13 @@ public static class Permissions
             {
                 ViewProducts, ViewStock, ViewInventory,
                 ViewFactoryTransfers, SendFactoryTransfers, AcceptFactoryTransfers
+            },
+            // Distribution loads the trucks for the depots and takes back what a depot returns, from
+            // and into the dispatch warehouses on the account.
+            ApplicationRoles.DistributionOfficer => new List<string>
+            {
+                ViewProducts, ViewStock, ViewInventory,
+                ViewFactoryTransfers, DeliverFactoryTransfers, AcceptFactoryTransfers
             },
             ApplicationRoles.Merchandiser => new List<string>
             {
@@ -693,6 +705,7 @@ public static class Permission
     public const string SendFactoryTransfers = Permissions.SendFactoryTransfers;
     public const string AcceptFactoryTransfers = Permissions.AcceptFactoryTransfers;
     public const string AcceptAnyFactoryTransfers = Permissions.AcceptAnyFactoryTransfers;
+    public const string DeliverFactoryTransfers = Permissions.DeliverFactoryTransfers;
 
     /// <summary>
     /// Get all permissions grouped by category (delegates to Permissions)

@@ -58,6 +58,8 @@ public sealed class GetFactoryTransfersHandler(
                 || EF.Functions.Like(transfer.SentByName.ToUpper(), pattern)
                 || EF.Functions.Like(transfer.SourceWarehouseCode.ToUpper(), pattern)
                 || EF.Functions.Like(transfer.DestinationWarehouseCode.ToUpper(), pattern)
+                || (transfer.VehiclePlate != null && EF.Functions.Like(transfer.VehiclePlate.ToUpper(), pattern))
+                || (transfer.DriverName != null && EF.Functions.Like(transfer.DriverName.ToUpper(), pattern))
                 || transfer.Lines.Any(line => EF.Functions.Like(line.ItemCode.ToUpper(), pattern)));
         }
 

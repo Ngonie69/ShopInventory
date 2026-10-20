@@ -470,6 +470,7 @@ try
     builder.Services.AddScoped<ITransferWarehouseAuthorizer, TransferWarehouseAuthorizer>();
     builder.Services.AddScoped<IPendingInventoryTransferPoster, PendingInventoryTransferPoster>();
     builder.Services.AddScoped<ShopInventory.Features.FactoryTransfers.IFactoryTransferLegPoster, ShopInventory.Features.FactoryTransfers.FactoryTransferLegPoster>();
+    builder.Services.AddScoped<ShopInventory.Features.FactoryTransfers.IFactoryTransferFollowUps, ShopInventory.Features.FactoryTransfers.FactoryTransferFollowUps>();
     builder.Services.AddScoped<IPendingInventoryTransferEnricher, PendingInventoryTransferEnricher>();
     builder.Services.AddScoped<IPendingTransferRequestEditApplier, PendingTransferRequestEditApplier>();
     builder.Services.AddScoped<IPendingTransferRequestEditEnricher, PendingTransferRequestEditEnricher>();

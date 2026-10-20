@@ -78,6 +78,33 @@ public static partial class Errors
         public static Error PostFailed(string message) =>
             Error.Failure("FactoryTransfer.PostFailed", message);
 
+        public static readonly Error DeliverNotPermitted =
+            Error.Forbidden("FactoryTransfer.DeliverNotPermitted", "Your account may not load deliveries for the depots.");
+
+        public static Error NotADispatchWarehouse(string warehouse) =>
+            Error.Validation("FactoryTransfer.NotADispatchWarehouse",
+                $"{warehouse} is not a dispatch warehouse, so a depot truck cannot be loaded from it.");
+
+        public static readonly Error TruckDetailsRequired =
+            Error.Validation("FactoryTransfer.TruckDetailsRequired",
+                "Give the truck's registration and the driver's name. The depot checks both when it arrives.");
+
+        public static readonly Error LineSourceNotAllowed =
+            Error.Validation("FactoryTransfer.LineSourceNotAllowed",
+                "Only a depot delivery loads lines from different warehouses; every other transfer sends from one.");
+
+        public static Error DepotOrderNotFound(int docEntry) =>
+            Error.NotFound("FactoryTransfer.DepotOrderNotFound", $"Depot order {docEntry} was not found in SAP.");
+
+        public static Error DepotOrderNotOpen(int docNum) =>
+            Error.Conflict("FactoryTransfer.DepotOrderNotOpen", $"Depot order #{docNum} is already closed in SAP.");
+
+        public static Error DepotOrderForAnotherDepot(int docNum, string depot) =>
+            Error.Validation("FactoryTransfer.DepotOrderForAnotherDepot", $"Depot order #{docNum} is for {depot}, not this truck's depot.");
+
+        public static Error NotADepot(string warehouse) =>
+            Error.Validation("FactoryTransfer.NotADepot", $"{warehouse} is not a depot this module delivers to.");
+
         public static readonly Error CannotCancelPosted =
             Error.Conflict("FactoryTransfer.CannotCancelPosted",
                 "The stock may already have left in SAP, so this transfer cannot be cancelled. Retry it so it is found and finished.");

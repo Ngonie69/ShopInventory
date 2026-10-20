@@ -57,6 +57,78 @@ public static class FactoryDepartments
     /// <summary>Every production and dispatch warehouse the module knows.</summary>
     public static IEnumerable<string> AllWarehouses
         => All.SelectMany(department => department.ProductionWarehouses.Append(department.DispatchWarehouse));
+
+    /// <summary>
+    /// The depots' transit warehouse. Between 1 September and 19 October 2026 dispatch moved 135 loads
+    /// into it and 66 out to the depots, almost all dated the same day, because the factory posted both
+    /// legs and the depot confirmed nothing. Here the depot posts the second one by accepting.
+    /// </summary>
+    public const string DepotHoldingWarehouseCode = "DEPOTRAN";
+
+    /// <summary>
+    /// The depots Distribution delivers to, each with the shop beside it. A delivery goes to the centre;
+    /// stock may come back from either.
+    /// </summary>
+    public static readonly IReadOnlyList<FactoryDepot> Depots =
+    [
+        new("KEFGRC", "Graniteside", ["KEFGRS"]),
+        new("CORMACH", "Machipisa", ["CORMACH2"]),
+        new("KEFBYC", "Bulawayo", ["KEFBYS"])
+    ];
+
+    /// <summary>The dispatch warehouses a truck is loaded from.</summary>
+    public static IReadOnlyList<string> DispatchWarehouses => All.Select(department => department.DispatchWarehouse).ToList();
+
+    public static string? CanonicalDispatch(string? code)
+        => DispatchWarehouses.FirstOrDefault(warehouse => string.Equals(warehouse, code?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The depot a centre code names, for a delivery's destination.</summary>
+    public static FactoryDepot? FindDepotCentre(string? code)
+        => Depots.FirstOrDefault(depot => string.Equals(depot.Centre, code?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The department code every depot movement is filed under.</summary>
+    public const string DepotDepartmentCode = "DEPOT";
+
+    /// <summary>
+    /// The name shown beside the direction: the department for a factory transfer, the depot for a
+    /// delivery or a depot return — "Yoghurt release", "Graniteside delivery", "Machipisa return".
+    /// </summary>
+    public static string DisplayName(string departmentCode, string direction, string source, string destination)
+    {
+        if (direction == Models.Entities.FactoryTransferDirections.Delivery)
+            return LocateDepotWarehouse(destination)?.Depot.Name ?? destination;
+        if (direction == Models.Entities.FactoryTransferDirections.DepotReturn)
+            return LocateDepotWarehouse(source)?.Depot.Name ?? source;
+        return Find(departmentCode)?.Name ?? departmentCode;
+    }
+
+    public static string DirectionWord(string direction) => direction switch
+    {
+        Models.Entities.FactoryTransferDirections.Return or Models.Entities.FactoryTransferDirections.DepotReturn => "return",
+        Models.Entities.FactoryTransferDirections.Delivery => "delivery",
+        _ => "release"
+    };
+
+    /// <summary>The depot a centre or shop code belongs to, and that code's canonical spelling.</summary>
+    public static (FactoryDepot Depot, string Warehouse)? LocateDepotWarehouse(string? code)
+    {
+        var trimmed = code?.Trim();
+        foreach (var depot in Depots)
+        {
+            if (string.Equals(depot.Centre, trimmed, StringComparison.OrdinalIgnoreCase))
+                return (depot, depot.Centre);
+            var shop = depot.Shops.FirstOrDefault(item => string.Equals(item, trimmed, StringComparison.OrdinalIgnoreCase));
+            if (shop is not null)
+                return (depot, shop);
+        }
+
+        return null;
+    }
+}
+
+public sealed record FactoryDepot(string Centre, string Name, IReadOnlyList<string> Shops)
+{
+    public IEnumerable<string> Warehouses => Shops.Prepend(Centre);
 }
 
 public sealed record FactoryDepartment(

@@ -39,6 +39,7 @@ public sealed class FactoryTransferLegPoster(
     ISAPServiceLayerClient sapClient,
     IStockValidationService stockValidation,
     IIdempotencyRequestStore idempotencyRequestStore,
+    IFactoryTransferFollowUps followUps,
     ILogger<FactoryTransferLegPoster> logger) : IFactoryTransferLegPoster
 {
     public const string IdempotencyScope = "factory-transfer-post";
@@ -125,13 +126,14 @@ public sealed class FactoryTransferLegPoster(
             ClientRequestId = transfer.OutOrderNumber,
             OrderNumber = transfer.OutOrderNumber,
             FinalDestinationWarehouse = transfer.DestinationWarehouseCode,
+            VehiclePlate = transfer.VehiclePlate,
             Comments = FactoryTransferRemarks.ForOutLeg(transfer),
             Lines = orderedLines.Select(line => new CreateInventoryTransferLineRequest
             {
                 ItemCode = line.ItemCode,
                 Quantity = line.Quantity,
                 UoMCode = line.UoMCode,
-                FromWarehouseCode = transfer.SourceWarehouseCode,
+                FromWarehouseCode = SourceOf(transfer, line),
                 ToWarehouseCode = transfer.HoldingWarehouseCode
             }).ToList()
         };
@@ -159,6 +161,7 @@ public sealed class FactoryTransferLegPoster(
             transfer.Number, transfer.SourceWarehouseCode, transfer.HoldingWarehouseCode,
             transfer.DestinationWarehouseCode, document.DocEntry, document.DocNum);
 
+        await followUps.OnInTransitAsync(transfer);
         return transfer;
     }
 
@@ -182,6 +185,7 @@ public sealed class FactoryTransferLegPoster(
                 : transfer.SourceWarehouseCode,
             ClientRequestId = transfer.InOrderNumber,
             OrderNumber = transfer.InOrderNumber,
+            VehiclePlate = transfer.VehiclePlate,
             Comments = FactoryTransferRemarks.ForInLeg(transfer),
             Lines = lines
         };
@@ -290,7 +294,7 @@ public sealed class FactoryTransferLegPoster(
 
     /// <summary>
     /// The in leg moves out of the holding warehouse exactly the batches the out leg put in, split
-    /// between the destination (accepted) and the sender's warehouse (the rest).
+    /// between the destination (accepted) and the warehouse each line came from (the rest).
     /// </summary>
     internal static List<CreateInventoryTransferLineRequest> BuildInLines(FactoryTransferEntity transfer)
     {
@@ -306,11 +310,15 @@ public sealed class FactoryTransferLegPoster(
             if (accepted > 0)
                 lines.Add(InLine(transfer, line, accepted, transfer.DestinationWarehouseCode, acceptedBatches));
             if (returned > 0)
-                lines.Add(InLine(transfer, line, returned, transfer.SourceWarehouseCode, returnedBatches));
+                lines.Add(InLine(transfer, line, returned, SourceOf(transfer, line), returnedBatches));
         }
 
         return lines;
     }
+
+    /// <summary>Where a line left from: its own warehouse on a depot delivery, the transfer's otherwise.</summary>
+    internal static string SourceOf(FactoryTransferEntity transfer, FactoryTransferLineEntity line)
+        => string.IsNullOrWhiteSpace(line.FromWarehouseCode) ? transfer.SourceWarehouseCode : line.FromWarehouseCode;
 
     private static CreateInventoryTransferLineRequest InLine(
         FactoryTransferEntity transfer,

@@ -202,7 +202,7 @@
             @* ── Inventory ──
                Cashier is in the gate for Stock Monitoring alone, which used to sit
                under Catalogue. *@
-            <AuthorizeView Roles="Admin,Manager,StockController,WashBay,DepotController,Cashier,ProductionOfficer,DispatchOfficer" Context="inventoryCtx">
+            <AuthorizeView Roles="Admin,Manager,StockController,WashBay,DepotController,Cashier,ProductionOfficer,DispatchOfficer,DistributionOfficer" Context="inventoryCtx">
                 <Authorized>
                     <NavSection Title="Inventory">
                         <AuthorizeView Roles="@UserRoles.CatalogueRoles" Context="stockCtx">
@@ -237,8 +237,9 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        @* Production releasing to dispatch, and dispatch returning, through FSRW. The API
-                           gates it on factory.transfers.view, which exactly these roles hold. *@
+                        @* Production releasing to dispatch through FSRW, and Distribution's trucks to the
+                           depots through DEPOTRAN. The API gates it on factory.transfers.view, which
+                           exactly these roles hold. *@
                         <AuthorizeView Roles="@UserRoles.FactoryTransferRoles" Context="factoryTransferCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/factory-transfers" Match="NavLinkMatch.Prefix">

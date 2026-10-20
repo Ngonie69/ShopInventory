@@ -96,7 +96,8 @@ public static class RoleLandingRoutes
         }
 
         // The factory floor has one page: the transfers between production and dispatch.
-        if ((isInRole(UserRoles.ProductionOfficer) || isInRole(UserRoles.DispatchOfficer)) && !isInRole(UserRoles.Admin))
+        if ((isInRole(UserRoles.ProductionOfficer) || isInRole(UserRoles.DispatchOfficer) || isInRole(UserRoles.DistributionOfficer))
+            && !isInRole(UserRoles.Admin))
         {
             return FactoryTransfers;
         }
