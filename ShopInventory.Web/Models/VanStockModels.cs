@@ -299,6 +299,48 @@ public class PendingTransferStockCheckLine
     public bool IsUnread => State == "Unread";
 }
 
+// ── A transfer request against its source warehouse, live ──────────────────────
+
+/// <summary>Mirrors the API's <c>TransferRequestStockResult</c>.</summary>
+public class TransferRequestStock
+{
+    public int DocEntry { get; set; }
+    public int DocNum { get; set; }
+    public DateTime CheckedAt { get; set; }
+    public bool StockWasFullyRead { get; set; }
+    public List<string> UnreadableWarehouses { get; set; } = [];
+    public List<TransferRequestStockLine> Lines { get; set; } = [];
+    public List<TransferRequestItemStock> Items { get; set; } = [];
+    public int LinesShort { get; set; }
+}
+
+public class TransferRequestStockLine
+{
+    public int LineNum { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string WarehouseCode { get; set; } = string.Empty;
+    public decimal Quantity { get; set; }
+
+    /// <summary>Null when the warehouse did not answer.</summary>
+    public decimal? Available { get; set; }
+
+    /// <summary>InStock, Short or Unread.</summary>
+    public string State { get; set; } = string.Empty;
+
+    public bool IsShort => State == "Short";
+}
+
+public class TransferRequestItemStock
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public string ItemCode { get; set; } = string.Empty;
+    public decimal? InStock { get; set; }
+    public decimal HeldByTills { get; set; }
+
+    /// <summary>In stock less what tills have sold there that SAP does not have yet; null when unread.</summary>
+    public decimal? Available { get; set; }
+}
+
 // ── Stock ───────────────────────────────────────────────────────────────────────
 
 /// <summary>

@@ -79,7 +79,9 @@ public sealed class PendingTransferRequestEditApplier(
             var currentLineNums = TransferRequestEditMapper.FromDocument(current)
                 .Select(line => line.LineNum)
                 .ToHashSet();
-            var missing = proposedLines.Where(line => !currentLineNums.Contains(line.LineNum)).ToList();
+            var missing = proposedLines
+                .Where(line => line.LineNum is { } lineNum && !currentLineNums.Contains(lineNum))
+                .ToList();
             if (missing.Count > 0)
             {
                 var message = "The transfer request changed while this was awaiting approval: line " +
@@ -90,7 +92,11 @@ public sealed class PendingTransferRequestEditApplier(
             }
 
             var updated = await sapClient.UpdateInventoryTransferRequestAsync(
-                edit.RequestDocEntry, TransferRequestEditMapper.ToSapLines(proposedLines),
+                edit.RequestDocEntry,
+                TransferRequestEditMapper.ToSapLines(
+                    proposedLines,
+                    Blank(edit.ProposedFromWarehouse) ?? current.FromWarehouse,
+                    Blank(edit.ProposedToWarehouse) ?? current.ToWarehouse),
                 edit.ProposedFromWarehouse, edit.ProposedToWarehouse, cancellationToken);
 
             edit.Status = PendingTransferRequestEditStatuses.Applied;
@@ -125,6 +131,8 @@ public sealed class PendingTransferRequestEditApplier(
                 $"The change was approved but could not be written to SAP: {exception.Message}");
         }
     }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static bool Reassigns(PendingTransferRequestEditEntity edit) =>
         !string.IsNullOrWhiteSpace(edit.ProposedFromWarehouse) ||

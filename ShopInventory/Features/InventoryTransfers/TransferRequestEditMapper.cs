@@ -46,7 +46,8 @@ public static class TransferRequestEditMapper
 
     /// <summary>
     /// Applies the requested quantities to the document's lines, dropping any line the edit
-    /// leaves out. Returns an error when the edit does not describe a change SAP could accept.
+    /// leaves out and appending the lines it adds. Returns an error when the edit does not describe
+    /// a change SAP could accept.
     /// </summary>
     public static (List<TransferRequestEditLineDto>? Lines, string? Error) BuildProposedLines(
         InventoryTransferRequest document,
@@ -60,7 +61,8 @@ public static class TransferRequestEditMapper
             return (null, "At least one line must be kept.");
 
         var duplicates = requestedLines
-            .GroupBy(line => line.LineNum)
+            .Where(line => line.LineNum.HasValue)
+            .GroupBy(line => line.LineNum!.Value)
             .Where(group => group.Count() > 1)
             .Select(group => group.Key)
             .ToList();
@@ -68,7 +70,7 @@ public static class TransferRequestEditMapper
             return (null, $"Line {string.Join(", ", duplicates)} appears more than once.");
 
         var proposed = new List<TransferRequestEditLineDto>();
-        foreach (var requested in requestedLines)
+        foreach (var requested in requestedLines.Where(line => line.LineNum.HasValue))
         {
             var line = existing.FirstOrDefault(item => item.LineNum == requested.LineNum);
             if (line is null)
@@ -86,8 +88,37 @@ public static class TransferRequestEditMapper
                 UoMCode = line.UoMCode
             });
         }
+        proposed = proposed.OrderBy(line => line.LineNum).ToList();
 
-        return (proposed.OrderBy(line => line.LineNum).ToList(), null);
+        // A new line for an item the request keeps would post as two lines of one item; the kept
+        // line's quantity is the place to ask for more.
+        foreach (var requested in requestedLines.Where(line => !line.LineNum.HasValue))
+        {
+            var itemCode = requested.ItemCode?.Trim();
+            if (string.IsNullOrEmpty(itemCode))
+                return (null, "A line being added must name its item.");
+
+            if (requested.Quantity <= 0)
+                return (null, $"{itemCode} needs a quantity greater than zero.");
+
+            var already = proposed.FirstOrDefault(line =>
+                string.Equals(line.ItemCode?.Trim(), itemCode, StringComparison.OrdinalIgnoreCase));
+            if (already is not null)
+            {
+                return (null, already.LineNum is { } lineNum
+                    ? $"{itemCode} is already on line {lineNum}. Change that line's quantity instead."
+                    : $"{itemCode} is being added more than once.");
+            }
+
+            proposed.Add(new TransferRequestEditLineDto
+            {
+                LineNum = null,
+                ItemCode = itemCode,
+                Quantity = requested.Quantity
+            });
+        }
+
+        return (proposed, null);
     }
 
     /// <summary>
@@ -150,9 +181,19 @@ public static class TransferRequestEditMapper
         => original.Count == proposed.Count &&
            original.All(line => proposed.Any(item => item.LineNum == line.LineNum && item.Quantity == line.Quantity));
 
-    public static IReadOnlyList<(int LineNum, decimal Quantity)> ToSapLines(
-        IEnumerable<TransferRequestEditLineDto> lines)
-        => lines.Select(line => (line.LineNum, line.Quantity)).ToList();
+    /// <summary>
+    /// The lines to write. A new line is given the warehouses the request will have once the change
+    /// is applied, since it has no warehouses of its own to keep.
+    /// </summary>
+    public static IReadOnlyList<TransferRequestLineChange> ToSapLines(
+        IEnumerable<TransferRequestEditLineDto> lines,
+        string? fromWarehouse,
+        string? toWarehouse)
+        => lines
+            .Select(line => line.LineNum is { } lineNum
+                ? new TransferRequestLineChange(lineNum, line.ItemCode, line.Quantity)
+                : new TransferRequestLineChange(null, line.ItemCode, line.Quantity, fromWarehouse, toWarehouse))
+            .ToList();
 
     public static PendingTransferRequestEditDto ToDto(PendingTransferRequestEditEntity edit) => new()
     {

@@ -131,6 +131,36 @@ public class VanStockContractTests
         Assert.Null(mirrored.Lines[1].AvailableQuantity);
     }
 
+    /// <summary>
+    /// A transfer request's stock, shown before it is converted. An unread warehouse is null, which
+    /// the portal must not read as nothing in stock.
+    /// </summary>
+    [Fact]
+    public void A_transfer_request_s_stock_crosses_the_wire_with_unread_figures_null()
+    {
+        var mirrored = RoundTrip<ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestStock.TransferRequestStockResult, TransferRequestStock>(
+            new(
+                7001, 89450, new DateTime(2026, 10, 20, 10, 0, 0), false, ["KEFBYC"],
+                [
+                    new(0, "YOG145", "KEFGRC", 685m, 677m, "Short"),
+                    new(1, "YOG143", "KEFBYC", 10m, null, "Unread")
+                ],
+                [
+                    new("KEFGRC", "YOG145", 685m, 8m, 677m),
+                    new("KEFBYC", "YOG143", null, 0m, null)
+                ]));
+
+        Assert.Equal(7001, mirrored.DocEntry);
+        Assert.False(mirrored.StockWasFullyRead);
+        Assert.Equal(["KEFBYC"], mirrored.UnreadableWarehouses);
+        Assert.Equal(1, mirrored.LinesShort);
+        Assert.True(mirrored.Lines[0].IsShort);
+        Assert.Equal(677m, mirrored.Lines[0].Available);
+        Assert.Null(mirrored.Lines[1].Available);
+        Assert.Equal(8m, mirrored.Items[0].HeldByTills);
+        Assert.Null(mirrored.Items[1].InStock);
+    }
+
 // ── Stock ───────────────────────────────────────────────────────────────────
 
     [Fact]
