@@ -147,10 +147,82 @@ public sealed class CrateSubmissionIdempotencyTests : IDisposable
         Assert.Equal("Idempotency.RequestMismatch", mismatch.FirstError.Code);
     }
 
+    [Fact]
+    public async Task Reusing_a_key_for_a_different_fleet_number_is_rejected_rather_than_silently_replayed()
+    {
+        var transactionId = await GivenInvoiceTransaction(expectedQuantity: 10);
+        const string key = "pod-key-fleet";
+
+        await UploadPodAsync(transactionId, quantity: 8, key, fleetNumber: "CH 12");
+        var sameTruck = await UploadPodAsync(transactionId, quantity: 8, key, fleetNumber: " ch  12 ");
+        var otherTruck = await UploadPodAsync(transactionId, quantity: 8, key, fleetNumber: "CH 14");
+
+        // Spelling it differently is the same truck, so it replays; a different truck is a different POD.
+        Assert.False(sameTruck.IsError);
+        Assert.Equal(1, _documents.UploadCount);
+        Assert.True(otherTruck.IsError);
+        Assert.Equal("Idempotency.RequestMismatch", otherTruck.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_key_stored_before_fleet_numbers_existed_still_replays_after_the_deploy()
+    {
+        // A phone that sent a crate POD on the old build and retries it on the new one must get its
+        // POD back, not a mismatch. So without a fleet number the fingerprint has to hash exactly as
+        // it did before the field was added — this stores one under the old shape directly.
+        var transactionId = await GivenInvoiceTransaction(expectedQuantity: 10);
+        const string key = "pod-key-predeploy";
+        var store = BuildStore();
+        var acquired = await store.TryAcquireAsync<CratePodSubmissionDto>(
+            "crates.pods.upload",
+            key,
+            new
+            {
+                CrateTransactionId = transactionId,
+                SubmissionRole = (string?)CrateTrackingConstants.SubmissionRoleMerchandiser,
+                Quantity = 8m,
+                Notes = (string?)null,
+                FileName = "pod.jpg",
+                UserId = (Guid?)Merchandiser
+            },
+            CancellationToken.None);
+        Assert.Equal(IdempotencyAcquireOutcome.Acquired, acquired.Outcome);
+        await store.CompleteAsync(acquired.RequestId!.Value, new CratePodSubmissionDto { Id = 4242 }, CancellationToken.None);
+
+        var retried = await UploadPodAsync(transactionId, quantity: 8, key);
+
+        Assert.False(retried.IsError);
+        Assert.Equal(4242, retried.Value.Id);
+        Assert.Equal(0, _documents.UploadCount);
+    }
+
+    [Fact]
+    public async Task The_fleet_number_reaches_the_stored_attachment_normalised()
+    {
+        var transactionId = await GivenInvoiceTransaction(expectedQuantity: 10);
+
+        await UploadPodAsync(transactionId, quantity: 8, clientRequestId: null, fleetNumber: "  ch 12 ");
+
+        Assert.Equal("CH 12", _documents.LastFleetNumber);
+    }
+
+    [Fact]
+    public async Task A_fleet_number_longer_than_the_column_is_refused_before_anything_is_stored()
+    {
+        var transactionId = await GivenInvoiceTransaction(expectedQuantity: 10);
+
+        var refused = await UploadPodAsync(transactionId, quantity: 8, clientRequestId: null, fleetNumber: new string('9', 21));
+
+        Assert.True(refused.IsError);
+        Assert.Equal("CrateTracking.FleetNumberTooLong", refused.FirstError.Code);
+        Assert.Equal(0, _documents.UploadCount);
+    }
+
     private async Task<ErrorOr.ErrorOr<CratePodSubmissionDto>> UploadPodAsync(
         int crateTransactionId,
         decimal quantity,
-        string? clientRequestId)
+        string? clientRequestId,
+        string? fleetNumber = null)
     {
         using var context = new ApplicationDbContext(_options);
         var handler = new UploadCratePodHandler(
@@ -171,7 +243,8 @@ public sealed class CrateSubmissionIdempotencyTests : IDisposable
                 "pod.jpg",
                 "image/jpeg",
                 Merchandiser,
-                clientRequestId),
+                clientRequestId,
+                fleetNumber),
             CancellationToken.None);
     }
 
@@ -268,6 +341,8 @@ public sealed class CrateSubmissionIdempotencyTests : IDisposable
 
         public int UploadCount => Volatile.Read(ref _uploadCount);
 
+        public string? LastFleetNumber { get; private set; }
+
         public IDocumentService AsService()
         {
             var proxy = DispatchProxy.Create<IDocumentService, DocumentServiceProxy>();
@@ -285,7 +360,8 @@ public sealed class CrateSubmissionIdempotencyTests : IDisposable
             {
                 if (targetMethod?.Name == nameof(IDocumentService.UploadAttachmentAsync))
                 {
-                    var id = Owner!.RecordUpload();
+                    Owner!.LastFleetNumber = (args?[0] as UploadAttachmentRequest)?.FleetNumber;
+                    var id = Owner.RecordUpload();
                     return Task.FromResult(new DocumentAttachmentDto { Id = id, FileName = "pod.jpg" });
                 }
 

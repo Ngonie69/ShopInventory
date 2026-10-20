@@ -14,5 +14,6 @@ public sealed record UploadInvoiceCratePodCommand(
     string FileName,
     string ContentType,
     Guid? UserId,
-    string? ClientRequestId = null
+    string? ClientRequestId = null,
+    string? FleetNumber = null
 ) : IRequest<ErrorOr<CratePodSubmissionDto>>;

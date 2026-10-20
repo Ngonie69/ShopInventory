@@ -81,6 +81,10 @@ public sealed class UploadPodHandler(
         if (invoiceInfo != null && PodExclusions.IsExcluded(invoiceInfo.CardCode, invoiceInfo.CardName))
             return Errors.Invoice.PodExcluded(invoiceInfo.CardName ?? "", invoiceInfo.CardCode ?? "");
 
+        var fleetNumber = PodFleetNumber.Normalize(command.FleetNumber);
+        if (PodFleetNumber.IsTooLong(fleetNumber))
+            return Errors.Invoice.PodFleetNumberTooLong;
+
         var accessResult = await attachmentAccessService.AuthorizeEntityAccessAsync(
             "Invoice",
             command.DocEntry,
@@ -102,7 +106,8 @@ public sealed class UploadPodHandler(
             Description = string.IsNullOrWhiteSpace(command.Description)
                 ? "POD - Proof of Delivery"
                 : $"POD - {command.Description}",
-            IncludeInEmail = false
+            IncludeInEmail = false,
+            FleetNumber = fleetNumber
         };
 
         // Cache invoice info from SAP

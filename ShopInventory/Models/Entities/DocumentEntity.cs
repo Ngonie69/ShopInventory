@@ -169,6 +169,14 @@ public class DocumentAttachmentEntity
     public bool IncludeInEmail { get; set; } = true;
 
     /// <summary>
+    /// The truck the delivery was made with, as the driver gave it on a POD — see
+    /// <see cref="ShopInventory.Common.Pods.PodFleetNumber"/>. Null on everything else, and on PODs
+    /// uploaded before drivers were asked for it.
+    /// </summary>
+    [MaxLength(20)]
+    public string? FleetNumber { get; set; }
+
+    /// <summary>
     /// Uploaded timestamp
     /// </summary>
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;

@@ -2389,6 +2389,10 @@ namespace ShopInventory.Migrations
                     b.Property<long>("FileSizeBytes")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("FleetNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<bool>("IncludeInEmail")
                         .HasColumnType("boolean");
 

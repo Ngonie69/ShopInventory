@@ -70,6 +70,7 @@ public class DocumentAttachmentDto
     public string FileSizeFormatted { get; set; } = string.Empty;
     public string? Description { get; set; }
     public bool IncludeInEmail { get; set; }
+    public string? FleetNumber { get; set; }
     public DateTime UploadedAt { get; set; }
     public string? UploadedByUserName { get; set; }
     public string DownloadUrl { get; set; } = string.Empty;
@@ -85,6 +86,9 @@ public class UploadAttachmentRequest
     public string? ExternalReference { get; set; }
     public string? Description { get; set; }
     public bool IncludeInEmail { get; set; } = true;
+
+    /// <summary>Already normalised by the caller — see <see cref="ShopInventory.Common.Pods.PodFleetNumber"/>.</summary>
+    public string? FleetNumber { get; set; }
 }
 
 /// <summary>
@@ -110,6 +114,7 @@ public class PodAttachmentItemDto
     public DateTime UploadedAt { get; set; }
     public string? UploadedByUserName { get; set; }
     public string? UploadedFromLocation { get; set; }
+    public string? FleetNumber { get; set; }
     public string DownloadUrl { get; set; } = string.Empty;
     public int InvoiceDocEntry { get; set; }
     public int InvoiceDocNum { get; set; }

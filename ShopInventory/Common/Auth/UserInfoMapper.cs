@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -39,6 +40,7 @@ public static class UserInfoMapper
             AssignedWarehouseCode = shop?.WarehouseCode ?? user.AssignedWarehouseCode,
             AssignedWarehouseCodes = warehouseCodes,
             AssignedSection = user.AssignedSection,
+            RequiresFleetNumber = PodFleetNumber.IsRequiredFor(user.Role, user.AssignedSection),
             AssignedBusinessPartnerCode = shop?.BusinessPartnerCode ?? user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = shop?.CostCentreCode ?? user.AssignedCostCentreCode,
             AssignedCustomerCodes = user.GetCustomerCodes(),

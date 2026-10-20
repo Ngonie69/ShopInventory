@@ -62,6 +62,8 @@ public sealed class InvoiceCratePodRoutingTests
         Assert.Equal("CRATE_POD_5001_1.jpg", captured.FileName);
         Assert.Equal("image/jpeg", captured.ContentType);
         Assert.Equal(Driver, captured.UserId);
+        Assert.Equal("crate-key-2", captured.ClientRequestId);
+        Assert.Equal("CH 12", captured.FleetNumber);
     }
 
     private const int CrateTransactionId = 77;
@@ -86,7 +88,8 @@ public sealed class InvoiceCratePodRoutingTests
                 FileName: "CRATE_POD_5001_1.jpg",
                 ContentType: "image/jpeg",
                 UserId: Driver,
-                ClientRequestId: clientRequestId),
+                ClientRequestId: clientRequestId,
+                FleetNumber: "CH 12"),
             CancellationToken.None);
 
         Assert.False(result.IsError);

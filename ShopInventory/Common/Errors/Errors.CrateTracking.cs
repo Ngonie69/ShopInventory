@@ -30,6 +30,9 @@ public static partial class Errors
         public static Error InvalidSubmissionRole =>
             Error.Validation("CrateTracking.InvalidSubmissionRole", "Submission role must be Driver or Merchandiser.");
 
+        public static Error FleetNumberTooLong =>
+            Error.Validation("CrateTracking.FleetNumberTooLong", $"Fleet number cannot be longer than {Pods.PodFleetNumber.MaxLength} characters.");
+
         public static Error InvalidTransactionType(string message) =>
             Error.Validation("CrateTracking.InvalidTransactionType", message);
 

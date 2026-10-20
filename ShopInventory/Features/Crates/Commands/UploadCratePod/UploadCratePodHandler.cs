@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -102,15 +103,30 @@ public sealed class UploadCratePodHandler(
         }
     }
 
-    private static object BuildIdempotencyFingerprint(UploadCratePodCommand command) => new
-    {
-        command.CrateTransactionId,
-        command.SubmissionRole,
-        command.Quantity,
-        command.Notes,
-        command.FileName,
-        command.UserId
-    };
+    // The fleet number joins the fingerprint only when one was sent, so a key stored before the
+    // field existed still hashes the same and a retry across the deploy replays instead of being
+    // refused as a mismatch. Once it is sent, changing it under the same key is a different request.
+    private static object BuildIdempotencyFingerprint(UploadCratePodCommand command) =>
+        PodFleetNumber.Normalize(command.FleetNumber) is { } fleetNumber
+            ? new
+            {
+                command.CrateTransactionId,
+                command.SubmissionRole,
+                command.Quantity,
+                command.Notes,
+                command.FileName,
+                command.UserId,
+                FleetNumber = fleetNumber
+            }
+            : new
+            {
+                command.CrateTransactionId,
+                command.SubmissionRole,
+                command.Quantity,
+                command.Notes,
+                command.FileName,
+                command.UserId
+            };
 
     private async Task<ErrorOr<CratePodSubmissionDto>> HandleCoreAsync(
         UploadCratePodCommand command,
@@ -119,6 +135,12 @@ public sealed class UploadCratePodHandler(
         if (command.Quantity < 0)
         {
             return Errors.CrateTracking.InvalidQuantity("Crate quantity cannot be negative.");
+        }
+
+        var fleetNumber = PodFleetNumber.Normalize(command.FleetNumber);
+        if (PodFleetNumber.IsTooLong(fleetNumber))
+        {
+            return Errors.CrateTracking.FleetNumberTooLong;
         }
 
         if (!command.UserId.HasValue)
@@ -235,7 +257,8 @@ public sealed class UploadCratePodHandler(
                 EntityType = CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission,
                 EntityId = submission.Id,
                 Description = $"Crate POD - {submissionRole}",
-                IncludeInEmail = false
+                IncludeInEmail = false,
+                FleetNumber = fleetNumber
             },
             command.FileStream,
             command.FileName,
