@@ -39,6 +39,7 @@ public sealed class FactoryTransferTests : IDisposable
     private static readonly Guid Douglas = Guid.Parse("30000000-0000-0000-0000-000000000001");   // distribution
     private static readonly Guid Graniteside = Guid.Parse("40000000-0000-0000-0000-000000000001"); // depot controller
     private static readonly Guid Machipisa = Guid.Parse("40000000-0000-0000-0000-000000000002");   // depot controller
+    private static readonly Guid Washbay = Guid.Parse("50000000-0000-0000-0000-000000000001");     // wash bay, no assignment
 
     private readonly SqliteConnection _connection;
     private readonly DbContextOptions<ApplicationDbContext> _options;
@@ -63,7 +64,8 @@ public sealed class FactoryTransferTests : IDisposable
                 [Permission.AcceptAnyFactoryTransfers]),
             NewUser(Douglas, "douglas", ApplicationRoles.DistributionOfficer, "Douglas", "Makosa", ["DISPYOG", "DISPMILK", "DISPICE", "DISPCH"]),
             NewUser(Graniteside, "graniteside", ApplicationRoles.DepotController, "Graniteside", "Controller", ["KEFGRC", "KEFGRS"]),
-            NewUser(Machipisa, "machipisa", ApplicationRoles.DepotController, "Machipisa", "Controller", ["CORMACH", "CORMACH2"]));
+            NewUser(Machipisa, "machipisa", ApplicationRoles.DepotController, "Machipisa", "Controller", ["CORMACH", "CORMACH2"]),
+            NewUser(Washbay, "washbay", ApplicationRoles.WashBay, "Wash", "Bay", []));
         _context.SaveChanges();
     }
 
@@ -632,6 +634,112 @@ public sealed class FactoryTransferTests : IDisposable
         Assert.Null(depot.Value.DepotDelivery);
         Assert.Equal(["CORMACH", "CORMACH2"], depot.Value.Routes.Select(route => route.SourceWarehouseCode));
         Assert.All(depot.Value.Routes, route => Assert.Equal(FactoryTransferDirections.DepotReturn, route.Direction));
+    }
+
+    // ---- Washbay -----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_washbay_issues_crates_to_production_in_one_step()
+    {
+        var result = await Send(Washbay, "WASHBAY", "PROYG 2", "11 pallets yog packing", ("CRA002", 1200m));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        var saved = await ReloadAsync(result.Value.Transfer.Summary.Id);
+        Assert.Equal(FactoryTransferDirections.CrateIssue, saved.Direction);
+        Assert.Equal(FactoryTransferStatuses.Accepted, saved.Status);
+        Assert.Equal("Wash Bay", saved.DecidedByName);
+        Assert.Equal(1200m, saved.Lines.Single().AcceptedQuantity);
+
+        var posted = Assert.Single(_sap.Created);
+        Assert.Equal(("WASHBAY", "PROYG 2"), (posted.FromWarehouse, posted.ToWarehouse));
+        Assert.Equal("PROYG 2", Assert.Single(posted.Lines!).ToWarehouseCode);
+        Assert.StartsWith("FT-000001 Washbay issue WASHBAY to PROYG 2", posted.Comments);
+        Assert.Empty(_notifications);
+    }
+
+    [Fact]
+    public async Task The_washbay_issues_buckets_to_the_bucket_store()
+    {
+        var result = await Send(Washbay, "WASHBAY", "WAREH", "Clean buckets", ("BUC007", 300m));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(("WASHBAY", "WAREH"), (_sap.Created[0].FromWarehouse, _sap.Created[0].ToWarehouse));
+    }
+
+    [Fact]
+    public async Task The_washbay_only_moves_crates_and_buckets()
+    {
+        var result = await Send(Washbay, "WASHBAY", "PROYG 2", "Wrong item", ("YOG500", 10m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.NotPackaging", result.FirstError.Code);
+        Assert.Empty(_sap.Created);
+    }
+
+    [Fact]
+    public async Task The_washbay_takes_Cheeseman_crates_in_at_its_own_count()
+    {
+        var result = await Send(Washbay, "CMH", "WASHBAY", "GRV 20276 crates", ("CRA002", 480m), ("CRA001", 120m));
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(FactoryTransferDirections.CrateReceipt, result.Value.Transfer.Summary.Direction);
+        Assert.Equal(FactoryTransferStatuses.Accepted, result.Value.Transfer.Summary.Status);
+        var posted = Assert.Single(_sap.Created);
+        Assert.Equal(("CMH", "WASHBAY"), (posted.FromWarehouse, posted.ToWarehouse));
+        Assert.All(posted.Lines!, line => Assert.Equal(("CMH", "WASHBAY"), (line.FromWarehouseCode, line.ToWarehouseCode)));
+    }
+
+    [Fact]
+    public async Task Depot_crates_keep_their_direct_transfer()
+    {
+        var result = await Send(Washbay, "KEFGRC", "WASHBAY", "Crates", ("CRA002", 100m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.WashbaySourceNotAllowed", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task Nobody_but_the_washbay_puts_crates_into_WASHBAY()
+    {
+        var result = await Send(Eunice, "PROYG 2", "WASHBAY", "Dirty crates", ("CRA002", 50m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("FactoryTransfer.DestinationNotAssigned", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_washbay_issue_fulfils_productions_crate_request()
+    {
+        _sap.Orders[10252] = new InventoryTransferRequest
+        {
+            DocEntry = 10252, DocNum = 10252, FromWarehouse = "WASHBAY", ToWarehouse = "PROYG 2", DocumentStatus = "bost_Open"
+        };
+
+        var result = await new SendFactoryTransferHandler(_context, Users(), Poster(), _sap.AsClient(), Audit(), Sap(), NullLogger<SendFactoryTransferHandler>.Instance)
+            .Handle(new SendFactoryTransferCommand(
+                "crates-1", "WASHBAY", "PROYG 2", "11 pallets yog packing",
+                [new SendFactoryTransferLineDto { ItemCode = "CRA002", Quantity = 1200m }],
+                Washbay, SourceRequestDocEntry: 10252), default);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal([10252], _sap.ClosedOrders);
+        Assert.Equal(10252, result.Value.Transfer.Summary.SourceRequestDocNum);
+    }
+
+    [Fact]
+    public async Task The_washbay_is_offered_its_issue_and_its_receipts_and_nothing_else()
+    {
+        var options = await new GetFactoryTransferOptionsHandler(_context, Users())
+            .Handle(new GetFactoryTransferOptionsQuery(Washbay), default);
+
+        Assert.False(options.IsError);
+        var issue = Assert.Single(options.Value.Routes, route => route.Direction == FactoryTransferDirections.CrateIssue);
+        Assert.Contains("PROYG 2", issue.DestinationWarehouseCodes);
+        Assert.Contains("WAREH", issue.DestinationWarehouseCodes);
+        var receipts = options.Value.Routes.Where(route => route.Direction == FactoryTransferDirections.CrateReceipt).ToList();
+        Assert.Contains(receipts, route => route.SourceWarehouseCode == "CMH");
+        Assert.DoesNotContain(receipts, route => route.SourceWarehouseCode == "KEFGRC");
+        Assert.All(options.Value.Routes, route => Assert.True(route.PackagingOnly));
     }
 
     // ---- Helpers -----------------------------------------------------------------------------

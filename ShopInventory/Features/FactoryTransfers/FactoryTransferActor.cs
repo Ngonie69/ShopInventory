@@ -56,7 +56,7 @@ public sealed record FactoryTransferActor(
         var user = await context.Users
             .AsNoTracking()
             .Where(account => account.Id == userId && account.IsActive)
-            .Select(account => new { account.FirstName, account.LastName, account.Username, account.AssignedWarehouseCodes })
+            .Select(account => new { account.FirstName, account.LastName, account.Username, account.AssignedWarehouseCodes, account.Role })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (user is null)
@@ -72,6 +72,11 @@ public sealed record FactoryTransferActor(
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Select(code => code.Trim())
             .ToList();
+
+        // The wash bay runs one warehouse and its role says so, so its accounts need no assignment for it.
+        if (string.Equals(user.Role, ApplicationRoles.WashBay, StringComparison.OrdinalIgnoreCase)
+            && !warehouses.Contains(FactoryDepartments.WashbayWarehouseCode, StringComparer.OrdinalIgnoreCase))
+            warehouses.Add(FactoryDepartments.WashbayWarehouseCode);
 
         return new FactoryTransferActor(
             userId,

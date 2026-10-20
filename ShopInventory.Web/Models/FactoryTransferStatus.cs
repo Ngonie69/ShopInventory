@@ -21,4 +21,8 @@ public static class FactoryTransferStatus
     public const string Return = "Return";
     public const string Delivery = "Delivery";
     public const string DepotReturn = "DepotReturn";
+    public const string CrateIssue = "CrateIssue";
+    public const string CrateReceipt = "CrateReceipt";
+
+    public static bool IsDirect(string? direction) => direction is CrateIssue or CrateReceipt;
 }

@@ -154,6 +154,19 @@ public sealed class FactoryTransferLegPoster(
         transfer.OutPostedAtUtc = DateTime.UtcNow;
         transfer.Status = FactoryTransferStatuses.InTransit;
         transfer.LastError = null;
+
+        // A washbay move has one leg straight to its destination: it is settled the moment it posts.
+        if (FactoryTransferDirections.IsDirect(transfer.Direction))
+        {
+            transfer.Status = FactoryTransferStatuses.Accepted;
+            transfer.Decision = FactoryTransferDecisions.Accepted;
+            transfer.DecidedByUserId = transfer.SentByUserId;
+            transfer.DecidedByName = transfer.SentByName;
+            transfer.DecidedAtUtc = transfer.OutPostedAtUtc;
+            foreach (var line in transfer.Lines)
+                line.AcceptedQuantity = line.Quantity;
+        }
+
         await SaveAsync();
 
         logger.LogInformation(

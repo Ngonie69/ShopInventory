@@ -102,6 +102,14 @@ public static partial class Errors
         public static Error DepotOrderForAnotherDepot(int docNum, string depot) =>
             Error.Validation("FactoryTransfer.DepotOrderForAnotherDepot", $"Depot order #{docNum} is for {depot}, not this truck's depot.");
 
+        public static Error NotPackaging(string itemCode) =>
+            Error.Validation("FactoryTransfer.NotPackaging",
+                $"{itemCode} is not a crate or a bucket. The washbay only issues and takes back crates (CRA…) and buckets (BUC…).");
+
+        public static Error WashbaySourceNotAllowed(string warehouse) =>
+            Error.Validation("FactoryTransfer.WashbaySourceNotAllowed",
+                $"The washbay does not take crates in from {warehouse} here. Depot crates keep their direct transfer to WASHBAY.");
+
         public static Error NotADepot(string warehouse) =>
             Error.Validation("FactoryTransfer.NotADepot", $"{warehouse} is not a depot this module delivers to.");
 

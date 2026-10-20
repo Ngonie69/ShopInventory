@@ -263,6 +263,7 @@ Sales
     Credit Note Approvals  /credit-notes/approvals
 Inventory
     Transfers  /inventory-transfers
+    Factory Transfers  /factory-transfers
 Account
     Security  /security
 

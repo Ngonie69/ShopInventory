@@ -454,7 +454,9 @@ public static class Permissions
                 ViewDashboard, ViewProducts,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers,
-                ApproveSapCreditNotes
+                ApproveSapCreditNotes,
+                // Issues clean crates and buckets, and takes dirty ones in at its own count.
+                ViewFactoryTransfers, SendFactoryTransfers
             },
             // Depot controllers are limited to inventory transfers, local stock, and loading vans from the
             // orders shops placed (/van-sales-customer-orders).

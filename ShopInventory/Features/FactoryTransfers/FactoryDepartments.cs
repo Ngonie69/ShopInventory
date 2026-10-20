@@ -86,6 +86,47 @@ public static class FactoryDepartments
     public static FactoryDepot? FindDepotCentre(string? code)
         => Depots.FirstOrDefault(depot => string.Equals(depot.Centre, code?.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Where crates and buckets are washed. Between 1 September and 19 October 2026 it issued 61,000
+    /// crates to PROYG 2, 5,400 to DISPYOG and 11,800 buckets to WAREH, and took back about 10,000 from
+    /// production, dispatch, RETURNS, the depots and Cheeseman, every one posted with no count.
+    /// </summary>
+    public const string WashbayWarehouseCode = "WASHBAY";
+
+    /// <summary>The department code every washbay movement is filed under.</summary>
+    public const string WashbayDepartmentCode = "WASHBAY";
+
+    /// <summary>The bucket store the washbay issues buckets to.</summary>
+    public const string BucketStoreWarehouseCode = "WAREH";
+
+    /// <summary>Where the washbay issues clean crates and buckets.</summary>
+    public static IReadOnlyList<string> WashbayIssueDestinations =>
+        All.SelectMany(department => department.ProductionWarehouses)
+            .Concat(DispatchWarehouses)
+            .Append(BucketStoreWarehouseCode)
+            .ToList();
+
+    /// <summary>
+    /// Where the washbay takes dirty crates in from at its own count. Not the depots: their crates keep
+    /// the direct transfer they use today.
+    /// </summary>
+    public static IReadOnlyList<string> WashbayReceiptSources =>
+        All.SelectMany(department => department.ProductionWarehouses)
+            .Concat(DispatchWarehouses)
+            .Concat(["RETURNS", "CMH", "CMB", "CMTRANS", "CMFC"])
+            .ToList();
+
+    /// <summary>
+    /// Crates (CRA…) and buckets (BUC…): the only things a washbay route carries, so finished goods can
+    /// never be sent to or from the washbay.
+    /// </summary>
+    public static bool IsPackagingItem(string? itemCode)
+    {
+        var code = itemCode?.Trim();
+        return !string.IsNullOrEmpty(code)
+            && (code.StartsWith("CRA", StringComparison.OrdinalIgnoreCase) || code.StartsWith("BUC", StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>The department code every depot movement is filed under.</summary>
     public const string DepotDepartmentCode = "DEPOT";
 
@@ -99,6 +140,8 @@ public static class FactoryDepartments
             return LocateDepotWarehouse(destination)?.Depot.Name ?? destination;
         if (direction == Models.Entities.FactoryTransferDirections.DepotReturn)
             return LocateDepotWarehouse(source)?.Depot.Name ?? source;
+        if (Models.Entities.FactoryTransferDirections.IsDirect(direction))
+            return "Washbay";
         return Find(departmentCode)?.Name ?? departmentCode;
     }
 
@@ -106,6 +149,8 @@ public static class FactoryDepartments
     {
         Models.Entities.FactoryTransferDirections.Return or Models.Entities.FactoryTransferDirections.DepotReturn => "return",
         Models.Entities.FactoryTransferDirections.Delivery => "delivery",
+        Models.Entities.FactoryTransferDirections.CrateIssue => "issue",
+        Models.Entities.FactoryTransferDirections.CrateReceipt => "receipt",
         _ => "release"
     };
 

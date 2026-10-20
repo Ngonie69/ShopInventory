@@ -138,6 +138,8 @@ public sealed class FactoryTransferRouteDto
     public string DepartmentName { get; set; } = string.Empty;
     public string Direction { get; set; } = string.Empty;
     public List<string> DestinationWarehouseCodes { get; set; } = [];
+    /// <summary>A washbay route: crates (CRA…) and buckets (BUC…) only.</summary>
+    public bool PackagingOnly { get; set; }
 }
 
 public sealed class SendFactoryTransferRequestDto

@@ -301,6 +301,8 @@ public partial class FactoryTransfers : IDisposable
     {
         { CanDecide: true } summary => $"sent by {summary.SentByName}, waiting in {summary.HoldingWarehouseCode} for you to count",
         { Status: FactoryTransferStatus.InTransit } summary => $"in {summary.HoldingWarehouseCode}, waiting for {summary.DestinationWarehouseCode}",
+        { Status: FactoryTransferStatus.Accepted, Direction: FactoryTransferStatus.CrateIssue } summary => $"issued to {summary.DestinationWarehouseCode}",
+        { Status: FactoryTransferStatus.Accepted, Direction: FactoryTransferStatus.CrateReceipt } summary => $"counted into WASHBAY from {summary.SourceWarehouseCode}",
         { Status: FactoryTransferStatus.Accepted } summary => $"accepted into {summary.DestinationWarehouseCode}",
         { Status: FactoryTransferStatus.PartiallyAccepted } summary => $"part-accepted into {summary.DestinationWarehouseCode}, the rest back to {summary.SourceWarehouseCode}",
         { Status: FactoryTransferStatus.Rejected } summary => $"rejected, back in {summary.SourceWarehouseCode}",
@@ -435,9 +437,16 @@ public partial class FactoryTransfers : IDisposable
             .Prepend(new NocturneSelectOption<string>(string.Empty, "No order — load it by hand", "neutral") { RuleAfter = true, IsUnset = true })
             .ToList();
 
-    /// <summary>Where the stock waits: DEPOTRAN for a truck or a depot return, FSRW otherwise.</summary>
+    /// <summary>A washbay issue or receipt: one SAP leg straight to the destination, posted at once.</summary>
+    private bool IsDirectRoute => FactoryTransferStatus.IsDirect(SelectedRoute?.Direction);
+
+    /// <summary>
+    /// Where the stock waits: nowhere for a washbay move (it goes straight to its destination), DEPOTRAN
+    /// for a truck or a depot return, FSRW otherwise.
+    /// </summary>
     private string SendHolding
-        => IsTruck || SelectedRoute?.Direction == FactoryTransferStatus.DepotReturn
+        => IsDirectRoute ? (string.IsNullOrEmpty(sendDestination) ? "…" : sendDestination)
+        : IsTruck || SelectedRoute?.Direction == FactoryTransferStatus.DepotReturn
             ? options?.DepotDelivery?.HoldingWarehouseCode is { Length: > 0 } depot ? depot : "DEPOTRAN"
             : HoldingWarehouse;
 
@@ -464,6 +473,8 @@ public partial class FactoryTransfers : IDisposable
             var from = IsTruck
                 ? sendLines.Count == 0 ? "dispatch" : string.Join(", ", sendLines.Select(line => line.FromWarehouse).Distinct())
                 : sendSource;
+            if (IsDirectRoute)
+                return $"{from} → {(string.IsNullOrEmpty(sendDestination) ? "…" : sendDestination)}";
             return $"{from} → {SendHolding} → {(string.IsNullOrEmpty(sendDestination) ? "…" : sendDestination)}";
         }
     }
@@ -517,9 +528,13 @@ public partial class FactoryTransfers : IDisposable
                 if (!string.Equals(sendSource, source, StringComparison.Ordinal))
                     return;
 
+                // A washbay route carries crates (CRA…) and buckets (BUC…) only; the API refuses anything else.
+                var packagingOnly = SelectedRoute?.PackagingOnly == true;
                 foreach (var product in stock?.Products ?? [])
                 {
                     if (string.IsNullOrWhiteSpace(product.ItemCode) || product.QuantityInStock <= 0)
+                        continue;
+                    if (packagingOnly && !IsPackagingItem(product.ItemCode))
                         continue;
                     stockByKey[StockKey(warehouse, product.ItemCode)] = new StockRow(warehouse, product);
                 }
@@ -720,6 +735,17 @@ public partial class FactoryTransfers : IDisposable
 
     private static string StockKey(string warehouse, string itemCode) => $"{warehouse}|{itemCode}";
 
+    private static bool IsPackagingItem(string itemCode)
+        => itemCode.StartsWith("CRA", StringComparison.OrdinalIgnoreCase) || itemCode.StartsWith("BUC", StringComparison.OrdinalIgnoreCase);
+
+    private string SendButtonLabel => IsTruck
+        ? $"Load into {SendHolding}"
+        : SelectedRoute?.Direction == FactoryTransferStatus.CrateReceipt
+            ? "Receive into WASHBAY"
+            : SelectedRoute?.Direction == FactoryTransferStatus.CrateIssue
+                ? $"Issue to {SendHolding}"
+                : $"Send to {SendHolding}";
+
     private static string ShortDate(string sapDate)
         => DateTime.TryParse(sapDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
             ? date.ToString("dd MMM", CultureInfo.InvariantCulture)
@@ -738,6 +764,8 @@ public partial class FactoryTransfers : IDisposable
     {
         FactoryTransferStatus.Return or FactoryTransferStatus.DepotReturn => "return",
         FactoryTransferStatus.Delivery => "delivery",
+        FactoryTransferStatus.CrateIssue => "issue",
+        FactoryTransferStatus.CrateReceipt => "receipt",
         _ => "release"
     };
 

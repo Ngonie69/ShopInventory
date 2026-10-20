@@ -146,7 +146,16 @@ public static class FactoryTransferDirections
     /// <summary>A depot sending stock back to a dispatch warehouse.</summary>
     public const string DepotReturn = "DepotReturn";
 
+    /// <summary>The washbay issuing clean crates or buckets: posted at once, nobody accepts it.</summary>
+    public const string CrateIssue = "CrateIssue";
+
+    /// <summary>The washbay taking in dirty crates or buckets at its own count: posted at once.</summary>
+    public const string CrateReceipt = "CrateReceipt";
+
     public static bool IsDepot(string? direction) => direction is Delivery or DepotReturn;
+
+    /// <summary>One SAP leg straight to the destination, settled as it posts; no holding warehouse, no acceptance.</summary>
+    public static bool IsDirect(string? direction) => direction is CrateIssue or CrateReceipt;
 }
 
 public static class FactoryTransferDecisions

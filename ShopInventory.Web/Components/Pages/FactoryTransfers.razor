@@ -197,7 +197,7 @@
                         <span class="ops-ds-dhead-no">@(detail?.Summary.Number ?? $"#{openId}")</span>
                         @if (detail is not null)
                         {
-                            <span class="ops-ds-dhead-ref">@detail.Summary.SourceLabel → @detail.Summary.HoldingWarehouseCode → @detail.Summary.DestinationWarehouseCode</span>
+                            <span class="ops-ds-dhead-ref">@(FactoryTransferStatus.IsDirect(detail.Summary.Direction) ? $"{detail.Summary.SourceLabel} → {detail.Summary.DestinationWarehouseCode}" : $"{detail.Summary.SourceLabel} → {detail.Summary.HoldingWarehouseCode} → {detail.Summary.DestinationWarehouseCode}")</span>
                         }
                     </div>
                     <div class="ops-ds-dnav">
@@ -280,10 +280,13 @@
                                 <div class="ops-def-k">From</div>
                                 <div class="ops-def-v">@summary.SourceLabel</div>
                             </div>
-                            <div>
-                                <div class="ops-def-k">Held in</div>
-                                <div class="ops-def-v">@summary.HoldingWarehouseCode</div>
-                            </div>
+                            @if (!FactoryTransferStatus.IsDirect(summary.Direction))
+                            {
+                                <div>
+                                    <div class="ops-def-k">Held in</div>
+                                    <div class="ops-def-v">@summary.HoldingWarehouseCode</div>
+                                </div>
+                            }
                             <div>
                                 <div class="ops-def-k">For</div>
                                 <div class="ops-def-v">@summary.DestinationWarehouseCode</div>
@@ -567,6 +570,25 @@
                         </div>
                     }
 
+                    @if (IsDirectRoute)
+                    {
+                        <div class="ops-msg ops-fam-info" role="note">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+                            <div class="ops-msg-body">
+                                @if (SelectedRoute?.Direction == FactoryTransferStatus.CrateReceipt)
+                                {
+                                    <strong>Enter what you counted.</strong>
+                                    <div class="ops-msg-said">Crates and buckets only. This posts @sendSource → WASHBAY in SAP at once, at your count.</div>
+                                }
+                                else
+                                {
+                                    <strong>Crates and buckets only.</strong>
+                                    <div class="ops-msg-said">This posts WASHBAY → @(string.IsNullOrEmpty(sendDestination) ? "the destination" : sendDestination) in SAP at once; nobody else has to accept it.</div>
+                                }
+                            </div>
+                        </div>
+                    }
+
                     @if (IsTruck)
                     {
                         <div class="fxt-form">
@@ -674,7 +696,7 @@
                     <span class="ops-ds-foot-why">@SendHint</span>
                     <button type="button" class="ops-btn ops-btn-primary fxt-dconfirm" @onclick="SendAsync" disabled="@(isSubmitting || !CanSubmitSend)">
                         @if (submittingAction == "send") { <span class="ops-spin" aria-hidden="true"></span> }
-                        @(IsTruck ? "Load into " : "Send to ")@SendHolding
+                        @SendButtonLabel
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
                     </button>
                 </div>

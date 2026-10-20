@@ -30,7 +30,8 @@ public sealed class FactoryTransferFollowUps(
     public async Task OnInTransitAsync(FactoryTransferEntity transfer)
     {
         await CloseDepotOrderAsync(transfer);
-        await NotifyReceiversAsync(transfer);
+        if (!FactoryTransferDirections.IsDirect(transfer.Direction))
+            await NotifyReceiversAsync(transfer);
     }
 
     /// <summary>

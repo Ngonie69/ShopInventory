@@ -5900,6 +5900,17 @@ holds that warehouse accepts. That is for sound stock only: breakages and expire
 path, a depot transfer straight into RETURNS under Inventory Transfers, and this route never offers RETURNS. Whoever may accept a transfer is notified once it is in transit,
 addressed to them by username.
 
+**The washbay** (role `WashBay`, which holds `WASHBAY` here without an assignment) has two one-step moves,
+crates (`CRA…`) and buckets (`BUC…`) only (`FactoryTransfer.NotPackaging` otherwise). Each is a single SAP
+transfer straight to its destination, settled as it posts, with nobody to accept it:
+- **Issue:** `WASHBAY` to a production or dispatch warehouse, or to `WAREH` for buckets.
+  `sourceRequestDocEntry` may name production's open request from WASHBAY, which is then closed.
+- **Receipt:** into `WASHBAY` from production, dispatch, `RETURNS` or Cheeseman (`CMH`, `CMB`, `CMTRANS`,
+  `CMFC`), at the washbay's own count.
+
+Only the washbay posts into WASHBAY here. Depot crates keep their direct transfer
+(`FactoryTransfer.WashbaySourceNotAllowed`).
+
 **Nobody accepts their own transfer**, the dispatch manager included (`FactoryTransfer.CannotDecideOwnTransfer`).
 `factory.transfers.accept_any` is granted on the account, never by a role's defaults.
 

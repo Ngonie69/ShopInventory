@@ -58,6 +58,31 @@ public sealed class GetFactoryTransferOptionsHandler(
                 }
             }
 
+            if (actor.Holds(FactoryDepartments.WashbayWarehouseCode))
+            {
+                routes.Add(new FactoryTransferRouteDto
+                {
+                    SourceWarehouseCode = FactoryDepartments.WashbayWarehouseCode,
+                    DepartmentCode = FactoryDepartments.WashbayDepartmentCode,
+                    DepartmentName = "Washbay",
+                    Direction = FactoryTransferDirections.CrateIssue,
+                    DestinationWarehouseCodes = FactoryDepartments.WashbayIssueDestinations.ToList(),
+                    PackagingOnly = true
+                });
+                foreach (var source in FactoryDepartments.WashbayReceiptSources)
+                {
+                    routes.Add(new FactoryTransferRouteDto
+                    {
+                        SourceWarehouseCode = source,
+                        DepartmentCode = FactoryDepartments.WashbayDepartmentCode,
+                        DepartmentName = "Washbay",
+                        Direction = FactoryTransferDirections.CrateReceipt,
+                        DestinationWarehouseCodes = [FactoryDepartments.WashbayWarehouseCode],
+                        PackagingOnly = true
+                    });
+                }
+            }
+
             // A depot sends stock back to dispatch from its centre or the shop beside it.
             foreach (var depot in FactoryDepartments.Depots)
             {

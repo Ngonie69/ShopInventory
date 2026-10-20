@@ -261,7 +261,7 @@ public static class UserRoles
     /// API agrees through <c>factory.transfers.view</c>; <c>FactoryTransferAccessTests</c> pins the two.
     /// Which transfers each person sees, sends and accepts is narrowed again by their warehouses.
     /// </summary>
-    public const string FactoryTransferRoles = "Admin,ProductionOfficer,DispatchOfficer,DistributionOfficer,DepotController";
+    public const string FactoryTransferRoles = "Admin,ProductionOfficer,DispatchOfficer,DistributionOfficer,DepotController,WashBay";
 
     /// <summary>The roles whose account names factory warehouses, and must name at least one.</summary>
     public static bool IsFactoryRole(string? role) =>

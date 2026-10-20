@@ -65,6 +65,13 @@ public sealed class SendFactoryTransferHandler(
         var plan = route.Value;
 
         var isDelivery = plan.Direction == FactoryTransferDirections.Delivery;
+        if (FactoryTransferDirections.IsDirect(plan.Direction))
+        {
+            var notPackaging = command.Lines.FirstOrDefault(line => !FactoryDepartments.IsPackagingItem(line.ItemCode));
+            if (notPackaging is not null)
+                return Errors.FactoryTransfer.NotPackaging(notPackaging.ItemCode.Trim().ToUpperInvariant());
+        }
+
         var vehiclePlate = Blank(command.VehiclePlate)?.ToUpperInvariant();
         var driverName = Blank(command.DriverName);
         if (isDelivery && (vehiclePlate is null || driverName is null))
@@ -73,15 +80,17 @@ public sealed class SendFactoryTransferHandler(
         int? requestDocNum = null;
         if (command.SourceRequestDocEntry is int requestDocEntry)
         {
-            if (!isDelivery)
-                return Errors.FactoryTransfer.LinesMismatch("Only a depot delivery fulfils a depot order.");
+            var isCrateIssue = plan.Direction == FactoryTransferDirections.CrateIssue;
+            if (!isDelivery && !isCrateIssue)
+                return Errors.FactoryTransfer.LinesMismatch("Only a depot delivery or a washbay issue fulfils a transfer request.");
 
             var order = await sapClient.GetInventoryTransferRequestByDocEntryAsync(requestDocEntry, cancellationToken);
             if (order is null)
                 return Errors.FactoryTransfer.DepotOrderNotFound(requestDocEntry);
             if (!string.Equals(order.DocumentStatus, "bost_Open", StringComparison.OrdinalIgnoreCase))
                 return Errors.FactoryTransfer.DepotOrderNotOpen(order.DocNum);
-            if (!string.Equals(order.ToWarehouse, plan.Destination, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(order.ToWarehouse, plan.Destination, StringComparison.OrdinalIgnoreCase)
+                || (isCrateIssue && !string.Equals(order.FromWarehouse, FactoryDepartments.WashbayWarehouseCode, StringComparison.OrdinalIgnoreCase)))
                 return Errors.FactoryTransfer.DepotOrderForAnotherDepot(order.DocNum, order.ToWarehouse ?? "another warehouse");
             requestDocNum = order.DocNum;
         }
@@ -197,6 +206,10 @@ public sealed class SendFactoryTransferHandler(
         if (!actor.CanSend)
             return Errors.FactoryTransfer.SendNotPermitted;
 
+        var washbay = ResolveWashbay(sourceWarehouseCode, destinationWarehouseCode, lineSources, actor);
+        if (washbay is not null)
+            return washbay.Value;
+
         var depotSource = FactoryDepartments.LocateDepotWarehouse(sourceWarehouseCode);
         if (depotSource is not null)
         {
@@ -244,6 +257,48 @@ public sealed class SendFactoryTransferHandler(
         var direction = side == FactorySide.Production ? FactoryTransferDirections.Release : FactoryTransferDirections.Return;
         return new SendPlan(department.Code, direction, FactoryDepartments.HoldingWarehouseCode, source, destination,
             lineSources.Select(_ => source).ToList());
+    }
+
+    /// <summary>
+    /// The washbay's two one-step moves, or null when neither end is WASHBAY. Issue: from WASHBAY to a
+    /// production or dispatch warehouse, or WAREH. Receipt: into WASHBAY from production, dispatch,
+    /// RETURNS or Cheeseman, at the washbay's own count, so it is the washbay that sends it.
+    /// </summary>
+    private static ErrorOr<SendPlan>? ResolveWashbay(
+        string sourceWarehouseCode,
+        string? destinationWarehouseCode,
+        IReadOnlyList<string?> lineSources,
+        FactoryTransferActor actor)
+    {
+        const string washbay = FactoryDepartments.WashbayWarehouseCode;
+        var source = sourceWarehouseCode.Trim();
+        var destination = destinationWarehouseCode?.Trim() ?? string.Empty;
+
+        if (string.Equals(source, washbay, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!actor.Holds(washbay))
+                return Errors.FactoryTransfer.SourceNotAssigned(washbay);
+            var to = FactoryDepartments.WashbayIssueDestinations
+                .FirstOrDefault(code => string.Equals(code, destination, StringComparison.OrdinalIgnoreCase));
+            if (to is null)
+                return Errors.FactoryTransfer.InvalidDestination(string.IsNullOrEmpty(destination) ? "(none chosen)" : destination, "washbay issue");
+            return new SendPlan(FactoryDepartments.WashbayDepartmentCode, FactoryTransferDirections.CrateIssue,
+                to, washbay, to, lineSources.Select(_ => washbay).ToList());
+        }
+
+        if (string.Equals(destination, washbay, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!actor.Holds(washbay))
+                return Errors.FactoryTransfer.DestinationNotAssigned(washbay);
+            var from = FactoryDepartments.WashbayReceiptSources
+                .FirstOrDefault(code => string.Equals(code, source, StringComparison.OrdinalIgnoreCase));
+            if (from is null)
+                return Errors.FactoryTransfer.WashbaySourceNotAllowed(source);
+            return new SendPlan(FactoryDepartments.WashbayDepartmentCode, FactoryTransferDirections.CrateReceipt,
+                washbay, from, washbay, lineSources.Select(_ => from).ToList());
+        }
+
+        return null;
     }
 
     private static ErrorOr<SendPlan> ResolveDelivery(
