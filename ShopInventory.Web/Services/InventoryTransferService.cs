@@ -33,6 +33,17 @@ public interface IInventoryTransferService
     /// <summary>A held transfer's lines against the source warehouse's stock now; null if it could not be read.</summary>
     Task<PendingTransferStockCheck?> CheckPendingTransferStockAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The source warehouse's live stock of each item on a transfer request, or null when it could
+    /// not be read. <paramref name="fromWarehouse"/> checks every line against another warehouse;
+    /// <paramref name="extraItemCodes"/> reads items that are not on the request yet.
+    /// </summary>
+    Task<TransferRequestStock?> GetTransferRequestStockAsync(
+        int docEntry,
+        string? fromWarehouse = null,
+        IEnumerable<string>? extraItemCodes = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Posts the lines the depot can fill and leaves the short ones out.</summary>
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> PostPendingTransferLinesInStockAsync(Guid id);
 
@@ -465,6 +476,38 @@ public class InventoryTransferService : IInventoryTransferService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error checking stock for pending inventory transfer {PendingId}", id);
+            return null;
+        }
+    }
+
+    public async Task<TransferRequestStock?> GetTransferRequestStockAsync(
+        int docEntry,
+        string? fromWarehouse = null,
+        IEnumerable<string>? extraItemCodes = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(fromWarehouse))
+            query.Add($"fromWarehouse={Uri.EscapeDataString(fromWarehouse.Trim())}");
+        foreach (var itemCode in extraItemCodes ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(itemCode))
+                query.Add($"item={Uri.EscapeDataString(itemCode.Trim())}");
+        }
+
+        var url = $"api/inventorytransfer/request/{docEntry}/stock" +
+                  (query.Count == 0 ? string.Empty : "?" + string.Join('&', query));
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<TransferRequestStock>(url, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading stock for transfer request {DocEntry}", docEntry);
             return null;
         }
     }

@@ -88,13 +88,13 @@ public interface ISAPServiceLayerClient
     /// <summary>
     /// Rewrites the lines of an open inventory transfer request, and optionally reassigns either
     /// warehouse. The collection passed is the complete set the request should be left with — any
-    /// existing line missing from it is removed — so callers must send every line they intend to
-    /// keep. A warehouse given here replaces the header's and every kept line's, because a
-    /// reassignment moves the whole document.
+    /// existing line missing from it is removed, and a line without a LineNum is added — so callers
+    /// must send every line they intend to keep. A warehouse given here replaces the header's and
+    /// every kept line's, because a reassignment moves the whole document.
     /// </summary>
     Task<InventoryTransferRequest> UpdateInventoryTransferRequestAsync(
         int docEntry,
-        IReadOnlyList<(int LineNum, decimal Quantity)> lines,
+        IReadOnlyList<TransferRequestLineChange> lines,
         string? fromWarehouse = null,
         string? toWarehouse = null,
         CancellationToken cancellationToken = default);

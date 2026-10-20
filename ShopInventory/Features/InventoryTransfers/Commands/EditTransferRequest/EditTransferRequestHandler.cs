@@ -14,7 +14,7 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.InventoryTransfers.Commands.EditTransferRequest;
 
 /// <summary>
-/// Changes an SAP transfer request: quantities may be adjusted, lines dropped, and either
+/// Changes an SAP transfer request: quantities may be adjusted, lines dropped or added, and either
 /// warehouse reassigned.
 /// </summary>
 /// <remarks>
@@ -116,7 +116,11 @@ public sealed class EditTransferRequestHandler(
         try
         {
             var updated = await sapClient.UpdateInventoryTransferRequestAsync(
-                command.DocEntry, TransferRequestEditMapper.ToSapLines(proposedLines),
+                command.DocEntry,
+                TransferRequestEditMapper.ToSapLines(
+                    proposedLines,
+                    warehouseChange.FromWarehouse ?? document.FromWarehouse,
+                    warehouseChange.ToWarehouse ?? document.ToWarehouse),
                 warehouseChange.FromWarehouse, warehouseChange.ToWarehouse, cancellationToken);
 
             try

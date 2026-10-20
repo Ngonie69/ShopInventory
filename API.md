@@ -1808,6 +1808,7 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 | GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
 | PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, WashBay, DepotController, Manager |
 | POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, WashBay, DepotController |
+| GET | `/api/InventoryTransfer/request/{docEntry}/stock` | The source warehouse's live stock of each item on a request, and which lines it cannot fill (`fromWarehouse`, `item`). Admin, StockController, WashBay, DepotController, Manager |
 | POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, WashBay, DepotController |
 | GET | `/api/InventoryTransfer/requests/{warehouseCode}` | A warehouse's transfer requests: those raised in the last 90 days (or since `fromDate`), and every one still open |
 | GET | `/api/InventoryTransfer/request/{docEntry}` | One transfer request |
@@ -1962,16 +1963,21 @@ stage. `POST /api/approval-process/transfers/{id}/decision` is an equivalent rou
 
 `PATCH /api/InventoryTransfer/request/{docEntry}` rewrites an open request. `lines` is the complete
 set of lines the request should be left with — anything omitted is removed — and either warehouse
-may be reassigned by naming it. Omit a warehouse, or send it blank, to leave the request's own:
+may be reassigned by naming it. Omit a warehouse, or send it blank, to leave the request's own.
+A line with no `lineNum` is added, and names its `itemCode`; it takes the request's warehouses, or
+the new ones when the change moves it. An item already on a kept line cannot be added again:
 
 ```json
 {
-  "lines": [{ "lineNum": 0, "quantity": 6 }],
+  "lines": [{ "lineNum": 0, "quantity": 6 }, { "lineNum": null, "itemCode": "YOG143", "quantity": 12 }],
   "fromWarehouse": "WH02",
   "toWarehouse": null,
   "reason": "WH01 cannot cover this"
 }
 ```
+
+The SAP write sends `B1S-ReplaceCollectionsOnPatch: true`. Without it the Service Layer merges the
+lines it is sent into the document and keeps the rest, so a removed line stayed on the request.
 
 A warehouse change is written to the header and to every kept line, since it is the line's own
 warehouse that moves the stock. A closed request returns `409`
@@ -1983,6 +1989,28 @@ change held for approval (`202`, `requiresApproval: true`) and it reaches SAP on
 approval — the held record carries `proposedFromWarehouse` / `proposedToWarehouse` so the approver
 sees the move. One held change per request; a second returns `409`
 `InventoryTransfer.TransferRequestEditInFlight`.
+
+#### Checking a request's stock before converting it
+
+`GET /api/InventoryTransfer/request/{docEntry}/stock` reads the source warehouse's stock of every item
+on the request, live from SAP. `available` is SAP's In Stock less what tills have sold there that SAP
+has not received yet (`heldByTills`), since the conversion refuses to take those units. A line is
+`Short` when everything the request asks of its item in that warehouse is more than is available,
+`Unread` when the warehouse did not answer — which is never reported as zero stock.
+
+For an edit in progress, `fromWarehouse` checks every line against another warehouse, and each `item`
+(up to 50) reads an item the request does not carry yet; those appear under `items` only.
+
+```json
+{
+  "docEntry": 7001, "docNum": 89450, "checkedAt": "2026-10-20T10:00:00",
+  "stockWasFullyRead": true, "unreadableWarehouses": [], "linesShort": 1,
+  "lines": [{ "lineNum": 0, "itemCode": "YOG145", "warehouseCode": "KEFGRC", "quantity": 685,
+              "available": 677, "state": "Short" }],
+  "items": [{ "warehouseCode": "KEFGRC", "itemCode": "YOG145", "inStock": 685, "heldByTills": 8,
+              "available": 677 }]
+}
+```
 
 #### Warehouse scoping
 

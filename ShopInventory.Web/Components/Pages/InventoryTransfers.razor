@@ -1576,6 +1576,15 @@ else if (pendingActionTitle is not null)
                                     </td>
                                 </tr>
                             }
+                            @foreach (var added in heldEditForSelectedRequest.ProposedLines.Where(item => item.LineNum is null))
+                            {
+                                <tr>
+                                    <td>—</td>
+                                    <td><div class="strong">@added.ItemCode</div></td>
+                                    <td class="num"><span class="itx-status approved">New</span></td>
+                                    <td class="num"><strong>@QuantityDisplay.Format(added.Quantity, added.UoMCode)</strong></td>
+                                </tr>
+                            }
                         </tbody>
                     </table>
                 </div>
@@ -1622,6 +1631,68 @@ else if (pendingActionTitle is not null)
                     }
                 </div>
 
+                @if (ShowsRequestStock(selectedTransferRequest))
+                {
+                    var stockSource = isEditingRequestLines ? RequestEditEffectiveFrom : selectedTransferRequest.FromWarehouse;
+                    var shortCount = isEditingRequestLines ? RequestEditShortLineCount : requestStock?.LinesShort ?? 0;
+                    @if (isLoadingRequestStock)
+                    {
+                        <div class="itx-loading">
+                            <span class="itx-spin itx-spin-sm"></span>
+                            <span>Checking stock in @stockSource…</span>
+                        </div>
+                    }
+                    else if (requestStock is null)
+                    {
+                        <div class="itx-alert warn">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <div class="itx-alert-body">
+                                Stock in @stockSource could not be read from SAP, so these lines have not been checked.
+                                <button type="button" class="itx-btn itx-btn-sm" style="margin-left:.4rem;" @onclick="LoadRequestStockAsync">
+                                    Try again
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    else if (shortCount > 0)
+                    {
+                        <div class="itx-alert err">
+                            <i class="bi bi-exclamation-octagon-fill"></i>
+                            <div class="itx-alert-body">
+                                <strong>Insufficient stock.</strong>
+                                @shortCount @(shortCount == 1 ? "line asks" : "lines ask") for more than @stockSource has available.
+                                SAP refuses a transfer with a line it cannot fill, so
+                                @(isEditingRequestLines
+                                    ? "reduce or remove the lines marked below before saving."
+                                    : "edit the request to reduce or remove them before converting.")
+                                @if (!isEditingRequestLines && CanEditRequestLines(selectedTransferRequest))
+                                {
+                                    <button type="button" class="itx-btn itx-btn-sm" style="margin-left:.4rem;" @onclick="BeginEditRequestLines">
+                                        <i class="bi bi-pencil"></i> Fix the lines
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else if (!requestStock.StockWasFullyRead)
+                    {
+                        <div class="itx-alert warn">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <div class="itx-alert-body">
+                                Stock in @string.Join(", ", requestStock.UnreadableWarehouses) could not be read from SAP, so some lines are unchecked.
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="itx-note">
+                            <i class="bi bi-check-circle"></i>
+                            @stockSource has enough stock for every line, as of @requestStock.CheckedAt.ToString("HH:mm").
+                            Available is SAP's in-stock figure less till sales SAP has not received yet.
+                        </p>
+                    }
+                }
+
                 @if (isEditingRequestLines)
                 {
                     <div class="itx-toolbar" style="margin-bottom:.6rem;">
@@ -1629,7 +1700,7 @@ else if (pendingActionTitle is not null)
                             <label for="itx-edit-from-warehouse">From warehouse</label>
                             <div class="itx-select">
                                 <select id="itx-edit-from-warehouse" class="itx-input"
-                                        @bind="requestEditFromWarehouse">
+                                        @bind="requestEditFromWarehouse" @bind:after="OnRequestEditFromWarehouseChanged">
                                     @foreach (var warehouseCode in SelectableWarehouseCodes(requestEditOriginalFromWarehouse))
                                     {
                                         <option value="@warehouseCode">@WarehouseLabel(warehouseCode)</option>
@@ -1669,6 +1740,7 @@ else if (pendingActionTitle is not null)
                                     <th>#</th>
                                     <th>Item</th>
                                     <th class="num">Original</th>
+                                    <th class="num">Available</th>
                                     <th class="num">Quantity</th>
                                     <th style="width:60px;"></th>
                                 </tr>
@@ -1677,12 +1749,42 @@ else if (pendingActionTitle is not null)
                                 @foreach (var line in requestEditLines)
                                 {
                                     <tr class="@(line.Removed ? "is-removed" : null)">
-                                        <td>@line.LineNum</td>
+                                        <td>@(line.IsNew ? "—" : line.LineNum.ToString())</td>
                                         <td>
                                             <div class="strong">@line.ItemCode</div>
                                             <div class="muted">@line.ItemDescription</div>
+                                            @if (IsRequestEditLineShort(line))
+                                            {
+                                                <div class="itx-short">
+                                                    <span>Only @QuantityDisplay.Format(line.Available!.Value, line.UoMCode) available</span>
+                                                    @if (UsableQuantity(line) > 0)
+                                                    {
+                                                        <button type="button" class="itx-btn itx-btn-sm" disabled="@isSavingRequestEdit"
+                                                                @onclick="() => UseAvailableQuantity(line)">
+                                                            Use @QuantityDisplay.Format(UsableQuantity(line), line.UoMCode)
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>— none to send; remove the line</span>
+                                                    }
+                                                </div>
+                                            }
                                         </td>
-                                        <td class="num muted">@QuantityDisplay.Format(line.OriginalQuantity, line.UoMCode)</td>
+                                        <td class="num muted">
+                                            @if (line.IsNew)
+                                            {
+                                                <span class="itx-status approved">New</span>
+                                            }
+                                            else
+                                            {
+                                                @QuantityDisplay.Format(line.OriginalQuantity, line.UoMCode)
+                                            }
+                                        </td>
+                                        <td class="num @(IsRequestEditLineShort(line) ? "itx-avail-short" : null)"
+                                            title="@(line.Available is null ? "Not read" : line.AvailableIsLive ? "Live from SAP" : "From the stock cache")">
+                                            @(line.Available is { } editAvailable ? QuantityDisplay.Format(editAvailable, line.UoMCode) : "—")
+                                        </td>
                                         <td class="num">
                                             @if (line.Removed)
                                             {
@@ -1692,6 +1794,7 @@ else if (pendingActionTitle is not null)
                                             {
                                                 <input type="number" step="any" min="0"
                                                        class="itx-input itx-input-num itx-qty-input"
+                                                       aria-label="@($"Quantity of {line.ItemCode}")"
                                                        value="@line.Quantity"
                                                        @oninput="e => SetRequestEditQuantity(line, e.Value?.ToString())" />
                                             }
@@ -1716,12 +1819,20 @@ else if (pendingActionTitle is not null)
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <td colspan="3" class="num">Total</td>
+                                    <td colspan="4" class="num">Total</td>
                                     <td class="num">@QuantityDisplay.Format(requestEditLines.Where(l => !l.Removed).Sum(l => l.Quantity))</td>
                                     <td></td>
                                 </tr>
                             </tfoot>
                         </table>
+                    </div>
+
+                    <div class="itx-add-line">
+                        <NocturnePicker Class="npick-block" Options="requestEditItemOptions"
+                                        Value="@null" ValueChanged="@(code => AddRequestEditItem(code))"
+                                        Loading="isLoadingRequestEditItems" Disabled="isSavingRequestEdit"
+                                        Placeholder="Add an item…" EmptyText="No items to add"
+                                        Caption="Add an item" AriaLabel="Add an item to the request" />
                     </div>
 
                     @if (!CanActOnRequestSource(selectedTransferRequest))
@@ -1762,21 +1873,45 @@ else if (pendingActionTitle is not null)
                                     <th>From</th>
                                     <th>To</th>
                                     <th class="num">Qty</th>
+                                    @if (ShowsRequestStock(selectedTransferRequest))
+                                    {
+                                        <th class="num">Available</th>
+                                    }
                                     <th>UoM</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var line in selectedTransferRequest.Lines)
                                 {
+                                    var stockLine = RequestStockLine(line.LineNum);
                                     <tr>
                                         <td>@line.LineNum</td>
                                         <td>
                                             <div class="strong">@line.ItemCode</div>
                                             <div class="muted">@line.ItemDescription</div>
+                                            @if (stockLine is { IsShort: true, Available: { } shortAvailable })
+                                            {
+                                                <div class="itx-short">
+                                                    <span>Insufficient stock: only @QuantityDisplay.Format(shortAvailable, line.UoMCode) available</span>
+                                                </div>
+                                            }
                                         </td>
                                         <td><span class="itx-wh src">@line.FromWarehouseCode</span></td>
                                         <td><span class="itx-wh dst">@line.ToWarehouseCode</span></td>
                                         <td class="num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                        @if (ShowsRequestStock(selectedTransferRequest))
+                                        {
+                                            <td class="num @(stockLine?.IsShort == true ? "itx-avail-short" : null)">
+                                                @if (stockLine?.Available is { } available)
+                                                {
+                                                    @QuantityDisplay.Format(available, line.UoMCode)
+                                                }
+                                                else
+                                                {
+                                                    <span class="muted">@(isLoadingRequestStock ? "…" : "—")</span>
+                                                }
+                                            </td>
+                                        }
                                         <td class="muted">@line.UoMCode</td>
                                     </tr>
                                 }
@@ -1785,6 +1920,10 @@ else if (pendingActionTitle is not null)
                                 <tr>
                                     <td colspan="4" class="num">Total</td>
                                     <td class="num">@QuantityDisplay.Format(selectedTransferRequest.Lines.Sum(l => l.Quantity))</td>
+                                    @if (ShowsRequestStock(selectedTransferRequest))
+                                    {
+                                        <td></td>
+                                    }
                                     <td></td>
                                 </tr>
                             </tfoot>
@@ -1794,7 +1933,27 @@ else if (pendingActionTitle is not null)
             }
         </div>
         <div class="itx-drawer-foot">
-            @if (ShowsRequestConversionAction(selectedTransferRequest))
+            @if (shortConversionToConfirm is not null && requestStock is { LinesShort: > 0 } shortStock)
+            {
+                <span class="itx-note itx-note-err">
+                    <i class="bi bi-exclamation-octagon-fill"></i>
+                    @shortStock.LinesShort @(shortStock.LinesShort == 1 ? "line has" : "lines have") insufficient stock in
+                    @selectedTransferRequest.FromWarehouse. SAP will most likely refuse the transfer. Convert anyway?
+                </span>
+                @if (CanEditRequestLines(selectedTransferRequest))
+                {
+                    <button type="button" class="itx-btn itx-btn-primary" disabled="@isConverting" @onclick="EditShortRequestLines">
+                        <i class="bi bi-pencil"></i> Fix the lines
+                    </button>
+                }
+                <button type="button" class="itx-btn itx-btn-danger" disabled="@isConverting" @onclick="ConfirmShortConversion">
+                    Convert anyway
+                </button>
+                <button type="button" class="itx-btn" disabled="@isConverting" @onclick="() => shortConversionToConfirm = null">
+                    Back
+                </button>
+            }
+            else if (ShowsRequestConversionAction(selectedTransferRequest))
             {
                 var canConvert = CanCurrentUserConvertRequest(selectedTransferRequest);
                 var requiresApproval = IsWarehouseScopedRole(currentUserRole);
@@ -1936,6 +2095,20 @@ else if (pendingActionTitle is not null)
     private string? requestEditReason;
     private string? requestEditDecisionRemarks;
     private PendingTransferRequestEditDto? heldEditForSelectedRequest;
+
+    // ── A request's lines against its source warehouse ──
+    // Read live from SAP when the drawer opens, so whoever converts sees what the depot can fill
+    // before the transfer posts. Re-read while editing when the source changes or an item is added.
+    private TransferRequestStock? requestStock;
+    private bool isLoadingRequestStock;
+    private int requestStockGeneration;
+    private List<ProductDto> requestEditProducts = [];
+    private IReadOnlyList<NocturnePickerOption> requestEditItemOptions = [];
+    private bool isLoadingRequestEditItems;
+    private readonly Dictionary<string, decimal> requestEditCachedStock = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The conversion waiting on the user to confirm it despite short lines.</summary>
+    private (Guid? StageId, bool GenerateDocument)? shortConversionToConfirm;
     private const string PendingStageStatus = "Pending";
     private const string AllStatusFilter = "all";
 
@@ -2560,8 +2733,10 @@ else if (pendingActionTitle is not null)
             {
                 activeTabIndex = 1;
                 await LoadTransferRequestsAsync();
-                selectedTransferRequest = await TransferService.GetTransferRequestByDocEntryAsync(requestedDocEntry)
+                var requested = await TransferService.GetTransferRequestByDocEntryAsync(requestedDocEntry)
                     ?? transferRequests?.FirstOrDefault(request => request.DocEntry == requestedDocEntry);
+                if (requested is not null)
+                    await ViewTransferRequest(requested);
             }
             else if (TryGetRequestedPendingTransferId(out var requestedPendingId))
             {
@@ -2835,7 +3010,7 @@ else if (pendingActionTitle is not null)
         StateHasChanged();
         try
         {
-            await LoadPendingEditItemsAsync(pending.FromWarehouse);
+            pendingEditProducts = await LoadEditCatalogueAsync(pending.FromWarehouse, pendingEditStock);
             if (pendingEditLines is null || selectedPendingTransfer?.Id != pending.Id) return;
             foreach (var line in pendingEditLines)
                 line.Available = CachedStock(line.ItemCode);
@@ -2868,38 +3043,43 @@ else if (pendingActionTitle is not null)
     }
 
     /// <summary>
-    /// The product cache for the item picker and the source warehouse's cached stock. Both are the
-    /// web app's own caches, never SAP; a failure leaves the picker empty and the edit still usable.
+    /// The product cache for the item picker and the source warehouse's cached stock, written into
+    /// <paramref name="stockInto"/>. Both are the web app's own caches, never SAP; a failure leaves the
+    /// picker empty and the edit still usable.
     /// </summary>
-    private async Task LoadPendingEditItemsAsync(string? fromWarehouse)
+    private async Task<List<ProductDto>> LoadEditCatalogueAsync(string? fromWarehouse, Dictionary<string, decimal> stockInto)
     {
+        List<ProductDto> products;
         try
         {
-            pendingEditProducts = (await CacheService.GetProductsAsync())
+            products = (await CacheService.GetProductsAsync())
                 .Where(product => !string.IsNullOrWhiteSpace(product.ItemCode))
                 .OrderBy(product => product.ItemCode, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Could not load products to add to a held transfer");
-            pendingEditProducts = [];
+            Logger.LogWarning(ex, "Could not load products to add to a transfer");
+            products = [];
         }
 
-        if (string.IsNullOrWhiteSpace(fromWarehouse)) return;
+        stockInto.Clear();
+        if (string.IsNullOrWhiteSpace(fromWarehouse)) return products;
         try
         {
             var stock = await StockCacheService.GetAllCachedStockAsync(fromWarehouse);
             foreach (var product in stock?.Products ?? [])
             {
                 if (!string.IsNullOrWhiteSpace(product.ItemCode))
-                    pendingEditStock[product.ItemCode] = product.QuantityInStock;
+                    stockInto[product.ItemCode] = product.QuantityInStock;
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Could not load cached stock for {Warehouse} while editing a held transfer", fromWarehouse);
+            Logger.LogWarning(ex, "Could not load cached stock for {Warehouse} while editing a transfer", fromWarehouse);
         }
+
+        return products;
     }
 
     private decimal? CachedStock(string? itemCode) =>
@@ -2999,13 +3179,14 @@ else if (pendingActionTitle is not null)
     /// never more than it asks for now.
     /// </summary>
     private static decimal UsableQuantity(PendingEditLineModel line)
-    {
-        if (line.Available is not { } available) return line.Quantity;
+        => line.Available is { } available ? UsableQuantity(available, line.Quantity, line.UoMCode) : line.Quantity;
 
-        var usable = string.Equals(line.UoMCode?.Trim(), "KG", StringComparison.OrdinalIgnoreCase)
+    private static decimal UsableQuantity(decimal available, decimal quantity, string? uomCode)
+    {
+        var usable = string.Equals(uomCode?.Trim(), "KG", StringComparison.OrdinalIgnoreCase)
             ? available
             : decimal.Floor(available);
-        return Math.Clamp(usable, 0m, line.Quantity);
+        return Math.Clamp(usable, 0m, quantity);
     }
 
     private static void UseAvailableQuantity(PendingEditLineModel line) => line.Quantity = UsableQuantity(line);
@@ -3801,16 +3982,137 @@ else if (pendingActionTitle is not null)
     private async Task ViewTransferRequest(InventoryTransferRequestDto request)
     {
         selectedTransferRequest = request;
+        shortConversionToConfirm = null;
+        requestStock = null;
         CancelEditRequestLines();
         await LoadHeldEditAsync(request.DocEntry);
+        await LoadRequestStockAsync();
     }
 
     private void CloseRequestModal()
     {
         selectedTransferRequest = null;
         heldEditForSelectedRequest = null;
+        shortConversionToConfirm = null;
+        requestStock = null;
+        requestStockGeneration++;
+        isLoadingRequestStock = false;
         CancelEditRequestLines();
     }
+
+    // ── A request's lines against its source warehouse ──
+
+    /// <summary>
+    /// Whether the drawer reads the request's stock: an open request, for someone who may convert or
+    /// edit it. Mirrors the roles on GET api/inventorytransfer/request/{docEntry}/stock.
+    /// </summary>
+    private bool ShowsRequestStock(InventoryTransferRequestDto? request)
+        => request is not null &&
+           IsRequestConvertible(request) &&
+           request.Lines?.Any() == true &&
+           currentUserRole is not null &&
+           RequestEditorRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Reads the selected request's stock from SAP. While its lines are being edited the read is
+    /// against the source warehouse the edit would leave it with, and includes the items it adds.
+    /// </summary>
+    private async Task LoadRequestStockAsync()
+    {
+        var request = selectedTransferRequest;
+        if (request is null || !ShowsRequestStock(request))
+        {
+            requestStock = null;
+            return;
+        }
+
+        // A later read supersedes this one: the user may change the warehouse or add an item while
+        // SAP is still answering, and the older figures must not land on top of the newer.
+        var generation = ++requestStockGeneration;
+        isLoadingRequestStock = true;
+        StateHasChanged();
+        try
+        {
+            var fromOverride = isEditingRequestLines
+                ? WarehouseChangeOrNull(requestEditFromWarehouse, requestEditOriginalFromWarehouse)
+                : null;
+            var addedItems = isEditingRequestLines
+                ? requestEditLines.Where(line => line.IsNew && line.ItemCode is not null).Select(line => line.ItemCode!).ToList()
+                : null;
+
+            var stock = await TransferService.GetTransferRequestStockAsync(request.DocEntry, fromOverride, addedItems);
+            if (generation != requestStockGeneration || selectedTransferRequest?.DocEntry != request.DocEntry) return;
+
+            requestStock = stock;
+            if (isEditingRequestLines) ApplyRequestStockToEditLines();
+        }
+        finally
+        {
+            if (generation == requestStockGeneration)
+            {
+                isLoadingRequestStock = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private TransferRequestStockLine? RequestStockLine(int lineNum)
+        => requestStock?.Lines.FirstOrDefault(line => line.LineNum == lineNum);
+
+    /// <summary>
+    /// The source warehouse the lines being edited would leave from: the one picked, or the
+    /// request's own.
+    /// </summary>
+    private string RequestEditEffectiveFrom =>
+        WarehouseChangeOrNull(requestEditFromWarehouse, requestEditOriginalFromWarehouse) ?? requestEditOriginalFromWarehouse;
+
+    /// <summary>
+    /// Puts the live figures on the lines being edited. An item the live read did not cover falls back
+    /// to the web app's stock cache, but only while the source is unchanged: the cache is the
+    /// request's own warehouse, and would describe the wrong one after a move.
+    /// </summary>
+    private void ApplyRequestStockToEditLines()
+    {
+        var from = RequestEditEffectiveFrom;
+        var sourceUnchanged = string.Equals(from, requestEditOriginalFromWarehouse, StringComparison.OrdinalIgnoreCase);
+
+        foreach (var line in requestEditLines)
+        {
+            var live = requestStock?.Items.FirstOrDefault(item =>
+                string.Equals(item.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(item.WarehouseCode, from, StringComparison.OrdinalIgnoreCase));
+
+            line.Available = live?.Available
+                ?? (sourceUnchanged && line.ItemCode is not null && requestEditCachedStock.TryGetValue(line.ItemCode, out var cached)
+                    ? cached
+                    : null);
+            line.AvailableIsLive = live?.Available is not null;
+        }
+    }
+
+    /// <summary>Everything the edit asks of the line's item, over every line that stays.</summary>
+    private decimal RequestEditDemand(string? itemCode)
+        => requestEditLines
+            .Where(line => !line.Removed && string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+            .Sum(line => line.Quantity);
+
+    private bool IsRequestEditLineShort(RequestEditLineModel line)
+        => !line.Removed && line.Available is { } available && RequestEditDemand(line.ItemCode) > available;
+
+    /// <summary>
+    /// The most this line can take of what is in stock, after the item's other lines: whole units
+    /// unless the line is weighed, and never more than it asks for now.
+    /// </summary>
+    private decimal UsableQuantity(RequestEditLineModel line)
+    {
+        if (line.Available is not { } available) return line.Quantity;
+        var others = RequestEditDemand(line.ItemCode) - line.Quantity;
+        return UsableQuantity(available - others, line.Quantity, line.UoMCode);
+    }
+
+    private void UseAvailableQuantity(RequestEditLineModel line) => line.Quantity = UsableQuantity(line);
+
+    private int RequestEditShortLineCount => requestEditLines.Count(IsRequestEditLineShort);
 
     // ── Editing a transfer request's lines ──────────────
 
@@ -3838,9 +4140,13 @@ else if (pendingActionTitle is not null)
            currentUserRole is not null &&
            RequestEditorRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
 
-    private void BeginEditRequestLines()
+    private async Task BeginEditRequestLines()
     {
-        requestEditLines = (selectedTransferRequest?.Lines ?? [])
+        var request = selectedTransferRequest;
+        if (request is null) return;
+
+        shortConversionToConfirm = null;
+        requestEditLines = (request.Lines ?? [])
             .Select(line => new RequestEditLineModel
             {
                 LineNum = line.LineNum,
@@ -3851,16 +4157,37 @@ else if (pendingActionTitle is not null)
                 Quantity = line.Quantity
             })
             .ToList();
-        requestEditOriginalFromWarehouse = selectedTransferRequest?.FromWarehouse?.Trim() ?? string.Empty;
-        requestEditOriginalToWarehouse = selectedTransferRequest?.ToWarehouse?.Trim() ?? string.Empty;
+        requestEditOriginalFromWarehouse = request.FromWarehouse?.Trim() ?? string.Empty;
+        requestEditOriginalToWarehouse = request.ToWarehouse?.Trim() ?? string.Empty;
         requestEditFromWarehouse = requestEditOriginalFromWarehouse;
         requestEditToWarehouse = requestEditOriginalToWarehouse;
         requestEditReason = null;
         isEditingRequestLines = true;
+        ApplyRequestStockToEditLines();
+
+        // The picker is the web app's product and stock caches; the drawer's live read already
+        // covers the lines, so nothing here waits on SAP.
+        isLoadingRequestEditItems = true;
+        StateHasChanged();
+        try
+        {
+            requestEditProducts = await LoadEditCatalogueAsync(requestEditOriginalFromWarehouse, requestEditCachedStock);
+            if (!isEditingRequestLines || selectedTransferRequest?.DocEntry != request.DocEntry) return;
+            ApplyRequestStockToEditLines();
+            RefreshRequestEditItemOptions();
+        }
+        finally
+        {
+            isLoadingRequestEditItems = false;
+            StateHasChanged();
+        }
     }
 
     private void CancelEditRequestLines()
     {
+        var wasEditing = isEditingRequestLines;
+        var readOtherStock = wasEditing && requestStock is not null && RequestStockCoversMoreThanRequest();
+
         isEditingRequestLines = false;
         requestEditLines = [];
         requestEditFromWarehouse = string.Empty;
@@ -3868,6 +4195,96 @@ else if (pendingActionTitle is not null)
         requestEditOriginalFromWarehouse = string.Empty;
         requestEditOriginalToWarehouse = string.Empty;
         requestEditReason = null;
+        requestEditItemOptions = [];
+        requestEditCachedStock.Clear();
+        isLoadingRequestEditItems = false;
+
+        // An edit that moved the source or added items re-read stock for that; the drawer goes
+        // back to describing the request as it stands.
+        if (readOtherStock)
+            _ = InvokeAsync(LoadRequestStockAsync);
+    }
+
+    /// <summary>
+    /// Whether the last stock read was for an edit — another source warehouse, or items the request
+    /// does not carry — rather than for the request as it stands.
+    /// </summary>
+    private bool RequestStockCoversMoreThanRequest()
+    {
+        var request = selectedTransferRequest;
+        if (requestStock is null || request is null) return false;
+
+        return requestStock.Lines.Any(line => (request.Lines ?? []).FirstOrDefault(item => item.LineNum == line.LineNum) is { } requestLine &&
+                                              !string.Equals(line.WarehouseCode, requestLine.FromWarehouseCode?.Trim() ?? request.FromWarehouse?.Trim(), StringComparison.OrdinalIgnoreCase))
+               || requestStock.Items.Any(item => request.Lines?.Any(line => string.Equals(line.ItemCode, item.ItemCode, StringComparison.OrdinalIgnoreCase)) != true);
+    }
+
+    private async Task OnRequestEditFromWarehouseChanged()
+    {
+        // The cached figures were the old source's; the picker re-reads them for the new one.
+        requestEditProducts = await LoadEditCatalogueAsync(RequestEditEffectiveFrom, requestEditCachedStock);
+        RefreshRequestEditItemOptions();
+        ApplyRequestStockToEditLines();
+        await LoadRequestStockAsync();
+    }
+
+    /// <summary>
+    /// The picker offers every product not already on a line that stays, what the source holds
+    /// first, as the held-transfer editor does.
+    /// </summary>
+    private void RefreshRequestEditItemOptions()
+    {
+        var onRequest = requestEditLines
+            .Where(line => !line.Removed && !string.IsNullOrWhiteSpace(line.ItemCode))
+            .Select(line => line.ItemCode!.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        decimal? Cached(string? itemCode) =>
+            itemCode is not null && requestEditCachedStock.TryGetValue(itemCode, out var quantity) ? quantity : null;
+
+        requestEditItemOptions = requestEditProducts
+            .Where(product => !onRequest.Contains(product.ItemCode!))
+            .OrderByDescending(product => Cached(product.ItemCode) > 0)
+            .Select(product => new NocturnePickerOption(
+                product.ItemCode!,
+                string.IsNullOrWhiteSpace(product.ItemName) ? product.ItemCode! : product.ItemName,
+                Cached(product.ItemCode) is { } inStock
+                    ? $"{QuantityDisplay.Format(inStock, product.UoM)} in stock"
+                    : null))
+            .ToList();
+    }
+
+    private async Task AddRequestEditItem(string? itemCode)
+    {
+        if (!isEditingRequestLines || string.IsNullOrWhiteSpace(itemCode)) return;
+
+        var product = requestEditProducts.FirstOrDefault(item =>
+            string.Equals(item.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+        if (product is null) return;
+
+        // An item taken off and picked again goes back on its own line rather than a second one.
+        var removed = requestEditLines.FirstOrDefault(line => line.Removed &&
+            string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+        if (removed is not null)
+        {
+            ToggleRequestEditLineRemoval(removed);
+            return;
+        }
+
+        requestEditLines.Add(new RequestEditLineModel
+        {
+            LineNum = -1,
+            IsNew = true,
+            ItemCode = product.ItemCode,
+            ItemDescription = product.ItemName,
+            UoMCode = string.IsNullOrWhiteSpace(product.UoM) ? null : product.UoM.Trim(),
+            Quantity = 0m
+        });
+        ApplyRequestStockToEditLines();
+        RefreshRequestEditItemOptions();
+
+        // The picker's figure is the cache; the line gets SAP's own.
+        await LoadRequestStockAsync();
     }
 
     /// <summary>
@@ -3924,9 +4341,19 @@ else if (pendingActionTitle is not null)
 
     private void ToggleRequestEditLineRemoval(RequestEditLineModel line)
     {
-        line.Removed = !line.Removed;
-        if (!line.Removed && line.Quantity <= 0)
-            line.Quantity = line.OriginalQuantity;
+        if (line.IsNew)
+        {
+            // Nothing to keep a record of: an added line taken off again simply goes.
+            requestEditLines.Remove(line);
+        }
+        else
+        {
+            line.Removed = !line.Removed;
+            if (!line.Removed && line.Quantity <= 0)
+                line.Quantity = line.OriginalQuantity;
+        }
+
+        RefreshRequestEditItemOptions();
     }
 
     private async Task SaveRequestEditAsync()
@@ -3943,7 +4370,9 @@ else if (pendingActionTitle is not null)
         var invalid = kept.FirstOrDefault(line => line.Quantity <= 0);
         if (invalid != null)
         {
-            errorMessage = $"Line {invalid.LineNum} must keep a quantity greater than zero. Remove the line instead.";
+            errorMessage = invalid.IsNew
+                ? $"{invalid.ItemCode} needs a quantity greater than zero."
+                : $"Line {invalid.LineNum} must keep a quantity greater than zero. Remove the line instead.";
             return;
         }
 
@@ -3970,7 +4399,7 @@ else if (pendingActionTitle is not null)
         }
 
         var linesUnchanged = kept.Count == requestEditLines.Count &&
-                             kept.All(line => line.Quantity == line.OriginalQuantity);
+                             kept.All(line => !line.IsNew && line.Quantity == line.OriginalQuantity);
         if (linesUnchanged && newFromWarehouse is null && newToWarehouse is null)
         {
             errorMessage = "Nothing has changed on this request.";
@@ -3988,7 +4417,12 @@ else if (pendingActionTitle is not null)
                 new EditTransferRequestRequest
                 {
                     Lines = kept
-                        .Select(line => new EditTransferRequestLineRequest { LineNum = line.LineNum, Quantity = line.Quantity })
+                        .Select(line => new EditTransferRequestLineRequest
+                        {
+                            LineNum = line.IsNew ? null : line.LineNum,
+                            ItemCode = line.IsNew ? line.ItemCode : null,
+                            Quantity = line.Quantity
+                        })
                         .ToList(),
                     FromWarehouse = newFromWarehouse,
                     ToWarehouse = newToWarehouse,
@@ -4015,6 +4449,7 @@ else if (pendingActionTitle is not null)
                 selectedTransferRequest = transferRequests?.FirstOrDefault(item => item.DocEntry == docEntry)
                                           ?? selectedTransferRequest;
                 await LoadHeldEditAsync(docEntry);
+                await LoadRequestStockAsync();
             }
         }
         finally
@@ -4116,13 +4551,26 @@ else if (pendingActionTitle is not null)
 
     private sealed class RequestEditLineModel
     {
+        /// <summary>The line's SAP LineNum; -1 for an item added in this edit.</summary>
         public int LineNum { get; set; }
+
+        /// <summary>Added in this edit rather than on the request already.</summary>
+        public bool IsNew { get; set; }
         public string? ItemCode { get; set; }
         public string? ItemDescription { get; set; }
         public string? UoMCode { get; set; }
         public decimal OriginalQuantity { get; set; }
         public decimal Quantity { get; set; }
         public bool Removed { get; set; }
+
+        /// <summary>
+        /// What the source warehouse can give: SAP's figure less unposted till sales, else the web
+        /// app's stock cache. Null when neither knows.
+        /// </summary>
+        public decimal? Available { get; set; }
+
+        /// <summary>Whether <see cref="Available"/> came from SAP rather than the cache.</summary>
+        public bool AvailableIsLive { get; set; }
     }
 
     private async Task RefreshTransferRequests() => await LoadTransferRequestsAsync(requestPage);
@@ -4347,9 +4795,24 @@ else if (pendingActionTitle is not null)
         return true;
     }
 
-    private async Task ConvertRequest(InventoryTransferRequestDto request, Guid? stageId = null, bool generateDocument = false)
+    private async Task ConvertRequest(
+        InventoryTransferRequestDto request,
+        Guid? stageId = null,
+        bool generateDocument = false,
+        bool shortStockConfirmed = false)
     {
         if (request == null) return;
+
+        // Anything but a plain approval may post the transfer. With lines the depot cannot fill, SAP
+        // refuses the whole document, so the user is told which before it is sent, and decides.
+        var mayPostTransfer = generateDocument || stageId is null;
+        if (mayPostTransfer && !shortStockConfirmed &&
+            requestStock is { LinesShort: > 0 } stock && stock.DocEntry == request.DocEntry)
+        {
+            shortConversionToConfirm = (stageId, generateDocument);
+            return;
+        }
+        shortConversionToConfirm = null;
 
         isConverting = true;
         errorMessage = null;
@@ -4385,6 +4848,18 @@ else if (pendingActionTitle is not null)
             isConverting = false;
             StateHasChanged();
         }
+    }
+
+    private Task ConfirmShortConversion()
+    {
+        if (selectedTransferRequest is null || shortConversionToConfirm is not { } pending) return Task.CompletedTask;
+        return ConvertRequest(selectedTransferRequest, pending.StageId, pending.GenerateDocument, shortStockConfirmed: true);
+    }
+
+    private Task EditShortRequestLines()
+    {
+        shortConversionToConfirm = null;
+        return BeginEditRequestLines();
     }
 
     private Task GenerateApprovedRequest(InventoryTransferRequestDto request)

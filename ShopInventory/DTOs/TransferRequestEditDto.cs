@@ -3,8 +3,8 @@ using System.ComponentModel.DataAnnotations;
 namespace ShopInventory.DTOs;
 
 /// <summary>
-/// A proposed change to an SAP transfer request: quantities may be adjusted, lines dropped and
-/// either warehouse reassigned. The lines listed are what the request should be left with.
+/// A proposed change to an SAP transfer request: quantities may be adjusted, lines dropped or added,
+/// and either warehouse reassigned. The lines listed are what the request should be left with.
 /// </summary>
 public class EditTransferRequestDto
 {
@@ -32,8 +32,15 @@ public class EditTransferRequestDto
 
 public class EditTransferRequestLineDto
 {
-    /// <summary>SAP LineNum of the line being kept. Lines omitted from the request are removed.</summary>
-    public int LineNum { get; set; }
+    /// <summary>
+    /// SAP LineNum of the line being kept. Lines omitted from the request are removed. Null for a
+    /// line being added, which then names its <see cref="ItemCode"/>.
+    /// </summary>
+    public int? LineNum { get; set; }
+
+    /// <summary>The item a new line asks for. Ignored on a kept line, whose item cannot change.</summary>
+    [MaxLength(50)]
+    public string? ItemCode { get; set; }
 
     [Range(0.00001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero")]
     public decimal Quantity { get; set; }
@@ -44,7 +51,8 @@ public class EditTransferRequestLineDto
 /// </summary>
 public class TransferRequestEditLineDto
 {
-    public int LineNum { get; set; }
+    /// <summary>The line's SAP LineNum; null for a line the change adds.</summary>
+    public int? LineNum { get; set; }
     public string? ItemCode { get; set; }
     public string? ItemDescription { get; set; }
     public decimal Quantity { get; set; }

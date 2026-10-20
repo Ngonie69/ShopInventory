@@ -26,6 +26,7 @@ using ShopInventory.Features.InventoryTransfers.Queries.GetPagedTransferRequests
 using ShopInventory.Features.InventoryTransfers.Queries.GetPagedTransfers;
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransferByDocEntry;
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestByDocEntry;
+using ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestStock;
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestsByWarehouse;
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByDate;
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByDateRange;
@@ -388,6 +389,26 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
                 ? Ok(value)
                 : CreatedAtAction(nameof(GetInventoryTransferByDocEntry), new { docEntry = value.Transfer.DocEntry }, value),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What the source warehouse holds of each item on a request, read live from SAP, less what
+    /// tills have sold there that SAP does not have yet. fromWarehouse checks every line against
+    /// another warehouse; each item names one more item code to read that is not on the request yet.
+    /// </summary>
+    [HttpGet("request/{docEntry:int}/stock")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [ProducesResponseType(typeof(TransferRequestStockResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetTransferRequestStock(
+        int docEntry,
+        [FromQuery] string? fromWarehouse,
+        [FromQuery(Name = "item")] string[]? items,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new GetTransferRequestStockQuery(docEntry, fromWarehouse, items?.Take(50).ToList()), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>

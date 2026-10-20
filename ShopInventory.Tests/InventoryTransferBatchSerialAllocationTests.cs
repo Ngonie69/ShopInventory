@@ -271,6 +271,45 @@ public sealed class InventoryTransferBatchSerialAllocationTests
     }
 
     [Fact]
+    public async Task Editing_a_request_replaces_its_lines_so_a_removed_line_goes()
+    {
+        // A PATCH merges collections unless told otherwise: a line left out was kept, so a line the
+        // user removed stayed on the request in SAP.
+        var sap = new AllocationServiceLayer
+        {
+            TransferRequest = """
+                {"DocEntry":55,"DocNum":900,"FromWarehouse":"WH-1","ToWarehouse":"WH-2","DocumentStatus":"bost_Open",
+                 "StockTransferLines":[{"LineNum":0,"ItemCode":"ITEM-A","Quantity":2,"FromWarehouseCode":"WH-1","WarehouseCode":"WH-2"}]}
+                """
+        };
+        var client = CreateClient(sap);
+
+        await client.UpdateInventoryTransferRequestAsync(
+            55,
+            [
+                new TransferRequestLineChange(0, "ITEM-A", 1m),
+                new TransferRequestLineChange(null, "ITEM-B", 3m, "WH-1", "WH-2")
+            ]);
+
+        Assert.Equal("true", sap.PatchReplacesCollections);
+        using var patch = JsonDocument.Parse(sap.PatchedRequest!);
+        var lines = patch.RootElement.GetProperty("StockTransferLines");
+        Assert.Equal(2, lines.GetArrayLength());
+
+        Assert.Equal(0, lines[0].GetProperty("LineNum").GetInt32());
+        Assert.Equal(1m, lines[0].GetProperty("Quantity").GetDecimal());
+        // A kept line keeps its item, and is not moved unless the request is.
+        Assert.False(lines[0].TryGetProperty("ItemCode", out _));
+        Assert.False(lines[0].TryGetProperty("FromWarehouseCode", out _));
+
+        // A new line has no LineNum, which is how SAP knows to add it.
+        Assert.False(lines[1].TryGetProperty("LineNum", out _));
+        Assert.Equal("ITEM-B", lines[1].GetProperty("ItemCode").GetString());
+        Assert.Equal("WH-1", lines[1].GetProperty("FromWarehouseCode").GetString());
+        Assert.Equal("WH-2", lines[1].GetProperty("WarehouseCode").GetString());
+    }
+
+    [Fact]
     public async Task Explicit_batch_selection_beyond_the_warehouse_quantity_is_rejected()
     {
         var sap = new AllocationServiceLayer
@@ -564,6 +603,10 @@ public sealed class InventoryTransferBatchSerialAllocationTests
         public (HttpStatusCode Status, string Body)? BatchReadError { get; init; }
 
         public int SingleItemReads { get; private set; }
+
+        /// <summary>The body of the last PATCH to a transfer request, and its replace-collections header.</summary>
+        public string? PatchedRequest { get; private set; }
+        public string? PatchReplacesCollections { get; private set; }
         public int TransferPosts { get; private set; }
         public string? PostedTransfer { get; private set; }
 
@@ -611,6 +654,15 @@ public sealed class InventoryTransferBatchSerialAllocationTests
 
             if (target.Contains("/InventoryTransferRequests(", StringComparison.Ordinal))
             {
+                if (request.Method == HttpMethod.Patch)
+                {
+                    PatchedRequest = await request.Content!.ReadAsStringAsync(cancellationToken);
+                    PatchReplacesCollections = request.Headers.TryGetValues("B1S-ReplaceCollectionsOnPatch", out var values)
+                        ? string.Join(",", values)
+                        : null;
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+
                 if (target.EndsWith("/Close", StringComparison.Ordinal))
                 {
                     return new HttpResponseMessage(HttpStatusCode.NoContent);

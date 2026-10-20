@@ -124,6 +124,79 @@ public sealed class TransferRequestEditTests : IDisposable
     }
 
     [Fact]
+    public void A_line_may_be_added()
+    {
+        var document = Document(("ITEM-1", 10m));
+
+        var (lines, error) = TransferRequestEditMapper.BuildProposedLines(document,
+            [Keep(0, 10m), Add(" ITEM-9 ", 3m)]);
+
+        Assert.Null(error);
+        Assert.Equal(2, lines!.Count);
+        Assert.Null(lines[1].LineNum);
+        Assert.Equal("ITEM-9", lines[1].ItemCode);
+        Assert.Equal(3m, lines[1].Quantity);
+        Assert.False(TransferRequestEditMapper.IsNoOp(TransferRequestEditMapper.FromDocument(document), lines));
+    }
+
+    [Fact]
+    public void An_added_line_must_name_its_item()
+    {
+        var document = Document(("ITEM-1", 10m));
+
+        var (lines, error) = TransferRequestEditMapper.BuildProposedLines(document, [Keep(0, 10m), Add(" ", 3m)]);
+
+        Assert.Null(lines);
+        Assert.Contains("must name its item", error);
+    }
+
+    [Fact]
+    public void An_added_line_needs_a_quantity()
+    {
+        var document = Document(("ITEM-1", 10m));
+
+        var (lines, error) = TransferRequestEditMapper.BuildProposedLines(document, [Keep(0, 10m), Add("ITEM-9", 0m)]);
+
+        Assert.Null(lines);
+        Assert.Contains("ITEM-9 needs a quantity", error);
+    }
+
+    [Fact]
+    public void An_item_the_request_keeps_cannot_be_added_again()
+    {
+        // It would post as two lines of one item; the kept line's quantity is where more goes.
+        var document = Document(("ITEM-1", 10m));
+
+        var (lines, error) = TransferRequestEditMapper.BuildProposedLines(document, [Keep(0, 10m), Add("item-1", 2m)]);
+
+        Assert.Null(lines);
+        Assert.Contains("already on line 0", error);
+    }
+
+    [Fact]
+    public void An_item_removed_from_one_line_may_be_added_as_a_new_one()
+    {
+        var document = Document(("ITEM-1", 10m), ("ITEM-2", 4m));
+
+        var (lines, error) = TransferRequestEditMapper.BuildProposedLines(document, [Keep(1, 4m), Add("ITEM-1", 2m)]);
+
+        Assert.Null(error);
+        Assert.Equal(2, lines!.Count);
+    }
+
+    [Fact]
+    public void Only_new_lines_are_given_warehouses_to_write()
+    {
+        var (lines, _) = TransferRequestEditMapper.BuildProposedLines(
+            Document(("ITEM-1", 10m)), [Keep(0, 10m), Add("ITEM-9", 3m)]);
+
+        var sapLines = TransferRequestEditMapper.ToSapLines(lines!, "CORMACH", "KEFBYC");
+
+        Assert.Equal(new TransferRequestLineChange(0, "ITEM-1", 10m), sapLines[0]);
+        Assert.Equal(new TransferRequestLineChange(null, "ITEM-9", 3m, "CORMACH", "KEFBYC"), sapLines[1]);
+    }
+
+    [Fact]
     public void A_change_that_changes_nothing_is_recognised()
     {
         var document = Document(("ITEM-1", 10m), ("ITEM-2", 4m));
@@ -394,6 +467,59 @@ public sealed class TransferRequestEditTests : IDisposable
         Assert.Contains("VAN010", edit.LastError);
     }
 
+    [Fact]
+    public async Task An_added_line_reaches_sap_with_the_request_s_warehouses()
+    {
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "CORMACH");
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m), ("ITEM-2", 4m)));
+
+        var result = await Handler(sap).Handle(
+            Edit(user.Id, lines: [Keep(0, 10m), Add("ITEM-9", 3m)]), default);
+
+        Assert.False(result.IsError);
+        // ITEM-2 is left out, so it is not sent; SAP drops it because the collection is replaced.
+        Assert.Equal(
+            new[]
+            {
+                new TransferRequestLineChange(0, "ITEM-1", 10m),
+                new TransferRequestLineChange(null, "ITEM-9", 3m, "CORMACH", "KEFBYC")
+            },
+            sap.LastLines);
+    }
+
+    [Fact]
+    public async Task An_added_line_on_a_moved_request_takes_the_new_source()
+    {
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "CORMACH", "VAN010");
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m)));
+
+        var result = await Handler(sap).Handle(
+            Edit(user.Id, fromWarehouse: "VAN010", lines: [Keep(0, 10m), Add("ITEM-9", 3m)]), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal(new TransferRequestLineChange(null, "ITEM-9", 3m, "VAN010", "KEFBYC"), sap.LastLines![1]);
+    }
+
+    [Fact]
+    public async Task An_approved_change_that_adds_a_line_reaches_sap()
+    {
+        // A held change carries its added line through the wait, and the applier must not read the
+        // missing LineNum as a line the request lost.
+        var proposer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
+        var edit = await AddHeldEditAsync(proposer);
+        var (proposed, _) = TransferRequestEditMapper.BuildProposedLines(
+            Document(("ITEM-1", 10m)), [Keep(0, 8m), Add("ITEM-9", 3m)]);
+        edit.ProposedLinesJson = TransferRequestEditMapper.Serialize(proposed!);
+        await _context.SaveChangesAsync();
+
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m)));
+        var applied = await Applier(sap).ApplyAsync(edit, proposer.Id, default);
+
+        Assert.False(applied.IsError);
+        Assert.Equal(PendingTransferRequestEditStatuses.Applied, edit.Status);
+        Assert.Equal(new TransferRequestLineChange(null, "ITEM-9", 3m, "CORMACH", "KEFBYC"), sap.LastLines![1]);
+    }
+
     // ── Approval routing for held changes ───────────────
 
     [Fact]
@@ -468,6 +594,9 @@ public sealed class TransferRequestEditTests : IDisposable
 
     private static EditTransferRequestLineDto Keep(int lineNum, decimal quantity) =>
         new() { LineNum = lineNum, Quantity = quantity };
+
+    private static EditTransferRequestLineDto Add(string itemCode, decimal quantity) =>
+        new() { LineNum = null, ItemCode = itemCode, Quantity = quantity };
 
     private static InventoryTransferRequest Document(params (string ItemCode, decimal Quantity)[] lines) => new()
     {
@@ -563,6 +692,7 @@ public sealed class TransferRequestEditTests : IDisposable
         public int Updates { get; private set; }
         public string? LastFromWarehouse { get; private set; }
         public string? LastToWarehouse { get; private set; }
+        public IReadOnlyList<TransferRequestLineChange>? LastLines { get; private set; }
 
         public ISAPServiceLayerClient AsClient() =>
             StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
@@ -570,13 +700,15 @@ public sealed class TransferRequestEditTests : IDisposable
                 nameof(ISAPServiceLayerClient.GetInventoryTransferRequestByDocEntryAsync) =>
                     (object)Task.FromResult<InventoryTransferRequest?>(document),
                 nameof(ISAPServiceLayerClient.UpdateInventoryTransferRequestAsync) =>
-                    Update((string?)args![2], (string?)args[3]),
+                    Update((IReadOnlyList<TransferRequestLineChange>)args![1], (string?)args[2], (string?)args[3]),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
 
-        private Task<InventoryTransferRequest> Update(string? fromWarehouse, string? toWarehouse)
+        private Task<InventoryTransferRequest> Update(
+            IReadOnlyList<TransferRequestLineChange> lines, string? fromWarehouse, string? toWarehouse)
         {
             Updates++;
+            LastLines = lines;
             LastFromWarehouse = fromWarehouse;
             LastToWarehouse = toWarehouse;
             return Task.FromResult(document);

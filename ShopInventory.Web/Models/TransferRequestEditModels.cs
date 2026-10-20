@@ -24,8 +24,13 @@ public class EditTransferRequestRequest
 
 public class EditTransferRequestLineRequest
 {
+    /// <summary>The kept line's SAP LineNum; null for a line being added.</summary>
     [JsonPropertyName("lineNum")]
-    public int LineNum { get; set; }
+    public int? LineNum { get; set; }
+
+    /// <summary>The item a new line asks for. Ignored by the API on a kept line.</summary>
+    [JsonPropertyName("itemCode")]
+    public string? ItemCode { get; set; }
 
     [JsonPropertyName("quantity")]
     public decimal Quantity { get; set; }
@@ -33,8 +38,9 @@ public class EditTransferRequestLineRequest
 
 public class TransferRequestEditLineDto
 {
+    /// <summary>Null for a line the change adds.</summary>
     [JsonPropertyName("lineNum")]
-    public int LineNum { get; set; }
+    public int? LineNum { get; set; }
 
     [JsonPropertyName("itemCode")]
     public string? ItemCode { get; set; }

@@ -1358,6 +1358,17 @@
     margin-top: .6rem;
 }
 
+/* The available figure of a line asking for more than the source can give. */
+.itx-lines td.itx-avail-short {
+    color: var(--itx-err);
+    font-weight: 600;
+}
+
+/* The footer's question when a conversion is about to post short lines. */
+.itx-drawer-foot .itx-note.itx-note-err {
+    color: var(--itx-err);
+}
+
 /* A line asking for more than the source warehouse holds, while its quantity is
    being edited: the figure in stock and the one-click way to take it. */
 .itx-lines .itx-short {

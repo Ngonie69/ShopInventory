@@ -13212,13 +13212,15 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     /// </remarks>
     public async Task<InventoryTransferRequest> UpdateInventoryTransferRequestAsync(
         int docEntry,
-        IReadOnlyList<(int LineNum, decimal Quantity)> lines,
+        IReadOnlyList<TransferRequestLineChange> lines,
         string? fromWarehouse = null,
         string? toWarehouse = null,
         CancellationToken cancellationToken = default)
     {
         if (lines.Count == 0)
             throw new InvalidOperationException("A transfer request must keep at least one line.");
+        if (lines.Any(line => line.IsNew && string.IsNullOrWhiteSpace(line.ItemCode)))
+            throw new InvalidOperationException("A line added to a transfer request must name its item.");
 
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
@@ -13231,13 +13233,15 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             ["StockTransferLines"] = lines
                 .Select(line =>
                 {
-                    var linePayload = new Dictionary<string, object>
-                    {
-                        ["LineNum"] = line.LineNum,
-                        ["Quantity"] = line.Quantity
-                    };
-                    if (newFromWarehouse is not null) linePayload["FromWarehouseCode"] = newFromWarehouse;
-                    if (newToWarehouse is not null) linePayload["WarehouseCode"] = newToWarehouse;
+                    // A line with no LineNum is one SAP adds; a kept line is matched on its LineNum.
+                    var linePayload = new Dictionary<string, object> { ["Quantity"] = line.Quantity };
+                    if (line.LineNum is { } lineNum) linePayload["LineNum"] = lineNum;
+                    if (line.IsNew) linePayload["ItemCode"] = line.ItemCode!.Trim();
+
+                    var lineFrom = newFromWarehouse ?? Blank(line.FromWarehouseCode);
+                    var lineTo = newToWarehouse ?? Blank(line.ToWarehouseCode);
+                    if (lineFrom is not null) linePayload["FromWarehouseCode"] = lineFrom;
+                    if (lineTo is not null) linePayload["WarehouseCode"] = lineTo;
                     return linePayload;
                 })
                 .ToList()
@@ -13247,34 +13251,38 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         if (newToWarehouse is not null) payload["ToWarehouse"] = newToWarehouse;
 
         var jsonPayload = JsonSerializer.Serialize(payload);
+        static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
         _logger.LogInformation(
-            "Updating inventory transfer request {DocEntry} to {LineCount} line(s){WarehouseChange}",
-            docEntry, lines.Count,
+            "Updating inventory transfer request {DocEntry} to {LineCount} line(s), {NewLineCount} new{WarehouseChange}",
+            docEntry, lines.Count, lines.Count(line => line.IsNew),
             newFromWarehouse is null && newToWarehouse is null
                 ? string.Empty
                 : $", reassigning to {newFromWarehouse ?? "(unchanged)"} → {newToWarehouse ?? "(unchanged)"}");
 
         var url = $"InventoryTransferRequests({docEntry})";
 
-        HttpRequestMessage BuildRequest() => new(HttpMethod.Patch, url)
+        // Without this header a PATCH merges collections: listed lines are updated and new ones
+        // appended, but a line left out is kept, so a line the user removed stayed on the request.
+        // Replacing the collection is what makes "the complete set" above true.
+        HttpRequestMessage BuildRequest()
         {
-            Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
-        };
+            var message = new HttpRequestMessage(HttpMethod.Patch, url)
+            {
+                Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
+            };
+            message.Headers.Add("B1S-ReplaceCollectionsOnPatch", "true");
+            message.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return message;
+        }
 
-        var request = BuildRequest();
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
+        var response = await _httpClient.SendAsync(BuildRequest(), cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-            request = BuildRequest();
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+            response = await _httpClient.SendAsync(BuildRequest(), cancellationToken);
         }
 
         if (!response.IsSuccessStatusCode)
