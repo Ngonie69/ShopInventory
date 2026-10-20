@@ -142,10 +142,7 @@
                             <span class="fxt-row-van"><span class="fxt-tag">@transfer.DestinationWarehouseCode</span></span>
                             <span class="fxt-row-rep">@transfer.SentByName</span>
                             <span class="fxt-row-products">
-                                <span class="fxt-row-item">
-                                    <span class="fxt-row-name">@transfer.DepartmentName @DirectionWord(transfer.Direction)</span>
-                                    <span class="fxt-row-more">@transfer.SourceWarehouseCode → @transfer.HoldingWarehouseCode → @transfer.DestinationWarehouseCode</span>
-                                </span>
+                                <span class="fxt-row-name">@transfer.DepartmentName @DirectionWord(transfer.Direction) · @transfer.SourceWarehouseCode → @transfer.DestinationWarehouseCode</span>
                                 <span class="fxt-row-summary @SummaryModifier(transfer)">@RowSummary(transfer)</span>
                             </span>
                             <span class="fxt-row-units fxt-right">@QuantityDisplay.Format(transfer.TotalQuantity)</span>
