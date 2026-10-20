@@ -68,7 +68,6 @@
     --tfm-shadow-a: .14;
     /* The select caret, whole: a var() inside the data URL's quoted string
        would not be substituted, so each theme carries the finished image. */
-    --tfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 2l4.5 4.5L10.5 2' fill='none' stroke='%236b6d84' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     --tfm-bloom: radial-gradient(760px 380px at 6% -8%, rgba(109, 95, 196, .10), transparent 70%);
     --tfm-scheme: light;
 
@@ -113,7 +112,6 @@
     --tfm-on-solid-ring: rgba(22, 24, 38, .25);
     --tfm-shadow-rgb: 0, 0, 0;
     --tfm-shadow-a: .55;
-    --tfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 2l4.5 4.5L10.5 2' fill='none' stroke='%239397ab' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     --tfm-bloom: radial-gradient(760px 380px at 6% -8%, rgba(145, 132, 217, .13), transparent 70%);
     --tfm-scheme: dark;
 }
@@ -621,7 +619,6 @@
 }
 
 .tfm .tfm-input,
-.tfm .tfm-select,
 .tfm .tfm-area {
     width: 100%;
     background: var(--tfm-field);
@@ -635,13 +632,6 @@
     appearance: none;
     -webkit-appearance: none;
     transition: border-color .15s;
-}
-
-.tfm .tfm-select {
-    padding-right: 28px;
-    background-image: var(--tfm-caret);
-    background-repeat: no-repeat;
-    background-position: right 10px center;
 }
 
 .tfm .tfm-area {
@@ -668,14 +658,29 @@
     --ndf-radius: 8px;
 }
 
+/* The From and To warehouses are NocturnePicker, not native selects: the
+   native popup is a platform window this sheet cannot reach, so it opened as a
+   white Windows list over the dark form, and the whole warehouse master could
+   only be searched by scrolling. The picker searches on code or name. Only the closed
+   trigger is fitted here, to the same 37px as the inputs and date fields
+   beside it; the menu is the shared one in nocturne-picker.css. */
+.tfm {
+    --npick-h: 37px;
+    --npick-pad-y: 9px;
+    --npick-pad-x: 11px;
+    --npick-fs: 13.5px;
+    --npick-fill: var(--tfm-field);
+    --npick-edge: var(--tfm-field-edge);
+    --npick-edge-hi: var(--tfm-field-edge-hi);
+    --npick-radius: 8px;
+}
+
 .tfm .tfm-input:hover:not(:disabled):not([readonly]),
-.tfm .tfm-select:hover:not(:disabled),
 .tfm .tfm-area:hover:not(:disabled) {
     border-color: var(--tfm-field-edge-hi);
 }
 
 .tfm .tfm-input:focus,
-.tfm .tfm-select:focus,
 .tfm .tfm-area:focus {
     border-color: var(--tfm-accent);
     outline: none;
@@ -689,14 +694,12 @@
 }
 
 .tfm .tfm-input:disabled,
-.tfm .tfm-select:disabled,
 .tfm .tfm-area:disabled {
     opacity: .55;
     cursor: not-allowed;
 }
 
-.tfm .tfm-input.is-bad,
-.tfm .tfm-select.is-bad {
+.tfm .tfm-input.is-bad {
     border-color: var(--tfm-bad);
 }
 
