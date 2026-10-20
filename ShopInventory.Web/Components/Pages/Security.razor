@@ -206,7 +206,7 @@
                         <li class="sec-layer sec-layer-on">&#10003; Password</li>
                         <li class="sec-layer @(twoFactorOn ? "sec-layer-on" : "")">@(twoFactorOn ? "✓" : "○") Two-factor</li>
                         <li class="sec-layer @(codesLeft > 0 ? "sec-layer-on" : "")">@(codesLeft > 0 ? "✓" : "○") Backup codes</li>
-                        <li class="sec-layer @(passkeys.Any() ? "sec-layer-on" : "")">@(passkeys.Any() ? "✓" : "○") Passkey</li>
+                        <li class="sec-layer @(passkeys.Any() ? "sec-layer-on" : "")">@(passkeys.Any() ? "✓ Passkey" : "Passkey · optional")</li>
                     </ul>
                     @if (next is { } step)
                     {
@@ -410,7 +410,7 @@
                                         <div class="sec-method-name">
                                             Passkeys
                                             <span class="sec-badge @(passkeys.Any() ? "sec-fam-good" : "sec-fam-neutral")">
-                                                @(passkeys.Any() ? $"{passkeys.Count} registered" : "None yet")
+                                                @(passkeys.Any() ? $"{passkeys.Count} registered" : "Optional")
                                             </span>
                                         </div>
                                         <div class="sec-method-desc">
@@ -630,7 +630,7 @@
                     <section class="sec-panel sec-checklist" aria-labelledby="secChecklistTitle">
                         <div class="sec-checklist-head">
                             <h2 id="secChecklistTitle">Checklist</h2>
-                            <span>@((twoFactorOn ? 1 : 0) + (codesLeft > 0 ? 1 : 0) + (passkeys.Any() ? 1 : 0)) of 3 in place</span>
+                            <span>@((twoFactorOn ? 1 : 0) + (codesLeft > 0 ? 1 : 0)) of 2 in place</span>
                         </div>
                         <ul class="sec-checks">
                             <li class="sec-check @(twoFactorOn ? "sec-check-on" : "")">
@@ -653,14 +653,15 @@
                                     <span class="sec-check-sub">The way back in if the phone is gone</span>
                                 </span>
                             </li>
-                            <li class="sec-check @(passkeys.Any() ? "sec-check-on" : "")">
+                            @* Optional, so it sits outside the count above and never becomes a next step. *@
+                            <li class="sec-check sec-check-optional @(passkeys.Any() ? "sec-check-on" : "")">
                                 <span class="sec-check-mark" aria-hidden="true">
                                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                          stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
                                 </span>
                                 <span class="sec-check-text">
-                                    <span class="sec-check-title">At least one passkey</span>
-                                    <span class="sec-check-sub">Nothing to phish if there is no password to type</span>
+                                    <span class="sec-check-title">A passkey <span class="sec-check-tag">Optional</span></span>
+                                    <span class="sec-check-sub">A quicker sign-in on a device that supports it. Not required.</span>
                                 </span>
                             </li>
                         </ul>
@@ -1444,7 +1445,7 @@ confirmPassword);
     }
 
     // The one thing the posture panel points at, weakest layer first. Null when
-    // every layer the page can check is in place.
+    // every required layer is in place; a passkey is optional and never a step.
     private sealed record PostureStep(string Title, string Sub, string Action, string Family, Func<Task> Act);
 
     private PostureStep? NextStep(int score)
@@ -1471,11 +1472,6 @@ confirmPassword);
             return new PostureStep("Top up backup codes",
                 $"Only {codesLeft} left. A new set replaces them all.",
                 "Regenerate", "sec-fam-info", () => { ShowRegenerateBackupCodes(); return Task.CompletedTask; });
-
-        if (!passkeys.Any())
-            return new PostureStep("Add a passkey",
-                "Sign in with the device itself — nothing to phish if there is no password to type.",
-                "Add passkey", "sec-fam-info", () => { openRow = "passkey"; return Task.CompletedTask; });
 
         return null;
     }
@@ -1531,9 +1527,10 @@ confirmPassword);
 
     private int CalculateSecurityScore()
     {
+        // A passkey is optional, so it earns nothing: two-factor and a full set
+        // of backup codes already reach 100.
         var score = 30; // Base score for having an account
         if (twoFactorStatus?.IsEnabled == true) score += 40;
-        if (passkeys.Any()) score += 20;
         if (twoFactorStatus?.BackupCodesRemaining > 0) score += 15;
         if (twoFactorStatus?.BackupCodesRemaining >= 5) score += 5;
         if (recentActivity.All(a => a.IsSuccess)) score += 10;
