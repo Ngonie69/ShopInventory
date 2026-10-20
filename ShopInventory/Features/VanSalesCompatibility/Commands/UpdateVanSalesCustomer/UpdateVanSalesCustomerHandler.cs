@@ -105,6 +105,9 @@ public sealed class UpdateVanSalesCustomerHandler(
             ? null
             : await businessPartnerService.GetBusinessPartnerByCodeAsync(assignedBusinessPartnerCode, cancellationToken);
 
-        return VanSalesCompatibilityMapper.MapShop(user, updated, partner);
+        var accountPricesItself = await VanSalesRouteCustomerScope.AccountPricesItselfAsync(
+            db, assignedBusinessPartnerCode, cancellationToken);
+
+        return VanSalesCompatibilityMapper.MapShop(user, updated, partner, accountPricesItself);
     }
 }

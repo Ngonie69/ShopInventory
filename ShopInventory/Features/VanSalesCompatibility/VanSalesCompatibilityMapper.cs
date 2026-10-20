@@ -102,7 +102,25 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
-    public static VanSalesShopDto MapShop(User user, RouteCustomerEntity customer, BusinessPartnerDto? partner)
+    /// <summary>
+    /// A web-app customer, priced as the van account the rep sells under.
+    /// </summary>
+    /// <param name="accountPricesItself">
+    /// The account has a synced price profile, so the API prices the van from the account's own list.
+    /// </param>
+    /// <remarks>
+    /// <c>price_list</c> is left blank when the account prices itself. The handset files its stored
+    /// catalogue under the account and the list it sends, and its own reads — the dashboard, the stock
+    /// screen, a load landing — send the account alone. A list number here made every route customer a
+    /// different key from those reads for identical prices, so a rep who opened a sale without signal,
+    /// or whose read failed, had every price withheld and could not submit (VAN018, 2026-10-20). The
+    /// number is still sent for an account with no profile, because there it is what prices the van.
+    /// </remarks>
+    public static VanSalesShopDto MapShop(
+        User user,
+        RouteCustomerEntity customer,
+        BusinessPartnerDto? partner,
+        bool accountPricesItself)
     {
         var assignedBusinessPartnerCode = user.AssignedBusinessPartnerCode?.Trim() ?? string.Empty;
 
@@ -117,7 +135,9 @@ public static partial class VanSalesCompatibilityMapper
             Address = customer.Address ?? string.Empty,
             BpNumber = assignedBusinessPartnerCode,
             VatNumber = customer.VatNumber ?? string.Empty,
-            PriceList = partner?.PriceListName ?? partner?.PriceListNum?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            PriceList = accountPricesItself
+                ? string.Empty
+                : partner?.PriceListName ?? partner?.PriceListNum?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
             Branch = ResolveBranch(user, partner),
             Status = customer.IsActive ? 1 : 0,
             CreatedAt = customer.CreatedAt.ToString("O", CultureInfo.InvariantCulture)

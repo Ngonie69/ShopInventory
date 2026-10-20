@@ -39,6 +39,27 @@ public static class VanSalesRouteCustomerScope
     }
 
     /// <summary>
+    /// Whether the API prices a van from the account's own list — the test
+    /// <c>LocalPriceCatalogService.GetBusinessPartnerPricingAsync</c> applies. Where it holds, a list
+    /// number sent beside the account is never read. See <c>VanSalesCompatibilityMapper.MapShop</c>.
+    /// </summary>
+    public static async Task<bool> AccountPricesItselfAsync(
+        ApplicationDbContext db,
+        string? assignedBusinessPartnerCode,
+        CancellationToken cancellationToken)
+    {
+        var cardCode = assignedBusinessPartnerCode?.Trim();
+        if (string.IsNullOrWhiteSpace(cardCode))
+        {
+            return false;
+        }
+
+        return await db.BusinessPartnerPriceProfiles
+            .AsNoTracking()
+            .AnyAsync(profile => profile.SyncedFromSAP && profile.CardCode == cardCode, cancellationToken);
+    }
+
+    /// <summary>
     /// Finds one customer a business partner may invoice, by code, or null if it may not.
     /// </summary>
     /// <remarks>
