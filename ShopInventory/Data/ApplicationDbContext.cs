@@ -245,6 +245,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<SaleInvoiceCostEntity> SaleInvoiceCosts { get; set; }
   public DbSet<SaleInvoiceCostLineEntity> SaleInvoiceCostLines { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
+  public DbSet<TransferArrivalNoticeEntity> TransferArrivalNotices { get; set; }
 
   /// <summary>
   /// Every movement of the stock ledger, append-only. The running figure on a snapshot row says
@@ -2327,6 +2328,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     modelBuilder.Entity<StockTransferAdjustmentEntity>(entity =>
     {
       entity.ToTable("StockTransferAdjustments");
+      entity.HasKey(e => e.Id);
+    });
+
+    // Transfers into till warehouses the tills there have been told about
+    modelBuilder.Entity<TransferArrivalNoticeEntity>(entity =>
+    {
+      entity.ToTable("TransferArrivalNotices");
       entity.HasKey(e => e.Id);
     });
 

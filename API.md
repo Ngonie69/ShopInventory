@@ -3588,6 +3588,15 @@ the short one.
 A hub is not a REST endpoint — connect with a SignalR client, not with `GET`. See
 [Notifications](#25-notifications) for the REST side of the same feature.
 
+A client joins `warehouse:{CODE}` for each `warehouse` claim on its token, so a till joins its
+shop's or vending account's warehouse. Every two minutes the `transfer-arrival-alert` job reads the
+SAP stock transfers created yesterday and today into those warehouses. For each transfer that moves
+at least one item in, it sends `ReceiveNotification` (a `NotificationDto`, category
+`InventoryTransfer`, `entityId` the transfer's DocEntry) to that warehouse's group, once per
+transfer and warehouse (`TransferArrivalNotices`). This covers transfers raised anywhere, including
+straight in SAP. These alerts are not stored as notifications, so a till that is closed when one is
+sent misses it; the transfer still appears in its transfer list.
+
 ---
 
 ### 34. Van Sales

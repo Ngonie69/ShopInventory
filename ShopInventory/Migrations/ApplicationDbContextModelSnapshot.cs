@@ -7350,6 +7350,46 @@ namespace ShopInventory.Migrations
                     b.ToTable("TimesheetEntries", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.TransferArrivalNoticeEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("AnnouncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ItemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SourceWarehouse")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("TransferDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TransferDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TransferDocEntry", "WarehouseCode")
+                        .IsUnique();
+
+                    b.ToTable("TransferArrivalNotices", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.UserPasswordHistoryEntity", b =>
                 {
                     b.Property<long>("Id")
