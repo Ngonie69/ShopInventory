@@ -1337,6 +1337,21 @@
     color: var(--sec-on-accent);
 }
 
+/* An optional item: a dashed box until it is done, so an empty one does not
+   read as something missing. */
+.sec-check-optional:not(.sec-check-on) .sec-check-mark {
+    border-style: dashed;
+}
+
+.sec-check-tag {
+    margin-left: 6px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--sec-mute-3);
+}
+
 .sec-check-text {
     display: flex;
     flex-direction: column;
