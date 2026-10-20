@@ -655,6 +655,7 @@ public sealed class FactoryTransferTests : IDisposable
         Assert.Equal("PROYG 2", Assert.Single(posted.Lines!).ToWarehouseCode);
         Assert.StartsWith("FT-000001 Washbay issue WASHBAY to PROYG 2", posted.Comments);
         Assert.Empty(_notifications);
+        Assert.Equal($"FT-000001 posted. SAP transfer #{FakeSap.FirstDocNum} moved it from WASHBAY to PROYG 2.", result.Value.Message);
     }
 
     [Fact]

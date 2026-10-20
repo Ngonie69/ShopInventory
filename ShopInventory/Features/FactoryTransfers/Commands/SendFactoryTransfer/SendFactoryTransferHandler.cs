@@ -174,8 +174,11 @@ public sealed class SendFactoryTransferHandler(
         var detail = await FactoryTransferReader.ReadDetailAsync(context, transfer.Id, actor, CancellationToken.None);
         return new FactoryTransferActionResultDto
         {
-            Message = $"{transfer.Number} sent. SAP transfer #{posted.Value.OutSapDocNum} moved it into "
-                + $"{transfer.HoldingWarehouseCode}; it waits there for {transfer.DestinationWarehouseCode} to accept it.",
+            Message = FactoryTransferDirections.IsDirect(transfer.Direction)
+                ? $"{transfer.Number} posted. SAP transfer #{posted.Value.OutSapDocNum} moved it from "
+                    + $"{transfer.SourceWarehouseCode} to {transfer.DestinationWarehouseCode}."
+                : $"{transfer.Number} sent. SAP transfer #{posted.Value.OutSapDocNum} moved it into "
+                    + $"{transfer.HoldingWarehouseCode}; it waits there for {transfer.DestinationWarehouseCode} to accept it.",
             Transfer = detail!
         };
     }

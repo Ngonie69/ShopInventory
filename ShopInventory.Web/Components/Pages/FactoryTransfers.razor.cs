@@ -667,7 +667,9 @@ public partial class FactoryTransfers : IDisposable
             if (sendLines.Any(line => line.Quantity is null)) return "Enter a quantity on every line.";
             if (sendLines.Any(line => line.Quantity > line.Available)) return "A quantity is more than is in stock.";
             if (string.IsNullOrWhiteSpace(sendReason)) return "Say why it is being sent.";
-            return $"{sendLines.Count} product(s) to {SendHolding}, for {sendDestination}.";
+            return IsDirectRoute
+                ? $"{sendLines.Count} product(s), posted to {sendDestination} at once."
+                : $"{sendLines.Count} product(s) to {SendHolding}, for {sendDestination}.";
         }
     }
 
@@ -710,9 +712,11 @@ public partial class FactoryTransfers : IDisposable
             }
 
             Snackbar.Add(result.Value.Message, Severity.Success);
+            // A washbay move is settled as it posts, so it is never open: show it where it now is.
+            var settled = IsDirectRoute;
             ResetSendForm();
             sendOpen = false;
-            view = Open;
+            view = settled ? All : Open;
             currentPage = 1;
             await LoadAsync();
         }

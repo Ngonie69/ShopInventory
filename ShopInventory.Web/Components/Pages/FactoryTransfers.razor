@@ -302,10 +302,13 @@
                                 <div class="ops-def-k">SAP out</div>
                                 <div class="ops-def-v">@(summary.OutSapDocNum > 0 ? $"#{summary.OutSapDocNum}" : "Not posted")</div>
                             </div>
-                            <div>
-                                <div class="ops-def-k">SAP in</div>
-                                <div class="ops-def-v">@(summary.InSapDocNum > 0 ? $"#{summary.InSapDocNum}" : "Not posted")</div>
-                            </div>
+                            @if (!FactoryTransferStatus.IsDirect(summary.Direction))
+                            {
+                                <div>
+                                    <div class="ops-def-k">SAP in</div>
+                                    <div class="ops-def-v">@(summary.InSapDocNum > 0 ? $"#{summary.InSapDocNum}" : "Not posted")</div>
+                                </div>
+                            }
                             @if (!string.IsNullOrWhiteSpace(summary.VehiclePlate))
                             {
                                 <div>
@@ -323,7 +326,7 @@
                                     <div class="ops-def-v">#@summary.SourceRequestDocNum</div>
                                 </div>
                             }
-                            @if (summary.DecidedAtUtc is DateTime decidedAt && !string.IsNullOrWhiteSpace(summary.DecidedByName))
+                            @if (!FactoryTransferStatus.IsDirect(summary.Direction) && summary.DecidedAtUtc is DateTime decidedAt && !string.IsNullOrWhiteSpace(summary.DecidedByName))
                             {
                                 <div>
                                     <div class="ops-def-k">@DecidedLabel(summary)</div>
@@ -619,7 +622,7 @@
                     <div class="ops-ds-block">
                         <label class="fxt-dlabel" for="fxt-reason">
                             <span class="ops-def-k">Reason</span>
-                            <span class="ops-sub">goes on both SAP transfers</span>
+                            <span class="ops-sub">@(IsDirectRoute ? "goes on the SAP transfer" : "goes on both SAP transfers")</span>
                         </label>
                         <textarea id="fxt-reason" class="ops-input" rows="2" maxlength="500"
                                   placeholder="@(IsTruck ? "e.g. Graniteside order" : SelectedRoute?.Direction == FactoryTransferStatus.DepotReturn ? "e.g. Over-supplied, not needed this week" : "e.g. End of shift 2 release")"

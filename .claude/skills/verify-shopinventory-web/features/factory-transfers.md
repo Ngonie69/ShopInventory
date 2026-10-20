@@ -20,6 +20,11 @@ warehouses on the account.
   warehouse holding most of each item. The DepotController for that depot accepts it; short lines go
   back to each line's own dispatch warehouse. A depot can also return stock from its centre or shop.
 
+- Washbay: the WashBay role holds WASHBAY here. "WASHBAY · Washbay issue" sends crates and buckets to a
+  production or dispatch warehouse or WAREH; "<warehouse> · Washbay receipt" takes them in from
+  production, dispatch, RETURNS or Cheeseman at the washbay's count. Both post in one step and land
+  settled (Accepted), so the page shows them under All. The picker lists CRA… and BUC… items only.
+
 ## How to get to it (user POV)
 
 Sign in as a `ProductionOfficer` or `DispatchOfficer` and you land on `/factory-transfers`; Admin finds
@@ -57,3 +62,5 @@ quantities. After a short accept the drawer reads Part-accepted.
 - Depot flow: `scratchpad/verify/drive_depot.py` in the session that built it. The stub also needs
   `api/factory-transfers/depot-orders` and stock for DISPYOG and DISPICE. Its stock sync writes into
   `CachedWarehouseStocks`, so delete the stub rows afterwards.
+- Washbay flow: `scratchpad/verify/drive_washbay.py`; the stub needs a WashBay user and stock for WASHBAY
+  and CMH, and those rows land in `CachedWarehouseStocks` too.
