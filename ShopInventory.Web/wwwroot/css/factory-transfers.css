@@ -988,3 +988,11 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* The depot return's pointer to RETURNS: the link has to read as one inside the info message. */
+.fxt .fxt-breakage-note a {
+    color: var(--fxt-accent-text);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}

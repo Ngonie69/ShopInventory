@@ -5896,7 +5896,8 @@ accepts the delivery; `accept_any` does not reach a depot. Short or rejected lin
 dispatch warehouse each came from. `sourceRequestDocEntry` names the depot's open order the truck
 fulfils; once the truck is loaded it is closed in SAP and its approval marked generated. A depot sends
 stock back from its centre or shop (KEFGRS, CORMACH2, KEFBYS) to one dispatch warehouse, and whoever
-holds that warehouse accepts. Whoever may accept a transfer is notified once it is in transit,
+holds that warehouse accepts. That is for sound stock only: breakages and expired stock keep their existing
+path, a depot transfer straight into RETURNS under Inventory Transfers, and this route never offers RETURNS. Whoever may accept a transfer is notified once it is in transit,
 addressed to them by username.
 
 **Nobody accepts their own transfer**, the dispatch manager included (`FactoryTransfer.CannotDecideOwnTransfer`).

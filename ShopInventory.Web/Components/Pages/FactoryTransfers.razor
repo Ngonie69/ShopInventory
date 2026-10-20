@@ -550,6 +550,23 @@
                         </div>
                     </div>
 
+                    @* Breakages keep their own path: a depot transfer straight into RETURNS, approved by a stock
+                       officer, as all 14 depot breakages since September went. This form only takes sound stock
+                       back to dispatch, and offers no RETURNS destination. *@
+                    @if (SelectedRoute?.Direction == FactoryTransferStatus.DepotReturn)
+                    {
+                        <div class="ops-msg ops-fam-info fxt-breakage-note" role="note">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+                            <div class="ops-msg-body">
+                                <strong>Only sound stock goes back to dispatch here.</strong>
+                                <div class="ops-msg-said">
+                                    Breakages and expired stock go to RETURNS: raise them as a transfer under
+                                    <a href="/inventory-transfer/create">Transfers</a>.
+                                </div>
+                            </div>
+                        </div>
+                    }
+
                     @if (IsTruck)
                     {
                         <div class="fxt-form">
@@ -583,7 +600,7 @@
                             <span class="ops-sub">goes on both SAP transfers</span>
                         </label>
                         <textarea id="fxt-reason" class="ops-input" rows="2" maxlength="500"
-                                  placeholder="@(IsTruck ? "e.g. Graniteside order" : "e.g. End of shift 2 release")"
+                                  placeholder="@(IsTruck ? "e.g. Graniteside order" : SelectedRoute?.Direction == FactoryTransferStatus.DepotReturn ? "e.g. Over-supplied, not needed this week" : "e.g. End of shift 2 release")"
                                   @bind="sendReason" @bind:event="oninput" disabled="@isSubmitting"></textarea>
                     </div>
 
