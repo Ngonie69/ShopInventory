@@ -661,6 +661,7 @@ public class DocumentService : IDocumentService
             ContentSha256 = contentSha256,
             Description = request.Description,
             IncludeInEmail = request.IncludeInEmail,
+            FleetNumber = request.FleetNumber,
             UploadedByUserId = userId,
             UploadedAt = DateTime.UtcNow
         };
@@ -1120,6 +1121,7 @@ public class DocumentService : IDocumentService
                 UploadedAt = dto.UploadedAt,
                 UploadedByUserName = dto.UploadedByUserName,
                 UploadedFromLocation = a.UploadedByUser?.AssignedSection,
+                FleetNumber = dto.FleetNumber,
                 DownloadUrl = dto.DownloadUrl,
                 InvoiceDocEntry = a.EntityId,
                 InvoiceDocNum = inv?.DocNum ?? 0,
@@ -1763,6 +1765,7 @@ public class DocumentService : IDocumentService
             FileSizeFormatted = FormatFileSize(entity.FileSizeBytes),
             Description = entity.Description,
             IncludeInEmail = entity.IncludeInEmail,
+            FleetNumber = entity.FleetNumber,
             UploadedAt = entity.UploadedAt,
             UploadedByUserName = entity.UploadedByUser?.Username,
             DownloadUrl = $"/api/document/attachments/{entity.Id}/download"
@@ -1786,11 +1789,12 @@ public class DocumentService : IDocumentService
             INSERT INTO "DocumentAttachments"
                 ("Description", "EntityId", "EntityType", "ExternalReference", "FileName",
                  "FileSizeBytes", "ContentSha256", "IncludeInEmail", "MimeType", "StoredFileName",
-                 "UploadedAt", "UploadedByUserId")
+                 "UploadedAt", "UploadedByUserId", "FleetNumber")
             VALUES
                 ({attachment.Description}, {attachment.EntityId}, {attachment.EntityType}, {attachment.ExternalReference},
                  {attachment.FileName}, {attachment.FileSizeBytes}, {attachment.ContentSha256}, {attachment.IncludeInEmail},
-                 {attachment.MimeType}, {attachment.StoredFileName}, {attachment.UploadedAt}, {attachment.UploadedByUserId})
+                 {attachment.MimeType}, {attachment.StoredFileName}, {attachment.UploadedAt}, {attachment.UploadedByUserId},
+                 {attachment.FleetNumber})
             ON CONFLICT ("EntityType", "EntityId", "ExternalReference") DO NOTHING
             """, cancellationToken);
 

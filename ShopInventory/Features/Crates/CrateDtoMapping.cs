@@ -103,6 +103,7 @@ internal static class CrateDtoMapping
             FileSizeFormatted = FormatFileSize(attachment.FileSizeBytes),
             Description = attachment.Description,
             IncludeInEmail = attachment.IncludeInEmail,
+            FleetNumber = attachment.FleetNumber,
             UploadedAt = attachment.UploadedAt,
             UploadedByUserName = attachment.UploadedByUser?.Username,
             DownloadUrl = $"/api/document/attachments/{attachment.Id}/download"

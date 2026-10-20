@@ -117,6 +117,9 @@ public static partial class Errors
         public static Error PodExcluded(string cardName, string cardCode) =>
             Error.Validation("Invoice.PodExcluded", $"POD uploads are not required for {cardName} ({cardCode}).");
 
+        public static Error PodFleetNumberTooLong =>
+            Error.Validation("Invoice.PodFleetNumberTooLong", $"Fleet number cannot be longer than {Pods.PodFleetNumber.MaxLength} characters.");
+
         /// <summary>
         /// Refuses to fiscalise an end-of-day consolidation, whose constituent sales each went to
         /// FDMS before SAP under their own receipt.

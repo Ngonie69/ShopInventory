@@ -379,6 +379,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
         [FromForm] string? uploadedByUsername = null,
         [FromForm] string? externalReference = null,
         [FromForm] bool isAdditionalPage = false,
+        [FromForm] string? fleetNumber = null,
         CancellationToken cancellationToken = default)
     {
         if (file == null || file.Length == 0)
@@ -394,7 +395,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
 
         using var stream = file.OpenReadStream();
         var result = await mediator.Send(
-            new UploadPodCommand(docEntry, stream, file.FileName, file.ContentType, description, effectiveUploadedByUsername, externalReference, GetUserId(), isAdditionalPage),
+            new UploadPodCommand(docEntry, stream, file.FileName, file.ContentType, description, effectiveUploadedByUsername, externalReference, GetUserId(), isAdditionalPage, fleetNumber),
             cancellationToken);
 
         return result.Match(
@@ -418,6 +419,7 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
         [FromForm] string? notes,
         [FromForm] string? clientRequestId,
         IFormFile file,
+        [FromForm] string? fleetNumber = null,
         CancellationToken cancellationToken = default)
     {
         if (file == null || file.Length == 0)
@@ -443,7 +445,8 @@ public class InvoiceController(ISender mediator, ICallerAccountReader callerAcco
                 file.FileName,
                 file.ContentType,
                 GetUserId(),
-                ResolveClientRequestId(clientRequestId)),
+                ResolveClientRequestId(clientRequestId),
+                fleetNumber),
             cancellationToken);
 
         return result.Match(Ok, Problem);

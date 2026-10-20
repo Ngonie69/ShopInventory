@@ -567,6 +567,7 @@
                             <th class="podx-num">Size</th>
                             <th>Uploaded</th>
                             <th>By</th>
+                            <th>Fleet #</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -576,7 +577,7 @@
                             @for (var skeletonRow = 0; skeletonRow < 6; skeletonRow++)
                             {
                                 <tr>
-                                    @for (var skeletonCell = 0; skeletonCell < 8; skeletonCell++)
+                                    @for (var skeletonCell = 0; skeletonCell < 9; skeletonCell++)
                                     {
                                         <td><div class="podx-skel"></div></td>
                                     }
@@ -620,6 +621,7 @@
                                             }
                                         </span>
                                     </td>
+                                    <td>@(pod.FleetNumber ?? "—")</td>
                                     <td>
                                         <span class="podx-actions">
                                             @if (IsViewable(pod.MimeType))
@@ -1012,6 +1014,7 @@
                 Description = latestAttachment.Description,
                 UploadedAt = latestAttachment.UploadedAt,
                 UploadedByUserName = latestAttachment.UploadedByUserName,
+                FleetNumber = latestAttachment.FleetNumber,
                 DownloadUrl = latestAttachment.DownloadUrl,
                 InvoiceDocEntry = lookupInvoice.DocEntry,
                 InvoiceDocNum = lookupInvoice.DocNum,

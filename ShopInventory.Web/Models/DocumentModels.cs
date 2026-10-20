@@ -9,6 +9,7 @@ public class DocumentAttachmentDto
     public string FileSizeFormatted { get; set; } = string.Empty;
     public string? Description { get; set; }
     public bool IncludeInEmail { get; set; }
+    public string? FleetNumber { get; set; }
     public DateTime UploadedAt { get; set; }
     public string? UploadedByUserName { get; set; }
     public string DownloadUrl { get; set; } = string.Empty;
@@ -31,6 +32,7 @@ public class PodAttachmentItemDto
     public DateTime UploadedAt { get; set; }
     public string? UploadedByUserName { get; set; }
     public string? UploadedFromLocation { get; set; }
+    public string? FleetNumber { get; set; }
     public string DownloadUrl { get; set; } = string.Empty;
     public int InvoiceDocEntry { get; set; }
     public int InvoiceDocNum { get; set; }

@@ -104,6 +104,13 @@ public class UserInfo
     public string? AssignedWarehouseCode { get; set; }
     public List<string> AssignedWarehouseCodes { get; set; } = new();
     public string? AssignedSection { get; set; }
+
+    /// <summary>
+    /// Whether this account must give the truck's fleet number with every POD it uploads — see
+    /// <see cref="ShopInventory.Common.Pods.PodFleetNumber"/>.
+    /// </summary>
+    public bool RequiresFleetNumber { get; set; }
+
     public string? AssignedBusinessPartnerCode { get; set; }
     public string? AssignedCostCentreCode { get; set; }
     public List<string> AssignedCustomerCodes { get; set; } = new();

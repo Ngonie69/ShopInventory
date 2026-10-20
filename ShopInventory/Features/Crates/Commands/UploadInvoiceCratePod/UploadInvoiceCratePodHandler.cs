@@ -63,7 +63,8 @@ public sealed class UploadInvoiceCratePodHandler(
                 command.FileName,
                 command.ContentType,
                 command.UserId,
-                command.ClientRequestId),
+                command.ClientRequestId,
+                command.FleetNumber),
             cancellationToken);
     }
 }
