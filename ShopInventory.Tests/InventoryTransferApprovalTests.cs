@@ -502,6 +502,25 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         Assert.Contains(AuditService.ToCAT(pending.CreatedAtUtc).ToString("dd MMM yyyy HH:mm"), remarks);
     }
 
+    [Theory]
+    [InlineData("Reason: SHORT SUPPLY | Front counter empty")]
+    [InlineData("SHORT SUPPLY | Front counter empty")]
+    [InlineData("reason:   SHORT SUPPLY | Front counter empty")]
+    public async Task Remarks_label_the_reason_once_whether_or_not_the_stored_comments_carry_it(string stored)
+    {
+        // The Web stores comments as "Reason: X | notes"; transfers already waiting for approval
+        // hold that shape, and SAP used to receive "Reason: Reason: X".
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        pending.Comments = stored;
+
+        var remarks = InventoryTransferRemarks.Build(pending, []);
+
+        Assert.StartsWith(
+            $"Reason: SHORT SUPPLY | Front counter empty | Requested by {submitter.Username} on ",
+            remarks);
+    }
+
     [Fact]
     public async Task Remarks_name_every_approver_in_the_order_they_signed()
     {
