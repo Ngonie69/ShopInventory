@@ -119,6 +119,14 @@ public static class QuartzConfiguration
                     SalesOrderCardNameBackfillJob.StartupDelay);
             }
 
+            // Tells a shop's or vending till that SAP has booked a transfer into its warehouse, however
+            // the transfer was raised. See AnnounceTransferArrivalsHandler.
+            if (sap.Enabled)
+            {
+                AddIntervalJob<TransferArrivalAlertJob>(
+                    q, TransferArrivalAlertJob.JobName, TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(2));
+            }
+
             // The sales reports' gross profit is read from a copy of SAP's booked invoice cost, never
             // from SAP during a page load. This keeps the copy a few minutes behind posting.
             if (sap.Enabled)
