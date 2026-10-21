@@ -38,6 +38,7 @@ using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendance
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendanceStatus;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCurrentDay;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesSalesOrderByVanOrder;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscal;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscalLease;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesOrderHistory;
@@ -518,6 +519,30 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(
             value => Ok(new VanSalesEnvelope<VanSalesLegacyOrderDto> { Success = value }),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Whether the sales order sent under this <c>van_order</c> landed, for a handset whose
+    /// <c>POST sales-order</c> lost its reply.
+    /// </summary>
+    /// <remarks>
+    /// Always 200 for an authorised caller: an order that is not there, or is not the caller's to see, is
+    /// <c>found: false</c>. Returned bare, not enveloped — the sale lookup's contract.
+    /// </remarks>
+    [HttpGet("sales-order/{vanOrder}")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewSalesOrders)]
+    [ProducesResponseType(typeof(VanSalesSalesOrderLookupResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSalesOrderByVanOrder(string vanOrder, CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new GetVanSalesSalesOrderByVanOrderQuery(userId.Value, vanOrder), cancellationToken);
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
     /// <summary>
