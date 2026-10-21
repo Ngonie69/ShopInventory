@@ -87,6 +87,13 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed($"Invalid role. Valid roles: {ApplicationRoles.DescribeAssignableRoles()}");
         }
 
+        var (additionalRoles, additionalRolesError) =
+            ApplicationRoles.NormalizeAdditionalRoles(request.Role, request.AdditionalRoles);
+        if (additionalRolesError is not null)
+        {
+            return Errors.UserManagement.CreationFailed(additionalRolesError);
+        }
+
         if (ApplicationRoles.RequiresWarehouseAssignments(request.Role) &&
             (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
@@ -229,6 +236,8 @@ public sealed class CreateUserHandler(
 
         passwords.SetOnNewAccount(user, request.Password);
 
+        user.SetAdditionalRoles(additionalRoles);
+
         if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
         {
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
@@ -283,7 +292,9 @@ public sealed class CreateUserHandler(
                 AuditActions.CreateUser,
                 "User",
                 user.Id.ToString(),
-                $"User {request.Username} created with role {request.Role}",
+                additionalRoles.Count == 0
+                    ? $"User {request.Username} created with role {request.Role}"
+                    : $"User {request.Username} created with role {request.Role} and also {string.Join(", ", additionalRoles)}",
                 true);
         }
         catch
@@ -315,6 +326,7 @@ public sealed class CreateUserHandler(
             FirstName = user.FirstName,
             LastName = user.LastName,
             Role = user.Role,
+            AdditionalRoles = user.GetAdditionalRoles(),
             IsActive = user.IsActive,
             EmailVerified = user.EmailVerified,
             TwoFactorEnabled = user.TwoFactorEnabled,

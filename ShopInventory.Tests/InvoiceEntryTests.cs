@@ -13,7 +13,7 @@ public sealed class InvoiceEntryTests
     [Fact]
     public void A_line_asking_for_more_than_is_in_stock_is_short_by_the_difference()
     {
-        var stock = InvoiceEntry.EvaluateStock(quantity: 120m, inStock: 84m, loading: false);
+        var stock = InvoiceEntry.EvaluateStock(requested: 120m, inStock: 84m, loading: false);
 
         Assert.Equal(LineStockState.Short, stock.State);
         Assert.True(stock.IsShort);

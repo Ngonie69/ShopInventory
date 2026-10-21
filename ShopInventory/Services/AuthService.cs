@@ -625,6 +625,14 @@ public class AuthService : IAuthService
             new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
 
+        // After the main role, so code reading the first role claim still gets the main role.
+        foreach (var extraRole in user.GetAdditionalRoles()
+                     .Where(role => !string.IsNullOrWhiteSpace(role) &&
+                                    !string.Equals(role, user.Role, StringComparison.OrdinalIgnoreCase)))
+        {
+            claims.Add(new Claim(ClaimTypes.Role, extraRole));
+        }
+
         foreach (var wh in warehouseCodes.Where(code => !string.IsNullOrWhiteSpace(code)))
         {
             claims.Add(new Claim("warehouse", wh));

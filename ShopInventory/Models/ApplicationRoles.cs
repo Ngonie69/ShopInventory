@@ -381,6 +381,72 @@ public static class ApplicationRoles
 
     public static string DescribeAssignableRoles() => string.Join(", ", AssignableRoles);
 
+    /// <summary>
+    /// The extra roles an account on each main role may also hold. A main role missing from here can
+    /// hold none.
+    /// </summary>
+    /// <remarks>
+    /// An allow-list, not a free choice, because the main role still decides how an account is scoped
+    /// and an extra role only adds access. Each pair has to make sense with the main role's scoping.
+    ///
+    /// CartVendor + Cashier: a depot cashier who sells to vendors on the till and does cashier work on
+    /// the Web. The till reads the main role, so it stays in cart vendor mode. Cashier opens the Web's
+    /// cashier pages and adds the Cashier permissions. Reads the main role scopes, such as the shop and
+    /// vending sales list, stay confined to the cart vendor's warehouse.
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, string[]> AdditionalRolesByMainRole =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            [CartVendor] = [Cashier]
+        };
+
+    /// <summary>The extra roles an account whose main role is <paramref name="mainRole"/> may hold.</summary>
+    public static IReadOnlyList<string> AllowedAdditionalRoles(string? mainRole)
+    {
+        var normalized = Normalize(mainRole);
+        return normalized is not null && AdditionalRolesByMainRole.TryGetValue(normalized, out var roles)
+            ? roles
+            : [];
+    }
+
+    /// <summary>
+    /// Checks the extra roles requested for an account and returns them in their canonical spelling,
+    /// without duplicates or the main role itself. Returns an error message when a role is not allowed
+    /// with this main role.
+    /// </summary>
+    public static (List<string> Roles, string? Error) NormalizeAdditionalRoles(
+        string? mainRole,
+        IEnumerable<string>? requestedRoles)
+    {
+        var allowed = AllowedAdditionalRoles(mainRole);
+        var result = new List<string>();
+
+        foreach (var requested in requestedRoles ?? [])
+        {
+            var role = Normalize(requested);
+            if (role is null || string.Equals(role, Normalize(mainRole), StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var canonical = allowed.FirstOrDefault(candidate =>
+                string.Equals(candidate, role, StringComparison.OrdinalIgnoreCase));
+
+            if (canonical is null)
+            {
+                var allowedText = allowed.Count == 0 ? "none" : string.Join(", ", allowed);
+                return ([], $"A {mainRole} account cannot also hold the {role} role. Extra roles allowed for {mainRole}: {allowedText}");
+            }
+
+            if (!result.Contains(canonical, StringComparer.OrdinalIgnoreCase))
+            {
+                result.Add(canonical);
+            }
+        }
+
+        return (result, null);
+    }
+
     private static bool Contains(IEnumerable<string> roles, string? role)
     {
         var normalizedRole = Normalize(role);

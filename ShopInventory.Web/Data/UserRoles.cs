@@ -432,6 +432,17 @@ public static class UserRoles
     public static bool IsDepotLoadedVan(string? role) =>
         IsOneOf(role, Adr, Sales);
 
+    /// <summary>
+    /// The extra roles an account whose main role is <paramref name="mainRole"/> may also hold.
+    /// </summary>
+    /// <remarks>
+    /// The web copy of <c>ApplicationRoles.AllowedAdditionalRoles</c>, which the API enforces.
+    /// <c>UserRoleCatalogueTests</c> pins the two equal for every assignable role. A cart vendor may
+    /// also be a Cashier: the till keeps selling to vendors and the Web opens the cashier pages.
+    /// </remarks>
+    public static IReadOnlyList<string> AllowedAdditionalRoles(string? mainRole) =>
+        IsOneOf(mainRole, CartVendor) ? [Cashier] : [];
+
     private static bool IsOneOf(string? role, params string[] roles) =>
         !string.IsNullOrWhiteSpace(role) &&
         roles.Contains(role.Trim(), StringComparer.OrdinalIgnoreCase);

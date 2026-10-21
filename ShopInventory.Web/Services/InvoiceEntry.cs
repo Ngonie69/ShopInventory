@@ -47,31 +47,31 @@ public static class InvoiceEntry
     private const decimal LowShare = 0.8m;
 
     /// <summary>
-    /// Compares a line with its warehouse's in-stock figure — OnHand, the same figure the API's
+    /// Compares what the invoice asks of an item in a warehouse — every line for it, added up — with that warehouse's in-stock figure — OnHand, the same figure the API's
     /// posting check uses. A missing figure is never read as zero: a failed read and an item the
     /// warehouse has no row for look the same from here, and blocking an invoice on a guess would
     /// turn away a sale SAP would have taken. The API checks again when the invoice posts.
     /// </summary>
-    public static LineStock EvaluateStock(decimal quantity, decimal? inStock, bool loading)
+    public static LineStock EvaluateStock(decimal requested, decimal? inStock, bool loading)
     {
         if (inStock is not { } stock)
         {
             return new LineStock(loading ? LineStockState.Loading : LineStockState.Unknown, null, 0m);
         }
 
-        if (quantity <= 0)
+        if (requested <= 0)
         {
-            // The line's own "quantity must be above zero" error covers it.
+            // A line with no quantity is covered by its own "must be above zero" error.
             return new LineStock(LineStockState.Enough, stock, 0m);
         }
 
-        if (quantity > stock)
+        if (requested > stock)
         {
             // Oversold stock reads negative; what the line is short by is all of it.
-            return new LineStock(LineStockState.Short, stock, quantity - Math.Max(stock, 0m));
+            return new LineStock(LineStockState.Short, stock, requested - Math.Max(stock, 0m));
         }
 
-        return new LineStock(quantity > stock * LowShare ? LineStockState.Low : LineStockState.Enough, stock, 0m);
+        return new LineStock(requested > stock * LowShare ? LineStockState.Low : LineStockState.Enough, stock, 0m);
     }
 
     /// <summary>

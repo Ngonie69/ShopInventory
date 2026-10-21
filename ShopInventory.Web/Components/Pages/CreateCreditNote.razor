@@ -184,16 +184,14 @@
                                     <option value="ZIG">ZIG</option>
                                 </select>
                             </label>
-                            <label class="sfm-lab">
+                            <div class="sfm-lab">
                                 <span class="sfm-lab-t">Restock warehouse</span>
-                                <select class="sfm-select" @bind="newCreditNote.RestockWarehouseCode">
-                                    <option value="">&mdash; Select &mdash;</option>
-                                    @foreach (var wh in cachedWarehouses)
-                                    {
-                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                    }
-                                </select>
-                            </label>
+                                <NocturnePicker Class="npick-chips npick-block"
+                                                Options="WarehouseOptions.From(cachedWarehouses)" @bind-Value="newCreditNote.RestockWarehouseCode"
+                                                Placeholder="Select…"
+                                                SearchPlaceholder="Search code or name…" Caption="Warehouses"
+                                                AriaLabel="Restock warehouse" />
+                            </div>
                             <div class="sfm-lab">
                                 <span class="sfm-lab-t">Options</span>
                                 <label class="sfm-check">
@@ -302,13 +300,13 @@
                                                    class="sfm-input sfm-num" @bind="line.DiscountPercent" />
                                             <input type="number" min="0" max="100" step="0.01"
                                                    class="sfm-input sfm-num" @bind="line.TaxPercent" />
-                                            <select class="sfm-select sfm-cell" @bind="line.WarehouseCode">
-                                                <option value="">Default</option>
-                                                @foreach (var wh in cachedWarehouses)
-                                                {
-                                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                }
-                                            </select>
+                                            <NocturnePicker Class="npick-chips npick-end"
+                                                            Options="WarehouseOptions.From(cachedWarehouses)" Value="@line.WarehouseCode"
+                                                            ValueChanged="@(code => line.WarehouseCode = code ?? string.Empty)"
+                                                            InheritedValue="@newCreditNote.RestockWarehouseCode"
+                                                            AllowClear="false" UnsetLabel="Default" UnsetHint="the restock warehouse"
+                                                            SearchPlaceholder="Search code or name…" Caption="Warehouses"
+                                                            AriaLabel="@($"Warehouse for line {index + 1}")" />
                                             <div class="sfm-r">
                                                 <div class="sfm-amt-v">@CalculateLineTotal(line).ToString("N2")</div>
                                                 @if (HasSpecialPrice(line.ItemCode))

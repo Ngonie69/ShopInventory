@@ -137,11 +137,19 @@ public static class RoleLandingRoutes
         user is null ? Fallback : For(user.IsInRole);
 
     /// <summary>
-    /// Resolves from the single role string a login response carries. Accounts
-    /// hold one role, so this is the whole of what the sign-in page knows.
+    /// Resolves from the role strings a login response carries: the main role and any extra roles
+    /// (a cart vendor who is also a cashier lands on the cashier dashboard).
     /// </summary>
-    public static string For(string? role) =>
-        string.IsNullOrWhiteSpace(role)
+    public static string For(string? role, IEnumerable<string>? additionalRoles = null)
+    {
+        var roles = new[] { role }
+            .Concat(additionalRoles ?? [])
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Select(candidate => candidate!.Trim())
+            .ToList();
+
+        return roles.Count == 0
             ? Fallback
-            : For(candidate => string.Equals(candidate, role.Trim(), StringComparison.OrdinalIgnoreCase));
+            : For(candidate => roles.Contains(candidate, StringComparer.OrdinalIgnoreCase));
+    }
 }

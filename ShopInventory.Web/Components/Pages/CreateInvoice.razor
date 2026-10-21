@@ -189,7 +189,8 @@
                 <span class="sfm-lab-t">Cost centre</span>
                 <NocturnePicker Class="npick-block" Options="costCentreOptions"
                                 Value="@defaultCostCentre" ValueChanged="@((string? code) => OnDefaultCostCentreChanged(code))"
-                                Placeholder="Default · each item's own" SearchPlaceholder="Search cost centres"
+                                AllowClear="false" UnsetLabel="Default" UnsetHint="each item’s own" UnsetTag="per item"
+                                SearchPlaceholder="Search cost centres"
                                 Caption="Cost centre" AriaLabel="Cost centre" />
             </div>
 
@@ -277,9 +278,10 @@
                                        aria-label="Description, line @(index + 1)" placeholder="Description" />
                             </div>
                             <div role="cell">
-                                <NocturnePicker Class="@($"npick-block npick-sm sfm-line-wh {(IsOffDefault(line) ? "is-off" : "")}")"
+                                <NocturnePicker Class="npick-chips npick-end"
                                                 Options="LineWarehouseOptions(line)"
                                                 Value="@line.WarehouseCode" ValueChanged="@((string? code) => OnLineWarehouseChanged(index, code))"
+                                                InheritedValue="@warehouseCode"
                                                 Placeholder="Choose…" SearchPlaceholder="Search warehouses"
                                                 Caption="@($"Warehouse for line {index + 1}")"
                                                 AriaLabel="@($"Warehouse for line {index + 1}")" AllowClear="false"
@@ -341,11 +343,10 @@
                                             Take from @c.WarehouseCode (@FormatQty(c.InStock) in stock)
                                         </button>
                                     }
-                                    @if (stock.InStock > 0)
+                                    @if (LineCanTake(line, stock) is var canTake && canTake > 0)
                                     {
-                                        var available = stock.InStock.Value;
-                                        <button type="button" class="sfm-fix" @onclick="() => SetLineQuantity(index, available)">
-                                            Invoice @FormatQty(available)
+                                        <button type="button" class="sfm-fix" @onclick="() => SetLineQuantity(index, canTake)">
+                                            Invoice @FormatQty(canTake)
                                         </button>
                                     }
                                     <button type="button" class="sfm-fix is-quiet" @onclick="() => RemoveLine(index)">Remove line</button>
@@ -1215,11 +1216,6 @@
         RequestLineStock(line);
     }
 
-    private bool IsOffDefault(CreateInvoiceLineRequest line) =>
-        !string.IsNullOrWhiteSpace(warehouseCode)
-        && !string.IsNullOrWhiteSpace(line.WarehouseCode)
-        && !string.Equals(line.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase);
-
     /// <summary>
     /// The warehouse rows for one line's picker, each saying how much of the line's item it holds
     /// as last cached — so moving a short line is a choice made with the figures in view.
@@ -1509,13 +1505,55 @@
         }
 
         var key = StockKey(line.WarehouseCode, line.ItemCode);
+
+        // A line with no quantity is its own error; judging it by its siblings would mark it short.
+        var requested = line.Quantity > 0 ? RequestedFrom(key) : line.Quantity;
+
         return InvoiceEntry.EvaluateStock(
-            line.Quantity,
+            requested,
             confirmedStock.TryGetValue(key, out var inStock) ? inStock : null,
             pendingStock.Contains(key));
     }
 
+    /// <summary>
+    /// What the whole invoice asks of one item in one warehouse. Two lines for the same item from
+    /// the same warehouse draw on the same stock, so they are judged together.
+    /// </summary>
+    private decimal RequestedFrom(string key) => invoice.Lines
+        .Where(other => !string.IsNullOrWhiteSpace(other.WarehouseCode) && !string.IsNullOrWhiteSpace(other.ItemCode)
+                        && string.Equals(StockKey(other.WarehouseCode, other.ItemCode), key, StringComparison.OrdinalIgnoreCase))
+        .Sum(other => Math.Max(other.Quantity, 0m));
+
+    /// <summary>The most this line can take once the other lines on the same stock have theirs.</summary>
+    private decimal LineCanTake(CreateInvoiceLineRequest line, LineStock stock)
+    {
+        if (stock.InStock is not { } inStock || string.IsNullOrWhiteSpace(line.WarehouseCode) || string.IsNullOrWhiteSpace(line.ItemCode))
+        {
+            return 0m;
+        }
+
+        var others = RequestedFrom(StockKey(line.WarehouseCode, line.ItemCode)) - Math.Max(line.Quantity, 0m);
+        return Math.Max(inStock - others, 0m);
+    }
+
     private int ShortLineCount => invoice.Lines.Count(line => LineStockOf(line).IsShort);
+
+    /// <summary>
+    /// Every figure is read afresh for the next invoice: the one just posted has moved stock, and a
+    /// figure kept from before it would let the next one through on stock that is gone.
+    /// </summary>
+    private void ForgetStockFigures()
+    {
+        foreach (var batcher in stockBatchers.Values)
+        {
+            batcher.Dispose();
+        }
+
+        stockBatchers.Clear();
+        confirmedStock.Clear();
+        pendingStock.Clear();
+        cachedStockByItem.Clear();
+    }
 
     private string StockNote(LineStock stock) => stock.State switch
     {
@@ -1525,10 +1563,19 @@
         _ => $"{FormatQty(stock.InStock!.Value)} in stock"
     };
 
-    private string ShortText(CreateInvoiceLineRequest line, LineStock stock) =>
-        stock.InStock > 0
-            ? $"Only {FormatQty(stock.InStock!.Value)} in {line.WarehouseCode}. Short by {FormatQty(stock.ShortBy)}."
-            : $"None in {line.WarehouseCode}. Short by {FormatQty(stock.ShortBy)}.";
+    private string ShortText(CreateInvoiceLineRequest line, LineStock stock)
+    {
+        var have = stock.InStock > 0
+            ? $"Only {FormatQty(stock.InStock!.Value)} in {line.WarehouseCode}"
+            : $"None in {line.WarehouseCode}";
+
+        var requested = RequestedFrom(StockKey(line.WarehouseCode, line.ItemCode));
+        var together = requested > line.Quantity
+            ? $", and this invoice's lines for {line.ItemCode} ask for {FormatQty(requested)} together"
+            : string.Empty;
+
+        return $"{have}{together}. Short by {FormatQty(stock.ShortBy)}.";
+    }
 
     /// <summary>
     /// Another warehouse whose cached stock covers the whole line, the fullest first. A hint: picking
@@ -1661,6 +1708,7 @@
             issues.Add("Add at least one line");
         }
 
+        var shortKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < invoice.Lines.Count; i++)
         {
             var line = invoice.Lines[i];
@@ -1684,8 +1732,9 @@
                 issues.Add($"Line {n} needs a warehouse");
             }
 
+            // Lines sharing one item's stock are short together; say it once, at the first of them.
             var stock = LineStockOf(line);
-            if (stock.IsShort)
+            if (stock.IsShort && shortKeys.Add(StockKey(line.WarehouseCode, line.ItemCode)))
             {
                 issues.Add($"Line {n} short by {FormatQty(stock.ShortBy)}");
             }
@@ -2605,17 +2654,12 @@ customerPricing.Count, priceListNum);
         ResetEntry();
         showShortOnly = false;
         justAddedIndex = -1;
+        ForgetStockFigures();
     }
 
     public void Dispose()
     {
         CancelBusinessPartnerPricingRequest();
-
-        foreach (var batcher in stockBatchers.Values)
-        {
-            batcher.Dispose();
-        }
-
-        stockBatchers.Clear();
+        ForgetStockFigures();
     }
 }
