@@ -371,14 +371,17 @@
                                                 <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
                                             }
                                         </select>
-                                        <input type="number" min="0.001" step="0.001"
+                                        @* A text field, not type="number": a number field's spinner, the
+                                           mouse wheel and the arrow keys all changed the quantity by accident. *@
+                                        <input type="text" inputmode="decimal" autocomplete="off"
                                                class="sfm-input sfm-num @(lineErrors.ContainsKey("Quantity") ? "is-bad" : "")"
                                                value="@line.Quantity"
                                                @onchange="e => OnQuantityChange(index, e.Value?.ToString())" />
-                                        <input type="number" min="0" step="0.001"
+                                        @* The price comes from SAP and cannot be changed here. *@
+                                        <input type="text" readonly tabindex="-1"
                                                class="sfm-input sfm-num @(lineErrors.ContainsKey("UnitPrice") ? "is-bad" : "")"
                                                value="@(line.UnitPrice ?? 0)"
-                                               @onchange="e => OnUnitPriceChange(index, e.Value?.ToString())" />
+                                               title="Set from the SAP price list" />
                                         @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
                                         <input type="number" min="0" max="100" step="0.000001"
                                                class="sfm-input sfm-num" @bind="line.DiscountPercent" />
@@ -1296,34 +1299,6 @@
         if (lineValidationErrors.TryGetValue(index, out var errors))
         {
             errors.Remove("Quantity");
-        }
-    }
-
-    private void OnUnitPriceChange(int index, string? value)
-    {
-        var line = invoice.Lines[index];
-
-        if (decimal.TryParse(value, out var price))
-        {
-            if (price < 0)
-            {
-                price = 0;
-                errorMessage = "Unit price cannot be negative. Value has been reset to 0.";
-            }
-            line.UnitPrice = price;
-        }
-        else
-        {
-            line.UnitPrice = 0;
-        }
-
-        if (line.UnitPrice.GetValueOrDefault() > 0)
-        {
-            ClearUnitPriceError(index);
-        }
-        else
-        {
-            SetMissingSapPriceError(index, line.ItemCode);
         }
     }
 
