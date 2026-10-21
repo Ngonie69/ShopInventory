@@ -1854,7 +1854,7 @@
 .is-invoice .sfm-f-customer { flex: 3 1 340px; }
 .is-invoice .sfm-f-ref { flex: 1 1 160px; }
 .is-invoice .sfm-f-crates { flex: 0 1 100px; }
-.is-invoice .sfm-f-cur { flex: 0 1 150px; }
+.is-invoice .sfm-f-cur { flex: 0 1 175px; }
 .is-invoice .sfm-f-wh { flex: 1 1 230px; }
 .is-invoice .sfm-f-cc { flex: 1 1 200px; }
 .is-invoice .sfm-f-comments { flex: 4 1 320px; }
@@ -2365,6 +2365,13 @@
     background: rgba(var(--sfm-warn-rgb), .12);
     font-size: 12px;
     font-weight: 500;
+}
+
+/* After a refused Create invoice: the same list, louder. */
+.is-invoice .sfm-ready-no.is-attn .sfm-issue {
+    background: rgba(var(--sfm-bad-rgb), .14);
+    color: var(--sfm-bad-ink);
+    box-shadow: 0 0 0 1px rgba(var(--sfm-bad-rgb), .4);
 }
 
 .is-invoice .sfm-actionbar .sfm-check {

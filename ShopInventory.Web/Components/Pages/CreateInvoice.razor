@@ -461,7 +461,7 @@
                 }
                 else
                 {
-                    <span class="sfm-ready-no">
+                    <span class="sfm-ready-no @(postRefused ? "is-attn" : "")" role="status">
                         <i class="ph-fill ph-warning"></i>
                         @foreach (var issue in issues.Take(4))
                         {
@@ -657,6 +657,10 @@
     private Dictionary<string, decimal> shipFromCachedStock = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, decimal>> cachedStockByItem = new(StringComparer.OrdinalIgnoreCase);
     private bool showShortOnly;
+
+    // Set when Create invoice was pressed on a form that is not ready; the action bar's list of
+    // what is wrong is then drawn louder until the form is cleared or posted.
+    private bool postRefused;
 
     // Customer price list for dynamic pricing
     private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
@@ -2284,7 +2288,10 @@ customerPricing.Count, priceListNum);
 
         if (!ValidateForm())
         {
-            errorMessage = "Please fix the validation errors before submitting.";
+            // No banner: the action bar already lists what is wrong and clears each item as it is
+            // fixed, where a banner would stay up after the form was put right. It is drawn louder
+            // instead, so the refused press is still answered.
+            postRefused = true;
             Logger.LogWarning("Invoice validation failed. Errors: {Errors}",
             string.Join("; ", validationErrors.Select(e => $"{e.Key}: {e.Value}")
             .Concat(lineValidationErrors.SelectMany(le => le.Value.Select(e => $"Line {le.Key + 1} {e.Key}: {e.Value}")))));
@@ -2653,6 +2660,7 @@ customerPricing.Count, priceListNum);
         ClearSelectedBP();
         ResetEntry();
         showShortOnly = false;
+        postRefused = false;
         justAddedIndex = -1;
         ForgetStockFigures();
     }
