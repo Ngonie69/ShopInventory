@@ -54,6 +54,13 @@ public class UserInfo
 {
     public string Username { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Roles held on top of <see cref="Role"/>, e.g. Cashier on a CartVendor. Each becomes another
+    /// role claim, so pages gated on either role open. <see cref="Role"/> stays first.
+    /// </summary>
+    public List<string> AdditionalRoles { get; set; } = new();
+
     public string? Email { get; set; }
     public string? AssignedWarehouseCode { get; set; }
     public List<string> AssignedWarehouseCodes { get; set; } = new();

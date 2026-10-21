@@ -265,6 +265,10 @@ public class UserDetailDto
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string Role { get; set; } = string.Empty;
+
+    /// <summary>Roles held on top of <see cref="Role"/>, which stays the main role.</summary>
+    public List<string> AdditionalRoles { get; set; } = new();
+
     public bool IsActive { get; set; }
     public bool EmailVerified { get; set; }
     public bool TwoFactorEnabled { get; set; }
@@ -331,6 +335,12 @@ public class CreateUserDetailRequest
 
     [Required]
     public string Role { get; set; } = "User";
+
+    /// <summary>
+    /// Roles to hold on top of <see cref="Role"/>. Only the pairs ApplicationRoles.AllowedAdditionalRoles
+    /// lists are accepted, e.g. Cashier on a CartVendor.
+    /// </summary>
+    public List<string>? AdditionalRoles { get; set; }
 
     /// <summary>
     /// Custom permissions (if null, defaults to role permissions)
@@ -415,6 +425,12 @@ public class UpdateUserDetailRequest
     public string? LastName { get; set; }
 
     public string? Role { get; set; }
+
+    /// <summary>
+    /// Roles to hold on top of <see cref="Role"/>: null keeps the current ones, empty clears them.
+    /// Extras the main role no longer allows are dropped when the main role changes.
+    /// </summary>
+    public List<string>? AdditionalRoles { get; set; }
 
     public bool? IsActive { get; set; }
 

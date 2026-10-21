@@ -850,8 +850,89 @@
 /* `overflow-x: auto` also clips vertically, which would cut the item picker off
    at the bottom of the table. While a picker is open the clip is lifted; at the
    widths where the rows fit (>= ~940px) nothing overflows either way. */
-.sfm-lines.is-picking {
+.sfm-lines.is-picking,
+.sfm-lines:has(.npick-open) {
     overflow: visible;
+}
+
+/* ── Warehouse and cost centre pickers ───────────────────────────────────────
+   NocturnePicker (wwwroot/css/nocturne-picker.css), restated in this sheet's
+   palette. These forms are mint on slate, not Nocturne's lavender, and a
+   picker carrying the other accent reads as a control from another page. Set
+   two classes deep so it beats the `.npick` block that sets the defaults. */
+:is(.sfm, .sfm-modal) .npick {
+    --npick-surface: var(--sfm-surface);
+    --npick-ink: var(--sfm-ink);
+    --npick-mute: var(--sfm-ink-2);
+    --npick-mute-2: var(--sfm-muted);
+    --npick-mute-3: var(--sfm-muted-2);
+    /* muted, not muted-3: the faint step carries 11px codes and counts, and
+       muted-3 falls under 4.5:1 on the dark surface. */
+    --npick-faint: var(--sfm-muted);
+    --npick-placeholder: var(--sfm-placeholder);
+    --npick-divider: var(--sfm-edge);
+    --npick-rule: var(--sfm-hairline);
+    --npick-hover: var(--sfm-surface-2);
+    --npick-field-bg: var(--sfm-field);
+    --npick-field-edge: var(--sfm-field-edge);
+    --npick-accent: var(--sfm-accent);
+    --npick-accent-rgb: var(--sfm-accent-rgb);
+    --npick-accent-text: var(--sfm-accent);
+    --npick-bad: var(--sfm-bad);
+    --npick-bad-rgb: var(--sfm-bad-rgb);
+    --npick-shadow: 0 0 0 1px var(--sfm-edge), 0 14px 34px rgba(var(--sfm-shadow-rgb), var(--sfm-shadow-lg-a));
+    /* The closed trigger dressed as the .sfm-input beside it. */
+    --npick-fill: var(--sfm-field);
+    --npick-edge: var(--sfm-field-edge);
+    --npick-edge-hi: var(--sfm-field-edge-hi);
+    --npick-radius: 6px;
+}
+
+.sfm-defaults .npick {
+    --npick-h: 34px;
+    --npick-pad-y: 6px;
+    --npick-pad-x: 10px;
+    --npick-fs: 12.5px;
+    --npick-min-w: 0;
+}
+
+/* About the width of the selects these replaced, so the bar wraps where it
+   used to. */
+.sfm-defaults .sfm-def-wh {
+    width: 250px;
+}
+
+.sfm-defaults .sfm-def-cc {
+    width: 220px;
+}
+
+/* A document field sits in the form grid beside .sfm-input, so it takes that
+   control's metrics: 9px / 11px padding, 13.5px type at 1.35, a 1px edge. */
+.sfm-lab .npick {
+    --npick-h: 38.2px;
+    --npick-pad-y: 9px;
+    --npick-pad-x: 11px;
+    --npick-fs: 13.5px;
+    --npick-min-w: 0;
+}
+
+/* A line cell is .sfm-cell's height: 8px padding, 13px type, a 1px edge. */
+.sfm-lines .npick {
+    display: flex;
+    width: 100%;
+    --npick-h: 35.5px;
+    --npick-pad-y: 6px;
+    --npick-pad-x: 8px;
+    --npick-fs: 13px;
+    --npick-min-w: 0;
+}
+
+/* A line cell has no room for the "default" tag: measured at 130px (invoice)
+   it falls 2px short, and at 90px (order, credit note) it gets nothing. The
+   chip carries it instead — outlined grey follows the document, filled is a
+   warehouse chosen for this line — and the trigger's title says "(default)". */
+.sfm-lines .npick .npick-tag {
+    display: none;
 }
 
 .sfm-lines-inner {
@@ -957,6 +1038,11 @@
     grid-column: 2 / -1;
     font-size: 11px;
     color: var(--sfm-bad);
+}
+
+/* A warning under a line, not an error: the line can still be posted. */
+.sfm-row-err.is-warn {
+    color: var(--sfm-warn);
 }
 
 .sfm-addline {
