@@ -100,6 +100,13 @@ public class UserInfo
 {
     public required string Username { get; set; }
     public required string Role { get; set; }
+
+    /// <summary>
+    /// Roles the account holds on top of <see cref="Role"/>. Clients that pick a mode from the role,
+    /// like the till, read <see cref="Role"/> alone. The Web adds these as extra role claims.
+    /// </summary>
+    public List<string> AdditionalRoles { get; set; } = new();
+
     public string? Email { get; set; }
     public string? AssignedWarehouseCode { get; set; }
     public List<string> AssignedWarehouseCodes { get; set; } = new();

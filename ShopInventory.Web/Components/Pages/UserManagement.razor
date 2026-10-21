@@ -179,6 +179,10 @@
                                 </div>
                                 <div class="um-user-meta">
                                     <span class="um-badge @GetRoleBadgeClass(user.Role)">@user.Role</span>
+                                    @foreach (var extraRole in user.AdditionalRoles)
+                                    {
+                                        <span class="um-badge @GetRoleBadgeClass(extraRole)" title="Also holds the @extraRole role">+ @extraRole</span>
+                                    }
                                     @if (user.IsLocked)
                                     {
                                         <span class="um-badge um-badge-locked"><i class="bi bi-lock-fill"></i> Locked</span>
@@ -500,6 +504,23 @@
                                         <span class="um-toggle-label">@(userModel.IsActive ? "Active" : "Inactive")</span>
                                     </label>
                                 </div>
+                                @foreach (var extraRole in UserRoles.AllowedAdditionalRoles(userModel.Role))
+                                {
+                                    <div class="um-form-field um-form-full">
+                                        <label>Also works as</label>
+                                        <label class="um-toggle">
+                                            <input type="checkbox"
+                                                   checked="@userModel.AdditionalRoles.Contains(extraRole, StringComparer.OrdinalIgnoreCase)"
+                                                   @onchange="e => SetAdditionalRole(extraRole, e.Value is true)" />
+                                            <span class="um-toggle-slider"></span>
+                                            <span class="um-toggle-label">@extraRole</span>
+                                        </label>
+                                        <small class="um-form-hint">
+                                            The till still signs in as @userModel.Role. On the Web this account also gets the
+                                            @extraRole pages and permissions.
+                                        </small>
+                                    </div>
+                                }
                                 @if (userModel.Role == "StockController" || userModel.Role == "DepotController" || UserRoles.IsFactoryRole(userModel.Role))
                                 {
                                     <div class="um-form-field um-form-full">
@@ -1505,6 +1526,7 @@ StringComparison.OrdinalIgnoreCase)))
                 FirstName = u.FirstName,
                 LastName = u.LastName,
                 Role = u.Role,
+                AdditionalRoles = u.AdditionalRoles ?? new(),
                 IsActive = u.IsActive,
                 IsLocked = u.IsLocked,
                 TwoFactorEnabled = u.TwoFactorEnabled,
@@ -1621,6 +1643,7 @@ StringComparison.OrdinalIgnoreCase)))
             FirstName = user.FirstName,
             LastName = user.LastName,
             Role = user.Role,
+            AdditionalRoles = new List<string>(user.AdditionalRoles),
             IsActive = user.IsActive,
             AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
             AssignedSection = user.AssignedSection,
@@ -1940,6 +1963,7 @@ StringComparison.OrdinalIgnoreCase)))
                 Username = user.Username,
                 Email = user.Email ?? "",
                 Role = user.Role,
+                AdditionalRoles = new List<string>(user.AdditionalRoles),
                 IsActive = true,
                 AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
                             AssignedSection = user.AssignedSection,
@@ -1964,6 +1988,15 @@ StringComparison.OrdinalIgnoreCase)))
     }
 
 
+
+    private void SetAdditionalRole(string role, bool held)
+    {
+        userModel.AdditionalRoles.RemoveAll(existing => string.Equals(existing, role, StringComparison.OrdinalIgnoreCase));
+        if (held)
+        {
+            userModel.AdditionalRoles.Add(role);
+        }
+    }
 
     private string GetRoleBadgeClass(string role) => role switch
     {
@@ -2001,6 +2034,13 @@ StringComparison.OrdinalIgnoreCase)))
         {
             model.AssignedCustomerCodes = new();
         }
+
+        // Extra roles depend on the main role. Switching a cart vendor to another role in the form
+        // drops Cashier rather than sending a pair the API refuses.
+        var allowedAdditionalRoles = UserRoles.AllowedAdditionalRoles(model.Role);
+        model.AdditionalRoles = model.AdditionalRoles
+            .Where(role => allowedAdditionalRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
+            .ToList();
 
         if (!UserRoles.IsDepotLoadedVan(model.Role))
         {
@@ -2102,6 +2142,8 @@ StringComparison.OrdinalIgnoreCase)))
         public string? FirstName { get; set; }
         public string? LastName { get; set; }
         public string Role { get; set; } = "User";
+        /// <summary>Roles held on top of <see cref="Role"/>, e.g. Cashier on a CartVendor.</summary>
+        public List<string> AdditionalRoles { get; set; } = new();
         public bool IsActive { get; set; }
         public bool IsLocked { get; set; }
         public bool TwoFactorEnabled { get; set; }
@@ -2152,6 +2194,9 @@ StringComparison.OrdinalIgnoreCase)))
 
         [Required(ErrorMessage = "Role is required")]
         public string Role { get; set; } = "User";
+
+        /// <summary>Roles held on top of <see cref="Role"/>, e.g. Cashier on a CartVendor.</summary>
+        public List<string> AdditionalRoles { get; set; } = new();
 
         public bool IsActive { get; set; } = true;
         public List<string> AssignedWarehouseCodes { get; set; } = new();

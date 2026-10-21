@@ -62,6 +62,53 @@ public class User
     public required string Role { get; set; }
 
     /// <summary>
+    /// JSON array of roles the account holds on top of <see cref="Role"/> (e.g. ["Cashier"]).
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Role"/> stays the main role. It decides everything an account is scoped by: what the
+    /// till signs in as, which customers it sells to, which warehouse's takings it reads. An extra role
+    /// only widens access. It goes on the token as another role claim, so role-gated endpoints and Web
+    /// pages admit it, and its default permissions are added to the account's.
+    ///
+    /// Only the pairs <see cref="ApplicationRoles.AllowedAdditionalRoles"/> lists can be held.
+    /// </remarks>
+    public string? AdditionalRoles { get; set; }
+
+    /// <summary>
+    /// Deserialize the extra roles from JSON.
+    /// </summary>
+    public List<string> GetAdditionalRoles() => ParseAdditionalRoles(AdditionalRoles);
+
+    /// <summary>
+    /// Reads an <see cref="AdditionalRoles"/> value, for queries that project the column without
+    /// loading the whole user.
+    /// </summary>
+    public static List<string> ParseAdditionalRoles(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return new();
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    /// <summary>
+    /// Serialize the extra roles to JSON. An empty list is stored as null.
+    /// </summary>
+    public void SetAdditionalRoles(IReadOnlyCollection<string>? roles)
+    {
+        AdditionalRoles = roles == null || roles.Count == 0 ? null : JsonSerializer.Serialize(roles);
+    }
+
+    /// <summary>
+    /// The main role followed by any extra roles, with no duplicates.
+    /// </summary>
+    public List<string> GetAllRoles()
+        => new[] { Role }
+            .Concat(GetAdditionalRoles())
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>
     /// First name
     /// </summary>
     [MaxLength(100)]

@@ -89,12 +89,41 @@ public sealed class DocumentAttachmentAccessService(
             return currentUserResult.Errors;
         }
 
-        var (userId, role, assignedSection, isApiKeyBypass) = currentUserResult.Value;
+        var (userId, roles, assignedSection, isApiKeyBypass) = currentUserResult.Value;
         if (isApiKeyBypass)
         {
             return true;
         }
 
+        // An account holding extra roles gets access if any role it holds grants it. The main role is
+        // asked first, and its refusal is the one reported when none of them grants access.
+        ErrorOr<bool>? firstRefusal = null;
+        foreach (var role in roles)
+        {
+            var result = await EnsureEntityAccessForRoleAsync(
+                entityType, entityId, uploadedByUserId, isWriteOperation, userId, role, assignedSection, cancellationToken);
+
+            if (!result.IsError)
+            {
+                return result;
+            }
+
+            firstRefusal ??= result;
+        }
+
+        return firstRefusal ?? Errors.Auth.UserNotFound;
+    }
+
+    private async Task<ErrorOr<bool>> EnsureEntityAccessForRoleAsync(
+        string entityType,
+        int entityId,
+        Guid? uploadedByUserId,
+        bool isWriteOperation,
+        Guid userId,
+        string role,
+        string? assignedSection,
+        CancellationToken cancellationToken)
+    {
         List<string>? cachedPermissions = null;
 
         async Task<IReadOnlyCollection<string>> GetPermissionsAsync()
@@ -431,7 +460,7 @@ public sealed class DocumentAttachmentAccessService(
                 : "You do not have permission to view crate GRV attachments.");
     }
 
-    private async Task<ErrorOr<(Guid UserId, string Role, string? AssignedSection, bool IsApiKeyBypass)>> ResolveCurrentUserAsync(
+    private async Task<ErrorOr<(Guid UserId, IReadOnlyList<string> Roles, string? AssignedSection, bool IsApiKeyBypass)>> ResolveCurrentUserAsync(
         CancellationToken cancellationToken)
     {
         var user = httpContextAccessor.HttpContext?.User;
@@ -444,7 +473,7 @@ public sealed class DocumentAttachmentAccessService(
         // together, and is held to that user's role below.
         if (ApiKeyServiceCaller.IsServiceCall(user))
         {
-            return (Guid.Empty, "ApiKey", null, true);
+            return (Guid.Empty, ["ApiKey"], null, true);
         }
 
         var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -456,7 +485,7 @@ public sealed class DocumentAttachmentAccessService(
         var currentUser = await context.Users
             .AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new { u.Role, u.AssignedSection, u.IsActive })
+            .Select(u => new { u.Role, u.AdditionalRoles, u.AssignedSection, u.IsActive })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (currentUser is null || !currentUser.IsActive)
@@ -464,7 +493,13 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.Auth.UserNotFound;
         }
 
-        return (userId, currentUser.Role, currentUser.AssignedSection, false);
+        var roles = new[] { currentUser.Role }
+            .Concat(User.ParseAdditionalRoles(currentUser.AdditionalRoles))
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return (userId, roles, currentUser.AssignedSection, false);
     }
 
     private static bool IsRole(string? actualRole, string expectedRole)

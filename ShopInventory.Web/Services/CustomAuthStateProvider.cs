@@ -550,6 +550,8 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             new Claim(ClaimTypes.Role, userInfo?.Role ?? "User")
         };
 
+        claims.AddRange(AdditionalRoleClaims(userInfo?.Role, userInfo?.AdditionalRoles));
+
         if (!string.IsNullOrEmpty(userInfo?.Email))
         {
             claims.Add(new Claim(ClaimTypes.Email, userInfo.Email));
@@ -689,7 +691,19 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         _httpClient.DefaultRequestHeaders.Authorization = null;
     }
 
-    public void NotifyUserAuthentication(string username, string role)
+    /// <summary>
+    /// One role claim for each role an account holds on top of its main role, skipping blanks and the
+    /// main role itself. Added after the main role's claim, so code reading the first role claim still
+    /// gets the main role.
+    /// </summary>
+    public static IEnumerable<Claim> AdditionalRoleClaims(string? mainRole, IEnumerable<string>? additionalRoles)
+        => (additionalRoles ?? [])
+            .Where(role => !string.IsNullOrWhiteSpace(role) &&
+                           !string.Equals(role, mainRole, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(role => new Claim(ClaimTypes.Role, role.Trim()));
+
+    public void NotifyUserAuthentication(string username, string role, IEnumerable<string>? additionalRoles = null)
     {
         _logger.LogInformation("NotifyUserAuthentication called for user: {Username}, role: {Role}", username, role);
 
@@ -698,6 +712,8 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             new Claim(ClaimTypes.Name, username),
             new Claim(ClaimTypes.Role, role)
         };
+
+        claims.AddRange(AdditionalRoleClaims(role, additionalRoles));
 
         var identity = new ClaimsIdentity(claims, "jwt");
         var user = new ClaimsPrincipal(identity);

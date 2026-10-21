@@ -75,7 +75,7 @@ public class AuthService : IAuthService
                         loginResponse.User?.Role ?? "User");
                     _authStateProvider.NotifyUserAuthentication(
                         loginResponse.User?.Username ?? username,
-                        loginResponse.User?.Role ?? "User");
+                        loginResponse.User?.Role ?? "User", loginResponse.User?.AdditionalRoles);
 
                     _logger.LogInformation("Login successful for user: {Username}", username);
                     return (true, "Login successful", loginResponse);
@@ -123,7 +123,7 @@ public class AuthService : IAuthService
                     await _authStateProvider.StoreAuthData(loginResponse);
                     _authStateProvider.NotifyUserAuthentication(
                         loginResponse.User?.Username ?? "User",
-                        loginResponse.User?.Role ?? "User");
+                        loginResponse.User?.Role ?? "User", loginResponse.User?.AdditionalRoles);
                     _logger.LogInformation("2FA login completed for user: {Username}", loginResponse.User?.Username);
                     return (true, "Login successful", loginResponse);
                 }
@@ -210,7 +210,7 @@ public class AuthService : IAuthService
                     await _authStateProvider.StoreAuthData(loginResponse);
                     _authStateProvider.NotifyUserAuthentication(
                         loginResponse.User?.Username ?? "User",
-                        loginResponse.User?.Role ?? "User");
+                        loginResponse.User?.Role ?? "User", loginResponse.User?.AdditionalRoles);
                     return (true, "Login successful", loginResponse);
                 }
             }

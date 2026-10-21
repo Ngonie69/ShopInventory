@@ -139,6 +139,29 @@ public sealed class UpdateUserHandler(
             user.Role = command.Request.Role.Trim();
         }
 
+        // Null keeps the account's extra roles, minus any the (possibly new) main role does not allow:
+        // moving a cart vendor to another role should not leave Cashier stranded on the account.
+        // A list given explicitly is checked, and a role that is not allowed is refused.
+        var previousAdditionalRoles = user.GetAdditionalRoles();
+        if (command.Request.AdditionalRoles is null)
+        {
+            var allowed = ApplicationRoles.AllowedAdditionalRoles(user.Role);
+            user.SetAdditionalRoles(previousAdditionalRoles
+                .Where(role => allowed.Contains(role, StringComparer.OrdinalIgnoreCase))
+                .ToList());
+        }
+        else
+        {
+            var (additionalRoles, additionalRolesError) =
+                ApplicationRoles.NormalizeAdditionalRoles(user.Role, command.Request.AdditionalRoles);
+            if (additionalRolesError is not null)
+            {
+                return Errors.UserManagement.UpdateFailed(additionalRolesError);
+            }
+
+            user.SetAdditionalRoles(additionalRoles);
+        }
+
         if (command.Request.AssignedWarehouseCodes != null)
         {
             if (ApplicationRoles.SupportsWarehouseAssignments(user.Role))
@@ -348,6 +371,7 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.LastName, user.LastName)
                 .SetProperty(x => x.IsActive, user.IsActive)
                 .SetProperty(x => x.Role, user.Role)
+                .SetProperty(x => x.AdditionalRoles, user.AdditionalRoles)
                 .SetProperty(x => x.AssignedWarehouseCodes, user.AssignedWarehouseCodes)
                 .SetProperty(x => x.AssignedCustomerCodes, user.AssignedCustomerCodes)
                 .SetProperty(x => x.AssignedSection, user.AssignedSection)
@@ -418,6 +442,14 @@ public sealed class UpdateUserHandler(
                                         (addedCustomerCodes.Count > 0 || removedCustomerCodes.Count > 0)
                 ? $"; customer assignments added={addedCustomerCodes.Count}, removed={removedCustomerCodes.Count}"
                 : string.Empty;
+
+            var currentAdditionalRoles = user.GetAdditionalRoles();
+            if (!currentAdditionalRoles.SequenceEqual(previousAdditionalRoles, StringComparer.OrdinalIgnoreCase))
+            {
+                assignmentAuditDetail += currentAdditionalRoles.Count == 0
+                    ? "; extra roles cleared"
+                    : $"; extra roles now {string.Join(", ", currentAdditionalRoles)}";
+            }
 
             await auditService.LogAsync(
                 AuditActions.UpdateUser,

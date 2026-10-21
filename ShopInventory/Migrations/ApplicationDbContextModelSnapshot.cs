@@ -9122,6 +9122,9 @@ namespace ShopInventory.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AdditionalRoles")
+                        .HasColumnType("text");
+
                     b.Property<string>("AssignedBusinessPartnerCode")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
