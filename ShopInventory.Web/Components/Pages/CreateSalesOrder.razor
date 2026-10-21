@@ -210,16 +210,14 @@
                                 <input class="sfm-input" @bind="newOrder.CustomerRefNo"
                                        placeholder="PO / reference number" />
                             </label>
-                            <label class="sfm-lab">
+                            <div class="sfm-lab">
                                 <span class="sfm-lab-t">Warehouse</span>
-                                <select class="sfm-select" @bind="newOrder.WarehouseCode">
-                                    <option value="">&mdash; Default &mdash;</option>
-                                    @foreach (var wh in cachedWarehouses)
-                                    {
-                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                    }
-                                </select>
-                            </label>
+                                <NocturnePicker Class="npick-chips npick-block"
+                                                Options="WarehouseOptions.From(cachedWarehouses)" @bind-Value="newOrder.WarehouseCode"
+                                                AllowClear="false" UnsetLabel="Default" UnsetHint="each item’s own" UnsetTag="per item"
+                                                SearchPlaceholder="Search code or name…" Caption="Warehouses"
+                                                AriaLabel="Warehouse" />
+                            </div>
                             <label class="sfm-lab sfm-span3">
                                 <span class="sfm-lab-t">Comments</span>
                                 <input class="sfm-input" @bind="newOrder.Comments" placeholder="Optional comments" />
@@ -319,13 +317,13 @@
                                                order against the document SAP actually produces. *@
                                             <input type="number" min="0" max="100" step="0.1"
                                                    class="sfm-input sfm-num" @bind="line.TaxPercent" />
-                                            <select class="sfm-select sfm-cell" @bind="line.WarehouseCode">
-                                                <option value="">Default</option>
-                                                @foreach (var wh in cachedWarehouses)
-                                                {
-                                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                }
-                                            </select>
+                                            <NocturnePicker Class="npick-chips npick-end"
+                                                            Options="WarehouseOptions.From(cachedWarehouses)" Value="@line.WarehouseCode"
+                                                            ValueChanged="@(code => line.WarehouseCode = code ?? string.Empty)"
+                                                            InheritedValue="@newOrder.WarehouseCode"
+                                                            AllowClear="false" UnsetLabel="Default" UnsetHint="the order’s warehouse"
+                                                            SearchPlaceholder="Search code or name…" Caption="Warehouses"
+                                                            AriaLabel="@($"Warehouse for line {index + 1}")" />
                                             <div class="sfm-r">
                                                 <div class="sfm-amt-v">@CalculateLineTotal(line).ToString("N2")</div>
                                                 @if (HasSpecialPrice(line.ItemCode))

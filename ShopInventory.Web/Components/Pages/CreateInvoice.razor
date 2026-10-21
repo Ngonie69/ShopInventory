@@ -267,30 +267,37 @@
                         </button>
                     </div>
 
+                    @* Built once per render and shared by the defaults bar and every line. *@
+                    @{ var warehouseOptions = WarehouseOptions.From(cachedWarehouses); }
                     <div class="sfm-defaults">
                         <span class="sfm-defaults-k">Defaults</span>
-                        <label class="sfm-inline-lab">Warehouse
-                            <select class="sfm-select is-sm" value="@warehouseCode"
-                                    @onchange="e => OnDefaultWarehouseChanged(e.Value?.ToString())">
-                                <option value="">Select&hellip;</option>
-                                @foreach (var warehouse in cachedWarehouses)
-                                {
-                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
-                                }
-                            </select>
-                        </label>
-                        <label class="sfm-inline-lab">Cost centre
-                            <select class="sfm-select is-sm" value="@defaultCostCentre"
-                                    @onchange="e => OnDefaultCostCentreChanged(e.Value?.ToString())">
-                                <option value="">Default</option>
-                                @foreach (var centre in cachedCostCentres.Where(c => c.IsActive))
-                                {
-                                    <option value="@centre.CenterCode">
-                                        @centre.CenterCode &mdash; @TruncateName(centre.CenterName, 25)
-                                    </option>
-                                }
-                            </select>
-                        </label>
+                        @* A div, not a <label>: a label around the picker would turn a
+                           click on the open menu's padding into a click on the
+                           trigger, and shut it. *@
+                        <div class="sfm-inline-lab">
+                            <span>Warehouse</span>
+                            <NocturnePicker Class="npick-chips sfm-def-wh" Options="warehouseOptions"
+                                            Value="@warehouseCode"
+                                            ValueChanged="@(code => OnDefaultWarehouseChanged(code))"
+                                            AllowClear="false" Loading="isLoadingMasterData"
+                                            Placeholder="Select…" SearchPlaceholder="Search code or name…"
+                                            Caption="Warehouses" AriaLabel="Default warehouse">
+                                <Leading><i class="ph ph-warehouse"></i></Leading>
+                            </NocturnePicker>
+                        </div>
+                        <div class="sfm-inline-lab">
+                            <span>Cost centre</span>
+                            <NocturnePicker Class="npick-chips sfm-def-cc"
+                                            Options="CostCentreOptions.ByCode(cachedCostCentres.Where(c => c.IsActive))"
+                                            Value="@defaultCostCentre"
+                                            ValueChanged="@(code => OnDefaultCostCentreChanged(code))"
+                                            AllowClear="false" UnsetLabel="Default"
+                                            UnsetHint="each item’s own" UnsetTag="per item"
+                                            SearchPlaceholder="Search code or name…"
+                                            Caption="Cost centres" AriaLabel="Default cost centre">
+                                <Leading><i class="ph ph-target"></i></Leading>
+                            </NocturnePicker>
+                        </div>
                         <span class="sfm-spacer"></span>
                         <span class="sfm-batchmode" title="Batches are always allocated first-expired-first-out">
                             <i class="ph ph-sparkle"></i>Auto batch (FEFO)
@@ -363,15 +370,13 @@
                                         </div>
                                         <input class="sfm-input sfm-desc" @bind="line.ItemDescription"
                                                placeholder="Description" />
-                                        <select class="sfm-select sfm-cell @(lineErrors.ContainsKey("Warehouse") ? "is-bad" : "")"
-                                                value="@line.WarehouseCode"
-                                                @onchange="e => OnLineWarehouseChanged(index, e.Value?.ToString())">
-                                            <option value="">Select&hellip;</option>
-                                            @foreach (var warehouse in cachedWarehouses)
-                                            {
-                                                <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
-                                            }
-                                        </select>
+                                        <NocturnePicker Class="npick-chips npick-end"
+                                                        Options="warehouseOptions" Value="@line.WarehouseCode"
+                                                        ValueChanged="@(code => OnLineWarehouseChanged(index, code))"
+                                                        InheritedValue="@warehouseCode"
+                                                        AllowClear="false" Invalid="@lineErrors.ContainsKey("Warehouse")"
+                                                        Placeholder="Select…" SearchPlaceholder="Search code or name…"
+                                                        Caption="Warehouses" AriaLabel="@($"Warehouse for line {index + 1}")" />
                                         @* A text field, not type="number": a number field's spinner, the
                                            mouse wheel and the arrow keys all changed the quantity by accident. *@
                                         <input type="text" inputmode="decimal" autocomplete="off"
