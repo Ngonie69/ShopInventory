@@ -248,8 +248,14 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
 
         // The claim is completed, not released, so the handset's resend under the same reference is
         // answered with this receipt rather than starting over.
-        var claim = await _context.IdempotencyRequests.AsNoTracking().SingleAsync();
+        var claim = await _context.IdempotencyRequests.AsNoTracking()
+            .SingleAsync(r => r.Scope == ConvertSalesOrderToInvoiceHandler.IdempotencyScope);
         Assert.Equal(IdempotencyRequestStatus.Completed, claim.Status);
+
+        // And the order's own claim, so no other reference converts it while that one lives.
+        var orderClaim = await _context.IdempotencyRequests.AsNoTracking()
+            .SingleAsync(r => r.Scope == ConvertSalesOrderToInvoiceHandler.OrderIdempotencyScope);
+        Assert.Equal(IdempotencyRequestStatus.Completed, orderClaim.Status);
 
         _reservationStarted = null;
         var resent = await Handler().Handle(Command(), CancellationToken.None);

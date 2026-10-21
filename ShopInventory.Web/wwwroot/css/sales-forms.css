@@ -1040,6 +1040,11 @@
     color: var(--sfm-bad);
 }
 
+/* A warning under a line, not an error: the line can still be posted. */
+.sfm-row-err.is-warn {
+    color: var(--sfm-warn);
+}
+
 .sfm-addline {
     width: 100%;
     margin-top: 12px;
