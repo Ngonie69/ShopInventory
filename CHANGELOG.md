@@ -18,6 +18,19 @@ otherwise be surprised.
 
 ### Changed
 
+- **A sales order is converted to an invoice once, whatever reference it arrives under.**
+  `POST /api/vansales/order/convert-to-invoice` (and the desktop conversion it shares a handler with) was
+  idempotent per reference only, so a second attempt under a new reference — a handset that retired its
+  first one after an answer it could not read — could sign a second receipt and queue a second invoice
+  for one order while the first was still running. It is now a `409`:
+  `DesktopIntegration.SalesOrderConversionInProgressElsewhere` ("already in progress") while the other
+  attempt runs, `DesktopIntegration.SalesOrderAlreadyConverted` ("already been converted") once it has
+  queued. The handset already reads those phrases as "not confirmed" and "invoiced".
+
+- **New: `GET /api/vansales/sales-order/{vanOrder}`** answers whether a van sales order whose reply was
+  lost actually landed, the sales-order twin of `GET /api/vansales/sale/{vanOrder}`. Always `200`;
+  `found: false` for an order that is not there or is not the caller's to see.
+
 - **The invoice fiscalisation retry takes only invoices this app posted.** The retry job also took any
   SAP invoice whose last Fiscalise press had failed, so a document raised in SAP that someone had once
   tried was later filed with nobody present: export reserve invoice 793468 was filed at 19:04 on

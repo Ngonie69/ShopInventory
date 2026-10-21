@@ -131,6 +131,8 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
         var first = await Handler().Handle(Command(), CancellationToken.None);
         Assert.False(first.IsError, Describe(first));
 
+        // The order claim now refuses a second caller first; lapse it to reach the queue's own answer.
+        await _context.IdempotencyRequests.ExecuteDeleteAsync();
         _orders.ReadBeforeFulfilment(OrderId);
         var racing = Handler(queueLookupMisses: true);
         var second = await racing.Handle(Command(createdBy: "rep-2"), CancellationToken.None);
@@ -149,6 +151,8 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
         var first = await Handler().Handle(Command(), CancellationToken.None);
         Assert.False(first.IsError, Describe(first));
 
+        // As above: lapse the order claim to reach the queue's own answer.
+        await _context.IdempotencyRequests.ExecuteDeleteAsync();
         _orders.ReadBeforeFulfilment(OrderId);
         var second = await Handler(queueLookupMisses: true)
             .Handle(Command(createdBy: "rep-2"), CancellationToken.None);
@@ -259,7 +263,87 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
 
         Assert.False(result.IsError, Describe(result));
         Assert.StartsWith("SO-CONV-SO-7004-", result.Value.ExternalReference);
-        Assert.Equal(0, await _context.IdempotencyRequests.CountAsync());
+        Assert.Equal(0, await _context.IdempotencyRequests.CountAsync(
+            r => r.Scope == ConvertSalesOrderToInvoiceHandler.IdempotencyScope));
+    }
+
+    [Fact]
+    public async Task A_second_reference_for_the_same_order_while_the_first_runs_is_refused_and_touches_nothing()
+    {
+        // A handset that retired its reference after an answer it could not read, and converted again under
+        // a new one while the first was still in the office. Both used to see Approved and both went on.
+        var gate = new TaskCompletionSource();
+        _reservations.Gate = gate.Task;
+        var handler = Handler();
+
+        var first = handler.Handle(Command(), CancellationToken.None);
+        await _reservations.Entered.Task;
+
+        var second = await handler
+            .Handle(Command(externalReferenceId: "VO-20260922-0008"), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(second.IsError);
+        Assert.Equal(ErrorType.Conflict, second.FirstError.Type);
+        Assert.Equal("DesktopIntegration.SalesOrderConversionInProgressElsewhere", second.FirstError.Code);
+        // The handset keeps its reference and sends the rep to Invoice History on this phrase.
+        Assert.Contains("already in progress", second.FirstError.Description);
+        Assert.Equal(1, _reservations.Calls);
+
+        gate.SetResult();
+        Assert.False((await first).IsError);
+        Assert.Equal(1, await _context.InvoiceQueue.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_second_reference_for_an_order_already_converted_is_told_so()
+    {
+        var first = await Handler().Handle(Command(), CancellationToken.None);
+        Assert.False(first.IsError, Describe(first));
+
+        var second = await Handler().Handle(Command(externalReferenceId: "VO-20260922-0008"), CancellationToken.None);
+
+        Assert.True(second.IsError);
+        Assert.Equal("DesktopIntegration.SalesOrderAlreadyConverted", second.FirstError.Code);
+        // The handset reads this as the order being invoiced.
+        Assert.Contains("already been converted", second.FirstError.Description);
+        Assert.Contains(VanOrder, second.FirstError.Description);
+        Assert.Equal(1, _reservations.Calls);
+    }
+
+    [Fact]
+    public async Task An_order_whose_fulfilment_was_not_recorded_is_still_converted_once()
+    {
+        // The claim has lapsed and the order still reads Approved — MarkAsFulfilled is advisory and can
+        // fail after the invoice is queued. The queue entry is what remembers the conversion.
+        var first = await Handler().Handle(Command(), CancellationToken.None);
+        Assert.False(first.IsError, Describe(first));
+        await _context.IdempotencyRequests.ExecuteDeleteAsync();
+        _orders.ReadBeforeFulfilment(OrderId);
+
+        var second = await Handler().Handle(Command(externalReferenceId: "VO-20260922-0008"), CancellationToken.None);
+
+        Assert.True(second.IsError);
+        Assert.Equal("DesktopIntegration.SalesOrderAlreadyConverted", second.FirstError.Code);
+        Assert.Equal(1, _reservations.Calls);
+        Assert.Equal(1, await _context.InvoiceQueue.CountAsync());
+        // Refused before taking anything: the order is not left claimed by the refused attempt.
+        Assert.Equal(0, await _context.IdempotencyRequests.CountAsync(
+            r => r.Scope == ConvertSalesOrderToInvoiceHandler.OrderIdempotencyScope));
+    }
+
+    [Fact]
+    public async Task A_conversion_refused_before_anything_was_held_frees_the_order_for_another_reference()
+    {
+        _reservations.FailNext = true;
+        var refused = await Handler().Handle(Command(), CancellationToken.None);
+        Assert.True(refused.IsError);
+
+        var retried = await Handler().Handle(Command(externalReferenceId: "VO-20260922-0008"), CancellationToken.None);
+
+        Assert.False(retried.IsError, Describe(retried));
+        Assert.Equal("VO-20260922-0008", retried.Value.ExternalReference);
+        Assert.Equal(1, await _context.InvoiceQueue.CountAsync());
     }
 
     private ConvertSalesOrderToInvoiceHandler Handler(bool queueLookupMisses = false)
