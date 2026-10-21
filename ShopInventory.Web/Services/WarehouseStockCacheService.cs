@@ -47,6 +47,20 @@ public interface IWarehouseStockCacheService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// In-stock figures straight from the local cache — no SAP call, no sync, however old the rows.
+    /// For hints that must cost nothing to show, like stock beside each match in a search list or
+    /// which other warehouse holds an item; anything that decides must read through
+    /// <see cref="GetStockForItemsAsync"/> instead.
+    /// </summary>
+    /// <param name="warehouseCode">One warehouse, or null for every cached warehouse.</param>
+    /// <param name="itemCodes">The items to read, or null for every item cached for the warehouse.</param>
+    /// <param name="cancellationToken">Cancels the database read.</param>
+    Task<IReadOnlyList<CachedStockFigure>> PeekCachedInStockAsync(
+        string? warehouseCode,
+        IReadOnlyCollection<string>? itemCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Finds one item in a warehouse by barcode, falling back to an item-code match
     /// so a hand-typed code works in the same field. Served from the cache, which is
     /// where the barcode already is — the paged stock query selects OITM.CodeBars.
@@ -79,6 +93,9 @@ public interface IWarehouseStockCacheService
     /// </summary>
     event EventHandler<string>? SyncCompleted;
 }
+
+/// <summary>One cached in-stock figure: SAP's OnHand for an item in a warehouse, as last synced.</summary>
+public sealed record CachedStockFigure(string WarehouseCode, string ItemCode, decimal InStock);
 
 public class WarehouseStockCacheService : IWarehouseStockCacheService
 {
@@ -493,6 +510,39 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         }
 
         return results;
+    }
+
+    public async Task<IReadOnlyList<CachedStockFigure>> PeekCachedInStockAsync(
+        string? warehouseCode,
+        IReadOnlyCollection<string>? itemCodes,
+        CancellationToken cancellationToken = default)
+    {
+        // Both filters open would read every cached row in every warehouse.
+        if (string.IsNullOrWhiteSpace(warehouseCode) && (itemCodes is null || itemCodes.Count == 0))
+            return [];
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var rows = dbContext.CachedWarehouseStocks.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(warehouseCode))
+        {
+            var code = warehouseCode.Trim();
+            rows = rows.Where(s => s.WarehouseCode == code);
+        }
+
+        if (itemCodes is { Count: > 0 })
+        {
+            var codes = itemCodes
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Select(c => c.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            rows = rows.Where(s => codes.Contains(s.ItemCode));
+        }
+
+        return await rows
+            .Select(s => new CachedStockFigure(s.WarehouseCode, s.ItemCode, s.InStock))
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<CacheSyncInfo?> GetSyncStatusAsync(string warehouseCode)

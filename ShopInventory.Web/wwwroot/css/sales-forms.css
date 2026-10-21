@@ -811,10 +811,12 @@
     padding: 0 18px 18px;
 }
 
-/* The invoice is the widest: it names a warehouse per line *and* carries the
-   batch tag, because stock leaves the building on this document. */
+/* #, item (code over description), warehouse, qty (over its stock), unit price,
+   disc %, amount, remove. The invoice names a warehouse per line because stock
+   leaves the building on this document; its batch is always FEFO, said once in
+   the card head rather than on every row. */
 .is-invoice .sfm-lines {
-    --sfm-cols: 24px 132px minmax(150px, 1fr) 132px 56px 84px 52px 96px 100px 28px;
+    --sfm-cols: 24px minmax(220px, 1fr) 150px 100px 92px 70px 110px 28px;
     --sfm-lines-min: 900px;
 }
 
@@ -1701,3 +1703,696 @@
     color: var(--sfm-accent);
 }
 
+
+/* ==========================================================================
+   The invoice, laid out for keyboard speed
+   CreateInvoice.razor only. The other five forms keep the two-column layout
+   above; the invoice dropped its aside for three things a cashier needs on
+   every document: all the header fields in one block, one "Add item" row the
+   cursor lives in, and a bar pinned to the bottom with the totals and the
+   post button. Everything here is under `.is-invoice`, so nothing above
+   changes for its siblings.
+   ========================================================================== */
+
+/* NocturnePicker fitted to this sheet's fields: same height, fill and edge
+   as a `.sfm-input`, so a picker beside an input does not stagger the row.
+   See nocturne-picker.css on why these are fallbacks set from the root. */
+.is-invoice {
+    --npick-h: 37px;
+    --npick-pad-y: 9px;
+    --npick-pad-x: 11px;
+    --npick-fs: 13.5px;
+    --npick-radius: 6px;
+    --npick-fill: var(--sfm-field);
+    --npick-edge: var(--sfm-field-edge);
+    --npick-edge-hi: var(--sfm-field-edge-hi);
+    --npick-menu-w: 380px;
+}
+
+.is-invoice .sfm-shell {
+    padding-bottom: 28px;
+}
+
+/* ── Top bar ────────────────────────────────────────────────────────────── */
+.is-invoice .sfm-crumbs {
+    gap: 10px;
+    font-size: 13px;
+}
+
+.is-invoice .sfm-crumb-title {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--sfm-ink);
+}
+
+.is-invoice .sfm-sync-note {
+    font-size: 12px;
+    color: var(--sfm-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.is-invoice .sfm-btn-icon {
+    width: 32px;
+    height: 30px;
+    padding: 0;
+    font-size: 15px;
+}
+
+.is-invoice .sfm-alert {
+    margin-bottom: 14px;
+}
+
+.is-invoice .sfm-alert-acts {
+    display: inline-flex;
+    gap: 8px;
+    margin-left: 10px;
+    vertical-align: middle;
+}
+
+/* ── Invoice details: one wrapping block ────────────────────────────────── */
+.is-invoice .sfm-docbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 16px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+}
+
+.is-invoice .sfm-f-customer { flex: 3 1 340px; }
+.is-invoice .sfm-f-ref { flex: 1 1 160px; }
+.is-invoice .sfm-f-crates { flex: 0 1 100px; }
+.is-invoice .sfm-f-cur { flex: 0 1 150px; }
+.is-invoice .sfm-f-wh { flex: 1 1 230px; }
+.is-invoice .sfm-f-cc { flex: 1 1 200px; }
+.is-invoice .sfm-f-comments { flex: 4 1 320px; }
+
+.is-invoice .sfm-lab-note {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--sfm-muted-2);
+}
+
+.is-invoice .sfm-locked {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 37px;
+    padding: 0 11px;
+    border-radius: 6px;
+    background: var(--sfm-surface-2);
+    color: var(--sfm-ink-2);
+    font-size: 13.5px;
+}
+
+.is-invoice .sfm-locked strong {
+    font-weight: 600;
+}
+
+.is-invoice .sfm-locked span {
+    font-size: 12px;
+    color: var(--sfm-muted);
+}
+
+/* ── Lines card ─────────────────────────────────────────────────────────── */
+.is-invoice .sfm-card-hd {
+    flex-wrap: wrap;
+    row-gap: 8px;
+}
+
+.is-invoice .sfm-hd-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--sfm-muted);
+}
+
+.is-invoice .sfm-card-hd .sfm-hd-note i {
+    font-size: 14px;
+    color: var(--sfm-muted-2);
+}
+
+.is-invoice .sfm-card-hd .sfm-hd-note:first-of-type i {
+    color: var(--sfm-accent);
+}
+
+.is-invoice .sfm-short-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border: 1px solid rgba(var(--sfm-bad-rgb), .45);
+    border-radius: 999px;
+    background: rgba(var(--sfm-bad-rgb), .1);
+    color: var(--sfm-bad-ink);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.is-invoice .sfm-card-hd .sfm-short-chip i {
+    font-size: 13px;
+    color: currentColor;
+}
+
+.is-invoice .sfm-short-chip.is-on {
+    background: var(--sfm-bad);
+    border-color: var(--sfm-bad);
+    color: var(--sfm-solid-ink);
+}
+
+.is-invoice .sfm-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* The scroller clips vertically too (see `.sfm-lines.is-picking`), which
+   would cut a line's warehouse picker off at the bottom of the table. While
+   one is open the clip is lifted. */
+.is-invoice .sfm-lines:has(.npick-open) {
+    overflow: visible;
+}
+
+.is-invoice .sfm-row:not(.is-head) {
+    padding: 8px 0;
+}
+
+.is-invoice .sfm-row.is-new {
+    background: rgba(var(--sfm-accent-rgb), .05);
+}
+
+.is-invoice .sfm-row.is-short {
+    background: rgba(var(--sfm-bad-rgb), .06);
+}
+
+.is-invoice .sfm-lines-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 26px 12px;
+    border-top: 1px solid var(--sfm-rowline);
+    text-align: center;
+    font-size: 13px;
+    color: var(--sfm-muted);
+}
+
+.is-invoice .sfm-lines-empty strong {
+    font-weight: 500;
+    color: var(--sfm-ink-2);
+}
+
+.is-invoice .sfm-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.is-invoice .sfm-item-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 9px;
+}
+
+.is-invoice .sfm-item-code {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--sfm-ink);
+}
+
+.is-invoice .sfm-item-code.is-bad {
+    color: var(--sfm-bad);
+}
+
+.is-invoice .sfm-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.is-invoice .sfm-chip.is-info {
+    background: rgba(var(--sfm-info-rgb), .14);
+    color: var(--sfm-info-ink);
+}
+
+.is-invoice .sfm-desc.sfm-desc-sub {
+    padding: 2px 9px;
+    color: var(--sfm-muted);
+    font-size: 12.5px;
+}
+
+.is-invoice .sfm-line-wh.is-off {
+    --npick-fill: rgba(var(--sfm-info-rgb), .1);
+    --npick-edge: rgba(var(--sfm-info-rgb), .35);
+}
+
+.is-invoice .sfm-qty {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+:is(.sfm, .sfm-modal).is-invoice .sfm-qty-in {
+    font-weight: 600;
+}
+
+.is-invoice .sfm-stock {
+    font-size: 11px;
+    text-align: right;
+    white-space: nowrap;
+    color: var(--sfm-muted-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.is-invoice .sfm-stock.is-low {
+    color: var(--sfm-warn);
+}
+
+.is-invoice .sfm-stock.is-short {
+    color: var(--sfm-bad-ink);
+}
+
+.is-invoice .sfm-price {
+    font-variant-numeric: tabular-nums;
+    color: var(--sfm-ink-2);
+}
+
+.is-invoice .sfm-price.is-bad {
+    color: var(--sfm-bad);
+}
+
+/* A discount reads as text until there is one. */
+:is(.sfm, .sfm-modal).is-invoice .sfm-disc {
+    background: transparent;
+    border-color: transparent;
+    color: var(--sfm-muted-2);
+}
+
+:is(.sfm, .sfm-modal).is-invoice .sfm-disc.has-disc {
+    color: var(--sfm-warn);
+}
+
+:is(.sfm, .sfm-modal).is-invoice .sfm-disc:hover,
+:is(.sfm, .sfm-modal).is-invoice .sfm-disc:focus {
+    background: var(--sfm-field);
+    border-color: var(--sfm-field-edge);
+}
+
+.is-invoice .sfm-amt-v {
+    color: var(--sfm-ink);
+    font-weight: 600;
+}
+
+/* The strip under a short line: what is wrong and the fixes for it. */
+.is-invoice .sfm-short {
+    grid-column: 2 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding-top: 2px;
+}
+
+.is-invoice .sfm-short > i {
+    font-size: 15px;
+    color: var(--sfm-bad);
+}
+
+.is-invoice .sfm-short-t {
+    font-size: 13px;
+    color: var(--sfm-alert-bad-ink);
+}
+
+.is-invoice .sfm-fix {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--sfm-bad-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--sfm-alert-bad-ink);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.is-invoice .sfm-fix.is-move {
+    border-color: rgba(var(--sfm-info-rgb), .4);
+    background: rgba(var(--sfm-info-rgb), .1);
+    color: var(--sfm-info-ink);
+}
+
+.is-invoice .sfm-fix.is-quiet {
+    border-color: transparent;
+    color: var(--sfm-muted);
+    font-weight: 400;
+}
+
+.is-invoice .sfm-fix:hover {
+    border-color: currentColor;
+}
+
+.is-invoice .sfm-lines-hidden {
+    padding: 10px 0 0;
+    border-top: 1px solid var(--sfm-rowline);
+    font-size: 12px;
+    color: var(--sfm-muted);
+}
+
+.is-invoice .sfm-lines-hidden button {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: var(--sfm-info-ink);
+    font: inherit;
+    cursor: pointer;
+}
+
+/* ── Add item ───────────────────────────────────────────────────────────── */
+.is-invoice .sfm-entry {
+    padding: 14px 18px 14px;
+    border-top: 1px solid var(--sfm-edge);
+    background: var(--sfm-surface-2);
+    border-radius: 0 0 10px 10px;
+}
+
+.is-invoice .sfm-entry-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 12px;
+}
+
+.is-invoice .sfm-entry-item { flex: 1 1 380px; }
+.is-invoice .sfm-entry-qty { flex: 0 0 110px; }
+.is-invoice .sfm-entry-amt { flex: 0 0 auto; min-width: 110px; }
+
+.is-invoice .sfm-lab-t.is-accent {
+    color: var(--sfm-accent);
+}
+
+.is-invoice .sfm-entry-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: var(--sfm-muted-2);
+    pointer-events: none;
+}
+
+:is(.sfm, .sfm-modal).is-invoice .sfm-entry-input {
+    height: 42px;
+    font-size: 15px;
+}
+
+:is(.sfm, .sfm-modal).is-invoice .sfm-combo .sfm-entry-input {
+    padding-left: 38px;
+}
+
+.is-invoice .sfm-entry-amt-v {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    height: 42px;
+    font-size: 15px;
+    color: var(--sfm-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.is-invoice .sfm-entry-add {
+    height: 42px;
+    padding: 0 14px;
+    font-size: 12px;
+}
+
+.is-invoice kbd {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 5px;
+    border: 1px solid var(--sfm-dashed);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--sfm-ink-2);
+    font-family: inherit;
+    font-size: 11px;
+    line-height: 1.4;
+    text-align: center;
+    text-transform: none;
+    letter-spacing: 0;
+    box-shadow: none;
+}
+
+.is-invoice kbd + kbd {
+    margin-left: 3px;
+}
+
+.is-invoice .sfm-entry-drop {
+    width: min(680px, 100%);
+    max-height: 380px;
+    padding: 4px;
+    border-color: var(--sfm-field-edge-hi);
+    border-radius: 10px;
+}
+
+.is-invoice .sfm-entry-drop .sfm-drop-i {
+    gap: 12px;
+    border-bottom: 0;
+    border-radius: 7px;
+    justify-content: flex-start;
+}
+
+.is-invoice .sfm-drop-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.is-invoice .sfm-drop-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+    color: var(--sfm-ink);
+}
+
+.is-invoice .sfm-drop-stock {
+    flex: 0 0 auto;
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--sfm-muted-2);
+}
+
+.is-invoice .sfm-drop-stock.is-short {
+    color: var(--sfm-bad-ink);
+}
+
+.is-invoice .sfm-drop-amt {
+    flex: 0 0 72px;
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--sfm-ink);
+}
+
+.is-invoice .sfm-drop-foot {
+    position: sticky;
+    bottom: -4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin: 4px -4px -4px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--sfm-edge);
+    background: var(--sfm-surface-2);
+    font-size: 12px;
+    color: var(--sfm-muted);
+}
+
+.is-invoice .sfm-drop-foot span:first-child {
+    flex: 1 1 auto;
+}
+
+.is-invoice .sfm-entry-stock {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--sfm-muted);
+}
+
+.is-invoice .sfm-entry-stock.is-short {
+    color: var(--sfm-bad-ink);
+}
+
+.is-invoice .sfm-entry-stock.is-enough i {
+    color: var(--sfm-accent);
+}
+
+.is-invoice .sfm-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--sfm-muted);
+}
+
+/* ── Action bar ─────────────────────────────────────────────────────────── */
+.is-invoice .sfm-actionbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    border-top: 1px solid var(--sfm-edge);
+    border-radius: 0 0 12px 12px;
+    background: var(--sfm-surface);
+    box-shadow: 0 -12px 30px rgba(var(--sfm-shadow-rgb), calc(var(--sfm-shadow-a) * .8));
+}
+
+.is-invoice .sfm-actionbar-in {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 12px 32px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 28px;
+}
+
+.is-invoice .sfm-ready {
+    flex: 1 1 320px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.is-invoice .sfm-ready-ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    color: var(--sfm-ok-ink);
+}
+
+.is-invoice .sfm-ready-ok i {
+    color: var(--sfm-accent);
+}
+
+.is-invoice .sfm-ready-no {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    color: var(--sfm-warn);
+}
+
+.is-invoice .sfm-issue {
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(var(--sfm-warn-rgb), .12);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.is-invoice .sfm-actionbar .sfm-check {
+    margin: 0;
+}
+
+.is-invoice .sfm-totals {
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.is-invoice .sfm-totals dt {
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--sfm-label);
+}
+
+.is-invoice .sfm-totals dd {
+    margin: 2px 0 0;
+    font-size: 15px;
+    color: var(--sfm-ink);
+}
+
+.is-invoice .sfm-totals dd.is-vat {
+    color: var(--sfm-warn);
+}
+
+.is-invoice .sfm-totals dd.is-total {
+    margin-top: 0;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--sfm-accent);
+}
+
+.is-invoice .sfm-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.is-invoice .sfm-clear {
+    height: 44px;
+    padding: 0 14px;
+}
+
+.is-invoice .sfm-post {
+    width: auto;
+    height: 44px;
+    padding: 0 20px;
+    gap: 10px;
+}
+
+.is-invoice .sfm-post kbd {
+    border-color: rgba(var(--sfm-shadow-rgb), .25);
+    color: var(--sfm-solid-ink);
+    opacity: .75;
+}
+
+/* Clickable still: pressing it runs the checks and marks what is wrong. */
+.is-invoice .sfm-post.is-blocked {
+    opacity: .6;
+}
+
+@media (max-width: 720px) {
+    .is-invoice .sfm-actionbar-in {
+        padding: 12px 16px;
+    }
+
+    .is-invoice .sfm-totals {
+        gap: 16px;
+    }
+
+    .is-invoice .sfm-actions {
+        width: 100%;
+    }
+
+    .is-invoice .sfm-post {
+        flex: 1;
+    }
+
+    .is-invoice .sfm-sync-note {
+        display: none;
+    }
+}
