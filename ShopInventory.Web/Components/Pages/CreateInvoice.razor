@@ -20,6 +20,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
 @inject ILocalStorageService LocalStorage
+@inject IWarehouseStockCacheService StockCacheService
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -406,6 +407,13 @@
                                         {
                                             <div class="sfm-row-err">
                                                 @string.Join(" · ", lineErrors.Values)
+                                            </div>
+                                        }
+                                        @if (StockShortfall(line) is { } shortfall)
+                                        {
+                                            <div class="sfm-row-err is-warn" role="status">
+                                                Only @shortfall.InStock.ToString("N2") in stock in @line.WarehouseCode;
+                                                this invoice asks for @shortfall.Requested.ToString("N2").
                                             </div>
                                         }
                                     </div>
@@ -827,6 +835,8 @@
             GetLineState(i).SearchTerm = invoice.Lines[i].ItemCode;
         }
 
+        QueueStockReads();
+
         // The lines keep the prices they were entered at — re-pricing them here would overwrite a
         // price the cashier typed. The customer's price list is still loaded, for lines added next.
         var bp = string.IsNullOrWhiteSpace(invoice.CardCode)
@@ -1100,6 +1110,8 @@
         {
             errors.Remove("Warehouse");
         }
+
+        QueueStockReads();
     }
 
     private void OnDefaultCostCentreChanged(string? code)
@@ -1121,6 +1133,98 @@
         {
             errors.Remove("Warehouse");
         }
+
+        QueueStockReads();
+    }
+
+    // ── Stock warning ───────────────────────────────────
+    //
+    // Each line says when it asks for more than its warehouse holds. It is a warning, never a
+    // block: the figures come from the Web's own stock cache (up to 15 minutes old), and the
+    // post still checks every line against SAP, which is the answer that counts.
+    //
+    // The figures cost SAP almost nothing. A fresh cache row is a local database read. A stale
+    // or missing one goes through a StockRefreshBatcher, which folds a burst of lines into one
+    // API call and never has more than one in flight, so the form holds at most one of the
+    // API's six SAP slots per warehouse. This is the transfer forms' arrangement; invoices need
+    // one batcher per warehouse because each line picks its own.
+
+    private readonly record struct StockShortfallInfo(decimal InStock, decimal Requested);
+
+    // In Stock by warehouse|item, the same figure the API's stock decisions use.
+    private readonly Dictionary<string, decimal> inStockByKey = new(StringComparer.OrdinalIgnoreCase);
+    // Every warehouse|item already asked for, answered or not, so a code the warehouse holds no
+    // row for is not asked about again on every change.
+    private readonly HashSet<string> stockRequested = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, StockRefreshBatcher> stockReaders = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string StockKey(string warehouseCode, string itemCode) =>
+        warehouseCode.Trim() + "|" + itemCode.Trim();
+
+    private void QueueStockReads()
+    {
+        foreach (var line in invoice.Lines)
+        {
+            if (string.IsNullOrWhiteSpace(line.WarehouseCode) || string.IsNullOrWhiteSpace(line.ItemCode))
+                continue;
+
+            // Only a code that names a real item: a half-typed one would cost a read for nothing.
+            if (!cachedProducts.Any(p => string.Equals(p.ItemCode, line.ItemCode.Trim(), StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            if (!stockRequested.Add(StockKey(line.WarehouseCode, line.ItemCode)))
+                continue;
+
+            var warehouse = line.WarehouseCode.Trim();
+            if (!stockReaders.TryGetValue(warehouse, out var reader))
+            {
+                reader = new StockRefreshBatcher(StockCacheService, Logger, ApplyStockBatchAsync);
+                stockReaders[warehouse] = reader;
+            }
+
+            reader.Request(warehouse, line.ItemCode.Trim());
+        }
+    }
+
+    // Runs off the circuit's synchronisation context, so it goes through InvokeAsync.
+    private Task ApplyStockBatchAsync(StockRefreshBatch batch) => InvokeAsync(() =>
+    {
+        foreach (var (itemCode, stock) in batch.Stock)
+            inStockByKey[StockKey(batch.WarehouseCode, itemCode)] = stock.QuantityInStock;
+
+        StateHasChanged();
+    });
+
+    /// <summary>
+    /// The shortfall for this line's item in this line's warehouse, or null when there is none or
+    /// no figure yet. Lines for the same item in the same warehouse are added together, because
+    /// they draw on the same stock.
+    /// </summary>
+    private StockShortfallInfo? StockShortfall(CreateInvoiceLineRequest line)
+    {
+        if (string.IsNullOrWhiteSpace(line.WarehouseCode) || string.IsNullOrWhiteSpace(line.ItemCode) || line.Quantity <= 0)
+            return null;
+
+        var key = StockKey(line.WarehouseCode, line.ItemCode);
+        if (!inStockByKey.TryGetValue(key, out var inStock))
+            return null;
+
+        var requested = invoice.Lines
+            .Where(other => !string.IsNullOrWhiteSpace(other.WarehouseCode) && !string.IsNullOrWhiteSpace(other.ItemCode)
+                            && string.Equals(StockKey(other.WarehouseCode, other.ItemCode), key, StringComparison.OrdinalIgnoreCase))
+            .Sum(other => other.Quantity);
+
+        return requested > inStock ? new StockShortfallInfo(inStock, requested) : null;
+    }
+
+    private void ForgetStockFigures()
+    {
+        foreach (var reader in stockReaders.Values)
+            reader.Dispose();
+
+        stockReaders.Clear();
+        stockRequested.Clear();
+        inStockByKey.Clear();
     }
 
     // Line state management for product autocomplete
@@ -1369,6 +1473,8 @@ string.Empty);
                 lineValidationErrors.Remove(index);
             }
         }
+
+        QueueStockReads();
     }
 
     private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
@@ -2198,6 +2304,8 @@ customerPricing.Count, priceListNum);
         lineStates.Clear();
         lineValidationErrors.Clear();
         validationErrors.Clear();
+        // The next invoice reads its figures again: the one just posted has moved stock.
+        ForgetStockFigures();
         ClearSelectedBP();
         customerSearch = string.Empty;
         customerMatches = FilterCustomers(null);
@@ -2207,5 +2315,6 @@ customerPricing.Count, priceListNum);
     public void Dispose()
     {
         CancelBusinessPartnerPricingRequest();
+        ForgetStockFigures();
     }
 }
