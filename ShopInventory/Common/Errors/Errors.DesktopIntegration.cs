@@ -82,6 +82,26 @@ public static partial class Errors
                 "The invoice could not be fiscalised, so it was not raised and nothing was charged: " +
                 (string.IsNullOrWhiteSpace(reason) ? "the fiscal device refused the receipt." : reason));
 
+        // One sales order is converted once, whatever reference the attempt carries. The handset reads
+        // these by their wording too (KefalosVanSales ConversionOutcome): "already in progress" keeps its
+        // reference and sends the rep to Invoice History; "already been converted" reads as invoiced.
+
+        /// <summary>
+        /// Another attempt under a different reference holds the order right now. It may be signing, so
+        /// this must never read as a refusal that invites a fresh attempt.
+        /// </summary>
+        public static Error SalesOrderConversionInProgressElsewhere(string? orderNumber) =>
+            Error.Conflict(
+                "DesktopIntegration.SalesOrderConversionInProgressElsewhere",
+                $"Converting sales order {orderNumber} is already in progress under another reference. Check " +
+                "Invoice History before converting it again.");
+
+        /// <summary>The order was already converted under a different reference.</summary>
+        public static Error SalesOrderAlreadyConverted(string? orderNumber, string reference) =>
+            Error.Conflict(
+                "DesktopIntegration.SalesOrderAlreadyConverted",
+                $"Sales order {orderNumber} has already been converted to an invoice under reference '{reference}'.");
+
         public static Error FiscalTransactionSyncFailed(string message) =>
             Error.Failure("DesktopIntegration.FiscalTransactionSyncFailed", message);
 

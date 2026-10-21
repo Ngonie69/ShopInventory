@@ -24,6 +24,10 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.ConvertSalesOrderTo
 /// order it came from, answers a retry that arrives after the claim has expired — by then the
 /// order is Fulfilled and the status check alone would refuse it.</para>
 ///
+/// <para>Both of those are per reference. A third, on the order itself (<see cref="ClaimOrderAsync"/>), keeps
+/// a second reference from converting the same order — the attempt a handset makes after retiring its first
+/// reference, which used to sign a second receipt for one order whenever the two overlapped.</para>
+///
 /// <para><b>A van conversion is signed before it is answered</b>
 /// (<see cref="ConvertSalesOrderToInvoiceCommand.SignBeforeAnswering"/>), exactly as a direct van sale is:
 /// reserve, fiscalise through <see cref="VanSaleFiscalFirstPoster"/>, and hand the invoice to the queue
@@ -43,6 +47,12 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
 ) : IRequestHandler<ConvertSalesOrderToInvoiceCommand, ErrorOr<ConvertSalesOrderToInvoiceResponseDto>>
 {
     internal const string IdempotencyScope = "sales-order-invoice-conversion";
+
+    /// <summary>
+    /// The claim on the order itself, so one order is converted once whatever reference each attempt
+    /// carries. See <see cref="ClaimOrderAsync"/>.
+    /// </summary>
+    internal const string OrderIdempotencyScope = "sales-order-invoice-conversion-order";
 
     private const string AcceptedMessage =
         "Sales order converted to invoice and queued for SAP posting. Poll the status endpoint to check completion.";
@@ -80,6 +90,13 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
         var unstoppable = CancellationToken.None;
         long? idempotencyRequestId = null;
         var release = false;
+
+        // The order claim. Given back on a failure only while nothing irrevocable has happened: once the
+        // device has been asked to sign, or the invoice queued, a receipt or an invoice may exist for this
+        // order, and another reference must not get to make a second one.
+        long? orderClaimId = null;
+        var releaseOrderClaim = false;
+        var pastCommitPoint = false;
         try
         {
             var request = command.Request;
@@ -148,15 +165,26 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 }
             }
 
+            var externalRef = suppliedReference ??
+                $"SO-CONV-{order.OrderNumber}-{Guid.NewGuid().ToString()[..8]}";
+
+            var orderClaim = await ClaimOrderAsync(command, order, externalRef);
+            if (orderClaim.Refusal is { } orderRefusal)
+                return orderRefusal;
+            if (orderClaim.Replay is { } orderReplay)
+                return orderReplay;
+            if (orderClaim.RequestId is { } claimedOrder)
+            {
+                orderClaimId = claimedOrder;
+                releaseOrderClaim = true;
+            }
+
             if (order.Status != SalesOrderStatus.Approved)
                 return Errors.DesktopIntegration.ValidationFailed(
                     $"Only approved orders can be converted to invoices. Current status: {order.StatusName}");
 
             if (!order.Lines.Any())
                 return Errors.DesktopIntegration.ValidationFailed("Sales order has no line items");
-
-            var externalRef = suppliedReference ??
-                $"SO-CONV-{order.OrderNumber}-{Guid.NewGuid().ToString()[..8]}";
 
             logger.LogInformation(
                 "Converting sales order {OrderNumber} (ID: {OrderId}) to invoice: {ExternalRef}",
@@ -278,16 +306,26 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
 
             if (command.SignBeforeAnswering)
             {
+                pastCommitPoint = true;
                 var signed = await SignThenQueueAsync(
                     command, order, reservationRequest, reservationId, externalRef);
 
                 if (!signed.IsError)
+                {
                     release = !await CompleteAsync(idempotencyRequestId, signed.Value);
+                    await CompleteAsync(orderClaimId, signed.Value);
+                    releaseOrderClaim = false;
+                }
+                else if (NothingWasSigned(signed.FirstError))
+                {
+                    pastCommitPoint = false;
+                }
 
                 return signed;
             }
 
             // Queue the invoice for batch posting to SAP
+            pastCommitPoint = true;
             var queueResult = await queueService.EnqueueInvoiceAsync(
                 reservationRequest,
                 reservationId,
@@ -319,6 +357,8 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                     Reason = $"Failed to queue invoice from SO conversion: {queueResult.ErrorMessage}"
                 }, unstoppable);
 
+                // Nothing queued and the hold cancelled: the order is free for another attempt.
+                pastCommitPoint = false;
                 return Errors.DesktopIntegration.InvoiceCreationFailed(
                     queueResult.ErrorMessage ?? "Failed to queue invoice for SAP posting");
             }
@@ -343,6 +383,8 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
 
             var response = Accepted(order, externalRef, reservationId, queueResult.QueueId, "Pending");
             release = !await CompleteAsync(idempotencyRequestId, response);
+            await CompleteAsync(orderClaimId, response);
+            releaseOrderClaim = false;
             return response;
         }
         catch (Exception ex)
@@ -358,8 +400,134 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 try { await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None); }
                 catch (Exception ex) { logger.LogWarning(ex, "Failed to release the sales order conversion claim"); }
             }
+
+            // Kept past the commit point: it lapses on its own expiry, and by then the queue entry check in
+            // ClaimOrderAsync and the order's Fulfilled status answer for it.
+            if (releaseOrderClaim && !pastCommitPoint && orderClaimId.HasValue)
+            {
+                try { await idempotencyRequestStore.ReleaseAsync(orderClaimId.Value, CancellationToken.None); }
+                catch (Exception ex) { logger.LogWarning(ex, "Failed to release the sales order's conversion claim"); }
+            }
         }
     }
+
+    /// <summary>What <see cref="ClaimOrderAsync"/> decided.</summary>
+    private readonly record struct OrderClaim(
+        long? RequestId,
+        ConvertSalesOrderToInvoiceResponseDto? Replay,
+        Error? Refusal);
+
+    /// <summary>
+    /// Claims the order itself, so that one sales order is converted once whatever reference it arrives
+    /// under.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why the reference claim is not enough.</b> It excludes a second copy of the same attempt,
+    /// but a second attempt under a new reference — a handset that retired its reference after an answer
+    /// it could not read, a rep who converted again from scratch, a second device — passed every guard
+    /// that was here. The order's own status is a read, and it only turns Fulfilled after the receipt is
+    /// signed, so two such attempts overlapping both saw Approved and both signed: two receipts, two queued
+    /// invoices, one order.</para>
+    ///
+    /// <para><b>The claim is keyed on the order and remembers who holds it.</b> Its request is the caller
+    /// and the reference, so the attempt that holds it gets through — its own resend, under its own
+    /// reference claim — and any other is refused. Refused in words that say what is true: an attempt
+    /// that is still running is "in progress", which the handset reads as "not confirmed" and keeps its
+    /// reference for; one that queued an invoice is "already converted".</para>
+    ///
+    /// <para><b>The queue entry is the durable half.</b> The claim lives an hour; the queue entry carries
+    /// the order for good. Read under the claim, so no other conversion of this order can be between the
+    /// read and the reservation, it catches the order whose Fulfilled marking failed after its invoice
+    /// was queued.</para>
+    /// </remarks>
+    private async Task<OrderClaim> ClaimOrderAsync(
+        ConvertSalesOrderToInvoiceCommand command,
+        SalesOrderDto order,
+        string externalRef)
+    {
+        var unstoppable = CancellationToken.None;
+
+        var acquired = await idempotencyRequestStore.TryAcquireAsync<ConvertSalesOrderToInvoiceResponseDto>(
+            OrderIdempotencyScope,
+            order.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            new { CreatedBy = command.CreatedBy ?? "anonymous", Reference = externalRef },
+            unstoppable);
+
+        long? requestId = null;
+
+        switch (acquired.Outcome)
+        {
+            case IdempotencyAcquireOutcome.Acquired:
+                requestId = acquired.RequestId;
+                break;
+
+            case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null:
+                // This caller's own conversion under this reference, already answered.
+                return new OrderClaim(null, acquired.Response, null);
+
+            case IdempotencyAcquireOutcome.InProgress:
+                // This caller's own earlier attempt under this reference, which kept the claim because it
+                // went past the point of signing. The reference claim this request already holds is what
+                // keeps a concurrent copy out; the checks below decide the rest.
+                break;
+
+            case IdempotencyAcquireOutcome.RequestMismatch:
+            {
+                var converted = await EarlierConversionAsync(order.Id, externalRef);
+
+                logger.LogWarning(
+                    "Sales order {OrderNumber} conversion under {ExternalRef} refused: another reference holds " +
+                    "the order ({Earlier})",
+                    order.OrderNumber, externalRef, converted ?? "still in progress");
+
+                return new OrderClaim(
+                    null,
+                    null,
+                    converted is null
+                        ? Errors.DesktopIntegration.SalesOrderConversionInProgressElsewhere(order.OrderNumber)
+                        : Errors.DesktopIntegration.SalesOrderAlreadyConverted(order.OrderNumber, converted));
+            }
+        }
+
+        var earlier = await EarlierConversionAsync(order.Id, externalRef);
+        if (earlier is not null)
+        {
+            if (requestId.HasValue)
+            {
+                try { await idempotencyRequestStore.ReleaseAsync(requestId.Value, unstoppable); }
+                catch (Exception ex) { logger.LogWarning(ex, "Failed to release the sales order's conversion claim"); }
+            }
+
+            logger.LogWarning(
+                "Sales order {OrderNumber} conversion under {ExternalRef} refused: already queued under {Earlier}",
+                order.OrderNumber, externalRef, earlier);
+
+            return new OrderClaim(
+                null, null, Errors.DesktopIntegration.SalesOrderAlreadyConverted(order.OrderNumber, earlier));
+        }
+
+        return new OrderClaim(requestId, null, null);
+    }
+
+    /// <summary>
+    /// The reference of a live queued invoice converted from this order under some other reference.
+    /// </summary>
+    private Task<string?> EarlierConversionAsync(int salesOrderId, string externalRef) =>
+        db.InvoiceQueue
+            .AsNoTracking()
+            .Where(entry => entry.SalesOrderId == salesOrderId
+                && entry.Status != InvoiceQueueStatus.Cancelled
+                && entry.ExternalReference != externalRef)
+            .Select(entry => entry.ExternalReference)
+            .FirstOrDefaultAsync(CancellationToken.None);
+
+    /// <summary>
+    /// Whether a signed conversion's refusal says the device signed nothing, so the order is free again.
+    /// </summary>
+    private static bool NothingWasSigned(Error error) =>
+        error.Code is "DesktopIntegration.ConversionFiscalDeviceUnavailable"
+            or "DesktopIntegration.ConversionFiscalisationFailed"
+            or "DesktopIntegration.ValidationFailed";
 
     /// <returns>False when the result could not be recorded and the claim should be released.</returns>
     /// <remarks>
