@@ -6,6 +6,14 @@ using Npgsql;
 
 namespace ShopInventory.Services;
 
+/// <summary>
+/// Inventory locks held as PostgreSQL session advisory locks.
+///
+/// Every lock taken in one call shares one connection, which stays open until the last of
+/// those locks is released or expires. An invoice asks for two locks per batch line, so a
+/// connection per lock let a single 27-line invoice drain the API's 40-connection pool and
+/// fail every other request until its locks expired.
+/// </summary>
 public sealed class PostgresInventoryLockService : IInventoryLockService
 {
     private readonly ConcurrentDictionary<string, AdvisoryLockHandle> _activeLocks = new();
@@ -27,68 +35,21 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
         TimeSpan? lockDuration = null,
         CancellationToken cancellationToken = default)
     {
-        var lockRequest = new InventoryLockRequest
+        var request = new InventoryLockRequest
         {
             ItemCode = itemCode,
             WarehouseCode = warehouseCode,
             BatchNumber = batchNumber
         };
 
-        var lockKey = lockRequest.ToLockKey();
-        var advisoryKey = ComputeAdvisoryKey(lockKey);
-        var duration = lockDuration ?? _defaultLockDuration;
-        var expiresAtUtc = DateTime.UtcNow.Add(duration);
-        var lockToken = $"{lockKey}:{Guid.NewGuid():N}";
-        NpgsqlConnection? connection = null;
-
-        try
+        var outcome = await AcquireOnOneConnectionAsync([request], lockDuration ?? _defaultLockDuration, cancellationToken);
+        if (outcome.Failure is { } failure)
         {
-            connection = new NpgsqlConnection(_connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            await using var command = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", connection);
-            command.Parameters.AddWithValue("key", advisoryKey);
-
-            var acquired = (bool?)await command.ExecuteScalarAsync(cancellationToken) ?? false;
-            if (!acquired)
-            {
-                var retryAfter = GetRetryAfter(lockKey);
-                return InventoryLockResult.Failure(
-                    $"Lock already held for {itemCode} in warehouse {warehouseCode}" +
-                    (batchNumber != null ? $" batch {batchNumber}" : string.Empty),
-                    retryAfter);
-            }
-
-            var handle = new AdvisoryLockHandle(lockKey, lockToken, advisoryKey, connection, expiresAtUtc);
-            if (!_activeLocks.TryAdd(lockToken, handle))
-            {
-                await ReleaseAdvisoryLockAsync(handle, CancellationToken.None);
-                return InventoryLockResult.Failure("Unable to persist advisory lock state.");
-            }
-
-            connection = null;
-
-            ScheduleExpiry(handle);
-
-            _logger.LogDebug(
-                "PostgreSQL advisory lock acquired: {LockKey}, Token: {LockToken}, Expires: {ExpiresAtUtc}",
-                lockKey,
-                lockToken,
-                expiresAtUtc);
-
-            return InventoryLockResult.Success(lockToken, expiresAtUtc);
+            return InventoryLockResult.Failure(failure.Reason, failure.RetryAfter);
         }
-        catch
-        {
-            throw;
-        }
-        finally
-        {
-            if (connection is not null)
-            {
-                await connection.DisposeAsync();
-            }
-        }
+
+        var handle = outcome.Handles[0];
+        return InventoryLockResult.Success(handle.LockToken, handle.ExpiresAtUtc);
     }
 
     public async Task<MultiLockResult> TryAcquireMultipleLocksAsync(
@@ -96,55 +57,37 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
         TimeSpan? lockDuration = null,
         CancellationToken cancellationToken = default)
     {
+        var duration = lockDuration ?? _defaultLockDuration;
         var requests = lockRequests
             .OrderBy(request => request.ToLockKey(), StringComparer.Ordinal)
             .ToList();
 
-        var acquiredTokens = new List<string>();
-        var failures = new List<LockFailureDetail>();
-
-        foreach (var request in requests)
+        if (requests.Count == 0)
         {
-            var result = await TryAcquireLockAsync(
-                request.ItemCode,
-                request.WarehouseCode,
-                request.BatchNumber,
-                lockDuration,
-                cancellationToken);
-
-            if (result.Acquired)
+            return new MultiLockResult
             {
-                acquiredTokens.Add(result.LockToken!);
-                continue;
-            }
+                AllAcquired = true,
+                CombinedLockToken = $"multi:{Guid.NewGuid():N}",
+                EarliestExpiry = DateTime.UtcNow.Add(duration)
+            };
+        }
 
-            failures.Add(new LockFailureDetail
-            {
-                ItemCode = request.ItemCode,
-                WarehouseCode = request.WarehouseCode,
-                BatchNumber = request.BatchNumber,
-                Reason = result.FailureReason ?? "Unknown reason",
-                RetryAfter = result.RetryAfter
-            });
-
-            foreach (var token in acquiredTokens)
-            {
-                await ReleaseLockAsync(token);
-            }
-
+        var outcome = await AcquireOnOneConnectionAsync(requests, duration, cancellationToken);
+        if (outcome.Failure is { } failure)
+        {
             return new MultiLockResult
             {
                 AllAcquired = false,
-                FailedLocks = failures
+                FailedLocks = [failure]
             };
         }
 
         return new MultiLockResult
         {
             AllAcquired = true,
-            LockTokens = acquiredTokens,
+            LockTokens = outcome.Handles.Select(handle => handle.LockToken).ToList(),
             CombinedLockToken = $"multi:{Guid.NewGuid():N}",
-            EarliestExpiry = DateTime.UtcNow.Add(lockDuration ?? _defaultLockDuration)
+            EarliestExpiry = outcome.Handles.Min(handle => handle.ExpiresAtUtc)
         };
     }
 
@@ -156,8 +99,12 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
             return false;
         }
 
-        handle.CancelExpiry();
-        return await ReleaseAdvisoryLockAsync(handle, CancellationToken.None);
+        lock (handle.SyncRoot)
+        {
+            handle.CancelExpiry();
+        }
+
+        return await ReleaseAdvisoryLockAsync(handle);
     }
 
     public async Task ReleaseMultipleLocksAsync(IEnumerable<string> lockTokens)
@@ -181,7 +128,7 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
             return false;
         }
 
-        return handle.Connection.State == ConnectionState.Open;
+        return handle.Session.Connection.State == ConnectionState.Open;
     }
 
     public Task<bool> ExtendLockAsync(string lockToken, TimeSpan extension)
@@ -206,6 +153,116 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
         return Task.FromResult(true);
     }
 
+    /// <summary>
+    /// Takes every requested lock on one connection, or none of them. On a refused lock,
+    /// a cancellation or any error, the locks already taken are released before returning.
+    /// </summary>
+    private async Task<AcquireOutcome> AcquireOnOneConnectionAsync(
+        IReadOnlyList<InventoryLockRequest> requests,
+        TimeSpan duration,
+        CancellationToken cancellationToken)
+    {
+        var session = new LockSession(new NpgsqlConnection(_connectionString));
+        var taken = new List<AdvisoryLockHandle>(requests.Count);
+        var succeeded = false;
+
+        try
+        {
+            await session.Connection.OpenAsync(cancellationToken);
+            var expiresAtUtc = DateTime.UtcNow.Add(duration);
+
+            foreach (var request in requests)
+            {
+                var lockKey = request.ToLockKey();
+                var advisoryKey = ComputeAdvisoryKey(lockKey);
+
+                await using var command = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", session.Connection);
+                command.Parameters.AddWithValue("key", advisoryKey);
+
+                var acquired = (bool?)await command.ExecuteScalarAsync(cancellationToken) ?? false;
+                if (!acquired)
+                {
+                    return AcquireOutcome.Refused(new LockFailureDetail
+                    {
+                        ItemCode = request.ItemCode,
+                        WarehouseCode = request.WarehouseCode,
+                        BatchNumber = request.BatchNumber,
+                        Reason = $"Lock already held for {request.ItemCode} in warehouse {request.WarehouseCode}" +
+                            (request.BatchNumber != null ? $" batch {request.BatchNumber}" : string.Empty),
+                        RetryAfter = GetRetryAfter(lockKey)
+                    });
+                }
+
+                taken.Add(new AdvisoryLockHandle(lockKey, $"{lockKey}:{Guid.NewGuid():N}", advisoryKey, session, expiresAtUtc));
+            }
+
+            session.HeldCount = taken.Count;
+            foreach (var handle in taken)
+            {
+                if (!_activeLocks.TryAdd(handle.LockToken, handle))
+                {
+                    // Tokens carry a fresh Guid, so this cannot collide in practice.
+                    throw new InvalidOperationException($"Duplicate advisory lock token {handle.LockToken}.");
+                }
+            }
+
+            foreach (var handle in taken)
+            {
+                lock (handle.SyncRoot)
+                {
+                    ScheduleExpiry(handle);
+                }
+            }
+
+            succeeded = true;
+
+            _logger.LogDebug(
+                "PostgreSQL advisory locks acquired: {LockCount} on one connection, expiring {ExpiresAtUtc}",
+                taken.Count,
+                expiresAtUtc);
+
+            return AcquireOutcome.Acquired(taken);
+        }
+        finally
+        {
+            if (!succeeded)
+            {
+                foreach (var handle in taken)
+                {
+                    _activeLocks.TryRemove(handle.LockToken, out _);
+                }
+
+                await AbandonSessionAsync(session, taken.Count);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Releases every lock a failed acquire took and gives the connection back. A pooled
+    /// connection is only reset when it is next used, so the locks are dropped explicitly
+    /// rather than left on an idle connection.
+    /// </summary>
+    private async Task AbandonSessionAsync(LockSession session, int takenCount)
+    {
+        try
+        {
+            if (takenCount > 0 && session.Connection.State == ConnectionState.Open)
+            {
+                await using var command = new NpgsqlCommand("SELECT pg_advisory_unlock_all()", session.Connection);
+                await command.ExecuteNonQueryAsync(CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed to release {LockCount} advisory lock(s) after a failed acquire", takenCount);
+        }
+        finally
+        {
+            await session.Connection.DisposeAsync();
+            session.Gate.Dispose();
+        }
+    }
+
     private void ScheduleExpiry(AdvisoryLockHandle handle)
     {
         var delay = handle.ExpiresAtUtc - DateTime.UtcNow;
@@ -214,12 +271,9 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
             delay = TimeSpan.Zero;
         }
 
-        lock (handle.SyncRoot)
-        {
-            handle.CancelExpiry();
-            handle.ExpiryCancellation = new CancellationTokenSource();
-            _ = ExpireLockAsync(handle.LockToken, delay, handle.ExpiryCancellation.Token);
-        }
+        handle.CancelExpiry();
+        handle.ExpiryCancellation = new CancellationTokenSource();
+        _ = ExpireLockAsync(handle.LockToken, delay, handle.ExpiryCancellation.Token);
     }
 
     private async Task ExpireLockAsync(string lockToken, TimeSpan delay, CancellationToken cancellationToken)
@@ -241,19 +295,26 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
         }
     }
 
-    private async Task<bool> ReleaseAdvisoryLockAsync(AdvisoryLockHandle handle, CancellationToken cancellationToken)
+    /// <summary>
+    /// Unlocks one key on its shared connection. Commands on a connection cannot overlap, and
+    /// all of a set's expiry timers fire together, so the session gate serialises them. The
+    /// last lock out closes the connection.
+    /// </summary>
+    private async Task<bool> ReleaseAdvisoryLockAsync(AdvisoryLockHandle handle)
     {
+        var session = handle.Session;
+        await session.Gate.WaitAsync();
         try
         {
-            if (handle.Connection.State != ConnectionState.Open)
+            if (session.Connection.State != ConnectionState.Open)
             {
                 return true;
             }
 
-            await using var command = new NpgsqlCommand("SELECT pg_advisory_unlock(@key)", handle.Connection);
+            await using var command = new NpgsqlCommand("SELECT pg_advisory_unlock(@key)", session.Connection);
             command.Parameters.AddWithValue("key", handle.AdvisoryKey);
 
-            var released = (bool?)await command.ExecuteScalarAsync(cancellationToken) ?? false;
+            var released = (bool?)await command.ExecuteScalarAsync(CancellationToken.None) ?? false;
             _logger.LogDebug("PostgreSQL advisory lock released: {LockKey}, Token: {LockToken}", handle.LockKey, handle.LockToken);
             return released;
         }
@@ -264,8 +325,14 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
         }
         finally
         {
-            handle.CancelExpiry();
-            await handle.Connection.DisposeAsync();
+            session.HeldCount--;
+            var lastLock = session.HeldCount <= 0;
+            if (lastLock)
+            {
+                await session.Connection.DisposeAsync();
+            }
+
+            session.Gate.Release();
         }
     }
 
@@ -287,11 +354,29 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
         return BitConverter.ToInt64(hash, 0);
     }
 
+    private readonly record struct AcquireOutcome(IReadOnlyList<AdvisoryLockHandle> Handles, LockFailureDetail? Failure)
+    {
+        public static AcquireOutcome Acquired(IReadOnlyList<AdvisoryLockHandle> handles) => new(handles, null);
+
+        public static AcquireOutcome Refused(LockFailureDetail failure) => new([], failure);
+    }
+
+    /// <summary>One open connection holding the advisory locks from one acquire call.</summary>
+    private sealed class LockSession(NpgsqlConnection connection)
+    {
+        public NpgsqlConnection Connection { get; } = connection;
+
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+
+        /// <summary>Locks still held on this connection. Changed only under <see cref="Gate"/> once published.</summary>
+        public int HeldCount { get; set; }
+    }
+
     private sealed class AdvisoryLockHandle(
         string lockKey,
         string lockToken,
         long advisoryKey,
-        NpgsqlConnection connection,
+        LockSession session,
         DateTime expiresAtUtc)
     {
         public object SyncRoot { get; } = new();
@@ -302,7 +387,7 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
 
         public long AdvisoryKey { get; } = advisoryKey;
 
-        public NpgsqlConnection Connection { get; } = connection;
+        public LockSession Session { get; } = session;
 
         public DateTime ExpiresAtUtc { get; set; } = expiresAtUtc;
 
