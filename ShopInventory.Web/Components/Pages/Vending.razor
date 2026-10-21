@@ -11,6 +11,7 @@
 @using MediatR
 @using ShopInventory.Web.Features.Vending
 @using ShopInventory.Web.Features.Vending.Commands.ImportVendors
+@using ShopInventory.Web.Features.Vending.Queries.ExportVendorPerformance
 @using ShopInventory.Web.Features.Vending.Queries.GetVendorImportTemplate
 @using ShopInventory.Web.Features.Vending.Queries.ReadVendorImportFile
 
@@ -124,6 +125,13 @@
                         </a>
                     </Authorized>
                 </AuthorizeView>
+                @* The period and depot on screen, as a workbook: by depot, by vendor and by item, against the
+                   period before. *@
+                <button type="button" class="shop-btn shop-btn-ghost" @onclick="ExportReportAsync"
+                        title="Sales by depot, by vendor and by item for the dates and depot shown, against the period before"
+                        disabled="@(isExportingReport || overview is null || overview.Depots.Count == 0)">
+                    <i class="bi @(isExportingReport ? "bi-hourglass-split" : "bi-file-earmark-spreadsheet")"></i>@(isExportingReport ? "Building report…" : "Export report")
+                </button>
                 <button type="button" class="shop-btn shop-btn-ghost" @onclick="DownloadTemplateAsync"
                         disabled="@(isDownloadingTemplate || overview is null || overview.Depots.Count == 0)">
                     <i class="bi bi-file-earmark-arrow-down"></i>@(isDownloadingTemplate ? "Preparing…" : "Download template")
@@ -762,6 +770,7 @@ else if (dialog is not DialogMode.None)
     private string? notice;
 
     private bool isDownloadingTemplate;
+    private bool isExportingReport;
     private bool isReadingFile;
     private Guid importFileKey = Guid.NewGuid();
     private string? importFileName;
@@ -1382,6 +1391,37 @@ else if (dialog is not DialogMode.None)
         finally
         {
             isDownloadingTemplate = false;
+        }
+    }
+
+    /// <summary>The workbook for the dates and depot on screen. The handler reads both periods itself.</summary>
+    private async Task ExportReportAsync()
+    {
+        if (isExportingReport)
+        {
+            return;
+        }
+
+        isExportingReport = true;
+        error = null;
+        try
+        {
+            var to = periodTo ?? today;
+            var from = periodFrom ?? new DateTime(to.Year, to.Month, 1);
+            var report = await Mediator.Send(new ExportVendorPerformanceQuery(from, to, depotFilter));
+            if (report.IsError)
+            {
+                error = report.FirstError.Description;
+                return;
+            }
+
+            await JS.InvokeVoidAsync("downloadFile", report.Value.FileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                Convert.ToBase64String(report.Value.Content));
+        }
+        finally
+        {
+            isExportingReport = false;
         }
     }
 

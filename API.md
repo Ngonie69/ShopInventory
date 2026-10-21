@@ -4689,6 +4689,7 @@ which is how vending writes its vendors through this base route.
 | GET | `/api/route-customers` | `customers.view` | The route customers (`scope`, see below) |
 | GET | `/api/route-customers/sales-summary` | `customers.view` | Sales per route customer, dormancy included |
 | GET | `/api/route-customers/product-mix` | `customers.view` | What they buy |
+| GET | `/api/route-customers/product-sales` | `customers.view` | What each customer buys, per item and currency |
 | GET | `/api/route-customers/{id}/sales` | `customers.view` | One shop's sales (`from`, `to`) |
 | POST | `/api/route-customers` | `customers.create` | Create one |
 | PUT | `/api/route-customers/{id}` | `customers.edit` | Update one |
@@ -4701,6 +4702,11 @@ which is how vending writes its vendors through this base route.
 | `/api/route-customers` | `assignedBusinessPartnerCode`, `activeOnly` (default **true**), `scope` (default **route**) |
 | `/sales-summary` | `assignedBusinessPartnerCode`, `from`, `to`, `dormantDays`, `includeInactive` (default **true**), `scope` (default **route**) |
 | `/product-mix` | `assignedBusinessPartnerCode`, `routeCustomerId`, `from`, `to`, `top` (default `0`, meaning no cap), `scope` (default **route**) |
+| `/product-sales` | `assignedBusinessPartnerCode`, `from`, `to`, `scope` (default **route**) |
+
+`product-sales` is the product mix keyed one level finer — one row per customer, item and currency —
+so the Depots & vendors workbook can rank vendors and items from a single read. `lineTotal` is the
+lines' own totals: a vending till prices lines before VAT, so for vending it adds up to sales less VAT.
 
 The two list defaults disagree on purpose: the plain list hides inactive shops, the sales summary
 counts them, because a shop that went quiet is the thing a dormancy report exists to show.
