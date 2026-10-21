@@ -122,6 +122,7 @@ public sealed class GetUsersHandler(
             FirstName = user.FirstName,
             LastName = user.LastName,
             Role = user.Role,
+            AdditionalRoles = user.GetAdditionalRoles(),
             IsActive = user.IsActive,
             EmailVerified = user.EmailVerified,
             TwoFactorEnabled = user.TwoFactorEnabled,

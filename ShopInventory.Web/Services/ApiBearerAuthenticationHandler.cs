@@ -48,6 +48,8 @@ public sealed class ApiBearerAuthenticationHandler(
                 new(ClaimTypes.Role, user.Role)
             };
 
+            claims.AddRange(CustomAuthStateProvider.AdditionalRoleClaims(user.Role, user.AdditionalRoles));
+
             if (!string.IsNullOrWhiteSpace(user.Email))
             {
                 claims.Add(new Claim(ClaimTypes.Email, user.Email));

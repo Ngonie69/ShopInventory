@@ -940,7 +940,7 @@
     /// spinner between the two. A sales rep resolves to /dashboard, where Home
     /// renders the sales-rep dashboard.
     /// </summary>
-    private async Task NavigateAfterLogin(string? role)
+    private async Task NavigateAfterLogin(string? role, IEnumerable<string>? additionalRoles = null)
     {
         await Task.Delay(100);
 
@@ -954,7 +954,7 @@
         // no-role fallback because one field came back empty.
         var landing = string.IsNullOrWhiteSpace(role)
             ? RoleLandingRoutes.Dashboard
-            : RoleLandingRoutes.For(role);
+            : RoleLandingRoutes.For(role, additionalRoles);
 
         var targetUrl = !string.IsNullOrEmpty(returnUrl)
             ? Uri.UnescapeDataString(returnUrl)
@@ -1004,11 +1004,11 @@
                 Logger.LogInformation("Login successful, notifying auth state provider");
                 AuthStateProvider.NotifyUserAuthentication(
                 response.User?.Username ?? loginModel.Username,
-                response.User?.Role ?? "User");
+                response.User?.Role ?? "User", response.User?.AdditionalRoles);
 
                 await AuditService.LogAsync(AuditActions.Login, response.User?.Username ?? loginModel.Username, response.User?.Role ??
 "User", "Auth", null, null, "/login");
-                await NavigateAfterLogin(response.User?.Role);
+                await NavigateAfterLogin(response.User?.Role, response.User?.AdditionalRoles);
             }
             else
             {
@@ -1068,7 +1068,7 @@ false, message);
             {
                 AuthStateProvider.NotifyUserAuthentication(
                     response.User?.Username ?? loginModel.Username,
-                    response.User?.Role ?? "User");
+                    response.User?.Role ?? "User", response.User?.AdditionalRoles);
 
                 await AuditService.LogAsync(AuditActions.Login,
                     response.User?.Username ?? "PasskeyUser",
@@ -1078,7 +1078,7 @@ false, message);
                     "Passkey login completed",
                     "/login");
 
-                await NavigateAfterLogin(response.User?.Role);
+                await NavigateAfterLogin(response.User?.Role, response.User?.AdditionalRoles);
             }
             else
             {
@@ -1121,11 +1121,11 @@ false, message);
             {
                 AuthStateProvider.NotifyUserAuthentication(
                     response.User?.Username ?? loginModel.Username,
-                    response.User?.Role ?? "User");
+                    response.User?.Role ?? "User", response.User?.AdditionalRoles);
 
                 await AuditService.LogAsync(AuditActions.Login, response.User?.Username ?? loginModel.Username,
                     response.User?.Role ?? "User", "Auth", null, "2FA login completed", "/login");
-                await NavigateAfterLogin(response.User?.Role);
+                await NavigateAfterLogin(response.User?.Role, response.User?.AdditionalRoles);
             }
             else
             {

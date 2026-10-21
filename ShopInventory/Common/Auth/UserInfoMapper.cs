@@ -36,6 +36,7 @@ public static class UserInfoMapper
         {
             Username = user.Username,
             Role = user.Role,
+            AdditionalRoles = user.GetAdditionalRoles(),
             Email = user.Email,
             AssignedWarehouseCode = shop?.WarehouseCode ?? user.AssignedWarehouseCode,
             AssignedWarehouseCodes = warehouseCodes,

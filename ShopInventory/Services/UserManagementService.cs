@@ -277,6 +277,7 @@ public class UserManagementService : IUserManagementService
             .Select(u => new
             {
                 u.Role,
+                u.AdditionalRoles,
                 u.Permissions,
                 u.IsActive
             })
@@ -289,8 +290,10 @@ public class UserManagementService : IUserManagementService
 
         var permissions = new HashSet<string>();
 
-        // Add role-based permissions
-        var rolePermissions = Permission.GetDefaultPermissionsForRole(user.Role);
+        // Add role-based permissions: the main role's defaults, then each extra role's.
+        var rolePermissions = Permission.GetDefaultPermissionsForRole(user.Role)
+            .Concat(User.ParseAdditionalRoles(user.AdditionalRoles)
+                .SelectMany(Permission.GetDefaultPermissionsForRole));
         foreach (var p in rolePermissions)
         {
             permissions.Add(p);
@@ -412,6 +415,7 @@ public class UserManagementService : IUserManagementService
             FirstName = user.FirstName,
             LastName = user.LastName,
             Role = user.Role,
+            AdditionalRoles = user.GetAdditionalRoles(),
             IsActive = user.IsActive,
             EmailVerified = user.EmailVerified,
             TwoFactorEnabled = user.TwoFactorEnabled,

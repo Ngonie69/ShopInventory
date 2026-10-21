@@ -485,6 +485,8 @@ public class UserModel
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string Role { get; set; } = string.Empty;
+    /// <summary>Roles held on top of <see cref="Role"/>, e.g. Cashier on a CartVendor.</summary>
+    public List<string> AdditionalRoles { get; set; } = new();
     public bool IsActive { get; set; }
     public bool IsLockedOut { get; set; }
     public bool IsLocked => IsLockedOut;
