@@ -10,6 +10,7 @@ using ShopInventory.Features.RouteCustomers.Commands.DeleteRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.SetRouteCustomerVisitDays;
 using ShopInventory.Features.RouteCustomers.Commands.UpdateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductMix;
+using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductSales;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomers;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSales;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSummary;
@@ -82,6 +83,26 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
     {
         var result = await mediator.Send(
             new GetRouteCustomerProductMixQuery(assignedBusinessPartnerCode, routeCustomerId, from, to, top, scope),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// What each customer bought of each item, one row per customer, item and currency — the product
+    /// mix without the customers folded together, for reports that rank both at once.
+    /// </summary>
+    [HttpGet("product-sales")]
+    [RequirePermission(Permission.ViewCustomers)]
+    public async Task<IActionResult> GetProductSales(
+        [FromQuery] string? assignedBusinessPartnerCode = null,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] RouteCustomerScope scope = RouteCustomerScope.Route,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetRouteCustomerProductSalesQuery(assignedBusinessPartnerCode, from, to, scope),
             cancellationToken);
 
         return result.Match(Ok, Problem);

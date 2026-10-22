@@ -23,5 +23,8 @@ public static partial class Errors
 
         public static Error ImportFailed(string message) =>
             Error.Failure("Vending.ImportFailed", message);
+
+        public static Error ReportFailed(string message) =>
+            Error.Failure("Vending.ReportFailed", message);
     }
 }

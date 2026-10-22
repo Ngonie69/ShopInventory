@@ -315,3 +315,56 @@ public sealed class RouteCustomerProductMixDto
 
     public List<RouteCustomerProductMixRowDto> Items { get; set; } = [];
 }
+
+/// <summary>
+/// What one route customer bought of one item, in one currency.
+///
+/// The product mix answers "what sells" and folds the customers together; this keeps them apart, so a
+/// report can say which vendor sells which item without one read per vendor.
+/// </summary>
+public sealed class RouteCustomerProductSalesRowDto
+{
+    /// <summary>The business partner the sales were booked against: the van's route, or the vending depot.</summary>
+    public string AssignedBusinessPartnerCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The customer, resolved the way the sales summary resolves it: the id the sale carries, or else the
+    /// live customer with the sale's code under the same partner. Null only when no such customer exists
+    /// any more, and then <see cref="RouteCustomerCode"/> is all that is left of it.
+    /// </summary>
+    public int? RouteCustomerId { get; set; }
+
+    public string RouteCustomerCode { get; set; } = string.Empty;
+
+    public string ItemCode { get; set; } = string.Empty;
+
+    public string? ItemDescription { get; set; }
+
+    public string? UoMCode { get; set; }
+
+    public string Currency { get; set; } = string.Empty;
+
+    public decimal Quantity { get; set; }
+
+    /// <summary>
+    /// The lines' own totals added up, as the till or handset priced them, discounts taken off. A vending
+    /// till prices its lines before VAT and adds the tax to the sale, so for vending this is net of VAT
+    /// and adds up to a sale's total less its VAT — not to the total itself.
+    /// </summary>
+    public decimal LineTotal { get; set; }
+
+    public int LineCount { get; set; }
+
+    /// <summary>The last trading day it was bought on, inside the window.</summary>
+    public DateTime LastSoldAt { get; set; }
+}
+
+/// <summary>Every customer's purchases of every item over a window.</summary>
+public sealed class RouteCustomerProductSalesDto
+{
+    public DateTime From { get; set; }
+
+    public DateTime To { get; set; }
+
+    public List<RouteCustomerProductSalesRowDto> Rows { get; set; } = [];
+}

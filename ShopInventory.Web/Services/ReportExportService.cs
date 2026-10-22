@@ -81,6 +81,9 @@ public interface IReportExportService
 
     /// <summary>One view of the Market Breakages list — every page — with the lines, by van and by product.</summary>
     byte[] ExportMarketBreakagesToExcel(MarketBreakageExportDto export);
+
+    /// <summary>The Depots &amp; vendors workbook: depots, vendors and items over a period, against the one before.</summary>
+    byte[] ExportVendorPerformanceToExcel(ShopInventory.Web.Features.Vending.VendorPerformanceReport report);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     /// <param name="invoiceDocNum">The SAP invoice each order became, as the page resolved it; null when none.</param>
     /// <param name="statusName">The status as the page shows it (Invoiced, Delivered); defaults to the order's own.</param>

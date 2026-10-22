@@ -42,6 +42,13 @@ public interface IRouteCustomerService
         DateTime? to = null,
         int top = 0,
         RouteCustomerScope scope = RouteCustomerScope.Route);
+
+    /// <summary>What each customer bought of each item — one row per customer, item and currency.</summary>
+    Task<RouteCustomerProductSalesModel> GetProductSalesAsync(
+        string? assignedBusinessPartnerCode = null,
+        DateTime? from = null,
+        DateTime? to = null,
+        RouteCustomerScope scope = RouteCustomerScope.Route);
 }
 
 public class RouteCustomerService(
@@ -128,6 +135,23 @@ public class RouteCustomerService(
         return GetReportAsync<RouteCustomerProductMixModel>(
             $"api/route-customers/product-mix{query}",
             "Failed to load the product mix.");
+    }
+
+    public Task<RouteCustomerProductSalesModel> GetProductSalesAsync(
+        string? assignedBusinessPartnerCode = null,
+        DateTime? from = null,
+        DateTime? to = null,
+        RouteCustomerScope scope = RouteCustomerScope.Route)
+    {
+        var query = BuildQuery(
+            ("assignedBusinessPartnerCode", assignedBusinessPartnerCode?.Trim()),
+            ("from", FormatDate(from)),
+            ("to", FormatDate(to)),
+            ("scope", scope.ToString()));
+
+        return GetReportAsync<RouteCustomerProductSalesModel>(
+            $"api/route-customers/product-sales{query}",
+            "Failed to load the item sales.");
     }
 
     /// <summary>

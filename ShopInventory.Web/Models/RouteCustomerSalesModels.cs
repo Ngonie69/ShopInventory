@@ -253,3 +253,40 @@ public class RouteCustomerProductMixModel
 
     public List<RouteCustomerProductMixRowModel> Items { get; set; } = [];
 }
+
+/// <summary>What one customer bought of one item, in one currency. Mirrors <c>RouteCustomerProductSalesRowDto</c>.</summary>
+public class RouteCustomerProductSalesRowModel
+{
+    public string AssignedBusinessPartnerCode { get; set; } = string.Empty;
+
+    /// <summary>Null when the customer no longer exists; the code is then all that is left of it.</summary>
+    public int? RouteCustomerId { get; set; }
+
+    public string RouteCustomerCode { get; set; } = string.Empty;
+
+    public string ItemCode { get; set; } = string.Empty;
+
+    public string? ItemDescription { get; set; }
+
+    public string? UoMCode { get; set; }
+
+    public string Currency { get; set; } = string.Empty;
+
+    public decimal Quantity { get; set; }
+
+    /// <summary>The lines' own totals. A vending till prices lines before VAT, so for vending this is net.</summary>
+    public decimal LineTotal { get; set; }
+
+    public int LineCount { get; set; }
+
+    public DateTime LastSoldAt { get; set; }
+}
+
+public class RouteCustomerProductSalesModel
+{
+    public DateTime From { get; set; }
+
+    public DateTime To { get; set; }
+
+    public List<RouteCustomerProductSalesRowModel> Rows { get; set; } = [];
+}
