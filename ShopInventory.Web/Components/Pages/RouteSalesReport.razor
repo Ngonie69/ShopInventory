@@ -229,6 +229,10 @@
                                         {
                                             <span class="ops-rsr-total">
                                                 <span class="ops-rsr-total-cur">@total.Currency</span>@total.Gross.ToString("N2")
+                                                @if (showGp && total.GrossProfit is { } routeGp)
+                                                {
+                                                    <span class="gpx-sub">GP <span class="gpx-value @GrossProfitFormat.Tone(routeGp)">@GrossProfitFormat.Money(routeGp)</span>@(total.MarginPercent is { } routeMargin ? $" · {GrossProfitFormat.Percent(routeMargin)}" : "")</span>
+                                                }
                                             </span>
                                         }
                                     }
@@ -244,6 +248,10 @@
                                             <th class="ops-mid">Sales</th>
                                             <th class="ops-mid">Lines</th>
                                             <th class="ops-num">Value</th>
+                                            @if (showGp)
+                                            {
+                                                <th class="ops-num">Gross profit</th>
+                                            }
                                             @* Named, because it is the one column on the row that is not
                                                the window — and the only one that can say "never". *@
                                             <th>Last sale (all time)</th>
@@ -259,6 +267,10 @@
                                                 <td class="ops-mid">@customer.SaleCount</td>
                                                 <td class="ops-mid">@customer.LineCount</td>
                                                 <td class="ops-num">@RenderMoney(customer.TotalsByCurrency)</td>
+                                                @if (showGp)
+                                                {
+                                                    <GrossProfitByCurrencyCell Figures='GrossProfitFormat.Of(customer.TotalsByCurrency, "sales")' CellClass="ops-num" />
+                                                }
                                                 <td>@RenderLastSale(customer)</td>
                                                 <td class="ops-mid">
                                                     @(customer.OpenOrderCount == 0 ? "—" : customer.OpenOrderCount.ToString())
@@ -397,6 +409,10 @@
                                     <th class="ops-mid">Times bought</th>
                                     <th class="ops-mid">Customers</th>
                                     <th class="ops-num">Value</th>
+                                    @if (showGp)
+                                    {
+                                        <th class="ops-num">Gross profit</th>
+                                    }
                                     <th>Last sold</th>
                                 </tr>
                             </thead>
@@ -421,6 +437,10 @@
                                         <td class="ops-mid">@item.LineCount</td>
                                         <td class="ops-mid">@item.CustomerCount</td>
                                         <td class="ops-num">@RenderMoney(item.TotalsByCurrency)</td>
+                                        @if (showGp)
+                                        {
+                                            <GrossProfitByCurrencyCell Figures='GrossProfitFormat.Of(item.TotalsByCurrency, "lines")' CellClass="ops-num" />
+                                        }
                                         <td>@(item.LastSoldAt?.ToString("dd MMM yyyy") ?? "—")</td>
                                     </tr>
                                 }
@@ -454,6 +474,9 @@
 
     private RouteCustomerSalesSummaryModel? summary;
     private RouteCustomerProductMixModel? productMix;
+
+    /// <summary>Whether the API read SAP's booked gross profit for the sales shown.</summary>
+    private bool showGp => summary?.Margin is { Available: true } || productMix?.Margin is { Available: true };
     private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
 
     private View activeView = View.Summary;

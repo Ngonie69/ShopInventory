@@ -1,3 +1,4 @@
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -29,7 +30,9 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSum
 /// while every count and total beside them belongs to the window.
 /// </summary>
 public sealed class GetRouteCustomerSalesSummaryHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetRouteCustomerSalesSummaryHandler>? logger = null
 ) : IRequestHandler<GetRouteCustomerSalesSummaryQuery, ErrorOr<RouteCustomerSalesSummaryDto>>
 {
     /// <summary>
@@ -53,6 +56,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         public decimal Gross { get; init; }
         public decimal Vat { get; init; }
         public decimal AmountPaid { get; init; }
+
+        /// <summary>The SAP invoices this aggregate's posted sales became, for their booked cost.</summary>
+        public List<(int DocEntry, string? WarehouseCode)> Invoices { get; init; } = [];
     }
 
     /// <summary>
@@ -102,7 +108,13 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         var openOrderCounts = await LoadOpenOrderCountsAsync(route, cancellationToken);
         var lifetimeSpans = await LoadLifetimeSpansAsync(route, cancellationToken);
 
-        var rows = BuildRows(customers, aggregates, lineCounts, openOrderCounts, lifetimeSpans, query.IncludeInactive);
+        var (margin, marginStatus) = await ManagementSalesRollup.MarginOfInvoicesAsync(
+            aggregates.SelectMany(aggregate => aggregate.Invoices),
+            costReader,
+            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            cancellationToken);
+
+        var rows = BuildRows(customers, aggregates, lineCounts, openOrderCounts, lifetimeSpans, query.IncludeInactive, margin);
 
         // The split is applied to the finished rows rather than to each of the six reads above, because
         // an orphan row — a sale whose customer record is gone — carries only the route it was booked
@@ -118,7 +130,8 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             From = from,
             To = to,
             DormantDays = dormantDays,
-            Routes = GroupByRoute(rows, dormantDays)
+            Routes = GroupByRoute(rows, dormantDays),
+            Margin = marginStatus
         };
     }
 
@@ -172,6 +185,25 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             })
             .ToListAsync(cancellationToken);
 
+        // The posted sales' invoices, under the same grouping as the takings, so each aggregate is costed
+        // by its own sales and no other.
+        var invoices = (await salesQuery
+                .Where(sale => sale.SapDocEntry != null)
+                .Select(sale => new
+                {
+                    sale.RouteCustomerId,
+                    sale.RouteCustomerCode,
+                    sale.RouteCustomerName,
+                    sale.CardCode,
+                    sale.Currency,
+                    DocEntry = sale.SapDocEntry!.Value,
+                    sale.WarehouseCode
+                })
+                .ToListAsync(cancellationToken))
+            .ToLookup(
+                sale => (sale.RouteCustomerId, sale.RouteCustomerCode, sale.RouteCustomerName, sale.CardCode, sale.Currency),
+                sale => (sale.DocEntry, (string?)sale.WarehouseCode));
+
         return grouped.Select(row => new SaleAggregate
         {
             Key = BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode),
@@ -181,7 +213,8 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             SaleCount = row.SaleCount,
             Gross = row.Gross,
             Vat = row.Vat,
-            AmountPaid = row.AmountPaid
+            AmountPaid = row.AmountPaid,
+            Invoices = invoices[(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.RouteCustomerName, row.Key.CardCode, row.Key.Currency)].ToList()
         }).ToList();
     }
 
@@ -219,6 +252,23 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             })
             .ToListAsync(cancellationToken);
 
+        var invoices = (await reservationsQuery
+                .Where(reservation => reservation.SAPDocEntry != null)
+                .Select(reservation => new
+                {
+                    reservation.RouteCustomerId,
+                    reservation.RouteCustomerCode,
+                    reservation.RouteCustomerName,
+                    reservation.CardCode,
+                    reservation.Currency,
+                    DocEntry = reservation.SAPDocEntry!.Value,
+                    WarehouseCode = reservation.Lines.OrderBy(line => line.LineNum).Select(line => line.WarehouseCode).FirstOrDefault()
+                })
+                .ToListAsync(cancellationToken))
+            .ToLookup(
+                reservation => (reservation.RouteCustomerId, reservation.RouteCustomerCode, reservation.RouteCustomerName, reservation.CardCode, reservation.Currency),
+                reservation => (reservation.DocEntry, reservation.WarehouseCode));
+
         return grouped.Select(row => new SaleAggregate
         {
             Key = BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode),
@@ -226,6 +276,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             Name = row.Key.RouteCustomerName,
             Currency = RouteCustomerSalesReporting.NormalizeCurrency(row.Key.Currency),
             SaleCount = row.SaleCount,
+            Invoices = invoices[(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.RouteCustomerName, row.Key.CardCode, row.Key.Currency)].ToList(),
             Gross = row.Gross,
             // A reservation holds no tax split — that lives on the SAP invoice — so this reports no VAT
             // rather than reporting zero VAT as if it had been checked.
@@ -431,7 +482,8 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         Dictionary<CustomerKey, int> lineCounts,
         Dictionary<CustomerKey, int> openOrderCounts,
         Dictionary<CustomerKey, SaleSpan> lifetimeSpans,
-        bool includeInactive)
+        bool includeInactive,
+        ManagementSalesRollup.MarginBook margin)
     {
         var byId = customers
             .GroupBy(customer => customer.Id)
@@ -467,7 +519,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
                 Gross = aggregate.Gross,
                 Vat = aggregate.Vat,
                 AmountPaid = aggregate.AmountPaid
-            });
+            }.WithMargin(margin.ForInvoices(aggregate.Invoices.Select(invoice => (int?)invoice.DocEntry))));
 
             accumulator.Keys.Add(aggregate.Key);
         }

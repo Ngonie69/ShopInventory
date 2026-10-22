@@ -145,6 +145,19 @@
                                          {<text>—</text>}</span>
             <span class="vend-kpi-note">@Figure(() => ValueNote)</span>
         </div>
+        @if (showGp)
+        {
+            @* Over the same sales as the value beside it: SAP's booked profit on those already posted. *@
+            <div class="vend-kpi">
+                <span class="vend-kpi-rule"></span>
+                <span class="vend-kpi-label">Gross profit</span>
+                <span class="vend-kpi-value">@(window?.GrossProfit is { } windowGp ? GrossProfitFormat.Money(windowGp) : "—")</span>
+                <span class="vend-kpi-note">@Figure(() => window!.GrossProfit is null
+                    ? (window.SaleCount > 0 ? "None in SAP yet" : "Nothing sold")
+                    : $"{(window.MarginPercent is { } m ? GrossProfitFormat.Percent(m) + " margin" : "")}"
+                      + (GrossProfitFormat.PartOf(window.CostedSaleCount, window.SaleCount) is { } part ? $" · {part}" : ""))</span>
+            </div>
+        }
         <div class="vend-kpi">
             <span class="vend-kpi-rule"></span>
             <span class="vend-kpi-label">Units sold</span>
@@ -202,6 +215,11 @@
                                     <th class="vend-num">Units</th>
                                     <th class="vend-num">Unit</th>
                                     <th class="vend-num">Value</th>
+                                    @if (showGp)
+                                    {
+                                        <th class="vend-num">Gross profit</th>
+                                        <th class="vend-num">Margin</th>
+                                    }
                                 </tr>
                             </thead>
                             <tbody>
@@ -218,6 +236,11 @@
                                         <td class="vend-num">@VendorSalesDigest.Quantity(item.Units)<span class="vend-cell-mute"> @UnitOf(item)</span></td>
                                         <td class="vend-num vend-cell-mute">@UnitPrice(item)</td>
                                         <td class="vend-num">@item.Value.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                        @if (showGp)
+                                        {
+                                            <GrossProfitCells GrossProfit="item.GrossProfit" MarginPercent="item.MarginPercent"
+                                                              NetAmount="item.Value" CostedNetAmount="item.CostedNetAmount" NumClass="vend-num" />
+                                        }
                                     </tr>
                                 }
                                 <tr class="vend-items-total">
@@ -226,6 +249,14 @@
                                     <td class="vend-num vend-cell-mute">@VendorSalesDigest.Quantity(mix.Sum(item => item.Units))</td>
                                     <td></td>
                                     <td class="vend-num vend-items-sum">@mix.Sum(item => item.Value).ToString("N2", CultureInfo.InvariantCulture)</td>
+                                    @if (showGp)
+                                    {
+                                        var mixGp = mix.Where(item => item.GrossProfit is not null).ToList();
+                                        var mixCosted = mixGp.Sum(item => item.CostedNetAmount ?? 0m);
+                                        <GrossProfitCells GrossProfit="@(mixGp.Count == 0 ? null : mixGp.Sum(item => item.GrossProfit!.Value))"
+                                                          MarginPercent="@(mixCosted == 0 ? null : Math.Round(mixGp.Sum(item => item.GrossProfit!.Value) / mixCosted * 100m, 1, MidpointRounding.AwayFromZero))"
+                                                          NumClass="vend-num" />
+                                    }
                                 </tr>
                             </tbody>
                         </table>
@@ -471,6 +502,9 @@
     private int? activeRangeDays = DefaultRangeDays;
 
     private RouteCustomerSalesDetailModel? detail;
+
+    /// <summary>Whether the API read SAP's booked gross profit for these sales.</summary>
+    private bool showGp => detail?.Margin is { Available: true };
     private VendorSalesDigest.Window? window;
     private VendorSalesDigest.Posting? posting;
     private List<VendorSalesDigest.MixItem> mix = [];

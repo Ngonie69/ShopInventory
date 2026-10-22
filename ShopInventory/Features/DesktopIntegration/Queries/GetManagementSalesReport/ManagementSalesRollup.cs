@@ -391,6 +391,35 @@ internal static class ManagementSalesRollup
         return (MarginBook.From(direct, consolidated, lines), new ManagementMarginStatus(true, detail));
     }
 
+    /// <summary>
+    /// The margin on some invoices known only by number and warehouse: for a report that costs its rows by
+    /// <see cref="MarginBook.ForInvoices"/> or <see cref="MarginBook.ForInvoiceItems"/> and has no use for
+    /// the book's dimensions.
+    /// </summary>
+    public static Task<(MarginBook Book, ManagementMarginStatus Status)> MarginOfInvoicesAsync(
+        IEnumerable<(int DocEntry, string? WarehouseCode)> invoices,
+        ISaleInvoiceCostReader? costReader,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        if (costReader is null)
+        {
+            return Task.FromResult((MarginBook.Empty, new ManagementMarginStatus(
+                false, "Gross profit is unavailable: this server has no SAP cost reader.")));
+        }
+
+        var posted = invoices
+            .Select(invoice => (invoice.DocEntry, WarehouseCode: invoice.WarehouseCode?.Trim() ?? string.Empty))
+            .Distinct()
+            .Select(invoice => new PostedSale(
+                invoice.DocEntry, string.Empty, invoice.WarehouseCode, string.Empty, string.Empty, string.Empty, string.Empty, null))
+            .ToList();
+
+        return MarginOfPostedAsync(
+            posted, [], null, costReader, logger,
+            GetDesktopSalesAnalysis.GetDesktopSalesAnalysisHandler.MarginDeadline, cancellationToken);
+    }
+
     // ── Shapes ─────────────────────────────────────────────────────────────────────────────────────
 
     public sealed record Window(

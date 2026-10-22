@@ -43,11 +43,33 @@ public static class VendorSalesDigest
         int SaleCount,
         int LineCount,
         decimal Units,
-        IReadOnlyList<RouteCustomerSalesTotalsModel> OtherCurrencies);
+        IReadOnlyList<RouteCustomerSalesTotalsModel> OtherCurrencies)
+    {
+        /// <summary>SAP's booked gross profit on the primary currency's posted sales; null when none is costed.</summary>
+        public decimal? GrossProfit { get; init; }
+
+        public decimal? CostedNetAmount { get; init; }
+
+        public int CostedSaleCount { get; init; }
+
+        public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+            ? Math.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+            : null;
+    }
 
     public sealed record Day(DateTime Date, decimal Gross, int SaleCount);
 
-    public sealed record MixItem(string ItemCode, string Name, decimal Units, string? UoMCode, decimal Value, int Lines);
+    public sealed record MixItem(string ItemCode, string Name, decimal Units, string? UoMCode, decimal Value, int Lines)
+    {
+        /// <summary>SAP's booked gross profit on the item's posted lines; null when none is costed.</summary>
+        public decimal? GrossProfit { get; init; }
+
+        public decimal? CostedNetAmount { get; init; }
+
+        public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+            ? Math.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+            : null;
+    }
 
     public sealed record Posting(int Posted, int Awaiting, int Failed, int Excluded)
     {
@@ -117,6 +139,8 @@ public static class VendorSalesDigest
         var currency = PrimaryCurrency(totals);
         var primary = all.Where(sale => SameCurrency(sale.Currency, currency)).ToList();
 
+        var costed = primary.Where(sale => sale.GrossProfit is not null).ToList();
+
         return new Window(
             currency,
             primary.Sum(sale => sale.Total),
@@ -125,7 +149,12 @@ public static class VendorSalesDigest
             primary.Count,
             primary.Sum(sale => sale.Lines.Count),
             primary.SelectMany(sale => sale.Lines).Sum(line => line.Quantity),
-            totals.Where(total => !SameCurrency(total.Currency, currency)).ToList());
+            totals.Where(total => !SameCurrency(total.Currency, currency)).ToList())
+        {
+            GrossProfit = costed.Count == 0 ? null : costed.Sum(sale => sale.GrossProfit!.Value),
+            CostedNetAmount = costed.Count == 0 ? null : costed.Sum(sale => sale.CostedNetAmount ?? 0m),
+            CostedSaleCount = costed.Count
+        };
     }
 
     public static Window SummariseMonth(IEnumerable<RouteCustomerSaleModel> sales, DateTime today)
@@ -176,13 +205,21 @@ public static class VendorSalesDigest
             .Where(sale => SameCurrency(sale.Currency, currency))
             .SelectMany(sale => sale.Lines)
             .GroupBy(line => line.ItemCode, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new MixItem(
-                group.Key,
-                group.Select(line => line.ItemDescription).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? group.Key,
-                group.Sum(line => line.Quantity),
-                group.Select(line => line.UoMCode).FirstOrDefault(uom => !string.IsNullOrWhiteSpace(uom)),
-                group.Sum(line => line.LineTotal),
-                group.Count()))
+            .Select(group =>
+            {
+                var costed = group.Where(line => line.GrossProfit is not null).ToList();
+                return new MixItem(
+                    group.Key,
+                    group.Select(line => line.ItemDescription).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? group.Key,
+                    group.Sum(line => line.Quantity),
+                    group.Select(line => line.UoMCode).FirstOrDefault(uom => !string.IsNullOrWhiteSpace(uom)),
+                    group.Sum(line => line.LineTotal),
+                    group.Count())
+                {
+                    GrossProfit = costed.Count == 0 ? null : costed.Sum(line => line.GrossProfit!.Value),
+                    CostedNetAmount = costed.Count == 0 ? null : costed.Sum(line => line.CostedNetAmount ?? 0m)
+                };
+            })
             .OrderByDescending(item => item.Value)
             .ThenBy(item => item.ItemCode, StringComparer.Ordinal)
             .Take(top)

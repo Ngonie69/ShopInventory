@@ -43,6 +43,12 @@ public static class GrossProfitFormat
                 total.Currency, total.GrossProfit, total.MarginPercent, total.CostedDocumentCount, total.DocumentCount, "sales"))
             .ToList();
 
+    /// <summary>A route report's totals, one figure a currency; <paramref name="noun"/> is what they count.</summary>
+    public static List<GrossProfitFigure> Of(IEnumerable<ShopInventory.Web.Models.RouteCustomerSalesTotalsModel> totals, string noun = "sales") =>
+        totals.Select(total => new GrossProfitFigure(
+                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedSaleCount, total.SaleCount, noun))
+            .ToList();
+
     /// <summary>A van report's line money, one figure a currency.</summary>
     public static List<GrossProfitFigure> Of(IEnumerable<ShopInventory.Web.Models.VanSalesLineMoney> totals) =>
         totals.Select(total => new GrossProfitFigure(

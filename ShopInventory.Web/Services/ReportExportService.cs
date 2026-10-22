@@ -9950,7 +9950,7 @@ public partial class ReportExportService : IReportExportService
         string title)
     {
         var ws = AddSheet(workbook, "Sales");
-        const int cols = 11;
+        const int cols = 12;
 
         var row = WriteReportHeader(ws, title, cols, detail.From, detail.To,
             $"{detail.Customer.Code} on {routeLabel}");
@@ -9963,12 +9963,13 @@ public partial class ReportExportService : IReportExportService
             detail.DaysSinceLastSale?.ToString("N0", CultureInfo.InvariantCulture) ?? "—",
             detail.DaysSinceLastSale is > 30 ? WarningOrange : null);
         WriteKpiCard(ws, row, 5, "Value", DescribeCurrencyTotals(detail.TotalsByCurrency));
+        WriteKpiCard(ws, row, 6, "Gross profit", DescribeCurrencyGrossProfit(detail.TotalsByCurrency, detail.Margin));
         row += 3;
 
         var headers = new[]
         {
             "Sold", "Reference", "Source", "Currency", "Total", "VAT", "Paid",
-            "Payment", "Status", "SAP Doc #", "ZIMRA receipt"
+            "Payment", "Status", "SAP Doc #", "ZIMRA receipt", "Gross Profit"
         };
 
         for (var i = 0; i < headers.Length; i++)
@@ -10017,6 +10018,7 @@ public partial class ReportExportService : IReportExportService
                 ? sale.ReceiptGlobalNo.Value.ToString(CultureInfo.InvariantCulture)
                 : "-";
             ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            RouteGrossProfitCell(ws.Cell(row, 12), sale.GrossProfit, detail.Margin);
             row++;
         }
 
@@ -10050,11 +10052,11 @@ public partial class ReportExportService : IReportExportService
         string title)
     {
         var ws = AddSheet(workbook, "Product mix");
-        const int cols = 7;
+        const int cols = 8;
 
         var row = WriteReportHeader(ws, title, cols, from, to, $"Items bought: {items.Count:N0}");
 
-        var headers = new[] { "Item", "Description", "Quantity", "UoM", "Times bought", "Customers", "Value" };
+        var headers = new[] { "Item", "Description", "Quantity", "UoM", "Times bought", "Customers", "Value", "Gross Profit" };
         for (var i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
@@ -10083,6 +10085,7 @@ public partial class ReportExportService : IReportExportService
             // Text, not a number: the value can be in two currencies, and one cell holding "USD 40.00 /
             // ZWG 900.00" is honest where a single numeric total would not be.
             ws.Cell(row, 7).Value = DescribeCurrencyTotals(item.TotalsByCurrency);
+            ws.Cell(row, 8).Value = DescribeCurrencyGrossProfit(item.TotalsByCurrency, costed: true);
             row++;
         }
 
@@ -10153,7 +10156,7 @@ public partial class ReportExportService : IReportExportService
         const string title = "Route customer sales summary";
         using var workbook = NewWorkbook(title);
         var ws = AddSheet(workbook, "Summary");
-        const int cols = 11;
+        const int cols = 12;
 
         var rows = summary.Routes.SelectMany(route => route.Customers).ToList();
 
@@ -10174,12 +10177,14 @@ public partial class ReportExportService : IReportExportService
             FormatCount, DangerRed);
         WriteKpiCard(ws, row, 5, "Value",
             DescribeCurrencyTotals(summary.Routes.SelectMany(route => route.TotalsByCurrency).ToList()));
+        WriteKpiCard(ws, row, 6, "Gross profit",
+            DescribeCurrencyGrossProfit(summary.Routes.SelectMany(route => route.TotalsByCurrency).ToList(), summary.Margin));
         row += 3;
 
         var headers = new[]
         {
             "Route", "Code", "Customer", "Phone", "Status", "Sales", "Lines",
-            "Value", "First sale (all time)", "Last sale (all time)", "Days since"
+            "Value", "First sale (all time)", "Last sale (all time)", "Days since", "Gross Profit"
         };
 
         for (var i = 0; i < headers.Length; i++)
@@ -10216,6 +10221,9 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 7).Style.NumberFormat.Format = FormatCount;
             ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 8).Value = DescribeCurrencyTotals(customer.TotalsByCurrency);
+            ws.Cell(row, 12).Value = customer.SaleCount == 0
+                ? "—"
+                : DescribeCurrencyGrossProfit(customer.TotalsByCurrency, summary.Margin);
 
             // Blank rather than a dash: a placeholder turns the whole column to text and stops it sorting,
             // which is the one thing a "who has not bought lately" report is read by.
@@ -10277,6 +10285,63 @@ public partial class ReportExportService : IReportExportService
     /// A cell, a KPI card and a footer all need this, and all of them have room for one value. Adding
     /// the currencies together to fit would produce a number that is not any amount of money.
     /// </summary>
+    /// <summary>
+    /// SAP's booked gross profit per currency, as text like the value beside it: "USD 12.00 (24.0%)". A
+    /// currency none of whose sales is in SAP reads "not in SAP yet"; a report that read none, "—".
+    /// </summary>
+    private static string DescribeCurrencyGrossProfit(
+        IReadOnlyCollection<RouteCustomerSalesTotalsModel> totals,
+        ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? margin) =>
+        DescribeCurrencyGrossProfit(totals, margin is { Available: true });
+
+    private static string DescribeCurrencyGrossProfit(IReadOnlyCollection<RouteCustomerSalesTotalsModel> totals, bool costed)
+    {
+        if (!costed || totals.Count == 0)
+        {
+            return "—";
+        }
+
+        return string.Join(" / ", totals
+            .GroupBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var known = group.Where(total => total.GrossProfit is not null).ToList();
+                if (known.Count == 0)
+                {
+                    return $"{group.Key} not in SAP yet";
+                }
+
+                var profit = known.Sum(total => total.GrossProfit!.Value);
+                var revenue = known.Sum(total => total.CostedNetAmount ?? 0m);
+                return $"{group.Key} {profit.ToString("N2", CultureInfo.InvariantCulture)}"
+                       + (revenue == 0 ? "" : $" ({(profit / revenue * 100m).ToString("0.0", CultureInfo.InvariantCulture)}%)");
+            }));
+    }
+
+    /// <summary>One sale's gross profit: the number, or why there is none.</summary>
+    private static void RouteGrossProfitCell(
+        IXLCell cell,
+        decimal? grossProfit,
+        ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? margin)
+    {
+        if (margin is not { Available: true })
+        {
+            cell.Value = "—";
+            return;
+        }
+
+        if (grossProfit is { } profit)
+        {
+            cell.Value = profit;
+            cell.Style.NumberFormat.Format = FormatSignedMoney;
+        }
+        else
+        {
+            cell.Value = "Not in SAP yet";
+            cell.Style.Font.FontColor = WarningOrange;
+        }
+    }
+
     private static string DescribeCurrencyTotals(IReadOnlyCollection<RouteCustomerSalesTotalsModel> totals)
     {
         if (totals.Count == 0)

@@ -1,3 +1,4 @@
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -16,7 +17,9 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductM
 /// of lines and only a few hundred items.
 /// </summary>
 public sealed class GetRouteCustomerProductMixHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetRouteCustomerProductMixHandler>? logger = null
 ) : IRequestHandler<GetRouteCustomerProductMixQuery, ErrorOr<RouteCustomerProductMixDto>>
 {
     private sealed class ItemAggregate
@@ -30,6 +33,9 @@ public sealed class GetRouteCustomerProductMixHandler(
         public int LineCount { get; init; }
         public DateTime LastSoldAt { get; init; }
         public IReadOnlyCollection<string> CustomerCodes { get; init; } = [];
+
+        /// <summary>The SAP invoices this aggregate's posted lines are on, for their booked cost.</summary>
+        public List<(int DocEntry, string? WarehouseCode)> Invoices { get; init; } = [];
     }
 
     public async Task<ErrorOr<RouteCustomerProductMixDto>> Handle(
@@ -67,6 +73,12 @@ public sealed class GetRouteCustomerProductMixHandler(
         var aggregates = await LoadOfflineAsync(customer, route, query.Scope, vendingDepotCodes, from, to, cancellationToken);
         aggregates.AddRange(await LoadOnlineAsync(customer, route, query.Scope, vendingDepotCodes, fromUtc, toUtcExclusive, cancellationToken));
 
+        var (margin, marginStatus) = await ManagementSalesRollup.MarginOfInvoicesAsync(
+            aggregates.SelectMany(aggregate => aggregate.Invoices),
+            costReader,
+            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            cancellationToken);
+
         var items = aggregates
             .GroupBy(aggregate => aggregate.ItemCode, StringComparer.OrdinalIgnoreCase)
             .Select(group => new RouteCustomerProductMixRowDto
@@ -87,13 +99,20 @@ public sealed class GetRouteCustomerProductMixHandler(
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Count(),
                 LastSoldAt = group.Max(aggregate => aggregate.LastSoldAt),
+                // Costed once per currency over all its lines' invoices: two aggregates of one item can
+                // share an invoice, and the margin book counts each (invoice, item) once.
                 TotalsByCurrency = RouteCustomerSalesReporting.SumByCurrency(group.Select(aggregate =>
-                    new RouteCustomerSalesTotalsDto
-                    {
-                        Currency = aggregate.Currency,
-                        SaleCount = aggregate.LineCount,
-                        Gross = aggregate.Gross
-                    }))
+                        new RouteCustomerSalesTotalsDto
+                        {
+                            Currency = aggregate.Currency,
+                            SaleCount = aggregate.LineCount,
+                            Gross = aggregate.Gross
+                        }))
+                    .Select(total => total.WithMargin(margin.ForInvoiceItems(group
+                        .Where(aggregate => string.Equals(aggregate.Currency, total.Currency, StringComparison.OrdinalIgnoreCase))
+                        .SelectMany(aggregate => aggregate.Invoices)
+                        .Select(invoice => ((int?)invoice.DocEntry, group.Key)))))
+                    .ToList()
             })
             // Ranked by how often the item is bought, not by value: value would mean adding USD to ZWG
             // to get a sort key, and quantity would rank a case against a bottle.
@@ -113,7 +132,8 @@ public sealed class GetRouteCustomerProductMixHandler(
             To = to,
             AssignedBusinessPartnerCode = route,
             RouteCustomerId = customer?.Id,
-            Items = items
+            Items = items,
+            Margin = marginStatus
         };
     }
 
@@ -180,6 +200,24 @@ public sealed class GetRouteCustomerProductMixHandler(
             })
             .ToListAsync(cancellationToken);
 
+        var invoices = (await linesQuery
+                .Where(line => line.Sale.SapDocEntry != null)
+                .Select(line => new
+                {
+                    line.ItemCode,
+                    line.ItemDescription,
+                    line.UoMCode,
+                    line.Sale.Currency,
+                    line.Sale.RouteCustomerCode,
+                    DocEntry = line.Sale.SapDocEntry!.Value,
+                    line.Sale.WarehouseCode
+                })
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .ToLookup(
+                line => (line.ItemCode, line.ItemDescription, line.UoMCode, line.Currency, line.RouteCustomerCode),
+                line => (line.DocEntry, (string?)line.WarehouseCode));
+
         return grouped.Select(row => new ItemAggregate
         {
             ItemCode = row.Key.ItemCode,
@@ -190,7 +228,8 @@ public sealed class GetRouteCustomerProductMixHandler(
             Gross = row.Gross,
             LineCount = row.LineCount,
             LastSoldAt = row.LastSoldAt,
-            CustomerCodes = row.Key.RouteCustomerCode is null ? [] : [row.Key.RouteCustomerCode]
+            CustomerCodes = row.Key.RouteCustomerCode is null ? [] : [row.Key.RouteCustomerCode],
+            Invoices = invoices[(row.Key.ItemCode, row.Key.ItemDescription, row.Key.UoMCode, row.Key.Currency, row.Key.RouteCustomerCode)].ToList()
         }).ToList();
     }
 
@@ -254,6 +293,24 @@ public sealed class GetRouteCustomerProductMixHandler(
             })
             .ToListAsync(cancellationToken);
 
+        var invoices = (await linesQuery
+                .Where(line => line.Reservation.SAPDocEntry != null)
+                .Select(line => new
+                {
+                    line.ItemCode,
+                    line.ItemDescription,
+                    line.UoMCode,
+                    line.Reservation.Currency,
+                    line.Reservation.RouteCustomerCode,
+                    DocEntry = line.Reservation.SAPDocEntry!.Value,
+                    line.WarehouseCode
+                })
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .ToLookup(
+                line => (line.ItemCode, line.ItemDescription, line.UoMCode, line.Currency, line.RouteCustomerCode),
+                line => (line.DocEntry, line.WarehouseCode));
+
         return grouped.Select(row => new ItemAggregate
         {
             ItemCode = row.Key.ItemCode,
@@ -264,7 +321,8 @@ public sealed class GetRouteCustomerProductMixHandler(
             Gross = row.Gross,
             LineCount = row.LineCount,
             LastSoldAt = Services.AuditService.ToCAT(row.LastSoldAt).Date,
-            CustomerCodes = row.Key.RouteCustomerCode is null ? [] : [row.Key.RouteCustomerCode]
+            CustomerCodes = row.Key.RouteCustomerCode is null ? [] : [row.Key.RouteCustomerCode],
+            Invoices = invoices[(row.Key.ItemCode, row.Key.ItemDescription, row.Key.UoMCode, row.Key.Currency, row.Key.RouteCustomerCode)].ToList()
         }).ToList();
     }
 }

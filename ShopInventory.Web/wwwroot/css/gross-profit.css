@@ -71,6 +71,12 @@
     white-space: nowrap;
 }
 
+/* In a numeric column the figures sit on the right, under the money they belong to. */
+.gpx-list.gpx-num .gpx-line {
+    justify-content: flex-end;
+    text-align: right;
+}
+
 .gpx-list .gpx-line + .gpx-line {
     margin-top: 2px;
 }

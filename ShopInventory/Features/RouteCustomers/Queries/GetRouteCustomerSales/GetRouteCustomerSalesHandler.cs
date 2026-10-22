@@ -1,3 +1,4 @@
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,9 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSales;
 /// customer codes are only unique within a route, so two vans can both have a "TEST".
 /// </summary>
 public sealed class GetRouteCustomerSalesHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetRouteCustomerSalesHandler>? logger = null
 ) : IRequestHandler<GetRouteCustomerSalesQuery, ErrorOr<RouteCustomerSalesDetailDto>>
 {
     public async Task<ErrorOr<RouteCustomerSalesDetailDto>> Handle(
@@ -45,6 +48,39 @@ public sealed class GetRouteCustomerSalesHandler(
 
         var orders = await ReadOrdersAsync(customer, fromUtc, toUtcExclusive, cancellationToken);
 
+        // SAP's booked gross profit on each posted sale, read once for the totals, the list and the mix.
+        var (margin, marginStatus) = await ManagementSalesRollup.MarginOfInvoicesAsync(
+            sales.Where(sale => sale.SapDocEntry is not null).Select(sale => (sale.SapDocEntry!.Value, sale.WarehouseCode)),
+            costReader,
+            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            cancellationToken);
+
+        foreach (var sale in sales)
+        {
+            var costed = margin.ForInvoices([sale.SapDocEntry]);
+            sale.GrossProfit = costed?.GrossProfit;
+            sale.CostedNetAmount = costed?.Revenue;
+
+            // SAP costs an invoice by item, so an item sold on two lines of one sale shares its profit
+            // between them by value: the lines then add up to the item, and the items to the sale.
+            foreach (var item in sale.Lines.GroupBy(line => line.ItemCode, StringComparer.OrdinalIgnoreCase))
+            {
+                if (margin.ForInvoiceItem([sale.SapDocEntry], item.Key) is not { } itemMargin)
+                {
+                    continue;
+                }
+
+                var value = item.Sum(line => line.LineTotal);
+                var lines = item.ToList();
+                foreach (var line in lines)
+                {
+                    var share = value == 0 ? 1m / lines.Count : line.LineTotal / value;
+                    line.GrossProfit = decimal.Round(itemMargin.GrossProfit * share, 4);
+                    line.CostedNetAmount = decimal.Round(itemMargin.Revenue * share, 4);
+                }
+            }
+        }
+
         var lastSaleAt = sales.Count == 0 ? (DateTime?)null : sales.Max(sale => sale.SoldAt);
 
         return new RouteCustomerSalesDetailDto
@@ -65,10 +101,11 @@ public sealed class GetRouteCustomerSalesHandler(
                     Gross = sale.Total,
                     Vat = sale.VatAmount,
                     AmountPaid = sale.AmountPaid
-                })),
+                }.WithMargin(margin.ForInvoices([sale.SapDocEntry])))),
             Sales = sales,
             Orders = orders,
-            ProductMix = BuildProductMix(sales)
+            ProductMix = BuildProductMix(sales, margin),
+            Margin = marginStatus
         };
     }
 
@@ -229,7 +266,8 @@ public sealed class GetRouteCustomerSalesHandler(
     /// What this customer buys, from the sales already read. Grouped by item so the quantities add up:
     /// within one item code the unit of measure is consistent, across items it is not.
     /// </summary>
-    private static List<RouteCustomerProductMixRowDto> BuildProductMix(List<RouteCustomerSaleDto> sales)
+    private static List<RouteCustomerProductMixRowDto> BuildProductMix(
+        List<RouteCustomerSaleDto> sales, ManagementSalesRollup.MarginBook margin)
     {
         return sales
             .SelectMany(sale => sale.Lines.Select(line => new { sale, line }))
@@ -248,12 +286,16 @@ public sealed class GetRouteCustomerSalesHandler(
                 CustomerCount = 1,
                 LastSoldAt = group.Max(entry => entry.sale.SoldAt),
                 TotalsByCurrency = RouteCustomerSalesReporting.SumByCurrency(group.Select(entry =>
-                    new RouteCustomerSalesTotalsDto
-                    {
-                        Currency = entry.sale.Currency,
-                        SaleCount = 1,
-                        Gross = entry.line.LineTotal
-                    }))
+                        new RouteCustomerSalesTotalsDto
+                        {
+                            Currency = entry.sale.Currency,
+                            SaleCount = 1,
+                            Gross = entry.line.LineTotal
+                        }))
+                    .Select(total => total.WithMargin(margin.ForInvoiceItems(group
+                        .Where(entry => string.Equals(entry.sale.Currency, total.Currency, StringComparison.OrdinalIgnoreCase))
+                        .Select(entry => (entry.sale.SapDocEntry, group.Key)))))
+                    .ToList()
             })
             // Ranked by how often the item appears on a sale, not by value. Value would mean adding USD
             // to ZWG to get a sort key, and quantity would rank a case of bottles against a single
