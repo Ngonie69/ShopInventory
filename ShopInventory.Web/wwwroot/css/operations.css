@@ -2109,6 +2109,66 @@
     gap: 2px;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   /route-customers/calling-schedule — `.ops-rcsi`, on top of `.ops-rc`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* The workbook upload and the save row: a button and a line of status beside
+   it, inside a panel. */
+.ops-rcsi .ops-rcsi-upload {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--ops-s4);
+    padding: var(--ops-s4) var(--ops-s8) var(--ops-s6);
+}
+
+/* The file input is the label's own click target; the label is the button. */
+.ops-rcsi .ops-rcsi-file {
+    position: relative;
+    cursor: pointer;
+}
+
+.ops-rcsi .ops-rcsi-file input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ops-rcsi .ops-rcsi-file.is-busy {
+    cursor: progress;
+    opacity: .7;
+}
+
+.ops-rcsi .ops-rcsi-confirm {
+    flex: 1 1 360px;
+    font-size: 13px;
+    color: var(--ops-ink-2);
+}
+
+.ops-rcsi .ops-rcsi-truck {
+    min-width: 260px;
+}
+
+.ops-rcsi .ops-rcsi-skipmsg {
+    margin: 0 var(--ops-s8) var(--ops-s4);
+}
+
+.ops-rcsi .ops-rcsi-skips {
+    margin: var(--ops-s2) 0 0;
+    padding-left: 18px;
+}
+
+.ops-rcsi .ops-rcsi-pick {
+    min-width: 260px;
+}
+
+.ops-rcsi .ops-rcsi-none {
+    padding: 0 var(--ops-s8) var(--ops-s6);
+}
+
 /* A checkbox standing in a field slot beside text inputs, so it takes the
    field's own height rather than sitting at the top of the cell.
 

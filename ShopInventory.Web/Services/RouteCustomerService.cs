@@ -20,6 +20,14 @@ public interface IRouteCustomerService
     Task<RouteCustomerModel> UpdateRouteCustomerAsync(int id, UpdateRouteCustomerRequest request);
     Task DeleteRouteCustomerAsync(int id);
 
+    /// <summary>
+    /// Checks (<c>ValidateOnly</c>) or saves the calling schedule read off the office's route workbook.
+    /// Returns the API's verdict per outlet, or the reason it would not look at the request at all.
+    /// </summary>
+    Task<(RouteScheduleImportResultModel? Result, string? Error)> ImportScheduleAsync(
+        RouteScheduleImportRequestModel request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>One route customer's sales, orders and product mix. Throws so the page can say why.</summary>
     Task<RouteCustomerSalesDetailModel> GetRouteCustomerSalesAsync(int id, DateTime? from = null, DateTime? to = null);
 
@@ -230,6 +238,38 @@ public class RouteCustomerService(
         {
             logger.LogError(ex, "Error updating route customer {RouteCustomerId}", id);
             throw new InvalidOperationException("Failed to update route customer.", ex);
+        }
+    }
+
+    public async Task<(RouteScheduleImportResultModel? Result, string? Error)> ImportScheduleAsync(
+        RouteScheduleImportRequestModel request,
+        CancellationToken cancellationToken = default)
+    {
+        var outletCount = request.Sheets.Sum(sheet => sheet.Outlets.Count);
+        try
+        {
+            using var response = await SendAuthenticatedAsync(() =>
+                httpClient.PostAsJsonAsync("api/route-customers/schedule-import", request, cancellationToken));
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<RouteScheduleImportResultModel>(cancellationToken);
+                return result is null
+                    ? (null, "The server returned an empty result.")
+                    : (result, null);
+            }
+
+            var message = response.StatusCode == System.Net.HttpStatusCode.Forbidden
+                ? "Your account is not allowed to change calling schedules."
+                : await ExtractErrorMessageAsync(response, $"The server refused the schedule ({(int)response.StatusCode}).");
+            logger.LogWarning("Importing a calling schedule of {OutletCount} outlets failed with {Status}: {Detail}",
+                outletCount, (int)response.StatusCode, message);
+            return (null, message);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Error importing a calling schedule of {OutletCount} outlets", outletCount);
+            return (null, $"The schedule could not be sent: {ex.Message}");
         }
     }
 
