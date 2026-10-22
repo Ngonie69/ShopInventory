@@ -340,6 +340,34 @@ public class ReportCurrencySplitTests
         Assert.Equal(-10.0m, report.DailySales[1].GrossMarginPercent);
     }
 
+    /// <summary>
+    /// The gross profit statements are new SAP objects. One SAP refuses must cost the tab its gross profit,
+    /// not the revenue figures it showed before there was any.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_gross_profit_statement_leaves_the_sales_and_customer_figures_standing()
+    {
+        var service = BuildService([], queryCode => queryCode switch
+        {
+            ReportService.InvoiceGrossProfitByDayQueryCode or ReportService.CustomerGrossProfitQueryCode =>
+                throw new HttpRequestException("701 Cannot support the expression"),
+            ReportService.SalesSummaryQueryCode => [CurrencyRow("USD", invoices: 3, total: 300m, vat: 30m)],
+            ReportService.DailySalesQueryCode => [DailyRow("20260115", "USD", invoices: 3, total: 300m)],
+            _ => [CustomerRow("C1", "Acme", "USD", invoices: 2, total: 200m)]
+        });
+
+        var summary = await service.GetSalesSummaryAsync(From, To);
+        Assert.Equal(300m, summary.TotalSalesUSD);
+        Assert.Null(summary.GrossProfitUSD);
+        Assert.Null(summary.GrossMarginPercent);
+        Assert.Null(Assert.Single(summary.DailySales).GrossProfitUSD);
+
+        var customers = await service.GetTopCustomersAsync(From, To, topCount: 10);
+        var acme = Assert.Single(customers.TopCustomers);
+        Assert.Equal(200m, acme.TotalPurchasesUSD);
+        Assert.Null(acme.GrossProfitUSD);
+    }
+
     [Fact]
     public async Task Sales_summary_has_no_margin_when_nothing_was_sold()
     {

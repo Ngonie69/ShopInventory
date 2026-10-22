@@ -564,6 +564,28 @@ ORDER BY T0."CardCode"
             BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
 
+    /// <summary>
+    /// Gross profit rows for a report that stands without them: a failed read (SAP refusing the statement,
+    /// say) logs and leaves the report's gross profit empty rather than failing the revenue figures with it.
+    /// </summary>
+    private async Task<List<Dictionary<string, object?>>?> OptionalGrossProfitRowsAsync(
+        Task<List<Dictionary<string, object?>>> rows, string report)
+    {
+        try
+        {
+            return await rows;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Gross profit could not be read for the {Report}; it goes out without it", report);
+            return null;
+        }
+    }
+
     /// <summary>A margin to one place, or null where nothing was sold to measure it on.</summary>
     internal static decimal? MarginPercent(decimal grossProfit, decimal revenue) =>
         revenue == 0 ? null : Math.Round(grossProfit / revenue * 100m, 1, MidpointRounding.AwayFromZero);
@@ -814,16 +836,17 @@ ORDER BY T0."CardName"
                 var summaryRowsTask = GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
                 var uniqueCustomerRowsTask = GetCachedUniqueCustomerRowsAsync(fromDate, toDate, token);
                 var dailyRowsTask = GetCachedDailySalesRowsAsync(fromDate, toDate, token);
-                var grossProfitRowsTask = GetCachedInvoiceGrossProfitByDayRowsAsync(fromDate, toDate, token);
+                var grossProfitRowsTask = OptionalGrossProfitRowsAsync(
+                    GetCachedInvoiceGrossProfitByDayRowsAsync(fromDate, toDate, token), "sales summary");
                 await Task.WhenAll(summaryRowsTask, uniqueCustomerRowsTask, dailyRowsTask, grossProfitRowsTask);
 
-                var grossProfitByDay = (await grossProfitRowsTask)
+                var grossProfitByDay = (await grossProfitRowsTask)?
                     .GroupBy(row => GetRowDate(row, "DocDate").Date)
                     .ToDictionary(
                         day => day.Key,
                         day => (Revenue: day.Sum(row => GetRowDecimal(row, "Revenue")), GrossProfit: day.Sum(row => GetRowDecimal(row, "GrossProfit"))));
-                var periodRevenue = grossProfitByDay.Values.Sum(day => day.Revenue);
-                var periodProfit = grossProfitByDay.Values.Sum(day => day.GrossProfit);
+                decimal? periodRevenue = grossProfitByDay?.Values.Sum(day => day.Revenue);
+                decimal? periodProfit = grossProfitByDay?.Values.Sum(day => day.GrossProfit);
 
                 var summaryRows = await summaryRowsTask;
                 var dailyRows = await dailyRowsTask;
@@ -851,8 +874,8 @@ ORDER BY T0."CardName"
                         InvoiceCount = day.Sum(row => GetRowInt(row, "InvoiceCount")),
                         TotalSalesUSD = day.Where(IsUsdRow).Sum(row => GetRowDecimal(row, "TotalSales")),
                         TotalSalesZIG = day.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalSales")),
-                        GrossProfitUSD = grossProfitByDay.TryGetValue(day.Key, out var profit) ? profit.GrossProfit : null,
-                        GrossMarginPercent = grossProfitByDay.TryGetValue(day.Key, out var margin) ? MarginPercent(margin.GrossProfit, margin.Revenue) : null
+                        GrossProfitUSD = grossProfitByDay?.TryGetValue(day.Key, out var profit) == true ? profit.GrossProfit : null,
+                        GrossMarginPercent = grossProfitByDay?.TryGetValue(day.Key, out var margin) == true ? MarginPercent(margin.GrossProfit, margin.Revenue) : null
                     })
                     .OrderBy(d => d.Date)
                     .ToList();
@@ -871,7 +894,7 @@ ORDER BY T0."CardName"
                     UniqueCustomers = GetRowInt(uniqueCustomerRow, "UniqueCustomers"),
                     GrossProfitUSD = periodProfit,
                     RevenueBeforeVatUSD = periodRevenue,
-                    GrossMarginPercent = MarginPercent(periodProfit, periodRevenue),
+                    GrossMarginPercent = periodProfit is { } profitTotal && periodRevenue is { } revenueTotal ? MarginPercent(profitTotal, revenueTotal) : null,
                     DailySales = dailySales,
                     SalesByCurrency = new List<SalesByCurrencyDto>
                     {
@@ -1374,10 +1397,11 @@ ORDER BY T0."CardName"
 
         var customerInvoiceRowsTask = GetCachedCustomerInvoiceRowsAsync(fromDate, toDate, cancellationToken);
         var paymentsTask = GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
-        var customerProfitTask = GetCachedCustomerGrossProfitRowsAsync(fromDate, toDate, cancellationToken);
+        var customerProfitTask = OptionalGrossProfitRowsAsync(
+            GetCachedCustomerGrossProfitRowsAsync(fromDate, toDate, cancellationToken), "top customers report");
         await Task.WhenAll(customerInvoiceRowsTask, paymentsTask, customerProfitTask);
 
-        var customerProfit = (await customerProfitTask)
+        var customerProfit = ((await customerProfitTask) ?? [])
             .GroupBy(row => GetRowStringOrDefault(row, "CardCode"), StringComparer.Ordinal)
             .ToDictionary(
                 customer => customer.Key,
