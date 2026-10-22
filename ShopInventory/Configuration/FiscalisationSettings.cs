@@ -62,8 +62,10 @@ public class FiscalisationSettings
 
     /// <summary>
     /// API key issued from the console's API Keys page. Sent as the X-API-Key header.
-    /// Needs the receipt.submit, sap.fiscalise and device.read scopes, and no device allowlist
-    /// (a device-scoped key forces an explicit device id on every call, which breaks failover).
+    /// Needs the receipt.submit, sap.fiscalise, device.read and activity.read scopes, and no device allowlist
+    /// (a device-scoped key forces an explicit device id on every call, which breaks failover). Without
+    /// activity.read only the Live transactions page's fiscal half is lost. The platform cannot add a scope
+    /// to an issued key, so a missing one means issuing a replacement.
     /// Supply via user-secrets locally and the Fiscalisation__ApiKey environment variable in production.
     /// </summary>
     public string ApiKey { get; set; } = string.Empty;

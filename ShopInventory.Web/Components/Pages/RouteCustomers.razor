@@ -36,6 +36,13 @@
                 <i class="ph ph-chart-bar" aria-hidden="true"></i>
                 <span>Sales report</span>
             </a>
+            @* The weekdays each van calls on each shop — the CCR's planned round. *@
+            <AuthorizeView Roles="Admin">
+                <a class="ops-btn ops-btn-ghost" href="/route-customers/calling-schedule">
+                    <i class="ph ph-calendar-check" aria-hidden="true"></i>
+                    <span>Calling schedule</span>
+                </a>
+            </AuthorizeView>
         </div>
     </div>
 

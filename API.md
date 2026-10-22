@@ -3368,8 +3368,10 @@ provider-agnostic and are marked where they differ.
 | Which devices the console has, for the Settings key test | `GET /api/devices/known` — needs a key with no device allowlist |
 
 Authentication is an `X-API-Key` header. The key is configured as `Fiscalisation__ApiKey` and needs the
-`receipt.submit`, `sap.fiscalise` and `device.read` scopes, and no device allowlist — a device-scoped key
-forces an explicit device id on every call, which breaks failover.
+`receipt.submit`, `sap.fiscalise`, `device.read` and `activity.read` scopes, and no device allowlist — a
+device-scoped key forces an explicit device id on every call, which breaks failover. `activity.read` feeds only
+the Live transactions page. The platform cannot add a scope to a key it has issued: a key missing one is
+replaced (issue a new key, install it under Settings → Fiscalisation, revoke the old one).
 
 **Which device fiscalises**
 
@@ -4696,6 +4698,7 @@ which is how vending writes its vendors through this base route.
 | DELETE | `/api/route-customers/{id}` | `customers.delete` | Delete one |
 | GET | `/api/route-customers/visit-days` | `customers.view` | Which weekdays the van calls (`routeCustomerId`, `assignedBusinessPartnerCode`) |
 | PUT | `/api/route-customers/{id}/visit-days` | `customers.edit` | Replace the calling days for one shop |
+| POST | `/api/route-customers/schedule-import` | `customers.edit` | Check (`validateOnly`) or save the office's route workbook as every truck's calling days; matches outlet names to shops, replaces each matched truck's schedule |
 
 | Endpoint | Parameters |
 |----------|------------|
@@ -5162,7 +5165,7 @@ from a little before its newest event, since a row stamped earlier can commit la
 on `eventId` — an event whose row changes (a payment completing, a fiscal retry) arrives with a new id.
 
 The fiscal events need a Fiscalisation platform release that serves its activity feed, and the `activity.read` scope on
-`Fiscalisation:ApiKey`. Without them the feed still answers with the local events,
+`Fiscalisation:ApiKey`. A key issued without that scope cannot gain it; replace the key (see the Fiscalisation section). Without them the feed still answers with the local events,
 `fiscalFeedAvailable: false` and a `fiscalFeedMessage` saying why.
 
 ---
