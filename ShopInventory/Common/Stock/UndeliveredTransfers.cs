@@ -10,7 +10,8 @@ namespace ShopInventory.Common.Stock;
 /// One SAP stock transfer's effect on one warehouse's ledger: one item, one direction, summed over
 /// the document's lines. The grain the transfer webhook deduplicates at.
 /// </summary>
-/// <remarks><c>Quantity</c> is unsigned, in the item's inventory unit.</remarks>
+/// <remarks><c>Quantity</c> is unsigned, in the item's inventory unit. <c>ItemDescription</c> is SAP's
+/// line text, for a row the delivery has to create.</remarks>
 public sealed record BookedTransfer(
     int DocEntry,
     int DocNum,
@@ -18,7 +19,8 @@ public sealed record BookedTransfer(
     string Direction,
     decimal Quantity,
     string SourceWarehouse,
-    string DestinationWarehouse)
+    string DestinationWarehouse,
+    string? ItemDescription = null)
 {
     /// <summary>As the balance moves: negative for stock leaving the warehouse.</summary>
     public decimal Signed => Direction == UndeliveredTransfers.Out ? -Quantity : Quantity;
@@ -128,12 +130,20 @@ public static class UndeliveredTransfers
                         FirstNonBlank(line.WarehouseCode, document.ToWarehouse),
                         line.StockQuantity);
 
-                    return new { ItemCode = line.ItemCode!.Trim(), From = from, To = to, StockQuantity = quantity };
+                    return new
+                    {
+                        ItemCode = line.ItemCode!.Trim(),
+                        line.ItemDescription,
+                        From = from,
+                        To = to,
+                        StockQuantity = quantity
+                    };
                 })
                 .Where(line => !Is(line.From, line.To))
                 .Select(line => new
                 {
                     line.ItemCode,
+                    line.ItemDescription,
                     line.From,
                     line.To,
                     line.StockQuantity,
@@ -150,7 +160,8 @@ public static class UndeliveredTransfers
                     group.Key.Direction!,
                     group.Sum(line => line.StockQuantity),
                     group.First().From,
-                    group.First().To)));
+                    group.First().To,
+                    group.Select(line => line.ItemDescription).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)))));
         }
 
         return movements;

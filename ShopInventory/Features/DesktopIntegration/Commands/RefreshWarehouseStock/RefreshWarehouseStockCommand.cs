@@ -15,7 +15,8 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// ledger rows are moved to SAP's figure and no movement or divergence row is written.
 ///
 /// A van is refreshed differently: its row is its morning load plus the day's transfers, so the
-/// refresh has TransferEventListener check SAP for transfers now instead of copying SAP's figure.
+/// refresh reads SAP's transfers for the van and applies the ones the ledger has not had, instead of
+/// copying SAP's figure. TransferEventListener is not asked or waited for.
 /// </remarks>
 public sealed record RefreshWarehouseStockCommand(string WarehouseCode)
     : IRequest<ErrorOr<RefreshWarehouseStockResult>>;
@@ -31,15 +32,15 @@ public sealed record RefreshWarehouseStockCommand(string WarehouseCode)
 /// corrected. The three counts above are zero then; <paramref name="RowsFetched"/> says what arrived.
 /// </param>
 /// <param name="RowsFetched">Snapshot rows the fetch wrote, when <paramref name="SnapshotRefetched"/>.</param>
-/// <param name="ViaTransferListener">
-/// A van, brought up to date by TransferEventListener's check rather than by SAP's figure. The three
-/// item counts are zero then; the transfer counts below say what happened.
+/// <param name="ByTransfer">
+/// A van, brought up to date by SAP's transfers rather than by SAP's figure. The three item counts are
+/// zero then; the transfer counts below say what happened.
 /// </param>
 /// <param name="TransfersApplied">Transfer lines applied to the warehouse during this refresh.</param>
 /// <param name="TransfersToday">Transfer lines applied to the warehouse on <paramref name="LedgerDay"/>, these included.</param>
-/// <param name="TransfersPending">
-/// Lines, for any warehouse, the listener still holds undelivered after its check. Not zero means some
-/// transfer is not on the ledger yet.
+/// <param name="TransfersNotApplied">
+/// Transfers SAP holds for the warehouse that are not on the ledger and could not be applied this
+/// press. Not zero means pressing again, or the listener, still has something to do.
 /// </param>
 public sealed record RefreshWarehouseStockResult(
     string WarehouseCode,
@@ -50,7 +51,7 @@ public sealed record RefreshWarehouseStockResult(
     DateTime RefreshedAt,
     bool SnapshotRefetched = false,
     int RowsFetched = 0,
-    bool ViaTransferListener = false,
+    bool ByTransfer = false,
     int TransfersApplied = 0,
     int TransfersToday = 0,
-    int TransfersPending = 0);
+    int TransfersNotApplied = 0);
