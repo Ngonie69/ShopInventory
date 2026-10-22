@@ -207,7 +207,10 @@ public sealed class GetItemVolumeSalesReportHandler(
                     line.Quantity,
                     line.LineTotal,
                     line.LineTotal,
-                    IsZigCurrency(invoice.DocCurrency) ? line.LineTotal : 0m)))
+                    IsZigCurrency(invoice.DocCurrency) ? line.LineTotal : 0m)
+                {
+                    GrossProfitUsd = line.GrossProfit ?? 0m
+                }))
             .Where(line => line.DocumentDateUtc != DateTime.MinValue)
             .ToList();
     }
@@ -241,7 +244,11 @@ public sealed class GetItemVolumeSalesReportHandler(
                     -Math.Abs(line.Quantity),
                     -Math.Abs(line.LineTotal),
                     -Math.Abs(line.LineTotal),
-                    IsZigCurrency(note.DocCurrency) ? -Math.Abs(line.LineTotal) : 0m)))
+                    IsZigCurrency(note.DocCurrency) ? -Math.Abs(line.LineTotal) : 0m)
+                {
+                    // A credit memo's gross profit is the profit it gives back, so it comes off.
+                    GrossProfitUsd = -(line.GrossProfit ?? 0m)
+                }))
             .Where(line => line.DocumentDateUtc != DateTime.MinValue)
             .ToList();
     }
@@ -323,6 +330,7 @@ public sealed class GetItemVolumeSalesReportHandler(
             CreditedSalesUsd = -creditLines.Sum(line => line.AmountUsd),
             CreditedSalesFromZig = -creditLines.Sum(line => line.AmountFromZig),
             NetRevenueUsd = lines.Sum(line => line.AmountUsd),
+            NetGrossProfitUsd = lines.Sum(line => line.GrossProfitUsd),
             NetRevenueFromZig = lines.Sum(line => line.AmountFromZig)
         };
     }
@@ -379,6 +387,7 @@ public sealed class GetItemVolumeSalesReportHandler(
             CreditedSalesUsd = items.Sum(item => item.CreditedSalesUsd),
             CreditedSalesFromZig = items.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = items.Sum(item => item.NetRevenueUsd),
+            NetGrossProfitUsd = items.Sum(item => item.NetGrossProfitUsd),
             NetRevenueFromZig = items.Sum(item => item.NetRevenueFromZig),
             Items = items
         };
@@ -422,6 +431,7 @@ public sealed class GetItemVolumeSalesReportHandler(
                     NetQuantity = accounts.Sum(account => account.NetQuantity),
                     NetVolume = accounts.Sum(account => account.NetVolume),
                     NetRevenueUsd = accounts.Sum(account => account.NetRevenueUsd),
+                    NetGrossProfitUsd = accounts.Sum(account => account.NetGrossProfitUsd),
                     NetRevenueFromZig = accounts.Sum(account => account.NetRevenueFromZig),
                     Accounts = accounts
                 };
@@ -459,7 +469,8 @@ public sealed class GetItemVolumeSalesReportHandler(
                     Volume = hasFactor ? RoundVolume(line.Quantity * factor) : 0m,
                     LineAmount = line.LineAmount,
                     AmountUsd = line.AmountUsd,
-                    AmountFromZig = line.AmountFromZig
+                    AmountFromZig = line.AmountFromZig,
+                    GrossProfitUsd = line.GrossProfitUsd
                 };
             })
             .OrderBy(line => line.DocumentDateUtc)
@@ -500,6 +511,7 @@ public sealed class GetItemVolumeSalesReportHandler(
             CreditedSalesUsd = itemTotals.Sum(item => item.CreditedSalesUsd),
             CreditedSalesFromZig = itemTotals.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = itemTotals.Sum(item => item.NetRevenueUsd),
+            NetGrossProfitUsd = itemTotals.Sum(item => item.NetGrossProfitUsd),
             NetRevenueFromZig = itemTotals.Sum(item => item.NetRevenueFromZig)
         };
     }

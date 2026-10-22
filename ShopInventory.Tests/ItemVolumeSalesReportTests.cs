@@ -353,6 +353,87 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
         Assert.Equal(1, day.CreditNoteCount);
     }
 
+    /// <summary>
+    /// Gross profit is SAP's booked line GrossProfit, in USD like the line total. A credit memo's is the
+    /// profit it gives back, booked positive, so it comes off the invoice's — at every level the report
+    /// totals revenue at, and on the document lines so the detail still reconciles.
+    /// </summary>
+    [Fact]
+    public async Task Gross_profit_is_the_invoices_booked_profit_less_the_credit_notes()
+    {
+        await SeedFactorAsync("YOG143", 0.6m);
+
+        var invoice = Invoice(1, 5020, "CIS006", "2026-07-04", ("YOG143", 100m, 250m));
+        invoice.DocumentLines![0].GrossProfit = 100m;
+        var credit = CreditNote(9, 7020, "CIS006", "2026-07-04", ("YOG143", 10m, 25m));
+        credit.DocumentLines![0].GrossProfit = 10m;
+
+        var handler = CreateHandler(invoices: [invoice], creditNotes: [credit]);
+
+        var result = await handler.Handle(Query(grouping: ItemVolumeSalesGrouping.Daily), default);
+
+        var report = result.Value;
+        await WriteFixtureAsync("item-volume-sales", report);
+        Assert.Equal(225m, report.Summary.NetRevenueUsd);
+        Assert.Equal(90m, report.Summary.NetGrossProfitUsd);
+        Assert.Equal(40.0m, report.Summary.NetMarginPercent);
+
+        Assert.Equal(90m, report.ItemTotals.Single(item => item.ItemCode == "YOG143").NetGrossProfitUsd);
+        Assert.Equal(90m, report.AccountTotals.Single(account => account.CardCode == "CIS006").NetGrossProfitUsd);
+        Assert.Equal(90m, report.Periods.Single(period => period.PeriodStartUtc == new DateTime(2026, 7, 4)).NetGrossProfitUsd);
+
+        Assert.Equal(100m, report.DocumentLines.Single(line => line.DocumentType == "Invoice").GrossProfitUsd);
+        Assert.Equal(-10m, report.DocumentLines.Single(line => line.DocumentType == "Credit Note").GrossProfitUsd);
+        Assert.Equal(report.Summary.NetGrossProfitUsd, report.DocumentLines.Sum(line => line.GrossProfitUsd));
+    }
+
+    /// <summary>Each partner carries its own lines' profit, a loss included, and the summary adds them up.</summary>
+    [Fact]
+    public async Task Each_partner_carries_the_gross_profit_on_its_own_lines()
+    {
+        await SeedFactorAsync("YOG143", 0.6m);
+
+        var profitable = Invoice(1, 5022, "CIS006", "2026-07-04", ("YOG143", 100m, 250m));
+        profitable.DocumentLines![0].GrossProfit = 100m;
+        var belowCost = Invoice(2, 5023, "CIS007", "2026-07-11", ("YOG143", 40m, 80m));
+        belowCost.DocumentLines![0].GrossProfit = -8m;
+
+        var handler = CreateHandler(invoices: [profitable, belowCost], creditNotes: []);
+
+        var result = await handler.Handle(Query(accountCodes: ["CIS006", "CIS007"]), default);
+
+        var report = result.Value;
+        await WriteFixtureAsync("item-volume-sales-two-partners", report);
+
+        var cis006 = report.AccountTotals.Single(account => account.CardCode == "CIS006");
+        Assert.Equal(100m, cis006.NetGrossProfitUsd);
+        Assert.Equal(40.0m, cis006.NetMarginPercent);
+
+        var cis007 = report.AccountTotals.Single(account => account.CardCode == "CIS007");
+        Assert.Equal(-8m, cis007.NetGrossProfitUsd);
+        Assert.Equal(-10.0m, cis007.NetMarginPercent);
+
+        Assert.Equal(92m, report.Summary.NetGrossProfitUsd);
+        Assert.Equal(92m, report.ItemTotals.Single().NetGrossProfitUsd);
+    }
+
+    /// <summary>A line SAP sent without a gross profit adds nothing rather than failing the report.</summary>
+    [Fact]
+    public async Task A_line_without_a_gross_profit_counts_as_none()
+    {
+        await SeedFactorAsync("YOG143", 0.6m);
+
+        var handler = CreateHandler(
+            invoices: [Invoice(1, 5021, "CIS006", "2026-07-04", ("YOG143", 100m, 250m))],
+            creditNotes: []);
+
+        var result = await handler.Handle(Query(), default);
+
+        Assert.Equal(250m, result.Value.Summary.NetRevenueUsd);
+        Assert.Equal(0m, result.Value.Summary.NetGrossProfitUsd);
+        Assert.Equal(0.0m, result.Value.Summary.NetMarginPercent);
+    }
+
     [Fact]
     public async Task Document_lines_state_a_credit_negatively_so_the_detail_reconciles_to_the_total()
     {
@@ -503,6 +584,17 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
         });
 
         await _context.SaveChangesAsync();
+    }
+
+    private static async Task WriteFixtureAsync(string name, object value)
+    {
+        // Opt-in, for driving the real page with this result: GP_FIXTURE_DIR names a folder to write it to.
+        if (Environment.GetEnvironmentVariable("GP_FIXTURE_DIR") is { Length: > 0 } dir)
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, name + ".json"),
+                System.Text.Json.JsonSerializer.Serialize(value, value.GetType(),
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        }
     }
 
     private static GetItemVolumeSalesReportQuery Query(

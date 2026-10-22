@@ -42,12 +42,23 @@ public sealed class PartnerPerformance
 
         public bool Traded => Invoices > 0 || CreditNotes > 0;
 
+        /// <summary>SAP's booked gross profit, net of credit notes, in USD like <c>Revenue</c>.</summary>
+        public decimal GrossProfit { get; init; }
+
+        /// <summary><see cref="GrossProfit"/> over <c>Revenue</c>, to one place; null with no revenue.</summary>
+        public decimal? MarginPercent => Revenue == 0
+            ? null
+            : Math.Round(GrossProfit / Revenue * 100m, 1, MidpointRounding.AwayFromZero);
+
         public Figures Add(Figures other) => new(
             Revenue + other.Revenue,
             Volume + other.Volume,
             Credited + other.Credited,
             Invoices + other.Invoices,
-            CreditNotes + other.CreditNotes);
+            CreditNotes + other.CreditNotes)
+        {
+            GrossProfit = GrossProfit + other.GrossProfit
+        };
     }
 
     /// <summary>A partner across every window, in the order of <see cref="Windows"/>.</summary>
@@ -347,7 +358,10 @@ public sealed class PartnerPerformance
         account.NetVolume,
         account.CreditedSalesUsd,
         account.InvoiceCount,
-        account.CreditNoteCount);
+        account.CreditNoteCount)
+    {
+        GrossProfit = account.NetGrossProfitUsd
+    };
 
     private static string ShortPeriodLabel(GetItemVolumeSalesReportResult report, ItemVolumeSalesPeriodResult period)
     {

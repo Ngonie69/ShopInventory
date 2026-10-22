@@ -305,7 +305,190 @@ public class ReportCurrencySplitTests
         Assert.DoesNotContain(report.CustomerAging, c => c.CardCode == "C3");
     }
 
+    /// <summary>
+    /// The sales summary's gross profit is SAP's booked GrssProfit over the same lines' LineTotal, both in
+    /// the company currency, so a ZiG invoice counts in the margin at its USD value like a USD one.
+    /// </summary>
+    [Fact]
+    public async Task Sales_summary_reads_sap_booked_gross_profit_and_its_margin_by_day()
+    {
+        var service = BuildService([], queryCode => queryCode switch
+        {
+            ReportService.DailySalesQueryCode =>
+            [
+                DailyRow("20260115", "USD", invoices: 2, total: 230m),
+                DailyRow("20260116", "USD", invoices: 1, total: 115m)
+            ],
+            ReportService.InvoiceGrossProfitByDayQueryCode =>
+            [
+                GrossProfitRow("DocDate", "20260115", revenue: 200m, grossProfit: 50m),
+                GrossProfitRow("DocDate", "20260116", revenue: 100m, grossProfit: -10m)
+            ],
+            _ => []
+        });
+
+        var report = await service.GetSalesSummaryAsync(From, To);
+        await WriteFixtureAsync("reports-sales-summary", report);
+
+        Assert.Equal(40m, report.GrossProfitUSD);
+        Assert.Equal(300m, report.RevenueBeforeVatUSD);
+        Assert.Equal(13.3m, report.GrossMarginPercent);
+
+        Assert.Equal(50m, report.DailySales[0].GrossProfitUSD);
+        Assert.Equal(25.0m, report.DailySales[0].GrossMarginPercent);
+        Assert.Equal(-10m, report.DailySales[1].GrossProfitUSD);
+        Assert.Equal(-10.0m, report.DailySales[1].GrossMarginPercent);
+    }
+
+    [Fact]
+    public async Task Sales_summary_has_no_margin_when_nothing_was_sold()
+    {
+        var report = await RunSalesSummaryAsync([]);
+
+        Assert.Equal(0m, report.GrossProfitUSD);
+        Assert.Null(report.GrossMarginPercent);
+    }
+
+    /// <summary>An item's profit and margin are over all its currency rows, like its quantity.</summary>
+    [Fact]
+    public async Task Top_products_carry_gross_profit_over_every_currency_row()
+    {
+        var service = BuildService([], _ =>
+        [
+            ProductRow("SPLIT", "Split", "USD", quantity: 10m, revenue: 100m, lines: 1, grossProfit: 30m),
+            ProductRow("SPLIT", "Split", "ZiG", quantity: 10m, revenue: 300m, lines: 1, grossProfit: 70m),
+            ProductRow("LOSS", "Sold below cost", "USD", quantity: 5m, revenue: 50m, lines: 1, grossProfit: -5m)
+        ]);
+
+        var report = await service.GetTopProductsAsync(From, To, topCount: 10);
+        await WriteFixtureAsync("reports-top-products", report);
+
+        var split = report.TopProducts.Single(p => p.ItemCode == "SPLIT");
+        Assert.Equal(100m, split.GrossProfitUSD);
+        Assert.Equal(25.0m, split.GrossMarginPercent);
+
+        var loss = report.TopProducts.Single(p => p.ItemCode == "LOSS");
+        Assert.Equal(-5m, loss.GrossProfitUSD);
+        Assert.Equal(-10.0m, loss.GrossMarginPercent);
+    }
+
+    [Fact]
+    public async Task Top_customers_carry_their_gross_profit_and_leave_it_null_without_a_row()
+    {
+        var service = BuildService([], queryCode => queryCode switch
+        {
+            ReportService.CustomerGrossProfitQueryCode => [GrossProfitRow("CardCode", "C1", revenue: 400m, grossProfit: 100m)],
+            _ =>
+            [
+                CustomerRow("C1", "Acme", "USD", invoices: 2, total: 460m),
+                CustomerRow("C2", "Beta", "USD", invoices: 1, total: 50m)
+            ]
+        });
+
+        var report = await service.GetTopCustomersAsync(From, To, topCount: 10);
+        await WriteFixtureAsync("reports-top-customers", report);
+
+        var acme = report.TopCustomers.Single(c => c.CardCode == "C1");
+        Assert.Equal(100m, acme.GrossProfitUSD);
+        Assert.Equal(25.0m, acme.GrossMarginPercent);
+
+        var beta = report.TopCustomers.Single(c => c.CardCode == "C2");
+        Assert.Null(beta.GrossProfitUSD);
+        Assert.Null(beta.GrossMarginPercent);
+    }
+
+    /// <summary>
+    /// Profit Overview's gross profit used to be takings less VAT less the period's purchase orders —
+    /// cash spent on stock, not the cost of what was sold. It is now SAP's booked profit on the invoices
+    /// less the profit the credit notes gave back, over sales before VAT net of the same credit notes,
+    /// and the purchase orders are shown but no longer deducted.
+    /// </summary>
+    [Fact]
+    public async Task Profit_overview_is_invoice_gross_profit_less_credit_note_gross_profit()
+    {
+        var service = BuildService(
+            [],
+            queryCode => queryCode switch
+            {
+                ReportService.SalesSummaryQueryCode => [CurrencyRow("USD", invoices: 3, total: 1150m, vat: 150m)],
+                ReportService.InvoiceGrossProfitByDayQueryCode =>
+                [
+                    GrossProfitRow("DocDate", "20260115", revenue: 600m, grossProfit: 150m),
+                    GrossProfitRow("DocDate", "20260210", revenue: 400m, grossProfit: 100m)
+                ],
+                ReportService.CreditNoteGrossProfitByDayQueryCode =>
+                [
+                    GrossProfitRow("DocDate", "20260212", revenue: 100m, grossProfit: 25m)
+                ],
+                _ => []
+            },
+            purchaseOrders: [new SAPPurchaseOrder { DocDate = "2026-01-20", DocCurrency = "USD", DocTotal = 5000m }]);
+
+        var report = await service.GetProfitOverviewAsync(From, To);
+        await WriteFixtureAsync("reports-profit-overview", report);
+
+        Assert.Equal(900m, report.NetSalesBeforeVatUSD);
+        Assert.Equal(225m, report.GrossProfitUSD);
+        Assert.Equal(675m, report.CostOfSalesUSD);
+        Assert.Equal(25.0m, report.GrossMarginPercent);
+        Assert.Equal(0m, report.GrossProfitZIG);
+
+        // Shown, not deducted: a 5,000 purchase order would have made the period a loss.
+        Assert.Equal(5000m, report.TotalPurchaseCostUSD);
+
+        var january = report.MonthlyBreakdown.Single(m => m.Month == "Jan 2026");
+        Assert.Equal(150m, january.GrossProfitUSD);
+        Assert.Equal(600m, january.NetSalesBeforeVatUSD);
+        Assert.Equal(25.0m, january.GrossMarginPercent);
+
+        var february = report.MonthlyBreakdown.Single(m => m.Month == "Feb 2026");
+        Assert.Equal(75m, february.GrossProfitUSD);
+        Assert.Equal(300m, february.NetSalesBeforeVatUSD);
+        Assert.Equal(25.0m, february.GrossMarginPercent);
+    }
+
+    [Fact]
+    public async Task Gross_profit_statements_sum_sap_booked_profit_beside_the_line_totals()
+    {
+        var calls = await RunEveryReportAsync();
+
+        foreach (var code in new[]
+                 {
+                     ReportService.InvoiceGrossProfitByDayQueryCode,
+                     ReportService.CreditNoteGrossProfitByDayQueryCode,
+                     ReportService.CustomerGrossProfitQueryCode,
+                     ReportService.TopProductsQueryCode,
+                     ReportService.TopProductsByWarehouseQueryCode
+                 })
+        {
+            var sql = calls.First(call => call.QueryCode == code).SqlText;
+            Assert.Contains("SUM(T1.\"GrssProfit\")", sql, StringComparison.Ordinal);
+            Assert.Contains("SUM(T1.\"LineTotal\")", sql, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("FROM ORIN", calls.First(call => call.QueryCode == ReportService.CreditNoteGrossProfitByDayQueryCode).SqlText, StringComparison.Ordinal);
+    }
+
     private sealed record SqlCall(string QueryCode, string SqlText, IReadOnlyDictionary<string, string> Parameters);
+
+    private static async Task WriteFixtureAsync(string name, object value)
+    {
+        // Opt-in, for driving the real page with this result: GP_FIXTURE_DIR names a folder to write it to.
+        if (Environment.GetEnvironmentVariable("GP_FIXTURE_DIR") is { Length: > 0 } dir)
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, name + ".json"),
+                System.Text.Json.JsonSerializer.Serialize(value, value.GetType(),
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        }
+    }
+
+    private static Dictionary<string, object?> GrossProfitRow(string keyColumn, string key, decimal revenue, decimal grossProfit) =>
+        new()
+        {
+            [keyColumn] = key,
+            ["Revenue"] = revenue,
+            ["GrossProfit"] = grossProfit
+        };
 
     private static Dictionary<string, object?> CurrencyRow(string? currency, int invoices, decimal total, decimal vat) =>
         new()
@@ -326,7 +509,7 @@ public class ReportCurrencySplitTests
         };
 
     private static Dictionary<string, object?> ProductRow(
-        string itemCode, string itemName, string currency, decimal quantity, decimal revenue, int lines) =>
+        string itemCode, string itemName, string currency, decimal quantity, decimal revenue, int lines, decimal grossProfit = 0m) =>
         new()
         {
             ["ItemCode"] = itemCode,
@@ -334,7 +517,8 @@ public class ReportCurrencySplitTests
             ["DocCur"] = currency,
             ["TotalQuantitySold"] = quantity,
             ["TotalRevenue"] = revenue,
-            ["TimesOrdered"] = lines
+            ["TimesOrdered"] = lines,
+            ["GrossProfit"] = grossProfit
         };
 
     private static Dictionary<string, object?> CustomerRow(
@@ -394,8 +578,9 @@ public class ReportCurrencySplitTests
         await BuildService(agingCalls, _ => []).GetReceivablesAgingAsync();
         calls.AddRange(agingCalls);
 
-        // The five reports, plus the unique-customer count and the warehouse-filtered variant.
-        Assert.Equal(7, calls.Select(call => call.QueryCode).Distinct().Count());
+        // The five reports, plus the unique-customer count and the warehouse-filtered variant, and the
+        // three gross profit statements: by day on the invoices and the credit notes, and by customer.
+        Assert.Equal(10, calls.Select(call => call.QueryCode).Distinct().Count());
         return calls;
     }
 
@@ -409,13 +594,16 @@ public class ReportCurrencySplitTests
         await service.GetTopProductsAsync(fromDate, toDate, 10);
         await service.GetTopProductsAsync(fromDate, toDate, 10, "WH01");
         await service.GetTopCustomersAsync(fromDate, toDate, 10);
+        await service.GetProfitOverviewAsync(fromDate, toDate);
 
         return calls;
     }
 
     private static ReportService BuildService(
         List<SqlCall> calls,
-        Func<string, List<Dictionary<string, object?>>> rowsFor)
+        Func<string, List<Dictionary<string, object?>>> rowsFor,
+        List<SAPCreditNote>? creditNotes = null,
+        List<SAPPurchaseOrder>? purchaseOrders = null)
     {
         var sap = StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
@@ -423,6 +611,10 @@ public class ReportCurrencySplitTests
                 RecordAndAnswer(calls, rowsFor, args!),
             nameof(ISAPServiceLayerClient.GetIncomingPaymentsByDateRangeAsync) =>
                 Task.FromResult(new List<IncomingPayment>()),
+            nameof(ISAPServiceLayerClient.GetCreditNotesByDateRangeAsync) =>
+                Task.FromResult(creditNotes ?? new List<SAPCreditNote>()),
+            nameof(ISAPServiceLayerClient.GetPurchaseOrdersByDateRangeAsync) =>
+                Task.FromResult(purchaseOrders ?? new List<SAPPurchaseOrder>()),
             _ => throw new InvalidOperationException($"unexpected call {method.Name}")
         });
 

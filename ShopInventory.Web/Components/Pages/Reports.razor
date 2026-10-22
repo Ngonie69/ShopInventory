@@ -268,6 +268,20 @@
                                                         </div>
                                                     }
                                                 </div>
+                                                @if (salesReport.GrossProfitUSD is { } salesGp)
+                                                {
+                                                    @* SAP's booked profit on the period's invoices, in USD, the currency SAP books every
+                                                       document in whatever it was sold in. *@
+                                                    <p class="gpx-note">
+                                                        <span>Gross profit (USD)</span>
+                                                        <span class="gpx-value @GrossProfitFormat.Tone(salesGp)">$@GrossProfitFormat.Money(salesGp)</span>
+                                                        @if (salesReport.GrossMarginPercent is { } salesMargin)
+                                                        {
+                                                            <span>&middot; @GrossProfitFormat.Percent(salesMargin) margin</span>
+                                                        }
+                                                        <span>on $@((salesReport.RevenueBeforeVatUSD ?? 0m).ToString("N2")) of invoice lines before VAT, at the stock cost SAP booked when the goods left.</span>
+                                                    </p>
+                                                }
                                                 <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Daily Breakdown</h6>
                                                 <div class="table-responsive">
                                                     <table class="table table-hover align-middle mb-0 mobile-card-table">
@@ -277,6 +291,11 @@
                                                                 <th class="border-0 fw-semibold text-end">Invoices</th>
                                                                 <th class="border-0 fw-semibold text-end">USD Sales</th>
                                                                 <th class="border-0 fw-semibold text-end">ZIG Sales</th>
+                                                                @if (salesReport.GrossProfitUSD is not null)
+                                                                {
+                                                                    <th class="border-0 fw-semibold text-end">Gross Profit (USD)</th>
+                                                                    <th class="border-0 fw-semibold text-end">Margin</th>
+                                                                }
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -290,6 +309,10 @@
                                                                     </td>
                                                                     <td data-label="ZIG Sales" class="text-end fw-semibold" style="color: #00838f;">ZIG
                                                                         @day.TotalSalesZIG.ToString("N2")</td>
+                                                                    @if (salesReport.GrossProfitUSD is not null)
+                                                                    {
+                                                                        <GrossProfitCells GrossProfit="day.GrossProfitUSD" MarginPercent="day.GrossMarginPercent" NumClass="text-end" />
+                                                                    }
                                                                     </tr>
                                                                 }
                                                             </tbody>
@@ -300,6 +323,10 @@
                                                                     <td data-label="USD Sales" class="text-end" style="color: #2e7d32;">$@salesReport.TotalSalesUSD.ToString("N2")</td>
                                                                     <td data-label="ZIG Sales" class="text-end" style="color: #00838f;">ZIG @salesReport.TotalSalesZIG.ToString("N2")
                                                                     </td>
+                                                                    @if (salesReport.GrossProfitUSD is not null)
+                                                                    {
+                                                                        <GrossProfitCells GrossProfit="salesReport.GrossProfitUSD" MarginPercent="salesReport.GrossMarginPercent" NumClass="text-end" />
+                                                                    }
                                                                 </tr>
                                                             </tfoot>
                                                         </table>
@@ -338,6 +365,11 @@
                                                                     <th class="border-0 fw-semibold text-end">Orders</th>
                                                                     <th class="border-0 fw-semibold text-end">Revenue (USD)</th>
                                                                     <th class="border-0 fw-semibold text-end">Revenue (ZIG)</th>
+                                                                    @if (topProductsReport.TopProducts.Any(product => product.GrossProfitUSD is not null))
+                                                                    {
+                                                                        <th class="border-0 fw-semibold text-end">Gross Profit (USD)</th>
+                                                                        <th class="border-0 fw-semibold text-end">Margin</th>
+                                                                    }
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
@@ -366,6 +398,10 @@
                                                                         </td>
                                                                         <td data-label="Revenue (ZIG)" class="text-end fw-semibold" style="color: #00838f;">ZIG
                                                                             @p.TotalRevenueZIG.ToString("N2")</td>
+                                                                        @if (topProductsReport.TopProducts.Any(product => product.GrossProfitUSD is not null))
+                                                                        {
+                                                                            <GrossProfitCells GrossProfit="p.GrossProfitUSD" MarginPercent="p.GrossMarginPercent" NumClass="text-end" />
+                                                                        }
                                                                         </tr>
                                                                     }
                                                                 </tbody>
@@ -587,6 +623,11 @@
                                                                                                     <th class="border-0 fw-semibold text-end">Purchases (ZIG)</th>
                                                                                                     <th class="border-0 fw-semibold text-end">Payments (USD)</th>
                                                                                                     <th class="border-0 fw-semibold text-end">Balance (USD)</th>
+                                                                                                    @if (topCustomersReport.TopCustomers.Any(customer => customer.GrossProfitUSD is not null))
+                                                                                                    {
+                                                                                                        <th class="border-0 fw-semibold text-end">Gross Profit (USD)</th>
+                                                                                                        <th class="border-0 fw-semibold text-end">Margin</th>
+                                                                                                    }
                                                                                                 </tr>
                                                                                             </thead>
                                                                                             <tbody>
@@ -618,6 +659,10 @@
                                                                                                             <td data-label="Balance (USD)" class="text-end fw-bold"
                                                                                                                 style="color: @(c.OutstandingBalanceUSD > 0 ? "#c62828" : "#2e7d32");">
                                                                                                                 $@c.OutstandingBalanceUSD.ToString("N2")</td>
+                                                                                                            @if (topCustomersReport.TopCustomers.Any(customer => customer.GrossProfitUSD is not null))
+                                                                                                            {
+                                                                                                                <GrossProfitCells GrossProfit="c.GrossProfitUSD" MarginPercent="c.GrossMarginPercent" NumClass="text-end" />
+                                                                                                            }
                                                                                                             </tr>
                                                                                                         }
                                                                                                     </tbody>
@@ -934,13 +979,15 @@ else if (activeTab == "profit")
             <div class="col-md-3">
                 <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
                     <p class="text-muted small mb-1 fw-semibold">GROSS PROFIT (USD)</p>
-                    <h3 class="fw-bold mb-0" style="color: #1565c0;">$@profitReport.GrossProfitUSD.ToString("N2")</h3>
+                    <h3 class="fw-bold mb-0 gpx-value @GrossProfitFormat.Tone(profitReport.GrossProfitUSD)">$@GrossProfitFormat.Money(profitReport.GrossProfitUSD)</h3>
+                    <small class="text-muted">SAP's booked profit: sales before VAT less what the goods cost</small>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
                     <p class="text-muted small mb-1 fw-semibold">GROSS MARGIN</p>
-                    <h3 class="fw-bold mb-0" style="color: #e65100;">@profitReport.GrossMarginPercent.ToString("N1")%</h3>
+                    <h3 class="fw-bold mb-0" style="color: #e65100;">@GrossProfitFormat.Percent(profitReport.GrossMarginPercent)</h3>
+                    <small class="text-muted">of $@profitReport.NetSalesBeforeVatUSD.ToString("N2") net sales before VAT</small>
                 </div>
             </div>
             <div class="col-md-3">
@@ -965,8 +1012,8 @@ else if (activeTab == "profit")
             </div>
             <div class="col-md-2">
                 <div class="text-center p-2 bg-light rounded-3">
-                    <div class="fw-bold" style="color: #e65100;">$@profitReport.TotalPurchaseCostUSD.ToString("N2")</div>
-                    <small class="text-muted">Purchases (COGS)</small>
+                    <div class="fw-bold" style="color: #e65100;">$@profitReport.CostOfSalesUSD.ToString("N2")</div>
+                    <small class="text-muted" title="What the goods sold cost, as SAP booked it when they left. Purchase orders raised in the period: $@profitReport.TotalPurchaseCostUSD.ToString("N2"), which is stock bought, not stock sold.">Cost of sales</small>
                 </div>
             </div>
             <div class="col-md-2">
@@ -999,7 +1046,7 @@ else if (activeTab == "profit")
                             <th class="border-0 fw-semibold text-end">Sales (USD)</th>
                             <th class="border-0 fw-semibold text-end">Credit Notes</th>
                             <th class="border-0 fw-semibold text-end">Net Revenue</th>
-                            <th class="border-0 fw-semibold text-end">Purchases</th>
+                            <th class="border-0 fw-semibold text-end">Cost of Sales</th>
                             <th class="border-0 fw-semibold text-end">Gross Profit</th>
                             <th class="border-0 fw-semibold text-end">Margin %</th>
                         </tr>
@@ -1007,15 +1054,17 @@ else if (activeTab == "profit")
                     <tbody>
                         @foreach (var m in profitReport.MonthlyBreakdown.OrderByDescending(x => x.Month))
                         {
+                            // Gross profit and its margin are SAP's booked figures, from the API, on sales before VAT.
                             var netRev = m.RevenueUSD - m.CreditNotesUSD;
-                            var gp = netRev - m.PurchaseCostUSD;
-                            var margin = netRev > 0 ? (gp / netRev * 100) : 0;
+                            var gp = m.GrossProfitUSD;
+                            var costOfSales = m.NetSalesBeforeVatUSD - m.GrossProfitUSD;
+                            var margin = m.GrossMarginPercent ?? 0m;
                             <tr>
                                 <td data-label="Month" class="fw-medium">@(m.Month)</td>
                                 <td data-label="Sales (USD)" class="text-end">$@m.RevenueUSD.ToString("N2")</td>
                                 <td data-label="Credit Notes" class="text-end" style="color: #c62828;">$@m.CreditNotesUSD.ToString("N2")</td>
                                 <td data-label="Net Revenue" class="text-end fw-semibold">$@netRev.ToString("N2")</td>
-                                <td data-label="Purchases" class="text-end">$@m.PurchaseCostUSD.ToString("N2")</td>
+                                <td data-label="Cost of Sales" class="text-end">$@costOfSales.ToString("N2")</td>
                                 <td data-label="Gross Profit" class="text-end fw-bold" style="color: @(gp >= 0 ? "#2e7d32" : "#c62828");">$@gp.ToString("N2")</td>
                                 <td data-label="Margin %" class="text-end"><span class="badge rounded-pill @(margin >= 20 ? "bg-success" : margin >= 10 ? "bg-warning text-dark" : "bg-danger")">@margin.ToString("N1")%</span></td>
                             </tr>
@@ -1830,20 +1879,24 @@ new("fulfillment", "Fulfillment", "bi-truck")
         sb.Append($"<div class='kpi'><h3>${salesReport.TotalSalesUSD:N2}</h3><p>Sales (USD)</p></div>");
         sb.Append($"<div class='kpi'><h3>ZIG {salesReport.TotalSalesZIG:N2}</h3><p>Sales (ZIG)</p></div>");
         sb.Append($"<div class='kpi'><h3>{salesReport.UniqueCustomers}</h3><p>Unique Customers</p></div>");
+        var salesGp = salesReport.GrossProfitUSD is not null;
+        if (salesGp)
+            sb.Append($"<div class='kpi'><h3>${GrossProfitFormat.Money(salesReport.GrossProfitUSD!.Value)}</h3><p>Gross Profit (USD){(salesReport.GrossMarginPercent is { } m ? $" · {GrossProfitFormat.Percent(m)}" : "")}</p></div>");
         sb.Append("</div>");
-        sb.Append("<table><thead><tr><th>Date</th><th>Invoices</th><th>USD Sales</th><th>ZIG Sales</th></tr></thead><tbody>");
+        sb.Append("<table><thead><tr><th>Date</th><th>Invoices</th><th>USD Sales</th><th>ZIG Sales</th>" + (salesGp ? "<th>Gross Profit (USD)</th><th>Margin</th>" : "") + "</tr></thead><tbody>");
         foreach (var d in salesReport.DailySales.OrderByDescending(d => d.Date))
-            sb.Append($"<tr><td>{d.Date:ddd, dd MMM yyyy}</td><td class='text-end'>{d.InvoiceCount}</td><td class='text-end'>${d.TotalSalesUSD:N2}</td><td class='text-end'>ZIG {d.TotalSalesZIG:N2}</td></tr>");
-        sb.Append($"</tbody><tfoot><tr style='font-weight:bold;background:#e8eaf6'><td>Total</td><td class='text-end'>{salesReport.TotalInvoices}</td><td class='text-end'>${salesReport.TotalSalesUSD:N2}</td><td class='text-end'>ZIG {salesReport.TotalSalesZIG:N2}</td></tr></tfoot></table>");
+            sb.Append($"<tr><td>{d.Date:ddd, dd MMM yyyy}</td><td class='text-end'>{d.InvoiceCount}</td><td class='text-end'>${d.TotalSalesUSD:N2}</td><td class='text-end'>ZIG {d.TotalSalesZIG:N2}</td>" + (salesGp ? PrintableGrossProfitCells(d.GrossProfitUSD, d.GrossMarginPercent) : "") + "</tr>");
+        sb.Append($"</tbody><tfoot><tr style='font-weight:bold;background:#e8eaf6'><td>Total</td><td class='text-end'>{salesReport.TotalInvoices}</td><td class='text-end'>${salesReport.TotalSalesUSD:N2}</td><td class='text-end'>ZIG {salesReport.TotalSalesZIG:N2}</td>" + (salesGp ? PrintableGrossProfitCells(salesReport.GrossProfitUSD, salesReport.GrossMarginPercent) : "") + "</tr></tfoot></table>");
         return ExportService.GeneratePrintableHtml("Sales Summary Report", sb.ToString(), fromDate, toDate);
     }
 
     private string BuildProductsPdfHtml()
     {
         var sb = new System.Text.StringBuilder();
-        sb.Append("<table><thead><tr><th>Rank</th><th>Code</th><th>Product</th><th>Qty Sold</th><th>Orders</th><th>Revenue (USD)</th><th>Revenue (ZIG)</th></tr></thead><tbody>");
+        var productGp = topProductsReport!.TopProducts.Any(product => product.GrossProfitUSD is not null);
+        sb.Append("<table><thead><tr><th>Rank</th><th>Code</th><th>Product</th><th>Qty Sold</th><th>Orders</th><th>Revenue (USD)</th><th>Revenue (ZIG)</th>" + (productGp ? "<th>Gross Profit (USD)</th><th>Margin</th>" : "") + "</tr></thead><tbody>");
         foreach (var p in topProductsReport!.TopProducts)
-            sb.Append($"<tr><td>{p.Rank}</td><td>{p.ItemCode}</td><td>{p.ItemName}</td><td class='text-end'>{p.TotalQuantitySold:N0}</td><td class='text-end'>{p.TimesOrdered}</td><td class='text-end'>${p.TotalRevenueUSD:N2}</td><td class='text-end'>ZIG {p.TotalRevenueZIG:N2}</td></tr>");
+            sb.Append($"<tr><td>{p.Rank}</td><td>{p.ItemCode}</td><td>{p.ItemName}</td><td class='text-end'>{p.TotalQuantitySold:N0}</td><td class='text-end'>{p.TimesOrdered}</td><td class='text-end'>${p.TotalRevenueUSD:N2}</td><td class='text-end'>ZIG {p.TotalRevenueZIG:N2}</td>" + (productGp ? PrintableGrossProfitCells(p.GrossProfitUSD, p.GrossMarginPercent) : "") + "</tr>");
         sb.Append("</tbody></table>");
         return ExportService.GeneratePrintableHtml("Top Products Report", sb.ToString(), fromDate, toDate);
     }
@@ -1888,11 +1941,12 @@ new("fulfillment", "Fulfillment", "bi-truck")
     private string BuildCustomersPdfHtml()
     {
         var sb = new System.Text.StringBuilder();
-        sb.Append("<table><thead><tr><th>Rank</th><th>Customer</th><th>Invoices</th><th>Purchases (USD)</th><th>Purchases (ZIG)</th><th>Payments (USD)</th><th>Balance (USD)</th></tr></thead><tbody>");
+        var customerGp = topCustomersReport!.TopCustomers.Any(customer => customer.GrossProfitUSD is not null);
+        sb.Append("<table><thead><tr><th>Rank</th><th>Customer</th><th>Invoices</th><th>Purchases (USD)</th><th>Purchases (ZIG)</th><th>Payments (USD)</th><th>Balance (USD)</th>" + (customerGp ? "<th>Gross Profit (USD)</th><th>Margin</th>" : "") + "</tr></thead><tbody>");
         foreach (var c in topCustomersReport!.TopCustomers)
         {
             var balStyle = c.OutstandingBalanceUSD > 0 ? "color:#c62828;font-weight:bold" : "color:#2e7d32";
-            sb.Append($"<tr><td>{c.Rank}</td><td><strong>{c.CardName}</strong><br/><small>{c.CardCode}</small></td><td class='text-end'>{c.InvoiceCount}</td><td class='text-end'>${c.TotalPurchasesUSD:N2}</td><td class='text-end'>ZIG {c.TotalPurchasesZIG:N2}</td><td class='text-end'>${c.TotalPaymentsUSD:N2}</td><td class='text-end' style='{balStyle}'>${c.OutstandingBalanceUSD:N2}</td></tr>");
+            sb.Append($"<tr><td>{c.Rank}</td><td><strong>{c.CardName}</strong><br/><small>{c.CardCode}</small></td><td class='text-end'>{c.InvoiceCount}</td><td class='text-end'>${c.TotalPurchasesUSD:N2}</td><td class='text-end'>ZIG {c.TotalPurchasesZIG:N2}</td><td class='text-end'>${c.TotalPaymentsUSD:N2}</td><td class='text-end' style='{balStyle}'>${c.OutstandingBalanceUSD:N2}</td>" + (customerGp ? PrintableGrossProfitCells(c.GrossProfitUSD, c.GrossMarginPercent) : "") + "</tr>");
         }
         sb.Append("</tbody></table>");
         return ExportService.GeneratePrintableHtml("Top Customers Report", sb.ToString(), fromDate, toDate);
@@ -1960,33 +2014,42 @@ new("fulfillment", "Fulfillment", "bi-truck")
         sb.Append("<div class='kpi-row'>");
         sb.Append($"<div class='kpi'><h3>${profitReport!.NetRevenueUSD:N2}</h3><p>Net Revenue (USD)</p></div>");
         sb.Append($"<div class='kpi'><h3>${profitReport.GrossProfitUSD:N2}</h3><p>Gross Profit (USD)</p></div>");
-        sb.Append($"<div class='kpi'><h3>{profitReport.GrossMarginPercent:N1}%</h3><p>Gross Margin</p></div>");
+        sb.Append($"<div class='kpi'><h3>{GrossProfitFormat.Percent(profitReport.GrossMarginPercent)}</h3><p>Gross Margin</p></div>");
         sb.Append($"<div class='kpi'><h3>{profitReport.CollectionRatePercent:N1}%</h3><p>Collection Rate</p></div>");
         sb.Append("</div>");
         sb.Append("<table><thead><tr><th>Metric</th><th>USD</th><th>ZIG</th></tr></thead><tbody>");
         sb.Append($"<tr><td>Gross Sales</td><td class='text-end'>${profitReport.TotalRevenueUSD:N2}</td><td class='text-end'>ZIG {profitReport.TotalRevenueZIG:N2}</td></tr>");
         sb.Append($"<tr><td>Credit Notes</td><td class='text-end' style='color:#c62828'>-${profitReport.TotalCreditNotesUSD:N2}</td><td class='text-end'>-ZIG {profitReport.TotalCreditNotesZIG:N2}</td></tr>");
         sb.Append($"<tr style='font-weight:bold'><td>Net Revenue</td><td class='text-end'>${profitReport.NetRevenueUSD:N2}</td><td class='text-end'>ZIG {profitReport.NetRevenueZIG:N2}</td></tr>");
-        sb.Append($"<tr><td>Purchases (COGS)</td><td class='text-end'>-${profitReport.TotalPurchaseCostUSD:N2}</td><td class='text-end'>-ZIG {profitReport.TotalPurchaseCostZIG:N2}</td></tr>");
-        sb.Append($"<tr style='font-weight:bold;background:#e8f5e9'><td>Gross Profit</td><td class='text-end'>${profitReport.GrossProfitUSD:N2}</td><td class='text-end'>ZIG {profitReport.GrossProfitZIG:N2}</td></tr>");
+        // SAP's booked profit on sales before VAT. SAP books every document in USD, so it has no ZiG column.
+        sb.Append($"<tr><td>Net Sales before VAT</td><td class='text-end'>${profitReport.NetSalesBeforeVatUSD:N2}</td><td class='text-end'>-</td></tr>");
+        sb.Append($"<tr><td>Cost of Sales (as SAP booked it)</td><td class='text-end'>-${profitReport.CostOfSalesUSD:N2}</td><td class='text-end'>-</td></tr>");
+        sb.Append($"<tr style='font-weight:bold;background:#e8f5e9'><td>Gross Profit</td><td class='text-end'>${GrossProfitFormat.Money(profitReport.GrossProfitUSD)}</td><td class='text-end'>-</td></tr>");
+        sb.Append($"<tr><td>Purchase Orders Raised (stock bought, not sold)</td><td class='text-end'>${profitReport.TotalPurchaseCostUSD:N2}</td><td class='text-end'>ZIG {profitReport.TotalPurchaseCostZIG:N2}</td></tr>");
         sb.Append($"<tr><td>Payments Received</td><td class='text-end'>${profitReport.TotalCollectedUSD:N2}</td><td class='text-end'>ZIG {profitReport.TotalCollectedZIG:N2}</td></tr>");
         sb.Append($"<tr><td>Outstanding Receivables</td><td class='text-end' style='color:#c62828'>${profitReport.OutstandingReceivablesUSD:N2}</td><td class='text-end'>ZIG {profitReport.OutstandingReceivablesZIG:N2}</td></tr>");
         sb.Append("</tbody></table>");
         if (profitReport.MonthlyBreakdown.Any())
         {
             sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Monthly Breakdown</h3>");
-            sb.Append("<table><thead><tr><th>Month</th><th>Sales</th><th>Credit Notes</th><th>Net Revenue</th><th>Purchases</th><th>Gross Profit</th><th>Margin</th></tr></thead><tbody>");
+            sb.Append("<table><thead><tr><th>Month</th><th>Sales</th><th>Credit Notes</th><th>Net Revenue</th><th>Cost of Sales</th><th>Gross Profit</th><th>Margin</th></tr></thead><tbody>");
             foreach (var m in profitReport.MonthlyBreakdown.OrderByDescending(x => x.Month))
             {
                 var netRev = m.RevenueUSD - m.CreditNotesUSD;
-                var gp = netRev - m.PurchaseCostUSD;
-                var margin = netRev > 0 ? (gp / netRev * 100) : 0;
-                sb.Append($"<tr><td>{m.Month}</td><td class='text-end'>${m.RevenueUSD:N2}</td><td class='text-end'>${m.CreditNotesUSD:N2}</td><td class='text-end'>${netRev:N2}</td><td class='text-end'>${m.PurchaseCostUSD:N2}</td><td class='text-end'>${gp:N2}</td><td class='text-end'>{margin:N1}%</td></tr>");
+                var costOfSales = m.NetSalesBeforeVatUSD - m.GrossProfitUSD;
+                sb.Append($"<tr><td>{m.Month}</td><td class='text-end'>${m.RevenueUSD:N2}</td><td class='text-end'>${m.CreditNotesUSD:N2}</td><td class='text-end'>${netRev:N2}</td><td class='text-end'>${costOfSales:N2}</td>" + PrintableGrossProfitCells(m.GrossProfitUSD, m.GrossMarginPercent) + "</tr>");
             }
             sb.Append("</tbody></table>");
         }
         return ExportService.GeneratePrintableHtml("Profit & Loss Overview", sb.ToString(), fromDate, toDate);
     }
+
+    /// <summary>Two printable cells: SAP's booked gross profit in USD, a loss in red, and its margin.</summary>
+    private static string PrintableGrossProfitCells(decimal? grossProfit, decimal? marginPercent) =>
+        grossProfit is not { } profit
+            ? "<td class='text-end'>-</td><td class='text-end'>-</td>"
+            : $"<td class='text-end' style='{(profit < 0 ? "color:#c62828;font-weight:bold" : "")}'>${GrossProfitFormat.Money(profit)}</td>"
+              + $"<td class='text-end'>{(marginPercent is { } margin ? GrossProfitFormat.Percent(margin) : "-")}</td>";
 
     private string BuildCreditNotesPdfHtml()
     {

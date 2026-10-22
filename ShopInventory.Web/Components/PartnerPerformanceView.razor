@@ -53,7 +53,7 @@ else if (FocusedPartner is { } partner)
         </div>
     </section>
 
-    <div class="slp-cards">
+    <div class="slp-cards has-gp">
         @foreach (var card in CardsFor(figures))
         {
             <article class="slp-card">
@@ -208,6 +208,7 @@ else
             <span class="sla-stat-label">Net revenue · @Performance.Windows[0].Label</span>
             <span class="sla-stat-value"><span class="sla-stat-unit">@Currency</span> @Money(totals[0].Revenue)</span>
             <span class="slp-stat-note"><span class="slp-delta @revenueDelta.Css">@revenueDelta.Text</span> vs @Performance.Windows[basis].Label</span>
+            <span class="slp-stat-note">GP <span class="gpx-value @GrossProfitFormat.Tone(totals[0].GrossProfit)">@GrossProfitFormat.Money(totals[0].GrossProfit)</span>@(totals[0].MarginPercent is { } windowMargin ? $" · {GrossProfitFormat.Percent(windowMargin)} margin" : "")</span>
         </article>
         <article class="sla-stat">
             <span class="sla-stat-label">Net volume · @Performance.Windows[0].Label</span>
@@ -253,12 +254,17 @@ else
                         <th rowspan="2" class="sla-th-entity">Business partner</th>
                         <th colspan="@(Performance.Windows.Count + 2)" class="slp-th-group">Revenue · @Currency</th>
                         <th colspan="@(Performance.Windows.Count + 1)" class="slp-th-group">Volume · litres</th>
+                        @* SAP's booked profit in the asked-for window only: one more year beside it would be
+                           two more columns, and the scorecard has every year for a partner. *@
+                        <th colspan="2" class="slp-th-group">Gross profit · @Performance.Windows[0].Label</th>
                         <th rowspan="2"><span class="slp-sr">Open</span></th>
                     </tr>
                     <tr>
                         @YearHeadings
                         <th class="sla-num">Trend</th>
                         @YearHeadings
+                        <th class="sla-num">@Currency</th>
+                        <th class="sla-num">Margin</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -282,6 +288,7 @@ else
                                 </span>
                             </td>
                             @YearCells((p.Years.Select(year => year.Volume).ToList(), false, null))
+                            <GrossProfitCells GrossProfit="@(p.Years[0].Traded ? p.Years[0].GrossProfit : null)" MarginPercent="p.Years[0].MarginPercent" NumClass="sla-num" />
                             <td class="sla-num">
                                 <button type="button" class="slp-open" aria-label="Open @p.Name @p.Code" @onclick="@(() => Open(p.Code))">
                                     <i class="ph ph-caret-right" aria-hidden="true"></i>
@@ -294,6 +301,7 @@ else
                         @YearCells((totals.Select(year => year.Revenue).ToList(), true, null))
                         <td></td>
                         @YearCells((totals.Select(year => year.Volume).ToList(), false, null))
+                        <GrossProfitCells GrossProfit="totals[0].GrossProfit" MarginPercent="totals[0].MarginPercent" NumClass="sla-num" />
                         <td></td>
                     </tr>
                 </tbody>
@@ -542,6 +550,23 @@ else
                 DeltaOf(current.Revenue, basisYear.Revenue),
                 ChangeNote(current.Revenue - basisYear.Revenue, $"{Currency} ", string.Empty, basisLabel),
                 Bars(years.Select(y => y.Revenue).ToList(), value => $"{Currency} {Money(value)}")),
+            // SAP's booked profit and its margin sit beside revenue, so the first row reads as
+            // takings, what they made, and at what rate.
+            new(
+                $"Gross profit · {Performance.Windows[0].Label}",
+                current.GrossProfit < 0 ? $"−{Currency}" : Currency, Money(Math.Abs(current.GrossProfit)), string.Empty, current.GrossProfit < 0,
+                DeltaOf(current.GrossProfit, basisYear.GrossProfit),
+                ChangeNote(current.GrossProfit - basisYear.GrossProfit, $"{Currency} ", string.Empty, basisLabel),
+                Bars(years.Select(y => y.GrossProfit).ToList(), value => $"{Currency} {GrossProfitFormat.Money(value)}")),
+            new(
+                $"Gross margin · {Performance.Windows[0].Label}", string.Empty,
+                current.MarginPercent is { } margin ? margin.ToString("N1", CultureInfo.InvariantCulture) : "—",
+                current.MarginPercent is null ? string.Empty : "%", current.MarginPercent < 0,
+                MarginDelta(current.MarginPercent, basisYear.MarginPercent),
+                "Gross profit over net revenue, at the stock cost SAP booked",
+                Bars(years.Select(y => y.MarginPercent ?? 0m).ToList(), value => GrossProfitFormat.Percent(value))
+                    .Select((bar, year) => years[year].MarginPercent is null ? bar with { Text = "—" } : bar)
+                    .ToList()),
             new(
                 $"Net volume · {Performance.Windows[0].Label}", string.Empty, Money(current.Volume), "L", current.Volume < 0,
                 DeltaOf(current.Volume, basisYear.Volume),
@@ -584,6 +609,24 @@ else
         difference == 0
             ? $"Level with {SameDates(basisLabel)}"
             : $"{(difference > 0 ? "Up" : "Down")} {lead}{Money(Math.Abs(difference))}{trail} on {SameDates(basisLabel)}";
+
+    /// <summary>A margin's change in points, not percent: 20% to 25% is five points up, not 25% up.</summary>
+    private static Delta MarginDelta(decimal? current, decimal? basisValue)
+    {
+        if (current is not { } now || basisValue is not { } then)
+        {
+            return new Delta("—", "is-flat");
+        }
+
+        var points = now - then;
+        var text = Math.Abs(points).ToString("N1", CultureInfo.InvariantCulture) + " pts";
+        return points switch
+        {
+            > 0 => new Delta($"+{text}", "is-up"),
+            < 0 => new Delta($"−{text}", "is-down"),
+            _ => new Delta(text, "is-flat")
+        };
+    }
 
     private static Delta DeltaOf(decimal current, decimal basisValue)
     {

@@ -194,4 +194,12 @@ public class SAPCreditNoteLine
 
     [JsonPropertyName("U_Reasons")]
     public string? CreditReason { get; set; }
+
+
+    /// <summary>
+    /// SAP's gross profit on the line, in the company's local currency (USD): the line total less the
+    /// stock cost SAP relieved when the goods left. Null when SAP did not send it.
+    /// </summary>
+    [JsonPropertyName("GrossProfit")]
+    public decimal? GrossProfit { get; set; }
 }

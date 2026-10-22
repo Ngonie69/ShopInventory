@@ -129,6 +129,7 @@ public static class ItemVolumeSalesChannels
                     CreditedSalesUsd = group.Sum(item => item.CreditedSalesUsd),
                     CreditedSalesFromZig = group.Sum(item => item.CreditedSalesFromZig),
                     NetRevenueUsd = group.Sum(item => item.NetRevenueUsd),
+                    NetGrossProfitUsd = group.Sum(item => item.NetGrossProfitUsd),
                     NetRevenueFromZig = group.Sum(item => item.NetRevenueFromZig)
                 };
             })
@@ -168,6 +169,7 @@ public static class ItemVolumeSalesChannels
             CreditedSalesUsd = items.Sum(item => item.CreditedSalesUsd),
             CreditedSalesFromZig = items.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = items.Sum(item => item.NetRevenueUsd),
+            NetGrossProfitUsd = items.Sum(item => item.NetGrossProfitUsd),
             NetRevenueFromZig = items.Sum(item => item.NetRevenueFromZig)
         };
 
@@ -188,6 +190,7 @@ public static class ItemVolumeSalesChannels
             NetQuantity = accounts.Sum(account => account.NetQuantity),
             NetVolume = accounts.Sum(account => account.NetVolume),
             NetRevenueUsd = accounts.Sum(account => account.NetRevenueUsd),
+            NetGrossProfitUsd = accounts.Sum(account => account.NetGrossProfitUsd),
             NetRevenueFromZig = accounts.Sum(account => account.NetRevenueFromZig),
 
             Accounts = accounts

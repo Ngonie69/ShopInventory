@@ -34,4 +34,7 @@ public sealed class ItemVolumeSalesDocumentLineResult
     // inside the USD figure beside them, and never to be added to it.
     public decimal AmountUsd { get; set; }
     public decimal AmountFromZig { get; set; }
+
+    /// <summary>SAP's booked gross profit on the line in USD; negative on a credit note, as its amount is.</summary>
+    public decimal GrossProfitUsd { get; set; }
 }

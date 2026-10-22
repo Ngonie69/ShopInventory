@@ -19,6 +19,18 @@ public class SalesSummaryReportDto
     public int UniqueCustomers { get; set; }
     public List<DailySalesDto> DailySales { get; set; } = new();
     public List<SalesByCurrencyDto> SalesByCurrency { get; set; } = new();
+
+    /// <summary>
+    /// SAP's booked gross profit on the period's invoices: each line's value before VAT less the stock
+    /// cost SAP relieved when it left. In USD, the company currency, across every document currency.
+    /// </summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The invoices' line value before VAT in USD, which <see cref="GrossProfitUSD"/> is measured on.</summary>
+    public decimal? RevenueBeforeVatUSD { get; set; }
+
+    /// <summary><see cref="GrossProfitUSD"/> over <see cref="RevenueBeforeVatUSD"/>, to one place.</summary>
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 /// <summary>
@@ -30,6 +42,11 @@ public class DailySalesDto
     public int InvoiceCount { get; set; }
     public decimal TotalSalesUSD { get; set; }
     public decimal TotalSalesZIG { get; set; }
+
+    /// <summary>SAP's booked gross profit on the day's invoices, in USD; null on a day SAP returned none.</summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 /// <summary>
@@ -70,6 +87,12 @@ public class TopProductDto
     public decimal TotalRevenueUSD { get; set; }
     public decimal TotalRevenueZIG { get; set; }
     public int TimesOrdered { get; set; }
+
+    /// <summary>SAP's booked gross profit on the item's invoice lines, in USD, across every currency it sold in.</summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The profit over the lines' value before VAT, both in USD.</summary>
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 /// <summary>
@@ -279,6 +302,12 @@ public class TopCustomerDto
     public decimal TotalPaymentsZIG { get; set; }
     public decimal OutstandingBalanceUSD { get; set; }
     public decimal OutstandingBalanceZIG { get; set; }
+
+    /// <summary>SAP's booked gross profit on the customer's invoices, in USD; null when SAP returned none.</summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The profit over the invoice lines' value before VAT, both in USD.</summary>
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 #endregion
@@ -595,6 +624,18 @@ public class ProfitOverviewReportDto
     public int TotalPayments { get; set; }
     public int UniqueCustomers { get; set; }
     public List<MonthlyProfitDto> MonthlyBreakdown { get; set; } = new();
+
+    /// <summary>
+    /// The invoices' line value before VAT less the credit notes', in USD: what
+    /// <see cref="GrossProfitUSD"/> and <see cref="GrossMarginPercent"/> are measured on.
+    /// </summary>
+    public decimal NetSalesBeforeVatUSD { get; set; }
+
+    /// <summary>
+    /// What the goods sold cost, as SAP booked it when they left: <see cref="NetSalesBeforeVatUSD"/> less
+    /// <see cref="GrossProfitUSD"/>. Not the purchase orders raised, which are <see cref="TotalPurchaseCostUSD"/>.
+    /// </summary>
+    public decimal CostOfSalesUSD { get; set; }
 }
 
 public class MonthlyProfitDto
@@ -608,6 +649,12 @@ public class MonthlyProfitDto
     public decimal GrossProfitUSD { get; set; }
     public int InvoiceCount { get; set; }
     public int PaymentCount { get; set; }
+
+    /// <summary>The month's invoice line value before VAT less its credit notes', in USD.</summary>
+    public decimal NetSalesBeforeVatUSD { get; set; }
+
+    /// <summary><see cref="GrossProfitUSD"/> over <see cref="NetSalesBeforeVatUSD"/>; null on a month with no sales.</summary>
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 #endregion

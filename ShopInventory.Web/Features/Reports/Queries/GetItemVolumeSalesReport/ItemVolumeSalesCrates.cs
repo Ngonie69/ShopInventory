@@ -130,6 +130,7 @@ public static class ItemVolumeSalesCrates
             CreditedSalesUsd = summary.CreditedSalesUsd - dropped.Sum(item => item.CreditedSalesUsd),
             CreditedSalesFromZig = summary.CreditedSalesFromZig - dropped.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = summary.NetRevenueUsd - dropped.Sum(item => item.NetRevenueUsd),
+            NetGrossProfitUsd = summary.NetGrossProfitUsd - dropped.Sum(item => item.NetGrossProfitUsd),
             NetRevenueFromZig = summary.NetRevenueFromZig - dropped.Sum(item => item.NetRevenueFromZig)
         };
 
@@ -161,6 +162,7 @@ public static class ItemVolumeSalesCrates
             CreditedSalesUsd = account.CreditedSalesUsd - dropped.Sum(item => item.CreditedSalesUsd),
             CreditedSalesFromZig = account.CreditedSalesFromZig - dropped.Sum(item => item.CreditedSalesFromZig),
             NetRevenueUsd = account.NetRevenueUsd - dropped.Sum(item => item.NetRevenueUsd),
+            NetGrossProfitUsd = account.NetGrossProfitUsd - dropped.Sum(item => item.NetGrossProfitUsd),
             NetRevenueFromZig = account.NetRevenueFromZig - dropped.Sum(item => item.NetRevenueFromZig),
 
             Items = kept
@@ -186,6 +188,7 @@ public static class ItemVolumeSalesCrates
             NetQuantity = period.NetQuantity - dropped.Sum(item => item.NetQuantity),
             NetVolume = period.NetVolume - dropped.Sum(item => item.NetVolume),
             NetRevenueUsd = period.NetRevenueUsd - dropped.Sum(item => item.NetRevenueUsd),
+            NetGrossProfitUsd = period.NetGrossProfitUsd - dropped.Sum(item => item.NetGrossProfitUsd),
             NetRevenueFromZig = period.NetRevenueFromZig - dropped.Sum(item => item.NetRevenueFromZig),
 
             Accounts = period.Accounts.Select(StripAccount).ToList()

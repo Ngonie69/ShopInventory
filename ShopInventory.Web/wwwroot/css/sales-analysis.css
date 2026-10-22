@@ -1945,6 +1945,11 @@
     color: var(--sla-mute-3);
 }
 
+/* With gross profit the stats are four, like the performance view's. */
+.sla-stats.has-gp {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .sla-stats.slp-stats {
     grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -1955,6 +1960,11 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 14px;
+}
+
+/* Six cards with gross profit: revenue, profit and margin above; volume, rate and credits below. */
+.slp-cards.has-gp {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .slp-card {
@@ -2248,6 +2258,10 @@
         padding: 20px 20px 48px;
     }
 
+    .slp-cards.has-gp {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
     .sla-head {
         flex-direction: column;
         gap: 14px;
@@ -2259,6 +2273,7 @@
 
     /* The three figures stack rather than shrink: at a third of a phone the
        headline wraps mid-number, which is worse than any amount of scrolling. */
+    .sla-stats.has-gp,
     .sla-stats {
         grid-template-columns: minmax(0, 1fr);
         gap: 18px;
