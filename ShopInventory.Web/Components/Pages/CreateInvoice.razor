@@ -668,11 +668,15 @@
     private CancellationTokenSource? businessPartnerPricingCts;
     private int businessPartnerPricingRequestVersion;
 
-    private bool IsCacheReady => CacheService.IsCacheReady;
+    // The top-bar pill reports what this page holds, not CacheService.IsCacheReady: that flag is
+    // only set by PreloadCacheAsync, which nothing calls, so it read "Offline" with the data loaded.
+    private bool IsMasterDataSyncing => isRefreshingCache || isLoadingBPs || isLoadingMasterData;
 
-    private string CacheStateClass => IsCacheReady ? "is-ready" : (isRefreshingCache ? "is-syncing" : "");
+    private bool HasMasterData => allBusinessPartners.Count > 0 && cachedProducts.Count > 0;
 
-    private string CacheStateLabel => IsCacheReady ? "Data ready" : (isRefreshingCache ? "Syncing" : "Offline");
+    private string CacheStateClass => IsMasterDataSyncing ? "is-syncing" : (HasMasterData ? "is-ready" : "");
+
+    private string CacheStateLabel => IsMasterDataSyncing ? "Syncing" : (HasMasterData ? "Data ready" : "No data");
 
     private string CacheSummary =>
         (lastCacheRefresh.HasValue ? $"Synced {lastCacheRefresh.Value:HH:mm} · " : string.Empty)
