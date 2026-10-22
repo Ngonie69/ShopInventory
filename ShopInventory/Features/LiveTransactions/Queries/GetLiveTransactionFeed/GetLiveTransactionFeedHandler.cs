@@ -240,8 +240,12 @@ public sealed class GetLiveTransactionFeedHandler(
     {
         { ErrorCode: FiscalisationApiClient.ApiKeyNotConfiguredErrorCode } =>
             "No Fiscalisation API key is configured.",
+        // The platform cannot add a scope to a key it has issued (its API Keys page only creates and
+        // revokes), so the only way forward is a replacement key.
         { StatusCode: HttpStatusCode.Forbidden } =>
-            "The Fiscalisation API key does not have the 'activity.read' scope. Grant it on the platform's API Keys page.",
+            "The Fiscalisation API key does not have the 'activity.read' scope, and the platform cannot add one to an existing key. "
+            + "Issue a new key on the platform's API Keys page with device.read, receipt.submit, sap.fiscalise and activity.read "
+            + "and no device allowlist, install it under Settings → Fiscalisation, then revoke the old key.",
         { StatusCode: HttpStatusCode.Unauthorized } =>
             "The Fiscalisation platform rejected the API key.",
         { StatusCode: HttpStatusCode.NotFound } or { HasProblemDocument: false } =>

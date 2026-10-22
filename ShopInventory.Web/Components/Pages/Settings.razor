@@ -1235,8 +1235,9 @@
                                     <div class="stg-row-label"><span>New API Key</span></div>
                                     <span class="stg-row-desc">
                                         Issued from the console's API Keys page. It needs the <strong>receipt.submit</strong>,
-                                        <strong>sap.fiscalise</strong> and <strong>device.read</strong> scopes, and no device
-                                        allowlist — a device-scoped key pins every call to one device and breaks failover.
+                                        <strong>sap.fiscalise</strong>, <strong>device.read</strong> and <strong>activity.read</strong>
+                                        scopes, and no device allowlist — a device-scoped key pins every call to one device and
+                                        breaks failover. Without activity.read, Live transactions shows no fiscal activity.
                                     </span>
                                 </div>
                                 <div class="stg-row-control">

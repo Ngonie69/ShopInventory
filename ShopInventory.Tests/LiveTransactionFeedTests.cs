@@ -153,6 +153,10 @@ public sealed class LiveTransactionFeedTests : IDisposable
 
         Assert.False(feed.FiscalFeedAvailable);
         Assert.Contains("activity.read", feed.FiscalFeedMessage);
+        // The platform cannot add a scope to an issued key, so the advice must be to replace it.
+        Assert.Contains("Issue a new key", feed.FiscalFeedMessage);
+        Assert.Contains("Settings → Fiscalisation", feed.FiscalFeedMessage);
+        Assert.DoesNotContain("Grant it", feed.FiscalFeedMessage);
         Assert.Equal(["POS-1"], feed.Events.Select(e => e.Reference));
     }
 
